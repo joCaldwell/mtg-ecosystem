@@ -233,7 +233,7 @@ const SCREENS = [
         await page.getByRole("button", { name: /^Draw(?:\s|$)/ }).waitFor();
       } },
       { state: "card-selected", caption: "Select an actual hand card for inspection", act: async ({ page, vp }) => {
-        const card = page.getByRole("region", { name: "Hand", exact: true }).getByRole("group").first();
+        const card = page.getByRole("region", { name: "Hand", exact: true }).locator("[data-object-id]").first();
         await press(page, card, vp);
       } },
       { state: "library", caption: "Open the ordered library viewer", act: async ({ page, vp }) => {

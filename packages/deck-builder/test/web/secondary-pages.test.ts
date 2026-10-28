@@ -188,3 +188,17 @@ test("inbox presents selected changes before a closed aggregate projection with 
   assert.doesNotMatch(single, /<details/);
   assert.match(single, /1 pending proposal is/);
 });
+
+test("an empty inbox has a single content-frame state and preserves recovery from a resolved deep link", async t => {
+  const { server, store } = await harness(t);
+  store.inbox = { proposals: [], document_edits: [], unreviewed: 0 } as any;
+  const { InboxPage } = await server.ssrLoadModule("/src/features/inbox/InboxPage.tsx");
+  const empty = renderToStaticMarkup(createElement(InboxPage));
+  assert.match(empty, /<h1[^>]*>Inbox<\/h1>/);
+  assert.match(empty, /<h2[^>]*>Nothing is waiting on you<\/h2>/);
+  assert.doesNotMatch(empty, /class="[^"]*_split_/);
+  assert.match(empty, /Show proposal history/);
+  const stale = renderToStaticMarkup(createElement(InboxPage, { entryKey: "proposal-999999" }));
+  assert.match(stale, /<h2[^>]*>This item is no longer waiting<\/h2>/);
+  assert.match(stale, /href="\/inbox">Back to inbox/);
+});

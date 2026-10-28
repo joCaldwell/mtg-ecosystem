@@ -547,3 +547,10 @@ and layout used for analysis are stripped before the card wire is returned.
 TextCard exposes `data-text-card` on known and anonymous roots for host sizing.
 TableZone, CardInspection and playtest host rules target this hook, never its
 HTML tag. The interactive known-card group remains a valid div with nested tools.
+
+Empty Inbox uses one content-frame state instead of retaining an unused list
+pane. Resolved deep links retain an explicit return to Inbox, and proposal history
+stays available. Activity exposes pagination only when an earlier or later page
+exists. TableZone's hand variant observes actual overflow and exposes native
+Previous/Next controls only when needed. They scroll along the overflowing axis
+to card boundaries; they never dispatch a playtest action or alter selection.

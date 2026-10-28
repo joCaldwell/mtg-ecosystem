@@ -54,7 +54,7 @@ export const FLOWS = [
       await t.step("Keep the opening hand");
       const read = async () => (await t.api(`/api/decks/${id}/playtest`, t.users.owner)).playtest;
       const kept = await read();
-      const handCard = page.getByRole("region", { name: "Hand", exact: true }).getByRole("group").first();
+      const handCard = page.getByRole("region", { name: "Hand", exact: true }).locator("[data-object-id]").first();
       await handCard.focus(); await t.key(handCard, "Enter"); await t.settle();
       const selected = await handCard.getAttribute("data-selected") === "true";
       await t.key(handCard, "Shift+F10"); await page.getByRole("menu").waitFor();

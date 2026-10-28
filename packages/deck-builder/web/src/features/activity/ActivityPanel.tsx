@@ -119,7 +119,7 @@ export function ActivityPanel() {
           </div>
         </>
       )}
-      <nav aria-label="Activity pages"><Button disabled={cursors.length === 0} onClick={() => setCursors(cursors.slice(0, -1))}>Previous 100</Button> <Text>Page {cursors.length + 1}</Text> <Button disabled={!feed.data?.has_more} onClick={() => setCursors([...cursors, entries[entries.length - 1].id])}>Next 100</Button></nav>
+      {(cursors.length > 0 || feed.data?.has_more) && <nav aria-label="Activity pages"><Button disabled={cursors.length === 0} onClick={() => setCursors(cursors.slice(0, -1))}>Previous 100</Button> <Text>Page {cursors.length + 1}</Text> <Button disabled={!feed.data?.has_more} onClick={() => setCursors([...cursors, entries[entries.length - 1].id])}>Next 100</Button></nav>}
     </>
   );
 }

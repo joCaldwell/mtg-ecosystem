@@ -82,8 +82,11 @@ export function InboxPage({ entryKey }: { entryKey?: string }) {
 
   return (
     <div className={styles.page} data-detail={detailOpen || undefined}>
-      <Page scroll={false} header={header}>
+      <Page scroll={entries.length === 0} header={header}>
         {history && <div className={styles.history}><ProposalHistory /></div>}
+        {entries.length === 0 ? <EmptyState heading="h2" title={detailOpen ? "This item is no longer waiting" : "Nothing is waiting on you"}>
+          {detailOpen ? <a href={href({ page: "inbox" })}>Back to inbox</a> : "No proposals or edits need a decision."}
+        </EmptyState> :
         <SplitPane
           className={styles.panes}
           list={entries.length === 0 && tablet ? <EmptyState title="Nothing is waiting on you">There are no proposed changes to review.</EmptyState> : entries.map((entry) => (
@@ -108,7 +111,7 @@ export function InboxPage({ entryKey }: { entryKey?: string }) {
               </div>
             )
           }
-        />
+        />}
       </Page>
     </div>
   );

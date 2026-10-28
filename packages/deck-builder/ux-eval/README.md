@@ -267,3 +267,10 @@ QA script that changes its setup data.
 
 With `--wide`, capture coverage also includes wide public readers, collection
 statistics, expanded pending forecasts and empty Inbox/Memories/Activity states.
+
+`node check-hand-empty.mjs --origin http://127.0.0.1:8853`
+exercises opening and kept-hand scrolling with native Enter/Space, verifies all
+seven cards can be reached and the saved table frame stays unchanged, then checks
+selection/menu access and empty Inbox/Activity/history recovery at four desktop
+widths. Hand-card capture selectors use their object identity, since the hand can
+also contain a labelled group of scrolling controls.
