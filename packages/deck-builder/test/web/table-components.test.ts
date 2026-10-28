@@ -49,6 +49,7 @@ test("table components render actual wire facts, readable state and anonymous hi
   // The interactive group contains tools: group is valid on div, not article.
   // https://www.w3.org/TR/html-aria/#el-article
   assert.match(visible, /^<div[^>]*role="group"/);
+  assert.ok(visible.includes('data-text-card=""'), "hosts have a tag-independent card styling hook");
   assert.doesNotMatch(visible, /<article[^>]*role="group"/);
   assert.ok(visible.includes('data-selected="true"'));
   assert.ok(visible.includes('data-tapped="true"'));
@@ -70,6 +71,7 @@ test("table components render actual wire facts, readable state and anonymous hi
     createElement(TextCard, { observation: { visibility: "hidden" } }),
   );
   assert.ok(hidden.includes("Anonymous card"));
+  assert.ok(hidden.includes('data-text-card=""'));
   assert.ok(!hidden.includes(card.name));
   assert.ok(!hidden.includes(card.oracle_id));
   const row = renderToStaticMarkup(

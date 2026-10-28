@@ -39,6 +39,7 @@ export function TextCard({
   if (observation.visibility === "hidden")
     return (
       <article
+        data-text-card=""
         className={`${styles.card} ${styles.hidden}`}
         aria-label={observation.label ?? "Hidden card"}
       >
@@ -90,6 +91,7 @@ export function TextCard({
   };
   return (
     <div
+      data-text-card=""
       className={`${styles.card} ${full ? styles.full : styles.compact} ${targeted ? styles.targeted : ""}`}
       data-selected={selected}
       data-tapped={object?.tapped ?? false}

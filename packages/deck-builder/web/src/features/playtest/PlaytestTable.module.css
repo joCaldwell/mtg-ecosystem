@@ -205,7 +205,7 @@
 .rail > section > div {
   flex-direction: column;
 }
-.rail article {
+.rail [data-text-card] {
   flex: none;
 }
 .battlefield {
@@ -269,13 +269,13 @@
   box-shadow: var(--shadow-pop);
   z-index: var(--z-pop);
 }
-.preview > article {
+.preview > [data-text-card] {
   width: 100%;
   padding: var(--s-6);
   background: var(--overlay);
   cursor: default;
 }
-.preview > article > header strong {
+.preview > [data-text-card] > header strong {
   font-size: var(--text-xl);
 }
 .drawField {
@@ -375,7 +375,7 @@
   .battlefield > section:first-child {
     margin-top: 0;
   }
-  .battlefield article {
+  .battlefield [data-text-card] {
     flex: 1 1 calc(50% - var(--s-2));
     width: auto;
     min-width: 0;

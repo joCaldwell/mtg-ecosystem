@@ -533,3 +533,7 @@ never infers production. The analysis uses stored face/cost/Oracle/type facts,
 separates first and other faces, fixed/flexible/special costs and land/nonland
 source copies, and reports partial or unresolved patterns. Internal face JSON
 and layout used for analysis are stripped before the card wire is returned.
+
+TextCard exposes `data-text-card` on known and anonymous roots for host sizing.
+TableZone, CardInspection and playtest host rules target this hook, never its
+HTML tag. The interactive known-card group remains a valid div with nested tools.

@@ -3,7 +3,7 @@
   gap: var(--s-5);
   min-width: 0;
 }
-.inspection > article {
+.inspection > [data-text-card] {
   width: 100%;
   cursor: default;
 }
