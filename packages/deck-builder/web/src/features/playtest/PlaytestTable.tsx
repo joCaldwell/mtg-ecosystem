@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type {
   DeckState,
   PlaytestAction,
@@ -29,6 +29,7 @@ import {
   tokenPx,
   useHotkeys,
   useLocalStorage,
+  useToast,
   type ContextMenuTarget,
   type ContextMenuProps,
 } from "../../ui/index.ts";
@@ -40,6 +41,8 @@ import { NewGameDialog } from "./NewGameDialog.tsx";
 import { RandomNumberDialog, type Roll } from "./RandomNumberDialog.tsx";
 import type { PlaytestController } from "./usePlaytest.ts";
 import styles from "./PlaytestTable.module.css";
+/** How long a drawn card keeps its arrival mark. */
+const DRAWN_MARK_MS = 3000;
 export function PlaytestTable({
   controller: c,
   deck,
@@ -74,9 +77,78 @@ export function PlaytestTable({
     }),
     [],
   );
+  const { toast, dismiss } = useToast();
+  const table = useRef<HTMLDivElement>(null);
+  const latest = useRef(v);
+  latest.current = v;
+  // The frame a draw produced while its toast still offers Undo.
+  const drawToast = useRef<string | null>(null);
+  const [drawn, setDrawn] = useState<string[]>([]);
   const act = (action: PlaytestAction) => {
-    if (!c.pending) void c.act(action);
+    if (!c.pending) void perform(action);
   };
+  async function perform(action: PlaytestAction) {
+    const before = latest.current.session.frame;
+    if (action.type === "undo") drawToast.current = null;
+    const next = await c.act(action);
+    if (!next) return;
+    const after = next.session.frame;
+    if (action.type === "draw") {
+      const ids = after.zones.hand.filter((id) => !before.zones.hand.includes(id));
+      if (!ids.length) return;
+      setDrawn(ids);
+      const only = after.objects[ids[0]];
+      drawToast.current = JSON.stringify(after);
+      toast(ids.length === 1
+        ? `Drew ${faceOf(next.session.cards[only.oracle_id], only.face).name}.`
+        : `Drew ${ids.length} cards.`, {
+        action: { label: "Undo", kbd: "Z", onAction: () => {
+          // Only while the table is still exactly what the draw left.
+          if (drawToast.current === JSON.stringify(latest.current.session.frame)) act({ type: "undo" });
+        } },
+      });
+    } else if (action.type === "undo") {
+      const returned = before.zones.hand.filter((id) => !after.zones.hand.includes(id));
+      const draw = returned.length > 0 &&
+        returned.every((id) => after.zones.library.includes(id)) &&
+        after.zones.library.length - before.zones.library.length === returned.length &&
+        after.zones.hand.length === before.zones.hand.length - returned.length;
+      toast(draw ? "Undid draw." : "Undone.");
+    }
+  }
+  // Any other change to the table retires the draw's Undo offer.
+  const frameKey = JSON.stringify(f);
+  useEffect(() => {
+    if (drawToast.current && drawToast.current !== frameKey) {
+      drawToast.current = null;
+      dismiss();
+    }
+  }, [frameKey, dismiss]);
+  // Bring a drawn card into view inside the hand's own scroller, without
+  // moving focus, and mark it briefly as having just arrived.
+  useEffect(() => {
+    const root = table.current;
+    if (!root || !drawn.length) return;
+    const nodes = drawn
+      .map((id) => root.querySelector<HTMLElement>(`[data-table-cards] > [data-object-id="${CSS.escape(id)}"]`))
+      .filter((node): node is HTMLElement => !!node);
+    const last = nodes.at(-1), scroller = last?.closest<HTMLElement>("[data-table-cards]");
+    if (last && scroller) {
+      const box = scroller.getBoundingClientRect(), card = last.getBoundingClientRect();
+      let left = scroller.scrollLeft, top = scroller.scrollTop;
+      if (card.right > box.right) left += Math.min(card.right - box.right, card.left - box.left);
+      else if (card.left < box.left) left -= box.left - card.left;
+      if (card.top < box.top || card.top > box.bottom - card.height / 2) top += card.top - box.top;
+      const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      scroller.scrollTo({ left, top, behavior: still ? "auto" : "smooth" });
+    }
+    for (const node of nodes) node.setAttribute("data-drawn", "");
+    const timer = setTimeout(() => setDrawn([]), DRAWN_MARK_MS);
+    return () => {
+      clearTimeout(timer);
+      for (const node of nodes) node.removeAttribute("data-drawn");
+    };
+  }, [drawn]);
   const selected = c.ui.selected.filter((id) => !!f.objects[id]);
   const pinned = c.ui.pinned && f.objects[c.ui.pinned] ? c.ui.pinned : null;
   const preview = hover && f.objects[hover] ? hover : null;
@@ -113,9 +185,14 @@ export function PlaytestTable({
         contextItems.push({ id: "tap", label: tapped ? "Untap" : "Tap", disabled: busy,
           onSelect: () => act({ type: "tap", ids: contextIds, tapped: !tapped }) });
       }
-      for (const zone of ["hand", "battlefield", "graveyard", "exile", "command", "companion", "stack"] as Zone[]) {
+      // Moving cards to the zone they are all already in does nothing, so
+      // the menu leads with the first real destination instead.
+      const zones = new Set(contextIds.map((id) => objectZone(v, id)));
+      const destinations = (["hand", "battlefield", "graveyard", "exile", "command", "companion", "stack"] as Zone[])
+        .filter((zone) => zones.size !== 1 || !zones.has(zone));
+      for (const zone of destinations) {
         contextItems.push({ id: zone, label: `Move to ${ZONE_LABELS[zone].toLowerCase()}`, disabled: busy,
-          separator: zone === "hand", onSelect: () => move(contextIds, zone) });
+          separator: zone === destinations[0], onSelect: () => move(contextIds, zone) });
       }
       contextItems.push(
         { id: "library-top", label: "Move to library top", disabled: busy, onSelect: () => move(contextIds, "library", undefined, 0) },
@@ -426,7 +503,7 @@ export function PlaytestTable({
             : ({ "--inspection-w": `${width}px` } as CSSProperties)
         }
       >
-        <div className={`${styles.table} ${!playing ? styles.choosing : ""} ${playing && f.zones.battlefield.length === 0 && !c.ui.viewer ? styles.emptyBattlefield : ""}`}>
+        <div ref={table} className={`${styles.table} ${!playing ? styles.choosing : ""} ${c.ui.viewer ? styles.viewing : ""} ${playing && f.zones.battlefield.length === 0 && !c.ui.viewer ? styles.emptyBattlefield : ""}`}>
           <nav className={styles.zones} aria-label="Table zones">
             {zoneButtons.map((zone) => (
               <button

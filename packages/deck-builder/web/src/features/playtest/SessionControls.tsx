@@ -29,9 +29,9 @@ export function SessionControls({
               onClick={() => onAction({ type: "next-turn" })}>Next turn</Button>
           </div>
           <div className={styles.group}>
-            <Button variant="ghost" kbd="U" disabled={busy}
+            <Button kbd="U" disabled={busy}
               onClick={() => onAction({ type: "untap-all" })}>Untap all</Button>
-            <Button variant="ghost" kbd="S" disabled={busy}
+            <Button kbd="S" disabled={busy}
               onClick={() => onAction({ type: "shuffle" })}>Shuffle</Button>
           </div>
         </>

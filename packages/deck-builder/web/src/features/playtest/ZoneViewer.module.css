@@ -83,3 +83,11 @@
   color: var(--faint);
   font-size: var(--text-xs);
 }
+/* Reordering is a frequent, precise action: give each arrow a full target. */
+.item .reorder {
+  justify-content: center;
+  min-width: var(--tap-control-size);
+  height: var(--tap-control-size);
+  padding: 0;
+  font-size: var(--text-md);
+}

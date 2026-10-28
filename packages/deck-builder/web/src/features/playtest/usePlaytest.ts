@@ -220,13 +220,14 @@ export function usePlaytest(deckId: number) {
         }
       }
     });
-  const act = (action: PlaytestAction) =>
-    enqueue(async () => {
+  /** Resolves to the table the action produced, or null if it failed. */
+  const act = async (action: PlaytestAction) => {
+    let applied: PlaytestView | null = null;
+    const ok = await enqueue(async () => {
       const s = current.current?.session;
       if (!s) return;
-      apply(
-        (await api.playtestAction(deckId, s.id, s.version, action)).playtest,
-      );
+      applied = (await api.playtestAction(deckId, s.id, s.version, action)).playtest;
+      apply(applied);
       const next = {
         ...uiRef.current,
         selected: uiRef.current.selected.filter(
@@ -240,6 +241,8 @@ export function usePlaytest(deckId: number) {
       };
       setLocal(next);
     });
+    return ok ? (applied as PlaytestView | null) : null;
+  };
   const saveObservation = async () => {
     const s = current.current?.session;
     if (!s) return false;
