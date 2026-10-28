@@ -20,7 +20,7 @@ export interface DecisionControlsProps {
    *  sent with either decision: Accept passes it to onAccept and Reject
    *  decides at once through onReject. The reject key (`rejecting`) still opens
    *  the focused reason field, starting from this text. */
-  reason?: { value: string; onChange: (value: string) => void; label: string; placeholder: string };
+  reason?: { value: string; onChange: (value: string) => void; label: string };
 }
 
 /**
@@ -45,10 +45,10 @@ export function DecisionControls({
   }
   const buttons = (
     <div className={styles.controls}>
-      <Button variant="accept" size="sm" kbd={showKeys ? "A" : undefined} disabled={busy} onClick={() => onAccept(reason?.value)}>
+      <Button variant="accept" size="md" kbd={showKeys ? "A" : undefined} disabled={busy} onClick={() => onAccept(reason?.value)}>
         {acceptLabel}
       </Button>
-      <Button variant="reject" size="sm" kbd={showKeys ? "R" : undefined} disabled={busy} onClick={reason ? () => onReject(reason.value) : onStartReject}>
+      <Button variant="reject" size="md" kbd={showKeys ? "R" : undefined} disabled={busy} onClick={reason ? () => onReject(reason.value) : onStartReject}>
         {rejectLabel}
       </Button>
     </div>
@@ -58,7 +58,6 @@ export function DecisionControls({
     <div className={styles.withReason}>
       <Field label="Reason (optional)"><TextField
         aria-label={reason.label}
-        placeholder={reason.placeholder}
         value={reason.value}
         maxLength={500}
         disabled={busy}
@@ -93,7 +92,6 @@ function ReasonField({
         aria-label="Reason for rejecting, optional"
         // A sheet opened for the reason focuses it (ui/Dialog).
         data-autofocus
-        placeholder="Why? Optional. The agent reads this next session."
         value={reason}
         disabled={busy}
         onChange={(e) => setReason(e.target.value)}
@@ -112,10 +110,10 @@ function ReasonField({
         }}
       /></Field>
       <div className={styles.controls}>
-      <Button variant="reject" size="sm" kbd="↵" disabled={busy} onClick={() => onReject(reason)}>
+      <Button variant="reject" size="md" kbd="↵" disabled={busy} onClick={() => onReject(reason)}>
         {label}
       </Button>
-      <Button variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
+      <Button variant="ghost" size="md" disabled={busy} onClick={onCancel}>
         Cancel
       </Button>
       </div>

@@ -2,7 +2,7 @@ import { useVoice } from "../../app/Preferences.tsx";
 import type { ReactNode } from "react";
 import { api, type PlayerStats } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
-import { CardRef, ColorIdentity, ManaSymbol } from "../../mtg/index.ts";
+import { CardRef, ColorIdentity, ManaSymbol, COLOR_NAMES } from "../../mtg/index.ts";
 import { Box, Chip, EmptyState, ErrorNote, KeyValue, Meter, Section, Text } from "../../ui/index.ts";
 import styles from "./PlayerStatsPanel.module.css";
 
@@ -25,12 +25,12 @@ const num = (n: number | null, digits = 1) => (n == null ? "–" : n.toFixed(dig
 
 function Colors({ stats }: { stats: PlayerStats }) {
   return (
-    <Block title="Colours">
+    <Block title="Colours in deck identities">
       <div className={styles.bars}>
         {WUBRG.map((c) => (
           <div key={c} className={styles.bar}>
-            <ManaSymbol symbol={c} />
-            <Meter value={stats.colors[c] ?? 0} max={stats.deck_count} aria-label={`Decks including ${c}`} />
+            <span className={styles.colour}><ManaSymbol symbol={c} /><span>{COLOR_NAMES[c]}</span></span>
+            <Meter value={stats.colors[c] ?? 0} max={stats.deck_count} aria-label={`Paper decks including ${COLOR_NAMES[c]}`} />
             <Text mono tone="soft" size="sm">
               {stats.colors[c] ?? 0}
             </Text>
@@ -80,12 +80,13 @@ export function PlayerStatsPanel() {
         <Colors stats={stats} />
 
         {stats.identities.length > 0 && (
-          <Block title="Most common identities">
+          <Block title="Common colour identities">
             <div className={styles.identities}>
               {stats.identities.map((i) => (
                 <div key={i.identity} className={styles.row}>
                   <span className={styles.pips}>
                     <ColorIdentity colors={i.identity === "C" ? "" : i.identity} />
+                    <span className={styles.identityCode}>{i.identity === "C" ? "Colourless" : [...i.identity].join("/")}</span>
                   </span>
                   <Text mono tone="soft" size="sm">
                     {i.decks} {i.decks === 1 ? "deck" : "decks"}

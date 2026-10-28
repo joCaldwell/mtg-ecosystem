@@ -1,5 +1,6 @@
 export type { CardInfo } from "./CardInfo.ts";
 export { DeckArt } from "./DeckArt.tsx";
+export { COLOR_NAMES } from "./manaSymbols.ts";
 export { ManaSymbol } from "./ManaSymbol.tsx";
 export { ManaCost } from "./ManaCost.tsx";
 export { Price } from "./Price.tsx";

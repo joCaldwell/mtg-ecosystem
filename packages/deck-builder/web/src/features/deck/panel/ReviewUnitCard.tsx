@@ -2,7 +2,6 @@
 // card with one pair of buttons, however many cards it names.
 
 import { useEffect, useRef, useState } from "react";
-import { useVoice } from "../../../app/Preferences.tsx";
 import type { ReviewUnit } from "../../../domain/review.ts";
 import { cx } from "../../../ui/internal.ts";
 import { DecisionControls } from "../../decisions/index.ts";
@@ -21,7 +20,6 @@ const KIND: Record<ReviewUnit["kind"], string> = {
 
 export function ReviewUnitCard({ unit, index, review }: { unit: ReviewUnit; index: number; review: Review }) {
   const ui = useDeckUi();
-  const voice = useVoice();
   const here = ui.reviewing && ui.cursor === index;
   // The phone's optional reason (§11.2), sent with Accept or Reject.
   const [reason, setReason] = useState("");
@@ -70,7 +68,6 @@ export function ReviewUnitCard({ unit, index, review }: { unit: ReviewUnit; inde
             value: reason,
             onChange: setReason,
             label: `Reason for decision ${index + 1}, optional`,
-            placeholder: voice("Reason, optional. Kept with your decision.", "Why? Optional. The agent reads this next session."),
           }}
         />
       </div>

@@ -36,15 +36,20 @@ export function ProposalSummary({ proposal }: { proposal: Proposal }) {
       {proposal.stale && <Text tone="warn">The deck changed since r{proposal.base_revision ?? "unknown"}. Review current r{proposal.current_revision} before approval.</Text>}
       {deck.error && <ErrorNote>{deck.error}</ErrorNote>}
       {!state && !deck.error && <Loading />}
-      {state && <DeckProjection state={state} />}
 
-      <Section title="What it changes">
+      <Section title="Changes in this proposal">
         <Stack gap={3}>
           {units.map((unit) => (
             <ChangeUnit key={unit.key} unit={unit} state={state} />
           ))}
         </Stack>
       </Section>
+      {state && state.proposals.length > 0 && (state.proposals.length > 1
+        ? <details className={styles.projection}>
+            <summary>Deck impact if all {state.proposals.length} pending proposals are accepted</summary>
+            <DeckProjection state={state} heading={false} />
+          </details>
+        : <DeckProjection state={state} />)}
       {state && <ProposalDecision proposal={proposal} state={state} onDecided={deck.reload} />}
       <div className={styles.action}>
         <a className={styles.review} href={href({ page: "deck", deckId: proposal.deck_id, review: true, proposal: proposal.id })}>

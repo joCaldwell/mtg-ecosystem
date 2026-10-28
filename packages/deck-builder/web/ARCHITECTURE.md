@@ -477,6 +477,16 @@ push the composer down by adding rows of scope pills.
 
 Secondary-page UX (2026-10-27): inbox ProposalDecision calls the existing ruleProposal capability with the revision read at the click and captures stale confirmation before submitting. It applies the returned inbox without client merging. PhoneInbox preserves the proposal parameter; PhoneDecisions keeps selected units first and discloses bulk decisions. The shared mtg/DeckCard is the roster presentation used by All decks and public profiles; publicProfile supplies only public commanders’ credited art facts alongside their names.
 
+Inbox shows the selected proposal's changes before the deck-wide forecast. With
+multiple pending proposals, that server-computed aggregate is a closed native
+disclosure labelled with its full scope; it is never presented as a selected-only
+estimate. Native summaries own Enter instead of invoking the Inbox review shortcut.
+Maybe import provenance uses exact strings from interop: one visible count per
+origin and each card's original note as an accessible description. Custom notes
+keep their independent controls, and this presentation changes neither sort order
+nor stored notes. Collection identity statistics label colours and identity codes
+visibly while retaining the existing actor-scoped calculations.
+
 Review refinement (2026-10-27): CardPanel reserves a readable field width beside
 shrinkable art. AddBar retains search results after maybe-list adds, while its
 Undo uses removeCard; ordinary membership Undo still uses its log entry.

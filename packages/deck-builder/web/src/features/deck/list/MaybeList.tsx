@@ -3,6 +3,7 @@
 // of the count.
 
 import type { DeckCard } from "../../../api/client.ts";
+import { maybeNotes } from "../../../domain/maybeNotes.ts";
 import { InlineText } from "../../../mtg/index.ts";
 import { Text } from "../../../ui/index.ts";
 import { MaybeRow } from "./MaybeRow.tsx";
@@ -13,10 +14,7 @@ export function MaybeList({ cards, matchingCards }: {
   matchingCards?: ReadonlySet<string>;
 }) {
   if (cards.length === 0) return null;
-  // A shared import-origin note belongs to the list. Distinct card notes
-  // remain beside their card, and nothing stored is shortened or rewritten.
-  const sharedNote = cards.length > 1 && cards[0].maybe_note && cards.every(c => c.maybe_note === cards[0].maybe_note)
-    ? cards[0].maybe_note : null;
+  const { origins, shared: sharedNote } = maybeNotes(cards);
   return (
     <section className={styles.maybe} aria-label="Maybe list">
       <div className={styles.head}>
@@ -25,9 +23,10 @@ export function MaybeList({ cards, matchingCards }: {
           {cards.length} {cards.length === 1 ? "card" : "cards"} · outside the 100
         </Text>
       </div>
+      {origins.length > 0 && <p className={styles.sharedNote}>{origins.map(origin => `${origin.count} from ${origin.label}`).join(" · ")}</p>}
       {sharedNote && <p className={styles.sharedNote}><InlineText text={sharedNote} /></p>}
       <div className={styles.rows}>{cards.map((c) => (
-        <MaybeRow key={c.oracle_id} card={c} filterMatch={matchingCards?.has(c.oracle_id)} sharedNote={sharedNote != null} />
+        <MaybeRow key={c.oracle_id} card={c} filterMatch={matchingCards?.has(c.oracle_id)} sharedNote={sharedNote != null} importNote={origins.some(origin => origin.note === c.maybe_note)} />
       ))}</div>
     </section>
   );

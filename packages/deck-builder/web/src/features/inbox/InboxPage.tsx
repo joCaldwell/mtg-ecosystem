@@ -46,8 +46,8 @@ export function InboxPage({ entryKey }: { entryKey?: string }) {
     k: () => step(-1),
     enter: (e) => {
       if (!selected) return;
-      // Enter on a button or link already does what that control says.
-      const target = e.target instanceof HTMLElement ? e.target.closest("button, a") : null;
+      // Native controls own Enter, including disclosure summaries.
+      const target = e.target instanceof HTMLElement ? e.target.closest("button, a, summary") : null;
       if (target) return;
       if (tablet && !detailOpen) {
         e.preventDefault();

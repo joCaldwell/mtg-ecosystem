@@ -256,3 +256,14 @@ clear, compact-rail destinations and keyboard navigation at all four desktop wid
 compares adaptive hand widths/row counts, commander rail height, inspector and
 hover-preview width to an established build at all four desktop widths. It
 checks keyboard selection/menu access, candidate axe and unchanged deck data.
+
+`node check-review-clarity.mjs --origin http://127.0.0.1:8854`
+checks selected proposal scope, native disclosure activation without leaving
+Inbox, persistent reasons and a real selected-only decision. It compares
+collection colour labels/counts to server statistics, checks slot help spacing,
+and exercises mixed import provenance plus custom-note controls without changing
+stored assignments or order. Use a separate disposable fixture server for each
+QA script that changes its setup data.
+
+With `--wide`, capture coverage also includes wide public readers, collection
+statistics, expanded pending forecasts and empty Inbox/Memories/Activity states.

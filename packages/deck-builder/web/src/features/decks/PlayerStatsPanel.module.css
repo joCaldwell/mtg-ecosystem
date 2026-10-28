@@ -31,7 +31,7 @@
 
 .bar {
   display: grid;
-  grid-template-columns: auto 1fr 3ch;
+  grid-template-columns: 9ch minmax(0, 1fr) 3ch;
   gap: var(--s-4);
   align-items: center;
 }
@@ -97,3 +97,8 @@
   display: inline-flex;
   min-width: calc(var(--s-8) * 2 + var(--s-4));
 }
+
+.colour { display: inline-flex; align-items: center; gap: var(--s-3); font-size: var(--text-sm); }
+.colour > :last-child { text-transform: capitalize; }
+.identityCode { font: var(--text-sm) var(--font-mono); color: var(--text-soft); white-space: nowrap; }
+.pips { align-items: center; gap: var(--s-3); }

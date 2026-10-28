@@ -48,7 +48,7 @@ export function ProposalDecision({ proposal, state, onDecided }: { proposal: Pro
 
   return <Stack gap={4} data-proposal-decision>
     <DecisionControls rejecting={false} busy={busy || confirm !== null}
-      reason={{ value: reason, onChange: setReason, label: "Reason for this proposal, optional", placeholder: "Reason, optional" }}
+      reason={{ value: reason, onChange: setReason, label: "Reason for this proposal, optional" }}
       onAccept={text => decide("accept", text)} onReject={text => decide("reject", text)}
       onStartReject={() => {}} onCancelReject={() => {}} />
     {error && <ErrorNote>{error}</ErrorNote>}

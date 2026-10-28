@@ -53,3 +53,7 @@
 }
 
 @media (pointer: coarse) and (max-width: 1099px) { :global([data-proposal-decision]) :is(input, button) { min-height: var(--tap); } }
+
+.projection { min-width: 0; }
+.projection > summary { cursor: pointer; color: var(--muted); font-size: var(--text-sm); padding-block: var(--s-3); }
+.projection[open] > summary { margin-bottom: var(--s-4); }

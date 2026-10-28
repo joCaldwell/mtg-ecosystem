@@ -1,10 +1,11 @@
-import type { KeyboardEvent } from "react";
+import { useId, type KeyboardEvent } from "react";
 import type { DeckCard } from "../../../api/client.ts";
 import { InlineText, ManaCost, Price, useCardHover, useCardInspect } from "../../../mtg/index.ts";
 import { useDeckUi } from "../DeckUi.tsx";
 import styles from "./MaybeRow.module.css";
 
-export function MaybeRow({ card, filterMatch, sharedNote = false }: { card: DeckCard; filterMatch?: boolean; sharedNote?: boolean }) {
+export function MaybeRow({ card, filterMatch, sharedNote = false, importNote = false }: { card: DeckCard; filterMatch?: boolean; sharedNote?: boolean; importNote?: boolean }) {
+  const noteId = useId();
   const ui = useDeckUi();
   const hover = useCardHover();
   const inspect = useCardInspect();
@@ -33,6 +34,7 @@ export function MaybeRow({ card, filterMatch, sharedNote = false }: { card: Deck
         type="button"
         className={styles.hit}
         aria-label={card.name}
+        aria-describedby={importNote ? noteId : undefined}
         aria-current={open || undefined}
         onClick={onClick}
         onKeyDown={onKeyDown}
@@ -40,10 +42,11 @@ export function MaybeRow({ card, filterMatch, sharedNote = false }: { card: Deck
       />
       <span className={styles.name}>{card.name}</span>
       <span className={styles.note}>
-        {!sharedNote && card.maybe_note && <InlineText text={card.maybe_note} />}
+        {!sharedNote && !importNote && card.maybe_note && <InlineText text={card.maybe_note} />}
       </span>
       <span className={styles.mana}><ManaCost cost={card.mana_cost} /></span>
       <span className={styles.price}><Price currency={card.currency} cents={card.cents} column /></span>
+      {importNote && <span id={noteId} className="visually-hidden">{card.maybe_note}</span>}
     </div>
   );
 }

@@ -84,7 +84,7 @@ const U = SEED_INFO.users;
 const WIDE = process.argv.includes("--wide") ? [1920, 2560] : [];
 const ALL = [375, 768, 1280, 1440, ...WIDE];
 const APP = [768, 1280, 1440, ...WIDE];
-const PUBLIC = [375, 768, 1280];
+const PUBLIC = [375, 768, 1280, ...WIDE];
 
 const cardRow = (page, name) => page.getByRole("button", { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`) }).first();
 
@@ -243,6 +243,12 @@ const SCREENS = [
     ],
   },
   { screen: "inbox", user: U.owner, path: "/inbox", widths: ALL, states: [{ state: "default", caption: "Inbox with proposals and a brief edit" }] },
+  { screen: "inbox", user: U.owner, path: "/inbox", widths: APP, states: [{ state: "aggregate", caption: "A proposal with the deck-wide pending forecast visible", act: async ({ page, vp }) => {
+    const summary = page.locator("summary").filter({ hasText: /^Deck impact if all / });
+    if (await summary.count()) await press(page, summary, vp);
+  } }] },
+  { screen: "collection-stats", user: U.owner, path: "/", widths: APP, states: [{ state: "default", caption: "Collection statistics for Paper decks", act: async ({ page, vp }) => scrollUntilVisible(page, page.getByText("Across your paper decks", { exact: true }), vp, { top: true }) }] },
+  ...["inbox", "memories", "activity"].map(screen => ({ screen: `${screen}-empty`, user: U.empty, path: `/${screen}`, widths: APP, states: [{ state: "default", caption: `${screen[0].toUpperCase() + screen.slice(1)} in a new account` }] })),
   { screen: "memories", user: U.owner, path: "/memories", widths: ALL, states: [{ state: "default", caption: "Memories" }] },
   { screen: "activity", user: U.owner, path: "/activity", widths: ALL, states: [{ state: "default", caption: "Activity feed of agent writes" }] },
   { screen: "settings", user: U.owner, path: "/settings", widths: ALL, states: [{ state: "default", caption: "Settings" }] },

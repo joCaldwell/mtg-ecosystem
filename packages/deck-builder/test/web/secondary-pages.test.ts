@@ -8,7 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { deckState, item, proposal } from "./fixtures.ts";
 
-async function harness(t: { after: (fn: () => unknown) => void }) {
+async function harness(t: { after: (fn: () => unknown) => void }, deckQuery = false) {
   const calls: unknown[][] = [];
   const store = {
     waiting: 0, inbox: null,
@@ -26,6 +26,7 @@ async function harness(t: { after: (fn: () => unknown) => void }) {
   const server = await createServer({
     server: { middlewareMode: true, hmr: false }, appType: "custom", logLevel: "silent",
     plugins: [{ name: "secondary-page-boundaries", enforce: "pre", load(id) {
+      if (deckQuery && id.endsWith("/src/api/useQuery.ts")) return `export function useQuery() { return { data: { state: globalThis.__secondaryPagesTest.state }, loading: false, error: null, reload() {} }; }`;
       if (id.endsWith("/src/ui/Toast.tsx")) return `export function ToastProvider({children}) { return children; } export function useToast() { return { toast() {} }; }`;
       if (id.endsWith("/src/features/inbox/InboxEntry.tsx")) return `export function InboxEntry(props) { globalThis.__secondaryPagesTest.entries.push(props); return null; }`;
       if (id.endsWith("/src/app/Inbox.tsx")) return `export function useInbox() { return globalThis.__secondaryPagesTest; }`;
@@ -166,4 +167,24 @@ test("phone, tablet, expanded and collapsed desktop navigation hide empty badges
   }
   const css = readFileSync(new URL("../../web/src/ui/Badge.module.css", import.meta.url), "utf8");
   assert.match(css, /\.agent\s*\{\s*background: var\(--agent\);\s*color: var\(--bg\);/);
+});
+
+
+test("inbox presents selected changes before a closed aggregate projection with server-provided totals", async t => {
+  const { server, store } = await harness(t, true);
+  const { ProposalSummary } = await server.ssrLoadModule("/src/features/inbox/ProposalSummary.tsx");
+  const selected = proposal([item()], { id: 22, summary: "Selected changes" });
+  const other = proposal([item()], { id: 11, summary: "Other changes" });
+  store.state = deckState({ proposals: [other, selected] });
+  store.state.computed.pending.projected_count = 103;
+  const html = renderToStaticMarkup(createElement(ProposalSummary, { proposal: selected }));
+  assert(html.indexOf("Changes in this proposal") < html.indexOf("<details"));
+  assert.match(html, /<details[^>]*><summary>Deck impact if all 2 pending proposals are accepted<\/summary>/);
+  assert.doesNotMatch(html, /<details[^>]*\bopen/);
+  assert(html.indexOf("103") > html.indexOf("<details"), "all-proposal totals belong to the labelled aggregate only");
+  assert.equal(store.controls.reason.label, "Reason for this proposal, optional");
+  store.state = deckState({ proposals: [selected] });
+  const single = renderToStaticMarkup(createElement(ProposalSummary, { proposal: selected }));
+  assert.doesNotMatch(single, /<details/);
+  assert.match(single, /1 pending proposal is/);
 });

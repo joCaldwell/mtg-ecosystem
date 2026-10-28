@@ -41,6 +41,7 @@ test("a decision with a reason shows the labelled field above Accept and Reject"
   const html = renderToStaticMarkup(createElement(DecisionControls, controls("Too slow for this table").props));
   const field = html.indexOf('aria-label="Reason for decision 1, optional"');
   assert.ok(field >= 0, "the reason field is there");
+  assert.doesNotMatch(html, /placeholder=/, "the persistent label supplies the prompt");
   assert.ok(html.includes('value="Too slow for this table"'));
   assert.ok(field < html.indexOf(">Accept<") && field < html.indexOf(">Reject<"), "the field comes before both buttons");
 });

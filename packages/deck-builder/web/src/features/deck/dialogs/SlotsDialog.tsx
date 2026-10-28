@@ -14,11 +14,11 @@ export function SlotsDialog({ onClose }: { onClose: () => void }) {
       onClose={onClose}
       footer={<Button onClick={onClose}>Close</Button>}
     >
-      <Explainer title="Slots and tags" label="How slot targets work">
-        <p>Slots describe purpose; tags track sourcing and status. Both are optional. Only primary slots count toward targets; secondary purposes are counted separately.</p>
-        <p>Leave a target blank for no limit. Use the same Min and Max for an exact target.</p>
-      </Explainer>
       <Stack gap={7}>
+        <Explainer title="Slots and tags" label="How slot targets work">
+          <p>Slots describe purpose; tags track sourcing and status. Both are optional. Only primary slots count toward targets; secondary purposes are counted separately.</p>
+          <p>Leave a target blank for no limit. Use the same Min and Max for an exact target.</p>
+        </Explainer>
         <Section title="Slots">
           <SlotsTable />
         </Section>
