@@ -31,7 +31,10 @@ try{
    let backMoves=0;while(await previous.isEnabled()&&backMoves<15){await previous.focus();await previous.press('Space');await settle(page,watch);backMoves++;}assert.equal(await previous.isDisabled(),true);
   }
   assert.deepEqual(await api('/api/decks/2/playtest'),kept);await shoot(page,join(out,`playing-${width}.png`),{full:false});
-  await cards.last().focus();await cards.last().press('Enter');await settle(page,watch);assert.equal(await cards.last().getAttribute('data-selected'),'true');await cards.last().press('Shift+F10');await page.getByRole('menu').waitFor();await page.keyboard.press('Escape');await settle(page,watch);assert.equal((await axe(page)).length,0);assert.equal(watch.errors.length,0);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await cards.last().focus();await cards.last().press('Enter');await settle(page,watch);assert.equal(await cards.last().getAttribute('data-selected'),'true');
+  const identity=await cards.last().locator('header').boundingBox(),viewport=await scroller.boundingBox();assert(identity&&viewport);
+  assert(identity.y>=viewport.y-1&&identity.y+identity.height<=viewport.y+viewport.height+1,'selected card name, mana and type remain visible after native focus scroll');
+  await shoot(page,join(out,`selected-identity-${width}.png`),{full:false});await cards.last().press('Shift+F10');await page.getByRole('menu').waitFor();await page.keyboard.press('Escape');await settle(page,watch);assert.equal((await axe(page)).length,0);assert.equal(watch.errors.length,0);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   results.push({width,geometry,forward_clicks:forward,playing_moves:playingMoves,all_seven_cards_visible:true,scroll_is_presentation_only:true,native_enter_space:true,selection_and_menu_preserved:true,axe:0,overflow:false});await context.close();
   const empty=await newContext(browser,{origin,vp:VIEWPORTS[width],user:2,frozenNow:'2026-10-20T17:00:00Z',notes:{blocked:new Set(),imageFailures:new Set()}}),p=await empty.newPage(),w=watchPage(p);
   await p.goto(origin+'/inbox');await settle(p,w);await p.getByRole('heading',{name:'Nothing is waiting on you',level:2}).waitFor();assert.equal(await p.locator('[class*="_split_"]').count(),0);

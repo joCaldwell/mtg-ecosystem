@@ -274,3 +274,6 @@ seven cards can be reached and the saved table frame stays unchanged, then check
 selection/menu access and empty Inbox/Activity/history recovery at four desktop
 widths. Hand-card capture selectors use their object identity, since the hand can
 also contain a labelled group of scrolling controls.
+The hand QA additionally checks that a selected card's name, mana cost and type
+stay within the hand viewport after native focus scrolling. Review-clarity QA
+checks the actual stored agent reasons are visible next to selected changes.

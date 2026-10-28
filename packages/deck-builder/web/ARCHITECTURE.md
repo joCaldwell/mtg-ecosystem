@@ -554,3 +554,11 @@ stays available. Activity exposes pagination only when an earlier or later page
 exists. TableZone's hand variant observes actual overflow and exposes native
 Previous/Next controls only when needed. They scroll along the overflowing axis
 to card boundaries; they never dispatch a playtest action or alter selection.
+
+Inbox ChangeUnit renders the proposal items' stored reasons at the decision point,
+using InlineText as deck Review does. A shared reason is shown once within its
+swap/group; distinct reasons remain next to their corresponding items. Historical
+Activity badges describe write type (proposal/applied), not current approval status:
+the activity wire has no current proposal disposition. TextCard groups name, cost
+and type in its existing semantic header; the hand keeps that identity sticky when
+rules text overflows, including native focus/selection scrolling.

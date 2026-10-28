@@ -25,6 +25,10 @@ try {
   const entry=page.locator(`a[href*="proposal-${selected.id}"]`).first();
   if(await entry.count()) {await entry.click();await settle(page,watch);}
   const changes=page.getByText('Changes in this proposal',{exact:true}); await changes.waitFor();
+  for(const reason of new Set(selected.items.map(item=>item.reason).filter(Boolean))){
+   const plain=reason.replace(/\[\[|\]\]/g,'');
+   const actual=page.getByText(plain,{exact:true});await actual.waitFor();assert.equal(await actual.count(),1,'the selected proposal preserves actual agent reason context');
+  }
   const summary=page.locator('summary').filter({hasText:`Deck impact if all ${before.proposals.length} pending proposals are accepted`});await summary.waitFor();
   const aggregate=summary.locator('..'); assert.equal(await aggregate.getAttribute('open'),null);
   assert(await changes.evaluate((el,text)=>!!(el.compareDocumentPosition([...document.querySelectorAll('summary')].find(s=>s.textContent===text))&Node.DOCUMENT_POSITION_FOLLOWING),await summary.textContent()));

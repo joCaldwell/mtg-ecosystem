@@ -202,3 +202,15 @@ test("an empty inbox has a single content-frame state and preserves recovery fro
   assert.match(stale, /<h2[^>]*>This item is no longer waiting<\/h2>/);
   assert.match(stale, /href="\/inbox">Back to inbox/);
 });
+
+test("Inbox changes retain distinct agent reasons and show a shared swap reason once", async t => {
+  const { server } = await harness(t);
+  const { ChangeUnit } = await server.ssrLoadModule('/src/features/inbox/ChangeUnit.tsx');
+  const { reviewUnits } = await server.ssrLoadModule('/src/domain/review.ts');
+  const reason = 'Keep the early curve.';
+  const render = (reasons: string[]) => renderToStaticMarkup(createElement(ChangeUnit, { state: deckState(), unit: reviewUnits([proposal(reasons.map((reason, index) => item({ action: index === 0 ? 'add' : 'cut', group_id: 'swap', reason })))])[0] }));
+  assert.equal(render([reason, reason]).split(reason).length - 1, 1);
+  const distinct = render([reason, 'Leave room for interaction.']);
+  assert.match(distinct, /Keep the early curve\./);
+  assert.match(distinct, /Leave room for interaction\./);
+});

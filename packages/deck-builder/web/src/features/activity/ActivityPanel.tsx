@@ -31,12 +31,12 @@ function verbOf(action: string): string {
 }
 
 /**
- * Whether the write is still waiting on the owner. A change proposal always
- * is. A brief or profile edit is only a proposal on an active deck; on a
+ * The type of the historical write, not its current decision status. A brief
+ * or profile edit is only a proposal on an active deck; on a
  * draft, or for the owner's own profile, the server applies it and says so in
  * the summary — "Proposed …" is the only signal it leaves.
  */
-function waitingOnYou(e: ActivityEntry): boolean {
+function wasProposal(e: ActivityEntry): boolean {
   if (e.action === "propose_changes") return true;
   if (e.action === "propose_brief_edit" || e.action === "propose_profile_edit") return e.summary.startsWith("Proposed");
   return false;
@@ -110,7 +110,7 @@ export function ActivityPanel() {
                       <span className={styles.summary}>
                         <InlineText text={e.summary} />
                       </span>
-                      {waitingOnYou(e) ? <Chip tone="agent">waiting on you</Chip> : <Chip>applied</Chip>}
+                      {wasProposal(e) ? <Chip tone="agent">proposal</Chip> : <Chip>applied</Chip>}
                     </div>
                   ))}
                 </div>

@@ -175,8 +175,8 @@ export function TextCard({
       <header className={styles.head}>
         <strong>{face.name}</strong>
         <ManaCost cost={face.mana_cost ?? null} />
+        <div className={styles.type}>{face.type_line}</div>
       </header>
-      <div className={styles.type}>{face.type_line}</div>
       {full && (
         <div className={styles.rules}>
           <OracleText text={face.oracle_text ?? ""} bare />

@@ -55,10 +55,10 @@
   right: var(--s-2);
 }
 .head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--s-4);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--s-3) var(--s-4);
 }
 .head strong {
   font-size: var(--text-lg);
@@ -66,11 +66,12 @@
   line-height: var(--leading);
   overflow-wrap: anywhere;
 }
-.head > :last-child {
+.head > :not(strong):not(.type) {
   flex: none;
   margin-top: var(--s-1);
 }
 .type {
+  grid-column: 1 / -1;
   font-size: var(--text-sm);
   color: var(--muted);
   line-height: var(--leading);

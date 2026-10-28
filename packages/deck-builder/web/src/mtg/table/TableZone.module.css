@@ -63,3 +63,6 @@
   min-width: var(--hand-card-min-w);
   max-width: var(--hand-card-max-w);
 }
+/* Native focus may scroll a tall hand card down to its lower rules text.
+   Keep its actual name, cost and type visible while that text is scrolled. */
+.hand .cards > [data-text-card] > header { position: sticky; top: 0; z-index: 1; background: inherit; }
