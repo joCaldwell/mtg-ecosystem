@@ -4,7 +4,6 @@
 
 import type { DeckCard } from "../../../api/client.ts";
 import { maybeNotes } from "../../../domain/maybeNotes.ts";
-import { InlineText } from "../../../mtg/index.ts";
 import { Text } from "../../../ui/index.ts";
 import { MaybeRow } from "./MaybeRow.tsx";
 import styles from "./MaybeList.module.css";
@@ -14,7 +13,7 @@ export function MaybeList({ cards, matchingCards }: {
   matchingCards?: ReadonlySet<string>;
 }) {
   if (cards.length === 0) return null;
-  const { origins, shared: sharedNote } = maybeNotes(cards);
+  const { origins } = maybeNotes(cards);
   return (
     <section className={styles.maybe} aria-label="Maybe list">
       <div className={styles.head}>
@@ -24,9 +23,8 @@ export function MaybeList({ cards, matchingCards }: {
         </Text>
       </div>
       {origins.length > 0 && <p className={styles.sharedNote}>{origins.map(origin => `${origin.count} from ${origin.label}`).join(" · ")}</p>}
-      {sharedNote && <p className={styles.sharedNote}><InlineText text={sharedNote} /></p>}
       <div className={styles.rows}>{cards.map((c) => (
-        <MaybeRow key={c.oracle_id} card={c} filterMatch={matchingCards?.has(c.oracle_id)} sharedNote={sharedNote != null} importNote={origins.some(origin => origin.note === c.maybe_note)} />
+        <MaybeRow key={c.oracle_id} card={c} filterMatch={matchingCards?.has(c.oracle_id)} importNote={origins.some(origin => origin.note === c.maybe_note)} />
       ))}</div>
     </section>
   );

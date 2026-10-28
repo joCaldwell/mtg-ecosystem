@@ -32,7 +32,8 @@
 }
 
 .name {
-  flex: none;
+  flex: 1;
+  min-width: 0;
   width: 190px;
   overflow: hidden;
   text-align: left;
@@ -40,20 +41,11 @@
   white-space: nowrap;
 }
 
-.note {
-  flex: 1;
-  min-width: 0;
-  color: var(--muted);
-  font-size: var(--text-sm);
-}
-
 .row > :last-child {
   align-self: center;
 }
 
-/* Phones: no fixed note column. Name, mana and price share one line, the name
-   taking the room and wrapping; a note, when there is one, goes below at full
-   width (DESIGN.md, narrow screens). */
+/* Narrow screens keep names readable beside mana and price. */
 @media (max-width: 719px) {
   .row {
     flex-wrap: wrap;
@@ -69,14 +61,6 @@
     overflow-wrap: anywhere;
     white-space: normal;
   }
-  .note {
-    order: 1;
-    flex-basis: 100%;
-    padding-bottom: var(--s-3);
-  }
-  .note:empty {
-    display: none;
-  }
 }
 
 /* Search preserves every row and its interaction. Nonmatches stay AA-readable. */
@@ -88,22 +72,17 @@
 .row.match { box-shadow: inset 0 0 0 1px var(--sel); }
 .row.match .name { color: var(--text); }
 
-/* Full-row pointer and focus target; note links remain independent siblings. */
+/* Full-row pointer and focus target. Full notes and their links live in details. */
 .hit { position: absolute; inset: 0; width: 100%; border-radius: inherit; }
 .hit:focus-visible { outline-offset: -2px; }
-.note { pointer-events: none; }
-.note :is(button, a) { position: relative; pointer-events: auto; }
 @media (max-width: 1099px) { .row { min-height: var(--tap); } }
 
 .mana, .price { display: contents; }
 
-/* Wide lists keep each name beside its own numbers. The same full-row hit
-   target and independent note controls cover this compact presentation. */
+/* Wide lists keep each name beside its own numbers. */
 @media not all and (max-width: 1099px) {
   .row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; column-gap: var(--s-3); row-gap: 0; min-width: 0; align-items: center; }
   .name { grid-column: 1; grid-row: 1; width: auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
-  .note { grid-column: 1 / -1; grid-row: 2; }
-  .note:empty { display: none; }
   .mana { display: inline-flex; grid-column: 2; grid-row: 1; }
   .price { display: inline-flex; grid-column: 3; grid-row: 1; }
 }

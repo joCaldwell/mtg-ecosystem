@@ -84,7 +84,7 @@ const U = SEED_INFO.users;
 const WIDE = process.argv.includes("--wide") ? [1920, 2560] : [];
 const ALL = [375, 768, 1280, 1440, ...WIDE];
 const APP = [768, 1280, 1440, ...WIDE];
-const PUBLIC = [375, 768, 1280, ...WIDE];
+const PUBLIC = [375, 768, 1280, 1440, ...WIDE];
 
 const cardRow = (page, name) => page.getByRole("button", { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`) }).first();
 
@@ -166,6 +166,17 @@ const SCREENS = [
       },
     ],
   },
+  ...[false, true].map(costless => ({
+    screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: [1280, 1440, ...WIDE],
+    states: [{ state: costless ? "maybe-note-costless" : "maybe-note", caption: costless ? "A costless shortlisted card and its saved note" : "A shortlisted card and its saved note", act: async ({ page, vp }) => {
+      const maybe = (await api(`/api/decks/${D.najeela}`, U.owner)).state.cards.filter(card => card.maybe && card.maybe_note && (costless ? !card.mana_cost : !!card.mana_cost));
+      const card = maybe.find(card => card.maybe_note.includes("\n\n")) ?? maybe[0];
+      if (!card) throw Error("Maybe-note capture requires a matching noted card in the fixture");
+      const row = page.getByRole("region", { name: "Maybe list", exact: true }).locator(`[data-oracle-id="${card.oracle_id}"]`).getByRole("button", { name: card.name, exact: true }).first();
+      await press(page, row, vp);
+      await page.getByRole("heading", { name: card.name, exact: true }).waitFor();
+    } }],
+  })),
   {
     screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: APP, states: [
       {

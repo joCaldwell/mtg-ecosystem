@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Badge, Button } from "../../ui/index.ts";
 import styles from "./TableZone.module.css";
 export function TableZone({
@@ -22,6 +22,18 @@ export function TableZone({
 }) {
   const cards = useRef<HTMLDivElement>(null);
   const cardsId = useId();
+  const dragDepth = useRef(0);
+  const [dropActive, setDropActive] = useState(false);
+  const accepts = (transfer: DataTransfer) => !!onDrop && Array.from(transfer.types).includes("application/x-mtg-object");
+  const resetDrag = () => { dragDepth.current = 0; setDropActive(false); };
+  useEffect(() => {
+    // A child card owns insertion/reordering drops and stops propagation.
+    // Capture drop and listen for dragend so cancellation also clears the lane.
+    const reset = () => { dragDepth.current = 0; setDropActive(false); };
+    window.addEventListener("drop", reset, true);
+    window.addEventListener("dragend", reset);
+    return () => { window.removeEventListener("drop", reset, true); window.removeEventListener("dragend", reset); };
+  }, []);
   const [overflow, setOverflow] = useState({ axis: null as "x" | "y" | null, before: false, after: false });
   useLayoutEffect(() => {
     const el = cards.current;
@@ -71,19 +83,26 @@ export function TableZone({
     <section
       className={`${styles.zone} ${variant === "hand" ? styles.hand : ""}`}
       aria-label={label}
+      data-drop-active={dropActive || undefined}
+      onDragEnter={(e) => {
+        if (accepts(e.dataTransfer)) { dragDepth.current++; setDropActive(true); }
+      }}
+      onDragLeave={() => {
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (dragDepth.current === 0) setDropActive(false);
+      }}
       onDragOver={(e) => {
-        if (
-          onDrop &&
-          Array.from(e.dataTransfer.types).includes("application/x-mtg-object")
-        ) {
+        if (accepts(e.dataTransfer)) {
           e.preventDefault();
           e.dataTransfer.dropEffect = "move";
         }
       }}
       onDrop={(e) => {
+        resetDrag();
         const id = e.dataTransfer.getData("application/x-mtg-object");
         if (id && onDrop) {
           e.preventDefault();
+          e.stopPropagation();
           onDrop(id);
         }
       }}

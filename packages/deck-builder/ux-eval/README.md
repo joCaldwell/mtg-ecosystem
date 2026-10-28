@@ -130,6 +130,15 @@ option and a held response to verify stale scope text cannot be copied.
 `check-search-scope.mjs` checks delayed query and colour-scope changes at all
 four desktop widths, with only current options exposed to pointer and keyboard.
 
+`seed-long-notes.ts` creates a separate capability-authored fixture with 20
+maybe cards: 15 multi-paragraph linked notes, three blank notes, import origins
+and costless cards. `check-long-maybe.mjs` compares row geometry at all four
+desktop widths and actual 340/392/640 px panels, reads the full notes in details,
+and checks links, Back, unsaved drafts, focus, order and exact stored data.
+`check-full-lanes.mjs` drives native mouse drags across all three battlefield
+lanes, including empty/populated centers and edges, child transitions,
+cancellation, outside drops, exactly-once movement, undo and resume.
+
 Flows find controls by role and accessible name and take a shorter path when
 one appears (an Import entry on All decks, a reason field for accepting), so
 they keep working while the UI changes. Each flow ends by reading the result

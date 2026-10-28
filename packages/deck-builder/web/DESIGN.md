@@ -231,6 +231,11 @@ independently; fonts never shrink as a table grows. Selection has a blue border,
 tapping has an explicit state/action and a dashed edge, and temporary inspection
 never changes the pinned selection or an unfinished observation's target.
 
+Each battlefield lane owns its full visible bounded box as a drop target,
+including its blank upper area and gutters. The first lane grows to fill spare
+table space while its cards stay bottom-aligned. Drag highlighting follows that
+same box, remains stable over child cards, and clears on drop or cancellation.
+
 A hidden `CardObservation` has no card identity. Future game hosts must supply
 only permitted observations. Deck memory and tag tools belong to the playtest
 feature, never the shared card or zone presentation.
@@ -415,9 +420,10 @@ review opens the selected proposal first, then shows the next pending proposal
 directly when it is resolved. Review all decisions keeps its placement below.
 
 Readability refinement: generic buttons and text fields keep a 44 px minimum
-through tablet widths, including portalled import and slot dialogs. A note
-shared by every maybe card appears once beneath the list heading; distinct
-notes stay on their rows. Card rows are atomic inline flex boxes so long groups
+through tablet widths, including portalled import and slot dialogs. Maybe note
+prose stays in card details, where full paragraphs and linked cards are readable
+without entering edit mode. The list keeps compact import-origin counts.
+Card rows are atomic inline flex boxes so long groups
 can cross native columns without painting one card over another.
 
 Owner layout direction (2026-10-27): secondary pages use a centered, fluid
@@ -463,8 +469,9 @@ when choosing a method or creating a token. Explicit disclosure choices survive
 settings refreshes. Tokens and connected apps remain directly visible.
 
 Maybe rows omit slot and purpose labels. Their native button covers the entire
-row, including blank space, mana and price; references in a note remain separate
-controls. Enter and Space open details and ? inspects. Main-list modifier
+row, including blank space, mana and price. Full note prose and its linked-card
+controls belong to details so long notes cannot enlarge grid tracks.
+Enter and Space open details and ? inspects. Main-list modifier
 selection is unchanged; maybe cards do not join bulk operations that assume
 deck membership. Slot assignments remain stored.
 

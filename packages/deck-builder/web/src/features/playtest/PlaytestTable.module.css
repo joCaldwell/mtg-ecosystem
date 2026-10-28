@@ -223,15 +223,17 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding: 0 var(--s-6);
+  padding: 0;
   overflow: auto;
 }
 .battlefield > section {
   flex-shrink: 0;
+  padding-inline: var(--s-6);
 }
-/* Auto space anchors the rows at the player's edge without hiding overflow above. */
+/* The first lane owns its blank upper space. Its cards stay bottom-aligned,
+   while the full visible box, including horizontal gutters, accepts drops. */
 .battlefield > section:first-child {
-  margin-top: auto;
+  flex-grow: 1;
 }
 .battlefield > section:last-child {
   border-bottom: none;
@@ -341,12 +343,12 @@
   .rail {
     padding-inline: var(--s-5);
   }
-  .battlefield,
   .zones,
   .header,
   .opening {
     padding-inline: var(--s-5);
   }
+  .battlefield > section { padding-inline: var(--s-5); }
 }
 
 /* Phones: the commander joins a strip above the rows, two cards fit across,

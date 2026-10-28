@@ -41,7 +41,7 @@ try {
         await settle(page, watch);
         await checkOpen();
         await close();
-        const mana = row.locator('[class*="_cost_"]').first();
+        const mana = row.locator('[class*="_mana_"]').first();
         await point(await mana.boundingBox());
         await settle(page, watch);
         await checkOpen();
@@ -71,12 +71,14 @@ try {
         await page.getByRole('dialog').waitFor();
         await page.keyboard.press('Escape');
         await settle(page, watch);
-        const link = row.getByRole('button', { name: other.name, exact: true });
+        await hit.click(); await settle(page, watch);
+        const link = page.getByRole('region', { name: 'Maybe note', exact: true }).getByRole('button', { name: other.name, exact: true });
         await link.click();
         await settle(page, watch);
         await page.getByRole('heading', { name: other.name, exact: true }).waitFor();
         assert.notEqual(await hit.getAttribute('aria-current'), 'true');
         await close();
+        await hit.click(); await settle(page, watch);
         await link.focus();
         await link.press('Enter');
         await settle(page, watch);
@@ -92,12 +94,12 @@ try {
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
         const costlessRow = section.locator('[data-oracle-id="' + costless.oracle_id + '"]');
         await scrollUntilVisible(page, costlessRow, VIEWPORTS[width]);
-        const noteBelowName = await costlessRow.evaluate(node => node.querySelector('[class*="_note_"]').getBoundingClientRect().top >= node.querySelector('[class*="_name_"]').getBoundingClientRect().bottom - 1);
-        assert(noteBelowName, "a missing mana cost never moves its note into the name/mana/price row");
+        assert.equal(await costlessRow.locator('[class*="_note_"]').count(), 0, 'costless cards retain the same compact note-free row');
         await costlessRow.getByRole('button', { name: costless.name, exact: true }).focus();
         await page.keyboard.press('Space'); await settle(page, watch);
         await page.getByRole('heading', { name: costless.name, exact: true }).waitFor(); await close();
-        await costlessRow.getByRole('button', { name: other.name, exact: true }).click(); await settle(page, watch);
+        await costlessRow.getByRole('button', { name: costless.name, exact: true }).click(); await settle(page, watch);
+        await page.getByRole('region', { name: 'Maybe note', exact: true }).getByRole('button', { name: other.name, exact: true }).click(); await settle(page, watch);
         await page.getByRole('heading', { name: other.name, exact: true }).waitFor(); await close();
         await page.goto(origin + '/inbox');
         await settle(page, watch);
@@ -106,7 +108,7 @@ try {
         assert.deepEqual(await reason.evaluate(el => Array.from(el.labels ?? []).map(label => label.textContent)), ['Reason (optional)']);
         assert.equal(await page.getByText('Reason (optional)', { exact: true }).isVisible(), true);
         assert.deepEqual(snap((await api('/api/decks/2')).state), snapshot);
-        results.push({ width, blank_mana_price_clicks: true, enter_space_inspect: true, whole_row_focus_ring: ring, nested_note_pointer_keyboard: true, main_modifier_selection_preserved: true, assignments_and_membership_unchanged: true, no_slot_purpose_text: true, persistent_reason_label_while_typing: true, costless_note_below_name: true, costless_row_and_nested_note_activation: true });
+        results.push({ width, blank_mana_price_clicks: true, enter_space_inspect: true, whole_row_focus_ring: ring, detail_note_link_pointer_keyboard: true, main_modifier_selection_preserved: true, assignments_and_membership_unchanged: true, no_slot_purpose_text: true, persistent_reason_label_while_typing: true, costless_compact_note_free_row: true, costless_row_and_detail_note_activation: true });
         await context.close();
         console.log("Desktop QA width " + width + " passed");
     }

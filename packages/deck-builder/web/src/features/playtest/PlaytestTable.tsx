@@ -419,6 +419,7 @@ export function PlaytestTable({
       )}
       <div
         className={styles.workspace}
+        onDragStartCapture={() => setHover(null)}
         style={
           width == null
             ? undefined

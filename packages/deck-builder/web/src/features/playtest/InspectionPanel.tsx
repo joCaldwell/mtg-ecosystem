@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../api/client.ts";
 import type {
   DeckState,
@@ -78,6 +78,21 @@ export function InspectionPanel({
   }, [target, c.ui.draft.text]);
   const busy = c.pending > 0,
     playing = f.opening.stage === "playing";
+  const selectFocus = useRef<{ control: HTMLSelectElement; objectId: string | null; sessionId: string } | null>(null);
+  useEffect(() => {
+    if (busy) return;
+    const previous = selectFocus.current;
+    selectFocus.current = null;
+    // Native focus falls to body when the save temporarily disables a select.
+    // Restore only this object's control, without stealing subsequent focus.
+    if (previous && previous.objectId === objectId && previous.sessionId === s.id && previous.control.isConnected && !previous.control.disabled && document.activeElement === document.body)
+      previous.control.focus({ preventScroll: true });
+  }, [busy, objectId, s.id]);
+  function changeSelect(control: HTMLSelectElement, action: PlaytestAction, requiresPlaying = false) {
+    if (busy || (requiresPlaying && !playing)) return;
+    if (document.activeElement === control) selectFocus.current = { control, objectId, sessionId: s.id };
+    void c.act(action);
+  }
   const act = (action: PlaytestAction) => {
     if (!busy && playing) void c.act(action);
   };
@@ -149,8 +164,7 @@ export function InspectionPanel({
                   disabled={busy}
                   value={object.face}
                   onChange={(e) => {
-                    if (!busy)
-                      void c.act({
+                    changeSelect(e.currentTarget, {
                         type: "edit",
                         id: object.id,
                         face: Number(e.target.value),
@@ -299,11 +313,11 @@ export function InspectionPanel({
                   value={object.attached_to ?? ""}
                   disabled={busy || !playing}
                   onChange={(e) =>
-                    act({
+                    changeSelect(e.currentTarget, {
                       type: "attach",
                       id: object.id,
                       host: e.target.value || null,
-                    })
+                    }, true)
                   }
                 >
                   <option value="">Not attached</option>

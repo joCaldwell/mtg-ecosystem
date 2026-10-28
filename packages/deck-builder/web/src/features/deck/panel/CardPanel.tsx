@@ -8,7 +8,7 @@ import { useEffect, useState, type Ref } from "react";
 import { ptString } from "../../../domain/cards.ts";
 import { formatPrice } from "../../../domain/price.ts";
 import { pendingOf } from "../../../domain/grouping.ts";
-import { CardImage, InlineText, ManaCost, OracleText, useCardLookup, type CardInfo } from "../../../mtg/index.ts";
+import { CardImage, InlineText, ManaCost, OracleText, RichText, useCardLookup, type CardInfo } from "../../../mtg/index.ts";
 import { Button, Chip, Icon, IconButton, Loading, Text } from "../../../ui/index.ts";
 import { useDeckState } from "../DeckStore.tsx";
 import { useDeckUi, type OpenCard } from "../DeckUi.tsx";
@@ -73,6 +73,13 @@ export function CardPanel({ card: open, backRef, bodyRef }: { card: OpenCard; ba
           {parts.length > 0 && <Text tone="soft" size="sm">{parts.join(" · ")}</Text>}
       </div>
 
+      {!!owned?.maybe && owned.maybe_note && (
+        <section className={styles.maybeNote} aria-label="Maybe note">
+          <Text as="h3" size="sm" tone="muted" weight="medium">Maybe note</Text>
+          <RichText text={owned.maybe_note} />
+        </section>
+      )}
+
       {info ? info.oracle_text && <OracleText text={info.oracle_text} /> : <Loading />}
 
       <div className={styles.facts}>
@@ -94,11 +101,6 @@ export function CardPanel({ card: open, backRef, bodyRef }: { card: OpenCard; ba
                 <Button size="sm" variant="agent" onClick={() => ui.setTab("review")}>Open Review</Button>
               </div>
             )
-          )}
-          {!!owned?.maybe && owned.maybe_note && (
-            <Text tone="muted" size="sm" as="p">
-              Shortlisted because: <InlineText text={owned.maybe_note} />
-            </Text>
           )}
         </div>
       </div>

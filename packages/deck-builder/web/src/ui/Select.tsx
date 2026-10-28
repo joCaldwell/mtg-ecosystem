@@ -16,7 +16,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
         {children}
       </select>
       <span className={styles.chevron}>
-        <Icon name="chevronDown" size={12} />
+        <Icon name="chevronDown" size={16} />
       </span>
     </span>
   );

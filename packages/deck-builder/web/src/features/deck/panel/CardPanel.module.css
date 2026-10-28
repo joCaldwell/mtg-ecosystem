@@ -34,3 +34,4 @@
   display: grid;
   gap: var(--s-2);
 }
+.maybeNote { display: grid; gap: var(--s-3); }

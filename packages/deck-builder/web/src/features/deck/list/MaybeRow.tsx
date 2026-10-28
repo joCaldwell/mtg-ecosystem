@@ -1,10 +1,10 @@
 import { useId, type KeyboardEvent } from "react";
 import type { DeckCard } from "../../../api/client.ts";
-import { InlineText, ManaCost, Price, useCardHover, useCardInspect } from "../../../mtg/index.ts";
+import { ManaCost, Price, useCardHover, useCardInspect } from "../../../mtg/index.ts";
 import { useDeckUi } from "../DeckUi.tsx";
 import styles from "./MaybeRow.module.css";
 
-export function MaybeRow({ card, filterMatch, sharedNote = false, importNote = false }: { card: DeckCard; filterMatch?: boolean; sharedNote?: boolean; importNote?: boolean }) {
+export function MaybeRow({ card, filterMatch, importNote = false }: { card: DeckCard; filterMatch?: boolean; importNote?: boolean }) {
   const noteId = useId();
   const ui = useDeckUi();
   const hover = useCardHover();
@@ -28,8 +28,8 @@ export function MaybeRow({ card, filterMatch, sharedNote = false, importNote = f
       data-oracle-id={card.oracle_id}
       data-filter-match={filterMatch}
     >
-      {/* A native full-row button stays a sibling of note links: no nested
-          controls, and mana/price/blank space all open this card's details. */}
+      {/* Notes stay in details so row height depends only on card identity.
+          Mana, price and blank space all open the same native row button. */}
       <button
         type="button"
         className={styles.hit}
@@ -41,9 +41,6 @@ export function MaybeRow({ card, filterMatch, sharedNote = false, importNote = f
         {...hover(card)}
       />
       <span className={styles.name}>{card.name}</span>
-      <span className={styles.note}>
-        {!sharedNote && !importNote && card.maybe_note && <InlineText text={card.maybe_note} />}
-      </span>
       <span className={styles.mana}><ManaCost cost={card.mana_cost} /></span>
       <span className={styles.price}><Price currency={card.currency} cents={card.cents} column /></span>
       {importNote && <span id={noteId} className="visually-hidden">{card.maybe_note}</span>}

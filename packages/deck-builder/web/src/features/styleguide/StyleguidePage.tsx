@@ -437,6 +437,7 @@ function Forms() {
   const [area, setArea] = useState("This one grows as you type.\nTry adding lines.");
   const [checked, setChecked] = useState(true);
   const [sel, setSel] = useState("b");
+  const [requiredFormat, setRequiredFormat] = useState("");
   const [multi, setMulti] = useState<string[]>([]);
   return (
     <Stack gap={7}>
@@ -460,13 +461,18 @@ function Forms() {
       </Section>
       <Section title="Select and Checkbox">
         <Demo>
-          <Row gap={6}>
+          <Row gap={6} wrap>
             <Select aria-label="Select example" value={sel} onChange={(e) => setSel(e.target.value)}>
               <option value="a">Commander</option>
               <option value="b">Brawl</option>
               <option value="c">Standard</option>
             </Select>
             <Select aria-label="Disabled select example" disabled defaultValue="a"><option value="a">Disabled</option></Select>
+            <Select aria-label="Required format" aria-invalid={!requiredFormat || undefined} required value={requiredFormat} onChange={e => setRequiredFormat(e.target.value)}>
+              <option value="" disabled>Choose a format…</option>
+              <option value="commander">Commander</option>
+              <option value="brawl">Brawl</option>
+            </Select>
             <Checkbox checked={checked} onChange={setChecked} label="Checked" />
             <Checkbox checked={false} onChange={() => undefined} label="Unchecked" />
             <Checkbox checked disabled onChange={() => undefined} label="Disabled" />
