@@ -1,4 +1,4 @@
-import { useVoice } from "../../app/Preferences.tsx";
+import { usePreferences, useVoice } from "../../app/Preferences.tsx";
 import { useEffect, useRef, useState } from "react";
 import { href, navigate, useScrollRestore } from "../../app/routes.ts";
 import { useMediaQuery, PANEL_QUERY } from "../../app/breakpoints.ts";
@@ -18,6 +18,7 @@ import styles from "./InboxPage.module.css";
 export function InboxPage({ entryKey }: { entryKey?: string }) {
   const tablet = useMediaQuery(PANEL_QUERY);
   const voice = useVoice();
+  const { hasAgentActivity, loaded } = usePreferences();
   const { inbox, apply } = useInbox();
   const [history, setHistory] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -65,7 +66,7 @@ export function InboxPage({ entryKey }: { entryKey?: string }) {
       <PageHeader
         title={tablet && detailOpen && selected ? (selected.type === "proposal" ? "Proposal" : "Document edit") : "Inbox"}
         meta={!(tablet && detailOpen) && inbox != null && inbox.unreviewed > 0 ?
-          <Text tone="muted" size="sm">{inbox.unreviewed} {inbox.unreviewed === 1 ? "decision" : "decisions"} unreviewed by agents</Text> : undefined}
+          <Text tone="muted" size="sm">{inbox.unreviewed} of your decisions not yet read by an agent</Text> : undefined}
         actions={inbox != null && !(tablet && detailOpen) ?
           <Button variant="ghost" aria-expanded={history} onClick={() => setHistory(!history)}>{history ? "Hide proposal history" : "Show proposal history"}</Button> : undefined}
       />
@@ -85,7 +86,9 @@ export function InboxPage({ entryKey }: { entryKey?: string }) {
       <Page scroll={entries.length === 0} header={header}>
         {history && <div className={styles.history}><ProposalHistory /></div>}
         {entries.length === 0 ? <EmptyState heading="h2" title={detailOpen ? "This item is no longer waiting" : "Nothing is waiting on you"}>
-          {detailOpen ? <a href={href({ page: "inbox" })}>Back to inbox</a> : "No proposals or edits need a decision."}
+          {detailOpen ? <a href={href({ page: "inbox" })}>Back to inbox</a>
+            : loaded && !hasAgentActivity ? <>Agents send proposals here. <a className={styles.link} href={href({ page: "settings" })}>Connect an agent</a></>
+            : "No proposals or edits need a decision."}
         </EmptyState> :
         <SplitPane
           className={styles.panes}

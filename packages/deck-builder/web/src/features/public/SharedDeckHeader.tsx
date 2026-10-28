@@ -11,7 +11,7 @@ import { useSession } from "../../app/Session.tsx";
 import { bracketLabel } from "../../domain/power.ts";
 import { DECK_CATEGORY_LABELS } from "../../domain/deckCategory.ts";
 import { CardRef, ColorIdentity, DeckArt } from "../../mtg/index.ts";
-import { Button, Chip, Icon, useToast } from "../../ui/index.ts";
+import { Button, ButtonLink, Chip, Icon, useToast } from "../../ui/index.ts";
 const CompareSharedDialog = lazy(() => import("./SharedDialogs.tsx").then(m => ({ default: m.CompareSharedDialog })));
 const ExportSharedDialog = lazy(() => import("./SharedDialogs.tsx").then(m => ({ default: m.ExportSharedDialog })));
 const ForkSharedDialog = lazy(() => import("./SharedDialogs.tsx").then(m => ({ default: m.ForkSharedDialog })));
@@ -24,8 +24,13 @@ export function SharedDeckHeader({ shared, own }: { shared: PublicDeckState; own
   const { toast } = useToast();
   const [open, setOpen] = useState<Open>(null);
   const { deck, power } = shared;
-  const signedIn = session.mode === "local" || !!session.user;
+  // The owner's own link is a preview of what a reader without an account
+  // sees (PublicDeckPage's note says so), so it offers no owner actions.
+  const signedIn = !own && (session.mode === "local" || !!session.user);
+  // Local mode has no sign-in to offer.
+  const offerSignIn = !signedIn && session.mode !== "local";
   const phone = useIsPhone();
+  const size = phone ? "touch" : "md";
   const commanders = shared.cards.filter((c) => c.role === "commander" && !c.maybe);
   const link = `${location.origin}${href({ page: "shared", slug: deck.slug })}`;
 
@@ -75,16 +80,15 @@ export function SharedDeckHeader({ shared, own }: { shared: PublicDeckState; own
           {power.target && <span className={styles.bracket}> · target {bracketLabel(power.target.mapping)}{power.target.mapping.name ? ` ${power.target.mapping.name}` : ""}</span>}
         </p>
         <div className={styles.actions}>
-          <Button size="touch" onClick={() => void copyLink()}><Icon name="link" /> Copy link</Button>
-          <Button size="touch" onClick={() => setOpen("export")}>Export</Button>
+          <Button size={size} onClick={() => void copyLink()}><Icon name="link" /> Copy link</Button>
+          <Button size={size} onClick={() => setOpen("export")}>Export</Button>
           {signedIn ? (
             <>
-              {/* A phone forks other people's decks (§11.2); its owner forks their own on a larger screen. */}
-              {!(own && phone) && <Button size="touch" variant="primary" onClick={() => setOpen("fork")}>{own ? "Fork your deck" : "Fork"}</Button>}
-              <Button size="touch" onClick={() => setOpen("compare")}>Compare with one of my decks</Button>
+              <Button size={size} variant="primary" onClick={() => setOpen("fork")}>Fork</Button>
+              <Button size={size} onClick={() => setOpen("compare")}>Compare with one of my decks</Button>
             </>
-          ) : (
-            <a className={styles.signin} href={signInHref(href({ page: "shared", slug: deck.slug }))}>Sign in to fork or compare</a>
+          ) : offerSignIn && (
+            <ButtonLink size={size} href={signInHref(href({ page: "shared", slug: deck.slug }))}>Sign in to fork or compare</ButtonLink>
           )}
         </div>
       </div>

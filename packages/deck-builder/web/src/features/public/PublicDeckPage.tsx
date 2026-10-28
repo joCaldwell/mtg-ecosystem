@@ -5,13 +5,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../../api/reader.ts";
 import type { PublicDeckState } from "../../api/client.ts";
-import { APP_TITLE, useScrollRestore } from "../../app/routes.ts";
+import { APP_TITLE, href, useScrollRestore } from "../../app/routes.ts";
 import { useSession } from "../../app/Session.tsx";
 import { fromPublic } from "../../domain/readOnlyDeck.ts";
 import { ReadOnlyDeck } from "../deck/index.ts";
-import { Banner, Button, EmptyState, Loading } from "../../ui/index.ts";
+import { Banner, Button, EmptyState, Icon, Loading } from "../../ui/index.ts";
 import { PublicShell } from "./PublicShell.tsx";
 import { SharedDeckHeader } from "./SharedDeckHeader.tsx";
+import styles from "./PublicDeckPage.module.css";
 
 type Loaded = { deck: PublicDeckState } | { missing: true } | { error: string };
 
@@ -61,11 +62,30 @@ function SharedDeck({ shared }: { shared: PublicDeckState }) {
       ? "This is how viewers would see this deck. It is private: only you can open this link. Choose Share in the deck to change that."
       : `This is how viewers see your deck. It is ${shared.deck.visibility}${shared.deck.visibility === "public" ? " and listed on your profile" : ": anyone with the link can read it"}.`
     : null;
+  // The owner reaches this page from Share; the way back is their own deck,
+  // found among their own summaries (the shared state carries no deck id).
+  const [deckId, setDeckId] = useState<number | null>(null);
+  const slug = shared.deck.slug;
+  useEffect(() => {
+    if (!own) return;
+    let current = true;
+    api.listDecks().then((decks) => { if (current) setDeckId(decks.find((d) => d.slug === slug)?.id ?? null); }, () => {});
+    return () => { current = false; };
+  }, [own, slug]);
   return (
     <ReadOnlyDeck
       model={model}
       header={<>
-        {note && <Banner tone="neutral">{note}</Banner>}
+        {note && <Banner tone="neutral">
+          <span className={styles.note}>
+            {deckId != null && (
+              <a className={styles.back} href={href({ page: "deck", deckId })} aria-label={`Back to ${shared.deck.name}`} title={shared.deck.name}>
+                <Icon name="back" />
+              </a>
+            )}
+            <span>{note}</span>
+          </span>
+        </Banner>}
         <SharedDeckHeader shared={shared} own={own} />
       </>}
     />

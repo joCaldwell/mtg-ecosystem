@@ -58,3 +58,6 @@
 .projection > summary { cursor: pointer; color: var(--text-soft); font-size: var(--text-md); padding-block: var(--s-4); }
 .projection > summary::marker { color: var(--faint); }
 .projection[open] > summary { margin-bottom: var(--s-4); }
+/* Open, the projection below says the same in full. */
+.closedOnly { display: block; }
+.projection[open] .closedOnly { display: none; }

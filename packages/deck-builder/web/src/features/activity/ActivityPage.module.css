@@ -27,6 +27,11 @@
   border-bottom: 1px solid var(--line);
 }
 
+/* In-text links read as links in the surrounding colour; violet is for agents. */
+.link {
+  text-decoration: underline;
+}
+
 .decks {
   color: var(--muted);
   font-size: var(--text-sm);

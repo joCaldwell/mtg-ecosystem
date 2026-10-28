@@ -3,6 +3,7 @@ import { useQuery } from "../../api/useQuery.ts";
 import { href } from "../../app/routes.ts";
 import { ago } from "../../domain/time.ts";
 import { reviewUnits } from "../../domain/review.ts";
+import { changesSince, staleNote } from "../../domain/staleChanges.ts";
 import { InlineText } from "../../mtg/index.ts";
 import { ErrorNote, Eyebrow, Kbd, Loading, Section, Stack, Text } from "../../ui/index.ts";
 import { ChangeUnit } from "./ChangeUnit.tsx";
@@ -34,7 +35,7 @@ export function ProposalSummary({ proposal }: { proposal: Proposal }) {
         </div>
       </Stack>
 
-      {proposal.stale && <Text tone="warn">The deck changed since r{proposal.base_revision ?? "unknown"}. Review current r{proposal.current_revision} before approval.</Text>}
+      {proposal.stale && <Text tone="warn">{staleNote(state ? changesSince(state.log, proposal.base_revision) : null)}</Text>}
       {deck.error && <ErrorNote>{deck.error}</ErrorNote>}
       {!state && !deck.error && <Loading />}
 
@@ -49,7 +50,7 @@ export function ProposalSummary({ proposal }: { proposal: Proposal }) {
         ? <details className={styles.projection}>
             <summary>
               <span>Deck impact if all {state.proposals.length} pending proposals are accepted</span>
-              <DeckProjectionSummary state={state} />
+              <span className={styles.closedOnly}><DeckProjectionSummary state={state} /></span>
             </summary>
             <DeckProjection state={state} heading={false} />
           </details>

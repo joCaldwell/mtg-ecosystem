@@ -4,6 +4,7 @@ export { Badge, type BadgeProps } from "./Badge.tsx";
 export { Banner, type BannerProps } from "./Banner.tsx";
 export { Box, type BoxProps } from "./Box.tsx";
 export { Button, type ButtonProps } from "./Button.tsx";
+export { ButtonLink, type ButtonLinkProps } from "./ButtonLink.tsx";
 export { Checkbox, type CheckboxProps } from "./Checkbox.tsx";
 export { Chip, type ChipProps } from "./Chip.tsx";
 export { ConfirmDialog, type ConfirmDialogProps } from "./ConfirmDialog.tsx";

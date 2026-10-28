@@ -42,11 +42,11 @@
   gap: var(--s-4);
 }
 
-.signin {
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--tap);
-  color: var(--sel);
+/* Desktop uses the normal button height; a finger still gets a full target. */
+@media (pointer: coarse) {
+  .actions > * {
+    min-height: var(--tap);
+  }
 }
 
 @media (max-width: 719px) {

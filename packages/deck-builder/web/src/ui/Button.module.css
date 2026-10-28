@@ -85,6 +85,20 @@
   padding: 0 var(--s-6);
 }
 
+/* Disabled is one look for every variant: no fill and no meaning colour, so a
+   form's unavailable primary can never pass for a quieter primary. base.css
+   dims it further. */
+.button:disabled {
+  border-color: var(--line);
+  background: none;
+  color: var(--muted);
+  font-weight: inherit;
+}
+
+.ghost:disabled {
+  border-color: transparent;
+}
+
 /* Tablet dialogs are portalled outside the editor's touch-sizing wrapper. */
 @media (max-width: 1099px) {
   .button {

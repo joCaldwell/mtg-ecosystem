@@ -6,6 +6,7 @@ import {
   Banner,
   Box,
   Button,
+  ButtonLink,
   Checkbox,
   Chip,
   ClickableRow,
@@ -255,7 +256,7 @@ function Buttons() {
   return (
     <Stack gap={7}>
       <Section title="Button">
-        <Demo note="Rows: md, sm, touch (one --tap tall, for phones), with a key hint, disabled.">
+        <Demo note="Rows: md, sm, touch (one --tap tall, for phones), with a key hint, disabled. Disabled is one neutral look for every variant.">
           {[{}, { size: "sm" as const }, { size: "touch" as const }, { kbd: "A" }, { disabled: true }].map((extra, i) => (
             <Row key={i} gap={4} wrap>
               {variants.map((v) => (
@@ -263,6 +264,13 @@ function Buttons() {
               ))}
             </Row>
           ))}
+        </Demo>
+        <Demo note="ButtonLink: a link that goes somewhere, drawn as a button (default, ghost, primary).">
+          <Row gap={4} wrap>
+            <ButtonLink href="#button-link">Sign in to fork or compare</ButtonLink>
+            <ButtonLink href="#button-link" variant="ghost">ghost</ButtonLink>
+            <ButtonLink href="#button-link" variant="primary">primary</ButtonLink>
+          </Row>
         </Demo>
       </Section>
       <Section title="Pill filters">
