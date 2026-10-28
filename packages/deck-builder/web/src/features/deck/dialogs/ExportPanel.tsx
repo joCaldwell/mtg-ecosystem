@@ -8,7 +8,7 @@ import styles from "./ExportPanel.module.css";
 
 export function ExportPanel() {
   const { deckId } = useDeck();
-  const { deck } = useDeckState();
+  const { deck, cards } = useDeckState();
   const { matches } = useSharedDeckView();
   const { toast } = useToast();
   const [filtered, setFiltered] = useState(matches.active);
@@ -24,6 +24,11 @@ export function ExportPanel() {
     [queryKey],
   );
   const result = exported.data?.key === queryKey && !exported.error ? exported.data.result : null;
+  // An empty filtered export whose matches sit only on the maybe list says so,
+  // with the one option that would include them.
+  const maybeMatches = filtered && !includeMaybe
+    ? cards.filter((c) => c.maybe && matches.cardIds.has(c.oracle_id)).length
+    : 0;
 
   async function copy() {
     if (!result?.text) return;
@@ -59,6 +64,13 @@ export function ExportPanel() {
           className={styles.text}
           onFocus={(e) => e.currentTarget.select()}
         />
+      ) : result && maybeMatches > 0 ? (
+        <Row gap={4} wrap className={styles.empty}>
+          <Text tone="muted" as="p">
+            {maybeMatches === 1 ? "1 match is on the maybe list." : `${maybeMatches} matches are on the maybe list.`}
+          </Text>
+          <Button size="sm" onClick={() => setIncludeMaybe(true)}>Include maybe list</Button>
+        </Row>
       ) : result ? (
         <Text tone="muted" as="p" className={styles.empty}>
           {filtered ? "No cards match these filters and export options." : "Nothing to export with these options."}
@@ -80,7 +92,8 @@ export function ExportPanel() {
           </Text>
         ) : null}
         <Spacer />
-        <Button variant="primary" onClick={copy} disabled={!result?.text}>
+        {/* Disabled looks disabled: an empty export has no primary action. */}
+        <Button variant={result?.text ? "primary" : "default"} onClick={copy} disabled={!result?.text}>
           Copy
         </Button>
       </Row>

@@ -126,7 +126,7 @@ export function SlotRow({ slot, onSave, onInvalid, onRevert, onDelete }: Props) 
           ) : null}
         </td>
         <td className={styles.actions}>
-          <Button size="sm" variant="ghost" onClick={() => setConfirming(true)} aria-label={`Delete the slot ${slot.name}`}>
+          <Button size="sm" variant="reject" onClick={() => setConfirming(true)} aria-label={`Delete the slot ${slot.name}`}>
             Delete
           </Button>
         </td>

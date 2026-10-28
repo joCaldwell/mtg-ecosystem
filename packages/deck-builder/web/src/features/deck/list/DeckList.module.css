@@ -44,6 +44,14 @@
 
 @media (max-width: 1099px) { .scroll { overflow: visible; } }
 
+/* Wide desktop editors add columns instead of stretching three of them, so a
+   name stays near its pips and price. With the 300 px minimum and 12 px gap a
+   column is at most about 400 px wide, and 2560 px windows get four or five.
+   1280 and 1440 px windows still fit two, exactly as with the count of 3. */
+@media not all and (max-width: 1099px) {
+  .scroll .cols { column-count: auto; }
+}
+
 /* Search reveals stay below navigation and the single active-filter row. */
 @media (max-width: 1099px) {
   .scroll [data-filter-match="true"] {

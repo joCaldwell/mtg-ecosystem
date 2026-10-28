@@ -37,9 +37,6 @@ export function MemoriesPanel() {
       <a className={styles.all} href={href({ page: "memories" })}>
         All memories, including global ones →
       </a>
-      <Text tone="faint" size="xs" as="p">
-        {voice("Keep lessons here as the deck changes. Retired memories remain in the history.", "Agents write these without asking. Nothing is hidden, and nothing an agent wrote is deleted, only retired.")}
-      </Text>
     </>
   );
 }

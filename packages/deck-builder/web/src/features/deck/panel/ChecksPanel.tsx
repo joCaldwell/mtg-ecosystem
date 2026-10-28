@@ -58,7 +58,7 @@ export function ChecksPanel({ checks }: { checks: Finding[] }) {
         <Eyebrow>Slot targets</Eyebrow>
         {offTarget.length > 0 && (
           <Text tone="muted" size="sm" as="p">
-            {offTarget.length === 1 ? "One slot is" : `${offTarget.length} slots are`} outside target; each is listed above.
+            {offTarget.length === 1 ? "One slot is" : `${offTarget.length} slots are`} outside target.
           </Text>
         )}
         {offTarget.length === 0 &&
@@ -80,9 +80,6 @@ export function ChecksPanel({ checks }: { checks: Finding[] }) {
               )}
             </div>
           ))}
-        <Text tone="faint" size="xs" as="p">
-          {readOnly ? "Targets are the owner's and soft." : "Targets are yours and soft. Nothing here blocks an edit."}
-        </Text>
       </section>
 
     </>

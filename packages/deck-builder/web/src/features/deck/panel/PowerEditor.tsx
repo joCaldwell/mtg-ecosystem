@@ -2,7 +2,7 @@ import { useVoice } from "../../../app/Preferences.tsx";
 import { useState, type FormEvent } from "react";
 import { api, type Power, type PowerAssessmentInput, type PowerProfile } from "../../../api/client.ts";
 import { emptyPowerProfile } from "../../../domain/power.ts";
-import { Button, Dialog, ErrorNote, Field, Row, Select, Stack, Text, TextArea, TextField } from "../../../ui/index.ts";
+import { Button, Dialog, ErrorNote, Field, Row, Select, Text, TextArea, TextField } from "../../../ui/index.ts";
 import { useDeck } from "../DeckStore.tsx";
 import styles from "./PowerPanel.module.css";
 
@@ -81,7 +81,7 @@ export function PowerEditor({ kind, power, revision, onClose }: {
         <TextArea value={notes} required={!target} maxLength={6000} rows={4} onChange={e => setNotes(e.target.value)} />
       </Field>
       {error && <ErrorNote>{error}</ErrorNote>}
-      <Stack gap={2}><Text size="sm" tone="faint">{target ? "Targets do not change the list or its current assessment." : voice("This is your assessment. Card edits will flag it for review.", "This is your assessment. Agents cannot overwrite it for this revision. Card edits will flag it for review.")}</Text></Stack>
+      {!target && <Text size="sm" tone="faint" as="p">Card edits will flag it for review.</Text>}
     </form>
   </Dialog>;
 }

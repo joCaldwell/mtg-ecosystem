@@ -89,7 +89,7 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
       <span className={styles.cost} title="Inspect card · ? on a focused row" onClick={(e) => { e.stopPropagation(); inspect(card); }}>
         <ManaCost cost={card.mana_cost} />
       </span>
-      <Price currency={card.currency} cents={card.cents} column />
+      <span className={styles.price}><Price currency={card.currency} cents={card.cents} column /></span>
     </button>
   );
 }

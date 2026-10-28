@@ -52,7 +52,9 @@ D20) and built in phase 4a; phase 4b makes the full app hold up between
   and as the link preview image. Without a stored artist the art is left
   out. The card list itself stays text.
 - **Sharing has no colour.** Public is the globe icon, unlisted the link
-  icon, both grey: visibility is not one of the meanings below.
+  icon, both grey: visibility is not one of the meanings below. The deck
+  header's button always reads "Share"; the icon shows the state and the
+  accessible name includes it, so publishing never wraps the header.
 - **The playtester is desktop-only.**
 
 ### The patterns
@@ -191,7 +193,7 @@ or about this app.
 | `ConfirmDialog` | A question with Cancel and a confirm button | tone `default` `danger` |
 | `Explainer` | Specifically labelled help for unfamiliar concepts | closed, open, keyboard focus, close/Escape and focus return; `defaultOpen` (style guide only) |
 | `Popover`, `placeNear` | A panel anchored to an element, kept inside the viewport | placement `below` `right` `above` `left`; `align` |
-| `ToastProvider`, `useToast` | One toast at a time, bottom centre, with an optional action | `duration`; `action` with `kbd` |
+| `ToastProvider`, `useToast` | One toast at a time with an optional action; bottom right at 1100 px and wider (clear of the deck list, over the panel's foot), bottom centre below | `duration`; `action` with `kbd` |
 | `DiffView` | Added and deleted lines | line kind `same` `add` `del` |
 | `Table`, `ClickableRow` | Plain tables with small uppercase headers; rows that open something | |
 | `CounterControl` | Visible increment/decrement controls and a numeric readout | labeled, disabled |
@@ -284,8 +286,11 @@ sheet over the list (principle 1's existing requested-dialog exception).
   The modal is named, traps focus, closes with Escape and restores focus.
 - **Text and motion:** the neutral text tiers stay in order and pass AA on
   tinted rows (see Tokens for the current palette and measured minima).
-  Nonmatching cards use the muted text token, without opacity, so their names
-  remain readable. Matches carry a blue edge and outline with stronger names. Global reduced-motion zeroes `--fast` and
+  Nonmatching cards recede clearly (owner decision, 2026-10-28: keep muting,
+  never hide rows): their text uses `--text-dim`, the dimmest tier that still
+  passes AA on every row state, and their pips and marks fade to
+  `--dim-opacity`. An open nonmatch keeps `--muted`. Matches carry a blue edge
+  and outline with stronger names. Global reduced-motion zeroes `--fast` and
   disables transitions/animations. Inter is removed; the system font stack
   avoids a third-party font request.
 
@@ -411,6 +416,10 @@ The art shrinks first, reserving at least 240 px for compact label-and-control r
 controls fill that width without clipping the tags chevron. Desktop list
 columns use a 250 px minimum and 12 px gaps, fitting three at 1440 px with
 the default panel, and falling back to two when the panel leaves less room.
+At 1100 px and wider the editor adds columns instead of stretching three,
+so very wide windows keep each name near its pips and price. Row prices sit
+in a fixed, right-aligned tabular column (`--price-column-min`) with
+`--price-gap` after the pips, in the editor, maybe list and shared lists.
 
 Owner UX decision (2026-10-27): inbox proposal details can accept or reject the whole selected proposal with an optional reason; Review in the list remains secondary. A phone inbox opens the selected proposal beneath a compact deck heading. Its individual decisions come first; Review all decisions discloses deck-wide actions and other proposals. All inbox badges hide zero counts and use bright violet with black ink. Profiles pair their document and Edit action with proposed edits; public profiles reuse the All decks card presentation. Import previews use the wide dialog, a bounded change list with an explicit continuation count, and warnings outside that list.
 

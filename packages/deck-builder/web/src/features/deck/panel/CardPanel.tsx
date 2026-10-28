@@ -27,6 +27,9 @@ export function CardPanel({ card: open, backRef, bodyRef }: { card: OpenCard; ba
   const owned = state.cards.find((c) => c.oracle_id === open.oracleId);
   const proposals = pendingOf(state).filter((i) => i.oracle_id === open.oracleId);
   const proposal = proposals[0];
+  // Attribution for a pending item: who proposed it reads `handle via label`.
+  const proposedBy = proposal ? state.proposals.find((p) => p.id === proposal.proposal_id) : undefined;
+  const byAgent = proposedBy?.author_via !== "ui";
   const seen = state.proposals.flatMap((p) => p.items).find((i) => i.oracle_id === open.oracleId);
 
   const live = useLive();
@@ -63,7 +66,7 @@ export function CardPanel({ card: open, backRef, bodyRef }: { card: OpenCard; ba
           <h2 className={styles.name}>{open.name}</h2>
           <div className={styles.status}>
             <Chip>{where}</Chip>
-            {proposal && <Chip tone={proposal.action === "add" ? "add" : "cut"}>Proposed {proposal.action}</Chip>}
+            {proposal && <Chip tone={byAgent ? "agent" : "neutral"}>Proposed {proposal.action}</Chip>}
           </div>
           {info && <span className={styles.cost}><ManaCost cost={info.mana_cost} /></span>}
         </div>
@@ -72,6 +75,20 @@ export function CardPanel({ card: open, backRef, bodyRef }: { card: OpenCard; ba
       <div className={styles.head}>
           {parts.length > 0 && <Text tone="soft" size="sm">{parts.join(" · ")}</Text>}
       </div>
+
+      {proposal && (
+        <div className={styles.note}>
+          <Text tone={byAgent ? "agent" : "muted"} size="sm">
+            Proposal {proposal.proposal_id}{proposedBy ? ` · ${proposedBy.author_display ?? proposedBy.author}` : ""}
+          </Text>
+          {proposal.reason && (
+            <Text tone="soft" size="sm" as="p">
+              <InlineText text={proposal.reason} />
+            </Text>
+          )}
+          <div><Button size="sm" variant="agent" onClick={() => ui.setTab("review")}>Open Review</Button></div>
+        </div>
+      )}
 
       {!!owned?.maybe && owned.maybe_note && (
         <section className={styles.maybeNote} aria-label="Maybe note">
@@ -85,23 +102,7 @@ export function CardPanel({ card: open, backRef, bodyRef }: { card: OpenCard; ba
       <div className={styles.facts}>
         <CardImage name={open.name} card={info} />
         <div className={styles.side}>
-          {owned ? (
-            <CardControls card={owned} />
-          ) : (
-            proposal && (
-              <div className={styles.note}>
-                <Text tone="agent" size="sm">
-                  Proposal {proposal.proposal_id}
-                </Text>
-                {proposal.reason && (
-                  <Text tone="soft" size="sm" as="p">
-                    <InlineText text={proposal.reason} />
-                  </Text>
-                )}
-                <Button size="sm" variant="agent" onClick={() => ui.setTab("review")}>Open Review</Button>
-              </div>
-            )
-          )}
+          {owned && <CardControls card={owned} />}
         </div>
       </div>
 

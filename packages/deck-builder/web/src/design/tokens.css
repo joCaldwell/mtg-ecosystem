@@ -29,8 +29,9 @@
     transparent 0 10px,
     rgba(255, 255, 255, 0.012) 10px 20px
   );
-  /* Dim the scene with black transparency, never a grey wash. */
-  --scrim: rgba(0, 0, 0, 0.7);
+  /* Dim the scene with black transparency, never a grey wash. Dark enough
+     that a dense list behind a dialog does not compete with it. */
+  --scrim: rgba(0, 0, 0, 0.84);
 
   /* Text, brightest to quietest: text > soft > muted > faint. Every tier
      passes WCAG AA (4.5:1) for small text. WCAG 2.x sRGB luminance ratios,
@@ -47,6 +48,12 @@
   --text-soft: #d4d4d4;
   --muted: #a3a3a3;
   --faint: #9c9c9c;
+  /* Search nonmatches only (DESIGN.md): the dimmest text that still passes
+     AA where a nonmatching row can sit. Measured 5.32 on --bg, 5.02 hovered,
+     4.69 on selected + hover. An open row (--raised, 4.41) returns to --muted. */
+  --text-dim: #808080;
+  /* Mana pips and marks on a search nonmatch; the name stays readable. */
+  --dim-opacity: 0.38;
 
   /* Meaning. Restrained transparent tints and hairlines on black.
      Semantic foreground minima across the same nested/hover envelope:
@@ -145,7 +152,9 @@
   --deck-reader-column-min: 250px;
   --deck-column-min: var(--deck-reader-column-min);
   --deck-editor-column-min: 300px;
-  --price-column-min: 6ch;
+  /* Room for "$999.99" right-aligned, and a gap so pips never touch a price. */
+  --price-column-min: 7ch;
+  --price-gap: var(--s-3);
   --mana-list-gap: 1px;
   /* The deck's side panel can be dragged between these, and never so wide
      that the list beside it has less than --list-w-min. */

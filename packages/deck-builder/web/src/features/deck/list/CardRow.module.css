@@ -67,6 +67,13 @@
   margin-left: auto;
 }
 
+/* A fixed, right-aligned tabular column with a clear gap after the pips. */
+.price {
+  display: inline-flex;
+  flex: none;
+  margin-left: var(--price-gap);
+}
+
 .bold .name {
   font-weight: 600;
 }
@@ -133,12 +140,17 @@
   }
 }
 
-/* Search preserves every row and its interaction. Nonmatches stay AA-readable. */
+/* Search preserves every row and its interaction. Nonmatches recede so the
+   matches stand out: their text drops to the dimmest AA tier and their pips
+   and marks fade. An open nonmatch sits on --raised, so it keeps --muted. */
 .row[data-filter-match="false"] {
-  color: var(--muted);
-  --price-color: var(--muted);
+  color: var(--text-dim);
+  --price-color: var(--text-dim);
 }
-.row[data-filter-match="false"] .name { color: var(--muted); }
+.row[data-filter-match="false"] :is(.name, .purpose) { color: var(--text-dim); }
+.row[data-filter-match="false"] :is(.cost, .marks) { opacity: var(--dim-opacity); }
+.row.open[data-filter-match="false"] { color: var(--muted); --price-color: var(--muted); }
+.row.open[data-filter-match="false"] :is(.name, .purpose) { color: var(--muted); }
 .row.match { box-shadow: inset 0 0 0 1px var(--sel); }
 .row.match:not(.cut):not(.add) .name { color: var(--text); }
 .row.match.current { box-shadow: inset 0 0 0 1px var(--agent); }

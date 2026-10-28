@@ -52,7 +52,7 @@ export function TagRow({ tag, onRename, onDelete, onRevert }: Props) {
           onKeyDown={onKeyDown}
           aria-label={`Name of the tag ${tag.name}`}
         />
-        <Button size="sm" variant="ghost" onClick={() => setConfirming(true)} aria-label={`Delete the tag ${tag.name}`}>
+        <Button size="sm" variant="reject" onClick={() => setConfirming(true)} aria-label={`Delete the tag ${tag.name}`}>
           Delete
         </Button>
       </div>

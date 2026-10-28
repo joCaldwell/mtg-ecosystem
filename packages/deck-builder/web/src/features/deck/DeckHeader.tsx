@@ -116,10 +116,13 @@ export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
             <Button className={styles.details} onClick={() => ui.setTab(ui.tab)} aria-haspopup="dialog">Open deck details</Button>
             {/* A link, so it opens in a new tab too; drawn as Button's default. */}
             <a className={styles.action} href={href({ page: "playtest", deckId: deck.id })}>Playtest</a>
+            {/* One word wide in every state, so publishing never wraps the
+                header; the icon shows the state and the name says it. */}
             <Button onClick={() => ui.openDialog("share")} aria-haspopup="dialog"
+              aria-label={deck.visibility === "private" ? "Share" : `Share · ${deck.visibility === "public" ? "Public" : "Unlisted"}`}
               title={deck.visibility === "private" ? "Private: only you can see this deck" : deck.visibility === "public" ? "Public: anyone can read it" : "Unlisted: anyone with the link can read it"}>
               {deck.visibility !== "private" && <Icon name={deck.visibility === "public" ? "globe" : "link"} />}
-              Share{deck.visibility !== "private" ? ` · ${deck.visibility === "public" ? "Public" : "Unlisted"}` : ""}
+              Share
             </Button>
             <Menu label="More" align="end" items={moreItems} />
           </div>

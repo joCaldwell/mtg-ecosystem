@@ -446,8 +446,9 @@ get specifically labelled help; obvious controls do not need generic popovers. T
 controls share a raised surface; tablet add/search fields and tag/group/sort
 controls wrap into two rows before the proposal banner.
 
-Deck filtering preserves all rows, groups and totals. Nonmatches use readable
-muted text; matches get a blue edge/outline and stronger names. The count sits
+Deck filtering preserves all rows, groups and totals. Nonmatches use the
+dimmest AA text tier (`--text-dim`) with faded pips; matches get a blue
+edge/outline and stronger names. The count sits
 beside search. Query/tag changes scroll the first rendered match into view
 without moving focus, expanding disclosures or changing the scroll owner.
 Phone decks use native fragment links between the title, card list and pending
