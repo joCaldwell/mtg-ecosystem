@@ -114,6 +114,7 @@ views are the 375 px captures.
 
 | Flow | Width | Task |
 | --- | --- | --- |
+| `search-query-switch` | 1440 | Replace a card query, press Enter during a held response, and inspect the current match without opening the previous result |
 | `export-filtered-maybe` | 1440 | Filter a maybe card, include it in the export and verify exact clipboard text without editing the deck |
 | `playtest-draw-undo-resume` | 1440 | Keep a hand, keyboard-select a card and open its action menu, draw, undo exact zone order and reload the saved table without changing the deck |
 | `first-run-sample` | 1280 | From an empty account to the sample deck |
@@ -126,6 +127,8 @@ views are the 375 px captures.
 Desktop export states also cover the whole saved deck and a filtered maybe card
 at each desktop width. `check-export.mjs` additionally exercises every export
 option and a held response to verify stale scope text cannot be copied.
+`check-search-scope.mjs` checks delayed query and colour-scope changes at all
+four desktop widths, with only current options exposed to pointer and keyboard.
 
 Flows find controls by role and accessible name and take a shorter path when
 one appears (an Import entry on All decks, a reason field for accepting), so

@@ -1,4 +1,3 @@
-import { useVoice } from "../../app/Preferences.tsx";
 import type { ReactNode } from "react";
 import { api, type PlayerStats } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
@@ -32,7 +31,7 @@ function Colors({ stats }: { stats: PlayerStats }) {
             <span className={styles.colour}><ManaSymbol symbol={c} /><span>{COLOR_NAMES[c]}</span></span>
             <Meter value={stats.colors[c] ?? 0} max={stats.deck_count} aria-label={`Paper decks including ${COLOR_NAMES[c]}`} />
             <Text mono tone="soft" size="sm">
-              {stats.colors[c] ?? 0}
+              {stats.colors[c] ?? 0} / {stats.deck_count}
             </Text>
           </div>
         ))}
@@ -47,7 +46,6 @@ function Colors({ stats }: { stats: PlayerStats }) {
  * this only arranges them. Empty blocks are left out.
  */
 export function PlayerStatsPanel() {
-  const voice = useVoice();
   const query = useQuery(() => api.getStats(), []);
   const stats = query.data;
   if (query.error && !stats) return <ErrorNote>{query.error}</ErrorNote>;
@@ -55,7 +53,7 @@ export function PlayerStatsPanel() {
   if (stats.deck_count === 0) return (
     <Section title="Across your paper decks">
       <EmptyState title="No paper decks yet">
-        Mark a deck as Paper using its Actions menu to include it in these statistics.
+        Set a deck’s lifecycle to Paper to include its statistics.
       </EmptyState>
     </Section>
   );
@@ -159,9 +157,6 @@ export function PlayerStatsPanel() {
         </Block>
       )}
 
-      <Text tone="faint" size="xs">
-        {voice("Only Paper decks contribute. Mark a deck as Paper to include its counts here.", "Only Paper decks contribute. These are the same computed numbers your agent receives.")}
-      </Text>
     </Section>
   );
 }

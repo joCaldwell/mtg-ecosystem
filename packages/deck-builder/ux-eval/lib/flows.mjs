@@ -36,6 +36,44 @@ async function latestDecision(t, deckId) {
 
 export const FLOWS = [
   {
+    name: "search-query-switch",
+    caption: "Switch card searches while a response is pending, then inspect the current match",
+    width: 1440,
+    user: u => u.owner,
+    async run(t) {
+      const { page } = t, id = t.decks.najeela;
+      const before = (await t.api(`/api/decks/${id}`, t.users.owner)).state;
+      const [first, second] = before.cards.filter(c => !c.maybe && c.role === "card").slice(0, 2);
+      if (!first || !second) throw Error("Search fixture needs two saved cards");
+      await page.goto(t.origin + `/deck/${id}`);
+      const input = page.getByRole("combobox", { name: "Add a card or search", exact: true });
+      await t.press(input);
+      await t.type(input, first.name);
+      await page.getByRole("option").filter({ has: page.getByText(first.name, { exact: true }) }).waitFor();
+      await t.step("Search for a saved card");
+      let release, requestedResolve;
+      const held = new Promise(resolve => { release = resolve; });
+      const requested = new Promise(resolve => { requestedResolve = resolve; });
+      await page.route("**/api/search?**", async route => { requestedResolve(); await held; await route.continue(); }, { times: 1 });
+      try {
+        await t.type(input, second.name);
+        await requested;
+        await t.key(input, "Enter");
+        await t.step("Press Enter while the next search response is pending");
+        const previousOpened = await page.getByRole("heading", { name: first.name, exact: true }).count() > 0;
+        release();
+        await t.press(input);
+        await page.getByRole("option").filter({ has: page.getByText(second.name, { exact: true }) }).waitFor();
+        await t.key(input, "Enter");
+        await page.getByRole("heading", { name: second.name, exact: true }).waitFor();
+        await t.step("Open the current search match after its response arrives");
+        const after = (await t.api(`/api/decks/${id}`, t.users.owner)).state;
+        const unchanged = JSON.stringify(before) === JSON.stringify(after);
+        return { completed: !previousOpened && unchanged, facts: { previous_match_not_opened_during_loading: !previousOpened, current_match_opened: true, deck_unchanged: unchanged } };
+      } finally { release(); }
+    },
+  },
+  {
     name: "export-filtered-maybe",
     caption: "Filter a maybe card and copy its export without editing the deck",
     width: 1440,

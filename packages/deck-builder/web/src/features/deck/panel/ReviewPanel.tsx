@@ -4,7 +4,7 @@
 
 import { ago } from "../../../domain/time.ts";
 import { InlineText } from "../../../mtg/index.ts";
-import { Button, EmptyState, Explainer, Eyebrow, Kbd, Text } from "../../../ui/index.ts";
+import { Button, EmptyState, Explainer, Eyebrow, Text } from "../../../ui/index.ts";
 import { useDeckState } from "../DeckStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import type { DeckViewModel } from "../useDeckView.ts";
@@ -53,11 +53,7 @@ export function ReviewPanel({ view, review }: { view: DeckViewModel; review: Rev
           </div>
         </div>
       ))}
-      {ui.reviewing ? (
-        <Text tone="faint" size="xs" as="p">
-          <Kbd>J</Kbd> <Kbd>K</Kbd> move · <Kbd>A</Kbd> accept · <Kbd>R</Kbd> reject · <Kbd>⇧A</Kbd> accept all
-        </Text>
-      ) : (
+      {!ui.reviewing && (
         <div className={styles.start}>
           <Button variant="agent" onClick={ui.startReview} kbd="↵">
             Review in the list

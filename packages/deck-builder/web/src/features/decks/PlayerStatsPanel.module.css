@@ -31,13 +31,14 @@
 
 .bar {
   display: grid;
-  grid-template-columns: 9ch minmax(0, 1fr) 3ch;
+  grid-template-columns: 9ch minmax(0, 1fr) 7ch;
   gap: var(--s-4);
   align-items: center;
 }
 
 .bar > :last-child {
   text-align: right;
+  white-space: nowrap;
 }
 
 .row {

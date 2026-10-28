@@ -445,6 +445,12 @@ Escape. Search keeps nonmatches muted. Active query, match count, Clear and
 Export appear in a separate context row only while filtering; that row stays
 below tablet navigation while the toolbar scrolls away.
 
+Catalogue options must match the current query and colour scope, including the
+current commander identity. While a replacement search is pending, show a
+Searching status with no actionable old results. Enter and Shift+Enter only
+act on current options. Loading, errors and no matches are status content,
+not options in the result listbox.
+
 ## Desktop reading and details
 
 Shared desktop lists require the same minimum column width as the editor and

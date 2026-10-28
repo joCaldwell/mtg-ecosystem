@@ -26,8 +26,11 @@ export function AddBar() {
 
   const [query, setQuery] = useState("");
   const [everyColour, setEveryColour] = useState(false);
-  const [results, setResults] = useState<CardData[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [response, setResponse] = useState<{
+    key: string;
+    results: CardData[] | null;
+    error: string | null;
+  } | null>(null);
   const [open, setOpen] = useState(false);
   const [index, setIndex] = useState(0);
   const input = useRef<HTMLInputElement>(null);
@@ -36,14 +39,22 @@ export function AddBar() {
   const listId = useId();
 
   const q = query.trim();
+  const hasCommander = state.cards.some((c) => c.role === "commander");
+  const identityScope = everyColour ? null : `${hasCommander}:${state.deck.color_identity}`;
+  const queryKey = JSON.stringify([deckId, q, everyColour, identityScope]);
+  // A changed query or colour scope invalidates the previous options at render
+  // time, before the debounce/request runs. Enter cannot pick a stale card.
+  const current = response?.key === queryKey;
+  const results = current ? response.results : null;
+  const error = current ? response.error : null;
+  const loading = q.length >= MIN_QUERY && !current;
 
   // Search as the owner types. Each keystroke supersedes the last: its timer
   // is cleared and its request aborted, so a slow answer to "dra" can never
   // overwrite the answer to "dragon".
   useEffect(() => {
     if (q.length < MIN_QUERY) {
-      setResults(null);
-      setError(null);
+      setResponse(null);
       return;
     }
     const controller = new AbortController();
@@ -51,21 +62,20 @@ export function AddBar() {
       api
         .search(q, deckId, !everyColour, controller.signal)
         .then((found) => {
-          setResults(found);
-          setError(null);
+          if (controller.signal.aborted) return;
+          setResponse({ key: queryKey, results: found, error: null });
           setIndex(0);
         })
         .catch((e: unknown) => {
           if (controller.signal.aborted) return;
-          setResults(null);
-          setError(e instanceof Error ? e.message : String(e));
+          setResponse({ key: queryKey, results: null, error: e instanceof Error ? e.message : String(e) });
         });
     }, DEBOUNCE_MS);
     return () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [q, deckId, everyColour]);
+  }, [q, deckId, everyColour, identityScope]);
 
   // Click outside closes it. The dropdown lives inside `box`, so a click on a
   // row or the footer is not outside.
@@ -89,8 +99,7 @@ export function AddBar() {
     () => (results ? annotateResults(results, state, marks) : []),
     [results, state, marks],
   );
-  const hasCommander = state.cards.some((c) => c.role === "commander");
-  const shown = open && (results !== null || error !== null);
+  const shown = open && (loading || results !== null || error !== null);
   const highlighted = Math.min(index, Math.max(rows.length - 1, 0));
 
   // Keep the highlighted row in view as the arrows move through a long list.
@@ -135,8 +144,7 @@ export function AddBar() {
       return;
     }
     setQuery("");
-    setResults(null);
-    setError(null);
+    setResponse(null);
     setIndex(0);
     setOpen(false);
   }
@@ -174,8 +182,8 @@ export function AddBar() {
           spellCheck={false}
           role="combobox"
           aria-label="Add a card or search"
-          aria-expanded={shown}
-          aria-controls={listId}
+          aria-expanded={shown && rows.length > 0}
+          aria-controls={shown && rows.length > 0 ? listId : undefined}
           aria-autocomplete="list"
           aria-activedescendant={shown && rows.length ? `${listId}-${highlighted}` : undefined}
           onChange={(e) => {
@@ -191,12 +199,14 @@ export function AddBar() {
       {shown && (
         // Pressing inside must not pull focus out of the input.
         <div className={styles.drop} onMouseDown={(e) => e.target instanceof HTMLInputElement || e.preventDefault()}>
-          <div id={listId} role="listbox" className={styles.results}>
-            {error ? (
+          <div id={listId} role={rows.length > 0 ? "listbox" : undefined} aria-label={rows.length > 0 ? "Card search results" : undefined} className={styles.results}>
+            {loading ? (
+              <Text role="status" tone="muted" as="div" className={styles.none}>Searching…</Text>
+            ) : error ? (
               <ErrorNote>{error}</ErrorNote>
             ) : rows.length === 0 ? (
-              <Text tone="muted" as="div" className={styles.none}>
-                No card matches. Names resolve exactly; nothing is guessed.
+              <Text role="status" tone="muted" as="div" className={styles.none}>
+                No cards match this search.
               </Text>
             ) : (
               rows.map((r, i) => (

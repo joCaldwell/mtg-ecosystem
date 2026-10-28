@@ -7,6 +7,7 @@ import { InlineText } from "../../mtg/index.ts";
 import { ErrorNote, Eyebrow, Kbd, Loading, Section, Stack, Text } from "../../ui/index.ts";
 import { ChangeUnit } from "./ChangeUnit.tsx";
 import { DeckProjection } from "./DeckProjection.tsx";
+import { DeckProjectionSummary } from "./DeckProjectionSummary.tsx";
 import { ProposalDecision } from "./ProposalDecision.tsx";
 import styles from "./ProposalSummary.module.css";
 
@@ -46,7 +47,10 @@ export function ProposalSummary({ proposal }: { proposal: Proposal }) {
       </Section>
       {state && state.proposals.length > 0 && (state.proposals.length > 1
         ? <details className={styles.projection}>
-            <summary>Deck impact if all {state.proposals.length} pending proposals are accepted</summary>
+            <summary>
+              <span>Deck impact if all {state.proposals.length} pending proposals are accepted</span>
+              <DeckProjectionSummary state={state} />
+            </summary>
             <DeckProjection state={state} heading={false} />
           </details>
         : <DeckProjection state={state} />)}

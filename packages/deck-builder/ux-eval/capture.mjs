@@ -205,6 +205,17 @@ const SCREENS = [
       await dialog.getByRole("textbox", { name: "Exported list", exact: true }).waitFor();
     } }],
   })),
+  ...[false, true].map(empty => ({
+    screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: [1280, 1440, ...WIDE],
+    states: [{ state: empty ? "search-empty" : "search-results", caption: empty ? "A catalogue query with no matches" : "Catalogue results for a saved card", act: async ({ page }) => {
+      const input = page.getByRole("combobox", { name: "Add a card or search", exact: true });
+      const card = (await api(`/api/decks/${D.najeela}`, U.owner)).state.cards.find(card => !card.maybe && card.role === "card");
+      if (!card) throw Error("Search fixture needs a saved card");
+      await input.fill(empty ? "mv<0" : card.name);
+      if (empty) await page.getByText(/^(?:No cards? match|No card matches)/).waitFor();
+      else await page.getByRole("option").filter({ has: page.getByText(card.name, { exact: true }) }).waitFor();
+    } }],
+  })),
   {
     screen: "import", user: U.owner, path: `/deck/${D.najeela}`, widths: APP, fresh: true, states: [
       {

@@ -45,11 +45,17 @@ try{for(const width of [1280,1440,1920,2560]){
  await first.focus();await first.press('Shift+F10');await page.getByRole('menuitem',{name:'Move to battlefield',exact:true}).click();await settle(page,watch);
  const placed=await read();assert.deepEqual(placed.session.frame.zones.battlefield,[id]);const occupied=await geometry();assert.equal(occupied.empty,false);
  assert.equal(await draft.inputValue(),'Keep this local observation while rearranging the table.');assert.equal(await page.locator(`[data-object-id="${id}"]`).first().getAttribute('data-selected'),'true');
+ let occupiedVerticalScroll=false;
+ if(occupied.scroll.content>occupied.scroll.height+1){
+  const b=await scroll.boundingBox();await page.mouse.move(b.x+b.width/2,b.y+b.height/2);await page.mouse.wheel(0,350);await settle(page,watch);const y=await scroll.evaluate(el=>el.scrollTop);
+  if(variant==='candidate')assert(y>0,'occupied-board hand rules remain naturally scrollable');
+  occupiedVerticalScroll=y>0;assert.deepEqual((await read()).session.frame,placed.session.frame,'scrolling full rules cannot alter the table');
+ }
  await shoot(page,join(out,`occupied-board-${width}.png`),{full:false});
  await page.getByRole('button',{name:'Undo (Z)',exact:true}).click();await settle(page,watch);assert.deepEqual((await read()).session.frame,kept.session.frame);if(variant==='candidate')assert.equal((await geometry()).empty,true);
  assert.equal(await draft.inputValue(),'Keep this local observation while rearranging the table.');
  await draft.fill('');await page.reload();await settle(page,watch);assert.deepEqual((await read()).session.frame,kept.session.frame);
  assert.deepEqual((await api('/api/decks/2')).state,before,'table presentation and actions do not edit deck membership, assignments or revision');
  const violations=await axe(page);assert.deepEqual(violations,[]);assert.equal(watch.errors.length,0);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
- results.push({width,empty,occupied,panelWidths,full_oracle_rules:rules,three_unlabelled_rows:true,selection_draft_viewer_undo_resume:true,deck_unchanged:true,axe:0});await context.close();console.log(`${variant} hand space ${width} passed`);
+ results.push({width,empty,occupied,panelWidths,occupiedVerticalScroll,full_oracle_rules:rules,three_unlabelled_rows:true,selection_draft_viewer_undo_resume:true,deck_unchanged:true,axe:0});await context.close();console.log(`${variant} hand space ${width} passed`);
 }writeFileSync(join(out,'qa.json'),JSON.stringify({variant,results},null,2)+'\n');}finally{await browser.close();}
