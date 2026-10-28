@@ -189,6 +189,22 @@ const SCREENS = [
       },
     ],
   },
+  ...[false, true].map(filtered => ({
+    screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: [1280, 1440, ...WIDE],
+    states: [{ state: filtered ? "export-filtered-maybe" : "export-whole", caption: filtered ? "Export matching maybe cards" : "Export the saved deck", act: async ({ page, vp, watch }) => {
+      if (filtered) {
+        const card = (await api(`/api/decks/${D.najeela}`, U.owner)).state.cards.find(card => card.maybe);
+        if (!card) throw Error("Export fixture needs a maybe card");
+        await page.getByRole("searchbox", { name: "Search this deck", exact: true }).fill(card.name);
+        await settle(page, watch);
+      }
+      await press(page, page.getByRole("button", { name: "More", exact: true }), vp);
+      await press(page, page.getByRole("menuitem", { name: "Export", exact: true }), vp);
+      const dialog = page.getByRole("dialog", { name: "Export", exact: true });
+      if (filtered) await press(page, dialog.getByRole("checkbox", { name: "Include maybe list", exact: true }), vp);
+      await dialog.getByRole("textbox", { name: "Exported list", exact: true }).waitFor();
+    } }],
+  })),
   {
     screen: "import", user: U.owner, path: `/deck/${D.najeela}`, widths: APP, fresh: true, states: [
       {

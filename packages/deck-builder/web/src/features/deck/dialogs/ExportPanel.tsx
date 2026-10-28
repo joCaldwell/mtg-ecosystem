@@ -44,8 +44,7 @@ export function ExportPanel() {
         <Checkbox checked={categories} onChange={setCategories} label="Include categories" />
       </Row>
       <Text tone="muted" size="sm">
-        {filtered ? "Exports cards matching the deck’s current name and tag filters, including inversion." : "Exports the whole deck."}{" "}
-        {includeMaybe ? "Maybe-list cards are included." : "Maybe-list cards are excluded."} Pending proposed additions are excluded.
+        Pending proposals are excluded.
       </Text>
 
       {exported.error ? <ErrorNote>{exported.error}</ErrorNote> : null}
@@ -87,8 +86,7 @@ export function ExportPanel() {
       </Row>
 
       <Text tone="muted" size="sm" as="p">
-        Quantity and name, one card per line. Categories use Archidekt’s bracket syntax; included maybe-list
-        cards are marked Maybeboard when categories are enabled.
+        Quantity and name per line. Categories use Archidekt syntax; maybe cards use Maybeboard when categories are included.
       </Text>
     </Stack>
   );

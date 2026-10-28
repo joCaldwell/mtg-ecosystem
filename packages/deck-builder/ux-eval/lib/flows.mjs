@@ -36,6 +36,39 @@ async function latestDecision(t, deckId) {
 
 export const FLOWS = [
   {
+    name: "export-filtered-maybe",
+    caption: "Filter a maybe card and copy its export without editing the deck",
+    width: 1440,
+    user: u => u.owner,
+    async run(t) {
+      const {page} = t, id = t.decks.najeela, before = (await t.api(`/api/decks/${id}`, t.users.owner)).state;
+      const card = before.cards.find(card => card.maybe);
+      if (!card) throw Error("Export fixture needs a maybe card");
+      await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: t.origin });
+      await page.goto(t.origin + `/deck/${id}`);
+      await t.type(page.getByRole("searchbox", { name: "Search this deck", exact: true }), card.name);
+      await t.settle();
+      await t.press(page.getByRole("button", { name: "More", exact: true }));
+      await t.press(page.getByRole("menuitem", { name: "Export", exact: true }));
+      const dialog = page.getByRole("dialog", { name: "Export", exact: true });
+      await t.step("Open an export for the current maybe-card filter");
+      const initiallyEmpty = await dialog.getByRole("button", { name: "Copy", exact: true }).isDisabled();
+      await t.press(dialog.getByRole("checkbox", { name: "Include maybe list", exact: true }));
+      const field = dialog.getByRole("textbox", { name: "Exported list", exact: true });
+      await field.waitFor();
+      await t.step("Include the matching maybe card");
+      await t.press(dialog.getByRole("button", { name: "Copy", exact: true }));
+      await t.step("Copy the filtered export");
+      const oracleIds = before.cards.filter(c => c.name.toLowerCase().includes(card.name.toLowerCase())).map(c => c.oracle_id).sort().join(",");
+      const result = await t.api(`/api/decks/${id}/export?categories=off&include_maybe=on&oracle_ids=${oracleIds}`, t.users.owner);
+      const textMatches = await field.inputValue() === result.text;
+      const copied = await page.evaluate(() => navigator.clipboard.readText()) === result.text;
+      const after = (await t.api(`/api/decks/${id}`, t.users.owner)).state;
+      const unchanged = JSON.stringify(after) === JSON.stringify(before);
+      return { completed: initiallyEmpty && textMatches && copied && unchanged, facts: { fixture_card: card.name, cards: result.card_count, lines: result.line_count, initially_excludes_maybe: initiallyEmpty, exact_capability_result: textMatches, exact_clipboard: copied, deck_unchanged: unchanged } };
+    },
+  },
+  {
     name: "playtest-draw-undo-resume",
     caption: "Keep a hand, draw, undo and resume the saved manual table",
     width: 1440,

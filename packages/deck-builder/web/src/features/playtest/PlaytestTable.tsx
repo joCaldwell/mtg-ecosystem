@@ -425,7 +425,7 @@ export function PlaytestTable({
             : ({ "--inspection-w": `${width}px` } as CSSProperties)
         }
       >
-        <div className={`${styles.table} ${!playing ? styles.choosing : ""}`}>
+        <div className={`${styles.table} ${!playing ? styles.choosing : ""} ${playing && f.zones.battlefield.length === 0 && !c.ui.viewer ? styles.emptyBattlefield : ""}`}>
           <nav className={styles.zones} aria-label="Table zones">
             {zoneButtons.map((zone) => (
               <button
@@ -433,9 +433,10 @@ export function PlaytestTable({
                 type="button"
                 className={styles.zone}
                 aria-pressed={c.ui.viewer === zone}
-                onClick={() =>
-                  c.editUi({ viewer: c.ui.viewer === zone ? null : zone })
-                }
+                onClick={() => {
+                  setHover(null);
+                  c.editUi({ viewer: c.ui.viewer === zone ? null : zone });
+                }}
                 onDragOver={(e) => {
                   if (playing) e.preventDefault();
                 }}

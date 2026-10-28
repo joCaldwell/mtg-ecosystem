@@ -223,7 +223,10 @@ carry no label.
 
 The battlefield uses three rows separated by simple rules. It has no visible
 Battlefield heading, row headings or row counts. Hand and off-table zone counts
-remain visible. The hand, battlefield, library drawer and inspection panel scroll
+remain visible. An empty battlefield lets the full-text hand take its natural
+height; its three divider rows stay available for drops. A populated battlefield
+or open zone viewer restores the regular table allocation. Hand rules can scroll
+vertically even in short windows. The hand, battlefield, library drawer and inspection panel scroll
 independently; fonts never shrink as a table grows. Selection has a blue border,
 tapping has an explicit state/action and a dashed edge, and temporary inspection
 never changes the pinned selection or an unfinished observation's target.

@@ -1,6 +1,4 @@
 .page {
-  /* The panel follows the owner's chosen width but never crowds a small window. */
-  --panel-col: max(var(--panel-w-min), min(var(--inspection-w), var(--inspection-share)));
   min-width: 0;
   min-height: 0;
   flex: 1;
@@ -115,6 +113,9 @@
 }
 
 .workspace {
+  /* Resolve where the selected width is set, rather than inheriting a value
+     already computed against the page's default inspection width. */
+  --panel-col: max(var(--panel-w-min), min(var(--inspection-w), var(--inspection-share)));
   flex: 1;
   min-height: 0;
   display: grid;
@@ -138,6 +139,15 @@
 .table.choosing > section:last-child {
   max-height: none;
 }
+
+/* Before the first permanent enters, give full hand rules their natural
+   height instead of capping them beside unused table space. Keep the three
+   drop rows and return to the usual allocation for a board or zone viewer. */
+.table.emptyBattlefield { display: flex; flex-direction: column; }
+.emptyBattlefield > .zones { flex: none; }
+.emptyBattlefield > .surface { flex: 1 1 auto; min-height: var(--battlefield-row-min); }
+.emptyBattlefield > section:last-child { flex: 0 1 auto; max-height: none; }
+.emptyBattlefield .battlefield > section { min-height: var(--zone-header-h); }
 
 .zones {
   display: flex;
@@ -293,7 +303,7 @@
   .table > section:last-child > div {
     flex-wrap: nowrap;
     overflow-x: auto;
-    overflow-y: hidden;
+    overflow-y: auto;
   }
 }
 

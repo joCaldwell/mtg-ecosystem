@@ -114,6 +114,7 @@ views are the 375 px captures.
 
 | Flow | Width | Task |
 | --- | --- | --- |
+| `export-filtered-maybe` | 1440 | Filter a maybe card, include it in the export and verify exact clipboard text without editing the deck |
 | `playtest-draw-undo-resume` | 1440 | Keep a hand, keyboard-select a card and open its action menu, draw, undo exact zone order and reload the saved table without changing the deck |
 | `first-run-sample` | 1280 | From an empty account to the sample deck |
 | `import-moxfield` | 1280 | Import a Moxfield list into a new deck |
@@ -121,6 +122,10 @@ views are the 375 px captures.
 | `phone-accept` | 375 | Accept an agent proposal on a phone |
 | `share-public` | 1280 | Share a deck and open its public page |
 | `maybe-card-details` | 1440 | Find a card, add it to the maybe list, open its details |
+
+Desktop export states also cover the whole saved deck and a filtered maybe card
+at each desktop width. `check-export.mjs` additionally exercises every export
+option and a held response to verify stale scope text cannot be copied.
 
 Flows find controls by role and accessible name and take a shorter path when
 one appears (an Import entry on All decks, a reason field for accepting), so
