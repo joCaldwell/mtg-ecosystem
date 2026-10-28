@@ -399,7 +399,11 @@ workflow size its scrolling region without changing other dialogs.
 Nonzero change counts link to their sections inside the changes pane and
 focus the section's native summary. Each section starts open, can collapse
 after review, and reopens when its count is chosen; warnings and Apply stay
-in place while navigating the change list.
+in place while navigating the change list. Against an empty deck (no cuts,
+unchanged, quantity or role changes) the summary omits zero counts and the
+add and maybe sections start closed behind their counts. Skipped lines and
+the parser's after-import checks share one warning callout, named by its
+headings; the section title is a real heading under the dialog title.
 
 ## Sidebar navigation
 
@@ -555,6 +559,16 @@ stays available. Activity exposes pagination only when an earlier or later page
 exists. TableZone's hand variant observes actual overflow and exposes native
 Previous/Next controls only when needed. They scroll along the overflowing axis
 to card boundaries; they never dispatch a playtest action or alter selection.
+
+Playtest draws announce the drawn card through the shared toast, with Undo
+while the table is still exactly what the draw left; any other table change
+retires that offer, and undo confirms itself ("Undid draw."). The drawn card
+is scrolled into view inside the hand's own scroller (instantly under reduced
+motion) without moving focus, and carries a brief `data-drawn` mark set by
+the playtest feature. A card's action menu omits the zone its cards are all
+already in. An open zone viewer keeps
+`--playtest-viewer-reserve` of window height clear of the hand, so its five
+default library rows fit on short windows; the hand never drops below its minimum.
 
 Inbox ChangeUnit renders the proposal items' stored reasons at the decision point,
 using InlineText as deck Review does. A shared reason is shown once within its

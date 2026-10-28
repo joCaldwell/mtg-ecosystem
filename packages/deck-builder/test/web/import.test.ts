@@ -76,7 +76,11 @@ test("preview pins totals and warnings and links problem count to omissions befo
   assert.ok(changes > html.indexOf("Removes"));
   const target = html.match(/<a[^>]*href="#([^"]+)"[^>]*>(?:(?!<\/a>).)*?problem line<\/a>/s)?.[1];
   assert.ok(target, "the problem count is a fragment link");
-  assert.ok(html.includes(`id="${target}" role="region" aria-label="Not imported" tabindex="0"`), "it targets the focusable problem section");
+  const region = html.match(new RegExp(`id="${target}" role="region" aria-labelledby="([^"]+)" tabindex="0"`))?.[1];
+  assert.ok(region, "it targets the focusable warning callout");
+  for (const id of region.split(" ")) assert.ok(html.includes(`id="${id}"`), "the callout is named by its own headings");
+  assert.ok(html.indexOf("Not imported") < html.indexOf("Test warning"), "skipped lines and checks share one callout, skipped lines first");
+  assert.ok(html.indexOf("Test warning") < changes);
   assert.ok(html.indexOf("Not imported") < changes, "omission warnings remain outside and before the scrolling change list");
   assert.ok(html.indexOf("Test unknown") < changes, "the warning details stay outside it too");
   assert.ok(changes < html.indexOf("Will be cut"), "card changes are inside the scroll region");
@@ -86,6 +90,24 @@ test("preview pins totals and warnings and links problem count to omissions befo
   assert.ok(!html.includes("textarea"));
 });
 
+
+test("an empty target hides zero counts and starts the add and maybe lists closed", async t => {
+  const server = await createServer({ server: { middlewareMode: true, hmr: false }, appType: "custom", logLevel: "silent" });
+  t.after(() => server.close());
+  const { ImportPreview } = await server.ssrLoadModule("/src/features/import/ImportPreview.tsx");
+  const adds = { add_count: 1, adds: [{ oracle_id: "a", name: "Test add", quantity: 1, slot_id: null, slot_name: null, category: null, role: "card" as const }],
+    set_aside: [{ oracle_id: "m", name: "Test maybe", category: "Sideboard" }], unresolved: [{ line_no: 3, name: "Test unknown", suggestions: [] }] };
+  const empty = renderToStaticMarkup(createElement(ImportPreview, { diff: diff(adds) }));
+  assert.ok(!empty.includes("to cut") && !empty.includes("unchanged"), "zero-count segments are hidden");
+  assert.match(empty, /to add/);
+  assert.ok(!/<details[^>]*open/.test(empty), "adds and set-aside start closed behind their counts");
+  assert.match(empty, /Will be added · <span[^>]*>1<\/span>/);
+  assert.ok(empty.indexOf("Not imported") < empty.indexOf('aria-label="Import changes"'), "skipped lines stay open above the list");
+  const existing = renderToStaticMarkup(createElement(ImportPreview, { diff: diff({ ...adds, unchanged: 4 }) }));
+  assert.match(existing, /to cut/);
+  assert.match(existing, /unchanged/);
+  assert.match(existing, /<details[^>]*open/);
+});
 
 test("All decks offers Import deck beside New deck before any deck is opened", async t => {
   const server = await createServer({ server: { middlewareMode: true, hmr: false }, appType: "custom", logLevel: "silent" });

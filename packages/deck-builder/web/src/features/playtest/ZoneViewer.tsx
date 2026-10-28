@@ -143,6 +143,7 @@ export function ZoneViewer({
                     size="sm"
                     disabled={busy || !playing || order.indexOf(id) === 0}
                     aria-label={`Move ${card.name} earlier in library`}
+                    className={styles.reorder}
                     onClick={() =>
                       onMove([id], "library", undefined, order.indexOf(id) - 1)
                     }
@@ -155,6 +156,7 @@ export function ZoneViewer({
                       busy || !playing || order.indexOf(id) === order.length - 1
                     }
                     aria-label={`Move ${card.name} later in library`}
+                    className={styles.reorder}
                     onClick={() =>
                       onMove([id], "library", undefined, order.indexOf(id) + 1)
                     }

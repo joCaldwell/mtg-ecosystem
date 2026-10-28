@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import type { ImportDiff } from "../../api/client.ts";
 import { useCardHover } from "../../mtg/index.ts";
-import { Box, ErrorNote, Stack, Text } from "../../ui/index.ts";
+import { Box, ErrorNote, Row, Stack, Text } from "../../ui/index.ts";
 import { CardLine } from "./CardLine.tsx";
 import styles from "./ImportPreview.module.css";
 
@@ -10,7 +10,7 @@ import styles from "./ImportPreview.module.css";
 // Names that did not resolve are never guessed.
 export function ImportPreview({ diff }: { diff: ImportDiff }) {
   const hover = useCardHover();
-  const problemsId = useId();
+  const warningsId = useId();
   const sectionId = useId();
   const decreases = diff.quantity_changes.filter((q) => q.to < q.from);
   const increases = diff.quantity_changes.filter((q) => q.to > q.from);
@@ -40,7 +40,8 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
     const el = changes.current;
     if (!el) return;
     const bottom = el.getBoundingClientRect().bottom;
-    setMore(Array.from(el.querySelectorAll("li[data-import-change]")).filter(row => row.getBoundingClientRect().bottom > bottom + 1).length);
+    // Rows inside a closed section are not "below"; its summary carries the count.
+    setMore(Array.from(el.querySelectorAll("details[open] li[data-import-change]")).filter(row => row.getBoundingClientRect().bottom > bottom + 1).length);
     const height = Math.max(5, 100 * el.clientHeight / Math.max(1, el.scrollHeight));
     const progress = el.scrollTop / Math.max(1, el.scrollHeight - el.clientHeight);
     setScrollbar({ height, top: progress * (100 - height) });
@@ -52,35 +53,26 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
     return () => observer.disconnect();
   }, [diff]);
 
+  // Against an empty deck every card is an add: zero counts say nothing, and
+  // the routine add and maybe lists start closed behind their counts.
+  const emptyTarget = diff.cut_count === 0 && diff.unchanged === 0 && diff.quantity_changes.length === 0 && diff.role_changes.length === 0;
+  const segments: Array<[string, ReactNode]> = [];
+  if (!emptyTarget || diff.cut_count) segments.push(["cuts", countLink("cuts", diff.cut_count, "to cut", "cut")]);
+  if (!emptyTarget || diff.add_count) segments.push(["adds", countLink("adds", diff.add_count, "to add", "add")]);
+  if (!emptyTarget) segments.push(["unchanged", <><Text mono>{diff.unchanged}</Text> unchanged</>]);
+  if (diff.role_changes.length)
+    segments.push(["roles", countLink("roles", diff.role_changes.length, diff.role_changes.length === 1 ? "role change" : "role changes")]);
+  if (diff.set_aside.length) segments.push(["aside", countLink("aside", diff.set_aside.length, "set aside")]);
+  if (problems)
+    segments.push(["problems", <a className={styles.problemLink} href={`#${warningsId}`}><Text mono>{problems}</Text> {problems === 1 ? "problem line" : "problem lines"}</a>]);
+  const headings = [problems ? `${warningsId}-skipped` : null, diff.notes.length ? `${warningsId}-check` : null].filter(Boolean).join(" ");
+
   return (
     <div className={styles.preview}>
       <Stack gap={3} className={styles.summary} role="status" tabIndex={-1} data-import-summary>
         <Text as="p" tone="muted">
-          {countLink("cuts", diff.cut_count, "to cut", "cut")} ·{" "}
-          {countLink("adds", diff.add_count, "to add", "add")} · <Text mono>{diff.unchanged}</Text> unchanged
-          {diff.role_changes.length ? (
-            <>
-              {" "}
-              · {countLink("roles", diff.role_changes.length, diff.role_changes.length === 1 ? "role change" : "role changes")}
-            </>
-          ) : null}
-          {diff.set_aside.length ? (
-            <>
-              {" "}
-              · {countLink("aside", diff.set_aside.length, "set aside")}
-            </>
-          ) : null}
-          {problems ? (
-            <>
-              {" "}
-              · <a className={styles.problemLink} href={`#${problemsId}`}><Text mono>{problems}</Text> {problems === 1 ? "problem line" : "problem lines"}</a>
-            </>
-          ) : null}
+          {segments.map(([key, segment], i) => <span key={key}>{i > 0 ? " · " : null}{segment}</span>)}
         </Text>
-
-        {diff.notes.map((note) => (
-          <Text key={note} as="p" tone="warn" size="sm">{note}</Text>
-        ))}
 
         {diff.cut_count > 0 ? (
           <ErrorNote>
@@ -89,69 +81,82 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
         ) : null}
 
       </Stack>
-        {problems > 0 ? (
-          <Box className={styles.warnings} tone="warn" id={problemsId} role="region" aria-label="Not imported" tabIndex={0}>
-            <Text as="h3" weight="medium" tone="warn">
-              Not imported · {problems}
-            </Text>
-            <Text tone="muted" size="sm" as="p">
-              These lines are skipped, and the rest of the list still applies. Names are matched exactly and never
-              guessed: fix the line and preview again.
-            </Text>
-            <ul className={styles.problems}>
-              {diff.unresolved.map((u) => (
-                <li key={`u${u.line_no}`}>
-                  <Text mono tone="muted">
-                    line {u.line_no}
-                  </Text>{" "}
-                  “{u.name}” did not match a card.
-                  {u.suggestions.length > 0 ? (
-                    <>
-                      {" "}
-                      Did you mean{" "}
-                      {u.suggestions.map((s, i) => (
-                        <span key={s}>
-                          {i > 0 ? ", " : ""}
-                          <span className={styles.suggestion} {...hover(s)}>
-                            {s}
+        {/* One callout for everything that needs the owner's attention: lines
+            that were skipped, then what the app cannot verify for itself. */}
+        {headings ? (
+          <Box className={styles.warnings} tone="warn" id={warningsId} role="region" aria-labelledby={headings} tabIndex={0}>
+            {problems > 0 ? (
+              <>
+                <Row gap={4} align="baseline" wrap>
+                  <Text as="h3" id={`${warningsId}-skipped`} size="md" weight="medium" tone="warn">
+                    Not imported · <Text mono>{problems}</Text>
+                  </Text>
+                  <Text tone="muted" size="sm">Skipped. Fix the line and preview again.</Text>
+                </Row>
+                <ul className={styles.problems}>
+                {diff.unresolved.map((u) => (
+                  <li key={`u${u.line_no}`}>
+                    <Text mono tone="muted">
+                      line {u.line_no}
+                    </Text>{" "}
+                    “{u.name}” did not match a card.
+                    {u.suggestions.length > 0 ? (
+                      <>
+                        {" "}
+                        Did you mean{" "}
+                        {u.suggestions.map((s, i) => (
+                          <span key={s}>
+                            {i > 0 ? ", " : ""}
+                            <span className={styles.suggestion} {...hover(s)}>
+                              {s}
+                            </span>
                           </span>
-                        </span>
+                        ))}
+                        ?
+                      </>
+                    ) : (
+                      " No close names were found."
+                    )}
+                    {u.suggestions.some((s) => cutNames.has(s)) ? (
+                      <Text tone="cut">
+                        {" "}
+                        {u.suggestions.filter((s) => cutNames.has(s)).join(", ")} is in the cut list because of this line.
+                      </Text>
+                    ) : null}
+                  </li>
+                ))}
+                {diff.ambiguous.map((a) => (
+                  <li key={`a${a.line_no}`}>
+                    <Text mono tone="muted">
+                      line {a.line_no}
+                    </Text>{" "}
+                    “{a.name}” matched more than one card. Add the one you mean through search.
+                    <ul className={styles.candidates}>
+                      {a.candidates.map((c) => (
+                        <CardLine key={c.oracle_id} oracleId={c.oracle_id} name={c.name} detail={c.oracle_id.slice(0, 8)} />
                       ))}
-                      ?
-                    </>
-                  ) : (
-                    " No close names were found."
-                  )}
-                  {u.suggestions.some((s) => cutNames.has(s)) ? (
-                    <Text tone="cut">
-                      {" "}
-                      {u.suggestions.filter((s) => cutNames.has(s)).join(", ")} is in the cut list because of this line.
-                    </Text>
-                  ) : null}
-                </li>
-              ))}
-              {diff.ambiguous.map((a) => (
-                <li key={`a${a.line_no}`}>
-                  <Text mono tone="muted">
-                    line {a.line_no}
-                  </Text>{" "}
-                  “{a.name}” matched more than one card. Add the one you mean through search.
-                  <ul className={styles.candidates}>
-                    {a.candidates.map((c) => (
-                      <CardLine key={c.oracle_id} oracleId={c.oracle_id} name={c.name} detail={c.oracle_id.slice(0, 8)} />
-                    ))}
-                  </ul>
-                </li>
-              ))}
-              {diff.unparsed.map((u) => (
-                <li key={`p${u.line_no}`}>
-                  <Text mono tone="muted">
-                    line {u.line_no}
-                  </Text>{" "}
-                  could not be read as a card entry: <Text mono>{u.raw}</Text>
-                </li>
-              ))}
-            </ul>
+                    </ul>
+                  </li>
+                ))}
+                {diff.unparsed.map((u) => (
+                  <li key={`p${u.line_no}`}>
+                    <Text mono tone="muted">
+                      line {u.line_no}
+                    </Text>{" "}
+                    could not be read as a card entry: <Text mono>{u.raw}</Text>
+                  </li>
+                ))}
+                </ul>
+              </>
+            ) : null}
+            {diff.notes.length > 0 ? (
+              <div className={styles.check} data-after-skipped={problems > 0 || undefined}>
+                <Text as="h3" id={`${warningsId}-check`} size="md" weight="medium" tone="warn">Check after importing</Text>
+                {diff.notes.map((note) => (
+                  <Text key={note} as="p" size="sm" tone="soft">{note}</Text>
+                ))}
+              </div>
+            ) : null}
           </Box>
         ) : null}
 
@@ -185,7 +190,7 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
         ) : null}
 
         {diff.adds.length + increases.length > 0 ? (
-          <Group id={`${sectionId}-adds`} onToggle={measureRemaining} title="Will be added" count={diff.add_count} tone="add">
+          <Group id={`${sectionId}-adds`} onToggle={measureRemaining} open={!emptyTarget} title="Will be added" count={diff.add_count} tone="add">
             {diff.adds.map((a) => (
               <CardLine
                 key={a.oracle_id}
@@ -219,7 +224,7 @@ export function ImportPreview({ diff }: { diff: ImportDiff }) {
         ) : null}
 
         {diff.set_aside.length > 0 ? (
-          <Group id={`${sectionId}-aside`} onToggle={measureRemaining} title="Set aside to the maybe list" count={diff.set_aside.length}>
+          <Group id={`${sectionId}-aside`} onToggle={measureRemaining} open={!emptyTarget} title="Set aside to the maybe list" count={diff.set_aside.length}>
             <li className={styles.note}>
               Listed under Maybeboard or Sideboard, so shortlisted on the maybe list and not added to the deck.
             </li>
@@ -253,6 +258,7 @@ function addDetail(a: ImportDiff["adds"][number]): ReactNode {
 function Group({
   id,
   onToggle,
+  open = true,
   title,
   count,
   tone,
@@ -260,13 +266,15 @@ function Group({
 }: {
   id: string;
   onToggle: () => void;
+  /** Whether it starts open; afterwards the owner's toggle is left alone. */
+  open?: boolean;
   title: string;
   count: number;
   tone?: "add" | "cut";
   children: ReactNode;
 }) {
   return (
-    <details id={id} open className={styles.group} onToggle={onToggle}>
+    <details id={id} open={open} className={styles.group} onToggle={onToggle}>
       <summary>
         <Text weight="medium" size="sm" tone={tone}>{title} · <Text mono>{count}</Text></Text>
       </summary>

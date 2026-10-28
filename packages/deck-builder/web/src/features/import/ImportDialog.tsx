@@ -89,7 +89,7 @@ export function ImportDialog({ deckId = null, onClose, onApplied }: {
       {error && <ErrorNote>{error}</ErrorNote>}
       {diff ? <>
         <Row justify="between" wrap>
-          <Text weight="medium">{deckId === null ? importName(name, diff) : "Review changes"}{deckId === null && <> · {category === "paper" ? "Paper" : "Theorycrafted"}</>}</Text>
+          <Text as="h3" size="lg" weight="medium">{deckId === null ? importName(name, diff) : "Review changes"}{deckId === null && <Text tone="muted" weight="normal"> · {category === "paper" ? "Paper" : "Theorycrafted"}</Text>}</Text>
           <Button size="touch" variant="ghost" disabled={busy} onClick={() => { setDiff(null); setConfirming(false); setError(null); }}>Edit list</Button>
         </Row>
         <ImportPreview diff={diff} />

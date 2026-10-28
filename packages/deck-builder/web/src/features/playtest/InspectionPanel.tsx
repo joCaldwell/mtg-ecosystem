@@ -417,7 +417,6 @@ export function InspectionPanel({
             }}
           />
           <Button
-            variant="primary"
             disabled={!c.ui.draft.text.trim() || savingMemory}
             onClick={() => void saveMemory()}
           >

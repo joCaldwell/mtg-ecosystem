@@ -263,6 +263,9 @@
   --empty-row-h: 64px;
   --playtest-hand-min: 220px;
   --playtest-hand-max: 46dvh;
+  /* Window height kept clear of the hand while a zone viewer is open: bar,
+     zone strip and five viewer rows with their controls. */
+  --playtest-viewer-reserve: 540px;
   --playtest-preview-w: 380px;
   --playtest-drawer-h: 72%;
   --playtest-number-w: 64px;
