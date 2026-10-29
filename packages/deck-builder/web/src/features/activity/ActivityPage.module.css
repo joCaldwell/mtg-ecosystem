@@ -18,10 +18,12 @@
   background: var(--surface);
 }
 
+/* Baselines, not centres: the monospaced time has different vertical metrics
+   from the sans names and would otherwise sit above them. */
 .head {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: baseline;
   gap: var(--s-2) var(--s-5);
   padding: var(--s-4) var(--s-5);
   border-bottom: 1px solid var(--line);
@@ -31,6 +33,8 @@
 .link {
   text-decoration: underline;
 }
+
+.head > :first-child { align-self: center; }
 
 .decks {
   color: var(--muted);

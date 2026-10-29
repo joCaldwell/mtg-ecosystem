@@ -65,7 +65,7 @@ D20) and built in phase 4a; phase 4b makes the full app hold up between
 | `CardSheet` | `mtg/` | The hover card's facts in a dialog, opened by tap; sheet on phones |
 | `ReadOnlyDeck` | `features/deck` | List beside price, power, brief, checks, decisions; one column under 720 px |
 | Shared deck header | `features/public` | Art, name, owner, commander, target; Copy link, Export, Fork, Compare at desktop button size; signed out, a secondary "Sign in to fork or compare" button. The owner's own link previews the signed-out view, with icon-only Back to the deck in its note |
-| Share dialog | `features/deck/dialogs` | Segmented visibility with its consequence in words; link; publish decisions |
+| Share dialog | `features/deck/dialogs` | Segmented visibility with its consequence in words; link with Copy link and a secondary "Preview public page"; publish decisions |
 | Phone shell | `features/phone` | 48 px top bar; one decision per card with reason, Accept, Reject; bulk actions in Review all decisions |
 
 ## What each colour means
@@ -145,6 +145,10 @@ severity before a message, the rest of a link's name.
 - Eyebrows (small section labels): `--text-xs`, uppercase, letter-spaced,
   `--faint`.
 - Counts, revisions, mana values, times: `--font-mono` with tabular numerals.
+  It is one stack of platform UI monospace faces (no downloads); named Linux
+  faces precede the bare generic, which is often a Courier clone there.
+  `code`, `kbd`, `pre` and `samp` use it too. Mono beside sans text aligns by
+  baseline, not centre, since the faces' vertical metrics differ.
   Deck prices, slot totals and header metadata use at least `--text-sm` (12px).
 
 ## Writing in the UI
@@ -172,7 +176,7 @@ or about this app.
 
 | Component | For | Variants |
 | --- | --- | --- |
-| `Button` | Any action | `default` `ghost` `primary` `accept` `reject` `agent`; `sm` `md` `touch`; `kbd` hint; disabled is one neutral, dimmed look for every variant |
+| `Button` | Any action | `default` `ghost` `primary` `accept` `reject` `agent`; `sm` `md` `touch`; `kbd` hint; disabled is one neutral look for every variant: no fill, `--disabled-ink` label and `--disabled-line` border, visible but clearly unavailable |
 | `ButtonLink` | A link drawn as a Button, for an action that navigates | `default` `ghost` `primary`; `sm` `md` `touch` |
 | `IconButton` | An action with only an icon; `label` is required | `sm` `md` `touch` |
 | `Icon` | The 17 line icons (inbox, decks, memories, activity, profile, settings, back, close, check, plus, chevronDown, undo, redo, search, more, globe, link) | `size` |
@@ -353,8 +357,9 @@ printed artist and copyright lines.
 - **The rail thumbnail is decorative** (`aria-hidden`), so the link's name is
   the deck name. Its credit is the native tooltip. It sits at
   `--art-thumb-opacity` until its row is current or hovered, replaces the
-  neutral dot (a deck waiting on the owner keeps its violet dot on the
-  thumbnail's corner), and the row's gaps give back its width: names
+  neutral dot (in the collapsed rail a deck waiting on the owner keeps a
+  violet dot on the thumbnail's corner; expanded rows show the Inbox's violet
+  count badge at their end instead), and the row's gaps give back its width: names
   truncate exactly where they did before thumbnails.
 - **Roster cards are one link.** The deck name's link is stretched over the
   card; the commander links and the actions menu sit above it. Cards fill
@@ -411,8 +416,8 @@ WCAG contrast) in both layouts. The phone shell uses the same badge treatment.
 Following review, the owner decided on 2026-10-27 to restore Activity as a
 separate sidebar item after Memories. `/activity` has its own Activity title
 and current link; `/profile` is a single page with no tabs. A profile draft
-survives resizing. The inbox’s unreviewed decision count sits in its padded
-header metadata beside its title, aligned with the rest of the page content.
+survives resizing. The count of decisions no agent has read sits in proposal
+history, not the inbox header.
 
 The deck editor keeps specifically labelled help for lifecycle consequences,
 slot targets and proposal mechanics. Its add bar uses a plus label and raised surface;

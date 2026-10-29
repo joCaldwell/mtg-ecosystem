@@ -3,7 +3,7 @@ import { useQuery } from "../../api/useQuery.ts";
 import { href } from "../../app/routes.ts";
 import { ago } from "../../domain/time.ts";
 import { reviewUnits } from "../../domain/review.ts";
-import { changesSince, staleNote } from "../../domain/staleChanges.ts";
+import { changesSince, staleNote, staleTouches } from "../../domain/staleChanges.ts";
 import { InlineText } from "../../mtg/index.ts";
 import { ErrorNote, Eyebrow, Kbd, Loading, Section, Stack, Text } from "../../ui/index.ts";
 import { ChangeUnit } from "./ChangeUnit.tsx";
@@ -35,7 +35,10 @@ export function ProposalSummary({ proposal }: { proposal: Proposal }) {
         </div>
       </Stack>
 
-      {proposal.stale && <Text tone="warn">{staleNote(state ? changesSince(state.log, proposal.base_revision) : null)}</Text>}
+      {/* Amber only when the changes since touch a card this proposal adds or cuts. */}
+      {proposal.stale && (state || deck.error) && <Text tone={!state || staleTouches(state.log, proposal.base_revision, proposal.items.map((i) => i.oracle_id)) ? "warn" : "muted"}>
+        {staleNote(state ? changesSince(state.log, proposal.base_revision) : null)}
+      </Text>}
       {deck.error && <ErrorNote>{deck.error}</ErrorNote>}
       {!state && !deck.error && <Loading />}
 

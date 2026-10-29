@@ -86,13 +86,15 @@
 }
 
 /* Disabled is one look for every variant: no fill and no meaning colour, so a
-   form's unavailable primary can never pass for a quieter primary. base.css
-   dims it further. */
+   form's unavailable primary can never pass for a quieter primary. Its label
+   and border stay visible (the tokens), so the action reads as unavailable,
+   not absent; base.css's generic dimming does not apply on top. */
 .button:disabled {
-  border-color: var(--line);
+  border-color: var(--disabled-line);
   background: none;
-  color: var(--muted);
+  color: var(--disabled-ink);
   font-weight: inherit;
+  opacity: 1;
 }
 
 .ghost:disabled {

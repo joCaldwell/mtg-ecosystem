@@ -1,13 +1,23 @@
+/* Composer first; then one row of filters (wrapping only when the frame is
+   too narrow for it), and a rule between them and the list. */
 .filters {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: end;
-  gap: var(--s-3) var(--s-6);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-4) var(--s-6);
 }
-.scope { min-width: 0; }
+
+/* The scope keeps a stable width, so loading deck names never moves the row. */
+.scope {
+  display: flex;
+  flex: 0 1 var(--memories-scope-w);
+  align-items: center;
+  gap: var(--s-3);
+  min-width: 0;
+}
+.scope > label { color: var(--muted); font-weight: inherit; }
+.scope > :last-child { flex: 1; min-width: 0; }
 .scope select { width: 100%; }
-.scope > span { width: 100%; }
-.status { grid-column: 1 / -1; }
 
 .group {
   display: flex;
@@ -19,14 +29,20 @@
 /* Pill toggles: a Chip cannot show "selected", and these are state, not tags. */
 
 .search {
-  width: 100%;
+  flex: 1 1 var(--memories-search-min);
   min-width: 0;
 }
 @media (max-width: 1099px) {
   .filters :is(select, button) { min-height: var(--tap); }
 }
 @media (max-width: 719px) {
-  .filters { grid-template-columns: minmax(0, 1fr); }
+  .filters { flex-direction: column; align-items: stretch; }
+  .scope, .search { flex: none; }
+}
+
+.listSection {
+  padding-top: var(--s-6);
+  border-top: 1px solid var(--line);
 }
 
 .listHead {

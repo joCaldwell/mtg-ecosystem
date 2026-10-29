@@ -32,7 +32,7 @@ export function CardDataCard({ cards, jobs, onChanged, canRefresh = true }: { ca
         <Text as="h2" size="lg" weight="bold">
           Card data
         </Text>
-        <Row gap={5} wrap>
+        <Row gap={5} wrap align="baseline">
           <Text>Scryfall bulk data</Text>
           <Text mono tone="muted">
             {cards.count.toLocaleString()} cards

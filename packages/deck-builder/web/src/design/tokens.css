@@ -52,6 +52,11 @@
      AA where a nonmatching row can sit. Measured 5.32 on --bg, 5.02 hovered,
      4.69 on selected + hover. An open row (--raised, 4.41) returns to --muted. */
   --text-dim: #808080;
+  /* Disabled Buttons: about half the enabled label's brightness and a full
+     control border, with no fill, so an unavailable action still reads as
+     present but is never mistaken for an enabled one (5.32:1 on --bg). */
+  --disabled-ink: var(--text-dim);
+  --disabled-line: var(--line-strong);
   /* Mana pips and marks on a search nonmatch; the name stays readable. */
   --dim-opacity: 0.38;
 
@@ -107,7 +112,13 @@
 
   /* Type */
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  /* One monospace stack for every number and code. The app ships no fonts,
+     so these are each platform's own UI monospace faces, best first. The
+     bare generic comes last only as a guarantee: on Linux it often resolves
+     to a Courier clone, which reads as a different typeface and sits high
+     beside the sans, so the named Linux faces come before it. */
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Cascadia Mono", "Segoe UI Mono", Consolas,
+    "Roboto Mono", "Ubuntu Mono", "DejaVu Sans Mono", "Noto Sans Mono", "Liberation Mono", monospace;
   --text-2xs: 10px;
   --text-xs: 11px;
   --text-sm: 12px;
@@ -176,7 +187,15 @@
   --deck-curve-bar-height: 112px;
   --deck-curve-height: 152px;
   --stats-identity-min: 208px;
+  /* One "Planeswalker  0.3" pair in the averages' type counts. */
+  --stats-type-min: 152px;
   --settings-card-min: 440px;
+  /* Memories' filter row: the scope select's stable width, and the search's
+     width before the row wraps. */
+  --memories-scope-w: 280px;
+  --memories-search-min: 240px;
+  /* The share dialog's link field before its buttons wrap below it. */
+  --share-link-min: 240px;
   --toolbar-add-w: 300px;
   --toolbar-search-max: 400px;
   --toolbar-tags-w: 140px;
@@ -187,6 +206,12 @@
      itself is PHONE_MAX_WIDTH in app/breakpoints.ts: media queries cannot
      read a custom property. */
   --public-w: 1240px;
+  /* Very wide windows widen the shared page toward --public-wide, so the list
+     gets a third column. Fluid, because the only width queries allowed are the
+     three breakpoints: 62.5vw passes --public-w just above 1980 px and reaches
+     --public-wide at 2560 px. */
+  --public-wide: 1600px;
+  --public-grow: 62.5vw;
   /* D21 art. Overlays derive from --bg, so a palette change carries them.
      Each art band reaches --art-overlay-text where content starts; the
      credit pill uses the same overlay. Over pure white art the pill and the

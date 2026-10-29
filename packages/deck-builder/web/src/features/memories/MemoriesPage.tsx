@@ -50,6 +50,7 @@ export function MemoriesPage() {
   }, [scope, list.data?.scopes]);
   const filtered = scope !== "all" || basis !== "any" || showOld || q !== "";
   const addToDeck = typeof scope === "number" ? scope : null;
+  const showFilters = list.data != null && (filtered || cursors.length > 0 || shown.length > 0);
 
   return (
     <Page
@@ -61,38 +62,7 @@ export function MemoriesPage() {
     >
       {list.error && <ErrorNote>{list.error}</ErrorNote>}
 
-
       <Stack gap={4}>
-        <div className={styles.filters}>
-          <Field label="Scope" className={styles.scope}>
-            <Select value={scope} onChange={event => {
-              const value = event.target.value;
-              setScope(value === "all" || value === "global" ? value : Number(value));
-            }}>
-              <option value="all">All scopes</option>
-              <option value="global">Global</option>
-              {scopes.map(deck => <option key={deck.id} value={deck.id}>{deck.name}{deck.category === "archived" ? " · Archived" : ""}</option>)}
-            </Select>
-          </Field>
-          <div className={styles.group} role="group" aria-label="Basis">
-            <Text size="sm" tone="muted">Basis</Text>
-            <Pill on={basis === "any"} onClick={() => setBasis("any")}>Any basis</Pill>
-            <Pill on={basis === "stated"} onClick={() => setBasis("stated")}>Stated</Pill>
-            <Pill on={basis === "inferred"} onClick={() => setBasis("inferred")}>Inferred</Pill>
-          </div>
-          <TextField
-            type="search"
-            className={styles.search}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search memory text or a card"
-            aria-label="Search memories"
-          />
-          <div className={`${styles.group} ${styles.status}`}>
-            <Pill on={showOld} onClick={() => setShowOld(!showOld)}>Show retired and superseded</Pill>
-          </div>
-        </div>
-
         {!(addToDeck != null && archived.has(addToDeck)) && <AddMemory
           key={addToDeck ?? "global"}
           scope={addToDeck != null ? "deck" : "global"}
@@ -105,10 +75,42 @@ export function MemoriesPage() {
         {addToDeck != null && archived.has(addToDeck) && <Text tone="muted" size="sm">Archived deck memories are read-only.</Text>}
       </Stack>
 
+      {/* Filters only once there is something to filter: with no memories at all
+          they would only explain an empty list. */}
+      {showFilters && <div className={styles.filters}>
+        <Field label="Scope" className={styles.scope}>
+          <Select value={scope} onChange={event => {
+            const value = event.target.value;
+            setScope(value === "all" || value === "global" ? value : Number(value));
+          }}>
+            <option value="all">All scopes</option>
+            <option value="global">Global</option>
+            {scopes.map(deck => <option key={deck.id} value={deck.id}>{deck.name}{deck.category === "archived" ? " · Archived" : ""}</option>)}
+          </Select>
+        </Field>
+        <div className={styles.group} role="group" aria-label="Basis">
+          <Text size="sm" tone="muted">Basis</Text>
+          <Pill on={basis === "any"} onClick={() => setBasis("any")}>Any basis</Pill>
+          <Pill on={basis === "stated"} onClick={() => setBasis("stated")}>Stated</Pill>
+          <Pill on={basis === "inferred"} onClick={() => setBasis("inferred")}>Inferred</Pill>
+        </div>
+        <div className={styles.group}>
+          <Pill on={showOld} onClick={() => setShowOld(!showOld)}>Show retired and superseded</Pill>
+        </div>
+        <TextField
+          type="search"
+          className={styles.search}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search memory text or a card"
+          aria-label="Search memories"
+        />
+      </div>}
+
       {list.loading ? (
         <Loading />
       ) : (
-        <Stack gap={4}>
+        <Stack gap={4} className={styles.listSection}>
           <div className={styles.listHead}>
             <Eyebrow>{shown.length === 1 ? "1 memory" : `${shown.length} memories`}</Eyebrow>
           </div>

@@ -6,13 +6,16 @@ import { Chip, EmptyState, ErrorNote, Loading, Row, Stack, Text } from "../../ui
 import { HistoryEntry } from "./HistoryEntry.tsx";
 
 /** Read-only audit view. Earlier drafts never expose approval controls. */
-export function ProposalHistory() {
+export function ProposalHistory({ unreviewed }: { unreviewed: number }) {
   const history = useQuery(api.proposalHistory, []);
   if (history.error) return <ErrorNote>{history.error}</ErrorNote>;
   if (!history.data) return <Loading />;
   const { document_edits, proposals } = history.data;
   return <Stack gap={5}>
     <Text tone="muted">Recent proposal history, including earlier drafts. Superseded and withdrawn work cannot be approved.</Text>
+    {/* The owner's decisions an agent has not read yet (§8.4). Kept here, not in the
+        inbox header, where it read as contradicting the waiting-proposal badge. */}
+    {unreviewed > 0 && <Text tone="soft" size="sm">{unreviewed === 1 ? "1 of your decisions is" : `${unreviewed} of your decisions are`} not yet read by an agent</Text>}
     {!document_edits.length && !proposals.length && <EmptyState title="No proposal history yet">Proposals and their earlier drafts will appear here.</EmptyState>}
     {document_edits.map(edit => <HistoryEntry key={`edit-${edit.id}`} title={`${editTitle(edit)} · #${edit.id}`} status={edit.disposition === "current" ? edit.status : edit.disposition}
       subject={edit.deck_name ?? "Profile"} author={edit.author_display ?? edit.author} createdAt={edit.created_at}
