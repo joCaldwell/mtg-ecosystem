@@ -1,7 +1,12 @@
-// The Review tab (spec §8): what is waiting on the owner, one card per
-// decision, with the projected deck above it. Decision happens here, in the list
-// (review mode) and in the banner through the same `Review` object.
+// The Review tab (spec §8): what is waiting on the owner, with the projected
+// deck above it. One proposal is open at a time, the one holding the review
+// cursor; the others are one line each and open when clicked or reached with
+// J/K. Decision happens here, in the list (review mode) and in the banner
+// through the same `Review` object.
 
+import { useState } from "react";
+import { plainText } from "../../../domain/inbox.ts";
+import { proposalQueue } from "../../../domain/review.ts";
 import { changesSince, staleNote, staleTouches } from "../../../domain/staleChanges.ts";
 import { ago } from "../../../domain/time.ts";
 import { InlineText } from "../../../mtg/index.ts";
@@ -17,48 +22,83 @@ import styles from "./ReviewPanel.module.css";
 export function ReviewPanel({ view, review }: { view: DeckViewModel; review: Review }) {
   const state = useDeckState();
   const ui = useDeckUi();
+  // Reason drafts by decision, so moving between proposals keeps them.
+  const [reasons, setReasons] = useState<Record<string, string>>({});
 
   if (view.units.length === 0) return <EmptyState title="No pending proposals" />;
   if (state.deck.category === "archived") return <Text tone="muted">Pending proposals are kept. To accept or reject them, switch this deck to Paper or Theorycrafted.</Text>;
 
-  // Units come oldest proposal first, so the proposals do too.
-  const proposals = state.proposals
-    .filter((p) => view.units.some((u) => u.proposalId === p.id))
-    .sort((a, b) => a.id - b.id);
+  // The same unit useReview treats as current, also outside review mode.
+  const focus = Math.min(ui.cursor, view.units.length - 1);
+  const focused = view.units[focus]?.proposalId;
+  const queue = proposalQueue(view.units);
 
   return (
     <>
-      {proposals.map((proposal, n) => (
-        <div key={proposal.id} className={styles.proposal} data-proposal={proposal.id}>
-          <div className={styles.head}>
-            <Eyebrow className={styles.eyebrow}>
-              <span className={styles.id}>Proposal {proposal.id}</span>
-              <span>
-                {proposal.author_display ?? proposal.author} · {ago(proposal.created_at)}
-              </span>
-            </Eyebrow>
-            <p className={styles.summary}>
-              <InlineText text={proposal.summary} />
-            </p>
-          </div>
-          {/* Amber only when the changes since touch this proposal's own
-              cards; otherwise the same sentence, quietly. Accepting still
-              asks for the server's stale acknowledgement either way. */}
-          {proposal.stale && <Text tone={staleTouches(state.log, proposal.base_revision, proposal.items.filter(i => i.status === "pending").map(i => i.oracle_id)) ? "warn" : "muted"}>
-            {staleNote(changesSince(state.log, proposal.base_revision))}
-          </Text>}
-          {proposal.supersedes.length > 0 && <Text tone="faint">Replaces proposals {proposal.supersedes.join(", ")}.</Text>}
-          {/* The projection covers every open proposal, so it appears once. */}
-          {n === 0 && <ReviewDelta />}
-          <div className={styles.units}>
-            {view.units.map((unit, index) =>
-              unit.proposalId === proposal.id ? (
-                <ReviewUnitCard key={unit.key} unit={unit} index={index} review={review} />
-              ) : null,
-            )}
-          </div>
-        </div>
-      ))}
+      {/* The projection covers every open proposal, so it appears once. */}
+      <ReviewDelta />
+      <div className={styles.queue}>
+        {queue.map((entry) => {
+          const proposal = state.proposals.find((p) => p.id === entry.proposalId);
+          if (!proposal) return null;
+          const position = `${entry.position} of ${entry.of}`;
+          if (proposal.id !== focused) {
+            return (
+              <div key={proposal.id} className={styles.collapsed} data-proposal={proposal.id}>
+                <button type="button" className={styles.line} aria-expanded={false} onClick={() => ui.setCursor(entry.firstUnit)}>
+                  <span className={styles.position}>{position}</span>
+                  <span className={styles.lineTitle}>{plainText(proposal.summary)}</span>
+                  <span className={styles.lineMeta}>
+                    {proposal.author_label || proposal.author} · {entry.changes} {entry.changes === 1 ? "change" : "changes"}
+                  </span>
+                </button>
+              </div>
+            );
+          }
+          const pending = proposal.items.filter((i) => i.status === "pending");
+          return (
+            <div key={proposal.id} className={styles.proposal} data-proposal={proposal.id}>
+              <div className={styles.head}>
+                <Eyebrow className={styles.eyebrow}>
+                  <span className={styles.position}>{position}</span>
+                  <span>
+                    {proposal.author_display ?? proposal.author} · {ago(proposal.created_at)}
+                  </span>
+                  <span className={styles.id}><span className="visually-hidden">Proposal </span>#{proposal.id}</span>
+                </Eyebrow>
+                <p className={styles.summary}>
+                  <InlineText text={proposal.summary} />
+                </p>
+              </div>
+              {/* Amber only when the changes since touch this proposal's own
+                  cards; otherwise the same sentence, quietly. Accepting still
+                  asks for the server's stale acknowledgement either way. */}
+              {proposal.stale && <Text tone={staleTouches(state.log, proposal.base_revision, pending.map(i => i.oracle_id)) ? "warn" : "muted"}>
+                {staleNote(changesSince(state.log, proposal.base_revision))}
+              </Text>}
+              {proposal.supersedes.length > 0 && <Text tone="faint">Replaces proposals {proposal.supersedes.join(", ")}.</Text>}
+              <div className={styles.units}>
+                {view.units.map((unit, index) =>
+                  unit.proposalId === proposal.id ? (
+                    <ReviewUnitCard
+                      key={unit.key}
+                      unit={unit}
+                      index={index}
+                      review={review}
+                      focused={index === focus}
+                      reason={reasons[unit.key] ?? ""}
+                      onReason={(text) => setReasons((all) => ({ ...all, [unit.key]: text }))}
+                    />
+                  ) : null,
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {/* Room to scroll the last proposals up to the panel's top edge, so
+          the one above is never left cut by the navigation. */}
+      {ui.reviewing && <div className={styles.tail} aria-hidden="true" />}
       {!ui.reviewing && (
         <div className={styles.start}>
           <Button variant="agent" onClick={ui.startReview} kbd="↵">

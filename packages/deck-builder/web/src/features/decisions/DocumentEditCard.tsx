@@ -12,7 +12,7 @@ function Change({ edit }: { edit: DocumentEdit }) {
     // DiffView gives an empty line no height; a non-breaking space holds it open.
     const lines = editDiff(edit).map((l) => (l.text === "" ? { ...l, text: "\u00a0" } : l));
     return lines.length ? (
-      <DiffView lines={lines} />
+      <DiffView lines={lines} foldSame />
     ) : (
       <Text tone="muted">This edit changes nothing: the text is the same.</Text>
     );

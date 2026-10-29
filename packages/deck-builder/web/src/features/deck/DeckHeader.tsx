@@ -1,4 +1,3 @@
-import { Explainer } from "../../ui/index.ts";
 // The deck's identity and its vital signs (spec §5.1): name, who may edit it,
 // and three numbers that each open the tab explaining them. Slot counts are
 // not here; they live on the group headings, where they can be acted on.
@@ -10,13 +9,13 @@ import { DECK_CATEGORY_LABELS, DECK_CATEGORY_OPTIONS } from "../../domain/deckCa
 import { bracketLabel } from "../../domain/power.ts";
 import { costCaption, formatPrice } from "../../domain/price.ts";
 import { ColorIdentity, ManaCost, CardRef, DeckArt } from "../../mtg/index.ts";
-import { Button, ConfirmDialog, Icon, Menu, Row, Text, TextField, type MenuItem } from "../../ui/index.ts";
+import { Button, ConfirmDialog, Explainer, Icon, Menu, Row, Text, TextField, type MenuItem } from "../../ui/index.ts";
 import { DeckStat } from "./DeckStat.tsx";
 import { useDeck, useDeckState } from "./DeckStore.tsx";
 import { useDeckUi } from "./DeckUi.tsx";
 import styles from "./DeckHeader.module.css";
 
-export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
+export function DeckHeader() {
   const state = useDeckState();
   const { run } = useDeck();
   const ui = useDeckUi();
@@ -24,6 +23,8 @@ export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
   const readOnly = deck.category === "archived";
   const [draft, setDraft] = useState<string | null>(null);
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const [lifecyclePill, setLifecyclePill] = useState<HTMLButtonElement | null>(null);
+  const [explaining, setExplaining] = useState(false);
 
   function startRename() {
     setDraft(deck.name);
@@ -53,17 +54,21 @@ export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
   }
 
   // Lifecycle is a state shown as a pill; its menu changes it. Archiving makes
-  // the deck read-only, so that one choice asks first.
-  const lifecycleItems: MenuItem[] = DECK_CATEGORY_OPTIONS.map((option) => ({
-    id: option.value,
-    label: option.label,
-    checked: option.value === deck.category,
-    onSelect: () => {
-      if (option.value === deck.category) return;
-      if (option.value === "archived") setConfirmArchive(true);
-      else setCategory(option.value);
-    },
-  }));
+  // the deck read-only, so that one choice asks first. What each lifecycle
+  // allows is the menu's last item, set apart from the choices.
+  const lifecycleItems: MenuItem[] = [
+    ...DECK_CATEGORY_OPTIONS.map((option): MenuItem => ({
+      id: option.value,
+      label: option.label,
+      checked: option.value === deck.category,
+      onSelect: () => {
+        if (option.value === deck.category) return;
+        if (option.value === "archived") setConfirmArchive(true);
+        else setCategory(option.value);
+      },
+    })),
+    { id: "who-can-edit", label: "Who can edit?", separated: true, onSelect: () => setExplaining(true) },
+  ];
 
   const moreItems: MenuItem[] = [
     { id: "fork", label: "Fork", onSelect: () => ui.openDialog("fork") },
@@ -75,7 +80,7 @@ export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
   ];
 
   return (
-    <DeckArt cards={commanders} identity={deck.color_identity} variant="banner" collapsed={collapsed} priority="auto"><header className={styles.header}>
+    <DeckArt cards={commanders} identity={deck.color_identity} variant="ribbon" priority="auto"><header className={styles.header}>
       <div className={styles.top}>
         {draft == null ? (
           <h1 className={styles.title}>
@@ -102,8 +107,9 @@ export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
             label={DECK_CATEGORY_LABELS[deck.category]}
             ariaLabel={`Lifecycle: ${DECK_CATEGORY_LABELS[deck.category]}`}
             items={lifecycleItems}
+            triggerRef={setLifecyclePill}
           />
-          <Explainer title="Deck lifecycle" label="Who can edit?">
+          <Explainer title="Deck lifecycle" control={{ anchor: lifecyclePill, open: explaining, onClose: () => setExplaining(false) }}>
             <p>Paper requires agent card proposals. Theorycrafted lets agents edit cards directly. Archived is read-only.</p>
             <p>Only you can change lifecycle. Agent edits to the brief and power target always need approval.</p>
           </Explainer>

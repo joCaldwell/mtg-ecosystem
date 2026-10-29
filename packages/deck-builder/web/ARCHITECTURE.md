@@ -372,10 +372,9 @@ Both consume facts, never API state. DESIGN.md and /design own their tokens,
 variants and fallbacks. Features choose placement and loading: roster cards
 pass `load` from `ui/useNearView`, which observes the nearest container that
 actually scrolls (or the window) with a 200 px margin, so off-screen roster
-and rail art is not downloaded. `app/useArtCollapse` only observes the
-desktop list's `data-deck-list` scroll events, reads its tokens once, and
-drops a fold below 1100 px; its rule is `domain/artFold.ts`, kept apart so
-the public chunk does not carry it. Tablet/phone/public shells retain
+and rail art is not downloaded. The owner's editor draws the thin `ribbon`
+variant, which does not fold (2026-10-28: `useArtCollapse` and
+`domain/artFold.ts` are removed). Tablet/phone/public shells retain
 `useWindowScroll` and let their short banners leave naturally with the
 document. Sign-in uses that same hook and a labelled main. The public/phone
 reader uses `BriefText`, without the editable
@@ -495,10 +494,7 @@ Review refinement (2026-10-27): CardPanel reserves a readable field width beside
 shrinkable art. AddBar retains search results after maybe-list adds, while its
 Undo uses removeCard; ordinary membership Undo still uses its log entry.
 PhoneDecisions falls back to the first pending proposal after its selected one
-is resolved. DeckArt folds its decorative crop with transform and opacity while
-its occupied padding collapses in sync, moving the header up and returning
-space to both desktop panes. The list uses separate collapse and return
-thresholds to prevent oscillation during small scroll reversals.
+is resolved.
 
 Active tablet filters keep only their query/tag summary, match count and Clear
 action below navigation while the toolbar scrolls away. Revealing the results
@@ -635,3 +631,23 @@ breakpoint queries are allowed), so 2560 px readers get a third list column.
 The reader omits an unset power target and calls a deck's single unslotted
 group "Main deck". The share dialog's "Preview public page" is a ButtonLink
 beside Copy link.
+
+Deck editor review, round 3 (2026-10-28): the Review destination expands only
+the proposal holding the review cursor (`ui.cursor`, clamped as `useReview`
+does, so also outside review mode). The others are one-line buttons (queue
+position, plain-text title, agent label, change count) that move the cursor
+to their first decision; J/K reach them the same way. Queue positions come
+from `domain/review` `proposalQueue` ("1 of 3"); the stored id is muted
+secondary text. Only the focused decision has the reason field; its siblings
+in the open proposal keep Accept/Reject, Reject asking for a reason. Reason
+drafts live in ReviewPanel by unit key, so moving between proposals keeps
+them. `revealReviewUnit` brings a decision in by its top edge (the proposal's
+when the summary and decision fit), never by aligning bottoms, so nothing is
+left under the panel navigation; while reviewing, a blank tail
+(`--review-scroll-tail`) gives the last proposals room to reach that edge,
+and a clamped scroll shows a cut neighbour whole when it can. The projection (ReviewDelta) leads the
+destination once. Brief, profile and power-target edits show only changed
+lines (`DiffView foldSame`). The card panel's Role select is "Board" (Main
+deck, Commander, Companion); its meta is the type line, then the estimate
+with mono price and an unbroken date. Export keeps the header's close button
+only and states format and exclusions on its count line.

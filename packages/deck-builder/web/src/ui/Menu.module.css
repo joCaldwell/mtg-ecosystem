@@ -28,6 +28,11 @@
   color: var(--cut);
 }
 
+.separator {
+  margin: var(--s-2) var(--s-3);
+  border-top: 1px solid var(--line);
+}
+
 /* A single-choice menu keeps a column for the tick so labels line up. */
 .tick {
   display: inline-flex;

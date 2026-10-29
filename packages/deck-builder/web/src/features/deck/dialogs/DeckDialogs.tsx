@@ -3,7 +3,7 @@ import { CompareDialog } from "./CompareDialog.tsx";
 import { DeleteDeckDialog } from "./DeleteDeckDialog.tsx";
 import { ForkDialog } from "./ForkDialog.tsx";
 import { ImportDialog } from "../../import/index.ts";
-import { Button, Dialog } from "../../../ui/index.ts";
+import { Dialog } from "../../../ui/index.ts";
 import { ExportPanel } from "./ExportPanel.tsx";
 import { useDeck } from "../DeckStore.tsx";
 import { ShareDialog } from "./ShareDialog.tsx";
@@ -21,7 +21,8 @@ export function DeckDialogs() {
     case "import":
       return <ImportDialog deckId={deckId} onApplied={apply} onClose={closeDialog} />;
     case "export":
-      return <Dialog title="Export" width="lg" onClose={closeDialog} footer={<Button onClick={closeDialog}>Close</Button>}><ExportPanel /></Dialog>;
+      // The header's close button is the way out; Copy is the dialog's action.
+      return <Dialog title="Export" width="lg" onClose={closeDialog}><ExportPanel /></Dialog>;
     case "slots":
       return <SlotsDialog onClose={closeDialog} />;
     case "share":

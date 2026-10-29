@@ -55,8 +55,7 @@ export function CardPanel({ card: open, backRef, bodyRef }: { card: OpenCard; ba
           ? "Companion"
           : "In the deck";
   const pt = info ? ptString(info) : "";
-  const price = info?.cents == null ? "" : `${formatPrice(info.cents, info.currency)} cheapest printing · ${info.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} · Scryfall ${info.as_of?.slice(0,10) ?? "date unknown"}`;
-  const parts = info ? [info.type_line, pt, price].filter(Boolean) : [];
+  const type = info ? [info.type_line, pt].filter(Boolean).join(" · ") : "";
 
   return (
     <>
@@ -72,9 +71,15 @@ export function CardPanel({ card: open, backRef, bodyRef }: { card: OpenCard; ba
         </div>
       </div>
       <div ref={bodyRef} className={panelStyles.body} role="region" aria-label={`Card details for ${open.name}`} tabIndex={0} data-panel-body>
-      <div className={styles.head}>
-          {parts.length > 0 && <Text tone="soft" size="sm">{parts.join(" · ")}</Text>}
-      </div>
+      {/* The type line, then the estimate and where it comes from: the date
+          is one unit, so it never breaks. */}
+      {info && (type || info.cents != null) && <div className={styles.head}>
+        {type && <Text tone="soft" size="sm" as="p">{type}</Text>}
+        {info.cents != null && <Text tone="soft" size="sm" as="p">
+          <Text mono>{formatPrice(info.cents, info.currency)}</Text> cheapest printing · {info.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} · Scryfall{" "}
+          {info.as_of ? <Text mono className={styles.date}>{info.as_of.slice(0, 10)}</Text> : "date unknown"}
+        </Text>}
+      </div>}
 
       {proposal && (
         <div className={styles.note}>

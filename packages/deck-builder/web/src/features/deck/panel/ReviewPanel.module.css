@@ -1,6 +1,15 @@
+/* The open proposals, one after another; only the focused one is expanded. */
+.queue {
+  display: grid;
+  gap: var(--s-4);
+}
+
 .proposal {
   display: grid;
   gap: calc(var(--s-5) + var(--s-3));
+  /* Room between the open proposal and the one-line neighbours around it,
+     and under the panel navigation when it is scrolled to its top edge. */
+  padding-block: var(--s-5);
 }
 
 .head {
@@ -15,14 +24,64 @@
   gap: var(--s-1) var(--s-4);
 }
 
-.id {
+/* Queue position leads; the stored id follows, quietly. */
+.position {
   color: var(--agent);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.id {
+  color: var(--muted);
+  font-weight: 400;
 }
 
 .summary {
   font-size: var(--text-lg);
   font-weight: 600;
   line-height: var(--leading);
+}
+
+/* A proposal that is not focused: one line, a button that focuses it. */
+.line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-4);
+  width: 100%;
+  min-width: 0;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+  text-align: left;
+  transition: border-color var(--fast), background var(--fast);
+}
+
+.line:hover {
+  border-color: var(--line-hover);
+  background: linear-gradient(var(--hover), var(--hover)), var(--bg);
+}
+
+.line .position {
+  font-size: var(--text-xs);
+}
+
+.lineTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lineMeta {
+  flex: none;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
 }
 
 .units {
@@ -34,4 +93,8 @@
   display: grid;
   justify-items: start;
   gap: var(--s-3);
+}
+
+.tail {
+  height: var(--review-scroll-tail);
 }

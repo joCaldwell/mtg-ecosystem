@@ -35,10 +35,4 @@ export function describeEdit(edit: DocumentEdit): string {
   return edit.kind === "engine_remove" ? "removes an engine" : "defines an engine";
 }
 
-/**
- * A summary as plain text, for the list. A row there is one button, which
- * cannot hold the card references and emphasis the detail view renders.
- */
-export function plainText(markdown: string): string {
-  return markdown.replace(/\[\[([^\]]+)\]\]/g, "$1").replace(/\*\*|`/g, "");
-}
+export { plainText } from "../../domain/inbox.ts";

@@ -16,6 +16,7 @@ import {
   Dot,
   EmptyState,
   ErrorNote,
+  Explainer,
   Eyebrow,
   Field,
   Icon,
@@ -441,16 +442,28 @@ function Navigation() {
   );
 }
 
-/** A pill trigger with a single-choice list: the current state, changed from its menu. */
+/** A pill trigger with a single-choice list: the current state, changed from
+ *  its menu. A last item, set apart, opens an explanation beside the pill. */
 function LifecyclePillDemo() {
   const [value, setValue] = useState("Paper");
+  const [pill, setPill] = useState<HTMLButtonElement | null>(null);
+  const [explaining, setExplaining] = useState(false);
   return (
-    <Menu
-      pill
-      label={value}
-      ariaLabel={`Lifecycle: ${value}`}
-      items={["Paper", "Theorycrafted", "Archived"].map((v) => ({ id: v, label: v, checked: v === value, onSelect: () => setValue(v) }))}
-    />
+    <>
+      <Menu
+        pill
+        label={value}
+        ariaLabel={`Lifecycle: ${value}`}
+        triggerRef={setPill}
+        items={[
+          ...["Paper", "Theorycrafted", "Archived"].map((v) => ({ id: v, label: v, checked: v === value, onSelect: () => setValue(v) })),
+          { id: "help", label: "Who can edit?", separated: true, onSelect: () => setExplaining(true) },
+        ]}
+      />
+      <Explainer title="Deck lifecycle" control={{ anchor: pill, open: explaining, onClose: () => setExplaining(false) }}>
+        An explanation opened from a menu item sits beside the menu's trigger and returns focus to it.
+      </Explainer>
+    </>
   );
 }
 
@@ -571,6 +584,7 @@ function Feedback() {
         </Demo>
       </Section>
       <Section title="DiffView">
+        <Stack gap={4}>
         <DiffView
           lines={[
             { kind: "same", text: "Aggro-leaning shell with a graveyard subtheme." },
@@ -579,6 +593,17 @@ function Feedback() {
             { kind: "same", text: "Never play wraths." },
           ]}
         />
+        <DiffView
+          foldSame
+          lines={[
+            { kind: "same", text: "Aggro-leaning shell with a graveyard subtheme." },
+            { kind: "same", text: "Two cards at 5 or more." },
+            { kind: "same", text: "Never play wraths." },
+            { kind: "add", text: "No tutors that cost more than 2." },
+          ]}
+        />
+        <Text size="sm" tone="muted">foldSame: only the changes; each run of unchanged lines is one row that opens in place.</Text>
+        </Stack>
       </Section>
       <ToastDemo />
     </Stack>

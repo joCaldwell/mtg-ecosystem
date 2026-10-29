@@ -8,7 +8,10 @@ import { useDeck, useDeckState } from "../DeckStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import styles from "./CardControls.module.css";
 
-const ROLES = ["card", "commander", "companion"] as const;
+// The stored role says where the card is played from: the 99, the command
+// zone, or outside the game as a companion. Named as boards, as Archidekt
+// and Moxfield name them.
+const BOARDS: Record<DeckCard["role"], string> = { card: "Main deck", commander: "Commander", companion: "Companion" };
 
 export function CardControls({ card }: { card: DeckCard }) {
   const { slots, tags, deck } = useDeckState();
@@ -84,11 +87,11 @@ export function CardControls({ card }: { card: DeckCard }) {
   if (inDeck) {
     rows.push(
       [
-        "Role",
-        <Select key="role" aria-label="Role" value={card.role} onChange={(e) => void patch({ role: e.target.value })}>
-          {ROLES.map((r) => (
-            <option key={r} value={r}>
-              {r}
+        "Board",
+        <Select key="role" aria-label="Board" value={card.role} onChange={(e) => void patch({ role: e.target.value })}>
+          {Object.entries(BOARDS).map(([role, label]) => (
+            <option key={role} value={role}>
+              {label}
             </option>
           ))}
         </Select>,
@@ -121,7 +124,7 @@ export function CardControls({ card }: { card: DeckCard }) {
     ["Primary slot", slots.find(s => s.id === card.slot_id)?.name ?? "Unfiled"],
     ["Secondary slots", slots.filter(s => card.secondary_slot_ids.includes(s.id)).map(s => s.name).join(", ") || "None"],
     ["Tags", tags.filter(t => card.tag_ids.includes(t.id)).map(t => t.name).join(", ") || "None"],
-    ["Role", card.role], ["Copies", card.quantity],
+    ["Board", BOARDS[card.role]], ["Copies", card.quantity],
   ]} className={styles.kv} />;
   return <KeyValue items={rows} className={styles.kv} />;
 }

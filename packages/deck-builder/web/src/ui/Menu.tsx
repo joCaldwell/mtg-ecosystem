@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Button, type ButtonProps } from "./Button.tsx";
 import { Icon, type IconName } from "./Icon.tsx";
 import { IconButton } from "./IconButton.tsx";
@@ -12,9 +12,12 @@ export interface MenuItem {
   onSelect: () => void;
   tone?: "cut";
   disabled?: boolean;
-  /** Set on every item to make the menu a single choice: the item is a
-   *  menuitemradio and the checked one shows a tick. */
+  /** Set on the choices to make the menu a single choice: each is a
+   *  menuitemradio and the checked one shows a tick. An item without it in
+   *  such a menu is an ordinary action, lined up with the choices. */
   checked?: boolean;
+  /** A rule above this item, setting it apart from the ones before. */
+  separated?: boolean;
 }
 
 export type MenuProps = {
@@ -27,15 +30,21 @@ export type MenuProps = {
   align?: "start" | "end";
   /** Draw the trigger as a state pill (the current value) rather than a button. */
   pill?: boolean;
+  /** Receives the trigger, for a panel that an item opens beside it. */
+  triggerRef?: (node: HTMLButtonElement | null) => void;
 } & (
   | { label: ReactNode; icon?: undefined }
   /** An icon trigger uses its label as the accessible name and tooltip. */
   | { label: string; icon: IconName }
 );
 
-export function Menu({ label, icon, ariaLabel, items, variant = "default", size = "md", align = "start", pill = false }: MenuProps) {
+export function Menu({ label, icon, ariaLabel, items, variant = "default", size = "md", align = "start", pill = false, triggerRef }: MenuProps) {
   const [open, setOpen] = useState(false);
-  const [trigger, setTrigger] = useState<HTMLButtonElement | null>(null);
+  const [trigger, setTriggerState] = useState<HTMLButtonElement | null>(null);
+  const setTrigger = useCallback((node: HTMLButtonElement | null) => {
+    setTriggerState(node);
+    triggerRef?.(node);
+  }, [triggerRef]);
   const list = useRef<HTMLDivElement>(null);
   const menuId = useId();
 
@@ -117,23 +126,25 @@ export function Menu({ label, icon, ariaLabel, items, variant = "default", size 
           onKeyDown={onListKeyDown}
         >
           {items.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role={choice ? "menuitemradio" : "menuitem"}
-              aria-checked={choice ? Boolean(item.checked) : undefined}
-              tabIndex={-1}
-              disabled={item.disabled}
-              className={cx(styles.item, item.tone === "cut" && styles.cut)}
-              onClick={() => {
-                setOpen(false);
-                trigger?.focus();
-                item.onSelect();
-              }}
-            >
-              {choice && <span className={styles.tick}>{item.checked && <Icon name="check" size={12} />}</span>}
-              {item.label}
-            </button>
+            <Fragment key={item.id}>
+              {item.separated && <div role="separator" className={styles.separator} />}
+              <button
+                type="button"
+                role={choice && item.checked !== undefined ? "menuitemradio" : "menuitem"}
+                aria-checked={choice && item.checked !== undefined ? item.checked : undefined}
+                tabIndex={-1}
+                disabled={item.disabled}
+                className={cx(styles.item, item.tone === "cut" && styles.cut)}
+                onClick={() => {
+                  setOpen(false);
+                  trigger?.focus();
+                  item.onSelect();
+                }}
+              >
+                {choice && <span className={styles.tick}>{item.checked && <Icon name="check" size={12} />}</span>}
+                {item.label}
+              </button>
+            </Fragment>
           ))}
         </div>
       </Popover>

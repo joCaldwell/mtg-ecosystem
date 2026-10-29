@@ -95,7 +95,8 @@ its labels are grey and the word carries it: All decks pills, sidebar labels
 and the deck header's lifecycle control. The header shows lifecycle as a
 pill, not a tab row (owner decision, 2026-10-28): the owner opens it as a
 single-choice menu, moving to Archived asks first, and read-only headers show
-the plain chip. The `--lifecycle-*` aliases resolve to
+the plain chip. "Who can edit?" is the menu's last item, after a rule; it
+opens the lifecycle explanation beside the pill, not a link in the header. The `--lifecycle-*` aliases resolve to
 `--muted` on `--raised` (the roster uses `--text-soft` for essential lifecycle
 labels), keeping green, blue and amber for accept/pass,
 selection and warnings. Sidebar labels appear only for Theorycrafted and
@@ -187,7 +188,7 @@ or about this app.
 | `Dot` | A 6px status mark | `neutral` `agent` `warn` `add` `cut`; `pulse` |
 | `Tabs` | Switching panels, underline style, arrow keys | per-tab `badge`, `tone: "agent"` |
 | `Segmented` | Choosing one of a few views | |
-| `Menu` | A text or icon button that opens a list of actions; a `pill` trigger shows a current state and its single-choice list | trigger `variant` and `size`; `icon`; `pill`; `align`; item `tone: "cut"`, `disabled`, `checked` (menuitemradio with a tick) |
+| `Menu` | A text or icon button that opens a list of actions; a `pill` trigger shows a current state and its single-choice list | trigger `variant` and `size`; `icon`; `pill`; `align`; `triggerRef`; item `tone: "cut"`, `disabled`, `checked` (menuitemradio with a tick; an item without it stays a plain action), `separated` (a rule above it) |
 | `ContextMenu` | Pointer-positioned actions for a right-click or keyboard menu request | disabled items, separators, arrow navigation, focus restoration |
 | `TextField` | One-line input | `fieldSize` `md` `lg`; `invalid` |
 | `TextArea` | Multi-line input | `autosize` |
@@ -203,10 +204,10 @@ or about this app.
 | `ErrorNote`, `EmptyState`, `Loading` | An inline error, "nothing here yet", and a loading line | EmptyState `heading` `h1` `h2` when it is all the page has |
 | `Dialog` | A modal: focus trap, Esc, backdrop click, focus restore, `data-autofocus` | width `md` `lg` `wide`; placement `center` `sheet` `drawer`; `footer` |
 | `ConfirmDialog` | A question with Cancel and a confirm button | tone `default` `danger` |
-| `Explainer` | Specifically labelled help for unfamiliar concepts | closed, open, keyboard focus, close/Escape and focus return; `defaultOpen` (style guide only) |
+| `Explainer` | Specifically labelled help for unfamiliar concepts | closed, open, keyboard focus, close/Escape and focus return; `defaultOpen` (style guide only); `control` (opened by a menu item, beside its anchor, no trigger of its own) |
 | `Popover`, `placeNear` | A panel anchored to an element, kept inside the viewport | placement `below` `right` `above` `left`; `align` |
 | `ToastProvider`, `useToast` | One toast at a time with an optional action; bottom left at 1100 px and wider (over the sidebar footer, clear of the deck list and the panel's actions), bottom centre below | `duration`; `action` with `kbd` |
-| `DiffView` | Added and deleted lines | line kind `same` `add` `del` |
+| `DiffView` | Added and deleted lines | line kind `same` `add` `del`; `foldSame` (each unchanged run one closed native disclosure, "4 unchanged lines") |
 | `Table`, `ClickableRow` | Plain tables with small uppercase headers; rows that open something | |
 | `CounterControl` | Visible increment/decrement controls and a numeric readout | labeled, disabled |
 | `KeyValue` | Two-column label and value list | |
@@ -337,7 +338,8 @@ printed artist and copyright lines.
 | Variant | Placement | Band (`--band`) | Loading |
 | --- | --- | --- | --- |
 | strip | Desktop and phone home cards | `--art-strip-space` | deferred: `load` from `useNearView` (200 px), then eager |
-| banner | Owner and phone deck headers | `--art-banner-space`, smaller on tablet/phone | eager |
+| ribbon | Owner's deck editor header, every width | `--art-ribbon-space` (20 px) | eager |
+| banner | Phone deck header | `--art-banner-phone-space` on phones | eager |
 | showcase | Public deck page | `--art-showcase-space` (176 px), 112 px on phones | eager, `priority="high"` (`fetchpriority`) |
 | backdrop | Sign-in and empty-account landing only | `--art-backdrop-space` | eager; one land per visit, no rotation |
 | thumbnail | Sidebar rail, including the drawer | `--art-thumb` (16 px), the icon column | deferred: `useNearView` in the rail, `fetchpriority=low` |
@@ -374,18 +376,12 @@ printed artist and copyright lines.
   colours, grey for colourless. Black uses the darker half of its pip
   (`--identity-b`) so it never reads as white. No identity fills, tints of
   text or controls.
-- **The desktop banner folds** while the deck list (only it, not the panel)
-  is scrolled past `--art-collapse-threshold`, unless the list is too short
-  to stay folded. Its padding collapses with the crop over `--base`, moving the
-  title, toolbar and both panes upward and returning the band's space to the
-  work area. The credit hides with the crop. It expands only near the list top
-  (`--art-expand-threshold`), leaving a dead band to prevent oscillation. The
-  panes retain their own scroll positions subject to normal end clamping.
-  Reduced motion makes the transition immediate. The fold exists
-  only at 1100 px and wider: `useArtCollapse` drops it below that, and the
-  CSS ignores `data-collapsed` there. Narrower headers scroll away with the window.
-  This owner-requested movement is intentional scroll-driven reflow; load
-  stability must be distinguished from the header's transition.
+- **The editor's art is a ribbon** (owner direction following blind review,
+  2026-10-28): a 20 px strip above the title row, fading into the header, so
+  the list keeps the height a banner took. Its credit sits inside the strip
+  at the right end, in `--text-xs` `--muted` on the overlay. It does not fold
+  on scroll: the strip is too thin for a fold to return useful space, and it
+  replaced the 72 px banner's fold. Public pages keep their showcase.
 
 Art does not appear in inbox, activity, memories, Settings, dialogs or the
 playtester content. The rail can still show thumbnails while those screens

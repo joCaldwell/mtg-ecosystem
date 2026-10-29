@@ -23,3 +23,11 @@ export function waitingCount(inbox: Inbox): number {
     new Set(inbox.document_edits.filter((e) => e.status === "pending").map(e => e.group_id ?? e.id)).size
   );
 }
+
+/**
+ * A summary as plain text, for a place that is one button and so cannot hold
+ * the card references and emphasis a summary renders elsewhere.
+ */
+export function plainText(markdown: string): string {
+  return markdown.replace(/\[\[([^\]]+)\]\]/g, "$1").replace(/\*\*|`/g, "");
+}

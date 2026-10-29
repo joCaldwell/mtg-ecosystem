@@ -56,6 +56,23 @@ test("concept help uses a specific, keyboard-operable question label", async (t)
   assert.doesNotMatch(html, /Lifecycle guidance/, "guidance is behind help until requested");
 });
 
+test("an explanation opened from a menu item draws no trigger of its own", async (t) => {
+  const { Explainer } = await (await modules(t)).ssrLoadModule("/src/ui/Explainer.tsx");
+  const html = renderToStaticMarkup(createElement(Explainer, { title: "Deck lifecycle", control: { anchor: null, open: false, onClose: () => undefined } }, "Lifecycle guidance"));
+  assert.equal(html, "");
+});
+
+test("a folded diff shows only the changes, each unchanged run one closed row", async (t) => {
+  const { DiffView } = await (await modules(t)).ssrLoadModule("/src/ui/DiffView.tsx");
+  const same = (text: string) => ({ kind: "same", text });
+  const html = renderToStaticMarkup(createElement(DiffView, { foldSame: true, lines: [same("a"), same("b"), same("c"), same("d"), { kind: "add", text: "new" }, same("e")] }));
+  assert.match(html, /<details[^>]*><summary[^>]*>4 unchanged lines<\/summary>/);
+  assert.match(html, /<details[^>]*><summary[^>]*>1 unchanged line<\/summary>/);
+  assert.doesNotMatch(html, /<details[^>]*\bopen/);
+  assert.match(html, /aria-label="added"[^>]*>\+<\/span>new/);
+  assert.equal((html.match(/<details/g) ?? []).length, 2);
+});
+
 test("colour identity indicators expose colour names and colourless in their accessible labels", async (t) => {
   const { ColorIdentity } = await (await modules(t)).ssrLoadModule("/src/mtg/ColorIdentity.tsx");
   assert.match(renderToStaticMarkup(createElement(ColorIdentity, { colors: "UBR" })), /role="img" aria-label="Colour identity: blue, black, red"/);

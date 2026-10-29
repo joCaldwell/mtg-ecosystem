@@ -45,16 +45,12 @@ export function ExportPanel() {
   }
 
   return (
-    <Stack gap={5} className={styles.panel}>
+    <Stack gap={5}>
       <Row gap={6} wrap>
         <Checkbox checked={filtered} onChange={setFiltered} disabled={!matches.active && !filtered} label="Only current filter matches" />
         <Checkbox checked={includeMaybe} onChange={setIncludeMaybe} label="Include maybe list" />
         <Checkbox checked={categories} onChange={setCategories} label="Include categories" />
       </Row>
-      <Text tone="muted" size="sm">
-        Pending proposals are excluded.
-      </Text>
-
       {exported.error ? <ErrorNote>{exported.error}</ErrorNote> : null}
       {copyError ? <ErrorNote>{copyError}</ErrorNote> : null}
 
@@ -88,7 +84,7 @@ export function ExportPanel() {
               {result.line_count}
             </Text>{" "}
             {result.line_count === 1 ? "line" : "lines"}
-            .
+            {" · Archidekt format · pending proposals excluded"}
           </Text>
         ) : null}
         <Spacer />
@@ -97,10 +93,6 @@ export function ExportPanel() {
           Copy
         </Button>
       </Row>
-
-      <Text tone="muted" size="sm" as="p">
-        Quantity and name per line. Categories use Archidekt syntax; maybe cards use Maybeboard when categories are included.
-      </Text>
     </Stack>
   );
 }

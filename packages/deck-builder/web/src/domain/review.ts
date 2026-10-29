@@ -61,6 +61,29 @@ export function reviewUnits(proposals: Proposal[]): ReviewUnit[] {
   return out;
 }
 
+/** An open proposal's place in the review queue: its position among the
+ * proposals left ("1 of 3"), the first of its decisions in `units` (where the
+ * cursor goes to focus it) and how many changes it still asks for. */
+export interface QueuedProposal {
+  proposalId: number;
+  position: number;
+  of: number;
+  firstUnit: number;
+  changes: number;
+}
+
+/** The proposals left to decide, oldest first, as `reviewUnits` orders them. */
+export function proposalQueue(units: ReviewUnit[]): QueuedProposal[] {
+  const out: QueuedProposal[] = [];
+  units.forEach((unit, index) => {
+    const last = out.at(-1);
+    if (last?.proposalId === unit.proposalId) last.changes += unit.items.length;
+    else out.push({ proposalId: unit.proposalId, position: out.length + 1, of: 0, firstUnit: index, changes: unit.items.length });
+  });
+  for (const entry of out) entry.of = out.length;
+  return out;
+}
+
 export interface ReviewOverlay {
   /** oracle_ids with a pending cut. */
   cuts: Set<string>;

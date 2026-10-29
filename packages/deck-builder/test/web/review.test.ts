@@ -1,7 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { layoutDeck } from "../../web/src/domain/grouping.ts";
-import { reviewOverlay, reviewUnits } from "../../web/src/domain/review.ts";
+import { proposalQueue, reviewOverlay, reviewUnits } from "../../web/src/domain/review.ts";
 import { firstUnitOf, proposalParam } from "../../web/src/domain/reviewStart.ts";
 import { card, deckState, item, proposal, slot } from "./fixtures.ts";
 
@@ -220,4 +220,12 @@ describe("proposalParam", () => {
     assert.equal(proposalParam(""), undefined);
     for (const bad of ["0", "-1", "1.5", "x", ""]) assert.equal(proposalParam(`?proposal=${bad}`), undefined, bad);
   });
+});
+
+test("the review queue numbers proposals by position, not stored id, and counts their changes", () => {
+  const first = proposal([item({ action: "add", name: "Test Card A" }), item({ action: "cut", name: "Test Card B" })], { id: 4 });
+  const second = proposal([item({ action: "add", name: "Test Card C", group_id: "g" }), item({ action: "cut", name: "Test Card D", group_id: "g" })], { id: 5 });
+  const queue = proposalQueue(reviewUnits([second, first]));
+  assert.deepEqual(queue.map((q) => [q.proposalId, `${q.position} of ${q.of}`, q.firstUnit, q.changes]), [[4, "1 of 2", 0, 2], [5, "2 of 2", 2, 2]]);
+  assert.deepEqual(proposalQueue([]), []);
 });

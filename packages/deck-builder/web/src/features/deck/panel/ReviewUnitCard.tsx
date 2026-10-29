@@ -1,7 +1,9 @@
 // One decision (spec §8.1): a swap or a group is decided together, so it is one
-// card with one pair of buttons, however many cards it names.
+// card with one pair of buttons, however many cards it names. Only the focused
+// decision carries the reason field; its siblings in the open proposal keep
+// Accept and Reject, and Reject asks for a reason there.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { ReviewUnit } from "../../../domain/review.ts";
 import { cx } from "../../../ui/internal.ts";
 import { DecisionControls } from "../../decisions/index.ts";
@@ -18,19 +20,24 @@ const KIND: Record<ReviewUnit["kind"], string> = {
   group: "Group · decided together",
 };
 
-export function ReviewUnitCard({ unit, index, review }: { unit: ReviewUnit; index: number; review: Review }) {
+export function ReviewUnitCard({ unit, index, review, focused, reason, onReason }: {
+  unit: ReviewUnit; index: number; review: Review;
+  /** The decision under the cursor, in or out of review mode. */
+  focused: boolean;
+  /** The optional reason (§11.2), sent with Accept or Reject; the panel keeps the draft. */
+  reason: string; onReason: (text: string) => void;
+}) {
   const ui = useDeckUi();
-  const here = ui.reviewing && ui.cursor === index;
-  // The phone's optional reason (§11.2), sent with Accept or Reject.
-  const [reason, setReason] = useState("");
+  const here = ui.reviewing && focused;
 
-  // Keyboard review moves the cursor through a list longer than the panel.
+  // Moving the cursor opens this decision's proposal; keep it in view.
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = root.current;
-    if (!here || !el) return;
+    if (!focused || !el) return;
     const reveal = () => revealReviewUnit(el);
     reveal();
+    if (!ui.reviewing) return;
     // History/reason context arrives asynchronously. Keep this decision's
     // controls visible when it, a preceding proposal, or the pane resizes.
     const observer = new ResizeObserver(reveal);
@@ -41,7 +48,7 @@ export function ReviewUnitCard({ unit, index, review }: { unit: ReviewUnit; inde
       pane.querySelectorAll('[data-proposal]').forEach(proposal => observer.observe(proposal));
     }
     return () => observer.disconnect();
-  }, [here]);
+  }, [focused, ui.reviewing]);
 
   return (
     <div ref={root} data-review-unit={unit.key} className={cx(styles.unit, here && styles.current)}>
@@ -56,19 +63,19 @@ export function ReviewUnitCard({ unit, index, review }: { unit: ReviewUnit; inde
       <div className={styles.foot}>
         <DecisionControls
           rejecting={ui.rejecting === unit.key}
-          onAccept={(text) => void review.accept(unit, text, () => setReason(""))}
+          onAccept={(text) => void review.accept(unit, text, () => onReason(""))}
           onStartReject={() => {
             ui.setCursor(index);
             ui.setRejecting(unit.key);
           }}
-          onReject={(text) => void review.reject(unit, text, () => setReason(""))}
+          onReject={(text) => void review.reject(unit, text, () => onReason(""))}
           onCancelReject={() => ui.setRejecting(null)}
           showKeys={here}
-          reason={{
+          reason={focused ? {
             value: reason,
-            onChange: setReason,
+            onChange: onReason,
             label: `Reason for decision ${index + 1}, optional`,
-          }}
+          } : undefined}
         />
       </div>
     </div>

@@ -11,9 +11,12 @@
 }
 
 .head {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--s-5);
+  display: grid;
+  gap: var(--s-1);
+}
+
+.date {
+  white-space: nowrap;
 }
 
 .facts {

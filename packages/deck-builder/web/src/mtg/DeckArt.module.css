@@ -29,13 +29,15 @@
 
 .strip { --band: var(--art-strip-space); display: grid; border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; }
 
-/* Fold the occupied space along with the crop. Keeping its padding after the
-   art disappeared stranded the title below an empty band. --band stays fixed
-   so the crop and its gradient scale in sync with the header's movement. */
-.banner { --band: var(--art-banner-space); flex: none; border-bottom: 1px solid var(--line); transition: padding-top var(--base) ease-out; }
-.banner[data-art][data-collapsed] { padding-top: 0; }
-.banner .visual { transform-origin: top; transition: transform var(--base) ease-out, opacity var(--base) ease-out, visibility 0s; }
-.banner[data-collapsed] .visual { transform: scaleY(0); opacity: 0; visibility: hidden; transition: transform var(--base) ease-out, opacity var(--base) ease-out, visibility 0s var(--base); }
+/* The owner's editor: a thin strip of art above the title, so the list keeps
+   the height. The credit sits inside the strip at its right end. */
+.ribbon { --band: var(--art-ribbon-space); flex: none; border-bottom: 1px solid var(--line); }
+.ribbon .visual { height: calc(var(--band) + var(--s-6)); }
+.ribbon .visual::after { background: linear-gradient(to bottom, var(--art-overlay-top) calc(var(--band) * 0.4), var(--art-overlay-text) var(--band), var(--surface)); }
+.ribbon .credit { top: calc(var(--band) / 2); transform: translateY(-50%); padding: 0 var(--s-2); line-height: var(--art-ribbon-credit-h); }
+
+/* The phone deck header. */
+.banner { --band: var(--art-banner-space); flex: none; border-bottom: 1px solid var(--line); }
 
 .showcase { --band: var(--art-showcase-space); border-bottom: 1px solid var(--line); }
 .showcase .visual, .backdrop .visual { height: calc(var(--band) + var(--s-8)); }
@@ -50,14 +52,10 @@
 .thumbnail .visual::after { content: none; }
 
 @media (max-width: 1099px) {
-  .banner { --band: var(--art-banner-tablet-space); transition: none; }
-  /* A fold belongs to the desktop list; narrower, the banner leaves with the window. */
-  .banner[data-collapsed] { --band: var(--art-banner-tablet-space); }
-  .banner[data-art][data-collapsed] { padding-top: var(--band); }
-  .banner[data-collapsed] .visual { transform: none; opacity: 1; visibility: visible; }
+  .banner { --band: var(--art-banner-tablet-space); }
 }
 @media (max-width: 719px) {
-  .banner, .banner[data-collapsed] { --band: var(--art-banner-phone-space); }
+  .banner { --band: var(--art-banner-phone-space); }
   .showcase { --band: var(--art-showcase-phone-space); }
   .backdrop { --band: var(--art-backdrop-phone-space); }
 }

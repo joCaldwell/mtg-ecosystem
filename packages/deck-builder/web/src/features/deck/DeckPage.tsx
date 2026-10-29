@@ -1,4 +1,3 @@
-import { useArtCollapse } from "../../app/useArtCollapse.ts";
 import { api } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
 // The deck view. The list is home: the header, the add bar, the proposal
@@ -59,7 +58,6 @@ function DeckGate({ startInReview }: { startInReview: boolean }) {
 }
 
 function DeckScreen({ startInReview }: { startInReview: boolean }) {
-  const art = useArtCollapse();
   const state = useDeckState();
   const { error, clearError } = useDeck();
   const ui = useDeckUi();
@@ -156,8 +154,8 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
   return (
     <CardOpenProvider onOpen={openByName}>
       <DeckViewProvider value={view}>
-        <div className={styles.page} onScrollCapture={art.onScrollCapture}>
-          <DeckHeader collapsed={art.collapsed} />
+        <div className={styles.page}>
+          <DeckHeader />
           <DeckToolbar />
           <DeckFilterSummary />
           {error && (

@@ -212,6 +212,9 @@
   --art-position: center 35%;
   /* Band heights: the art shows above the content, which starts at the band. */
   --art-strip-space: 48px;
+  /* The owner's editor header: a thin strip, the credit's line inside it. */
+  --art-ribbon-space: 20px;
+  --art-ribbon-credit-h: 16px;
   --art-banner-space: 72px;
   --art-banner-tablet-space: 56px;
   --art-banner-phone-space: 48px;
@@ -219,12 +222,12 @@
   --art-showcase-phone-space: 112px;
   --art-backdrop-space: 160px;
   --art-backdrop-phone-space: 112px;
-  --art-collapse-threshold: 48px;
-  --art-expand-threshold: 16px;
   /* Sidebar thumbnails sit in the icon column; quieter until current or hovered. */
   --art-thumb: 16px;
   --art-thumb-opacity: 0.7;
   --deck-card-min: 300px;
+  /* Review's blank end, so a proposal near the end can scroll to the top. */
+  --review-scroll-tail: 50vh;
   --identity-stripe-h: 2px;
   --identity-opacity: 0.6;
   --identity-w: var(--mana-w);

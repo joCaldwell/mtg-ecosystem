@@ -9,14 +9,14 @@ import styles from "./DeckArt.module.css";
  * `priority="high"` puts the public page's art first. The frame's size comes from the band, never from
  * the image, so nothing moves when it arrives. The art follows the content in
  * the DOM, so a screen reader meets the deck before its credit. */
-export function DeckArt({ cards, identity = "", variant = "strip", collapsed = false, load = true, priority, children }: {
+export function DeckArt({ cards, identity = "", variant = "strip", load = true, priority, children }: {
   cards: readonly ArtFacts[] | null | undefined; identity?: string;
-  variant?: "strip" | "banner" | "showcase" | "backdrop";
-  collapsed?: boolean; load?: boolean; priority?: "auto" | "high"; children?: ReactNode;
+  variant?: "strip" | "ribbon" | "banner" | "showcase" | "backdrop";
+  load?: boolean; priority?: "auto" | "high"; children?: ReactNode;
 }) {
   const art = creditedArt(cards);
   return <div className={`${styles.surface} ${styles[variant]}`}
-    data-art={art.length > 0 || undefined} data-collapsed={collapsed || undefined}>
+    data-art={art.length > 0 || undefined}>
     {children}
     {art.length > 0 && <div className={styles.visual}>{art.map(c => <div className={styles.crop} key={c.oracle_id}>
       {load && <img src={c.image_art_crop} alt="" loading="eager" fetchPriority={priority} decoding="async" onError={e => { e.currentTarget.parentElement!.dataset.failed = ""; }} />}
