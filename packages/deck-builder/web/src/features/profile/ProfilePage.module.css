@@ -13,6 +13,8 @@
 
 .meter {
   flex: 1;
+  /* The row aligns text baselines (the count is monospaced); the bar centres. */
+  align-self: center;
 }
 
 .count {

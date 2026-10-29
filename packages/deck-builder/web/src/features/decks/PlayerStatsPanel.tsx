@@ -7,9 +7,9 @@ import styles from "./PlayerStatsPanel.module.css";
 
 const WUBRG = ["W", "U", "B", "R", "G"] as const;
 
-function Block({ title, children }: { title: string; children: ReactNode }) {
+function Block({ title, children, className }: { title: string; children: ReactNode; className?: string }) {
   return (
-    <Box>
+    <Box className={className}>
       <div className={styles.block}>
         <Text tone="muted" size="xs" weight="medium">
           {title}
@@ -77,6 +77,8 @@ export function PlayerStatsPanel() {
       <div className={styles.grid}>
         <Colors stats={stats} />
 
+        {/* The two short panels share one column, so every column ends level. */}
+        {(stats.identities.length > 0 || stats.commander_types.length > 0) && <div className={styles.column}>
         {stats.identities.length > 0 && (
           <Block title="Common colour identities">
             <div className={styles.identities}>
@@ -109,9 +111,10 @@ export function PlayerStatsPanel() {
             </div>
           </Block>
         )}
+        </div>}
 
         {averages.length + byType.length > 0 && (
-          <Block title="Averages per deck">
+          <Block title="Averages per deck" className={styles.averages}>
             {averages.length > 0 && <KeyValue items={averages} />}
             {byType.length > 0 && (
               <>

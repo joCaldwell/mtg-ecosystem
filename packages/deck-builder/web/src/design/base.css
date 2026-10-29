@@ -59,6 +59,15 @@ button:disabled {
   opacity: 0.5;
 }
 
+/* The browser's own monospace default is a Courier clone on many Linux
+   systems; code and keys use the app's one stack instead. */
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--font-mono);
+}
+
 input,
 textarea,
 select {

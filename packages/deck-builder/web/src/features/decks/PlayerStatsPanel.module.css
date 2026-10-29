@@ -3,16 +3,26 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--s-5);
-  /* Each panel is as tall as its content; a short one leaves no empty box. */
-  align-items: start;
+  /* Colours and the stacked short panels share a row and end level; the
+     averages take two columns, so their type counts spread out and stay short. */
+  align-items: stretch;
 }
+
+.column {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: var(--s-5);
+  min-width: 0;
+}
+
+.averages { grid-column: span 2; }
 
 /* Four panels only when each has room for two identity/count pairs.
    This is the content width, independent of the sidebar and viewport. */
 @container portfolio (min-width: 1344px) {
   .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
-@media (max-width: 719px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 719px) { .grid { grid-template-columns: minmax(0, 1fr); } .averages { grid-column: auto; } }
 
 .summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-3) var(--s-6); margin-bottom: var(--s-4); }
 .grid > *, .block { min-width: 0; }
@@ -30,12 +40,15 @@
   gap: var(--s-3);
 }
 
+/* Rows align text baselines (the counts and codes are monospaced, with other
+   vertical metrics than the names); bars and discs centre. */
 .bar {
   display: grid;
   grid-template-columns: 9ch minmax(0, 1fr) 7ch;
   gap: var(--s-4);
-  align-items: center;
+  align-items: baseline;
 }
+.bar > :nth-child(2) { align-self: center; }
 
 .bar > :last-child {
   text-align: right;
@@ -44,7 +57,7 @@
 
 .row {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--s-4);
 }
 .row > :last-child { white-space: nowrap; }
@@ -66,8 +79,8 @@
 .slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--stats-column-min)), 1fr)); gap: var(--s-4) var(--s-7); }
 .slot > :last-child { white-space: nowrap; }
 .identities { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--stats-identity-min)), 1fr)); gap: var(--s-3) var(--s-5); }
-.typeCounts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-3) var(--s-5); }
-.typeCount { display: flex; justify-content: space-between; gap: var(--s-3); }
+.typeCounts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--stats-type-min)), 1fr)); gap: var(--s-3) var(--s-7); }
+.typeCount { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-3); }
 
 .chips {
   display: flex;
@@ -101,7 +114,8 @@
   min-width: calc(var(--s-8) * 2 + var(--s-4));
 }
 
-.colour { display: inline-flex; align-items: center; gap: var(--s-3); font-size: var(--text-sm); }
+.colour { display: inline-flex; align-items: baseline; gap: var(--s-3); font-size: var(--text-sm); }
+.colour > :first-child, .pips > :first-child { align-self: center; }
 .colour > :last-child { text-transform: capitalize; }
 .identityCode { font: var(--text-sm) var(--font-mono); color: var(--text-soft); white-space: nowrap; }
-.pips { align-items: center; gap: var(--s-3); }
+.pips { align-items: baseline; gap: var(--s-3); }

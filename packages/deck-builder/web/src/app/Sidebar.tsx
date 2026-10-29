@@ -1,7 +1,8 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DeckThumbnail } from "../mtg/index.ts";
 import { usePreferences } from "./Preferences.tsx";
 import { familyOrder } from "../domain/familyOrder.ts";
+import { waitingByDeck } from "../domain/inbox.ts";
 // The left rail: where to go, which decks exist, and what an agent connected
 // right now would be told. Decks are one click away from anywhere, and a deck
 // with something waiting on the owner carries the agent colour.
@@ -31,7 +32,8 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
   route: Route; brand?: boolean; collapsed?: boolean; onToggle?: () => void; toggleDisabled?: boolean;
 }) {
   const { hasAgentActivity } = usePreferences();
-  const { waiting } = useInbox();
+  const { waiting, inbox } = useInbox();
+  const deckWaiting = useMemo(() => inbox ? waitingByDeck(inbox) : new Map<number, number>(), [inbox]);
   const { focus } = useFocus();
   const decks = useQuery(() => api.listDecks(), []);
   const activity = useQuery(() => api.latestActivity(), []);
@@ -110,23 +112,31 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
       <nav ref={deckNav} className={styles.decks} aria-label="Decks">
         {shownDecks.map(({ deck, fork }) => {
           const open = (route.page === "deck" || route.page === "playtest") && route.deckId === deck.id;
-          const pending = deck.pending_items + deck.pending_document_edits > 0;
+          // The count matches the Inbox badge (proposals and edit groups); the
+          // summary's own flag covers the moment before the inbox has loaded.
+          const count = deckWaiting.get(deck.id) ?? 0;
+          const pending = count > 0 || deck.pending_items + deck.pending_document_edits > 0;
+          const waitingText = count > 0 ? `${count} ${count === 1 ? "proposal" : "proposals"} waiting` : "waiting on you";
           return (
             <a
               key={deck.id}
               href={href({ page: "deck", deckId: deck.id })}
               className={[open ? styles.current : "", fork ? styles.fork : ""].join(" ")}
               aria-current={open ? "page" : undefined}
-              aria-label={collapsed ? `${deck.name}${pending ? ", waiting on you" : ""}${deck.category !== "paper" ? `, ${DECK_CATEGORY_LABELS[deck.category]}` : ""}${deck.visibility !== "private" ? `, ${deck.visibility}` : ""}` : undefined}
-              title={pending ? `${deck.name} — something is waiting on you` : deck.name}
+              aria-label={collapsed ? `${deck.name}${pending ? `, ${waitingText}` : ""}${deck.category !== "paper" ? `, ${DECK_CATEGORY_LABELS[deck.category]}` : ""}${deck.visibility !== "private" ? `, ${deck.visibility}` : ""}` : undefined}
+              title={pending ? `${deck.name} — ${waitingText}` : deck.name}
             >
-              {/* The thumbnail takes the dot's column; a deck waiting on the owner keeps its violet dot over it. */}
+              {/* The thumbnail takes the dot's column. Expanded rows count what waits at
+                  their end, as the Inbox does; the rail has no room, so a waiting deck
+                  keeps a violet dot on the thumbnail's corner there. */}
               <span className={styles.lead}>
                 <DeckThumbnail cards={deck.commander_art} className={styles.thumb} />
-                <Dot tone={pending ? "agent" : "neutral"} className={pending ? styles.pending : styles.fallback} />
+                <Dot tone={collapsed && pending ? "agent" : "neutral"} className={collapsed && pending ? styles.pending : styles.fallback} />
               </span>
               <span className={styles.name}>{deck.name}</span>
-              {!collapsed && pending && <span className="visually-hidden">, waiting on you</span>}
+              {!collapsed && pending && (count > 0
+                ? <span className={styles.waiting}><Badge aria-hidden="true" className={styles.waitingBadge}>{count}</Badge><span className="visually-hidden">, {waitingText}</span></span>
+                : <span className="visually-hidden">, {waitingText}</span>)}
               {deck.visibility !== "private" && (
                 <span className={styles.shared} role="img" aria-label={deck.visibility === "public" ? "Public" : "Unlisted"} title={deck.visibility === "public" ? "Public" : "Unlisted: anyone with the link"}>
                   <Icon name={deck.visibility === "public" ? "globe" : "link"} size={12} />

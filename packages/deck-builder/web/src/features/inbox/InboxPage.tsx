@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { href, navigate, useScrollRestore } from "../../app/routes.ts";
 import { useMediaQuery, PANEL_QUERY } from "../../app/breakpoints.ts";
 import { useInbox } from "../../app/Inbox.tsx";
-import { Button, EmptyState, Loading, Page, PageHeader, SplitPane, Text, useHotkeys } from "../../ui/index.ts";
+import { Button, EmptyState, Loading, Page, PageHeader, SplitPane, useHotkeys } from "../../ui/index.ts";
 import { DocumentEditCard } from "../decisions/index.ts";
 import { inboxEntries } from "./entries.ts";
 import { InboxEntry } from "./InboxEntry.tsx";
@@ -65,8 +65,6 @@ export function InboxPage({ entryKey }: { entryKey?: string }) {
       <a className={styles.back} href={href({ page: "inbox" })}>← Back to inbox</a>
       <PageHeader
         title={tablet && detailOpen && selected ? (selected.type === "proposal" ? "Proposal" : "Document edit") : "Inbox"}
-        meta={!(tablet && detailOpen) && inbox != null && inbox.unreviewed > 0 ?
-          <Text tone="muted" size="sm">{inbox.unreviewed} of your decisions not yet read by an agent</Text> : undefined}
         actions={inbox != null && !(tablet && detailOpen) ?
           <Button variant="ghost" aria-expanded={history} onClick={() => setHistory(!history)}>{history ? "Hide proposal history" : "Show proposal history"}</Button> : undefined}
       />
@@ -84,7 +82,7 @@ export function InboxPage({ entryKey }: { entryKey?: string }) {
   return (
     <div className={styles.page} data-detail={detailOpen || undefined}>
       <Page scroll={entries.length === 0} header={header}>
-        {history && <div className={styles.history}><ProposalHistory /></div>}
+        {history && <div className={styles.history}><ProposalHistory unreviewed={inbox.unreviewed} /></div>}
         {entries.length === 0 ? <EmptyState heading="h2" title={detailOpen ? "This item is no longer waiting" : "Nothing is waiting on you"}>
           {detailOpen ? <a href={href({ page: "inbox" })}>Back to inbox</a>
             : loaded && !hasAgentActivity ? <>Agents send proposals here. <a className={styles.link} href={href({ page: "settings" })}>Connect an agent</a></>

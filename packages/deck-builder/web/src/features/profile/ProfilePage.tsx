@@ -124,7 +124,7 @@ export function ProfilePage() {
             )}
 
             <Stack gap={3}>
-              <Row gap={5}>
+              <Row gap={5} align="baseline">
                 <Meter
                   className={styles.meter}
                   value={words}

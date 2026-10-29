@@ -1,5 +1,12 @@
+/* The link, Copy link and Preview public page on one row; the buttons wrap
+   under the field when the dialog is too narrow for all three. */
 .link {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--s-4);
+}
+
+.link > :first-child {
+  flex: 1 1 var(--share-link-min);
+  min-width: 0;
 }

@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { acceptedNote, changesSince, staleNote } from "../../web/src/domain/staleChanges.ts";
+import { acceptedNote, changesSince, staleNote, staleTouchesProposal } from "../../web/src/domain/staleChanges.ts";
 import { logEntry } from "./fixtures.ts";
 
 const c = (card_name: string, action: "add" | "cut" | "role") => ({ oracle_id: card_name, card_name, action, quantity: 1, item_id: null, reason: "" });
@@ -26,6 +26,28 @@ describe("changesSince", () => {
   test("rejections and entries without cards are not changes", () => {
     assert.equal(changesSince([logEntry({ revision: 5, kind: "reject", cards: [c("Test Card A", "add")] }), logEntry({ revision: 5 })], 4), null);
     assert.equal(changesSince([], null), null);
+  });
+});
+
+describe("staleTouchesProposal", () => {
+  const log = [
+    logEntry({ revision: 4, cards: [c("Test Card C", "cut")] }),
+    logEntry({ revision: 3, kind: "reject", cards: [c("Test Card D", "add")] }),
+    logEntry({ revision: 2, cards: [c("Test Card E", "add")] }),
+  ];
+  const items = (...ids: string[]) => ids.map((oracle_id) => ({ oracle_id }));
+
+  test("only changes after the base revision to a proposed card count", () => {
+    assert.equal(staleTouchesProposal(log, 2, items("Test Card C")), true);
+    assert.equal(staleTouchesProposal(log, 2, items("Test Card A", "Test Card B")), false);
+    assert.equal(staleTouchesProposal(log, 2, items("Test Card E")), false, "changes at or before the base are not since");
+    assert.equal(staleTouchesProposal(log, 2, items("Test Card D")), false, "rejections change nothing");
+  });
+
+  test("assumes overlap when the log in hand cannot tell", () => {
+    const long = Array.from({ length: 40 }, (_, i) => logEntry({ revision: 50 - i, cards: [c(`Card ${i}`, "add")] }));
+    assert.equal(staleTouchesProposal(long, 3, items("Test Card A")), true);
+    assert.equal(staleTouchesProposal(log, null, items("Test Card A")), true);
   });
 });
 

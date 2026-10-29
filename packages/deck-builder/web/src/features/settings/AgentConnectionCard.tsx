@@ -61,14 +61,14 @@ export function AgentConnectionCard({ agent, onChanged }: { agent: Settings["age
     </Stack>}
     {agent.tokens.map(token => <Row key={token.id} gap={4} justify="between">
       <Stack gap={1} className={styles.value}><Text weight="medium">{token.label}</Text><Text tone="muted" size="sm">{token.prefix}… · {token.revoked_at ? "Revoked" : token.last_used_at ? `Last used ${ago(token.last_used_at)}` : "Never used"}</Text></Stack>
-      {!token.revoked_at && <Button size="sm" variant="ghost" disabled={busy} onClick={() => setRevoking(token.id)}>Revoke</Button>}
+      {!token.revoked_at && <Button size="sm" variant="reject" disabled={busy} onClick={() => setRevoking(token.id)}>Revoke</Button>}
     </Row>)}
     {!agent.tokens.length && <Text tone="muted" size="sm">No agent tokens yet.</Text>}
     {agent.mode === "hosted" && <Stack gap={3}>
       <Text as="h3" weight="bold">Connected OAuth apps</Text>
       {(agent.oauth_clients ?? []).map(c=><Row key={c.client_id} gap={4} justify="between">
         <Stack gap={1} className={styles.value}><Text weight="medium">{c.label ?? "OAuth app"}</Text><Text size="sm" mono>{c.client_id}</Text><Text tone="muted" size="sm">{c.last_used_at ? `Last used ${ago(c.last_used_at)}` : "No tool calls yet"}</Text></Stack>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={()=>setDisconnecting(c.client_id)}>Disconnect</Button>
+        <Button size="sm" variant="reject" disabled={busy} onClick={()=>setDisconnecting(c.client_id)}>Disconnect</Button>
       </Row>)}
       {!agent.oauth_clients?.length && <Text size="sm" tone="muted">No OAuth apps connected.</Text>}
     </Stack>}

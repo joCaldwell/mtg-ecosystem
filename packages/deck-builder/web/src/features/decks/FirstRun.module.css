@@ -1,4 +1,5 @@
-.firstRun { display: grid; gap: var(--s-7); width: 100%; max-width: var(--measure-wide); margin-inline: auto; padding: var(--s-6) var(--s-7) var(--s-7); }
+/* Content keeps the panel's own inner padding at every width; the choices span it. */
+.firstRun { display: grid; gap: var(--s-7); width: 100%; padding: var(--s-6) var(--s-7) var(--s-7); }
 .firstRun h2 { font-size: var(--text-xl); font-weight: 650; }
 .firstRun h3 { font-size: var(--text-lg); font-weight: 600; }
 .choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-6); }

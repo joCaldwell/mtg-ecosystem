@@ -33,6 +33,20 @@ export function changesSince(log: LogEntry[], baseRevision: number | null): stri
   return cardChanges(log.filter((e) => e.revision > baseRevision && e.kind !== "reject").flatMap((e) => e.cards));
 }
 
+/**
+ * Whether the deck's changes since a proposal touch a card the proposal adds
+ * or cuts, which is when its staleness deserves a warning colour. Presentation
+ * only: the server's `stale` flag is unchanged. True when the log in hand does
+ * not reach the base revision, because then nobody can say it is safe.
+ */
+export function staleTouchesProposal(log: LogEntry[], baseRevision: number | null, items: { oracle_id: string }[]): boolean {
+  if (baseRevision == null) return true;
+  const complete = log.length < LOG_PAGE || log.some((e) => e.revision <= baseRevision);
+  if (!complete) return true;
+  const proposed = new Set(items.map((i) => i.oracle_id));
+  return log.some((e) => e.revision > baseRevision && e.kind !== "reject" && e.cards.some((c) => proposed.has(c.oracle_id)));
+}
+
 /** Plain words for a stale proposal; revision numbers stay in History. */
 export function staleNote(changes: string | null): string {
   return changes ? `The deck changed since this was proposed: ${changes}.` : "The deck changed since this was proposed.";

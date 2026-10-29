@@ -4,7 +4,7 @@
 
 import { api } from "../../../api/client.ts";
 import { href } from "../../../app/routes.ts";
-import { Button, Checkbox, Dialog, ErrorNote, Eyebrow, Icon, Segmented, Stack, Text, TextField, useToast } from "../../../ui/index.ts";
+import { Button, ButtonLink, Checkbox, Dialog, ErrorNote, Eyebrow, Icon, Segmented, Stack, Text, TextField, useToast } from "../../../ui/index.ts";
 import { useDeckState } from "../DeckStore.tsx";
 import { useAttempt } from "./useAttempt.ts";
 import styles from "./ShareDialog.module.css";
@@ -43,11 +43,11 @@ export function ShareDialog({ onClose }: { onClose: () => void }) {
             <div className={styles.link}>
               <TextField readOnly value={link} aria-label="Link to this deck" onFocus={(e) => e.currentTarget.select()} />
               <Button onClick={() => void copy()} disabled={deck.visibility === "private"}>Copy link</Button>
+              <ButtonLink href={href({ page: "shared", slug: deck.slug! })} target="_blank" rel="noreferrer">Preview public page</ButtonLink>
             </div>
           ) : (
             <Text tone="muted" as="p">Choose Unlisted or Public to create a link.</Text>
           )}
-          {link && <a href={href({ page: "shared", slug: deck.slug! })} target="_blank" rel="noreferrer">See what viewers see</a>}
         </Stack>
 
         <Stack gap={3}>

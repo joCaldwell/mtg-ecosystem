@@ -24,7 +24,7 @@ import { ChecksPanel } from "./panel/ChecksPanel.tsx";
 import { EngineCard } from "./panel/EngineCard.tsx";
 import { DeckViewProvider } from "./DeckViewContext.ts";
 import type { DeckViewModel } from "./useDeckView.ts";
-import { layoutDeck } from "../../domain/grouping.ts";
+import { layoutDeck, UNFILED_KEY } from "../../domain/grouping.ts";
 import styles from "./ReadOnlyDeck.module.css";
 
 const CardSheet = lazy(() => import("../../mtg/CardSheet.tsx").then(m => ({ default: m.CardSheet })));
@@ -56,7 +56,11 @@ export function ReadOnlyDeck(props: ReadOnlyDeckProps) {
 function usePublicView(): DeckViewModel {
   const { state } = useDeckList();
   const { groupBy, sortBy } = useDeckUi();
-  const layout = useMemo(() => layoutDeck(state, groupBy, sortBy), [state, groupBy, sortBy]);
+  const layout = useMemo(() => {
+    const l = layoutDeck(state, groupBy, sortBy);
+    // A deck without slots has one group; to a viewer it is the main deck, not "Unfiled".
+    return l.groups.length === 1 && l.groups[0].key === UNFILED_KEY ? { ...l, groups: [{ ...l.groups[0], title: "Main deck" }] } : l;
+  }, [state, groupBy, sortBy]);
   return useMemo(() => ({
     layout, units: [], marks: new Map(),
     overlay: { cuts: new Set(), addsByGroup: new Map(), projected: new Map(), projectedTotal: state.computed.card_count },
@@ -122,31 +126,32 @@ function ReadOnlyBody({ model, header, decisions, listNavigation, useView = useP
                 <Eyebrow>Estimated price</Eyebrow>
                 <Text size="xl" mono as="p">{price.as_of ? formatPrice(price.total_cents, price.currency) : "No prices yet"}</Text>
                 <Text size="xs" tone="muted" as="p">
-                  Each card at its cheapest playable printing{price.unpriced ? `; ${price.unpriced} card${price.unpriced === 1 ? "" : "s"} without a price ${price.unpriced === 1 ? "is" : "are"} not counted` : ""}. An estimate, not what any copy is worth.
+                  Cheapest printings{price.unpriced ? `; ${price.unpriced} unpriced` : ""}
                 </Text>
                 {price.as_of && <Text size="xs" tone="faint" as="p">{priceSource(price)} daily estimate</Text>}
               </section>
 
-              <section className={styles.section}>
+              {/* Shown only with something to show: an unset target is not explained to a reader. */}
+              {(power.target || power.assessment) && <section className={styles.section}>
                 <Eyebrow>Power</Eyebrow>
                 <div className={styles.power}>
-                  <Stack gap={1}>
+                  {power.target && <Stack gap={1}>
                     <Text size="xs" tone="muted">Target</Text>
-                    <Text size="lg" mono>{power.target ? bracketLabel(power.target.mapping) : "Not set"}</Text>
-                    {power.target?.mapping.name && <Text size="xs" tone="soft">{power.target.mapping.name}</Text>}
-                  </Stack>
-                  <Stack gap={1}>
+                    <Text size="lg" mono>{bracketLabel(power.target.mapping)}</Text>
+                    {power.target.mapping.name && <Text size="xs" tone="soft">{power.target.mapping.name}</Text>}
+                  </Stack>}
+                  {power.assessment && <Stack gap={1}>
                     <Text size="xs" tone="muted">Owner's assessment</Text>
-                    <Text size="lg" mono tone={power.assessment?.stale ? "warn" : "soft"}>{power.assessment ? bracketLabel(power.assessment.mapping) : "Not assessed"}</Text>
-                    {power.assessment && <Text size="xs" tone="muted">{power.assessment.confidence === "tentative" ? "Tentative" : "Supported"} · {ago(power.assessment.created_at)}</Text>}
-                  </Stack>
+                    <Text size="lg" mono tone={power.assessment.stale ? "warn" : "soft"}>{bracketLabel(power.assessment.mapping)}</Text>
+                    <Text size="xs" tone="muted">{power.assessment.confidence === "tentative" ? "Tentative" : "Supported"} · {ago(power.assessment.created_at)}</Text>
+                  </Stack>}
                 </div>
                 {power.target && power.target.game_changers_max != null && <Text size="sm" tone="muted" as="p">At most {power.target.game_changers_max} Game Changers.</Text>}
                 {power.assessment?.stale && <Text size="sm" tone="warn" as="p">The list has changed since this assessment.</Text>}
                 {power.target?.notes && <RichText text={power.target.notes} />}
                 {power.assessment?.notes && <details className={styles.details}><summary>Assessment reasoning</summary><RichText text={power.assessment.notes} /></details>}
                 <Text size="xs" tone="faint" as="p">“B2” is a suggested community bracket for pregame discussion; “?” marks gaps.</Text>
-              </section>
+              </section>}
 
               <section className={styles.section}>
                 <BriefText title="Thesis" value={model.brief.thesis} purpose="What the deck is trying to do." />

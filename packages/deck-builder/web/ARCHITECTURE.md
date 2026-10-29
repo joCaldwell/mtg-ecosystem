@@ -295,8 +295,8 @@ removed. History owns current and entry revisions; card decisions show their
 revision, while memory and power assessment metadata uses native titles.
 Neither desktop nor phone deck headers show revisions. CardControls keeps
 secondary slots directly under the primary field, compact and ungated.
-LogRow shows review status, and InboxPage keeps the unreviewed count visible
-alongside the queue. CardHistory's owner-scoped response adds ownership
+LogRow shows review status, and the inbox's proposal history shows the count
+of decisions no agent has read yet. CardHistory's owner-scoped response adds ownership
 evidence, rendered only when nonempty with basis, quantities and attribution.
 Settings alone shows memory limits, usage and omitted counts for the global
 scope and owned decks, computed through loadScope. No new migration. The
@@ -422,8 +422,9 @@ Profile and Settings. Following review, the owner decided on 2026-10-27 to
 restore the standalone ActivityPage and its own page title. ProfilePage has
 no tabs; ActivityPage owns its Page and scroll container around ActivityPanel.
 The inbox badge uses a solid violet fill with black ink in expanded and
-collapsed layouts. Unreviewed decisions appear in InboxPage’s padded header
-subtitle.
+collapsed layouts. Expanded deck rows end in the same badge with that deck's
+waiting count (`domain/inbox` `waitingByDeck`, from the shared inbox); the rail
+keeps a violet dot on the thumbnail instead.
 The route allow-list and public-path decoding share compact parsing to keep
 the initial public bundle below its existing budget.
 
@@ -596,8 +597,18 @@ Secondary-page review (2026-10-28): disabled Buttons share one neutral, dimmed
 look whatever their variant; `ButtonLink` draws navigation as a Button. The
 owner's own shared link renders the signed-out reader's header, and its note
 links back to the deck, found by slug in the owner's summaries (reader
-`listDecks`). The inbox meta counts the owner's decisions no agent has read
-(§8.4); stale proposals describe the cards changed since, from `DeckState.log`
+`listDecks`). The owner's decisions no agent has read (§8.4) are counted in
+proposal history, not the inbox header, where they read as contradicting the
+waiting badge. Stale proposals describe the cards changed since, from `DeckState.log`
 (`domain/staleChanges`), not revision numbers, in the inbox, deck Review and
-phone decisions alike; the accept toast names the accepted cards the same way. The inbox detail pane reaches the
+phone decisions alike; the accept toast names the accepted cards the same way.
+The inbox colours that note amber only when `staleTouchesProposal` finds a
+change to a card the proposal adds or cuts (or cannot tell); otherwise grey. The inbox detail pane reaches the
 frame edge with content capped at `--measure-wide` and reasons at `--measure`.
+
+Shared page width (2026-10-28): `PublicShell` grows from `--public-w` toward
+`--public-wide` with the window (`--public-grow`, fluid because only the three
+breakpoint queries are allowed), so 2560 px readers get a third list column.
+The reader omits an unset power target and calls a deck's single unslotted
+group "Main deck". The share dialog's "Preview public page" is a ButtonLink
+beside Copy link.
