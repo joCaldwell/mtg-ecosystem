@@ -45,6 +45,27 @@ test("colour identity indicators expose colour names and colourless in their acc
   assert.match(renderToStaticMarkup(createElement(ColorIdentity, { colors: "" })), /role="img" aria-label="Colour identity: colourless"/);
 });
 
+test("coloured mana pips draw their letter but keep the spoken colour as their only name", async (t) => {
+  const { ManaSymbol } = await (await modules(t)).ssrLoadModule("/src/mtg/ManaSymbol.tsx");
+  const pip = (symbol: string) => renderToStaticMarkup(createElement(ManaSymbol, { symbol }));
+  for (const [letter, name] of [["W", "white"], ["U", "blue"], ["B", "black"], ["R", "red"], ["G", "green"], ["C", "colourless"]]) {
+    assert.match(pip(letter), new RegExp(`^<span[^>]*role="img" aria-label="${name}"[^>]*>${letter}</span>$`));
+  }
+  const hybrid = pip("B/G");
+  assert.match(hybrid, /aria-label="black or green"/);
+  assert.match(hybrid, />B<\/span><span[^>]*>G<\/span><\/span>$/, "each half carries its letter");
+  assert.match(pip("2/W"), />2<\/span><span[^>]*>W<\/span><\/span>$/);
+  assert.match(pip("U/P"), />P<\/span>$/, "Phyrexian keeps its P");
+});
+
+test("the lifecycle pill is a menu button named by its state", async (t) => {
+  const { Menu } = await (await modules(t)).ssrLoadModule("/src/ui/Menu.tsx");
+  const items = ["Paper", "Theorycrafted", "Archived"].map((v) => ({ id: v, label: v, checked: v === "Paper", onSelect: () => undefined }));
+  const html = renderToStaticMarkup(createElement(Menu, { pill: true, label: "Paper", ariaLabel: "Lifecycle: Paper", items }));
+  assert.match(html, /^<button[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"[^>]*aria-label="Lifecycle: Paper"/);
+  assert.doesNotMatch(html, /aria-pressed|role="group"/, "a state, not a segmented filter");
+});
+
 test("review arrival reveals the first item of the chosen decision, skipping hidden contributors", async (t) => {
   const { scrollToReviewCard } = await (await modules(t)).ssrLoadModule("/src/features/deck/list/DeckList.tsx");
   const calls: unknown[] = [];

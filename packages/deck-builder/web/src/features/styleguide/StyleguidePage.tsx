@@ -423,6 +423,7 @@ function Navigation() {
               align="end"
               items={[{ id: "a", label: "One", onSelect: () => undefined }, { id: "b", label: "Two", onSelect: () => undefined }]}
             />
+            <LifecyclePillDemo />
             <Menu
               label="More actions"
               icon="more"
@@ -437,6 +438,19 @@ function Navigation() {
         </Demo>
       </Section>
     </Stack>
+  );
+}
+
+/** A pill trigger with a single-choice list: the current state, changed from its menu. */
+function LifecyclePillDemo() {
+  const [value, setValue] = useState("Paper");
+  return (
+    <Menu
+      pill
+      label={value}
+      ariaLabel={`Lifecycle: ${value}`}
+      items={["Paper", "Theorycrafted", "Archived"].map((v) => ({ id: v, label: v, checked: v === value, onSelect: () => setValue(v) }))}
+    />
   );
 }
 

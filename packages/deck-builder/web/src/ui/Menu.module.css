@@ -27,3 +27,51 @@
 .cut {
   color: var(--cut);
 }
+
+/* A single-choice menu keeps a column for the tick so labels line up. */
+.tick {
+  display: inline-flex;
+  flex: none;
+  width: 12px;
+  color: var(--text-soft);
+}
+
+/* The pill trigger shows a current state, not an action: grey, rounded,
+   smaller than a button. The face is what is drawn; the button around it can
+   grow into a tap target. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--r-pill);
+}
+
+.pillFace {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  height: var(--h-sm);
+  padding: 0 var(--s-3) 0 var(--s-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background: var(--raised);
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  transition: background var(--fast), border-color var(--fast), color var(--fast);
+}
+
+.pill:hover .pillFace,
+.pill[aria-expanded="true"] .pillFace {
+  border-color: var(--line-hover);
+  background: linear-gradient(var(--hover), var(--hover)), var(--raised);
+  color: var(--text);
+}
+
+.pill:focus-visible {
+  outline: none;
+}
+
+.pill:focus-visible .pillFace {
+  outline: 2px solid var(--sel);
+  outline-offset: 1px;
+}

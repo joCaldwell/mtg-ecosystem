@@ -194,7 +194,7 @@ export function MtgExamples() {
     <CardLookupProvider lookup={lookup}>
       <CardHoverProvider>
         <div className={styles.root}>
-          <Example title="ManaSymbol" note="One symbol from inside the braces. Black is a dark disc with a pale ring, so it never reads as the grey generic pips.">
+          <Example title="ManaSymbol" note="One symbol from inside the braces. Every pip carries its letter or number, so colour is never the only cue; hybrids carry one per half. Black is a dark disc with a pale ring and pale letter, so it never reads as the grey generic pips.">
             <Labelled label="single">
               <div className={styles.strip}>
                 {SYMBOLS.map((s) => (

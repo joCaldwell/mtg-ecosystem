@@ -80,7 +80,11 @@ D20) and built in phase 4a; phase 4b makes the full app hold up between
 | `--identity-*` | That deck’s colour identity | thin stripe on its card or header only |
 | greys | Everything else | structure, text, neutral chips, deck lifecycle |
 
-Mana colours (`--mana-*`) appear in symbols and the pip chart. D21 also
+Mana colours (`--mana-*`) appear in symbols and the pip chart. Cost pips
+never rely on hue alone (owner decision, 2026-10-28): each coloured pip
+carries its letter in the numeral's mono bold, dark `--mana-ink` on light
+fills and the pale ring colour on black; a hybrid carries one letter per half
+in its corners. The accessible name stays the spoken colour. D21 also
 permits `--identity-*` aliases on a deck's own thin stripe, at
 `--identity-opacity`; colourless uses `--identity-grey`. A split gradient
 represents multiple colours. These accents never tint text or controls and
@@ -88,7 +92,10 @@ never replace semantic colours.
 
 Deck lifecycle (Paper, Theorycrafted, Archived) is a state, not a meaning, so
 its labels are grey and the word carries it: All decks pills, sidebar labels
-and the deck header's lifecycle control. The `--lifecycle-*` aliases resolve to
+and the deck header's lifecycle control. The header shows lifecycle as a
+pill, not a tab row (owner decision, 2026-10-28): the owner opens it as a
+single-choice menu, moving to Archived asks first, and read-only headers show
+the plain chip. The `--lifecycle-*` aliases resolve to
 `--muted` on `--raised` (the roster uses `--text-soft` for essential lifecycle
 labels), keeping green, blue and amber for accept/pass,
 selection and warnings. Sidebar labels appear only for Theorycrafted and
@@ -176,7 +183,7 @@ or about this app.
 | `Dot` | A 6px status mark | `neutral` `agent` `warn` `add` `cut`; `pulse` |
 | `Tabs` | Switching panels, underline style, arrow keys | per-tab `badge`, `tone: "agent"` |
 | `Segmented` | Choosing one of a few views | |
-| `Menu` | A text or icon button that opens a list of actions | trigger `variant` and `size`; `icon`; `align`; item `tone: "cut"`, `disabled` |
+| `Menu` | A text or icon button that opens a list of actions; a `pill` trigger shows a current state and its single-choice list | trigger `variant` and `size`; `icon`; `pill`; `align`; item `tone: "cut"`, `disabled`, `checked` (menuitemradio with a tick) |
 | `ContextMenu` | Pointer-positioned actions for a right-click or keyboard menu request | disabled items, separators, arrow navigation, focus restoration |
 | `TextField` | One-line input | `fieldSize` `md` `lg`; `invalid` |
 | `TextArea` | Multi-line input | `autosize` |

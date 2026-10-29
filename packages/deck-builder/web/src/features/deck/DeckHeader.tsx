@@ -4,13 +4,13 @@ import { Explainer } from "../../ui/index.ts";
 // not here; they live on the group headings, where they can be acted on.
 
 import { useState, type FormEvent, type KeyboardEvent } from "react";
-import { api } from "../../api/client.ts";
+import { api, type DeckCategory } from "../../api/client.ts";
 import { href } from "../../app/routes.ts";
-import { DECK_CATEGORY_OPTIONS } from "../../domain/deckCategory.ts";
+import { DECK_CATEGORY_LABELS, DECK_CATEGORY_OPTIONS } from "../../domain/deckCategory.ts";
 import { bracketLabel } from "../../domain/power.ts";
 import { costCaption, formatPrice } from "../../domain/price.ts";
 import { ColorIdentity, ManaCost, CardRef, DeckArt } from "../../mtg/index.ts";
-import { Button, Icon, Menu, Row, Segmented, Text, TextField, type MenuItem } from "../../ui/index.ts";
+import { Button, ConfirmDialog, Icon, Menu, Row, Text, TextField, type MenuItem } from "../../ui/index.ts";
 import { DeckStat } from "./DeckStat.tsx";
 import { useDeck, useDeckState } from "./DeckStore.tsx";
 import { useDeckUi } from "./DeckUi.tsx";
@@ -23,6 +23,7 @@ export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
   const { deck, computed, checks, cards } = state;
   const readOnly = deck.category === "archived";
   const [draft, setDraft] = useState<string | null>(null);
+  const [confirmArchive, setConfirmArchive] = useState(false);
 
   function startRename() {
     setDraft(deck.name);
@@ -46,6 +47,23 @@ export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
   const count = computed.card_count;
   const hasError = checks.some((c) => c.severity === "error");
   const commanders = cards.filter((c) => c.role === "commander" && !c.maybe);
+
+  function setCategory(category: DeckCategory) {
+    void run(() => api.setDeckCategory(deck.id, category));
+  }
+
+  // Lifecycle is a state shown as a pill; its menu changes it. Archiving makes
+  // the deck read-only, so that one choice asks first.
+  const lifecycleItems: MenuItem[] = DECK_CATEGORY_OPTIONS.map((option) => ({
+    id: option.value,
+    label: option.label,
+    checked: option.value === deck.category,
+    onSelect: () => {
+      if (option.value === deck.category) return;
+      if (option.value === "archived") setConfirmArchive(true);
+      else setCategory(option.value);
+    },
+  }));
 
   const moreItems: MenuItem[] = [
     { id: "fork", label: "Fork", onSelect: () => ui.openDialog("fork") },
@@ -79,13 +97,11 @@ export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
         )}
 
         <div className={styles.lifecycle}>
-          <Segmented
-            label="Deck lifecycle"
-            options={DECK_CATEGORY_OPTIONS}
-            value={deck.category}
-            onChange={(category) => {
-              if (category !== deck.category) void run(() => api.setDeckCategory(deck.id, category));
-            }}
+          <Menu
+            pill
+            label={DECK_CATEGORY_LABELS[deck.category]}
+            ariaLabel={`Lifecycle: ${DECK_CATEGORY_LABELS[deck.category]}`}
+            items={lifecycleItems}
           />
           <Explainer title="Deck lifecycle" label="Who can edit?">
             <p>Paper requires agent card proposals. Theorycrafted lets agents edit cards directly. Archived is read-only.</p>
@@ -163,6 +179,19 @@ export function DeckHeader({ collapsed = false }: { collapsed?: boolean }) {
           {state.power.target ? ` · target ${bracketLabel(state.power.target.mapping)}` : ""}
         </button>
       </Row>
+      {confirmArchive && (
+        <ConfirmDialog
+          title="Archive this deck?"
+          confirmLabel="Archive deck"
+          onClose={() => setConfirmArchive(false)}
+          onConfirm={() => {
+            setConfirmArchive(false);
+            setCategory("archived");
+          }}
+        >
+          <Text>It becomes read-only for you and your agents until you change its lifecycle again.</Text>
+        </ConfirmDialog>
+      )}
     </header></DeckArt>
   );
 }

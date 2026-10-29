@@ -12,6 +12,9 @@ export interface MenuItem {
   onSelect: () => void;
   tone?: "cut";
   disabled?: boolean;
+  /** Set on every item to make the menu a single choice: the item is a
+   *  menuitemradio and the checked one shows a tick. */
+  checked?: boolean;
 }
 
 export type MenuProps = {
@@ -22,23 +25,29 @@ export type MenuProps = {
   size?: ButtonProps["size"];
   /** Which edge of the trigger the list lines up with. */
   align?: "start" | "end";
+  /** Draw the trigger as a state pill (the current value) rather than a button. */
+  pill?: boolean;
 } & (
   | { label: ReactNode; icon?: undefined }
   /** An icon trigger uses its label as the accessible name and tooltip. */
   | { label: string; icon: IconName }
 );
 
-export function Menu({ label, icon, ariaLabel, items, variant = "default", size = "md", align = "start" }: MenuProps) {
+export function Menu({ label, icon, ariaLabel, items, variant = "default", size = "md", align = "start", pill = false }: MenuProps) {
   const [open, setOpen] = useState(false);
   const [trigger, setTrigger] = useState<HTMLButtonElement | null>(null);
   const list = useRef<HTMLDivElement>(null);
   const menuId = useId();
 
-  const enabled = () => Array.from(list.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? []);
+  const enabled = () => Array.from(list.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]:not(:disabled)') ?? []);
 
-  // Focus the first item as the menu appears.
+  const choice = items.some((item) => item.checked !== undefined);
+
+  // Focus the checked item, or the first, as the menu appears.
   useEffect(() => {
-    if (open) enabled()[0]?.focus({ preventScroll: true });
+    if (!open) return;
+    const els = enabled();
+    (els.find((el) => el.getAttribute("aria-checked") === "true") ?? els[0])?.focus({ preventScroll: true });
   }, [open]);
 
   function close() {
@@ -71,7 +80,6 @@ export function Menu({ label, icon, ariaLabel, items, variant = "default", size 
 
   const triggerProps = {
     ref: setTrigger,
-    size,
     "aria-haspopup": "menu" as const,
     "aria-expanded": open,
     "aria-controls": open ? menuId : undefined,
@@ -82,11 +90,20 @@ export function Menu({ label, icon, ariaLabel, items, variant = "default", size 
   return (
     <>
       {icon ? (
-        <IconButton {...triggerProps} label={ariaLabel ?? label}>
+        <IconButton {...triggerProps} size={size} label={ariaLabel ?? label}>
           <Icon name={icon} />
         </IconButton>
+      ) : pill ? (
+        // The visible pill is the inner face, so a touch layout can make the
+        // button a full tap target without fattening the pill.
+        <button {...triggerProps} type="button" className={styles.pill} aria-label={ariaLabel}>
+          <span className={styles.pillFace}>
+            {label}
+            <Icon name="chevronDown" size={10} />
+          </span>
+        </button>
       ) : (
-        <Button {...triggerProps} variant={variant} aria-label={ariaLabel}>
+        <Button {...triggerProps} size={size} variant={variant} aria-label={ariaLabel}>
           {label}
           <Icon name="chevronDown" size={12} />
         </Button>
@@ -103,7 +120,8 @@ export function Menu({ label, icon, ariaLabel, items, variant = "default", size 
             <button
               key={item.id}
               type="button"
-              role="menuitem"
+              role={choice ? "menuitemradio" : "menuitem"}
+              aria-checked={choice ? Boolean(item.checked) : undefined}
               tabIndex={-1}
               disabled={item.disabled}
               className={cx(styles.item, item.tone === "cut" && styles.cut)}
@@ -113,6 +131,7 @@ export function Menu({ label, icon, ariaLabel, items, variant = "default", size 
                 item.onSelect();
               }}
             >
+              {choice && <span className={styles.tick}>{item.checked && <Icon name="check" size={12} />}</span>}
               {item.label}
             </button>
           ))}
