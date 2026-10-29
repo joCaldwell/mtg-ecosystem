@@ -7,7 +7,7 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 
 import { api, type CardData } from "../../api/client.ts";
 import { annotateResults, type AnnotatedResult } from "../../domain/search.ts";
 import { ColorIdentity } from "../../mtg/index.ts";
-import { Checkbox, ErrorNote, Icon, Kbd, Text, useHotkeys, useToast } from "../../ui/index.ts";
+import { Button, Checkbox, ErrorNote, Icon, Kbd, Text, useHotkeys, useToast } from "../../ui/index.ts";
 import { AddBarResult } from "./AddBarResult.tsx";
 import { useDeck, useDeckState } from "./DeckStore.tsx";
 import { useDeckUi } from "./DeckUi.tsx";
@@ -41,6 +41,8 @@ export function AddBar() {
   const q = query.trim();
   const hasCommander = state.cards.some((c) => c.role === "commander");
   const identityScope = everyColour ? null : `${hasCommander}:${state.deck.color_identity}`;
+  // The search is limited to the commander's colours unless asked otherwise.
+  const limited = !everyColour && hasCommander;
   const queryKey = JSON.stringify([deckId, q, everyColour, identityScope]);
   // A changed query or colour scope invalidates the previous options at render
   // time, before the debounce/request runs. Enter cannot pick a stale card.
@@ -205,9 +207,16 @@ export function AddBar() {
             ) : error ? (
               <ErrorNote>{error}</ErrorNote>
             ) : rows.length === 0 ? (
-              <Text role="status" tone="muted" as="div" className={styles.none}>
-                No cards match this search.
-              </Text>
+              <div className={styles.none}>
+                <Text role="status" tone="muted">
+                  {limited ? "No cards match this search in the deck's colours." : "No cards match this search."}
+                </Text>
+                {limited && (
+                  <Button size="sm" onClick={() => { setEveryColour(true); input.current?.focus(); }}>
+                    Search every colour
+                  </Button>
+                )}
+              </div>
             ) : (
               rows.map((r, i) => (
                 <AddBarResult
@@ -231,7 +240,7 @@ export function AddBar() {
               <span><Kbd>Esc</Kbd> close</span>
             </span>
             <span className={styles.limit}>
-              {!everyColour && hasCommander ? (
+              {limited ? (
                 <>
                   Limited to the deck's colours <ColorIdentity colors={state.deck.color_identity} />
                 </>

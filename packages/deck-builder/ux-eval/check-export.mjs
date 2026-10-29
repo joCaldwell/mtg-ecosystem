@@ -22,7 +22,9 @@ try{for(const width of [1280,1440,1920,2560]){
  await page.keyboard.press('Escape');const search=page.getByRole('searchbox',{name:'Search this deck',exact:true});await search.fill(maybe.name);await settle(page,watch);await open();
  assert.equal(await dialog.getByRole('checkbox',{name:'Only current filter matches',exact:true}).isChecked(),true);assert.equal(await dialog.getByRole('checkbox',{name:'Include categories',exact:true}).isChecked(),false);
  const ids=before.cards.filter(c=>c.name.toLowerCase().includes(maybe.name.toLowerCase())).map(c=>c.oracle_id).sort().join(',');assert(ids.split(',').includes(maybe.oracle_id));
- await check('categories=off&oracle_ids='+ids,false);await dialog.getByRole('checkbox',{name:'Include maybe list',exact:true}).check();const matched=await check('categories=off&include_maybe=on&oracle_ids='+ids);assert(matched.cards>=maybe.quantity);await shoot(page,join(out,`filtered-maybe-${width}.png`),{full:false});
+ // Every match is on the maybe list, so the export opens including it; unchecking leaves only a plain hint.
+ const maybeBox=dialog.getByRole('checkbox',{name:'Include maybe list',exact:true});assert.equal(await maybeBox.isChecked(),true);const matched=await check('categories=off&include_maybe=on&oracle_ids='+ids);assert(matched.cards>=maybe.quantity);await shoot(page,join(out,`filtered-maybe-${width}.png`),{full:false});
+ await maybeBox.uncheck();await check('categories=off&oracle_ids='+ids,false);await dialog.getByText(/^\d+ match(?:es are| is) on the maybe list\.$/).waitFor();assert.equal(await dialog.getByRole('button',{name:'Include maybe list'}).count(),0);await maybeBox.check();await check('categories=off&include_maybe=on&oracle_ids='+ids);
  // Hold only this fixture's next export response. Copy must never use an old scope.
  let release;const held=new Promise(r=>{release=r;});let requestedResolve;const requested=new Promise(r=>{requestedResolve=r;});
  await page.route('**/api/decks/2/export?**',async route=>{requestedResolve();await held;await route.continue();},{times:1});

@@ -495,7 +495,9 @@ frame while its list and detail panes keep independent scrolling.
 
 Panel navigation keeps all visible text controls on one line at minimum, default
 and wider widths: Review, Brief, Power, Stats, Checks, Memories and History.
-The current destination has an underline and aria-current. Inspection replaces
+The current destination has bright text, a 2 px bar along its foot and
+aria-current; the others stay grey, and Review shows waiting decisions only as
+its violet count pill. Inspection replaces
 these controls in the same header with icon-only Back, title, status and mana
 cost inline, without a divider underneath;
 its hidden label names the previous view. The body never duplicates the title.

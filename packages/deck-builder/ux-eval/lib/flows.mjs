@@ -89,12 +89,11 @@ export const FLOWS = [
       await t.press(page.getByRole("button", { name: "More", exact: true }));
       await t.press(page.getByRole("menuitem", { name: "Export", exact: true }));
       const dialog = page.getByRole("dialog", { name: "Export", exact: true });
-      await t.step("Open an export for the current maybe-card filter");
-      const initiallyEmpty = await dialog.getByRole("button", { name: "Copy", exact: true }).isDisabled();
-      await t.press(dialog.getByRole("checkbox", { name: "Include maybe list", exact: true }));
+      // Every match is on the maybe list, so the export opens including it.
       const field = dialog.getByRole("textbox", { name: "Exported list", exact: true });
       await field.waitFor();
-      await t.step("Include the matching maybe card");
+      const initiallyIncludes = await dialog.getByRole("checkbox", { name: "Include maybe list", exact: true }).isChecked();
+      await t.step("Open an export for the current maybe-card filter, already including the match");
       await t.press(dialog.getByRole("button", { name: "Copy", exact: true }));
       await t.step("Copy the filtered export");
       const oracleIds = before.cards.filter(c => c.name.toLowerCase().includes(card.name.toLowerCase())).map(c => c.oracle_id).sort().join(",");
@@ -103,7 +102,7 @@ export const FLOWS = [
       const copied = await page.evaluate(() => navigator.clipboard.readText()) === result.text;
       const after = (await t.api(`/api/decks/${id}`, t.users.owner)).state;
       const unchanged = JSON.stringify(after) === JSON.stringify(before);
-      return { completed: initiallyEmpty && textMatches && copied && unchanged, facts: { fixture_card: card.name, cards: result.card_count, lines: result.line_count, initially_excludes_maybe: initiallyEmpty, exact_capability_result: textMatches, exact_clipboard: copied, deck_unchanged: unchanged } };
+      return { completed: initiallyIncludes && textMatches && copied && unchanged, facts: { fixture_card: card.name, cards: result.card_count, lines: result.line_count, initially_includes_maybe: initiallyIncludes, exact_capability_result: textMatches, exact_clipboard: copied, deck_unchanged: unchanged } };
     },
   },
   {

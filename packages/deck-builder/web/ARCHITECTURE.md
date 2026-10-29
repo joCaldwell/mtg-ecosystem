@@ -601,3 +601,16 @@ links back to the deck, found by slug in the owner's summaries (reader
 (`domain/staleChanges`), not revision numbers, in the inbox, deck Review and
 phone decisions alike; the accept toast names the accepted cards the same way. The inbox detail pane reaches the
 frame edge with content capped at `--measure-wide` and reasons at `--measure`.
+
+Deck editor review (2026-10-28): find-in-deck keeps muting nonmatches and adds
+navigation. `matchDeckList` lists each match once in drawing order
+(`ordered`); `DeckUi.findIndex` is the current one, reset by any query or tag
+change. The filter row (the toolbar's second row, on its surface) shows "1 of
+5" with previous/next, and Enter/Shift+Enter in the find box steps without
+moving focus. Steps centre an off-screen match, smoothly unless reduced
+motion. A decision becoming current reveals all its rows when they fit
+together, else its first item, and flashes them once (`--flash`; reduced
+motion keeps only the static outline). Stale proposals are amber in Review only
+when the changes since touch their own cards (`staleTouches`); the server's
+stale flag and confirmation are unchanged. Export opens with the maybe list
+included when every match is on it.

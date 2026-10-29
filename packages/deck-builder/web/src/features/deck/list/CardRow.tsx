@@ -23,11 +23,13 @@ export interface CardRowProps {
   current?: boolean;
   /** Undefined without filters; false keeps the row visible with muted styling. */
   filterMatch?: boolean;
+  /** The find-in-deck match the owner has stepped to. */
+  findCurrent?: boolean;
   /** Purpose metadata, distinct from sourcing/status tags. */
   purpose?: string;
 }
 
-export function CardRow({ card, quantity = 1, change, mark, bold, current, filterMatch, purpose }: CardRowProps) {
+export function CardRow({ card, quantity = 1, change, mark, bold, current, filterMatch, findCurrent, purpose }: CardRowProps) {
   const ui = useDeckUi();
   const { readOnly } = useDeckList();
   const hover = useCardHover();
@@ -53,6 +55,7 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
   const cls = [
     styles.row,
     filterMatch === true && styles.match,
+    filterMatch === true && findCurrent && styles.findCurrent,
     change === "cut" && styles.cut,
     change === "add" && styles.add,
     selected && styles.selected,
@@ -70,6 +73,7 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
       data-current={current || undefined}
       data-oracle-id={card.oracle_id}
       data-filter-match={filterMatch}
+      data-find-current={(filterMatch && findCurrent) || undefined}
       aria-current={open || undefined}
       onClick={onClick}
       onKeyDown={onKeyDown}

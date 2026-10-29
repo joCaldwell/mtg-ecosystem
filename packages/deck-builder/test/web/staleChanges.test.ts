@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { acceptedNote, changesSince, staleNote } from "../../web/src/domain/staleChanges.ts";
+import { acceptedNote, changesSince, staleNote, staleTouches } from "../../web/src/domain/staleChanges.ts";
 import { logEntry } from "./fixtures.ts";
 
 const c = (card_name: string, action: "add" | "cut" | "role") => ({ oracle_id: card_name, card_name, action, quantity: 1, item_id: null, reason: "" });
@@ -26,6 +26,28 @@ describe("changesSince", () => {
   test("rejections and entries without cards are not changes", () => {
     assert.equal(changesSince([logEntry({ revision: 5, kind: "reject", cards: [c("Test Card A", "add")] }), logEntry({ revision: 5 })], 4), null);
     assert.equal(changesSince([], null), null);
+  });
+});
+
+describe("staleTouches", () => {
+  const log = [
+    logEntry({ revision: 4, cards: [c("Test Card C", "cut")] }),
+    logEntry({ revision: 3, kind: "reject", cards: [c("Test Card D", "add")] }),
+    logEntry({ revision: 3, cards: [c("Test Card A", "add")] }),
+    logEntry({ revision: 2, cards: [c("Test Card B", "add")] }),
+  ];
+  test("only changes since the base revision to the proposal's own cards count", () => {
+    assert.equal(staleTouches(log, 2, ["Test Card C"]), true);
+    assert.equal(staleTouches(log, 2, ["Test Card X", "Test Card A"]), true);
+    assert.equal(staleTouches(log, 2, ["Test Card B"]), false, "before the base revision");
+    assert.equal(staleTouches(log, 2, ["Test Card D"]), false, "a rejection changed nothing");
+    assert.equal(staleTouches(log, 2, []), false);
+  });
+
+  test("assumes a conflict when the log cannot say", () => {
+    const long = Array.from({ length: 40 }, (_, i) => logEntry({ revision: 50 - i, cards: [c(`Card ${i}`, "add")] }));
+    assert.equal(staleTouches(long, 3, ["Test Card A"]), true);
+    assert.equal(staleTouches(log, null, ["Test Card A"]), true);
   });
 });
 

@@ -1,7 +1,12 @@
-.summary { display: flex; align-items: center; gap: var(--s-4); padding: var(--s-2) var(--s-6); background: var(--bg); border-bottom: 1px solid var(--line); }
+/* The filter toolbar's second row: the toolbar's surface, with a hairline in
+   place of the toolbar's stronger bottom rule (the -1px overlaps it). */
+.summary { display: flex; align-items: center; gap: var(--s-4); margin-top: -1px; padding: var(--s-3) var(--s-6); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line-strong); background: var(--surface); }
 .query { max-width: var(--toolbar-search-max); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.summary [role="status"], .summary button { flex: none; }
+.summary > *:not(.query) { flex: none; }
+.position { display: inline-flex; align-items: center; gap: var(--s-1); }
+.count { min-width: var(--find-count-w); margin-right: var(--s-2); color: var(--text-soft); text-align: right; }
+.previous svg { transform: rotate(180deg); }
 @media (max-width: 1099px) {
-  .summary { position: sticky; top: var(--tablet-bar-outer-h); z-index: var(--z-sticky); padding-inline: var(--s-4); background: var(--surface); }
+  .summary { position: sticky; top: var(--tablet-bar-outer-h); z-index: var(--z-sticky); padding-inline: var(--s-4); }
   .query { flex: 1; max-width: none; }
 }

@@ -45,19 +45,56 @@ test("colour identity indicators expose colour names and colourless in their acc
   assert.match(renderToStaticMarkup(createElement(ColorIdentity, { colors: "" })), /role="img" aria-label="Colour identity: colourless"/);
 });
 
-test("review arrival reveals the first item of the chosen decision, skipping hidden contributors", async (t) => {
+test("a decision reveals all its rows when they fit together, else its first item, skipping hidden contributors", async (t) => {
   const { scrollToReviewCard } = await (await modules(t)).ssrLoadModule("/src/features/deck/list/DeckList.tsx");
   const calls: unknown[] = [];
-  const row = (id: string, visible: boolean, label: string) => ({
+  const nearest = { block: "nearest", inline: "nearest" };
+  const row = (id: string, visible: boolean, top: number, label: string) => ({
     dataset: { oracleId: id }, getClientRects: () => visible ? [{}] : [],
+    getBoundingClientRect: () => ({ top }),
     scrollIntoView: (options: unknown) => calls.push([label, options]),
   });
-  const rows = [row("cut", true, "cut later in decision"), row("add", false, "hidden add"), row("add", true, "first changed card")];
+  // A swap: the add is drawn high in one group, its cut lower in another.
+  const rows = [row("cut", true, 900, "cut in a later group"), row("add", false, 0, "hidden add"), row("add", true, 100, "first changed card")];
   scrollToReviewCard({ querySelectorAll: () => rows }, "add");
-  assert.deepEqual(calls, [["first changed card", { block: "nearest", inline: "nearest" }]]);
+  assert.deepEqual(calls, [["cut in a later group", nearest], ["first changed card", nearest]],
+    "lowest then highest: both end in view when they fit, the highest when they do not");
+  calls.length = 0;
+  // Named item below the topmost row: it is revealed last so it stays in view.
+  scrollToReviewCard({ querySelectorAll: () => [row("cut", true, 100, "cut above"), row("add", true, 900, "named add")] }, "add");
+  assert.deepEqual(calls, [["named add", nearest], ["cut above", nearest], ["named add", nearest]]);
+  calls.length = 0;
+  scrollToReviewCard({ querySelectorAll: () => [row("add", true, 100, "only row")] }, "add");
+  assert.deepEqual(calls, [["only row", nearest]]);
   calls.length = 0;
   scrollToReviewCard(null, "add");
+  scrollToReviewCard({ querySelectorAll: () => [row("add", false, 0, "hidden")] }, "add");
   assert.deepEqual(calls, []);
+});
+
+test("stepping through deck matches centres an off-screen match, smoothly unless motion is reduced", async (t) => {
+  const { scrollToFindCurrent } = await (await modules(t)).ssrLoadModule("/src/features/deck/list/DeckList.tsx");
+  const calls: unknown[] = [];
+  const row = (visible: boolean, top: number, name: string) => ({
+    getClientRects: () => visible ? [{}] : [],
+    getBoundingClientRect: () => ({ top, bottom: top + 24 }),
+    scrollIntoView: (options: unknown) => calls.push([name, options]),
+  });
+  const list = (current: ReturnType<typeof row>) => ({
+    scrollHeight: 3000, clientHeight: 800, getBoundingClientRect: () => ({ top: 100, bottom: 900 }),
+    querySelectorAll: (selector: string) => {
+      assert.equal(selector, '[data-find-current="true"]');
+      return [row(false, 0, "closed secondary contributor"), current];
+    },
+  });
+  scrollToFindCurrent(list(row(true, 1200, "below the fold")), false);
+  scrollToFindCurrent(list(row(true, 40, "above the list")), true);
+  scrollToFindCurrent(list(row(true, 400, "already in view")), false);
+  scrollToFindCurrent(null, false);
+  assert.deepEqual(calls, [
+    ["below the fold", { block: "center", inline: "nearest", behavior: "smooth" }],
+    ["above the list", { block: "center", inline: "nearest", behavior: "auto" }],
+  ]);
 });
 
 test("proposal arrival focuses its own reason and scrolls only its panel, preserving the list reveal", async (t) => {

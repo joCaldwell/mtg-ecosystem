@@ -20,7 +20,16 @@ export interface DeckFilterMatches {
   active: boolean;
   cardIds: Set<string>;
   addIds: Set<number>;
+  /** Every match once, in the order the list draws it: `card:<oracle_id>` or
+   *  `add:<item id>`. Find-in-deck steps through these; a read-only view,
+   *  which has no find controls, may leave it out. */
+  ordered?: string[];
 }
+
+export const matchKey = {
+  card: (oracleId: string) => `card:${oracleId}`,
+  add: (itemId: number) => `add:${itemId}`,
+};
 
 /** Identify matches without removing or reordering any rows, groups or review decisions. */
 export function matchDeckList(
@@ -32,24 +41,41 @@ export function matchDeckList(
   cards: DeckCard[] = [],
 ): DeckFilterMatches {
   const query = searchTerm.trim().toLowerCase();
-  const result: DeckFilterMatches = {
+  const result: DeckFilterMatches & { ordered: string[] } = {
     active: !!query || tags.ids.length > 0,
     cardIds: new Set(),
     addIds: new Set(),
+    ordered: [],
   };
   if (!result.active) return result;
 
   const matches = (card: DeckCard) => card.name.toLowerCase().includes(query) && matchesTags(card.tag_ids, tags);
   const tagsByCard = new Map(cards.map((card) => [card.oracle_id, card.tag_ids]));
-  for (const card of [...layout.commanders, ...layout.companions, ...layout.groups.flatMap((group) => group.cards), ...layout.maybe]) {
-    if (matches(card)) result.cardIds.add(card.oracle_id);
-  }
-  for (const adds of addsByGroup.values()) {
-    for (const item of adds) {
-      if (item.card_name.toLowerCase().includes(query) && matchesTags(tagsByCard.get(item.oracle_id) ?? [], tags)) {
-        result.addIds.add(item.id);
+  const visitCards = (list: DeckCard[]) => {
+    for (const card of list) {
+      if (!result.cardIds.has(card.oracle_id) && matches(card)) {
+        result.cardIds.add(card.oracle_id);
+        result.ordered.push(matchKey.card(card.oracle_id));
       }
     }
+  };
+  const visitAdds = (adds: ProposalItem[] = []) => {
+    for (const item of adds) {
+      if (!result.addIds.has(item.id) && item.card_name.toLowerCase().includes(query) && matchesTags(tagsByCard.get(item.oracle_id) ?? [], tags)) {
+        result.addIds.add(item.id);
+        result.ordered.push(matchKey.add(item.id));
+      }
+    }
+  };
+  // DeckList's order: commanders, each group's rows then its proposed adds,
+  // the companion, then the maybe list.
+  visitCards(layout.commanders);
+  for (const group of layout.groups) {
+    visitCards(group.cards);
+    visitAdds(addsByGroup.get(group.key));
   }
+  visitCards(layout.companions);
+  visitCards(layout.maybe);
+  for (const adds of addsByGroup.values()) visitAdds(adds);
   return result;
 }

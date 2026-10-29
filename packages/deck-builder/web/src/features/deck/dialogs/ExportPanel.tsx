@@ -13,7 +13,10 @@ export function ExportPanel() {
   const { toast } = useToast();
   const [filtered, setFiltered] = useState(matches.active);
   const [categories, setCategories] = useState(!matches.active);
-  const [includeMaybe, setIncludeMaybe] = useState(false);
+  // When every match is on the maybe list, a filtered export without it would
+  // be empty, so it opens with the maybe list included.
+  const [includeMaybe, setIncludeMaybe] = useState(() => matches.active && matches.addIds.size === 0 && matches.cardIds.size > 0
+    && [...matches.cardIds].every(id => cards.some(c => c.oracle_id === id && c.maybe)));
   const [copyError, setCopyError] = useState<string | null>(null);
 
   const oracleIds = filtered ? [...matches.cardIds].sort() : undefined;
@@ -24,8 +27,8 @@ export function ExportPanel() {
     [queryKey],
   );
   const result = exported.data?.key === queryKey && !exported.error ? exported.data.result : null;
-  // An empty filtered export whose matches sit only on the maybe list says so,
-  // with the one option that would include them.
+  // An empty filtered export whose matches sit only on the maybe list says so;
+  // the Include maybe list box above is the way to include them.
   const maybeMatches = filtered && !includeMaybe
     ? cards.filter((c) => c.maybe && matches.cardIds.has(c.oracle_id)).length
     : 0;
@@ -65,12 +68,9 @@ export function ExportPanel() {
           onFocus={(e) => e.currentTarget.select()}
         />
       ) : result && maybeMatches > 0 ? (
-        <Row gap={4} wrap className={styles.empty}>
-          <Text tone="muted" as="p">
-            {maybeMatches === 1 ? "1 match is on the maybe list." : `${maybeMatches} matches are on the maybe list.`}
-          </Text>
-          <Button size="sm" onClick={() => setIncludeMaybe(true)}>Include maybe list</Button>
-        </Row>
+        <Text tone="muted" as="p" className={styles.empty}>
+          {maybeMatches === 1 ? "1 match is on the maybe list." : `${maybeMatches} matches are on the maybe list.`}
+        </Text>
       ) : result ? (
         <Text tone="muted" as="p" className={styles.empty}>
           {filtered ? "No cards match these filters and export options." : "Nothing to export with these options."}

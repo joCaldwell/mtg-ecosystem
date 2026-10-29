@@ -4,7 +4,7 @@ import { ManaCost, Price, useCardHover, useCardInspect } from "../../../mtg/inde
 import { useDeckUi } from "../DeckUi.tsx";
 import styles from "./MaybeRow.module.css";
 
-export function MaybeRow({ card, filterMatch, importNote = false }: { card: DeckCard; filterMatch?: boolean; importNote?: boolean }) {
+export function MaybeRow({ card, filterMatch, findCurrent = false, importNote = false }: { card: DeckCard; filterMatch?: boolean; findCurrent?: boolean; importNote?: boolean }) {
   const noteId = useId();
   const ui = useDeckUi();
   const hover = useCardHover();
@@ -24,9 +24,10 @@ export function MaybeRow({ card, filterMatch, importNote = false }: { card: Deck
 
   return (
     <div
-      className={[styles.row, filterMatch === true && styles.match, open && styles.open].filter(Boolean).join(" ")}
+      className={[styles.row, filterMatch === true && styles.match, filterMatch === true && findCurrent && styles.findCurrent, open && styles.open].filter(Boolean).join(" ")}
       data-oracle-id={card.oracle_id}
       data-filter-match={filterMatch}
+      data-find-current={(filterMatch && findCurrent) || undefined}
     >
       {/* Notes stay in details so row height depends only on card identity.
           Mana, price and blank space all open the same native row button. */}

@@ -212,7 +212,7 @@ const SCREENS = [
       await press(page, page.getByRole("button", { name: "More", exact: true }), vp);
       await press(page, page.getByRole("menuitem", { name: "Export", exact: true }), vp);
       const dialog = page.getByRole("dialog", { name: "Export", exact: true });
-      if (filtered) await press(page, dialog.getByRole("checkbox", { name: "Include maybe list", exact: true }), vp);
+      // Every match is on the maybe list, so Export opens with it included.
       await dialog.getByRole("textbox", { name: "Exported list", exact: true }).waitFor();
     } }],
   })),

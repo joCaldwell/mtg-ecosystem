@@ -71,6 +71,10 @@
 }
 
 .none {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-4);
   padding: var(--s-4);
 }
 
