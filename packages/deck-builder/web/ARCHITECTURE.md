@@ -602,7 +602,7 @@ proposal history, not the inbox header, where they read as contradicting the
 waiting badge. Stale proposals describe the cards changed since, from `DeckState.log`
 (`domain/staleChanges`), not revision numbers, in the inbox, deck Review and
 phone decisions alike; the accept toast names the accepted cards the same way.
-The inbox colours that note amber only when `staleTouchesProposal` finds a
+The inbox colours that note amber only when `staleTouches` finds a
 change to a card the proposal adds or cuts (or cannot tell); otherwise grey. The inbox detail pane reaches the
 frame edge with content capped at `--measure-wide` and reasons at `--measure`.
 
