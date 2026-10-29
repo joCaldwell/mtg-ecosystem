@@ -7,6 +7,8 @@ import type { DeckListState, DeckState, Engine, Finding, PublicDeckState, Public
 
 export interface ReadOnlyDeckModel {
   list: DeckListState;
+  /** A shared deck read by anyone (true), or the owner's own deck (false). */
+  viewer: boolean;
   checks: Finding[];
   brief: { thesis: string; constraints_md: string };
   engines: Array<Pick<Engine, "name" | "description" | "pieces">>;
@@ -25,6 +27,7 @@ export interface ReadOnlyDeckModel {
  *  draws nothing pending, because nothing pending is shared. */
 export function fromPublic(shared: PublicDeckState): ReadOnlyDeckModel {
   return {
+    viewer: true,
     list: {
       deck: { id: 0, category: shared.deck.category },
       cards: shared.cards, slots: shared.slots, tags: shared.tags, computed: shared.computed,
@@ -44,6 +47,7 @@ export function fromPublic(shared: PublicDeckState): ReadOnlyDeckModel {
 export function fromOwner(state: DeckState): ReadOnlyDeckModel {
   const t = state.power.target, a = state.power.assessment;
   return {
+    viewer: false,
     list: state,
     checks: state.checks,
     brief: { thesis: state.brief.thesis, constraints_md: state.brief.constraints_md },

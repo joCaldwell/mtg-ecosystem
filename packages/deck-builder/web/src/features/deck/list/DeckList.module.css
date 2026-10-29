@@ -3,6 +3,8 @@
   min-width: 0;
   min-height: 0;
   overflow: auto;
+  /* A revealed row or the maybe list stops short of the pane's top edge. */
+  scroll-padding-top: var(--s-4);
   /* Room under the last row for the floating selection bar. */
   padding: var(--s-6) var(--s-6) calc(var(--s-8) * 2);
 }
@@ -13,6 +15,39 @@
   --deck-column-min: var(--deck-editor-column-min);
   --card-name-white-space: normal;
   min-width: 0;
+}
+
+/* The columns and, over them, the continued groups' names. */
+.frame {
+  position: relative;
+}
+
+/* Drawn into the space a long group reserves at the top of each column it
+   continues into (GroupBlock), styled as that group's header without its
+   count, target or cost. */
+.continued {
+  position: absolute;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-2);
+  height: calc(var(--group-cont-h) - var(--s-1));
+  padding: 0 var(--s-3) var(--s-2);
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.continuedTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.continuedMark {
+  flex: none;
+  color: var(--muted);
 }
 
 .cols {
@@ -56,7 +91,40 @@
    column is at most about 400 px wide, and 2560 px windows get four or five.
    1280 and 1440 px windows still fit two, exactly as with the count of 3. */
 @media not all and (max-width: 1099px) {
-  .scroll .cols { column-count: auto; }
+  .scroll /* The columns and, over them, the continued groups' names. */
+.frame {
+  position: relative;
+}
+
+/* Drawn into the space a long group reserves at the top of each column it
+   continues into (GroupBlock), styled as that group's header without its
+   count, target or cost. */
+.continued {
+  position: absolute;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-2);
+  height: calc(var(--group-cont-h) - var(--s-1));
+  padding: 0 var(--s-3) var(--s-2);
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.continuedTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.continuedMark {
+  flex: none;
+  color: var(--muted);
+}
+
+.cols { column-count: auto; }
 }
 
 /* Filter results start below navigation and the sticky active-filter row

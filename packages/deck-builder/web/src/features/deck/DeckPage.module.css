@@ -10,6 +10,8 @@
 
 /* Tablet sizing is a viewport contract, including freshly imported decks. */
 @media (max-width: 1099px) {
-  .page { --deck-column-min: var(--deck-reader-column-min); }
+  /* The window scrolls: a revealed row or the maybe list lands below the
+     sticky navigation bar and the active-filter row (CardRow, MaybeList). */
+  .page { --deck-column-min: var(--deck-reader-column-min); --list-scroll-offset: calc(var(--tablet-bar-outer-h) + var(--tap) + var(--s-4)); }
   .page :is(button, select, input) { min-height: var(--tap); }
 }

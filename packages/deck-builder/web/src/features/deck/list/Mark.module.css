@@ -1,8 +1,8 @@
 .mark {
   display: inline-block;
   flex: none;
-  width: 6px;
-  height: 6px;
+  width: var(--row-mark);
+  height: var(--row-mark);
 }
 
 .memory {

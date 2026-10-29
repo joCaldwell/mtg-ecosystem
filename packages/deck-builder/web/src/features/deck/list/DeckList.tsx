@@ -14,22 +14,21 @@ import { useDeckList } from "../DeckListStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import type { DeckViewModel } from "../useDeckView.ts";
 import { GroupBlock } from "./GroupBlock.tsx";
-import { MARK_MEANING, Mark, type MarkKind } from "./Mark.tsx";
+import { MARK_LABEL, Mark, type MarkKind } from "./Mark.tsx";
 import { MaybeList } from "./MaybeList.tsx";
+import { useContinuedGroups } from "./useContinuedGroups.ts";
 import styles from "./DeckList.module.css";
 
-const LEGEND: Array<[MarkKind, string]> = [
-  ["memory", "memory linked"],
-  ["decision", "decided before"],
-];
+const LEGEND: MarkKind[] = ["memory", "decision"];
 
 const NONE = new Set<string>();
 const NO_ADDS = new Map<string, ProposalItem[]>();
 
 export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyAction?: ReactNode }) {
-  const { state, readOnly } = useDeckList();
+  const { state, readOnly, viewer } = useDeckList();
   const ui = useDeckUi();
   const scroll = useRef<HTMLDivElement>(null);
+  const [cols, continued] = useContinuedGroups();
   const { layout, overlay, marks, units, matches } = view;
   const reviewing = ui.reviewing;
   const addsByGroup = reviewing ? overlay.addsByGroup : NO_ADDS;
@@ -93,64 +92,74 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
         <p className={styles.noMatches}>{noMatchesLine(ui.searchTerm, ui.tagIds.length > 0)}</p>
       ) : (
         <>
-          <div className={styles.cols}>
-            <GroupBlock
-              filter={filter}
-              title="Commander"
-              cost={commanderCost}
-              cards={layout.commanders}
-              cuts={cuts}
-              current={current}
-              marks={marks}
-              bold
-              empty={
-                <p className={styles.hint}>
-                  {readOnly ? "No commander yet." : "No commander yet. Search for a legendary creature above and add it as the commander."}
-                </p>
-              }
-            />
-            {layout.groups.map((g) => (
+          <div className={styles.frame}>
+            <div ref={cols} className={styles.cols}>
               <GroupBlock
                 filter={filter}
-                key={g.key}
-                title={g.title}
-                count={g.count}
-                target={g.target}
-                status={g.status}
-                delta={g.delta}
-                projected={reviewing ? overlay.projected.get(g.key) : undefined}
-                cost={g.cost}
-                cards={g.cards}
-                secondaryCards={g.secondaryCards}
-                commandZoneCards={g.commandZoneCards}
-                primaryCount={g.primaryCount}
-                secondaryCount={g.secondaryCount}
-                adds={addsByGroup.get(g.key)}
+                title="Commander"
+                cost={commanderCost}
+                cards={layout.commanders}
                 cuts={cuts}
                 current={current}
                 marks={marks}
-                empty={<p className={styles.hint}>Nothing filed here.</p>}
+                bold
+                empty={
+                  <p className={styles.hint}>
+                    {readOnly ? "No commander yet." : "No commander yet. Search for a legendary creature above and add it as the commander."}
+                  </p>
+                }
               />
+              {layout.groups.map((g) => (
+                <GroupBlock
+                  filter={filter}
+                  key={g.key}
+                  title={g.title}
+                  count={g.count}
+                  target={g.target}
+                  status={g.status}
+                  delta={g.delta}
+                  projected={reviewing ? overlay.projected.get(g.key) : undefined}
+                  cost={g.cost}
+                  cards={g.cards}
+                  secondaryCards={g.secondaryCards}
+                  commandZoneCards={g.commandZoneCards}
+                  primaryCount={g.primaryCount}
+                  secondaryCount={g.secondaryCount}
+                  adds={addsByGroup.get(g.key)}
+                  cuts={cuts}
+                  current={current}
+                  marks={marks}
+                  empty={<p className={styles.hint}>Nothing filed here.</p>}
+                />
+              ))}
+              {layout.companions.length > 0 && (
+                <GroupBlock
+                  filter={filter}
+                  title="Companion"
+                  cost={companionCost}
+                  cards={layout.companions}
+                  cuts={cuts}
+                  current={current}
+                  marks={marks}
+                />
+              )}
+            </div>
+            {/* A long group's name at the top of each column it continues into.
+                Not a heading: the group already has one in the outline. */}
+            {continued.map((c) => (
+              <div key={c.key} className={styles.continued} style={{ top: c.top, left: c.left, width: c.width }} aria-hidden="true">
+                <span className={styles.continuedTitle}>{c.title}</span> <span className={styles.continuedMark}>(cont.)</span>
+              </div>
             ))}
-            {layout.companions.length > 0 && (
-              <GroupBlock
-                filter={filter}
-                title="Companion"
-                cost={companionCost}
-                cards={layout.companions}
-                cuts={cuts}
-                current={current}
-                marks={marks}
-              />
-            )}
           </div>
           <MaybeList cards={layout.maybe} filter={filter} />
         </>
       )}
-      <p className={styles.legend}>
-        {LEGEND.map(([kind, label]) => (
-          <Text key={kind} tone="faint" size="xs" className={styles.legendItem} title={MARK_MEANING[kind]}>
-            <Mark kind={kind} /> {label}
+      {/* The markers are the owner's workflow; a viewer's list has none. */}
+      {!viewer && <p className={styles.legend}>
+        {LEGEND.map((kind) => (
+          <Text key={kind} tone="faint" size="xs" className={styles.legendItem}>
+            <Mark kind={kind} decorative /> {MARK_LABEL[kind]}
           </Text>
         ))}
         {!readOnly && (
@@ -158,7 +167,7 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
             Ctrl-click to select several
           </Text>
         )}
-      </p>
+      </p>}
     </div>
   );
 }

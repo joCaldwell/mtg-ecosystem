@@ -116,6 +116,9 @@
   --text-md: 13px;
   --text-lg: 15px;
   --text-xl: 17px;
+  /* A shared deck's name under its art: the one display-sized title. */
+  --text-display: 28px;
+  --leading-display: 1.2;
   --leading: 1.45;
   --leading-prose: 1.55;
 
@@ -141,6 +144,12 @@
   --h-md: 26px;
   --h-lg: 30px;
   --row: 24px;
+  /* A row's memory/decision marker: big enough to read as a shape beside 13px text. */
+  --row-mark: 7px;
+  /* A long group's name repeated at the top of each column it continues into
+     (GroupBlock): the room reserved there, a group header's full height
+     (GroupHeader: its 1.17em line, bottom padding, rule and margin). */
+  --group-cont-h: calc(var(--text-md) * 1.17 * var(--leading) + var(--s-2) + 1px + var(--s-1));
   --mana-list-size: 16px;
   --mana-list-glyph: 0.75;
   /* Touch: the smallest thing a finger is asked to hit (DESIGN.md, narrow screens). */
@@ -188,6 +197,9 @@
   /* The share dialog's link field before its buttons wrap below it. */
   --share-link-min: 240px;
   --toolbar-add-w: 300px;
+  /* The add field's results: wide enough for the key hints and the colour
+     scope on one footer line. */
+  --add-drop-min-w: 460px;
   --toolbar-search-max: 400px;
   --toolbar-tags-w: 140px;
   --toolbar-search-min: 160px;

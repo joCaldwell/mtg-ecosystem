@@ -5,6 +5,11 @@
 .body {
   display: grid;
   flex: 1;
+  /* The edge of the fixed area above (toolbar, filter row, banner): rows
+     scrolling out of view meet a line, whichever of those is last. It lies
+     over that element's own bottom rule, so it never doubles. */
+  margin-top: -1px;
+  border-top: 1px solid var(--line-strong);
   grid-template-columns:
     minmax(0, 1fr)
     clamp(

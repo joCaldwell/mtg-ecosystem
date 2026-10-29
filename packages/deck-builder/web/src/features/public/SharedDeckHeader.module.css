@@ -1,4 +1,6 @@
-.text { display: grid; gap: var(--s-4); padding: var(--s-6); }
+/* The name sits right at the art's lower edge, the largest thing on the page;
+   lifecycle, visibility and colours follow it. */
+.text { display: grid; gap: var(--s-4); padding: var(--s-4) var(--s-6) var(--s-6); }
 .meta {
   display: flex;
   flex-wrap: wrap;
@@ -15,8 +17,9 @@
 }
 
 .title {
-  font-size: var(--text-xl);
-  font-weight: 650;
+  font-size: var(--text-display);
+  font-weight: 600;
+  line-height: var(--leading-display);
   overflow-wrap: anywhere;
 }
 
@@ -55,6 +58,9 @@
   }
   .text {
     padding: var(--s-4) var(--s-4) var(--s-5);
+  }
+  .title {
+    font-size: var(--text-xl);
   }
   .actions > * {
     flex: 1 1 auto;
