@@ -38,6 +38,15 @@ try {
     const input = sidebar.getByRole("searchbox", { name: "Find a deck or commander in sidebar", exact: true });
     const ids = async () => (await nav.getByRole("link").evaluateAll(nodes => nodes.map(node => Number(node.getAttribute("href").split("/").at(-1))))).sort((a, b) => a - b);
     assert.equal(await nav.getByRole("link").count(), decks.length);
+    const lifecycle = { theorycrafted: "Theorycrafted", archived: "Archived" };
+    for (const deck of decks.filter(deck => lifecycle[deck.category])) {
+      const link = nav.locator(`a[href="/deck/${deck.id}"]`);
+      const label = link.locator("[data-lifecycle]");
+      assert.equal(await label.textContent(), lifecycle[deck.category]);
+      assert.equal(await label.isVisible(), true);
+      assert(await label.evaluate(node => parseFloat(getComputedStyle(node).fontSize)) >= 12);
+      assert((await link.getAttribute("title")).includes(lifecycle[deck.category]));
+    }
     const currentBounds = await nav.locator('a[aria-current="page"]').boundingBox(), navBounds = await nav.boundingBox();
     assert(currentBounds && navBounds && currentBounds.y >= navBounds.y - 1 && currentBounds.y + currentBounds.height <= navBounds.y + navBounds.height + 1, "initial navigation reveals the current deck inside its own scroller");
 
@@ -77,6 +86,12 @@ try {
     await shoot(page, join(output, `empty-${width}.png`), { full: false });
     await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click(); await settle(page, watch);
     assert.equal(await input.count(), 0); assert.equal(await nav.getByRole("link").count(), decks.length, "hidden filtering never removes compact-rail destinations");
+    for (const deck of decks.filter(deck => lifecycle[deck.category])) {
+      const link = nav.locator(`a[href="/deck/${deck.id}"]`);
+      assert((await link.getAttribute("aria-label")).includes(lifecycle[deck.category]), "collapsed links retain the lifecycle in their accessible names");
+      assert.equal(await link.locator("[data-lifecycle]").isVisible(), false);
+    }
+    await shoot(page, join(output, `collapsed-${width}.png`), { full: false });
     await page.getByRole("button", { name: "Expand sidebar", exact: true }).click(); await settle(page, watch);
     await nav.getByRole("button", { name: "Clear filter", exact: true }).click(); await settle(page, watch);
     assert.equal(await input.evaluate(node => node === document.activeElement), true);
@@ -88,7 +103,7 @@ try {
     assert.equal(await nav.locator(`a[href="/deck/${chosen.id}"]`).evaluate(node => node === document.activeElement), true);
     await page.keyboard.press("Enter"); await page.waitForURL(`${origin}/deck/${chosen.id}`); await settle(page, watch);
     assert.equal(await nav.locator(`a[href="/deck/${chosen.id}"]`).getAttribute("aria-current"), "page");
-    results.push({ width, deck_count: decks.length, full_names_visible: true, name_and_commander_filter: true, draft_dom_preserved: true, empty_and_escape_clear: true, compact_rail_unfiltered: true, keyboard_navigation: true, axe: 0, overflow: 0 });
+    results.push({ width, deck_count: decks.length, lifecycle_labels_and_collapsed_names: true, full_names_visible: true, name_and_commander_filter: true, draft_dom_preserved: true, empty_and_escape_clear: true, compact_rail_unfiltered: true, keyboard_navigation: true, axe: 0, overflow: 0 });
     await context.close(); console.log(`Sidebar search ${width} passed`);
   }
   // Scoped preservation check: the shared popup/drawer still owns the same

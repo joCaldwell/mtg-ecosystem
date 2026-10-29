@@ -102,9 +102,9 @@ the plain chip. "Who can edit?" is the menu's last item, after a rule; it
 opens the lifecycle explanation beside the pill, not a link in the header. The `--lifecycle-*` aliases resolve to
 `--muted` on `--raised` (the roster uses `--text-soft` for essential lifecycle
 labels), keeping green, blue and amber for accept/pass,
-selection and warnings. The sidebar shows no lifecycle (owner review,
-2026-10-28): every deck row has the same shape, and lifecycle lives on All
-decks and the deck header.
+selection and warnings. Following repeated blind review (2026-10-28), the sidebar keeps
+Theorycrafted and Archived below the deck name. Collapsed links retain those
+labels in their accessible names and tooltips. Paper stays implicit.
 
 The palette follows [T3 Code’s redesign dark theme](https://github.com/pingdotgg/t3code/blob/main/apps/web/src/index.css)
 (`html.dark[data-redesign]`): `--bg` is #000, including the sidebar;

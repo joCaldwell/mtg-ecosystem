@@ -91,7 +91,8 @@
   padding-inline: var(--s-4);
 }
 
-.decks a .shared {
+.decks a .shared,
+.decks a .lifecycle {
   margin-left: var(--s-1);
 }
 
@@ -127,6 +128,19 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.lifecycle {
+  flex: none;
+  font-size: var(--text-xs);
+}
+
+.lifecycle[data-lifecycle="theorycrafted"] {
+  color: var(--lifecycle-theorycrafted);
+}
+
+.lifecycle[data-lifecycle="archived"] {
+  color: var(--lifecycle-archived);
 }
 
 .presence {
@@ -194,7 +208,7 @@
 .collapsed .mark { --brand-mark-h: var(--brand-mark-rail); margin: 0; vertical-align: top; }
 .collapsed .toggle { margin: 0; }
 .collapsed .nav a, .collapsed .decks a { justify-content: center; position: relative; padding-inline: 0; min-height: var(--tap); }
-.collapsed .label, .collapsed .name, .collapsed .shared, .collapsed .waiting, .collapsed .presenceText { display: none; }
+.collapsed .label, .collapsed .name, .collapsed .lifecycle, .collapsed .shared, .collapsed .waiting, .collapsed .presenceText { display: none; }
 .collapsed .end { position: absolute; top: 0; right: 0; }
 .collapsed .heading { margin: var(--s-4) var(--s-5); padding: 0; border-top: 1px solid var(--line); }
 .collapsed .heading > * { display: none; }
@@ -213,8 +227,9 @@
 .noMatches button { justify-self: start; color: var(--text); text-decoration: underline; text-underline-offset: var(--s-1); }
 @media not all and (max-width: 1099px) {
   .sidebar:not(.collapsed) .decks a { position: relative; flex: none; display: grid; grid-template-columns: var(--art-thumb) minmax(0, 1fr) auto auto; gap: 0 var(--s-3); padding-block: var(--s-2); }
-  .sidebar:not(.collapsed) .waiting { grid-column: 4; grid-row: 1; align-self: center; margin-left: 0; }
-  .sidebar:not(.collapsed) .lead { grid-column: 1; grid-row: 1; align-self: center; }
+  .sidebar:not(.collapsed) .waiting { grid-column: 4; grid-row: 1 / span 2; align-self: center; margin-left: 0; }
+  .sidebar:not(.collapsed) .lead { grid-column: 1; grid-row: 1 / span 2; align-self: center; }
   .sidebar:not(.collapsed) .name { grid-column: 2; grid-row: 1; white-space: normal; overflow-wrap: anywhere; }
   .sidebar:not(.collapsed) .shared { grid-column: 3; grid-row: 1; margin-left: 0; }
+  .sidebar:not(.collapsed) .lifecycle { grid-column: 2 / 4; grid-row: 2; margin-left: 0; }
 }

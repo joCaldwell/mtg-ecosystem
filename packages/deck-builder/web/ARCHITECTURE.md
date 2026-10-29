@@ -408,8 +408,10 @@ headings; the section title is a real heading under the dialog title.
 ## Sidebar navigation
 
 Expanded desktop navigation gives deck names their full row width, with
-shared-state icons and the waiting badge beside the title. Rows carry no
-lifecycle line (2026-10-28), so every row has the same shape. Collections with more than eight decks expose a native name/commander
+shared-state icons and the waiting badge beside the title. Theorycrafted and
+Archived retain a readable second line after repeated blind review (2026-10-28);
+collapsed links keep the lifecycle in their accessible names and tooltips.
+Collections with more than eight decks expose a native name/commander
 filter over the existing actor-scoped summaries. Search never remounts the deck
 editor or writes data. Escape clears it; empty results provide a clear action.
 Collapsed rail and tablet drawer always retain the full deck list, even while an

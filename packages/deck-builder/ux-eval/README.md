@@ -267,7 +267,14 @@ through promotion and undo against two disposable fixture servers.
 
 `node check-sidebar-search.mjs` checks the expanded disposable collection: full
 name visibility, deck/commander queries, unsaved draft identity, Escape/empty
-clear, compact-rail destinations and keyboard navigation at all four desktop widths.
+clear, visible lifecycle labels and collapsed accessible names, compact-rail
+destinations and keyboard navigation at all four desktop widths.
+
+`node check-filtered-maybe.mjs --origin http://127.0.0.1:8885` uses the long-note
+fixture to check that one search result keeps its original column width. It
+types real search keystrokes and checks hidden nonmatches, full-row pointer and
+keyboard activation, complete notes, inspection, Back, drafts, selection, scroll
+restoration and unchanged stored assignments/order at all four desktop widths.
 
 `node check-playtest-geometry.mjs --origin http://127.0.0.1:8853 --baseline http://127.0.0.1:8855`
 compares adaptive hand widths/row counts, commander rail height, inspector and

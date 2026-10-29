@@ -26,13 +26,13 @@ export function MaybeRow({ card, filterMatch, importNote = false }: { card: Deck
     <div
       className={[styles.row, open && styles.open].filter(Boolean).join(" ")}
       data-oracle-id={card.oracle_id}
-      data-filter-match={filterMatch || undefined}
     >
       {/* Notes stay in details so row height depends only on card identity.
           Mana, price and blank space all open the same native row button. */}
       <button
         type="button"
         className={styles.hit}
+        data-filter-match={filterMatch || undefined}
         aria-label={card.name}
         aria-describedby={importNote ? noteId : undefined}
         aria-current={open || undefined}
