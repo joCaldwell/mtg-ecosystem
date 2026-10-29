@@ -41,8 +41,7 @@ export function ManaComparison({ mana }: { mana: Mana }) {
       <ManaDistribution title="Cost demand" unit="fixed coloured symbols" centerUnit="symbols" distribution={distributions.costs} empty="No fixed coloured cost symbols." />
       <ManaDistribution title="Direct sources" unit="source-colour counts" centerUnit="counts" distribution={distributions.sources} empty="No named source colours recognized." />
     </div>
-    <Text tone="muted" size="sm">Compare colour proportions, not totals. A multicolour source counts in each colour.</Text>
-    {coverage.other_face_copies > 0 && <Text tone="muted" size="sm">First printed faces; other faces stay separate below.</Text>}
+    {coverage.other_face_copies > 0 && <Text tone="muted" size="sm">First faces only.</Text>}
     {separateSources(face)}
     {!distributions.sources.total && (face.sources.land.any_color_copies + face.sources.nonland.any_color_copies > 0) && <Text tone="muted" size="sm">Any-colour sources are listed separately.</Text>}
     <details className={styles.details}>

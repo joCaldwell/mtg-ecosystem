@@ -2,7 +2,7 @@
 // decision, with the projected deck above it. Decision happens here, in the list
 // (review mode) and in the banner through the same `Review` object.
 
-import { changesSince, staleNote } from "../../../domain/staleChanges.ts";
+import { changesSince, staleNote, staleTouches } from "../../../domain/staleChanges.ts";
 import { ago } from "../../../domain/time.ts";
 import { InlineText } from "../../../mtg/index.ts";
 import { Button, EmptyState, Explainer, Eyebrow, Text } from "../../../ui/index.ts";
@@ -41,7 +41,12 @@ export function ReviewPanel({ view, review }: { view: DeckViewModel; review: Rev
               <InlineText text={proposal.summary} />
             </p>
           </div>
-          {proposal.stale && <Text tone="warn">{staleNote(changesSince(state.log, proposal.base_revision))}</Text>}
+          {/* Amber only when the changes since touch this proposal's own
+              cards; otherwise the same sentence, quietly. Accepting still
+              asks for the server's stale acknowledgement either way. */}
+          {proposal.stale && <Text tone={staleTouches(state.log, proposal.base_revision, proposal.items.filter(i => i.status === "pending").map(i => i.oracle_id)) ? "warn" : "muted"}>
+            {staleNote(changesSince(state.log, proposal.base_revision))}
+          </Text>}
           {proposal.supersedes.length > 0 && <Text tone="faint">Replaces proposals {proposal.supersedes.join(", ")}.</Text>}
           {/* The projection covers every open proposal, so it appears once. */}
           {n === 0 && <ReviewDelta />}

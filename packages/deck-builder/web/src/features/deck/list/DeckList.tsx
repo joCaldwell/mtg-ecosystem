@@ -32,6 +32,12 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
   const addsByGroup = reviewing ? overlay.addsByGroup : NO_ADDS;
   const matchingCards = matches.active ? matches.cardIds : undefined;
   const matchingAdds = matches.active ? matches.addIds : undefined;
+  // The match find-in-deck has stepped to (DeckFilterSummary's "1 of 5").
+  // Read-only lists have no find controls, so nothing there is current.
+  const ordered = matches.ordered ?? [];
+  const findCurrent = matches.active && !readOnly && ordered.length
+    ? ordered[Math.min(ui.findIndex, ordered.length - 1)]
+    : undefined;
 
   // Totals always describe the full deck, independent of the highlighted matches.
   const commanderCost = useMemo(() => costOf(view.layout.commanders), [view.layout.commanders]);
@@ -45,6 +51,7 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
   // J and K move the cursor; keep the decision it lands on in view. A
   // read-only list (the phone view) has no keyboard review, and scrolling
   // there would carry the reader past the decisions drawn above the list.
+  // Only a change of decision scrolls, never an unrelated re-render.
   const unitKey = unit?.key;
   useEffect(() => {
     if (!unitKey || readOnly) return;
@@ -56,6 +63,12 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
   useEffect(() => {
     if (matches.active && !readOnly) scrollToFirstMatch(scroll.current);
   }, [ui.searchTerm, ui.tagIds, ui.tagMatch, ui.tagInverted, readOnly]);
+
+  // Stepping through matches (Enter, Shift+Enter, previous/next) reveals the
+  // new current match. Focus stays where it was, normally the find box.
+  useEffect(() => {
+    if (ui.findStep && !readOnly) scrollToFindCurrent(scroll.current);
+  }, [ui.findStep, readOnly]);
 
   const nothingToShow = state.cards.length === 0 && !(reviewing && overlay.addsByGroup.size > 0);
 
@@ -70,6 +83,7 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
           <div className={styles.cols}>
             <GroupBlock
               matchingCards={matchingCards}
+              findCurrent={findCurrent}
               title="Commander"
               cost={commanderCost}
               cards={layout.commanders}
@@ -87,6 +101,7 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
               <GroupBlock
                 matchingCards={matchingCards}
                 matchingAdds={matchingAdds}
+                findCurrent={findCurrent}
                 key={g.key}
                 title={g.title}
                 count={g.count}
@@ -110,6 +125,7 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
             {layout.companions.length > 0 && (
               <GroupBlock
                 matchingCards={matchingCards}
+                findCurrent={findCurrent}
                 title="Companion"
                 cost={companionCost}
                 cards={layout.companions}
@@ -119,7 +135,7 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
               />
             )}
           </div>
-          <MaybeList cards={layout.maybe} matchingCards={matchingCards} />
+          <MaybeList cards={layout.maybe} matchingCards={matchingCards} findCurrent={findCurrent} />
         </>
       )}
       <p className={styles.legend}>
@@ -146,9 +162,40 @@ export function scrollToFirstMatch(list: HTMLElement | null): void {
   first?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
+/** Like a browser's find: a match already in view stays put; one out of view
+ *  is centred, so the rows around it come with it. */
+export function scrollToFindCurrent(list: HTMLElement | null, reducedMotion = prefersReducedMotion()): void {
+  if (!list) return;
+  const row = Array.from(list.querySelectorAll<HTMLElement>('[data-find-current="true"]'))
+    .find(row => row.getClientRects().length > 0);
+  if (!row) return;
+  // The desktop list scrolls itself; below 1100 px the window scrolls it.
+  const view = list.scrollHeight > list.clientHeight ? list.getBoundingClientRect() : { top: 0, bottom: innerHeight };
+  const box = row.getBoundingClientRect();
+  if (box.top >= view.top && box.bottom <= view.bottom) return;
+  row.scrollIntoView({ block: "center", inline: "nearest", behavior: reducedMotion ? "auto" : "smooth" });
+}
+
+function prefersReducedMotion(): boolean {
+  return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/** Reveal a decision's rows: all of them when they fit in the scroller's view
+ *  together, otherwise from its first row (the named card, else the topmost).
+ *  A swap's add and cut often sit in different groups. */
 export function scrollToReviewCard(list: HTMLElement | null, oracleId: string | undefined): void {
-  const rows = Array.from(list?.querySelectorAll<HTMLElement>('[data-current="true"]') ?? []);
-  const row = rows.find(row => row.dataset.oracleId === oracleId && row.getClientRects().length > 0)
-    ?? rows.find(row => row.getClientRects().length > 0);
-  row?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  const rows = Array.from(list?.querySelectorAll<HTMLElement>('[data-current="true"]') ?? [])
+    .filter(row => row.getClientRects().length > 0);
+  if (!rows.length) return;
+  const top = (row: HTMLElement) => row.getBoundingClientRect().top;
+  const ordered = [...rows].sort((a, b) => top(a) - top(b));
+  const first = ordered[0];
+  const last = ordered[ordered.length - 1];
+  // Revealing the lowest row and then the highest, both "nearest", leaves both
+  // in view when they fit, and the highest in view when they do not.
+  if (last !== first) last.scrollIntoView({ block: "nearest", inline: "nearest" });
+  first.scrollIntoView({ block: "nearest", inline: "nearest" });
+  // Keep the named card in view if the span pushed it out.
+  const named = rows.find(row => row.dataset.oracleId === oracleId);
+  if (named && named !== first) named.scrollIntoView({ block: "nearest", inline: "nearest" });
 }

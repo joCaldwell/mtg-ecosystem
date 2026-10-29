@@ -17,8 +17,11 @@
 .links > button { position: relative; display: inline-flex; flex: 1 0 auto; align-items: center; justify-content: center; gap: var(--s-2); padding: var(--s-3) var(--s-1); color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
 .links > button:hover { color: var(--text); }
 .links > button:focus-visible { outline-offset: 0; border-radius: var(--r-sm); }
-.links > button[aria-current] { color: var(--text); text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: var(--s-1); }
-.links > button:first-child { color: var(--agent); }
+/* One highlight: the current view is bright with a 2 px bar along its foot;
+   every other view is grey. Review's waiting decisions are its violet pill. */
+.links > button::after { content: ""; position: absolute; right: var(--s-2); bottom: calc(-1 * var(--s-2)); left: var(--s-2); height: 2px; border-radius: var(--r-pill); background: transparent; }
+.links > button[aria-current] { color: var(--text); }
+.links > button[aria-current]::after { background: var(--text); }
 .count { min-width: var(--s-6); padding-inline: var(--s-1); text-align: center; }
 
 .body {

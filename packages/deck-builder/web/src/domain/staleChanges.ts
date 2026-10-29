@@ -27,10 +27,29 @@ export function cardChanges(cards: CardChange[]): string | null {
  * the caller says only that the deck changed.
  */
 export function changesSince(log: LogEntry[], baseRevision: number | null): string | null {
+  const cards = changedCardsSince(log, baseRevision);
+  return cards ? cardChanges(cards) : null;
+}
+
+/** The card changes after a base revision, or null when the log in hand
+ *  cannot say (no base, or the log does not reach back that far). */
+function changedCardsSince(log: LogEntry[], baseRevision: number | null): LogEntry["cards"] | null {
   if (baseRevision == null) return null;
   const complete = log.length < LOG_PAGE || log.some((e) => e.revision <= baseRevision);
   if (!complete) return null;
-  return cardChanges(log.filter((e) => e.revision > baseRevision && e.kind !== "reject").flatMap((e) => e.cards));
+  return log.filter((e) => e.revision > baseRevision && e.kind !== "reject").flatMap((e) => e.cards);
+}
+
+/**
+ * Whether the changes since a proposal's base revision touch any card it adds
+ * or cuts. Presentation only: the server's stale flag and the acknowledgement
+ * it requires are unchanged. When the log cannot say, assume they do.
+ */
+export function staleTouches(log: LogEntry[], baseRevision: number | null, oracleIds: Iterable<string>): boolean {
+  const cards = changedCardsSince(log, baseRevision);
+  if (!cards) return true;
+  const ids = new Set(oracleIds);
+  return cards.some((c) => ids.has(c.oracle_id));
 }
 
 /** Plain words for a stale proposal; revision numbers stay in History. */

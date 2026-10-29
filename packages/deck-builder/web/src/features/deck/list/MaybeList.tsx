@@ -3,14 +3,17 @@
 // of the count.
 
 import type { DeckCard } from "../../../api/client.ts";
+import { matchKey } from "../../../domain/deckSearch.ts";
 import { maybeNotes } from "../../../domain/maybeNotes.ts";
 import { Text } from "../../../ui/index.ts";
 import { MaybeRow } from "./MaybeRow.tsx";
 import styles from "./MaybeList.module.css";
 
-export function MaybeList({ cards, matchingCards }: {
+export function MaybeList({ cards, matchingCards, findCurrent }: {
   cards: DeckCard[];
   matchingCards?: ReadonlySet<string>;
+  /** The find-in-deck match key the owner has stepped to. */
+  findCurrent?: string;
 }) {
   if (cards.length === 0) return null;
   const { origins } = maybeNotes(cards);
@@ -24,7 +27,7 @@ export function MaybeList({ cards, matchingCards }: {
       </div>
       {origins.length > 0 && <p className={styles.sharedNote}>{origins.map(origin => `${origin.count} from ${origin.label}`).join(" · ")}</p>}
       <div className={styles.rows}>{cards.map((c) => (
-        <MaybeRow key={c.oracle_id} card={c} filterMatch={matchingCards?.has(c.oracle_id)} importNote={origins.some(origin => origin.note === c.maybe_note)} />
+        <MaybeRow key={c.oracle_id} card={c} filterMatch={matchingCards?.has(c.oracle_id)} findCurrent={findCurrent === matchKey.card(c.oracle_id)} importNote={origins.some(origin => origin.note === c.maybe_note)} />
       ))}</div>
     </section>
   );

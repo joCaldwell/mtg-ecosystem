@@ -29,7 +29,6 @@ export function StatsPanel() {
 
       <section className={styles.section}>
         <Eyebrow>Mana curve</Eyebrow>
-        <Text tone="muted" size="sm">Copies by mana value; lands without printed costs excluded.</Text>
         <div className={styles.curve} role="img" aria-label={`Mana curve: ${CURVE_BUCKETS.map((b) => `${computed.curve[b] ?? 0} at ${b}`).join(", ")}`}>
           {CURVE_BUCKETS.map((b) => {
             const n = computed.curve[b] ?? 0;
@@ -49,7 +48,6 @@ export function StatsPanel() {
 
         <section className={styles.section}>
           <Eyebrow>Card types</Eyebrow>
-          <Text tone="muted" size="sm">One deck-list type group per card.</Text>
           {typeOrder.length ? <ul className={styles.types} aria-label="Card-type groups and copy counts">
             {typeOrder.map((t) => (
               <li key={t}>

@@ -26,6 +26,12 @@ export interface DeckUiState {
   tagIds: number[];
   tagMatch: TagMatch;
   tagInverted: boolean;
+  /** The current find-in-deck match, as an index into the ordered matches.
+   *  Any change to the query or tags starts again from the first. */
+  findIndex: number;
+  /** Bumped by each explicit step, so stepping to the same match (the only
+   *  one) still scrolls back to it. */
+  findStep: number;
   tab: PanelTab;
   /** The card shown in the side panel, over whichever tab is open. It need
    *  not be in the deck: a proposed add or a card named in a memory opens too. */
@@ -48,6 +54,7 @@ type Action =
   | { t: "tagIds"; value: number[] }
   | { t: "tagMatch"; value: TagMatch }
   | { t: "tagInverted"; value: boolean }
+  | { t: "findIndex"; index: number }
   | { t: "tab"; value: PanelTab }
   | { t: "openCard"; card: OpenCard | null }
   | { t: "toggleSelected"; oracleId: string }
@@ -73,13 +80,15 @@ function reducer(ui: DeckUiState, action: Action): DeckUiState {
     case "sortBy":
       return { ...ui, sortBy: action.value };
     case "searchTerm":
-      return { ...ui, searchTerm: action.value };
+      return { ...ui, searchTerm: action.value, findIndex: 0 };
     case "tagIds":
-      return { ...ui, tagIds: action.value, tagInverted: action.value.length > 0 && ui.tagInverted };
+      return { ...ui, tagIds: action.value, tagInverted: action.value.length > 0 && ui.tagInverted, findIndex: 0 };
     case "tagMatch":
-      return { ...ui, tagMatch: action.value };
+      return { ...ui, tagMatch: action.value, findIndex: 0 };
     case "tagInverted":
-      return { ...ui, tagInverted: action.value };
+      return { ...ui, tagInverted: action.value, findIndex: 0 };
+    case "findIndex":
+      return { ...ui, findIndex: Math.max(0, action.index), findStep: ui.findStep + 1 };
     case "tab":
       // Choosing a tab is asking to see it, so the card panel gets out of the way.
       return { ...ui, tab: action.value, openCard: null };
@@ -113,6 +122,8 @@ export interface DeckUi extends DeckUiState {
   setTagIds: (value: number[]) => void;
   setTagMatch: (value: TagMatch) => void;
   setTagInverted: (value: boolean) => void;
+  /** Make a find-in-deck match current and reveal it. */
+  setFindIndex: (index: number) => void;
   setTab: (value: PanelTab) => void;
   openCardPanel: (card: OpenCard | null) => void;
   toggleSelected: (oracleId: string) => void;
@@ -137,6 +148,8 @@ export function DeckUiProvider({ children }: { children: ReactNode }) {
     tagIds: [],
     tagMatch: "any",
     tagInverted: false,
+    findIndex: 0,
+    findStep: 0,
     tab: "brief",
     openCard: null,
     selected: [],
@@ -163,6 +176,7 @@ export function DeckUiProvider({ children }: { children: ReactNode }) {
       setTagIds: (value: number[]) => dispatch({ t: "tagIds", value }),
       setTagMatch: (value: TagMatch) => dispatch({ t: "tagMatch", value }),
       setTagInverted: (value: boolean) => dispatch({ t: "tagInverted", value }),
+      setFindIndex: (index: number) => dispatch({ t: "findIndex", index }),
       setTab: (value: PanelTab) => { dispatch({ t: "tab", value }); window.dispatchEvent(new Event("deck-details")); },
       openCardPanel: (card: OpenCard | null) => {
         if (card && !currentCard.current) cardOrigin.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;

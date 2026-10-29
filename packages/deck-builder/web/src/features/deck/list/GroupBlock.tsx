@@ -3,6 +3,7 @@
 
 import type { ReactNode } from "react";
 import type { DeckCard, ProposalItem } from "../../../api/client.ts";
+import { matchKey } from "../../../domain/deckSearch.ts";
 import type { GroupStatus } from "../../../domain/grouping.ts";
 import type { CardMark } from "../../../domain/marks.ts";
 import type { GroupCost } from "../../../domain/price.ts";
@@ -31,6 +32,8 @@ export interface GroupBlockProps {
   commandZoneCards?: DeckCard[];
   matchingCards?: ReadonlySet<string>;
   matchingAdds?: ReadonlySet<number>;
+  /** The find-in-deck match key the owner has stepped to. */
+  findCurrent?: string;
   /** Pending adds, drawn only while reviewing. */
   adds?: ProposalItem[];
   /** oracle_ids with a pending cut, drawn only while reviewing. */
@@ -43,7 +46,7 @@ export interface GroupBlockProps {
   empty?: ReactNode;
 }
 
-export function GroupBlock({ cards, secondaryCards = [], commandZoneCards = [], matchingCards, matchingAdds, adds = [], cuts, current, marks, bold, empty, ...head }: GroupBlockProps) {
+export function GroupBlock({ cards, secondaryCards = [], commandZoneCards = [], matchingCards, matchingAdds, findCurrent, adds = [], cuts, current, marks, bold, empty, ...head }: GroupBlockProps) {
   const { slots } = useDeckList().state;
   const showPrimary = useDeckUi().groupBy === "slot";
   const slotName = (id: number) => slots.find(s => s.id === id)?.name ?? "";
@@ -56,6 +59,7 @@ export function GroupBlock({ cards, secondaryCards = [], commandZoneCards = [], 
           card={c}
           purpose={showPrimary && c.role !== "card" && c.slot_id != null ? `Primary: ${slotName(c.slot_id)}` : undefined}
           filterMatch={matchingCards?.has(c.oracle_id)}
+          findCurrent={findCurrent === matchKey.card(c.oracle_id)}
           quantity={c.quantity}
           change={cuts?.has(c.oracle_id) ? "cut" : undefined}
           mark={marks.get(c.oracle_id)}
@@ -68,6 +72,7 @@ export function GroupBlock({ cards, secondaryCards = [], commandZoneCards = [], 
           key={`add-${item.id}`}
           card={{ ...item, name: item.card_name }}
           filterMatch={matchingAdds?.has(item.id)}
+          findCurrent={findCurrent === matchKey.add(item.id)}
           change="add"
           mark={marks.get(item.oracle_id)}
           current={current.has(item.oracle_id)}

@@ -16,7 +16,7 @@ export function DeckTagFilter() {
   return (
     <div className={styles.filters}>
       {tags.length === 0 ? (
-        <Button variant="ghost" onClick={() => openDialog("slots")}>Create tags</Button>
+        <Button onClick={() => openDialog("slots")} aria-haspopup="dialog">Create tags</Button>
       ) : (
         <div className={styles.picker}>
           <MultiSelect

@@ -27,6 +27,10 @@ describe("deck list matches", () => {
       assert.deepEqual([...result.cardIds].sort(), state.cards
         .filter((c) => c.name.includes("Match")).map((c) => c.oracle_id).sort());
       assert.equal(result.addIds.size, 0);
+      // Find-in-deck steps through each match once, in the list's drawing order.
+      const drawn = [...layout.commanders, ...layout.groups.flatMap((g) => g.cards), ...layout.companions, ...layout.maybe]
+        .filter((c) => c.name.includes("Match")).map((c) => `card:${c.oracle_id}`);
+      assert.deepEqual(result.ordered, drawn);
       assert.deepEqual(layout, snapshot, "all cards, empty groups, order and totals remain intact");
     });
 
@@ -79,6 +83,7 @@ describe("deck list matches", () => {
     const result = matchDeckList(layout, overlay.addsByGroup, "match");
     assert.deepEqual([...result.addIds], [matchingAdd.id]);
     assert.equal(result.cardIds.size, 0);
+    assert.deepEqual(result.ordered, [`add:${matchingAdd.id}`]);
     assert.deepEqual(overlay, snapshot, "the complete review overlay is preserved");
     assert.equal(matchDeckList(layout, new Map(), "match").addIds.size, 0,
       "proposals are not considered outside review");
