@@ -103,6 +103,9 @@ export function AddBar() {
   );
   const shown = open && (loading || results !== null || error !== null);
   const highlighted = Math.min(index, Math.max(rows.length - 1, 0));
+  // No match inside the commander's colours: the empty state offers the
+  // wider search as a button, in place of the footer's checkbox.
+  const offerEveryColour = limited && !loading && !error && results !== null && rows.length === 0;
 
   // Keep the highlighted row in view as the arrows move through a long list.
   useEffect(() => {
@@ -211,11 +214,13 @@ export function AddBar() {
                 <Text role="status" tone="muted">
                   {limited ? "No cards match this search in the deck's colours." : "No cards match this search."}
                 </Text>
-                {limited && (
+                {offerEveryColour && (
                   <Button size="sm" onClick={() => { setEveryColour(true); input.current?.focus(); }}>
                     Search every colour
                   </Button>
                 )}
+                {/* The syntax only where it helps: when nothing came back. */}
+                <Text tone="faint" size="xs" as="p" className={styles.syntax}>Search by name, or use o:text t:type mv&lt;=2.</Text>
               </div>
             ) : (
               rows.map((r, i) => (
@@ -233,28 +238,30 @@ export function AddBar() {
             )}
           </div>
           <div className={styles.foot}>
-            <span className={styles.syntax}>Search by name, or use o:text t:type mv&lt;=2.</span>
             <span className={styles.hints}>
-              <span><Kbd>↵</Kbd> add to deck</span>
-              <span><Kbd>⇧↵</Kbd> add to maybe list</span>
+              <span><Kbd>↵</Kbd> add</span>
+              <span><Kbd>⇧↵</Kbd> maybe list</span>
               <span><Kbd>Esc</Kbd> close</span>
             </span>
             <span className={styles.limit}>
-              {limited ? (
-                <>
-                  Limited to the deck's colours <ColorIdentity colors={state.deck.color_identity} />
-                </>
-              ) : !everyColour ? (
+              {!hasCommander ? (
                 "No commander yet, so every colour"
-              ) : null}
-              <Checkbox
-                checked={everyColour}
-                onChange={(on) => {
-                  setEveryColour(on);
-                  input.current?.focus();
-                }}
-                label="Search every colour"
-              />
+              ) : (
+                <>
+                  {/* The empty state's button does the same; one offer at a time. */}
+                  {!everyColour && <ColorIdentity colors={state.deck.color_identity} />}
+                  {!offerEveryColour && (
+                    <Checkbox
+                      checked={everyColour}
+                      onChange={(on) => {
+                        setEveryColour(on);
+                        input.current?.focus();
+                      }}
+                      label="Search every colour"
+                    />
+                  )}
+                </>
+              )}
             </span>
           </div>
         </div>

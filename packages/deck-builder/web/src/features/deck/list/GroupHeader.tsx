@@ -1,6 +1,7 @@
 import type { GroupStatus } from "../../../domain/grouping.ts";
 import { type GroupCost, groupCostCaption } from "../../../domain/price.ts";
 import { Price } from "../../../mtg/index.ts";
+import { Icon } from "../../../ui/index.ts";
 import styles from "./GroupHeader.module.css";
 
 export interface GroupHeaderProps {
@@ -32,6 +33,19 @@ function describe(status: GroupStatus, delta: number, target: string | null | un
   return undefined;
 }
 
+/** The same signs as the slots dialog, so status never rests on colour alone:
+ *  a tick on target, "!" outside it. The words are for assistive technology. */
+function StatusSign({ status, delta, target }: { status: GroupStatus; delta: number; target: string | null | undefined }) {
+  const said = describe(status, delta, target);
+  if (!said) return null;
+  return (
+    <>
+      <span className={styles.sign} aria-hidden="true">{status === "ok" ? <Icon name="check" size={12} /> : "!"}</span>
+      <span className="visually-hidden">{said}: </span>
+    </>
+  );
+}
+
 export function GroupHeader({ title, count, primaryCount, secondaryCount, target, status = "untargeted", delta = 0, projected, cost, matched }: GroupHeaderProps) {
   // A total of nothing priced would read as "free".
   const total = matched == null && cost?.priced ? cost : null;
@@ -44,6 +58,7 @@ export function GroupHeader({ title, count, primaryCount, secondaryCount, target
       )}
       {count != null && matched == null && (
         <span className={`${styles.count} ${styles[status]}`} title={[describe(status, delta, target), primaryCount == null ? null : `${primaryCount} primary + ${secondaryCount ?? 0} secondary`].filter(Boolean).join("; ")}>
+          <StatusSign status={status} delta={delta} target={target} />
           {count}
           {projected != null && (
             <span className={styles.projected} title="After the pending changes">

@@ -54,8 +54,11 @@ export function GroupBlock({ cards: allCards, secondaryCards = [], commandZoneCa
   const { cards, adds } = filtered ?? { cards: allCards, adds: allAdds };
   // Contributors are drawn in their own primary group when they match.
   const contributors = !filtered;
+  const long = cards.length + adds.length > LONG_GROUP;
   return (
-    <section className={`${styles.group} ${cards.length + adds.length > LONG_GROUP ? styles.long : ""}`}>
+    // A long group may cross columns; DeckList names it again at the top of
+    // each column it continues into (data-continues, useContinuedGroups).
+    <section className={`${styles.group} ${long ? styles.long : ""}`} data-continues={long ? head.title : undefined}>
       <GroupHeader {...head} matched={filtered?.matched} />
       {cards.map((c) => (
         <CardRow

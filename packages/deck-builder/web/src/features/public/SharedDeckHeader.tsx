@@ -46,6 +46,7 @@ export function SharedDeckHeader({ shared, own }: { shared: PublicDeckState; own
   return (
     <DeckArt cards={commanders} identity={deck.color_identity} variant="showcase" priority="high">
       <div className={styles.text}>
+        <h1 className={styles.title}>{deck.name}</h1>
         <div className={styles.meta}>
           <Chip>{DECK_CATEGORY_LABELS[deck.category]}</Chip>
           {deck.visibility !== "private" && (
@@ -56,7 +57,6 @@ export function SharedDeckHeader({ shared, own }: { shared: PublicDeckState; own
           )}
           <ColorIdentity colors={deck.color_identity} />
         </div>
-        <h1 className={styles.title}>{deck.name}</h1>
         <p className={styles.byline}>
           {/* A profile exists only while its owner has a public deck (§18.5); an
               unlisted deck cannot know that, so it names the owner without a link. */}

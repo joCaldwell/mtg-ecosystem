@@ -28,6 +28,7 @@ test("ReadOnlyDeck renders a shared deck without a DeckProvider, and offers no e
   const html = renderToStaticMarkup(createElement(ReadOnlyDeck, { model: fromPublic(publicDeckState(db, null, slug!)) }));
   assert.ok(html.includes("Teferi, Temporal Archmage") && html.includes("Counterspell"));
   assert.ok(!html.includes("Ctrl-click"), "no selection in a read-only list");
+  assert.ok(!html.includes("Memory linked") && !html.includes("Decided before"), "a viewer gets no owner-workflow marker legend");
   assert.ok(!/>Edit</.test(html), "no Edit buttons on the brief or engines");
   assert.ok(!html.includes("Edit slots"));
 

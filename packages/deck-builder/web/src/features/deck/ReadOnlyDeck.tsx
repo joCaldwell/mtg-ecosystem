@@ -43,7 +43,7 @@ export interface ReadOnlyDeckProps {
 
 export function ReadOnlyDeck(props: ReadOnlyDeckProps) {
   return (
-    <DeckListProvider state={props.model.list} readOnly>
+    <DeckListProvider state={props.model.list} readOnly viewer={props.model.viewer}>
       <DeckUiProvider>
         <ReadOnlyBody {...props} />
       </DeckUiProvider>

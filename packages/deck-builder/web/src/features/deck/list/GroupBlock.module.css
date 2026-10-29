@@ -4,9 +4,18 @@
   break-inside: avoid;
 }
 
-/* ...unless it is longer than a column should be. */
+/* ...unless it is longer than a column should be. Then every column fragment
+   starts with --group-cont-h of room (cloned padding), where DeckList draws
+   the group's name again; the real header takes that room back in the first. */
 .long {
   break-inside: auto;
+  padding-top: var(--group-cont-h);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.long > :first-child {
+  margin-top: calc(-1 * var(--group-cont-h));
 }
 .secondary {
   margin-top: var(--s-2);

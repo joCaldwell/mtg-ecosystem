@@ -57,7 +57,7 @@
   left: 0;
   z-index: var(--z-pop);
   width: 100%;
-  min-width: 420px;
+  min-width: var(--add-drop-min-w);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-lg);
   background: var(--raised);
@@ -78,12 +78,14 @@
   padding: var(--s-4);
 }
 
+/* One compact line: the keys, then the colour scope. */
 .foot {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--s-2) var(--s-5);
+  white-space: nowrap;
   padding: var(--s-3) var(--s-4);
   border-top: 1px solid var(--line);
   color: var(--faint);
@@ -94,7 +96,7 @@
 .limit {
   display: inline-flex;
   align-items: center;
-  gap: var(--s-5);
+  gap: var(--s-4);
 }
 
 /* Touch: the field inside is a full tap target (base.css, DeckToolbar), so

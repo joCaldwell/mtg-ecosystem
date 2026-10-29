@@ -20,6 +20,7 @@ function shared(over: Partial<PublicDeckState> = {}): PublicDeckState {
 test("a shared deck reads with nothing pending and no numeric id (spec §18.3)", () => {
   const model = fromPublic(shared());
   assert.equal(model.list.deck.id, 0);
+  assert.equal(model.viewer, true);
   assert.deepEqual(model.list.proposals, []);
   assert.deepEqual(model.list.log, []);
   assert.equal(model.decisions, null, "unpublished decisions stay absent");
@@ -36,6 +37,7 @@ test("the owner's phone keeps pending proposals in the list, so they are drawn i
   ] });
   const model = fromOwner(state);
   assert.equal(model.list, state);
+  assert.equal(model.viewer, false);
   assert.equal(model.list.proposals.length, 1);
   // The owner sees which agent did what (DESIGN.md principle 5, review S15).
   assert.deepEqual(model.decisions!.map((d) => [d.summary, d.by, d.who]), [["Added Forest", "owner", "owner"], ["Cut Island", "agent", "owner via test-agent"]]);

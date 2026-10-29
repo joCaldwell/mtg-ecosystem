@@ -43,6 +43,16 @@
   color: var(--add);
 }
 
+/* The status sign before the count, in the count's colour. */
+.sign {
+  margin-right: var(--s-2);
+  font-weight: 700;
+}
+
+.sign > svg {
+  vertical-align: middle;
+}
+
 .under,
 .over {
   color: var(--warn);

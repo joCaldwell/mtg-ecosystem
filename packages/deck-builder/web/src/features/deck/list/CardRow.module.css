@@ -18,6 +18,8 @@
   border-left: 2px solid transparent;
   border-radius: var(--r-sm);
   text-align: left;
+  /* Revealed rows clear whatever is sticky above the list (set by the page). */
+  scroll-margin-top: var(--list-scroll-offset, 0);
 }
 
 .row:hover {
