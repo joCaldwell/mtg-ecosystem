@@ -6,7 +6,6 @@ import { AddBar } from "./AddBar.tsx";
 import { DeckTagFilter } from "./DeckTagFilter.tsx";
 import { useDeckState } from "./DeckStore.tsx";
 import { useDeckUi } from "./DeckUi.tsx";
-import { useFindInDeck } from "./useFindInDeck.ts";
 import styles from "./DeckToolbar.module.css";
 
 const GROUP_OPTIONS: Array<{ value: GroupBy; label: string }> = [
@@ -24,7 +23,6 @@ export function DeckToolbar() {
   const ui = useDeckUi();
   const readOnly = useDeckState().deck.category === "archived";
   const search = useRef<HTMLInputElement>(null);
-  const find = useFindInDeck();
   return (
     <div className={styles.toolbar}>
       {!readOnly && <div className={styles.add}><AddBar /></div>}
@@ -47,10 +45,6 @@ export function DeckToolbar() {
                   e.preventDefault();
                   e.stopPropagation();
                   ui.setSearchTerm("");
-                } else if (e.key === "Enter" && find.active) {
-                  // Like a browser's find: Enter is the next match, Shift+Enter the previous.
-                  e.preventDefault();
-                  find.step(e.shiftKey ? -1 : 1);
                 }
               }}
             />

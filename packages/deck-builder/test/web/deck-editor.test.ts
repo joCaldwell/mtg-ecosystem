@@ -10,25 +10,42 @@ async function modules(t: { after: (fn: () => unknown) => void }) {
   return server;
 }
 
-test("search scrolls the first rendered match without opening contributor disclosures", async (t) => {
-  const { scrollToFirstMatch } = await (await modules(t)).ssrLoadModule("/src/features/deck/list/DeckList.tsx");
+test("filter results start at the top, and clearing returns to the unfiltered position", async (t) => {
+  const { revealFilterResults, restoreScroll } = await (await modules(t)).ssrLoadModule("/src/features/deck/list/DeckList.tsx");
+  const g = globalThis as any;
+  const saved = { getComputedStyle: g.getComputedStyle, scrollY: g.scrollY, scrollTo: g.scrollTo };
+  t.after(() => Object.assign(g, saved));
   const calls: unknown[] = [];
-  const row = (visible: boolean, name: string) => ({
-    getClientRects: () => visible ? [{}] : [],
-    scrollIntoView: (options: unknown) => calls.push([name, options]),
-  });
-  const rows = [row(false, "closed secondary contributor"), row(true, "first match"), row(true, "later match")];
-  const list = { querySelectorAll: (selector: string) => {
-    assert.equal(selector, '[data-filter-match="true"]');
-    return rows;
-  } };
-  scrollToFirstMatch(list);
-  assert.deepEqual(calls, [["first match", { block: "nearest", inline: "nearest" }]]);
+  g.scrollTo = (options: unknown) => calls.push(["window", options]);
+  const list = (top: number, margin: string) => {
+    g.getComputedStyle = () => ({ scrollMarginTop: margin });
+    return { scrollTop: 900, getBoundingClientRect: () => ({ top }), scrollIntoView: (options: unknown) => calls.push(["list", options]) };
+  };
+
+  // Desktop: the list pane scrolls itself and sits below the toolbar.
+  const desktop = list(180, "0px");
+  revealFilterResults(desktop);
+  assert.equal(desktop.scrollTop, 0);
+  assert.deepEqual(calls, [], "the window is not moved");
+
+  // Tablet: the window scrolls; the list's top went under the sticky filter row.
+  const tablet = list(40, "120px");
+  revealFilterResults(tablet);
+  assert.deepEqual(calls, [["list", { block: "start", inline: "nearest" }]]);
   calls.length = 0;
-  scrollToFirstMatch(null);
-  scrollToFirstMatch({ querySelectorAll: () => [] });
-  scrollToFirstMatch({ querySelectorAll: () => [row(false, "hidden")] });
-  assert.deepEqual(calls, [], "empty queries and closed disclosures do not move the page");
+  revealFilterResults(list(200, "120px"));
+  assert.deepEqual(calls, [], "already below the filter row: nothing moves");
+  revealFilterResults(null);
+
+  g.scrollY = 0;
+  const restored = list(180, "0px");
+  restoreScroll(restored, { list: 1234, window: 0 });
+  assert.equal(restored.scrollTop, 1234);
+  assert.deepEqual(calls, [], "desktop: the window stays put");
+  g.scrollY = 10;
+  restoreScroll(list(40, "120px"), { list: 0, window: 2400 });
+  assert.deepEqual(calls, [["window", { top: 2400, behavior: "instant" }]]);
+  restoreScroll(null, { list: 0, window: 0 });
 });
 
 test("concept help uses a specific, keyboard-operable question label", async (t) => {
@@ -93,31 +110,6 @@ test("a decision reveals all its rows when they fit together, else its first ite
   assert.deepEqual(calls, []);
 });
 
-test("stepping through deck matches centres an off-screen match, smoothly unless motion is reduced", async (t) => {
-  const { scrollToFindCurrent } = await (await modules(t)).ssrLoadModule("/src/features/deck/list/DeckList.tsx");
-  const calls: unknown[] = [];
-  const row = (visible: boolean, top: number, name: string) => ({
-    getClientRects: () => visible ? [{}] : [],
-    getBoundingClientRect: () => ({ top, bottom: top + 24 }),
-    scrollIntoView: (options: unknown) => calls.push([name, options]),
-  });
-  const list = (current: ReturnType<typeof row>) => ({
-    scrollHeight: 3000, clientHeight: 800, getBoundingClientRect: () => ({ top: 100, bottom: 900 }),
-    querySelectorAll: (selector: string) => {
-      assert.equal(selector, '[data-find-current="true"]');
-      return [row(false, 0, "closed secondary contributor"), current];
-    },
-  });
-  scrollToFindCurrent(list(row(true, 1200, "below the fold")), false);
-  scrollToFindCurrent(list(row(true, 40, "above the list")), true);
-  scrollToFindCurrent(list(row(true, 400, "already in view")), false);
-  scrollToFindCurrent(null, false);
-  assert.deepEqual(calls, [
-    ["below the fold", { block: "center", inline: "nearest", behavior: "smooth" }],
-    ["above the list", { block: "center", inline: "nearest", behavior: "auto" }],
-  ]);
-});
-
 test("proposal arrival focuses its own reason and scrolls only its panel, preserving the list reveal", async (t) => {
   const { focusReviewArrival } = await (await modules(t)).ssrLoadModule("/src/features/deck/reviewArrival.ts");
   const calls: unknown[] = [];
@@ -134,4 +126,59 @@ test("proposal arrival focuses its own reason and scrolls only its panel, preser
   assert.deepEqual(calls, [{ preventScroll: true }]);
   focusReviewArrival(root, "missing");
   assert.equal(calls.length, 1, "a missing proposal does not focus another decision");
+});
+
+test("an active filter hides nonmatching rows, empty groups and maybe cards, and counts what is left", async (t) => {
+  const stored = new Map<string, string>();
+  (globalThis as any).localStorage ??= { getItem: (k: string) => stored.get(k) ?? null, setItem: (k: string, v: string) => stored.set(k, v) };
+  const vite = await modules(t);
+  const { ReadOnlyDeck } = await vite.ssrLoadModule("/src/features/deck/ReadOnlyDeck.tsx");
+  const { fromOwner } = await vite.ssrLoadModule("/src/domain/readOnlyDeck.ts");
+  const { layoutDeck } = await vite.ssrLoadModule("/src/domain/grouping.ts");
+  const { matchDeckList } = await vite.ssrLoadModule("/src/domain/deckSearch.ts");
+  const { card, deckState, slot } = await import("./fixtures.ts");
+  const state = deckState({
+    slots: [slot({ id: 10, name: "Test Tutors", target_min: 4, target_max: 6 }), slot({ id: 11, name: "Test Lands" })],
+    cards: [
+      card({ name: "Test Other Commander", role: "commander" }),
+      card({ name: "Test Match Tutor", slot_id: 10, quantity: 2 }),
+      card({ name: "Test Other Tutor", slot_id: 10 }),
+      card({ name: "Test Other Land", slot_id: 11, type_line: "Land" }),
+      card({ name: "Test Match Maybe", maybe: 1 }),
+      card({ name: "Test Other Maybe", maybe: 1 }),
+    ],
+  });
+  const render = (query: string) => {
+    const layout = layoutDeck(state, "slot", "curve");
+    const view = {
+      layout, units: [], marks: new Map(),
+      overlay: { cuts: new Set(), addsByGroup: new Map(), projected: new Map(), projectedTotal: 0 },
+      matches: matchDeckList(layout, new Map(), query),
+    };
+    return renderToStaticMarkup(createElement(ReadOnlyDeck, { model: fromOwner(state), useView: () => view }));
+  };
+  const list = (html: string) => html.slice(html.indexOf("data-deck-list") >= 0 ? html.indexOf("data-deck-list") : html.indexOf('aria-label="Deck list"'));
+
+  const unfiltered = render("");
+  for (const name of ["Test Other Tutor", "Test Other Land", "Test Other Maybe", "Test Other Commander"]) assert.ok(unfiltered.includes(name));
+  assert.doesNotMatch(unfiltered, /data-filter-match/);
+
+  const html = list(render("match"));
+  assert.ok(html.includes("Test Match Tutor") && html.includes("Test Match Maybe"));
+  for (const name of ["Test Other Tutor", "Test Other Land", "Test Other Maybe", "Test Other Commander"]) {
+    assert.ok(!html.includes(name), `${name} is hidden`);
+  }
+  assert.ok(!html.includes("Test Lands") && !html.includes(">Commander<"), "groups without matches are hidden");
+  assert.match(html, /Test Tutors<\/span>.*?2 of 3<\/span>/, "the header counts matching copies of the group's");
+  assert.ok(!html.includes("4–6"), "the group's target is not set against the matches");
+  assert.match(html, /1 of 2 · outside the 100/);
+
+  const maybeOnly = list(render("maybe"));
+  assert.ok(!maybeOnly.includes("Test Tutors") && maybeOnly.includes("Test Match Maybe"), "only the maybe list remains");
+
+  const none = list(render("zzz"));
+  // The wording comes from the find box's own term (noMatchesLine, tested in
+  // deckSearch.test.ts); this view is fed matches without one.
+  assert.match(none, /<p[^>]*>No cards in this deck match [^<]*\.<\/p>/);
+  assert.ok(!none.includes("Maybe list"));
 });

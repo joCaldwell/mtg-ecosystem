@@ -1,6 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { matchDeckList } from "../../web/src/domain/deckSearch.ts";
+import { filterGroup, matchCount, matchDeckList, noMatchesLine } from "../../web/src/domain/deckSearch.ts";
 import { layoutDeck } from "../../web/src/domain/grouping.ts";
 import { reviewOverlay } from "../../web/src/domain/review.ts";
 import { card, deckState, item, proposal, slot } from "./fixtures.ts";
@@ -27,10 +27,7 @@ describe("deck list matches", () => {
       assert.deepEqual([...result.cardIds].sort(), state.cards
         .filter((c) => c.name.includes("Match")).map((c) => c.oracle_id).sort());
       assert.equal(result.addIds.size, 0);
-      // Find-in-deck steps through each match once, in the list's drawing order.
-      const drawn = [...layout.commanders, ...layout.groups.flatMap((g) => g.cards), ...layout.companions, ...layout.maybe]
-        .filter((c) => c.name.includes("Match")).map((c) => `card:${c.oracle_id}`);
-      assert.deepEqual(result.ordered, drawn);
+      assert.equal(matchCount(result), 4, "each matching card once");
       assert.deepEqual(layout, snapshot, "all cards, empty groups, order and totals remain intact");
     });
 
@@ -83,7 +80,7 @@ describe("deck list matches", () => {
     const result = matchDeckList(layout, overlay.addsByGroup, "match");
     assert.deepEqual([...result.addIds], [matchingAdd.id]);
     assert.equal(result.cardIds.size, 0);
-    assert.deepEqual(result.ordered, [`add:${matchingAdd.id}`]);
+    assert.equal(matchCount(result), 1);
     assert.deepEqual(overlay, snapshot, "the complete review overlay is preserved");
     assert.equal(matchDeckList(layout, new Map(), "match").addIds.size, 0,
       "proposals are not considered outside review");
@@ -123,5 +120,58 @@ describe("deck list matches", () => {
     assert.equal(result.active, true);
     assert.equal(result.cardIds.size, 0);
     assert.deepEqual(layout, snapshot);
+  });
+
+  test("a filtered group draws only its matching rows and counts their copies", () => {
+    const state = deckState({
+      slots: [slot({ id: 10, target_min: 8 }), slot({ id: 11 })],
+      cards: [
+        card({ name: "Test Match One", slot_id: 10, quantity: 2 }),
+        card({ name: "Test Other One", slot_id: 10 }),
+        card({ name: "Test Match Two", slot_id: 10 }),
+        card({ name: "Test Other Land", slot_id: 11, type_line: "Land" }),
+      ],
+    });
+    const layout = layoutDeck(state, "slot");
+    const matches = matchDeckList(layout, new Map(), "match");
+    const [ramp, lands] = layout.groups.filter((group) => group.cards.length);
+    const shown = filterGroup({ cards: ramp.cards, adds: [] }, matches);
+    assert.ok(shown);
+    assert.deepEqual(shown.cards.map((c) => c.name), ["Test Match One", "Test Match Two"], "drawing order is kept");
+    assert.equal(shown.matched, 3, "copies, like the header's group count");
+    assert.equal(ramp.count, 4, "the group's own count still describes the whole group");
+    assert.equal(filterGroup({ cards: lands.cards, adds: [] }, matches), null, "a group with no matches is hidden");
+    assert.equal(filterGroup({ cards: [], adds: [] }, matches), null, "so is an empty group");
+  });
+
+  test("a filtered review group keeps matching proposed adds and cuts in place", () => {
+    const matchingAdd = item({ name: "Test Match Proposed", slot_id: 10 });
+    const otherAdd = item({ name: "Test Other Proposed", slot_id: 10 });
+    const state = deckState({
+      slots: [slot({ id: 10 })],
+      cards: [card({ name: "Test Match Kept", slot_id: 10 }), card({ name: "Test Other Kept", slot_id: 10 })],
+      proposals: [proposal([matchingAdd, otherAdd])],
+    });
+    const layout = layoutDeck(state, "slot");
+    const overlay = reviewOverlay(state, layout, "slot");
+    const matches = matchDeckList(layout, overlay.addsByGroup, "match");
+    const group = layout.groups.find((g) => g.cards.length)!;
+    const shown = filterGroup({ cards: group.cards, adds: overlay.addsByGroup.get(group.key) ?? [] }, matches);
+    assert.deepEqual(shown?.cards.map((c) => c.name), ["Test Match Kept"]);
+    assert.deepEqual(shown?.adds.map((a) => a.id), [matchingAdd.id]);
+    const addsOnly = matchDeckList(layout, overlay.addsByGroup, "proposed");
+    const onlyAdd = filterGroup({ cards: group.cards, adds: overlay.addsByGroup.get(group.key) ?? [] }, addsOnly);
+    assert.equal(onlyAdd?.cards.length, 0);
+    assert.equal(onlyAdd?.adds.length, 2, "a group whose only matches are proposed adds still shows");
+    assert.equal(onlyAdd?.matched, 2, "adds count: the list shows the deck as it would be");
+    const kept = matchDeckList(layout, overlay.addsByGroup, "kept");
+    const cutKept = group.cards.find((c) => c.name === "Test Match Kept")!.oracle_id;
+    assert.equal(filterGroup({ cards: group.cards, adds: [] }, kept, new Set([cutKept]))?.matched, 1, "a matching cut is drawn but not counted");
+  });
+
+  test("the empty-result line names the query, or the tags when there is none", () => {
+    assert.equal(noMatchesLine("  zzz ", false), "No cards in this deck match “zzz”.");
+    assert.equal(noMatchesLine("zzz", true), "No cards in this deck match “zzz” with these tags.");
+    assert.equal(noMatchesLine("", true), "No cards in this deck match these tags.");
   });
 });

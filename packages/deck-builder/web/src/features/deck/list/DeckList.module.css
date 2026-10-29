@@ -28,6 +28,13 @@
   font-size: var(--text-sm);
 }
 
+/* The one line shown when a filter leaves no cards; Clear sits in the
+   filter row above. */
+.noMatches {
+  padding: var(--s-2) var(--s-3);
+  color: var(--text-soft);
+}
+
 .legend {
   display: flex;
   flex-wrap: wrap;
@@ -52,9 +59,10 @@
   .scroll .cols { column-count: auto; }
 }
 
-/* Search reveals stay below navigation and the single active-filter row. */
+/* Filter results start below navigation and the sticky active-filter row
+   (revealFilterResults reads this margin). */
 @media (max-width: 1099px) {
-  .scroll [data-filter-match="true"] {
+  .scroll {
     scroll-margin-top: calc(var(--tablet-bar-outer-h) + var(--tap) + var(--s-4));
   }
 }

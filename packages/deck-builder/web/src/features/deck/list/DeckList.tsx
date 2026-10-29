@@ -1,10 +1,13 @@
 // The deck as a list (spec §5): commanders first, then the groups in columns,
 // then the maybe list. In review mode it shows the deck as it would be if
 // every pending item were accepted, drawn in place rather than in a side list,
-// so the owner judges a swap by what the list looks like after it.
+// so the owner judges a swap by what the list looks like after it. A find
+// query or tag filter hides the rows, groups and maybe cards that do not
+// match; totals elsewhere keep describing the whole deck.
 
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import type { ProposalItem } from "../../../api/client.ts";
+import { matchCount, noMatchesLine } from "../../../domain/deckSearch.ts";
 import { costOf } from "../../../domain/price.ts";
 import { EmptyState, Text } from "../../../ui/index.ts";
 import { useDeckList } from "../DeckListStore.tsx";
@@ -30,16 +33,9 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
   const { layout, overlay, marks, units, matches } = view;
   const reviewing = ui.reviewing;
   const addsByGroup = reviewing ? overlay.addsByGroup : NO_ADDS;
-  const matchingCards = matches.active ? matches.cardIds : undefined;
-  const matchingAdds = matches.active ? matches.addIds : undefined;
-  // The match find-in-deck has stepped to (DeckFilterSummary's "1 of 5").
-  // Read-only lists have no find controls, so nothing there is current.
-  const ordered = matches.ordered ?? [];
-  const findCurrent = matches.active && !readOnly && ordered.length
-    ? ordered[Math.min(ui.findIndex, ordered.length - 1)]
-    : undefined;
+  const filter = matches.active ? matches : undefined;
 
-  // Totals always describe the full deck, independent of the highlighted matches.
+  // Totals always describe the full deck, independent of the filter.
   const commanderCost = useMemo(() => costOf(view.layout.commanders), [view.layout.commanders]);
   const companionCost = useMemo(() => costOf(view.layout.companions), [view.layout.companions]);
 
@@ -58,19 +54,34 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
     scrollToReviewCard(scroll.current, unit?.items[0]?.oracle_id);
   }, [unitKey, readOnly]);
 
-  // Query changes reveal the first match in the existing window/pane scroll
-  // container. Leave focus in search so typing and clearing keep working.
+  // Where the unfiltered list was scrolled, kept up to date only while no
+  // filter is active, so clearing one returns the owner to it. The desktop
+  // list scrolls itself; below 1100 px the window scrolls it.
+  const unfiltered = useRef({ list: 0, window: 0 });
+  const filtering = useRef(false);
   useEffect(() => {
-    if (matches.active && !readOnly) scrollToFirstMatch(scroll.current);
-  }, [ui.searchTerm, ui.tagIds, ui.tagMatch, ui.tagInverted, readOnly]);
+    const list = scroll.current;
+    if (!list || readOnly) return;
+    const remember = () => { if (!filtering.current) unfiltered.current = { list: list.scrollTop, window: scrollY }; };
+    remember();
+    list.addEventListener("scroll", remember, { passive: true });
+    addEventListener("scroll", remember, { passive: true });
+    return () => { list.removeEventListener("scroll", remember); removeEventListener("scroll", remember); };
+  }, [readOnly]);
 
-  // Stepping through matches (Enter, Shift+Enter, previous/next) reveals the
-  // new current match. Focus stays where it was, normally the find box.
-  useEffect(() => {
-    if (ui.findStep && !readOnly) scrollToFindCurrent(scroll.current);
-  }, [ui.findStep, readOnly]);
+  // Each filter change shows its results from the top; clearing the filter
+  // restores the unfiltered position. Focus stays in the find box. Layout
+  // effects, so the restore lands before the browser paints the full list.
+  useLayoutEffect(() => {
+    const was = filtering.current;
+    filtering.current = matches.active;
+    if (readOnly) return;
+    if (matches.active) revealFilterResults(scroll.current);
+    else if (was) restoreScroll(scroll.current, unfiltered.current);
+  }, [matches.active, ui.searchTerm, ui.tagIds, ui.tagMatch, ui.tagInverted, readOnly]);
 
   const nothingToShow = state.cards.length === 0 && !(reviewing && overlay.addsByGroup.size > 0);
+  const nothingMatches = !!filter && matchCount(filter) === 0;
 
   return (
     <div ref={scroll} data-deck-list={!readOnly ? "true" : undefined} className={readOnly ? styles.flow : styles.scroll}>
@@ -78,12 +89,13 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
         <EmptyState title="No cards yet">
           {emptyAction ?? "This deck has no cards in it yet."}
         </EmptyState>
+      ) : nothingMatches ? (
+        <p className={styles.noMatches}>{noMatchesLine(ui.searchTerm, ui.tagIds.length > 0)}</p>
       ) : (
         <>
           <div className={styles.cols}>
             <GroupBlock
-              matchingCards={matchingCards}
-              findCurrent={findCurrent}
+              filter={filter}
               title="Commander"
               cost={commanderCost}
               cards={layout.commanders}
@@ -99,9 +111,7 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
             />
             {layout.groups.map((g) => (
               <GroupBlock
-                matchingCards={matchingCards}
-                matchingAdds={matchingAdds}
-                findCurrent={findCurrent}
+                filter={filter}
                 key={g.key}
                 title={g.title}
                 count={g.count}
@@ -124,8 +134,7 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
             ))}
             {layout.companions.length > 0 && (
               <GroupBlock
-                matchingCards={matchingCards}
-                findCurrent={findCurrent}
+                filter={filter}
                 title="Companion"
                 cost={companionCost}
                 cards={layout.companions}
@@ -135,7 +144,7 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
               />
             )}
           </div>
-          <MaybeList cards={layout.maybe} matchingCards={matchingCards} findCurrent={findCurrent} />
+          <MaybeList cards={layout.maybe} filter={filter} />
         </>
       )}
       <p className={styles.legend}>
@@ -154,30 +163,21 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
   );
 }
 
-export function scrollToFirstMatch(list: HTMLElement | null): void {
-  // A secondary contributor can be inside a closed details element. Its main
-  // row remains in the list; don't open or collapse any groups while searching.
-  const first = Array.from(list?.querySelectorAll<HTMLElement>('[data-filter-match="true"]') ?? [])
-    .find(row => row.getClientRects().length > 0);
-  first?.scrollIntoView({ block: "nearest", inline: "nearest" });
-}
-
-/** Like a browser's find: a match already in view stays put; one out of view
- *  is centred, so the rows around it come with it. */
-export function scrollToFindCurrent(list: HTMLElement | null, reducedMotion = prefersReducedMotion()): void {
+/** Show a filter's results from their start: the desktop list scrolls back
+ *  to its top; below 1100 px, where the window scrolls, the list's top is
+ *  brought up under the sticky filter row if it has gone above it. */
+export function revealFilterResults(list: HTMLElement | null): void {
   if (!list) return;
-  const row = Array.from(list.querySelectorAll<HTMLElement>('[data-find-current="true"]'))
-    .find(row => row.getClientRects().length > 0);
-  if (!row) return;
-  // The desktop list scrolls itself; below 1100 px the window scrolls it.
-  const view = list.scrollHeight > list.clientHeight ? list.getBoundingClientRect() : { top: 0, bottom: innerHeight };
-  const box = row.getBoundingClientRect();
-  if (box.top >= view.top && box.bottom <= view.bottom) return;
-  row.scrollIntoView({ block: "center", inline: "nearest", behavior: reducedMotion ? "auto" : "smooth" });
+  list.scrollTop = 0;
+  const offset = parseFloat(getComputedStyle(list).scrollMarginTop) || 0;
+  if (list.getBoundingClientRect().top < offset) list.scrollIntoView({ block: "start", inline: "nearest" });
 }
 
-function prefersReducedMotion(): boolean {
-  return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+/** Return to where the unfiltered list was. */
+export function restoreScroll(list: HTMLElement | null, to: { list: number; window: number }): void {
+  if (!list) return;
+  list.scrollTop = to.list;
+  if (scrollY !== to.window) scrollTo({ top: to.window, behavior: "instant" });
 }
 
 /** Reveal a decision's rows: all of them when they fit in the scroller's view

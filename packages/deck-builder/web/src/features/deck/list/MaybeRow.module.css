@@ -17,16 +17,6 @@
   background: var(--hover);
 }
 
-.row.match {
-  background: var(--sel-bg);
-  box-shadow: inset 0 0 0 1px var(--sel);
-  border-left-color: var(--sel);
-}
-
-.match .name {
-  font-weight: 600;
-}
-
 .row.open {
   background: var(--raised);
   box-shadow: inset 0 0 0 1px var(--line-strong);
@@ -63,20 +53,6 @@
     white-space: normal;
   }
 }
-
-/* Search preserves every row and its interaction. Nonmatches recede (as in
-   CardRow): dimmest AA text, faded pips; an open nonmatch keeps --muted. */
-.row[data-filter-match="false"] {
-  color: var(--text-dim);
-  --price-color: var(--text-dim);
-}
-.row[data-filter-match="false"] .name { color: var(--text-dim); }
-.row[data-filter-match="false"] .mana > * { opacity: var(--dim-opacity); }
-.row.open[data-filter-match="false"] { color: var(--muted); --price-color: var(--muted); }
-.row.open[data-filter-match="false"] .name { color: var(--muted); }
-.row.match { box-shadow: inset 0 0 0 1px var(--sel); }
-.row.match .name { color: var(--text); }
-.row.match.findCurrent { background: var(--find-bg); box-shadow: inset 0 0 0 2px var(--sel); }
 
 /* Full-row pointer and focus target. Full notes and their links live in details. */
 .hit { position: absolute; inset: 0; width: 100%; border-radius: inherit; }

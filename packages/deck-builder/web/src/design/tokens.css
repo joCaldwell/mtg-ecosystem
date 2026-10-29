@@ -48,17 +48,11 @@
   --text-soft: #d4d4d4;
   --muted: #a3a3a3;
   --faint: #9c9c9c;
-  /* Search nonmatches only (DESIGN.md): the dimmest text that still passes
-     AA where a nonmatching row can sit. Measured 5.32 on --bg, 5.02 hovered,
-     4.69 on selected + hover. An open row (--raised, 4.41) returns to --muted. */
-  --text-dim: #808080;
   /* Disabled Buttons: about half the enabled label's brightness and a full
      control border, with no fill, so an unavailable action still reads as
      present but is never mistaken for an enabled one (5.32:1 on --bg). */
-  --disabled-ink: var(--text-dim);
+  --disabled-ink: #808080;
   --disabled-line: var(--line-strong);
-  /* Mana pips and marks on a search nonmatch; the name stays readable. */
-  --dim-opacity: 0.38;
 
   /* Meaning. Restrained transparent tints and hairlines on black.
      Semantic foreground minima across the same nested/hover envelope:
@@ -79,9 +73,6 @@
   --sel: #6aa3ff;
   --sel-bg: rgba(106, 163, 255, 0.06);
   --sel-line: rgba(106, 163, 255, 0.32);
-  /* The find-in-deck match being stepped to: a stronger blue tint than the
-     other matches' --sel-bg. Match names use --text, about 12:1 over it. */
-  --find-bg: rgba(106, 163, 255, 0.2);
 
   /* One primary action colour; selection/focus share its existing blue.
      Black ink: 8.30:1 at rest, 9.64:1 on hover. */
@@ -199,8 +190,6 @@
   --toolbar-add-w: 300px;
   --toolbar-search-max: 400px;
   --toolbar-tags-w: 140px;
-  /* Room for "12 of 34" in the find-in-deck counter, so the arrows hold still. */
-  --find-count-w: 64px;
   --toolbar-search-min: 160px;
   /* Shared pages and the phone view (spec §18.5, §11.2). The phone breakpoint
      itself is PHONE_MAX_WIDTH in app/breakpoints.ts: media queries cannot

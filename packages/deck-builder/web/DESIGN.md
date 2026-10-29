@@ -76,7 +76,7 @@ D20) and built in phase 4a; phase 4b makes the full app hold up between
 | `--add` green | Coming in, passing, accepted | proposed add, a check that passes, Accept |
 | `--cut` red | Going out, failing, rejected | proposed cut, a rule violation, Reject |
 | `--warn` amber | Off target, missing, provisional | slot under target, incomplete deck |
-| `--sel` blue | The owner's selection, focus and primary action | selected rows, search and tag matches, focus ring, focused field; `--action` aliases it for primary buttons |
+| `--sel` blue | The owner's selection, focus and primary action | selected rows, focus ring, focused field; `--action` aliases it for primary buttons |
 | `--identity-*` | That deck’s colour identity | thin stripe on its card or header only |
 | greys | Everything else | structure, text, neutral chips, deck lifecycle |
 
@@ -298,11 +298,10 @@ sheet over the list (principle 1's existing requested-dialog exception).
   The modal is named, traps focus, closes with Escape and restores focus.
 - **Text and motion:** the neutral text tiers stay in order and pass AA on
   tinted rows (see Tokens for the current palette and measured minima).
-  Nonmatching cards recede clearly (owner decision, 2026-10-28: keep muting,
-  never hide rows): their text uses `--text-dim`, the dimmest tier that still
-  passes AA on every row state, and their pips and marks fade to
-  `--dim-opacity`. An open nonmatch keeps `--muted`. Matches carry a blue edge
-  and outline with stronger names. Global reduced-motion zeroes `--fast` and
+  Find-in-deck and the tag filter hide nonmatching cards (owner decision,
+  2026-10-28, replacing the earlier muting): groups and the maybe list with no
+  match disappear, the rest count "2 of 14", and matches need no highlight
+  because every row shown is one. Global reduced-motion zeroes `--fast` and
   disables transitions/animations. Inter is removed; the system font stack
   avoids a third-party font request.
 
@@ -469,9 +468,11 @@ the deck search, compact tag filter, and labelled Group/Sort native selects.
 Controls stay adjacent and share a height instead of occupying opposite ends
 of the viewport. On tablets the add field takes its own row above those view
 controls. The always-available add input retains `/`, Enter, Shift+Enter and
-Escape. Search keeps nonmatches muted. Active query, match count, Clear and
-Export appear in a separate context row only while filtering; that row stays
-below tablet navigation while the toolbar scrolls away.
+Escape. Search hides nonmatches. Active query, match count ("5 matches"),
+Clear filters and Export matches appear in a separate context row only while
+filtering; that row stays below tablet navigation while the toolbar scrolls
+away. With no matches the list shows one line, "No cards in this deck match
+“x”.", and nothing else. Clearing returns the list to where it was scrolled.
 
 Catalogue options must match the current query and colour scope, including the
 current commander identity. While a replacement search is pending, show a

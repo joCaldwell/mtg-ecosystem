@@ -21,15 +21,13 @@ export interface CardRowProps {
   bold?: boolean;
   /** The row belongs to the decision under the review cursor. */
   current?: boolean;
-  /** Undefined without filters; false keeps the row visible with muted styling. */
+  /** Drawn because it matches the active filter (nonmatches are not drawn). */
   filterMatch?: boolean;
-  /** The find-in-deck match the owner has stepped to. */
-  findCurrent?: boolean;
   /** Purpose metadata, distinct from sourcing/status tags. */
   purpose?: string;
 }
 
-export function CardRow({ card, quantity = 1, change, mark, bold, current, filterMatch, findCurrent, purpose }: CardRowProps) {
+export function CardRow({ card, quantity = 1, change, mark, bold, current, filterMatch, purpose }: CardRowProps) {
   const ui = useDeckUi();
   const { readOnly } = useDeckList();
   const hover = useCardHover();
@@ -54,8 +52,6 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
   const sign = change === "cut" ? "−" : change === "add" ? "+" : quantity > 1 ? quantity : "";
   const cls = [
     styles.row,
-    filterMatch === true && styles.match,
-    filterMatch === true && findCurrent && styles.findCurrent,
     change === "cut" && styles.cut,
     change === "add" && styles.add,
     selected && styles.selected,
@@ -72,8 +68,7 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
       className={cls}
       data-current={current || undefined}
       data-oracle-id={card.oracle_id}
-      data-filter-match={filterMatch}
-      data-find-current={(filterMatch && findCurrent) || undefined}
+      data-filter-match={filterMatch || undefined}
       aria-current={open || undefined}
       onClick={onClick}
       onKeyDown={onKeyDown}

@@ -76,18 +76,22 @@ try {
       const box = await match.boundingBox();
       assert.ok(box.y >= 0 && box.y + box.height <= 900, "query changes reveal the first match");
       assert.equal(await search.evaluate(e => document.activeElement === e), true, "search keeps focus");
-      assert.equal(await page.locator(rows).count(), count, "no rows removed");
-      assert.deepEqual(await page.locator('[data-deck-list] h2').allTextContents(), groups, "no groups collapsed or totals changed");
-      assert.equal(await search.locator('..').getByRole('status').innerText(), "1 match");
-      assert.ok(await page.locator('[data-filter-match="false"]').count() > 0);
+      const shown = await page.locator(rows).count();
+      assert.ok(shown > 0 && shown < count, "nonmatching rows are hidden");
+      assert.equal(await page.locator(`[data-deck-list] ${rows}:not([data-filter-match="true"])`).count(), 0, "every row shown is a match");
+      assert.ok((await page.locator('[data-deck-list] h2').count()) < groups.length, "groups without matches are hidden");
+      const status = page.getByRole('group', { name: 'Active deck filters' }).getByRole('status');
+      assert.match(await status.innerText(), /^\d+ match(es)?$/);
       await audit(page);
       // Wheel back to the controls: never use script scrolling in QA.
       await wheelTo(page, search);
       await search.fill("no-such-deck-card");
-      assert.equal(await page.getByRole('status').filter({ hasText: '0 matches' }).count(), 1);
-      assert.equal(await page.locator(rows).count(), count);
+      assert.equal(await status.innerText(), "No matches");
+      assert.equal(await page.locator(`[data-deck-list] ${rows}`).count(), 0);
+      assert.equal(await page.getByText("No cards in this deck match “no-such-deck-card”.").count(), 1);
       await search.press("Escape");
       assert.equal(await page.locator('[data-filter-match]').count(), 0);
+      assert.equal(await page.locator(rows).count(), count, "clearing restores every row");
 
       if (width < 1100) {
         const before = await page.evaluate(() => scrollY);

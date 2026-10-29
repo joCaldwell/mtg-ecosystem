@@ -452,11 +452,8 @@ get specifically labelled help; obvious controls do not need generic popovers. T
 controls share a raised surface; tablet add/search fields and tag/group/sort
 controls wrap into two rows before the proposal banner.
 
-Deck filtering preserves all rows, groups and totals. Nonmatches use the
-dimmest AA text tier (`--text-dim`) with faded pips; matches get a blue
-edge/outline and stronger names. The count sits
-beside search. Query/tag changes scroll the first rendered match into view
-without moving focus, expanding disclosures or changing the scroll owner.
+Deck filtering hides nonmatching rows; see the 2026-10-28 find-in-deck
+note below. Header totals, checks and stats keep describing the whole deck.
 Phone decks use native fragment links between the title, card list and pending
 proposals. The read-only composition accepts optional list navigation; editing
 and phone decision permissions are unchanged.
@@ -504,7 +501,7 @@ space to both desktop panes. The list uses separate collapse and return
 thresholds to prevent oscillation during small scroll reversals.
 
 Active tablet filters keep only their query/tag summary, match count and Clear
-action below navigation while the toolbar scrolls away. Matching-row reveal
+action below navigation while the toolbar scrolls away. Revealing the results
 reserves that row's height. Pending impact headings in Inbox and Review name
 the full proposal count; individual decisions retain their existing scope.
 Settings' existing selector separates Claude Code token and OAuth setup, with
@@ -606,18 +603,31 @@ The inbox colours that note amber only when `staleTouches` finds a
 change to a card the proposal adds or cuts (or cannot tell); otherwise grey. The inbox detail pane reaches the
 frame edge with content capped at `--measure-wide` and reasons at `--measure`.
 
-Deck editor review (2026-10-28): find-in-deck keeps muting nonmatches and adds
-navigation. `matchDeckList` lists each match once in drawing order
-(`ordered`); `DeckUi.findIndex` is the current one, reset by any query or tag
-change. The filter row (the toolbar's second row, on its surface) shows "1 of
-5" with previous/next, and Enter/Shift+Enter in the find box steps without
-moving focus. Steps centre an off-screen match, smoothly unless reduced
-motion. A decision becoming current reveals all its rows when they fit
-together, else its first item, and flashes them once (`--flash`; reduced
-motion keeps only the static outline). Stale proposals are amber in Review only
-when the changes since touch their own cards (`staleTouches`); the server's
-stale flag and confirmation are unchanged. Export opens with the maybe list
-included when every match is on it.
+Deck editor review (2026-10-28): a decision becoming current reveals all its
+rows when they fit together, else its first item, and flashes them once
+(`--flash`; reduced motion keeps only the static outline). Stale proposals are
+amber in Review only when the changes since touch their own cards
+(`staleTouches`); the server's stale flag and confirmation are unchanged.
+Export opens with the maybe list included when every match is on it.
+
+Find-in-deck hides nonmatches (owner decision, 2026-10-28, reversing the
+earlier muting after three rounds of blind review asked for it). A find query
+or tag filter leaves the layout and every total untouched: `matchDeckList`
+only names the matching cards and, while reviewing, proposed adds.
+`filterGroup` (domain/deckSearch) gives each group its matching rows and
+matched copies, or `null` to hide it; `GroupBlock` draws that, its header
+reading "2 of 14" without the target, projection or cost, which describe the
+hidden rows. Secondary and command-zone disclosures are left out while
+filtering, since each of those cards is drawn in its own primary group. The
+maybe list shows only its matches ("1 of 5 · outside the 100") or nothing.
+When nothing matches the list shows one line (`noMatchesLine`); Clear stays
+in the filter row, which counts matches ("5 matches"). Previous/next stepping
+was removed: matches now sit together, so there is nothing to step past.
+`DeckList` remembers the unfiltered scroll position (list pane, or window
+below 1100 px) and restores it when the filter clears; each filter change
+shows the results from the top (`revealFilterResults`). The open card and the
+bulk selection survive a filter that hides them. Read-only views have no find
+box and never filter.
 
 Shared page width (2026-10-28): `PublicShell` grows from `--public-w` toward
 `--public-wide` with the window (`--public-grow`, fluid because only the three

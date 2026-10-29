@@ -18,6 +18,10 @@ export interface GroupHeaderProps {
   projected?: number;
   /** What the group costs (spec §4.4). Drawn over the rows' price column. */
   cost?: GroupCost;
+  /** While a filter hides rows: the copies still shown. The header then reads
+   *  "2 of 14" (of the projected count while reviewing) and leaves out the
+   *  target and cost, which describe the rows that are hidden. */
+  matched?: number;
 }
 
 function describe(status: GroupStatus, delta: number, target: string | null | undefined): string | undefined {
@@ -28,14 +32,17 @@ function describe(status: GroupStatus, delta: number, target: string | null | un
   return undefined;
 }
 
-export function GroupHeader({ title, count, primaryCount, secondaryCount, target, status = "untargeted", delta = 0, projected, cost }: GroupHeaderProps) {
+export function GroupHeader({ title, count, primaryCount, secondaryCount, target, status = "untargeted", delta = 0, projected, cost, matched }: GroupHeaderProps) {
   // A total of nothing priced would read as "free".
-  const total = cost?.priced ? cost : null;
+  const total = matched == null && cost?.priced ? cost : null;
   return (
     <h2 className={styles.head}>
       <span className={styles.title}>{title}</span>
       <span className={styles.spacer} />
-      {count != null && (
+      {count != null && matched != null && (
+        <span className={styles.count}>{matched} of {projected ?? count}</span>
+      )}
+      {count != null && matched == null && (
         <span className={`${styles.count} ${styles[status]}`} title={[describe(status, delta, target), primaryCount == null ? null : `${primaryCount} primary + ${secondaryCount ?? 0} secondary`].filter(Boolean).join("; ")}>
           {count}
           {projected != null && (
