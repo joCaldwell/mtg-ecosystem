@@ -22,17 +22,18 @@
   pointer-events: auto;
 }
 
-/* Desktop: the bottom-right corner, clear of the main list area. On the deck
-   page that is the foot of the side panel, never the rows and prices the
-   owner is reading; on other pages it is where a toast is expected. Narrower
-   screens keep the bottom centre, above their single scrolling column. */
+/* Desktop: the bottom-left corner, over the sidebar's footer (passive agent
+   status), so a toast never covers the deck list's rows or the side panel's
+   Accept and Reject. Narrower screens keep the bottom centre, above their
+   single scrolling column. */
 @media not all and (max-width: 1099px) {
   .region {
-    right: var(--s-7);
-    left: auto;
-    justify-content: flex-end;
+    right: auto;
+    left: var(--s-4);
+    bottom: var(--s-6);
+    justify-content: flex-start;
   }
   .toast {
-    max-width: calc(var(--panel-w-min) - var(--s-6));
+    max-width: calc(var(--sidebar-w) - 2 * var(--s-4));
   }
 }

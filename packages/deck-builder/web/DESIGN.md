@@ -194,7 +194,7 @@ or about this app.
 | `ConfirmDialog` | A question with Cancel and a confirm button | tone `default` `danger` |
 | `Explainer` | Specifically labelled help for unfamiliar concepts | closed, open, keyboard focus, close/Escape and focus return; `defaultOpen` (style guide only) |
 | `Popover`, `placeNear` | A panel anchored to an element, kept inside the viewport | placement `below` `right` `above` `left`; `align` |
-| `ToastProvider`, `useToast` | One toast at a time with an optional action; bottom right at 1100 px and wider (clear of the deck list, over the panel's foot), bottom centre below | `duration`; `action` with `kbd` |
+| `ToastProvider`, `useToast` | One toast at a time with an optional action; bottom left at 1100 px and wider (over the sidebar footer, clear of the deck list and the panel's actions), bottom centre below | `duration`; `action` with `kbd` |
 | `DiffView` | Added and deleted lines | line kind `same` `add` `del` |
 | `Table`, `ClickableRow` | Plain tables with small uppercase headers; rows that open something | |
 | `CounterControl` | Visible increment/decrement controls and a numeric readout | labeled, disabled |
