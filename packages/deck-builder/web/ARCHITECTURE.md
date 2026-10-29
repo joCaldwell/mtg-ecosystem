@@ -407,9 +407,9 @@ headings; the section title is a real heading under the dialog title.
 
 ## Sidebar navigation
 
-Expanded desktop navigation gives deck names their full row width; non-Paper
-lifecycle labels sit underneath at 11px, while shared-state icons stay beside
-the title. Collections with more than eight decks expose a native name/commander
+Expanded desktop navigation gives deck names their full row width, with
+shared-state icons and the waiting badge beside the title. Rows carry no
+lifecycle line (2026-10-28), so every row has the same shape. Collections with more than eight decks expose a native name/commander
 filter over the existing actor-scoped summaries. Search never remounts the deck
 editor or writes data. Escape clears it; empty results provide a clear action.
 Collapsed rail and tablet drawer always retain the full deck list, even while an
@@ -487,8 +487,8 @@ estimate. Native summaries own Enter instead of invoking the Inbox review shortc
 Maybe import provenance uses exact strings from interop: one visible count per
 origin and each card's original note as an accessible description. Custom notes
 keep their independent controls, and this presentation changes neither sort order
-nor stored notes. Collection identity statistics label colours and identity codes
-visibly while retaining the existing actor-scoped calculations.
+nor stored notes. Collection identity statistics label colours visibly, and
+identities are lettered pips (`ColorIdentity`), so no separate code is drawn.
 
 Review refinement (2026-10-27): CardPanel reserves a readable field width beside
 shrinkable art. AddBar retains search results after maybe-list adds, while its
@@ -597,7 +597,9 @@ waiting badge. Stale proposals describe the cards changed since, from `DeckState
 phone decisions alike; the accept toast names the accepted cards the same way.
 The inbox colours that note amber only when `staleTouches` finds a
 change to a card the proposal adds or cuts (or cannot tell); otherwise grey. The inbox detail pane reaches the
-frame edge with content capped at `--measure-wide` and reasons at `--measure`.
+frame edge with content capped at `--inbox-detail-w` (780 px). The reason field
+and Accept/Reject share one row under the changes and the deck impact
+(`ProposalDecision.module.css` lays out DecisionControls' two children).
 
 Deck editor review (2026-10-28): a decision becoming current reveals all its
 rows when they fit together, else its first item, and flashes them once
@@ -651,3 +653,13 @@ lines (`DiffView foldSame`). The card panel's Role select is "Board" (Main
 deck, Commander, Companion); its meta is the type line, then the estimate
 with mono price and an unbroken date. Export keeps the header's close button
 only and states format and exclusions on its count line.
+
+Secondary-page review (2026-10-28, wide screens): Activity groups the feed by
+local day (`domain/activity` `groupByDay`: Today, Yesterday, a date) with one
+row per write: time, agent, deck link, action, summary and proposal/applied.
+The rows share one subgrid so columns align down the feed; agent sessions are
+no longer drawn, since each row already names its agent and deck. A public
+profile is a centred `--public-profile-w` column with the app's PageHeader
+(name, handle, public deck count) over the All decks roster grid.
+`app/BrandMark` is imported by the sidebar, the public, phone and sign-in
+shells and the style guide.

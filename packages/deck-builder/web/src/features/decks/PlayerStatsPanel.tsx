@@ -84,9 +84,9 @@ export function PlayerStatsPanel() {
             <div className={styles.identities}>
               {stats.identities.map((i) => (
                 <div key={i.identity} className={styles.row}>
+                  {/* The pips carry their letters, so no separate code is needed. */}
                   <span className={styles.pips}>
                     <ColorIdentity colors={i.identity === "C" ? "" : i.identity} />
-                    <span className={styles.identityCode}>{i.identity === "C" ? "Colourless" : [...i.identity].join("/")}</span>
                   </span>
                   <Text mono tone="soft" size="sm">
                     {i.decks} {i.decks === 1 ? "deck" : "decks"}

@@ -26,15 +26,13 @@
   gap: var(--s-4);
   min-height: var(--tap);
   color: var(--text);
+  font-size: var(--text-lg);
   font-weight: 650;
+  letter-spacing: -0.01em;
 }
 
-.mark {
-  width: var(--s-6);
-  height: var(--s-6);
-  border-radius: var(--r-sm);
-  background: linear-gradient(135deg, var(--mana-u) 0 33%, var(--mana-b-ring) 33% 66%, var(--mana-r) 66%);
-}
+/* Inline, so the mark stands on the wordmark's baseline at cap height. */
+.mark { margin-inline-end: var(--s-3); }
 
 .nav a {
   display: inline-flex;

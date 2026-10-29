@@ -4,6 +4,7 @@ import { useInbox } from "../../app/Inbox.tsx";
 import { ConfirmDialog, ErrorNote, Stack, Text, useToast } from "../../ui/index.ts";
 import { DecisionControls } from "../decisions/index.ts";
 import { changesSince, staleNote } from "../../domain/staleChanges.ts";
+import styles from "./ProposalDecision.module.css";
 
 /** Decide the whole selected proposal through the existing owner capability (§8.2). */
 export function ProposalDecision({ proposal, state, onDecided }: { proposal: Proposal; state: DeckState; onDecided: () => void }) {
@@ -47,7 +48,7 @@ export function ProposalDecision({ proposal, state, onDecided }: { proposal: Pro
     else void submit();
   }
 
-  return <Stack gap={4} data-proposal-decision>
+  return <Stack gap={4} className={styles.decision} data-proposal-decision>
     <DecisionControls rejecting={false} busy={busy || confirm !== null}
       reason={{ value: reason, onChange: setReason, label: "Reason for this proposal, optional" }}
       onAccept={text => decide("accept", text)} onReject={text => decide("reject", text)}

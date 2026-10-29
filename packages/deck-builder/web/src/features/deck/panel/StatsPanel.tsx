@@ -12,7 +12,7 @@ const CURVE_BUCKETS = ["0", "1", "2", "3", "4", "5", "6", "7+"];
 const ManaComparison = lazy(() => import("./ManaComparison.tsx").then(module => ({ default: module.ManaComparison })));
 
 export function StatsPanel() {
-  const { state } = useDeckList();
+  const { state, viewer } = useDeckList();
   const { computed } = state;
   const curveTop = Math.max(1, ...CURVE_BUCKETS.map(bucket => computed.curve[bucket] ?? 0));
   const typeOrder = [...TYPE_GROUPS, "Other"].filter(type => (computed.type_counts[type] ?? 0) > 0);
@@ -24,7 +24,7 @@ export function StatsPanel() {
           <div><dt>Lands</dt><dd>{computed.land_count}</dd></div>
           <div><dt>Avg. nonland MV</dt><dd>{computed.average_mana_value == null ? "—" : computed.average_mana_value.toFixed(1)}</dd></div>
         </dl>
-        <Text size="sm" tone="muted">{computed.unslotted_count} unfiled · {computed.maybe_count} on the maybe list</Text>
+        {!viewer && <Text size="sm" tone="muted">{computed.unslotted_count} unfiled · {computed.maybe_count} on the maybe list</Text>}
       </section>
 
       <section className={styles.section}>

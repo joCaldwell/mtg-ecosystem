@@ -6,7 +6,7 @@ import { api, ApiError } from "../../api/reader.ts";
 import type { PublicProfile } from "../../api/client.ts";
 import { APP_TITLE, href, useScrollRestore } from "../../app/routes.ts";
 import { DeckCard } from "../../mtg/index.ts";
-import { EmptyState, Loading, Text } from "../../ui/index.ts";
+import { EmptyState, Loading, PageHeader, Text } from "../../ui/index.ts";
 import { PublicShell } from "./PublicShell.tsx";
 import styles from "./PublicProfilePage.module.css";
 
@@ -37,10 +37,9 @@ export function PublicProfilePage({ handle }: { handle: string }) {
         : profile === "missing" ? <EmptyState heading="h1" title="There is no one with that handle">Check the link, or the person may have deleted their account.</EmptyState>
         : (
           <div className={styles.page}>
-            <header className={styles.head}>
-              <h1 className={styles.title}>{profile.display_name}</h1>
-              <Text tone="muted">@{profile.handle} · {profile.decks.length} public deck{profile.decks.length === 1 ? "" : "s"}</Text>
-            </header>
+            <PageHeader title={profile.display_name}
+              meta={<>@{profile.handle} · <span className={styles.count}>{profile.decks.length}</span> public deck{profile.decks.length === 1 ? "" : "s"}</>} />
+            <div className={styles.content}>
             {profile.decks.length === 0 ? (
               <EmptyState title="No public decks yet">Decks appear here when their owner makes them public.</EmptyState>
             ) : (
@@ -51,6 +50,7 @@ export function PublicProfilePage({ handle }: { handle: string }) {
                   lineage={d.parent && <>Fork of {d.parent.slug ? <a href={href({ page: "shared", slug: d.parent.slug })}>{d.parent.owner_handle}/{d.parent.name}</a> : `${d.parent.owner_handle}/${d.parent.name}`}</>} />)}
               </ul>
             )}
+            </div>
           </div>
         )}
     </PublicShell>

@@ -1,5 +1,16 @@
 .page { min-height: 100dvh; display: grid; place-items: center; padding: var(--s-7); }
 .content { display: grid; gap: var(--s-6); width: 100%; max-width: var(--measure); padding-bottom: var(--s-8); }
+/* The product name, centred above the card; the mark stands on its baseline. */
+.brand {
+  justify-self: center;
+  color: var(--text);
+  font-size: var(--text-wordmark);
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  white-space: nowrap;
+}
+.mark { margin-inline-end: var(--s-4); }
+.title { font-size: var(--text-xl); font-weight: 650; letter-spacing: -0.01em; }
 .form { padding: var(--s-6) var(--s-7) var(--s-7); }
 /* These are inline sentence links, not standalone controls. Keep natural
    wrapping instead of giving each fragment a separate control height. */
@@ -7,5 +18,16 @@
 .legal a { text-decoration: underline; text-underline-offset: var(--s-1); }
 @media (max-width: 719px) {
   .page { padding: var(--s-5); }
-  .form { padding: var(--s-5); }
+  /* The product name, centred above the card; the mark stands on its baseline. */
+.brand {
+  justify-self: center;
+  color: var(--text);
+  font-size: var(--text-wordmark);
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  white-space: nowrap;
+}
+.mark { margin-inline-end: var(--s-4); }
+.title { font-size: var(--text-xl); font-weight: 650; letter-spacing: -0.01em; }
+.form { padding: var(--s-5); }
 }

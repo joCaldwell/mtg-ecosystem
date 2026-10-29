@@ -1,0 +1,11 @@
+/* The reason and Accept/Reject share one row under the changes: the field
+   takes the room, the buttons stand at its foot. DecisionControls draws the
+   reason field and the buttons as two children of one grid. */
+.decision > :first-child {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+@media (max-width: 719px) {
+  .decision > :first-child { grid-template-columns: minmax(0, 1fr); }
+}

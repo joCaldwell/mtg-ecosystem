@@ -57,7 +57,7 @@
 
 .row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--s-4);
 }
 .row > :last-child { white-space: nowrap; }
@@ -108,14 +108,12 @@
 
 .reused li > :first-child { min-width: 0; overflow-wrap: anywhere; }
 
-/* Room for five discs, so the counts line up down the column. */
+/* Room for five pips, so the counts line up down the column. */
 .pips {
   display: inline-flex;
-  min-width: calc(var(--s-8) * 2 + var(--s-4));
+  min-width: calc(var(--identity-pip) * 5 + var(--s-1) * 4);
 }
 
 .colour { display: inline-flex; align-items: baseline; gap: var(--s-3); font-size: var(--text-sm); }
-.colour > :first-child, .pips > :first-child { align-self: center; }
+.colour > :first-child { align-self: center; }
 .colour > :last-child { text-transform: capitalize; }
-.identityCode { font: var(--text-sm) var(--font-mono); color: var(--text-soft); white-space: nowrap; }
-.pips { align-items: baseline; gap: var(--s-3); }

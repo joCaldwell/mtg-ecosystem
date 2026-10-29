@@ -3,9 +3,10 @@
 }
 
 /* A dashed border is the one thing that marks a hypothesis; a retired or
-   superseded memory is dimmed but stays readable (spec §7.5: never hidden). */
-.off {
-  opacity: 0.6;
+   superseded memory is quieter but stays readable (spec §7.5: never hidden).
+   Its text drops a tier rather than fading, so its meta keeps AA contrast. */
+.off .text {
+  color: var(--muted);
 }
 
 .text {

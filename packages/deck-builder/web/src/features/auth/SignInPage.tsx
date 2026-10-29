@@ -1,10 +1,11 @@
+import { BrandMark } from "../../app/BrandMark.tsx";
 import { useWindowScroll } from "../../app/windowScroll.ts";
 import { DeckArt } from "../../mtg/index.ts";
 import { useState } from "react";
 import { api } from "../../api/client.ts";
 import { safeNext } from "../../app/routes.ts";
 import { useSession } from "../../app/Session.tsx";
-import { Button, ErrorNote, Field, PageHeader, Stack, Text, TextField, Row } from "../../ui/index.ts";
+import { Button, ErrorNote, Field, Stack, Text, TextField, Row } from "../../ui/index.ts";
 import { LegalFooter } from "./LegalFooter.tsx";
 import styles from "./SignInPage.module.css";
 
@@ -25,8 +26,10 @@ export function SignInPage() {
     } catch(e) { setError(e instanceof Error ? e.message : String(e)); setBusy(false); }
   }
   const providerError = new URLSearchParams(location.search).get("error");
-  return <main className={styles.page} id="main-content" tabIndex={-1} aria-label="Sign in"><div className={styles.content}><PageHeader title="Your decks, your decisions" />
+  return <main className={styles.page} id="main-content" tabIndex={-1} aria-label="Sign in"><div className={styles.content}>
+    <p className={styles.brand}><BrandMark className={styles.mark} />Deck Builder</p>
     <DeckArt cards={session.backdrop ? [session.backdrop] : null} variant="backdrop" priority="auto"><div className={styles.form}><Stack gap={5}>
+      <h1 className={styles.title}>Your decks, your decisions</h1>
       <Text>Keep your decks and deck-building knowledge together. Connect an agent when you want help; every write stays attributed to your account.</Text>
       <Field label="Invite or owner claim code" hint={session.invites_required ? "Required for a new account. Leave blank if you have signed in before." : "Optional: enter an owner claim code or invite, or leave blank to create an account."}>
         <TextField type="password" autoComplete="off" value={code} maxLength={256} onChange={e => setCode(e.target.value)} />
