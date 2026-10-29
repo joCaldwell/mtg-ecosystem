@@ -1,5 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DeckThumbnail } from "../mtg/index.ts";
+import { BrandMark } from "./BrandMark.tsx";
 import { usePreferences } from "./Preferences.tsx";
 import { familyOrder } from "../domain/familyOrder.ts";
 import { waitingByDeck } from "../domain/inbox.ts";
@@ -9,7 +10,6 @@ import { waitingByDeck } from "../domain/inbox.ts";
 
 import { api } from "../api/client.ts";
 import { useQuery } from "../api/useQuery.ts";
-import { DECK_CATEGORY_LABELS } from "../domain/deckCategory.ts";
 import { ago } from "../domain/time.ts";
 import { Badge, Dot, Eyebrow, Icon, IconButton, TextField } from "../ui/index.ts";
 import { useFocus } from "./Focus.tsx";
@@ -73,7 +73,7 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
   return (
     <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ""}`} aria-label="Sidebar">
       {brand && <div className={styles.brand}>
-        {!collapsed && <><span className={styles.mark} aria-hidden="true" /><span className={styles.brandName}>Deck Builder</span></>}
+        <span className={styles.brandName}><BrandMark className={styles.mark} />{!collapsed && "Deck Builder"}</span>
         {onToggle && <IconButton label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed} onClick={onToggle} disabled={toggleDisabled} className={styles.toggle}>
           <Icon name="back" className={collapsed ? styles.expandIcon : undefined} />
         </IconButton>}
@@ -123,7 +123,7 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
               href={href({ page: "deck", deckId: deck.id })}
               className={[open ? styles.current : "", fork ? styles.fork : ""].join(" ")}
               aria-current={open ? "page" : undefined}
-              aria-label={collapsed ? `${deck.name}${pending ? `, ${waitingText}` : ""}${deck.category !== "paper" ? `, ${DECK_CATEGORY_LABELS[deck.category]}` : ""}${deck.visibility !== "private" ? `, ${deck.visibility}` : ""}` : undefined}
+              aria-label={collapsed ? `${deck.name}${pending ? `, ${waitingText}` : ""}${deck.visibility !== "private" ? `, ${deck.visibility}` : ""}` : undefined}
               title={pending ? `${deck.name} — ${waitingText}` : deck.name}
             >
               {/* The thumbnail takes the dot's column. Expanded rows count what waits at
@@ -133,6 +133,8 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
                 <DeckThumbnail cards={deck.commander_art} className={styles.thumb} />
                 <Dot tone={collapsed && pending ? "agent" : "neutral"} className={collapsed && pending ? styles.pending : styles.fallback} />
               </span>
+              {/* No lifecycle line: every row is the same shape, and lifecycle
+                  lives on All decks and the deck's own header. */}
               <span className={styles.name}>{deck.name}</span>
               {!collapsed && pending && (count > 0
                 ? <span className={styles.waiting}><Badge aria-hidden="true" className={styles.waitingBadge}>{count}</Badge><span className="visually-hidden">, {waitingText}</span></span>
@@ -140,11 +142,6 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
               {deck.visibility !== "private" && (
                 <span className={styles.shared} role="img" aria-label={deck.visibility === "public" ? "Public" : "Unlisted"} title={deck.visibility === "public" ? "Public" : "Unlisted: anyone with the link"}>
                   <Icon name={deck.visibility === "public" ? "globe" : "link"} size={12} />
-                </span>
-              )}
-              {deck.category !== "paper" && (
-                <span className={styles.lifecycle} data-lifecycle={deck.category} title={DECK_CATEGORY_LABELS[deck.category]}>
-                  {DECK_CATEGORY_LABELS[deck.category]}
                 </span>
               )}
             </a>

@@ -257,7 +257,7 @@ export function MtgExamples() {
             </Labelled>
           </Example>
 
-          <Example title="ColorIdentity" note="WUBRG order, smaller discs, no letters. Empty means colourless.">
+          <Example title="ColorIdentity" note="WUBRG order, smaller pips, each lettered. Empty means colourless.">
             <div className={styles.strip}>
               <ColorIdentity colors="WUBRG" />
               <ColorIdentity colors="UBR" />

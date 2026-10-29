@@ -1,0 +1,8 @@
+/* Width follows the viewBox; the mark sits on the text baseline. */
+.mark {
+  flex: none;
+  height: var(--brand-mark-h);
+  width: auto;
+  aspect-ratio: 23 / 16.3;
+  overflow: visible;
+}

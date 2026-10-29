@@ -80,7 +80,10 @@ D20) and built in phase 4a; phase 4b makes the full app hold up between
 | `--identity-*` | That deck’s colour identity | thin stripe on its card or header only |
 | greys | Everything else | structure, text, neutral chips, deck lifecycle |
 
-Mana colours (`--mana-*`) appear in symbols and the pip chart. Cost pips
+Mana colours (`--mana-*`) appear in symbols and the pip chart. A colour
+identity (`mtg/ColorIdentity`) is the same lettered pips at `--identity-pip`
+(12px), one image named "Colour identity: …", so roster cards, public
+profiles and collection statistics never rely on hue alone. Cost pips
 never rely on hue alone (owner decision, 2026-10-28): each coloured pip
 carries its letter in the numeral's mono bold, dark `--mana-ink` on light
 fills and the pale ring colour on black; a hybrid carries one letter per half
@@ -98,8 +101,9 @@ single-choice menu, moving to Archived asks first, and read-only headers show
 the plain chip. The `--lifecycle-*` aliases resolve to
 `--muted` on `--raised` (the roster uses `--text-soft` for essential lifecycle
 labels), keeping green, blue and amber for accept/pass,
-selection and warnings. Sidebar labels appear only for Theorycrafted and
-Archived decks.
+selection and warnings. The sidebar shows no lifecycle (owner review,
+2026-10-28): every deck row has the same shape, and lifecycle lives on All
+decks and the deck header.
 
 The palette follows [T3 Code’s redesign dark theme](https://github.com/pingdotgg/t3code/blob/main/apps/web/src/index.css)
 (`html.dark[data-redesign]`): `--bg` is #000, including the sidebar;
@@ -140,7 +144,9 @@ severity before a message, the rest of a link's name.
 ## Type
 
 - Body `--text-md` (13px). Secondary `--text-sm` (12px). Labels and meta
-  `--text-xs` (11px).
+  `--text-xs`, also 12px since 2026-10-28: 11px mid-grey meta on black was
+  hard to read. `--text-2xs` (10px) is only for key caps.
+- The sign-in product name `--text-display` (24px).
 - Page titles `--text-xl`, weight 650. Card and section titles `--text-lg`.
 - Eyebrows (small section labels): `--text-xs`, uppercase, letter-spaced,
   `--faint`.
@@ -163,6 +169,19 @@ severity before a message, the rest of a link's name.
   "rule" or "ruling", which in Magic mean the game's rules and card rulings.
   `web-architecture.test.ts` checks every string in `features/` and `app/`.
 - One name per action. Opening the create dialog is "New deck" everywhere.
+
+## Brand
+
+`app/BrandMark` is the product mark: three cards fanned from one point, drawn
+as an inline SVG in `currentColor`, each card cut back from the one in front
+so the stack reads in one colour at 16 px. It is decorative (`aria-hidden`);
+the wordmark "Deck Builder" or the surrounding link carries the name. Beside
+the wordmark it is inline and `--brand-mark-h` (`1cap`) tall, standing on the
+baseline at cap height: the sidebar and public header (`--text-lg`), and
+centred above the sign-in card (`--text-display`), whose first line is the
+tagline. Alone (collapsed rail, phone bar) it is `--brand-mark-rail` (16px).
+The favicon in `web/index.html` is the same geometry as a data URI, dark on
+light browser chrome and light on dark. No raster logo, font or generated art.
 
 ## Components
 

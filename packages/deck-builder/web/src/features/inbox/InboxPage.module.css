@@ -14,11 +14,11 @@
 
 .link { text-decoration: underline; }
 
-/* The detail pane reaches the frame's edge; its content keeps a readable
-   width, and prose inside it its own measure. */
+/* The detail pane reaches the frame's edge; its content keeps a width where
+   the changes, the deck impact and the decision row read as one column. */
 .panes > :last-child {
   max-width: none;
-  grid-template-columns: minmax(0, var(--measure-wide));
+  grid-template-columns: minmax(0, var(--inbox-detail-w));
 }
 
 .history { flex: none; max-height: var(--sheet-content-h); overflow: auto; }

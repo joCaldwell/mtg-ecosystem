@@ -1,3 +1,4 @@
+import { BrandMark } from "../../app/BrandMark.tsx";
 import { ArtExamples } from "./ArtExamples.tsx";
 import { OnboardingPatterns } from "./OnboardingPatterns.tsx";
 import { useState, type ReactNode } from "react";
@@ -100,11 +101,12 @@ const MANA: Token[] = [
 
 const SIZES = [
   { token: "--text-2xs", px: "10px", sample: "Key caps and the smallest tags" },
-  { token: "--text-xs", px: "11px", sample: "Labels, eyebrows, meta" },
+  { token: "--text-xs", px: "12px", sample: "Labels, eyebrows, meta" },
   { token: "--text-sm", px: "12px", sample: "Secondary text, small buttons, table cells" },
   { token: "--text-md", px: "13px", sample: "Body text: card names, oracle text, fields" },
   { token: "--text-lg", px: "15px", sample: "Card and section titles" },
   { token: "--text-xl", px: "17px", sample: "Page titles" },
+  { token: "--text-display", px: "24px", sample: "The product name on sign-in" },
 ] as const;
 
 const SPACE: Gap[] = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -303,6 +305,17 @@ function Buttons() {
                 <Label>{n}</Label>
               </Stack>
             ))}
+          </Row>
+        </Demo>
+      </Section>
+      <Section title="BrandMark" aside="app/; currentColor, cap height of its wordmark">
+        <Demo>
+          <Row gap={7} wrap align="center">
+            <span className={styles.brandSidebar}><BrandMark className={styles.brandGap} />Deck Builder</span>
+            <span className={styles.brandDisplay}><BrandMark className={styles.brandGap} />Deck Builder</span>
+            <span className={styles.brandRail}><BrandMark /></span>
+            <span className={`${styles.brandRail} ${styles.brandLarge}`}><BrandMark /></span>
+            <span className={`${styles.brandRail} ${styles.brandMuted}`}><BrandMark /></span>
           </Row>
         </Demo>
       </Section>

@@ -25,12 +25,8 @@
   height: var(--tap);
 }
 
-.mark {
-  width: var(--s-6);
-  height: var(--s-6);
-  border-radius: var(--r-sm);
-  background: linear-gradient(135deg, var(--mana-u) 0 33%, var(--mana-b-ring) 33% 66%, var(--mana-r) 66%);
-}
+.brand { color: var(--text); }
+.mark { --brand-mark-h: var(--brand-mark-rail); }
 
 .nav {
   display: flex;

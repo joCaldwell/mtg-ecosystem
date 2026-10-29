@@ -3,10 +3,10 @@ import { useState } from "react";
 import { api, type ActivityEntry } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
 import { href } from "../../app/routes.ts";
-import { groupSessions } from "../../domain/activity.ts";
-import { clockTime, dayLabel } from "../../domain/time.ts";
+import { groupByDay } from "../../domain/activity.ts";
+import { clockTime } from "../../domain/time.ts";
 import { InlineText } from "../../mtg/index.ts";
-import { Button, Pill, Chip, Dot, EmptyState, ErrorNote, Loading, Text } from "../../ui/index.ts";
+import { Button, Pill, Chip, EmptyState, ErrorNote, Loading, Text } from "../../ui/index.ts";
 import styles from "./ActivityPage.module.css";
 
 // The action strings recordActivity is called with (src/mcp/tools.ts), as words.
@@ -56,7 +56,7 @@ export function ActivityPanel() {
 
   const entries = feed.data?.entries ?? [];
   const actors = feed.data?.actors ?? [];
-  const sessions = groupSessions(entries);
+  const days = groupByDay(entries);
 
   return (
     <>
@@ -77,45 +77,30 @@ export function ActivityPanel() {
               </Pill>
             ))}
           </div>
-          <div className={styles.sessions}>
-            {sessions.map((s) => {
-              // groupSessions keeps names only; the link needs the id.
-              const deckIds = new Map<string, number>();
-              for (const e of s.entries) if (e.deck_name && e.deck_id != null) deckIds.set(e.deck_name, e.deck_id);
-              return (
-                <div key={s.key} className={styles.session}>
-                  <div className={styles.head}>
-                    <Dot tone="agent" pulse />
-                    <Text tone="agent" weight="bold">{s.actor}</Text>
-                    <span className={styles.decks}>
-                      {s.deckNames.map((name, i) => {
-                        const id = deckIds.get(name);
-                        return (
-                          <span key={name}>
-                            {i > 0 && ", "}
-                            {id != null ? <a href={href({ page: "deck", deckId: id })}>{name}</a> : name}
-                          </span>
-                        );
-                      })}
-                    </span>
-                    <span className={`${styles.when} ${styles.mono}`}>
-                      {dayLabel(s.start)} {clockTime(s.start)}
-                      {s.end !== s.start && ` – ${clockTime(s.end)}`}
-                    </span>
-                  </div>
-                  {s.entries.map((e) => (
-                    <div key={e.id} className={styles.event}>
+          {/* One line per write under its day: time, agent, deck, what it did and
+              whether it was a proposal. The columns line up down the whole feed. */}
+          <div className={styles.feed}>
+            {days.map((day, i) => (
+              <section key={`${i}:${day.key}`} className={styles.day} aria-labelledby={`activity-day-${i}`}>
+                <h2 id={`activity-day-${i}`} className={styles.dayLabel}>{day.label}</h2>
+                <ul className={styles.events}>
+                  {day.entries.map((e) => (
+                    <li key={e.id} className={styles.event}>
                       <span className={styles.time}>{clockTime(e.ts)}</span>
+                      <span className={styles.agent}>{e.actor_display ?? e.actor}</span>
+                      <span className={styles.deck}>
+                        {e.deck_name && (e.deck_id != null ? <a href={href({ page: "deck", deckId: e.deck_id })}>{e.deck_name}</a> : e.deck_name)}
+                      </span>
                       <span className={styles.verb}>{verbOf(e.action)}</span>
                       <span className={styles.summary}>
                         <InlineText text={e.summary} />
                       </span>
                       {wasProposal(e) ? <Chip tone="agent">proposal</Chip> : <Chip>applied</Chip>}
-                    </div>
+                    </li>
                   ))}
-                </div>
-              );
-            })}
+                </ul>
+              </section>
+            ))}
           </div>
         </>
       )}

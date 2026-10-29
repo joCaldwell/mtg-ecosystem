@@ -174,3 +174,11 @@
 .meterLabel {
   width: 64px;
 }
+
+/* BrandMark at the sidebar and sign-in wordmark sizes, then alone at rail size. */
+.brandSidebar { color: var(--text); font-size: var(--text-lg); font-weight: 650; letter-spacing: -0.01em; }
+.brandDisplay { color: var(--text); font-size: var(--text-display); font-weight: 650; letter-spacing: -0.015em; }
+.brandGap { margin-inline-end: var(--s-3); }
+.brandRail { display: inline-flex; color: var(--text); --brand-mark-h: var(--brand-mark-rail); }
+.brandLarge { --brand-mark-h: var(--s-7); }
+.brandMuted { color: var(--muted); }

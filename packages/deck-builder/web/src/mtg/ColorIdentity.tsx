@@ -3,7 +3,8 @@ import { COLOR_NAMES, WUBRG } from "./manaSymbols.ts";
 import styles from "./ColorIdentity.module.css";
 
 /**
- * A colour identity as small discs in WUBRG order. `colors` is bare letters
+ * A colour identity as small lettered pips in WUBRG order, announced once as
+ * the group's name (an image's children are presentational). `colors` is bare letters
  * ("UBR") or "" for colourless, which shows as a single colourless disc.
  */
 export function ColorIdentity({ colors }: { colors: string }) {

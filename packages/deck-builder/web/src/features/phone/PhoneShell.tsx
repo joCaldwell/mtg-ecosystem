@@ -3,6 +3,7 @@
 // the inbox; every other screen says to open it on a larger screen.
 
 import type { ReactNode } from "react";
+import { BrandMark } from "../../app/BrandMark.tsx";
 import { useInbox } from "../../app/Inbox.tsx";
 import { href, type Route } from "../../app/routes.ts";
 import { useWindowScroll } from "../../app/windowScroll.ts";
@@ -17,7 +18,7 @@ export function PhoneShell({ route, children }: { route: Route; children: ReactN
     <div className={styles.shell}>
       <header className={styles.bar}>
         <a className={styles.brand} href={href({ page: "decks" })} aria-label="Deck Builder, all decks">
-          <span className={styles.mark} aria-hidden="true" />
+          <BrandMark className={styles.mark} />
         </a>
         <nav className={styles.nav} aria-label="Sections">
           <a href={href({ page: "decks" })} aria-current={decks ? "page" : undefined}>Decks</a>

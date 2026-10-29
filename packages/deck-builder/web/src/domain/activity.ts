@@ -1,48 +1,35 @@
 import type { ActivityEntry } from "../api/client.ts";
-import { parseServerTime } from "./time.ts";
+import { dayLabel, parseServerTime } from "./time.ts";
 
-export interface ActivitySession {
-  /** `${actor}:${id of the session's first entry}`; stable as newer entries join. */
+export interface ActivityDay {
+  /** The local calendar date ("2026-3-2"), or the raw time when unreadable. */
   key: string;
-  actor: string;
-  deckNames: string[];
-  /** Timestamp of the oldest entry. */
-  start: string;
-  /** Timestamp of the newest entry. */
-  end: string;
-  /** Oldest first. */
+  /** "Today", "Yesterday" or a short date (`dayLabel`). */
+  label: string;
+  /** Newest first, as the feed arrives. */
   entries: ActivityEntry[];
 }
 
+function dayKey(iso: string): string {
+  const t = parseServerTime(iso);
+  if (Number.isNaN(t)) return iso;
+  const d = new Date(t);
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
 /**
- * The feed arrives newest first. Consecutive entries by the same actor less
- * than gapMinutes apart are one session, so a stretch of work reads as one
- * line instead of forty. Sessions are returned newest first.
+ * The feed arrives newest first. Consecutive entries on the same local
+ * calendar day share one day heading, so every row can be a single line
+ * carrying its own time, agent and deck. Days are returned newest first; an
+ * unreadable time gets a heading of its own.
  */
-export function groupSessions(entries: ActivityEntry[], gapMinutes = 30): ActivitySession[] {
-  const limit = gapMinutes * 60_000;
-  const runs: ActivityEntry[][] = [];
+export function groupByDay(entries: ActivityEntry[], now: number = Date.now()): ActivityDay[] {
+  const days: ActivityDay[] = [];
   for (const entry of entries) {
-    const run = runs[runs.length - 1];
-    const prev = run?.[run.length - 1];
-    // `!(gap < limit)` so an unreadable time starts a new session.
-    const joins =
-      prev && prev.actor === entry.actor &&
-      Math.abs(parseServerTime(prev.ts) - parseServerTime(entry.ts)) < limit;
-    if (joins) run.push(entry);
-    else runs.push([entry]);
+    const key = dayKey(entry.ts);
+    const last = days[days.length - 1];
+    if (last && last.key === key && !Number.isNaN(parseServerTime(entry.ts))) last.entries.push(entry);
+    else days.push({ key, label: dayLabel(entry.ts, now), entries: [entry] });
   }
-  return runs.map((run) => {
-    const oldestFirst = [...run].reverse();
-    const deckNames: string[] = [];
-    for (const e of oldestFirst) if (e.deck_name && !deckNames.includes(e.deck_name)) deckNames.push(e.deck_name);
-    return {
-      key: `${oldestFirst[0].actor}:${oldestFirst[0].id}`,
-      actor: oldestFirst[0].actor_display ?? oldestFirst[0].actor,
-      deckNames,
-      start: oldestFirst[0].ts,
-      end: oldestFirst[oldestFirst.length - 1].ts,
-      entries: oldestFirst,
-    };
-  });
+  return days;
 }
