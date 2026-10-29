@@ -206,7 +206,11 @@ const SCREENS = [
       if (filtered) {
         const card = (await api(`/api/decks/${D.najeela}`, U.owner)).state.cards.find(card => card.maybe);
         if (!card) throw Error("Export fixture needs a maybe card");
-        await page.getByRole("searchbox", { name: "Search this deck", exact: true }).fill(card.name);
+        // Typed like a person, as in the "filtered" state: fill() is not user
+        // input to Chromium, so rows the filter hides would count as layout shift.
+        const field = page.getByRole("searchbox", { name: "Search this deck", exact: true });
+        await press(page, field, vp);
+        await field.pressSequentially(card.name);
         await settle(page, watch);
       }
       await press(page, page.getByRole("button", { name: "More", exact: true }), vp);
