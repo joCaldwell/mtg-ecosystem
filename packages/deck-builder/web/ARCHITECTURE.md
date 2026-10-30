@@ -321,7 +321,7 @@ inside `<main>`, so a first visit keeps the sidebar. `DeckBody` likewise keeps
 the list in place and renders the panel once, through a portal into one host
 element that it attaches to the side pane or to a requested Dialog sheet below
 `PANEL_BREAKPOINT` (1100). A Brief draft or a half-typed reason survives a
-rotation. Only a card, a header stat, a tab request or "Open deck details"
+rotation. Only a card, a header stat, a tab request or the tablet bar’s "Deck details"
 opens the sheet; a review runs in the list with its keys, and R opens the
 sheet only for the reason field, closing it again after the reason is sent or
 cancelled. The list scrolls the window. At 1100+ the existing panes scroll
@@ -455,8 +455,9 @@ useWindowScroll; the phone shell below 720 is unchanged.
 
 ## Deck editor scanning (2026-10-27)
 
-Tablet headers combine lifecycle help, counts and actions; Open deck details
-lives among those actions and sends the same explicit details request. The
+Tablet headers combine lifecycle help, counts and actions; the pinned tablet
+bar’s “Deck details” entry sends the explicit details request. The art header
+has no duplicate details control. The
 panel host and list remain mounted across 1100 px. Only unfamiliar lifecycle consequences, slot targets and proposal mechanics
 get specifically labelled help; obvious controls do not need generic popovers. Toolbar
 controls share a raised surface; tablet add/search fields and tag/group/sort

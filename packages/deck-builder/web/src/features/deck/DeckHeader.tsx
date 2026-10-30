@@ -173,7 +173,6 @@ export function DeckHeader({ compact = false }: { compact?: boolean }) {
         </DeckStat>}
         {/* Peers, so one secondary style, set apart from the status chips. */}
         <div className={styles.actions}>
-          <Button className={styles.details} onClick={() => ui.setTab(ui.tab)} aria-haspopup="dialog">Open deck details</Button>
           {/* A link, so it opens in a new tab too; drawn as Button's default. */}
           <a className={styles.action} href={href({ page: "playtest", deckId: deck.id })}>Playtest</a>
           {/* One word wide in every state, so publishing never wraps the

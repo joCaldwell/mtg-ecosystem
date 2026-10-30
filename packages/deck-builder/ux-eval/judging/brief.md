@@ -52,7 +52,10 @@ a public page, which anyone can open without an account.
    proposed it. Green: coming in, passing, accepted. Red: going out, failing,
    rejected. Amber: off target or missing. Blue: the owner's selection and
    focus. Everything else is grey. Mana colours appear in mana symbols and in the
-   paired colour-distribution charts in deck Stats. The charts compare fixed
+   paired colour-distribution charts in deck Stats, and the My decks
+   collection chart showing which colours appear in deck identities. That
+   collection chart uses named mana-coloured bars, including a solid charcoal
+   fill for black. The deck Stats charts compare fixed
    coloured cost symbols and recognized source-colour counts, each normalized
    to its own total; multicolour sources contribute to multiple colour counts.
 3. **Text first.** Cards are names, costs and rules text; the card picture

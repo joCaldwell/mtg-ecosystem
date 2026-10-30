@@ -144,7 +144,7 @@ async function scrollDeckToEnd({ page, watch }) {
 /** Select the same destination across navigation compositions. Older builds
  * kept statistics in Checks; they remain a valid comparison of that task. */
 async function panelView(page, vp, view) {
-  if (vp.width < 1100) await press(page, page.getByRole("button", { name: "Open deck details", exact: true }), vp);
+  if (vp.width < 1100) await press(page, page.getByRole("button", { name: /^(Deck details|Open deck details)$/ }).first(), vp);
   const selector = page.getByRole("combobox", { name: "Panel view", exact: true });
   const links = page.getByRole("navigation", { name: "Deck panel views", exact: true });
   if (await links.isVisible()) await press(page, links.getByRole("button", { name: view === "stats" ? "Stats" : "Checks", exact: true }), vp);

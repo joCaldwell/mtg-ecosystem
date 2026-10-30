@@ -7,13 +7,13 @@ import { DeckArt } from "./DeckArt.tsx";
 import styles from "./DeckCard.module.css";
 
 /** Shared roster presentation. Hosts supply navigation and owner-only actions. */
-export function DeckCard({ name, href, art, identity, category, count, commanders, lineage, actions, children }: {
+export function DeckCard({ name, href, art, identity, category, count, commanders, lineage, actions, children, roster = false }: {
   name: string; href: string; art: readonly ArtFacts[]; identity: string;
   category: keyof typeof DECK_CATEGORY_LABELS; count: number; commanders: ReactNode;
-  lineage?: ReactNode; actions?: ReactNode; children?: ReactNode;
+  lineage?: ReactNode; actions?: ReactNode; children?: ReactNode; roster?: boolean;
 }) {
   const [ref, near] = useNearView<HTMLLIElement>();
-  return <li ref={ref} className={styles.card}>
+  return <li ref={ref} className={`${styles.card} ${roster ? styles.ownerRoster : ""}`}>
     <DeckArt cards={art} identity={identity} load={near}>
       <div className={styles.deckCard}>
         <div className={styles.cardHeading}>

@@ -261,6 +261,10 @@
      is 7.72:1, independent of art. Controls use a separate 64% scrim; their blur is optional. */
   --text-deck-title: 21px;
   --text-deck-phone: 14px;
+  --text-deck-meta: 14px;
+  --deck-meta-symbol-ring: 1px;
+  /* Black's collection bar is a solid charcoal, distinct from its track. */
+  --collection-mana-b: color-mix(in srgb, var(--mana-b) 55%, var(--mana-b-ring));
   --tracking-deck-title: -0.02em;
   --focus-width: 2px;
   --art-gallery-motion: 400ms;

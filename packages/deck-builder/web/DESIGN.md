@@ -93,7 +93,8 @@ digits rather than its line box. Nothing moves when the image arrives. A
 colour identity (`mtg/ColorIdentity`) is the same symbols at
 `--identity-pip` (12px), one image named "Colour identity: …", so roster
 cards, public profiles and collection statistics never rely on hue alone.
-The `--mana-*` colours also draw the pip chart. D21 also
+The `--mana-*` colours also draw the pip chart and the named collection
+identity bars; the collection's black bar uses a solid charcoal alias. D21 also
 permits `--identity-*` aliases on a deck's own thin stripe at
 `--identity-opacity`, plus an 18% surface tint on its gallery fallback;
 colourless uses `--identity-grey`. A split gradient
@@ -383,8 +384,9 @@ printed artist and copyright lines.
   a masked 8 px backdrop blur was compared in captures and removed because
   the plain gradient preserved more of the painted detail.
   Legibility never depends on backdrop support.
-  The 21 px deck name leads; commanders and metadata are 12 px, or 14 px on
-  phones. Long titles and partner names wrap without truncation; unusually
+  The 21 px deck name leads; commanders are 12 px, or 14 px on phones.
+  Owner roster metadata is 14 px with 16 px symbols; shared profile tiles
+  retain their existing metadata sizing. Long titles and partner names wrap without truncation; unusually
   long captions can grow the tile. Grid rows stretch neighbours to match.
 - **Gallery credits are unboxed text inside each crop, bottom-right.**
   They use `--text-xs` `--text-soft` on the lower caption gradient, with
@@ -406,8 +408,9 @@ printed artist and copyright lines.
   IconButton hover: 64% black at rest, 74% on hover/focus/open, 82% while
   pressed, with brighter ink and border in the active states. Over white
   art those icon contrasts are 4.53:1, 9.17:1 and 12.47:1 respectively. Touch keeps the menu visible with a 44 px hit area. The
-  commander's dotted underline stays 2 px below its text, with touch targets
-  supplied by padding around that text rather than an extended bottom border.
+  owner tile's commander names show a dotted underline 2 px below the text
+  only on the name's own hover or focus on hover-capable devices. Touch has
+  no underline, and gets its hit target from padding around the text.
 - **The My decks frame grows only at ultrawide sizes.** Its roster uses
   three desktop columns, including at 1920, so six decks form two full rows.
   Starting at 2200 px the page alone grows from 1440 toward 1940 px, leaving
@@ -683,3 +686,31 @@ none. Until the server's token catalog exists the section says "Token list
 not available yet."; a deck with none says "This deck makes no tokens."
 Both are one faint line. A token with no stored image shows no picture
 rather than looking one up by name.
+
+
+## My decks and touch polish
+
+The collection summary names its metrics “Average mana value” and “Average
+lands per deck”. Common colour identities pair 16 px symbols with written
+colour names from `COLOR_NAMES`; all five read “All five colours”. Counts
+remain aligned at the row end. “Colours in deck identities” is an allowed
+use of mana colours: its named bars count Paper decks including each colour.
+Black uses a solid charcoal fill (`--collection-mana-b`), with no pale outline.
+Slot averages and deck counts align in a monospaced column at each row’s end.
+
+Owner roster metadata is 14 px, with 16 px identity symbols and a thin black
+ring. Its existing caption gradient keeps the same contrast floors over
+white art: soft metadata 6.75:1 and amber counts 4.73:1. Commander names have
+no underline at rest; on hover-capable devices the name’s own hover or focus
+shows its dotted underline. Touch keeps the padded hit area and hover-card
+behaviour without an underline. Shared profile tiles retain their own style.
+The fixed My decks title gains a 1 px line-colour edge after its content
+scrolls, without moving the page frame.
+
+On phones, “Read deck · N cards” is a full-width secondary grey button.
+Proposed brief edits keep their label left-aligned and link to the inbox
+through a separate violet-outlined “Review in inbox” button. Tablets have
+one “Deck details” entry in the pinned navigation bar; the art header has no
+duplicate entry. Coarse tablet pointers omit keyboard hints on Add cards
+and the review banner, while fine pointers retain them. The details sheet
+still uses the same portal and preserves its current view and drafts.

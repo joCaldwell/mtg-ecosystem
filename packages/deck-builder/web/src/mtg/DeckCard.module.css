@@ -79,3 +79,22 @@
   .commander, .cardStats, .lineage { font-size: var(--text-deck-phone); }
   .cardStats { --text-xs: var(--text-deck-phone); }
 }
+
+/* Owner roster polish is scoped away from shared profile tiles. */
+.ownerRoster .cardStats {
+  --text-xs: var(--text-deck-meta);
+  --identity-pip: var(--mana-list-size);
+  font-size: var(--text-deck-meta);
+}
+.ownerRoster .cardStats [role="img"] > span {
+  outline: var(--deck-meta-symbol-ring) solid var(--bg);
+}
+.ownerRoster .cardStats > [data-lifecycle],
+.ownerRoster .cardStats [data-deck-waiting] { min-height: var(--h-sm); }
+.ownerRoster .commander button { text-decoration: none; }
+@media (hover: hover) {
+  .ownerRoster .commander button:is(:hover, :focus) {
+    text-decoration: underline dotted;
+    text-decoration-color: var(--sel);
+  }
+}

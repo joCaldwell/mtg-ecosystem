@@ -39,13 +39,6 @@
   color: var(--muted);
 }
 
-/* A link inside a banner sentence is still a full tap target. */
-.tap {
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--tap);
-}
-
 .jump {
   display: inline-flex;
   align-items: center;
@@ -59,13 +52,13 @@
 .commanders { min-height: var(--tap); display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3) var(--s-4); color: var(--text-soft); font-size: var(--text-sm); }
 
 /* The art stays bright outside each text block, even at phone width. */
-.head > :is(.back, .title, .commanders, .jump, .meta) {
+.head > :is(.back, .title, .commanders, .meta) {
   position: relative;
   isolation: isolate;
   width: fit-content;
   max-width: 100%;
 }
-.head > :is(.back, .title, .commanders, .jump, .meta)::before {
+.head > :is(.back, .title, .commanders, .meta)::before {
   content: "";
   position: absolute;
   z-index: -1;
@@ -87,3 +80,20 @@
   text-underline-offset: var(--s-1);
 }
 .head .commanders button:hover { text-decoration-color: var(--sel); }
+
+.readDeck, .reviewInbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  padding: 0 var(--s-5);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+}
+.readDeck { width: 100%; }
+.readDeck:hover { background: linear-gradient(var(--hover), var(--hover)), var(--surface); border-color: var(--line-hover); }
+.reviewInbox { border-color: var(--agent-line); background: var(--agent-bg); color: var(--agent); font-size: var(--text-sm); white-space: nowrap; }
+.reviewInbox:hover { border-color: var(--agent); }

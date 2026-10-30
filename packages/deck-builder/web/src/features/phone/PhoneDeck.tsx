@@ -51,7 +51,7 @@ function Deck({ proposalId }: { proposalId?: number }) {
             {state!.cards.filter(c => c.role === "commander" && !c.maybe).map(c => <CardRef key={c.oracle_id} name={c.name} card={c} />)}
             <ColorIdentity colors={deck.color_identity} />
           </div>}
-          {!proposalId && <a className={styles.jump} href="#deck-list">Read deck · {model.list.computed.card_count} cards</a>}
+          {!proposalId && <a className={styles.readDeck} href="#deck-list">Read deck · {model.list.computed.card_count} cards</a>}
           {!proposalId && <div className={styles.meta}>
             <Chip>{DECK_CATEGORY_LABELS[deck.category]}</Chip>
             {deck.visibility !== "private" && deck.slug && (
@@ -61,8 +61,8 @@ function Deck({ proposalId }: { proposalId?: number }) {
         </header></DeckArt>
         {error && <Banner tone="error" actions={<Button size="touch" variant="ghost" onClick={clearError}>Dismiss</Button>}>{error}</Banner>}
         {edits > 0 && !proposalId && (
-          <Banner tone="agent">
-            {edits} proposed brief {edits === 1 ? "edit waits" : "edits wait"} for you. <a className={styles.tap} href={href({ page: "inbox" })}>Review in the inbox</a>
+          <Banner tone="agent" actions={<a className={styles.reviewInbox} href={href({ page: "inbox" })}>Review in inbox</a>}>
+            {edits} proposed brief {edits === 1 ? "edit waits" : "edits wait"} for you.
           </Banner>
         )}
       </>}
