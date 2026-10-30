@@ -31,7 +31,7 @@ export function ArtExamples() {
       <DeckArt cards={[{ ...AKIRI, artist: null }]} identity="W"><Example label="Unknown artist">Uncredited art is never drawn.</Example></DeckArt>
       <div className={styles.unavailable}><DeckArt cards={PAIR} identity="WR"><Example label="Image failed">The frame keeps its space; the credit goes with the picture.</Example></DeckArt></div>
     </div>
-    <DeckArt cards={PAIR} variant="ribbon" identity="WR"><Example label="Ribbon">The owner's deck editor. A thin strip above the title, credited at its right end, so the list keeps the height.</Example></DeckArt>
+    <DeckArt cards={PAIR} variant="editor" identity="WR"><Example label="Editor">The owner's deck editor. Commander art fades into the title's black canvas.</Example></DeckArt>
     <DeckArt cards={PAIR} variant="banner" identity="WR"><Example label="Banner">Phone deck header.</Example></DeckArt>
     <DeckArt cards={[AKIRI]} variant="showcase" identity="W"><Example label="Showcase">Public deck page, loaded first.</Example></DeckArt>
     <DeckArt cards={session.backdrop ? [session.backdrop] : [ALENA]} variant="backdrop"><Example label="Backdrop">Sign-in and first run. No card is named nearby, so the credit names it.</Example></DeckArt>
@@ -39,6 +39,6 @@ export function ArtExamples() {
       <DeckThumbnail cards={[AKIRI]} className={styles.dim} /><Text size="sm" tone="muted">Rail thumbnail, dimmed</Text>
       <DeckThumbnail cards={PAIR} /><Text size="sm" tone="muted">Current or hovered; partners split it. Decorative, credit in the tooltip.</Text>
     </div>
-    <Text size="xs" tone="muted">Ribbons, banners, showcases and backdrops load first; roster and rail art loads as it nears view.</Text>
+    <Text size="xs" tone="muted">Editor headers, banners, showcases and backdrops load first; roster and rail art loads as it nears view.</Text>
   </Stack></Section>;
 }

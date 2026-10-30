@@ -162,6 +162,19 @@ const SCREENS = [
     ],
   },
   {
+    screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: [1280, 1440, ...WIDE], states: [
+      { state: "list-scrolled", caption: "Working in the deck after scrolling the card list", act: async ({ page, watch }) => {
+        // This stable marker also exists in older builds. Trusted wheel input
+        // exercises both an independent pane and a yielding commander header.
+        const box = await page.locator("[data-deck-list]").boundingBox();
+        if (!box) throw new Error("Deck list has no rendered bounds");
+        await page.mouse.move(box.x + box.width / 2, box.y + Math.min(120, box.height / 2));
+        await page.mouse.wheel(0, 480);
+        await settle(page, watch);
+      } },
+    ],
+  },
+  {
     screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: APP, states: [
       { state: "card-selected", caption: "A card in the list opened", act: async ({ page, vp }) => press(page, cardRow(page, "Underworld Breach"), vp) },
     ],

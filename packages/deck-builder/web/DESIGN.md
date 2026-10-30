@@ -369,8 +369,8 @@ printed artist and copyright lines.
 | Variant | Placement | Reserved frame | Loading |
 | --- | --- | --- | --- |
 | strip | Desktop/phone roster, public profile, style guide | `--art-aspect` (626/457) gallery frame | deferred: `load` from `useNearView` (200 px), then eager |
-| ribbon | Owner's deck editor header, every width | `--art-ribbon-space` (20 px) | eager |
-| banner | Phone deck header | `--art-banner-phone-space` on phones | eager |
+| editor | Owner’s desktop/tablet deck header | `--art-editor-h` (200–240 px by viewport height); tablet 256 px | eager |
+| banner | Phone deck header | `--art-editor-phone-h` (224 px minimum) | eager |
 | showcase | Public deck page | `--art-showcase-space` (176 px), 112 px on phones | eager, `priority="high"` (`fetchpriority`) |
 | backdrop | Sign-in and empty-account landing only | `--art-backdrop-space` | eager; one land per visit, no rotation |
 | thumbnail | Sidebar rail, including the drawer | `--art-thumb` (16 px), the icon column | deferred: `useNearView` in the rail, `fetchpriority=low` |
@@ -393,7 +393,8 @@ printed artist and copyright lines.
   exempt from text contrast by owner direction. Hover-capable tile hover or
   focus within raises the credit to full opacity; touch at rest stays quiet. Partner crops split the frame
   equally and each keeps its own credit. The artist name is visible; "Art
-  by" stays in the accessible text. Other variants retain their existing
+  by" stays in the accessible text. Editor and phone headers use the same
+  unboxed, low-emphasis rule; showcase and backdrop retain their existing
   credit pills and band fades, and backdrops name the card too. Double-faced
   cards use the front face. Failed or deferred images hide their credits and
   retain the frame.
@@ -437,18 +438,46 @@ printed artist and copyright lines.
   credits at full opacity `--text-soft` at 74% black are 6.75:1. Amber count text is 4.73:1
   there. Metadata uses the soft tier because muted would be only 3.09:1
   against the commander's 64% floor. The waiting chip is filled `--agent` with
-  `--bg` ink, 7.72:1 independently of the art. Other art variants retain
+  `--bg` ink, 7.72:1 independently of the art. Showcase and backdrop retain
   `--art-overlay-text` (94% black) and their existing contrast floors.
 - **Identity is a 2 px stripe** at `--identity-opacity`, split for several
   colours, grey for colourless. Black uses the darker half of its pip
-  (`--identity-b`) so it never reads as white. The gallery alone may use a
+  (`--identity-b`) so it never reads as white. The gallery and owner header may use a
   subtle identity surface tint; never tint text or controls.
-- **The editor's art is a ribbon** (owner direction following blind review,
-  2026-10-28): a 20 px strip above the title row, fading into the header, so
-  the list keeps the height a banner took. Its credit sits inside the strip
-  at the right end, in `--text-xs` `--muted` on the overlay. It does not fold
-  on scroll: the strip is too thin for a fold to return useful space, and it
-  replaced the 72 px banner's fold. Public pages keep their showcase.
+- **The editor opens with a large commander-art header.** A 36 px headline
+  and lifecycle pill lead, followed by commander names and identity, estimate
+  and power, then counts and the right-aligned Playtest, Share and More.
+  The sharp art bleeds in from the right, capped at 626 px (760 px for two
+  crops); only a dim 34 px blurred wash stretches across the canvas. Long
+  eased horizontal and bottom fades derive from `--bg`. Missing or failed
+  art keeps the same black frame with a 12% identity tint. Credits stay
+  inside their own crops, unboxed at the gallery's 0.22 emphasis.
+- **The header yields to work through native scrolling.** Desktop has a
+  short outer page scroll before the existing independent card-list scroll.
+  The full header scrolls away to a 56 px compact title, lifecycle and action
+  bar. The workspace grows into the uncovered space while an equal end
+  spacer shrinks, keeping the native scroll range constant. Rows move only
+  through scrolling, the list and panel stay mounted, and list scroll offsets
+  are never rewritten by the fold. Panel scrolling alone leaves the header
+  open. Find/review/keyboard list reveals also expose the compact workspace;
+  clearing a filter restores the saved outer, list and window positions.
+  There is no height animation or smooth-scroll dependency, including with
+  reduced motion. At 1280 × 800 the header is about 213 px; at 1440 × 900
+  it is 240 px. Tablets retain window scrolling and 44 px controls; their
+  256 px hero leaves naturally. Phones use `banner`, a 26 px title and a
+  224 px minimum; proposal notices follow outside the art.
+- **Header contrast is independent of the picture.** The desktop text area
+  ends before the horizontal scrim's 76% black floor. Over pure white art,
+  WCAG sRGB minima are 9.93:1 for `--text`, 7.31:1 for commander/metadata
+  `--text-soft`, and 4.99:1 even for `--muted`. Narrow layouts extend the
+  eased horizontal fade with a 64% black floor across the full frame:
+  title 6.16:1 and commander/metadata soft text 4.53:1 over white. Action surfaces
+  remain opaque through rest and hover, giving `--text` labels at least
+  15.79:1 (including the generic neutral hover highlight, rounded up to
+  the next background sRGB integer); lifecycle soft text is 11.74:1.
+  Counts retain opaque black chips. Credits intentionally remain exempt.
+  Public `showcase` pages and roster `strip` tiles keep their own composition.
+
 
 The roster filters form one slim, wrapping toolbar: search and a native
 lifecycle select retain explicit accessible names; the count is a status and

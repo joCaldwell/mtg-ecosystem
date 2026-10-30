@@ -246,7 +246,7 @@
   --public-wide: 1600px;
   --public-grow: 62.5vw;
   /* D21 art. Overlays derive from --bg, so a palette change carries them.
-     Each art band reaches --art-overlay-text where content starts; the
+     Showcase and backdrop bands reach --art-overlay-text where content starts; the
      credit pill uses the same overlay. Over pure white art the pill and the
      text below a band measure >= 6.97:1; muted credit 7.58:1
      (WCAG 2.x sRGB, 94% black over white; DESIGN.md, Art). */
@@ -254,7 +254,7 @@
   --art-overlay-text: color-mix(in srgb, var(--bg) 94%, transparent);
   --art-aspect: 626 / 457;
   --art-position: center 35%;
-  /* The gallery alone uses lighter, eased scrims. Pure-white worst case,
+  /* The gallery uses its own lighter, eased scrims. Pure-white worst case,
      without blur: title at >=58% black 4.88:1 (--text), commander at >=64%
      4.53:1 (--text-soft), metadata at >=74% 6.75:1 (--text-soft), amber
      4.73:1. Credits at full opacity share that 6.75:1 floor. The violet fill with black ink
@@ -295,12 +295,51 @@
   --stats-type-pair: 184px;
   --stats-slot-pair: 360px;
   --stats-panel-bg: color-mix(in srgb, var(--surface) 65%, var(--bg));
-  /* Band heights: art above content. The editor keeps a thin ribbon. */
-  --art-ribbon-space: 20px;
-  --art-ribbon-credit-h: 16px;
-  --art-banner-space: 72px;
-  --art-banner-tablet-space: 56px;
-  --art-banner-phone-space: 48px;
+  /* Editor art stays near the crops' native resolution. The blurred wash
+     supplies colour outside this frame; only the wash is enlarged. */
+  --art-editor-h: clamp(200px, 26.667vh, 240px);
+  --art-editor-tablet-h: 256px;
+  --art-editor-phone-h: 224px;
+  --art-editor-compact-h: 56px;
+  --art-editor-width: 626px;
+  --art-editor-pair-width: 760px;
+  --art-editor-blur: 34px;
+  --art-editor-wash-opacity: 0.2;
+  --art-editor-title: 36px;
+  --art-editor-title-tablet: 30px;
+  --art-editor-title-phone: 26px;
+  --art-editor-leading: 1.15;
+  --art-editor-tracking: -0.03em;
+  --art-editor-rename-w: 420px;
+  --art-editor-text-width: 72%;
+  --art-editor-mask: linear-gradient(90deg, transparent,
+    rgb(0 0 0 / 0.08) 8%, rgb(0 0 0 / 0.3) 20%,
+    rgb(0 0 0 / 0.65) 35%, black 52%);
+  /* A 76% black floor on the text side, including pure-white crops.
+     The long fade keeps the art luminous at the right. Actions are opaque. */
+  --art-editor-scrim: linear-gradient(90deg,
+    color-mix(in srgb, var(--bg) 98%, transparent),
+    color-mix(in srgb, var(--bg) 94%, transparent) 25%,
+    color-mix(in srgb, var(--bg) 86%, transparent) 46%,
+    color-mix(in srgb, var(--bg) 76%, transparent) 72%,
+    color-mix(in srgb, var(--bg) 38%, transparent) 88%,
+    color-mix(in srgb, var(--bg) 12%, transparent));
+  --art-editor-bottom: linear-gradient(to bottom,
+    transparent 30%, color-mix(in srgb, var(--bg) 8%, transparent) 50%,
+    color-mix(in srgb, var(--bg) 24%, transparent) 75%,
+    color-mix(in srgb, var(--bg) 58%, transparent));
+  /* Narrow text can span the frame. Even its brightest edge has 64%
+     black: soft text 4.53:1, title text 6.16:1 over pure white art. */
+  --art-editor-narrow-scrim: linear-gradient(90deg,
+    color-mix(in srgb, var(--bg) 98%, transparent),
+    color-mix(in srgb, var(--bg) 94%, transparent) 25%,
+    color-mix(in srgb, var(--bg) 86%, transparent) 46%,
+    color-mix(in srgb, var(--bg) 76%, transparent) 72%,
+    color-mix(in srgb, var(--bg) 68%, transparent) 88%,
+    color-mix(in srgb, var(--bg) 64%, transparent));
+  --art-editor-bottom-inset: 20px;
+  --art-editor-tint: 12%;
+  --art-banner-space: 0px;
   --art-showcase-space: 176px;
   --art-showcase-phone-space: 112px;
   --art-backdrop-space: 160px;

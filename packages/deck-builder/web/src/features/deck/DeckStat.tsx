@@ -16,7 +16,7 @@ export function DeckStat({
   children: ReactNode;
 }) {
   return (
-    <button type="button" className={`${styles.stat} ${styles[tone]}`} title={title} onClick={onClick}>
+    <button type="button" className={`${styles.stat} ${styles[tone]}`} aria-description={title} onClick={onClick}>
       <b className={styles.figure}>{figure}</b>
       {children}
     </button>

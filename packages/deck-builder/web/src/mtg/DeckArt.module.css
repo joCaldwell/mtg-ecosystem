@@ -75,15 +75,41 @@
   .strip:is(:hover, :focus-within) .crop img { transform: scale(var(--art-gallery-zoom)); }
 }
 
-/* The owner's editor: a thin strip of art above the title, so the list keeps
-   the height. The credit sits inside the strip at its right end. */
-.ribbon { --band: var(--art-ribbon-space); flex: none; border-bottom: 1px solid var(--line); }
-.ribbon .visual { height: calc(var(--band) + var(--s-6)); }
-.ribbon .visual::after { background: linear-gradient(to bottom, var(--art-overlay-top) calc(var(--band) * 0.4), var(--art-overlay-text) var(--band), var(--surface)); }
-.ribbon .credit { top: calc(var(--band) / 2); transform: translateY(-50%); padding: 0 var(--s-2); line-height: var(--art-ribbon-credit-h); }
-
-/* The phone deck header. */
-.banner { --band: var(--art-banner-space); flex: none; border-bottom: 1px solid var(--line); }
+/* The owner's header: a native-size sharp crop at the right, and a dim
+   blurred wash across the canvas. Every text contrast floor is a scrim;
+   neither blur nor the source image's brightness is needed for readability. */
+.editor, .banner {
+  --band: 0px;
+  background: linear-gradient(120deg, color-mix(in srgb, var(--deck-tint) var(--art-editor-tint), transparent), transparent), var(--bg);
+  flex: none;
+  min-height: var(--art-editor-h);
+  border-bottom: 1px solid var(--line);
+}
+.editor[data-art], .banner[data-art] { padding-top: 0; }
+.editor .visual, .banner .visual {
+  inset: 0 0 0 auto;
+  width: min(100%, var(--art-editor-width));
+  height: 100%;
+  mask-image: var(--art-editor-mask);
+}
+.editor .visual:has(.crop + .crop), .banner .visual:has(.crop + .crop) { width: min(100%, var(--art-editor-pair-width)); }
+.editor .crop, .banner .crop { overflow: hidden; }
+.editor .crop img, .banner .crop img { object-position: center top; }
+.editor .visual::after, .banner .visual::after { background: var(--art-editor-bottom); }
+.editor::after, .banner::after { content: ""; position: absolute; inset: 0; z-index: -1; background: var(--art-editor-scrim); pointer-events: none; }
+.atmosphere { position: absolute; inset: 0; z-index: -2; display: flex; overflow: hidden; opacity: var(--art-editor-wash-opacity); pointer-events: none; }
+.atmosphere img { width: 100%; min-width: 0; object-fit: cover; filter: blur(var(--art-editor-blur)); }
+.editor .credit, .banner .credit {
+  top: var(--s-3);
+  right: var(--s-4);
+  transform: none;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: color-mix(in srgb, var(--text-soft) calc(var(--art-gallery-credit-opacity) * 100%), transparent);
+  font-size: var(--text-xs);
+}
+.editor .identity, .banner .identity { opacity: var(--identity-opacity); }
 
 .showcase { --band: var(--art-showcase-space); border-bottom: 1px solid var(--line); }
 .showcase .visual, .backdrop .visual { height: calc(var(--band) + var(--s-8)); }
@@ -98,10 +124,12 @@
 .thumbnail .visual::after { content: none; }
 
 @media (max-width: 1099px) {
-  .banner { --band: var(--art-banner-tablet-space); }
+  .editor { min-height: var(--art-editor-tablet-h); }
+  .editor::after { background: var(--art-editor-narrow-scrim); }
 }
 @media (max-width: 719px) {
-  .banner { --band: var(--art-banner-phone-space); }
+  .banner { min-height: var(--art-editor-phone-h); }
+  .banner::after { background: var(--art-editor-narrow-scrim); }
   .showcase { --band: var(--art-showcase-phone-space); }
   .backdrop { --band: var(--art-backdrop-phone-space); }
 }

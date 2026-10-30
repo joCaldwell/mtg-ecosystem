@@ -86,6 +86,13 @@ by how many decks fit on a screen; principles 3 and 4 above are about the deck
 editor, not this page. The unboxed artist credit is intentionally barely visible
 at rest, and can become readable on tile hover or keyboard focus.
 
+## Deck header
+
+The deck page opens with a large commander-art header that yields its height
+once the owner is working in the list. Principle 3 (text first) applies to the
+card list, rather than the header. Artist credits are unboxed and deliberately
+very low emphasis at rest.
+
 ## How to read the screenshots
 
 Each image is listed in `index.md` with its viewport width, the state it

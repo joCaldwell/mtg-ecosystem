@@ -1,7 +1,9 @@
 .head {
   display: grid;
   gap: var(--s-3);
-  padding: var(--s-4) var(--s-4) 0;
+  min-height: var(--art-editor-phone-h);
+  align-content: end;
+  padding: var(--s-4) var(--s-5) var(--s-5);
 }
 
 .back {
@@ -13,7 +15,9 @@
 }
 
 .title {
-  font-size: var(--text-xl);
+  font-size: var(--art-editor-title-phone);
+  line-height: var(--art-editor-leading);
+  letter-spacing: var(--art-editor-tracking);
   font-weight: 650;
   overflow-wrap: anywhere;
 }
@@ -51,3 +55,5 @@
   text-decoration: underline;
   text-underline-offset: var(--s-1);
 }
+
+.commanders { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3) var(--s-4); color: var(--text-soft); font-size: var(--text-sm); }

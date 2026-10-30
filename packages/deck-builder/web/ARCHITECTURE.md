@@ -378,11 +378,14 @@ Both consume facts, never API state. DESIGN.md and /design own their tokens,
 variants and fallbacks. Features choose placement and loading: roster cards
 pass `load` from `ui/useNearView`, which observes the nearest container that
 actually scrolls (or the window) with a 200 px margin, so off-screen roster
-and rail art is not downloaded. The owner's editor draws the thin `ribbon`
-variant, which does not fold (2026-10-28: `useArtCollapse` and
-`domain/artFold.ts` are removed). Tablet/phone/public shells retain
-`useWindowScroll` and let their short banners leave naturally with the
-document. Sign-in uses that same hook and a labelled main. The public/phone
+and rail art is not downloaded. The owner's editor uses `editor`: native-size
+right-aligned crops and a dim blurred wash behind the title. `useDeckHeaderScroll`
+coordinates a short native page scroll with the independent list pane. A compact
+header stays above the toolbar; workspace height grows by the exact scroll
+amount while an end spacer shrinks, without remounting or rewriting the list
+scroll offset. Panel-only scrolling does not fold it. The list's filter restore
+also remembers the outer page offset. Tablet/phone/public shells retain
+`useWindowScroll` and let their headers leave naturally with the document. Sign-in uses that same hook and a labelled main. The public/phone
 reader uses `BriefText`, without the editable
 brief wrapper's state or loader in its initial dependency graph.
 

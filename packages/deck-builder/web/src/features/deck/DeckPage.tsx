@@ -28,6 +28,7 @@ import { useReview } from "./useReview.tsx";
 import { focusReviewArrival } from "./reviewArrival.ts";
 import { firstUnitOf, proposalParam } from "../../domain/reviewStart.ts";
 import styles from "./DeckPage.module.css";
+import { useDeckHeaderScroll } from "./useDeckHeaderScroll.ts";
 
 export function DeckPage({ deckId, review = false }: { deckId: number; review?: boolean }) {
   return (
@@ -58,6 +59,7 @@ function DeckGate({ startInReview }: { startInReview: boolean }) {
 }
 
 function DeckScreen({ startInReview }: { startInReview: boolean }) {
+  const page = useDeckHeaderScroll();
   const state = useDeckState();
   const { error, clearError } = useDeck();
   const ui = useDeckUi();
@@ -159,25 +161,29 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
   return (
     <CardOpenProvider onOpen={openByName}>
       <DeckViewProvider value={view}>
-        <div className={styles.page}>
-          <DeckHeader />
-          <DeckToolbar />
-          {error && (
-            <Banner tone="error" actions={<Button size="sm" variant="ghost" onClick={clearError}>Dismiss</Button>}>
-              {error}
-            </Banner>
-          )}
-          {state.deck.category === "archived" ? <Banner tone="neutral" actions={<Button size="sm" onClick={() => ui.openDialog("fork")} aria-haspopup="dialog">Fork</Button>}>Archived decks are read-only. To make changes, switch this deck to Paper or Theorycrafted, or fork it.</Banner> : <ProposalBanner units={view.units} review={review} confirmingAll={confirmingAll} setConfirmingAll={setConfirmingAll} />}
-          <DeckBody
-            list={
-              <>
-                <DeckFilterSummary />
-                <DeckList view={view} emptyAction={state.deck.category === "archived" ? undefined : <><p>Search above to add cards, or bring a list.</p><Button onClick={() => ui.openDialog("import")} aria-haspopup="dialog">Import a list</Button></>} />
-                {state.deck.category !== "archived" && <SelectionBar />}
-              </>
-            }
-            panel={<DeckPanel view={view} review={review} />}
-          />
+        <div ref={page} data-deck-page className={styles.page}>
+          <div data-deck-compact className={styles.compact}><DeckHeader compact /></div>
+          <div data-deck-hero><DeckHeader /></div>
+          <div data-deck-workspace className={styles.workspace}>
+            <DeckToolbar />
+            {error && (
+              <Banner tone="error" actions={<Button size="sm" variant="ghost" onClick={clearError}>Dismiss</Button>}>
+                {error}
+              </Banner>
+            )}
+            {state.deck.category === "archived" ? <Banner tone="neutral" actions={<Button size="sm" onClick={() => ui.openDialog("fork")} aria-haspopup="dialog">Fork</Button>}>Archived decks are read-only. To make changes, switch this deck to Paper or Theorycrafted, or fork it.</Banner> : <ProposalBanner units={view.units} review={review} confirmingAll={confirmingAll} setConfirmingAll={setConfirmingAll} />}
+            <DeckBody
+              list={
+                <>
+                  <DeckFilterSummary />
+                  <DeckList view={view} emptyAction={state.deck.category === "archived" ? undefined : <><p>Search above to add cards, or bring a list.</p><Button onClick={() => ui.openDialog("import")} aria-haspopup="dialog">Import a list</Button></>} />
+                  {state.deck.category !== "archived" && <SelectionBar />}
+                </>
+              }
+              panel={<DeckPanel view={view} review={review} />}
+            />
+          </div>
+          <div className={styles.scrollTail} aria-hidden="true" />
           {review.confirmation}
           <DeckDialogs />
         </div>
