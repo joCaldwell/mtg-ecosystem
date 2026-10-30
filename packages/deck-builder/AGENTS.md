@@ -74,11 +74,12 @@ The auth CLI is an offline schema-generation tool, not a runtime dependency. Pre
 src/
   errors.ts          AppError base — every user-facing failure carries its HTTP status
   actor.ts           Actor with principal; requireDeckOwner, requireSelf, requireUi, PermissionError
-  db.ts              ordered migrations through v14, nested savepoints, per-user settings
+  db.ts              ordered migrations through v16, nested savepoints, per-user settings
   cards.ts           ⭐ exact card resolution, suggestions, prose linting
   ingest.ts          Scryfall bulk → SQLite            search/  Scryfall-syntax subset
   prices.ts          actor-scoped estimates per store and personal price source (spec §4.4)
-  refresh.ts         refreshCardData(): streamed cards, then staged price swap — CLI child only
+  token-catalog.ts   global token facts and printing-ID links, staged during refresh (§4.5)
+  refresh.ts         refreshCardData(): streamed cards, then atomic price/token swap — CLI child only
   jobs.ts            daily/stale-boot refresh and nightly backup scheduler; shared SQLite lease
   backups.ts         online SQLite backup, optional S3 upload, validated offline restore
   json-array.ts      incremental oracle JSON-array reader
@@ -89,6 +90,7 @@ src/
     proposals.ts     proposals; accept/reject per item, group or whole proposal
     brief.ts         thesis / constraints / engines (direct writes)
     power.ts         target, revision-bound assessments, explained bracket suggestions
+    tokens.ts        indexed token/emblem references and producers (excluding maybes)
     checks.ts        deterministic checks
     fork.ts          forkDeck, compareDecks
     interop.ts       Archidekt export; Archidekt and Moxfield import (formats cited inline)

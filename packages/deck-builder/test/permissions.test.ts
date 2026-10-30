@@ -230,7 +230,7 @@ const viewers = (t: Target): Array<[string, Actor | null]> => [
 ].filter(([, a]) => a === null || (a as Actor).user_id !== t.ui.user_id) as Array<[string, Actor | null]>;
 /** The exact shape a viewer receives (plan §4 PublicDeckState); anything new fails here first. */
 const PUBLIC_KEYS = {
-  top: ["brief","cards","checks","computed","deck","engines","power","price","slots","tags"],
+  top: ["brief","cards","checks","computed","deck","engines","power","price","slots","tags","tokens","tokens_status"],
   deck: ["category","color_identity","commander","name","owner","parent","slug","visibility"],
   power: ["latest_owner_assessment","target"],
   price: ["as_of","currency","source","store","total_cents","unpriced"],

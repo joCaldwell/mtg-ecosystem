@@ -1,0 +1,25 @@
+/* The deck's own columns, so the section sits where a group would. */
+.cols {
+  columns: 3 var(--deck-column-min);
+  column-gap: var(--s-5);
+  margin-top: var(--s-6);
+}
+
+.tokens {
+  break-inside: avoid;
+}
+
+.long {
+  break-inside: auto;
+}
+
+/* One quiet line when there is nothing to list. */
+.line {
+  padding: var(--s-2) var(--s-3);
+  color: var(--faint);
+  font-size: var(--text-sm);
+}
+
+@media not all and (max-width: 1099px) {
+  .cols { column-count: 5; }
+}

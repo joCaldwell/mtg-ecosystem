@@ -270,7 +270,7 @@ export const TOOLS: ToolDef[] = [
     title: "Read a deck",
     readOnly: true,
     description:
-      "One deck in full: its brief, the list grouped by slot with oracle text, the maybe list, the app's " +
+      "One deck in full: its brief, the list grouped by slot with oracle text, the maybe list, related tokens and emblems, the app's " +
       "computed counts, check results, the memories for this deck, what is awaiting the owner's decision, " +
       "and recent decisions. Read a deck before discussing or changing it. To re-read cheaply after a " +
       "change, pass only the sections you need, or card_text: false for names without oracle text. " +

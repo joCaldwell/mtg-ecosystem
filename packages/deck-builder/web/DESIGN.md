@@ -562,3 +562,20 @@ for two readable charts and legends. Empty rings show explicit zero states;
 mono-colour is a complete ring. Exact non-coloured costs, any-colour output,
 alternative faces and incomplete source evidence stay separate in specific
 details. Chart labels remain at least the small text size; values need no hover.
+
+## Tokens (2026-10-29)
+
+The tokens and emblems a deck makes close the deck list, after the maybe
+list, under a `GroupHeader` ("Tokens" and its count) in the deck's own
+columns. `mtg/TokenRow` is one dense line: name, "P/T · type" with
+Scryfall's "Token" prefix dropped (or "Emblem"), real colour pips when the
+token has colours, and "from N" producing cards. Hover shows the token's own
+image through the card hover; `?` inspects; Enter or a click opens
+`mtg/TokenDetail` in the side panel (a dialog, a sheet on phones, on a
+read-only deck): text, picture with "Art by" in the faint tier, and the
+producing cards as ordinary list rows that open their own details. A filter
+keeps the tokens a shown card makes ("1 of 4") and hides the section when
+none. Until the server's token catalog exists the section says "Token list
+not available yet."; a deck with none says "This deck makes no tokens."
+Both are one faint line. A token with no stored image shows no picture
+rather than looking one up by name.

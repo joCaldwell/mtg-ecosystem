@@ -9,6 +9,8 @@ import { checkDeck } from "./deck/checks.ts";
 import { type LogCard, type LogEntry, listLog } from "./deck/log.ts";
 import { listProposals } from "./deck/proposals.ts";
 import { getDeck, requireViewableDeck } from "./deck/service.ts";
+import { deckTokens } from "./deck/tokens.ts";
+export type { DeckToken, TokenProducer } from "./deck/tokens.ts";
 import { publicParent } from "./sharing.ts";
 import { listDocumentEdits } from "./documents.ts";
 import { loadScope } from "./memory.ts";
@@ -17,6 +19,7 @@ export function deckState(db: Database, actor: Actor, deckId: number) {
   const memories = loadScope(db, actor, "deck", deckId);
   return {
     ...getDeck(db, actor, deckId),
+    ...deckTokens(db, actor, deckId),
     brief: getBrief(db, actor, deckId),
     power: getPower(db, actor, deckId),
     checks: checkDeck(db, actor, deckId),
@@ -99,6 +102,8 @@ export function publicDeckState(db: Database, viewer: Actor | null, slug: string
     // Tags record sourcing and status ("Have" is ownership evidence): the
     // owner's, not the deck's (§18.3). The key stays, always empty.
     cards: view.cards.map(c => ({ ...c, maybe_note: "", tag_ids: [] as number[] })),
+    // Only public card facts and producers already visible in the list.
+    ...deckTokens(db, reader, row.id),
     slots: view.slots,
     tags: [] as typeof view.tags,
     brief: { thesis: brief.thesis, constraints_md: brief.constraints_md },

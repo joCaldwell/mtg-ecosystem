@@ -1,0 +1,384 @@
+{
+  "producers": [
+    {
+      "id": "03dea775-bbb3-4e9c-8514-0605b5ad2e8b",
+      "oracle_id": "4ba5b3f6-503b-43e6-b66e-4f8c55cffed7",
+      "name": "Avenger of Zendikar",
+      "layout": "normal",
+      "image_uris": {
+        "small": "https://cards.scryfall.io/small/front/0/3/03dea775-bbb3-4e9c-8514-0605b5ad2e8b.jpg?1783928711",
+        "normal": "https://cards.scryfall.io/normal/front/0/3/03dea775-bbb3-4e9c-8514-0605b5ad2e8b.jpg?1783928711",
+        "art_crop": "https://cards.scryfall.io/art_crop/front/0/3/03dea775-bbb3-4e9c-8514-0605b5ad2e8b.jpg?1783928711"
+      },
+      "mana_cost": "{5}{G}{G}",
+      "cmc": 7.0,
+      "type_line": "Creature — Elemental",
+      "oracle_text": "When this creature enters, create a 0/1 green Plant creature token for each land you control.\nLandfall — Whenever a land you control enters, you may put a +1/+1 counter on each Plant creature you control.",
+      "power": "5",
+      "toughness": "5",
+      "colors": [
+        "G"
+      ],
+      "color_identity": [
+        "G"
+      ],
+      "all_parts": [
+        {
+          "id": "03dea775-bbb3-4e9c-8514-0605b5ad2e8b",
+          "component": "combo_piece",
+          "name": "Avenger of Zendikar",
+          "type_line": "Creature — Elemental"
+        },
+        {
+          "id": "e67a2d72-595e-4212-837b-07445a2175bf",
+          "component": "token",
+          "name": "Plant",
+          "type_line": "Token Creature — Plant"
+        }
+      ],
+      "legalities": {
+        "commander": "legal"
+      },
+      "artist": "Zoltan Boros & Gabor Szikszai"
+    },
+    {
+      "id": "0a1e328d-076f-49e0-a585-58cef2015859",
+      "oracle_id": "f36d1d8b-8303-44a9-ab56-531931641ea2",
+      "name": "Academy Manufactor",
+      "layout": "normal",
+      "image_uris": {
+        "small": "https://cards.scryfall.io/small/front/0/a/0a1e328d-076f-49e0-a585-58cef2015859.jpg?1783926937",
+        "normal": "https://cards.scryfall.io/normal/front/0/a/0a1e328d-076f-49e0-a585-58cef2015859.jpg?1783926937",
+        "art_crop": "https://cards.scryfall.io/art_crop/front/0/a/0a1e328d-076f-49e0-a585-58cef2015859.jpg?1783926937"
+      },
+      "mana_cost": "{3}",
+      "cmc": 3.0,
+      "type_line": "Artifact Creature — Assembly-Worker",
+      "oracle_text": "If you would create a Clue, Food, or Treasure token, instead create one of each.",
+      "power": "1",
+      "toughness": "3",
+      "colors": [],
+      "color_identity": [],
+      "all_parts": [
+        {
+          "id": "d0ab4943-3943-4b83-8da3-90a1fb0988b3",
+          "component": "token",
+          "name": "Treasure",
+          "type_line": "Token Artifact — Treasure"
+        },
+        {
+          "id": "eb129b0d-1349-4e88-a6a7-b7968b26ee7e",
+          "component": "token",
+          "name": "Clue",
+          "type_line": "Token Artifact — Clue"
+        },
+        {
+          "id": "37e32ba6-108a-421f-9dad-3d03f7ebe239",
+          "component": "token",
+          "name": "Food",
+          "type_line": "Token Artifact — Food"
+        },
+        {
+          "id": "0a1e328d-076f-49e0-a585-58cef2015859",
+          "component": "combo_piece",
+          "name": "Academy Manufactor",
+          "type_line": "Artifact Creature — Assembly-Worker"
+        }
+      ],
+      "legalities": {
+        "commander": "legal"
+      },
+      "artist": "Campbell White"
+    },
+    {
+      "id": "368c6e60-804c-447c-bc2b-ac9dc4cab5e7",
+      "oracle_id": "07d0b06b-80cb-4518-92c9-84ea87a7e08a",
+      "name": "Teferi, Temporal Archmage",
+      "layout": "normal",
+      "image_uris": {
+        "small": "https://cards.scryfall.io/small/front/3/6/368c6e60-804c-447c-bc2b-ac9dc4cab5e7.jpg?1783915687",
+        "normal": "https://cards.scryfall.io/normal/front/3/6/368c6e60-804c-447c-bc2b-ac9dc4cab5e7.jpg?1783915687",
+        "art_crop": "https://cards.scryfall.io/art_crop/front/3/6/368c6e60-804c-447c-bc2b-ac9dc4cab5e7.jpg?1783915687"
+      },
+      "mana_cost": "{4}{U}{U}",
+      "cmc": 6.0,
+      "type_line": "Legendary Planeswalker — Teferi",
+      "oracle_text": "+1: Look at the top two cards of your library. Put one of them into your hand and the other on the bottom of your library.\n−1: Untap up to four target permanents.\n−10: You get an emblem with \"You may activate loyalty abilities of planeswalkers you control on any player's turn any time you could cast an instant.\"\nTeferi, Temporal Archmage can be your commander.",
+      "loyalty": "5",
+      "colors": [
+        "U"
+      ],
+      "color_identity": [
+        "U"
+      ],
+      "all_parts": [
+        {
+          "id": "ba86947e-5d7c-4cf1-9d33-98b289d56108",
+          "component": "combo_piece",
+          "name": "Teferi, Temporal Archmage",
+          "type_line": "Legendary Planeswalker — Teferi"
+        },
+        {
+          "id": "72db0562-982a-43df-b7b3-4a51c4710757",
+          "component": "combo_piece",
+          "name": "Teferi, Temporal Archmage Emblem",
+          "type_line": "Emblem — Teferi"
+        }
+      ],
+      "legalities": {
+        "commander": "legal"
+      },
+      "artist": "Tyler Jacobson"
+    },
+    {
+      "id": "1ce91e38-4601-4354-ad1b-2c5c1c70da17",
+      "oracle_id": "00225c40-27ff-410f-a591-5c788c6a2bd6",
+      "name": "Ruthless Knave",
+      "layout": "normal",
+      "image_uris": {
+        "small": "https://cards.scryfall.io/small/front/1/c/1ce91e38-4601-4354-ad1b-2c5c1c70da17.jpg?1783935755",
+        "normal": "https://cards.scryfall.io/normal/front/1/c/1ce91e38-4601-4354-ad1b-2c5c1c70da17.jpg?1783935755",
+        "art_crop": "https://cards.scryfall.io/art_crop/front/1/c/1ce91e38-4601-4354-ad1b-2c5c1c70da17.jpg?1783935755"
+      },
+      "mana_cost": "{2}{B}",
+      "cmc": 3.0,
+      "type_line": "Creature — Orc Pirate",
+      "oracle_text": "{2}{B}, Sacrifice a creature: Create two Treasure tokens. (They're artifacts with \"{T}, Sacrifice this token: Add one mana of any color.\")\nSacrifice three Treasures: Draw a card.",
+      "power": "3",
+      "toughness": "2",
+      "colors": [
+        "B"
+      ],
+      "color_identity": [
+        "B"
+      ],
+      "all_parts": [
+        {
+          "id": "1ce91e38-4601-4354-ad1b-2c5c1c70da17",
+          "component": "combo_piece",
+          "name": "Ruthless Knave",
+          "type_line": "Creature — Orc Pirate"
+        },
+        {
+          "id": "bbe8bced-9524-47f6-a600-bf4ddc072698",
+          "component": "token",
+          "name": "Treasure",
+          "type_line": "Token Artifact — Treasure"
+        }
+      ],
+      "legalities": {
+        "commander": "legal"
+      },
+      "artist": "Aaron Miller"
+    }
+  ],
+  "tokens": [
+    {
+      "id": "01e095bd-091c-442f-aa21-0826c40acb6c",
+      "oracle_id": "6bb61f34-5d57-4eaa-a02c-f5d08c1ee920",
+      "name": "Beast",
+      "layout": "token",
+      "image_uris": {
+        "small": "https://cards.scryfall.io/small/front/0/1/01e095bd-091c-442f-aa21-0826c40acb6c.jpg?1783922306",
+        "normal": "https://cards.scryfall.io/normal/front/0/1/01e095bd-091c-442f-aa21-0826c40acb6c.jpg?1783922306",
+        "art_crop": "https://cards.scryfall.io/art_crop/front/0/1/01e095bd-091c-442f-aa21-0826c40acb6c.jpg?1783922306"
+      },
+      "mana_cost": "",
+      "cmc": 0.0,
+      "type_line": "Token Creature — Beast",
+      "oracle_text": "",
+      "power": "3",
+      "toughness": "3",
+      "colors": [
+        "G"
+      ],
+      "color_identity": [
+        "G"
+      ],
+      "legalities": {
+        "commander": "not_legal"
+      },
+      "artist": "Jesper Ejsing"
+    },
+    {
+      "id": "03992f88-7a15-4234-9bed-b7617d7ff09c",
+      "oracle_id": "3c549374-6c37-42e0-8d88-a8555d46732d",
+      "name": "Treasure",
+      "layout": "token",
+      "image_uris": {
+        "small": "https://cards.scryfall.io/small/front/0/3/03992f88-7a15-4234-9bed-b7617d7ff09c.jpg?1789735245",
+        "normal": "https://cards.scryfall.io/normal/front/0/3/03992f88-7a15-4234-9bed-b7617d7ff09c.jpg?1789735245",
+        "art_crop": "https://cards.scryfall.io/art_crop/front/0/3/03992f88-7a15-4234-9bed-b7617d7ff09c.jpg?1789735245"
+      },
+      "mana_cost": "",
+      "cmc": 0.0,
+      "type_line": "Token Artifact — Treasure",
+      "oracle_text": "{T}, Sacrifice this token: Add one mana of any color.",
+      "colors": [],
+      "color_identity": [],
+      "legalities": {
+        "commander": "not_legal"
+      },
+      "artist": "Alayna Danner"
+    },
+    {
+      "id": "06b5e4d2-7eac-4ee9-82aa-80a668705679",
+      "oracle_id": "695b14a0-920a-47bd-bd4a-7989862cdd0a",
+      "name": "Beast",
+      "layout": "token",
+      "image_uris": {
+        "small": "https://cards.scryfall.io/small/front/0/6/06b5e4d2-7eac-4ee9-82aa-80a668705679.jpg?1783927200",
+        "normal": "https://cards.scryfall.io/normal/front/0/6/06b5e4d2-7eac-4ee9-82aa-80a668705679.jpg?1783927200",
+        "art_crop": "https://cards.scryfall.io/art_crop/front/0/6/06b5e4d2-7eac-4ee9-82aa-80a668705679.jpg?1783927200"
+      },
+      "mana_cost": "",
+      "cmc": 0.0,
+      "type_line": "Token Creature — Beast",
+      "oracle_text": "",
+      "power": "4",
+      "toughness": "4",
+      "colors": [
+        "G"
+      ],
+      "color_identity": [
+        "G"
+      ],
+      "legalities": {
+        "commander": "not_legal"
+      },
+      "artist": "Steve Prescott"
+    },
+    {
+      "id": "37e32ba6-108a-421f-9dad-3d03f7ebe239",
+      "oracle_id": "a468338f-635e-4206-89d6-72d723071d45",
+      "name": "Food",
+      "layout": "token",
+      "image_uris": {
+        "small": "https://cards.scryfall.io/small/front/3/7/37e32ba6-108a-421f-9dad-3d03f7ebe239.jpg?1783926586",
+        "normal": "https://cards.scryfall.io/normal/front/3/7/37e32ba6-108a-421f-9dad-3d03f7ebe239.jpg?1783926586",
+        "art_crop": "https://cards.scryfall.io/art_crop/front/3/7/37e32ba6-108a-421f-9dad-3d03f7ebe239.jpg?1783926586"
+      },
+      "mana_cost": "",
+      "cmc": 0.0,
+      "type_line": "Token Artifact — Food",
+      "oracle_text": "{2}, {T}, Sacrifice this token: You gain 3 life.",
+      "colors": [],
+      "color_identity": [],
+      "legalities": {
+        "commander": "not_legal"
+      },
+      "artist": "Aaron Miller"
+    },
+    {
+      "id": "72db0562-982a-43df-b7b3-4a51c4710757",
+      "oracle_id": "38b1672b-d952-4084-9e79-db34cc0227d5",
+      "name": "Teferi, Temporal Archmage Emblem",
+      "layout": "emblem",
+      "image_uris": {
+        "small": "https://cards.scryfall.io/small/front/7/2/72db0562-982a-43df-b7b3-4a51c4710757.jpg?1783915240",
+        "normal": "https://cards.scryfall.io/normal/front/7/2/72db0562-982a-43df-b7b3-4a51c4710757.jpg?1783915240",
+        "art_crop": "https://cards.scryfall.io/art_crop/front/7/2/72db0562-982a-43df-b7b3-4a51c4710757.jpg?1783915240"
+      },
+      "mana_cost": "",
+      "cmc": 0.0,
+      "type_line": "Emblem — Teferi",
+      "oracle_text": "You may activate loyalty abilities of planeswalkers you control on any player's turn any time you could cast an instant.",
+      "colors": [],
+      "color_identity": [],
+      "legalities": {
+        "commander": "not_legal"
+      },
+      "artist": "Tyler Jacobson"
+    },
+    {
+      "id": "d0ab4943-3943-4b83-8da3-90a1fb0988b3",
+      "oracle_id": "3c549374-6c37-42e0-8d88-a8555d46732d",
+      "name": "Treasure",
+      "layout": "token",
+      "image_uris": {
+        "small": "https://cards.scryfall.io/small/front/d/0/d0ab4943-3943-4b83-8da3-90a1fb0988b3.jpg?1783926585",
+        "normal": "https://cards.scryfall.io/normal/front/d/0/d0ab4943-3943-4b83-8da3-90a1fb0988b3.jpg?1783926585",
+        "art_crop": "https://cards.scryfall.io/art_crop/front/d/0/d0ab4943-3943-4b83-8da3-90a1fb0988b3.jpg?1783926585"
+      },
+      "mana_cost": "",
+      "cmc": 0.0,
+      "type_line": "Token Artifact — Treasure",
+      "oracle_text": "{T}, Sacrifice this token: Add one mana of any color.",
+      "colors": [],
+      "color_identity": [],
+      "legalities": {
+        "commander": "not_legal"
+      },
+      "artist": "Anna Fehr"
+    },
+    {
+      "id": "e67a2d72-595e-4212-837b-07445a2175bf",
+      "oracle_id": "bcd346a7-4d96-4a0c-9725-fb740e32b730",
+      "name": "Plant",
+      "layout": "token",
+      "image_uris": {
+        "small": "https://cards.scryfall.io/small/front/e/6/e67a2d72-595e-4212-837b-07445a2175bf.jpg?1783928584",
+        "normal": "https://cards.scryfall.io/normal/front/e/6/e67a2d72-595e-4212-837b-07445a2175bf.jpg?1783928584",
+        "art_crop": "https://cards.scryfall.io/art_crop/front/e/6/e67a2d72-595e-4212-837b-07445a2175bf.jpg?1783928584"
+      },
+      "mana_cost": "",
+      "cmc": 0.0,
+      "type_line": "Token Creature — Plant",
+      "oracle_text": "",
+      "power": "0",
+      "toughness": "1",
+      "colors": [
+        "G"
+      ],
+      "color_identity": [
+        "G"
+      ],
+      "legalities": {
+        "commander": "not_legal"
+      },
+      "artist": "Daren Bader"
+    },
+    {
+      "id": "eb129b0d-1349-4e88-a6a7-b7968b26ee7e",
+      "oracle_id": "496e1083-c792-40a4-adf4-fec1d559cd5e",
+      "name": "Clue",
+      "layout": "token",
+      "image_uris": {
+        "small": "https://cards.scryfall.io/small/front/e/b/eb129b0d-1349-4e88-a6a7-b7968b26ee7e.jpg?1783926587",
+        "normal": "https://cards.scryfall.io/normal/front/e/b/eb129b0d-1349-4e88-a6a7-b7968b26ee7e.jpg?1783926587",
+        "art_crop": "https://cards.scryfall.io/art_crop/front/e/b/eb129b0d-1349-4e88-a6a7-b7968b26ee7e.jpg?1783926587"
+      },
+      "mana_cost": "",
+      "cmc": 0.0,
+      "type_line": "Token Artifact — Clue",
+      "oracle_text": "{2}, Sacrifice this token: Draw a card.",
+      "colors": [],
+      "color_identity": [],
+      "legalities": {
+        "commander": "not_legal"
+      },
+      "artist": "Yeong-Hao Han"
+    },
+    {
+      "id": "bbe8bced-9524-47f6-a600-bf4ddc072698",
+      "oracle_id": "3c549374-6c37-42e0-8d88-a8555d46732d",
+      "name": "Treasure",
+      "layout": "token",
+      "image_uris": {
+        "small": "https://cards.scryfall.io/small/front/b/b/bbe8bced-9524-47f6-a600-bf4ddc072698.jpg?1783935807",
+        "normal": "https://cards.scryfall.io/normal/front/b/b/bbe8bced-9524-47f6-a600-bf4ddc072698.jpg?1783935807",
+        "art_crop": "https://cards.scryfall.io/art_crop/front/b/b/bbe8bced-9524-47f6-a600-bf4ddc072698.jpg?1783935807"
+      },
+      "mana_cost": "",
+      "cmc": 0.0,
+      "type_line": "Token Artifact — Treasure",
+      "oracle_text": "{T}, Sacrifice this token: Add one mana of any color.",
+      "colors": [],
+      "color_identity": [],
+      "legalities": {
+        "commander": "not_legal"
+      },
+      "artist": "Milivoj Ćeran"
+    }
+  ]
+}

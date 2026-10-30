@@ -4,6 +4,7 @@
 // component rather than two copies.
 
 import type { DeckListState, DeckState, Engine, Finding, PublicDeckState, PublicDecision } from "../api/client.ts";
+import { deckTokens, type DeckTokens } from "./tokens.ts";
 
 export interface ReadOnlyDeckModel {
   list: DeckListState;
@@ -21,6 +22,8 @@ export interface ReadOnlyDeckModel {
    *  `who` is set only for the owner's own deck: they always see which agent
    *  wrote what (DESIGN.md principle 5); viewers see only "an agent". */
   decisions: Array<PublicDecision & { who?: string }> | null;
+  /** The tokens and emblems the deck makes. */
+  tokens: DeckTokens;
 }
 
 /** A viewer's deck. A shared deck has no numeric id for the viewer; the list
@@ -39,6 +42,7 @@ export function fromPublic(shared: PublicDeckState): ReadOnlyDeckModel {
     power: { target: shared.power.target, assessment: shared.power.latest_owner_assessment },
     price: shared.price,
     decisions: shared.decisions ?? null,
+    tokens: deckTokens(shared),
   };
 }
 
@@ -67,6 +71,7 @@ export function fromOwner(state: DeckState): ReadOnlyDeckModel {
           cards: e.cards.map((c) => ({ oracle_id: c.oracle_id, card_name: c.card_name, action: c.action, quantity: c.quantity })),
         }))
       : null,
+    tokens: deckTokens(state),
   };
 }
 

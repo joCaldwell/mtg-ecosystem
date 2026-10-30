@@ -1,0 +1,50 @@
+.detail {
+  display: grid;
+  gap: var(--s-4);
+}
+
+.summary {
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+}
+
+/* As in card details: readable rows first, the picture yields as it narrows. */
+.facts {
+  display: grid;
+  grid-template-columns: minmax(0, min(33%, var(--card-art-max))) minmax(var(--card-fields-min), 1fr);
+  gap: var(--s-4);
+  align-items: start;
+}
+
+.figure {
+  display: grid;
+  margin: 0;
+  gap: var(--s-2);
+  min-width: 0;
+}
+
+/* Present but quiet, like the art credits elsewhere. */
+.credit {
+  color: var(--faint);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.producers {
+  display: grid;
+  align-content: start;
+  gap: var(--s-1);
+  min-width: 0;
+}
+
+.heading {
+  padding: 0 var(--s-3) var(--s-1);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+@media (max-width: 719px) {
+  .facts { grid-template-columns: minmax(0, 1fr); }
+  .figure { max-width: var(--sheet-image-w-phone); }
+}

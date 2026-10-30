@@ -9,7 +9,7 @@ export const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const DATA_DIR = resolve(process.env.DECKBUILDER_DATA ?? join(PKG_ROOT, "data"));
 export const DEFAULT_DB_PATH = resolve(process.env.DECKBUILDER_DB ?? join(DATA_DIR, "deck-builder.db"));
 
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 
 const SCHEMA = `
 -- Explicit physical evidence survives deck membership, forks and deletion.
@@ -531,6 +531,17 @@ const MIGRATIONS: Array<{ version: number; up: (db: Database) => void }> = [
       CREATE INDEX IF NOT EXISTS idx_document_edits_agent ON document_edits(user_id, author_label) WHERE author_via = 'agent';
       CREATE INDEX IF NOT EXISTS idx_log_agent ON log(user_id, author_label) WHERE author_via = 'agent';`);
   } },
+  { version: 16, up(db) {
+    db.exec(`CREATE TABLE IF NOT EXISTS token_catalog (
+      oracle_id TEXT PRIMARY KEY,
+      facts_json TEXT NOT NULL CHECK (json_valid(facts_json))
+    );
+    CREATE TABLE IF NOT EXISTS card_token_links (
+      oracle_id TEXT NOT NULL REFERENCES cards(oracle_id),
+      token_oracle_id TEXT NOT NULL REFERENCES token_catalog(oracle_id),
+      PRIMARY KEY (oracle_id, token_oracle_id)
+    );`);
+  } },
 ];
 
 function removeDeckStatus(db: Database) {
@@ -708,7 +719,7 @@ function assertOurs(db: Database, path: string) {
   } catch {
     /* no meta table at all */
   }
-  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6" || found === "7" || found === "8" || found === "9" || found === "10" || found === "11" || found === "12" || found === "13" || found === "14") return found;
+  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6" || found === "7" || found === "8" || found === "9" || found === "10" || found === "11" || found === "12" || found === "13" || found === "14" || found === "15") return found;
   throw new SchemaError(
     `${path} is not a database this version of the deck builder can open ` +
       `(it reports schema ${found ?? "unknown"}; this version uses ${SCHEMA_VERSION}). ` +

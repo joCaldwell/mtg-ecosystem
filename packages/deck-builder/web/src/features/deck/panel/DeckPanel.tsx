@@ -14,6 +14,7 @@ import { MemoriesPanel } from "./MemoriesPanel.tsx";
 import { PowerPanel } from "./PowerPanel.tsx";
 import { ReviewPanel } from "./ReviewPanel.tsx";
 import { StatsPanel } from "./StatsPanel.tsx";
+import { TokenPanel } from "./TokenPanel.tsx";
 import styles from "./DeckPanel.module.css";
 
 export function DeckPanel({ view, review }: { view: DeckViewModel; review: Review }) {
@@ -71,6 +72,8 @@ export function DeckPanel({ view, review }: { view: DeckViewModel; review: Revie
         : ui.tab === "memories" ? <MemoriesPanel />
         : <HistoryPanel />}
     </div>
-    {ui.openCard && <CardPanel key={ui.openCard.oracleId} card={ui.openCard} backRef={back} bodyRef={cardBody} />}
+    {ui.openCard && (ui.openCard.token
+      ? <TokenPanel key={ui.openCard.oracleId} token={ui.openCard} backRef={back} bodyRef={cardBody} />
+      : <CardPanel key={ui.openCard.oracleId} card={ui.openCard} backRef={back} bodyRef={cardBody} />)}
   </aside>;
 }

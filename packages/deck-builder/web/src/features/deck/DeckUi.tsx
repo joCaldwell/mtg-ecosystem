@@ -16,6 +16,8 @@ export type DeckDialog = "fork" | "compare" | "export" | "import" | "slots" | "d
 export interface OpenCard {
   oracleId: string;
   name: string;
+  /** A token or emblem the deck makes, opened from the Tokens section. */
+  token?: boolean;
 }
 
 export interface DeckUiState {
