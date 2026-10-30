@@ -189,22 +189,54 @@ export function restoreScroll(list: HTMLElement | null, to: { list: number; wind
   if (scrollY !== to.window) scrollTo({ top: to.window, behavior: "instant" });
 }
 
-/** Reveal a decision's rows: all of them when they fit in the scroller's view
- *  together, otherwise from its first row (the named card, else the topmost).
- *  A swap's add and cut often sit in different groups. */
+interface Span { top: number; bottom: number }
+
+/** How far to scroll so a decision's rows sit inside `view` with `gap` (one
+ *  row) clear above and below, so their group's context and the next row
+ *  show too. All of them when they fit together with that clearance,
+ *  otherwise the named row (or the first). Rows already clear stay put;
+ *  anything that has to move is centred. */
+export function reviewRevealDelta(view: Span, rows: Span[], named: Span | undefined, gap: number): number {
+  if (!rows.length) return 0;
+  const top = Math.min(...rows.map(r => r.top));
+  const bottom = Math.max(...rows.map(r => r.bottom));
+  const target = bottom - top + 2 * gap <= view.bottom - view.top ? { top, bottom } : named ?? rows.find(r => r.top === top)!;
+  if (target.top - gap >= view.top && target.bottom + gap <= view.bottom) return 0;
+  return Math.round((target.top + target.bottom) / 2 - (view.top + view.bottom) / 2);
+}
+
+/** Reveal a decision's rows (reviewRevealDelta). A swap's add and cut often
+ *  sit in different groups. */
 export function scrollToReviewCard(list: HTMLElement | null, oracleId: string | undefined): void {
   const rows = Array.from(list?.querySelectorAll<HTMLElement>('[data-current="true"]') ?? [])
     .filter(row => row.getClientRects().length > 0);
-  if (!rows.length) return;
-  const top = (row: HTMLElement) => row.getBoundingClientRect().top;
-  const ordered = [...rows].sort((a, b) => top(a) - top(b));
-  const first = ordered[0];
-  const last = ordered[ordered.length - 1];
-  // Revealing the lowest row and then the highest, both "nearest", leaves both
-  // in view when they fit, and the highest in view when they do not.
-  if (last !== first) last.scrollIntoView({ block: "nearest", inline: "nearest" });
-  first.scrollIntoView({ block: "nearest", inline: "nearest" });
-  // Keep the named card in view if the span pushed it out.
-  const named = rows.find(row => row.dataset.oracleId === oracleId);
-  if (named && named !== first) named.scrollIntoView({ block: "nearest", inline: "nearest" });
+  if (list && rows.length) revealRows(list, rows, rows.find(row => row.dataset.oracleId === oracleId));
+}
+
+/** Bring one card's row in the editable list into view, the same way, and
+ *  focus it, so closing its details returns there. Nothing happens when a
+ *  filter hides it. */
+export function revealCardRow(root: ParentNode, oracleId: string): void {
+  const list = root.querySelector<HTMLElement>("[data-deck-list]");
+  const row = list?.querySelector<HTMLElement>(`[data-oracle-id="${CSS.escape(oracleId)}"]`);
+  if (!list || !row || !row.getClientRects().length) return;
+  revealRows(list, [row], row);
+  (row.matches("button") ? row : row.querySelector("button"))?.focus({ preventScroll: true });
+}
+
+/** Scroll whichever holds the rows: the desktop list pane, or below 1100 px
+ *  the window, under its sticky bars (the rows' scroll margin). */
+function revealRows(list: HTMLElement, rows: HTMLElement[], named: HTMLElement | undefined): void {
+  const boxes = rows.map(row => row.getBoundingClientRect());
+  const namedBox = named ? boxes[rows.indexOf(named)] : undefined;
+  const style = getComputedStyle(list);
+  if (style.overflowY === "auto" || style.overflowY === "scroll") {
+    const box = list.getBoundingClientRect();
+    const view = { top: box.top + (parseFloat(style.scrollPaddingTop) || 0), bottom: box.top + list.clientHeight };
+    list.scrollTop += reviewRevealDelta(view, boxes, namedBox, boxes[0].height);
+  } else {
+    const view = { top: parseFloat(getComputedStyle(rows[0]).scrollMarginTop) || 0, bottom: innerHeight };
+    const delta = reviewRevealDelta(view, boxes, namedBox, boxes[0].height);
+    if (delta) scrollBy({ top: delta, behavior: "instant" });
+  }
 }

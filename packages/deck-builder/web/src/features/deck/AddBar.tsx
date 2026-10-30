@@ -12,6 +12,7 @@ import { AddBarResult } from "./AddBarResult.tsx";
 import { useDeck, useDeckState } from "./DeckStore.tsx";
 import { useDeckUi } from "./DeckUi.tsx";
 import { useSharedDeckView } from "./DeckViewContext.ts";
+import { revealCardRow } from "./list/DeckList.tsx";
 import styles from "./AddBar.module.css";
 
 const DEBOUNCE_MS = 150;
@@ -35,6 +36,7 @@ export function AddBar() {
   const [index, setIndex] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   const box = useRef<HTMLDivElement>(null);
+  const resultList = useRef<HTMLDivElement>(null);
   const adding = useRef(false);
   const listId = useId();
 
@@ -90,6 +92,19 @@ export function AddBar() {
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
+  // Scrolling the list closes it too, so it never covers the rows (or the
+  // proposal banner) being looked at. Only the list's own scroller counts,
+  // or the window where that scrolls the list (under 1100 px); the field
+  // keeps its text and focus, so typing or an arrow key brings it back.
+  useEffect(() => {
+    if (!open) return;
+    const onScroll = (e: Event) => {
+      if (e.target === document || (e.target instanceof Element && e.target.matches("[data-deck-list]"))) setOpen(false);
+    };
+    document.addEventListener("scroll", onScroll, { capture: true, passive: true });
+    return () => document.removeEventListener("scroll", onScroll, { capture: true });
+  }, [open]);
+
   useHotkeys({
     "/": (e) => {
       e.preventDefault();
@@ -108,8 +123,16 @@ export function AddBar() {
   const offerEveryColour = limited && !loading && !error && results !== null && rows.length === 0;
 
   // Keep the highlighted row in view as the arrows move through a long list.
+  // Only the results scroll: scrollIntoView could also move the window,
+  // which would close the results.
   useEffect(() => {
-    if (shown) box.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+    const list = resultList.current;
+    const row = shown ? list?.querySelector('[aria-selected="true"]') : null;
+    if (!list || !row) return;
+    const r = row.getBoundingClientRect();
+    const c = list.getBoundingClientRect();
+    if (r.top < c.top) list.scrollTop -= c.top - r.top;
+    else if (r.bottom > c.bottom) list.scrollTop += r.bottom - c.bottom;
   }, [shown, highlighted, rows]);
 
   async function add(r: AnnotatedResult, how: { maybe?: boolean; role?: string } = {}) {
@@ -139,6 +162,14 @@ export function AddBar() {
       : entry ? () => api.undo(deckId, entry.id) : undefined;
     toast(message, {
       action: undo ? { label: "Undo", onAction: () => void run(undo) } : undefined,
+      // A long maybe list hides the new card; this finds it for the owner.
+      secondaryAction: how.maybe ? {
+        label: "View card",
+        onAction: () => {
+          revealCardRow(document, card.oracle_id);
+          ui.openCardPanel({ oracleId: card.oracle_id, name: card.name });
+        },
+      } : undefined,
     });
     // Keep shortlist results and their updated membership marks ready for the
     // next card. Selecting the query lets typing replace it immediately.
@@ -175,7 +206,10 @@ export function AddBar() {
   }
 
   return (
-    <div ref={box} className={styles.wrap}>
+    // Focus leaving for anything outside the bar closes the results. A press
+    // inside them keeps focus in the field (below), and the colour checkbox
+    // is inside, so neither counts.
+    <div ref={box} className={styles.wrap} onBlur={(e) => { if (!box.current?.contains(e.relatedTarget as Node | null)) setOpen(false); }}>
       <label className={styles.bar}>
         <span className={styles.addLabel}><Icon name="plus" size={14} /> Add cards</span>
         <input
@@ -204,7 +238,7 @@ export function AddBar() {
       {shown && (
         // Pressing inside must not pull focus out of the input.
         <div className={styles.drop} onMouseDown={(e) => e.target instanceof HTMLInputElement || e.preventDefault()}>
-          <div id={listId} role={rows.length > 0 ? "listbox" : undefined} aria-label={rows.length > 0 ? "Card search results" : undefined} className={styles.results}>
+          <div ref={resultList} id={listId} role={rows.length > 0 ? "listbox" : undefined} aria-label={rows.length > 0 ? "Card search results" : undefined} className={styles.results}>
             {loading ? (
               <Text role="status" tone="muted" as="div" className={styles.none}>Searching…</Text>
             ) : error ? (

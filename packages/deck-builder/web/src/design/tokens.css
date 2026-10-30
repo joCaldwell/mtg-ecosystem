@@ -185,6 +185,13 @@
   --panel-w-min: 340px;
   --panel-w-max: 640px;
   --list-w-min: 360px;
+  /* Very wide windows widen the panel's default toward --panel-w-wide, so the
+     brief and proposals are not set in a narrow column beside a half-empty
+     list. Fluid, because the only width queries allowed are the three
+     breakpoints: 22vw passes --panel-w just under 1800 px (1440 px keeps it),
+     is about 420 px at 1920 px and reaches --panel-w-wide at 2000 px. */
+  --panel-w-wide: 440px;
+  --panel-grow: 22vw;
   --measure: 720px;
   /* One and a half measures: wide enough for a table, narrow enough to read. */
   --measure-wide: calc(var(--measure) * 1.5);
@@ -211,6 +218,8 @@
   --memories-search-min: 240px;
   /* The share dialog's link field before its buttons wrap below it. */
   --share-link-min: 240px;
+  /* A toast's message beside its actions before they wrap below it. */
+  --toast-message-min: 10ch;
   --toolbar-add-w: 300px;
   /* The add field's results: wide enough for the key hints and the colour
      scope on one footer line. */

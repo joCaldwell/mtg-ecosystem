@@ -1,5 +1,5 @@
 /* The panel takes the width the owner dragged it to (--deck-panel-w, set
-   inline) or the default, held between its limits and never so wide that the
+   inline) or the default (wider on very wide windows, tokens.css), held between its limits and never so wide that the
    list has less than its own minimum. In a window too narrow for both
    minimums the panel's wins and the list gives way. */
 .body {
@@ -14,7 +14,7 @@
     minmax(0, 1fr)
     clamp(
       var(--panel-w-min),
-      var(--deck-panel-w, var(--panel-w)),
+      var(--deck-panel-w, clamp(var(--panel-w), var(--panel-grow), var(--panel-w-wide))),
       min(var(--panel-w-max), 100% - var(--list-w-min))
     );
   min-height: 0;

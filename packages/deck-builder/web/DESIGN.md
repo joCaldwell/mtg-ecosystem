@@ -231,7 +231,7 @@ or about this app.
 | `ConfirmDialog` | A question with Cancel and a confirm button | tone `default` `danger` |
 | `Explainer` | Specifically labelled help for unfamiliar concepts | closed, open, keyboard focus, close/Escape and focus return; `defaultOpen` (style guide only); `control` (opened by a menu item, beside its anchor, no trigger of its own) |
 | `Popover`, `placeNear` | A panel anchored to an element, kept inside the viewport | placement `below` `right` `above` `left`; `align` |
-| `ToastProvider`, `useToast` | One toast at a time with an optional action; bottom left at 1100 px and wider (over the sidebar footer, clear of the deck list and the panel's actions), bottom centre below | `duration`; `action` with `kbd` |
+| `ToastProvider`, `useToast` | One toast at a time with an optional action, and a second after it (wrapping below the message where narrow); bottom left at 1100 px and wider (over the sidebar footer, clear of the deck list and the panel's actions), bottom centre below | `duration`; `action` with `kbd`; `secondaryAction` |
 | `DiffView` | Added and deleted lines | line kind `same` `add` `del`; `foldSame` (each unchanged run one closed native disclosure, "4 unchanged lines") |
 | `Table`, `ClickableRow` | Plain tables with small uppercase headers; rows that open something | |
 | `CounterControl` | Visible increment/decrement controls and a numeric readout | labeled, disabled |

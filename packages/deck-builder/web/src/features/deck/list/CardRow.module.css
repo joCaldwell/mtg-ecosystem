@@ -82,9 +82,12 @@
   background: var(--sel-bg);
 }
 
+/* The card open in the panel: the owner's selection cue, a blue leading rule
+   and tint (DESIGN.md, --sel). Review's add and cut rules below replace the
+   rule's colour, and the review cursor's outline is drawn over it. */
 .row.open {
-  background: var(--raised);
-  box-shadow: inset 0 0 0 1px var(--line-strong);
+  border-left-color: var(--sel);
+  background: var(--sel-bg);
 }
 
 .row.cut {

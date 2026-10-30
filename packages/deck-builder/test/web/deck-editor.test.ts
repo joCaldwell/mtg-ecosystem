@@ -107,31 +107,48 @@ test("the lifecycle pill is a menu button named by its state", async (t) => {
   assert.doesNotMatch(html, /aria-pressed|role="group"/, "a state, not a segmented filter");
 });
 
-test("a decision reveals all its rows when they fit together, else its first item, skipping hidden contributors", async (t) => {
-  const { scrollToReviewCard } = await (await modules(t)).ssrLoadModule("/src/features/deck/list/DeckList.tsx");
-  const calls: unknown[] = [];
-  const nearest = { block: "nearest", inline: "nearest" };
-  const row = (id: string, visible: boolean, top: number, label: string) => ({
+test("a decision reveals all its rows with a row's clearance when they fit together, else its named item, centred when it must move", async (t) => {
+  const { reviewRevealDelta, scrollToReviewCard } = await (await modules(t)).ssrLoadModule("/src/features/deck/list/DeckList.tsx");
+  const view = { top: 200, bottom: 1000 };
+  const at = (top: number) => ({ top, bottom: top + 24 });
+  // Already clear of both edges by a row: nothing moves.
+  assert.equal(reviewRevealDelta(view, [at(400)], undefined, 24), 0);
+  // Flush with the bottom edge: no row of clearance below, so it is centred.
+  assert.equal(reviewRevealDelta(view, [at(976)], undefined, 24), 988 - 600);
+  // Just under the top edge: centred too.
+  assert.equal(reviewRevealDelta(view, [at(210)], undefined, 24), 222 - 600);
+  // A swap that fits together is centred as a whole.
+  assert.equal(reviewRevealDelta(view, [at(900), at(1100)], at(1100), 24), (900 + 1124) / 2 - 600);
+  // Too far apart to fit with clearance: the named card is centred instead.
+  assert.equal(reviewRevealDelta(view, [at(100), at(1500)], at(1500), 24), 1512 - 600);
+  // ... or, with no named card visible, the first.
+  assert.equal(reviewRevealDelta(view, [at(1500), at(100)], undefined, 24), 112 - 600);
+
+  const g = globalThis as any;
+  const saved = { getComputedStyle: g.getComputedStyle, scrollBy: g.scrollBy, innerHeight: g.innerHeight };
+  t.after(() => Object.assign(g, saved));
+  const row = (id: string, visible: boolean, top: number) => ({
     dataset: { oracleId: id }, getClientRects: () => visible ? [{}] : [],
-    getBoundingClientRect: () => ({ top }),
-    scrollIntoView: (options: unknown) => calls.push([label, options]),
+    getBoundingClientRect: () => ({ top, bottom: top + 24, height: 24 }),
   });
-  // A swap: the add is drawn high in one group, its cut lower in another.
-  const rows = [row("cut", true, 900, "cut in a later group"), row("add", false, 0, "hidden add"), row("add", true, 100, "first changed card")];
-  scrollToReviewCard({ querySelectorAll: () => rows }, "add");
-  assert.deepEqual(calls, [["cut in a later group", nearest], ["first changed card", nearest]],
-    "lowest then highest: both end in view when they fit, the highest when they do not");
+  // Desktop: the list pane scrolls itself; hidden contributors are skipped.
+  g.getComputedStyle = () => ({ overflowY: "auto", scrollPaddingTop: "16px", scrollMarginTop: "0px" });
+  const list = { scrollTop: 50, clientHeight: 800, getBoundingClientRect: () => ({ top: 184 }), querySelectorAll: () => [row("add", false, 0), row("add", true, 976)] };
+  scrollToReviewCard(list, "add");
+  // Its view runs from the scroll padding to the pane's client bottom (200-984).
+  assert.equal(list.scrollTop, 50 + 988 - 592);
+  // Tablet: the window scrolls, below the rows' sticky scroll margin.
+  const calls: unknown[] = [];
+  g.scrollBy = (options: unknown) => calls.push(options);
+  g.innerHeight = 1000;
+  g.getComputedStyle = () => ({ overflowY: "visible", scrollPaddingTop: "0px", scrollMarginTop: "200px" });
+  scrollToReviewCard({ ...list, querySelectorAll: () => [row("add", true, 976)] }, "add");
+  assert.deepEqual(calls, [{ top: 988 - 600, behavior: "instant" }]);
   calls.length = 0;
-  // Named item below the topmost row: it is revealed last so it stays in view.
-  scrollToReviewCard({ querySelectorAll: () => [row("cut", true, 100, "cut above"), row("add", true, 900, "named add")] }, "add");
-  assert.deepEqual(calls, [["named add", nearest], ["cut above", nearest], ["named add", nearest]]);
-  calls.length = 0;
-  scrollToReviewCard({ querySelectorAll: () => [row("add", true, 100, "only row")] }, "add");
-  assert.deepEqual(calls, [["only row", nearest]]);
-  calls.length = 0;
+  scrollToReviewCard({ ...list, querySelectorAll: () => [row("add", true, 500)] }, "add");
   scrollToReviewCard(null, "add");
-  scrollToReviewCard({ querySelectorAll: () => [row("add", false, 0, "hidden")] }, "add");
-  assert.deepEqual(calls, []);
+  scrollToReviewCard({ ...list, querySelectorAll: () => [row("add", false, 0)] }, "add");
+  assert.deepEqual(calls, [], "clear, missing or hidden rows: nothing moves");
 });
 
 test("proposal arrival focuses its own reason and scrolls only its panel, preserving the list reveal", async (t) => {

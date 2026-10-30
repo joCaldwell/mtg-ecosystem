@@ -11,8 +11,16 @@ import { createPortal } from "react-dom";
 import { Button } from "./Button.tsx";
 import styles from "./Toast.module.css";
 
+export interface ToastAction {
+  label: string;
+  kbd?: string;
+  onAction: () => void;
+}
+
 export interface ToastOptions {
-  action?: { label: string; kbd?: string; onAction: () => void };
+  action?: ToastAction;
+  /** A second action after the first, such as showing what was just changed. */
+  secondaryAction?: ToastAction;
   /** Milliseconds before it goes away. Default 6000. */
   duration?: number;
 }
@@ -50,7 +58,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(t);
   }, [id, duration]);
 
-  const action = current?.opts.action;
+  const actions = [current?.opts.action, current?.opts.secondaryAction].filter((a): a is ToastAction => !!a);
   return (
     <ToastContext.Provider value={api}>
       {children}
@@ -58,18 +66,23 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         <div className={styles.region} role="status" aria-live="polite">
           {current ? (
             <div key={current.id} className={styles.toast}>
-              <span>{current.message}</span>
-              {action ? (
-                <Button
-                  size="sm"
-                  kbd={action.kbd}
-                  onClick={() => {
-                    action.onAction();
-                    dismiss();
-                  }}
-                >
-                  {action.label}
-                </Button>
+              <span className={styles.message}>{current.message}</span>
+              {actions.length > 0 ? (
+                <span className={styles.actions}>
+                  {actions.map((action) => (
+                    <Button
+                      key={action.label}
+                      size="sm"
+                      kbd={action.kbd}
+                      onClick={() => {
+                        action.onAction();
+                        dismiss();
+                      }}
+                    >
+                      {action.label}
+                    </Button>
+                  ))}
+                </span>
               ) : null}
             </div>
           ) : null}

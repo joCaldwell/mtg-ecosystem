@@ -633,6 +633,9 @@ function ToastDemo() {
           <Button onClick={() => toast("Removed Sol Ring.", { action: { label: "Undo", kbd: "Z", onAction: () => toast("Restored.") } })}>
             With action
           </Button>
+          <Button onClick={() => toast("Added Sol Ring to the maybe list.", { action: { label: "Undo", onAction: () => toast("Removed.") }, secondaryAction: { label: "View card", onAction: () => toast("Opened.") } })}>
+            With two actions
+          </Button>
           <Button onClick={() => toast("Stays for 20 seconds.", { duration: 20000 })}>Long</Button>
           <Button variant="ghost" onClick={dismiss}>Dismiss</Button>
         </Row>

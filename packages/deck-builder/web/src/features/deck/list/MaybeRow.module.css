@@ -15,9 +15,10 @@
   background: var(--hover);
 }
 
+/* The card open in the panel, as in CardRow: blue leading rule and tint. */
 .row.open {
-  background: var(--raised);
-  box-shadow: inset 0 0 0 1px var(--line-strong);
+  border-left-color: var(--sel);
+  background: var(--sel-bg);
 }
 
 .name {
