@@ -43,3 +43,39 @@ button.name:hover { color: var(--text-soft); text-decoration: underline dotted v
   .stats > button, .actions > a, .actions > button, .stats [aria-haspopup="menu"], .lifecycle [aria-haspopup="menu"] { display: inline-flex; align-items: center; min-height: var(--tap); }
   button.name, .powerLink { min-height: var(--tap); }
 }
+
+/* Content-sized scrims leave the exposed face and sky untouched. Their
+   fully opaque mask covers every glyph; only the surrounding feather fades. */
+.header:not(.compact) :is(.top, .sub, .metadata) {
+  position: relative;
+  isolation: isolate;
+  width: fit-content;
+}
+.header:not(.compact) :is(.top, .sub, .metadata)::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: calc(-1 * var(--art-editor-text-feather)) calc(-1 * var(--art-editor-text-fade)) calc(-1 * var(--art-editor-text-feather)) calc(-1 * var(--s-7));
+  background: var(--art-editor-text-scrim);
+  mask-image: var(--art-editor-text-mask);
+  pointer-events: none;
+}
+/* Underline the glyphs, not the bottom edge of a tall touch control. */
+.commander button {
+  border-bottom: 0;
+  text-decoration: underline dotted;
+  text-decoration-color: var(--faint);
+  text-underline-offset: var(--s-1);
+}
+.commander button:hover { text-decoration-color: var(--sel); }
+@media (max-width: 1099px) {
+  .sub { min-height: var(--tap); }
+  .sub .commander button {
+    --commander-hit-pad: calc((var(--tap) - 1em * var(--leading)) / 2 + var(--s-1) / 2);
+    display: inline-block;
+    min-height: 0;
+    padding-block: var(--commander-hit-pad);
+    margin-block: calc(-1 * var(--commander-hit-pad));
+    line-height: inherit;
+  }
+}

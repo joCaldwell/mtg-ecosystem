@@ -56,4 +56,34 @@
   text-underline-offset: var(--s-1);
 }
 
-.commanders { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3) var(--s-4); color: var(--text-soft); font-size: var(--text-sm); }
+.commanders { min-height: var(--tap); display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3) var(--s-4); color: var(--text-soft); font-size: var(--text-sm); }
+
+/* The art stays bright outside each text block, even at phone width. */
+.head > :is(.back, .title, .commanders, .jump, .meta) {
+  position: relative;
+  isolation: isolate;
+  width: fit-content;
+  max-width: 100%;
+}
+.head > :is(.back, .title, .commanders, .jump, .meta)::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: calc(-1 * var(--art-editor-text-feather)) calc(-1 * var(--art-editor-text-fade)) calc(-1 * var(--art-editor-text-feather)) calc(-1 * var(--s-5));
+  background: var(--art-editor-text-scrim);
+  mask-image: var(--art-editor-text-mask);
+  pointer-events: none;
+}
+.head .commanders button {
+  --commander-hit-pad: calc((var(--tap) - 1em * var(--leading)) / 2 + var(--s-1) / 2);
+  display: inline-block;
+  min-height: 0;
+  padding-block: var(--commander-hit-pad);
+  margin-block: calc(-1 * var(--commander-hit-pad));
+  line-height: inherit;
+  border-bottom: 0;
+  text-decoration: underline dotted;
+  text-decoration-color: var(--faint);
+  text-underline-offset: var(--s-1);
+}
+.head .commanders button:hover { text-decoration-color: var(--sel); }

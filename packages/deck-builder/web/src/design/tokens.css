@@ -313,30 +313,34 @@
   --art-editor-rename-w: 420px;
   --art-editor-text-width: 72%;
   --art-editor-mask: linear-gradient(90deg, transparent,
-    rgb(0 0 0 / 0.08) 8%, rgb(0 0 0 / 0.3) 20%,
-    rgb(0 0 0 / 0.65) 35%, black 52%);
-  /* A 76% black floor on the text side, including pure-white crops.
-     The long fade keeps the art luminous at the right. Actions are opaque. */
+    rgb(0 0 0 / 0.15) 10%, rgb(0 0 0 / 0.5) 25%, black 47%);
+  /* Leave the exposed painting vivid. This canvas fade ends before the
+     right-hand art; content-sized scrims below carry the text contrast. */
   --art-editor-scrim: linear-gradient(90deg,
-    color-mix(in srgb, var(--bg) 98%, transparent),
-    color-mix(in srgb, var(--bg) 94%, transparent) 25%,
-    color-mix(in srgb, var(--bg) 86%, transparent) 46%,
-    color-mix(in srgb, var(--bg) 76%, transparent) 72%,
-    color-mix(in srgb, var(--bg) 38%, transparent) 88%,
-    color-mix(in srgb, var(--bg) 12%, transparent));
+    color-mix(in srgb, var(--bg) 92%, transparent),
+    color-mix(in srgb, var(--bg) 88%, transparent) 37%,
+    color-mix(in srgb, var(--bg) 35%, transparent) 57%,
+    transparent 75%);
   --art-editor-bottom: linear-gradient(to bottom,
-    transparent 30%, color-mix(in srgb, var(--bg) 8%, transparent) 50%,
-    color-mix(in srgb, var(--bg) 24%, transparent) 75%,
-    color-mix(in srgb, var(--bg) 58%, transparent));
-  /* Narrow text can span the frame. Even its brightest edge has 64%
-     black: soft text 4.53:1, title text 6.16:1 over pure white art. */
-  --art-editor-narrow-scrim: linear-gradient(90deg,
-    color-mix(in srgb, var(--bg) 98%, transparent),
-    color-mix(in srgb, var(--bg) 94%, transparent) 25%,
-    color-mix(in srgb, var(--bg) 86%, transparent) 46%,
-    color-mix(in srgb, var(--bg) 76%, transparent) 72%,
-    color-mix(in srgb, var(--bg) 68%, transparent) 88%,
-    color-mix(in srgb, var(--bg) 64%, transparent));
+    transparent 55%, color-mix(in srgb, var(--bg) 8%, transparent) 75%,
+    color-mix(in srgb, var(--bg) 32%, transparent));
+  /* The 64% black floor covers each text block, not the whole header.
+     On pure white: --text-soft 4.53:1, --text 6.15:1. Extra space outside
+     the text supplies eased fades without moving content or touch targets. */
+  --art-editor-text-fade: 104px;
+  --art-editor-text-feather: 24px;
+  --art-editor-text-scrim: linear-gradient(90deg,
+    color-mix(in srgb, var(--bg) 64%, transparent) calc(100% - 104px),
+    color-mix(in srgb, var(--bg) 54%, transparent) calc(100% - 80px),
+    color-mix(in srgb, var(--bg) 32%, transparent) calc(100% - 48px),
+    color-mix(in srgb, var(--bg) 10%, transparent) calc(100% - 24px),
+    transparent);
+  --art-editor-text-mask: linear-gradient(to bottom,
+    transparent, rgb(0 0 0 / 0.2) 6px, rgb(0 0 0 / 0.7) 16px,
+    black var(--art-editor-text-feather),
+    black calc(100% - var(--art-editor-text-feather)),
+    rgb(0 0 0 / 0.7) calc(100% - 16px),
+    rgb(0 0 0 / 0.2) calc(100% - 6px), transparent);
   --art-editor-bottom-inset: 20px;
   --art-editor-tint: 12%;
   --art-banner-space: 0px;

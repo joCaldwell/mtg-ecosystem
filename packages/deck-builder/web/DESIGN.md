@@ -466,17 +466,24 @@ printed artist and copyright lines.
   it is 240 px. Tablets retain window scrolling and 44 px controls; their
   256 px hero leaves naturally. Phones use `banner`, a 26 px title and a
   224 px minimum; proposal notices follow outside the art.
-- **Header contrast is independent of the picture.** The desktop text area
-  ends before the horizontal scrim's 76% black floor. Over pure white art,
-  WCAG sRGB minima are 9.93:1 for `--text`, 7.31:1 for commander/metadata
-  `--text-soft`, and 4.99:1 even for `--muted`. Narrow layouts extend the
-  eased horizontal fade with a 64% black floor across the full frame:
-  title 6.16:1 and commander/metadata soft text 4.53:1 over white. Action surfaces
-  remain opaque through rest and hover, giving `--text` labels at least
-  15.79:1 (including the generic neutral hover highlight, rounded up to
-  the next background sRGB integer); lifecycle soft text is 11.74:1.
-  Counts retain opaque black chips. Credits intentionally remain exempt.
-  Public `showcase` pages and roster `strip` tiles keep their own composition.
+- **Header contrast is local to the text.** The canvas fade ends at 75%
+  of the header, leaving the exposed face and sky at native brightness. A
+  soft bottom gradient starts at 55% of the crop's height and reaches only
+  32% black at the bottom; opaque action buttons supply their own contrast.
+  Title, commander and metadata blocks each carry a content-sized 64% black
+  scrim. Its 104 px horizontal fade and 24 px vertical feather sit outside
+  the text, including on phone and tablet; no full-width narrow-screen wash.
+  Over pure white art, conservative WCAG sRGB minima are 6.15:1 for the
+  `--text` title/commander and 4.53:1 for `--text-soft` metadata. Action labels
+  remain at least 15.79:1 through rest and hover; lifecycle soft text is
+  11.74:1. Counts retain opaque black chips. Credits remain intentionally
+  exempt. Public `showcase` pages and roster `strip` tiles keep their own
+  composition.
+- **Header commander underlines follow the glyphs.** As on roster tiles,
+  dotted text decoration sits 2 px below the text at every width. Padding
+  supplies the 44 px touch target, with compensating margins and a retained
+  row height so the title, metadata and list keep their positions.
+
 
 
 The roster filters form one slim, wrapping toolbar: search and a native

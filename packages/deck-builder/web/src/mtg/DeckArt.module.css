@@ -82,6 +82,7 @@
   --band: 0px;
   background: linear-gradient(120deg, color-mix(in srgb, var(--deck-tint) var(--art-editor-tint), transparent), transparent), var(--bg);
   flex: none;
+  overflow: clip;
   min-height: var(--art-editor-h);
   border-bottom: 1px solid var(--line);
 }
@@ -125,11 +126,9 @@
 
 @media (max-width: 1099px) {
   .editor { min-height: var(--art-editor-tablet-h); }
-  .editor::after { background: var(--art-editor-narrow-scrim); }
 }
 @media (max-width: 719px) {
   .banner { min-height: var(--art-editor-phone-h); }
-  .banner::after { background: var(--art-editor-narrow-scrim); }
   .showcase { --band: var(--art-showcase-phone-space); }
   .backdrop { --band: var(--art-backdrop-phone-space); }
 }
