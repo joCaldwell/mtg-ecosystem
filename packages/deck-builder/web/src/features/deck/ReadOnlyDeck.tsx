@@ -105,7 +105,7 @@ function ReadOnlyBody({ model, header, decisions, listNavigation, useView = useP
   return (
     <CardOpenProvider onOpen={openByName}>
       <DeckViewProvider value={view}>
-        <div className={styles.root}>
+        <div className={styles.root} data-owner-deck={!model.viewer || undefined}>
           {header}
           {decisions?.(view)}
           <div className={styles.body}>

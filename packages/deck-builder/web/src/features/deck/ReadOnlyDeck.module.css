@@ -80,3 +80,21 @@
     padding: var(--s-5) var(--s-4);
   }
 }
+
+/* Owner phone references decorate their text, including proposal names and
+   linked prose. Shared pages retain their own presentation. */
+@media (max-width: 719px) {
+  .root[data-owner-deck] [data-card-ref] {
+    --card-ref-hit-pad: calc((var(--tap) - 1em * var(--leading)) / 2 + var(--s-1) / 2);
+    display: inline-block;
+    min-height: 0;
+    padding-block: var(--card-ref-hit-pad);
+    margin-block: calc(-1 * var(--card-ref-hit-pad));
+    line-height: inherit;
+    border-bottom: 0;
+    text-decoration: underline dotted;
+    text-decoration-color: var(--faint);
+    text-underline-offset: var(--s-1);
+  }
+  .root[data-owner-deck] [data-card-ref]:hover { text-decoration-color: var(--sel); }
+}

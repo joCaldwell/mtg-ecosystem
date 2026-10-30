@@ -1,12 +1,20 @@
 .scroll {
+  /* TokenRow's absolute screen-reader suffixes must be contained by this
+     scroller. Anchoring them to listPane lets them escape its overflow and
+     enlarge the outer page's native header scroll range. */
+  position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;
   overflow: auto;
   /* A revealed row or the maybe list stops short of the pane's top edge. */
   scroll-padding-top: var(--s-4);
-  /* Room under the last row for the floating selection bar. */
-  padding: var(--s-6) var(--s-6) calc(var(--s-8) * 2);
+  padding: var(--s-6);
+}
+
+/* Reserve bulk-action clearance only while those controls are present. */
+.scroll:has(+ [role="toolbar"]) {
+  padding-bottom: calc(var(--s-8) * 2);
 }
 
 /* Read-only: part of a page that scrolls as a whole (ReadOnlyDeck). */

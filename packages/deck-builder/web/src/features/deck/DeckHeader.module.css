@@ -16,8 +16,8 @@ button.name:hover { color: var(--text-soft); text-decoration: underline dotted v
 .commander { display: inline-flex; align-items: center; gap: var(--s-4); }
 .link { color: var(--text-soft); border-bottom: 1px dotted var(--faint); }
 .link:hover { border-bottom-color: var(--sel); }
-.powerLink { border-bottom: 1px dotted var(--faint); border-radius: 0; color: var(--text-soft); text-align: left; }
-.powerLink:hover { color: var(--text); border-bottom-color: var(--sel); }
+.powerLink { text-decoration: underline dotted var(--faint); text-underline-offset: var(--s-1); border-radius: 0; color: var(--text-soft); text-align: left; }
+.powerLink:hover { color: var(--text); text-decoration-color: var(--sel); }
 .stats { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); margin-top: var(--s-7); }
 .actions { display: flex; align-items: center; gap: var(--s-3); margin-left: auto; }
 /* Opaque controls keep their contrast even on the brightest part of a crop.
@@ -76,6 +76,17 @@ button.name:hover { color: var(--text-soft); text-decoration: underline dotted v
     min-height: 0;
     padding-block: var(--commander-hit-pad);
     margin-block: calc(-1 * var(--commander-hit-pad));
+    line-height: inherit;
+  }
+}
+
+@media (max-width: 1099px) {
+  .metadata { min-height: var(--tap); }
+  .header .powerLink {
+    --power-hit-pad: calc((var(--tap) - 1em * var(--leading)) / 2 + var(--s-1) / 2);
+    min-height: 0;
+    padding-block: var(--power-hit-pad);
+    margin-block: calc(-1 * var(--power-hit-pad));
     line-height: inherit;
   }
 }

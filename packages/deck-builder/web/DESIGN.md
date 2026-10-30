@@ -466,6 +466,11 @@ printed artist and copyright lines.
   it is 240 px. Tablets retain window scrolling and 44 px controls; their
   256 px hero leaves naturally. Phones use `banner`, a 26 px title and a
   224 px minimum; proposal notices follow outside the art.
+  Each independent list/panel scroller also owns its absolute descendants:
+  hidden accessibility suffixes cannot escape into the outer header scroll.
+  The outer range is exactly the hero-to-compact height difference, including
+  when the list fits. End-of-list space is the normal 16 px gutter; the extra
+  64 px bulk-action clearance exists only while the selection bar is present.
 - **Header contrast is local to the text.** The canvas fade ends at 75%
   of the header, leaving the exposed face and sky at native brightness. A
   soft bottom gradient starts at 55% of the crop's height and reaches only
@@ -479,10 +484,12 @@ printed artist and copyright lines.
   11.74:1. Counts retain opaque black chips. Credits remain intentionally
   exempt. Public `showcase` pages and roster `strip` tiles keep their own
   composition.
-- **Header commander underlines follow the glyphs.** As on roster tiles,
+- **Owner deck text underlines follow the glyphs.** As on roster tiles,
   dotted text decoration sits 2 px below the text at every width. Padding
   supplies the 44 px touch target, with compensating margins and a retained
-  row height so the title, metadata and list keep their positions.
+  row height so the title, metadata and list keep their positions. The same
+  treatment covers card references throughout the owner’s phone deck view
+  and the editor’s power link, including proposal names and linked prose.
 
 
 

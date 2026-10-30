@@ -27,6 +27,9 @@
 .count { min-width: var(--s-6); padding-inline: var(--s-1); text-align: center; }
 
 .body {
+  /* Own absolute accessibility text as well as visible panel content, so
+     neither can add overflow to the outer header scroll. */
+  position: relative;
   display: grid;
   flex: 1;
   grid-template-columns: minmax(0, 1fr);
