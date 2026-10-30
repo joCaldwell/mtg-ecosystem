@@ -39,7 +39,7 @@ export function adminInfo(db: Database, actor: Actor) {
 const quote = (s: string) => `"${s.replaceAll('"', '""')}"`;
 // All global tables are explicit. Unknown tables must lead to a tenant root
 // through a real FK or known principal column; otherwise lifecycle fails closed.
-const globals = new Set(["cards", "card_names", "card_prices", "card_prices_staging", "meta", "jwks", "oauthResource", "oauthClientAssertion", "signup_intents", "sqlite_sequence"]);
+const globals = new Set(["cards", "card_names", "token_catalog", "card_token_links", "card_prices", "card_prices_staging", "meta", "jwks", "oauthResource", "oauthClientAssertion", "signup_intents", "sqlite_sequence"]);
 const isIndex = (name: string) => /^(cards_fts|memories_fts)(_|$)/.test(name);
 const secretColumns = new Set(["token", "token_hash", "clientSecret", "password", "accessToken", "refreshToken", "idToken", "privateKey", "rotationReplayResponse"]);
 

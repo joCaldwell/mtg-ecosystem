@@ -57,7 +57,7 @@ to do** (its brief), **what the owner has decided and why** (decisions), and
 - No collaborators, co-owners, shared memories, chat, paid tiers or formats
   beyond Commander. Forks and later suggestions are the collaboration unit.
 - No lifecycle or decisions terminology changes in the identity phase.
-- No external knowledge sources (EDHREC, Commander Spellbook, vendor sites). An agent may consult them itself; whatever it finds must resolve through the app's card search before it can be proposed. Scryfall's bulk data is the one source the app reads (§4.1, §4.4).
+- No external knowledge sources (EDHREC, Commander Spellbook, vendor sites). An agent may consult them itself; whatever it finds must resolve through the app's card search before it can be proposed. Scryfall is the one card-data source the app reads (§4.1, §4.4, §4.5).
 - No collection or inventory management; ordinary deck tags can record organization such as cards to obtain (§5.5).
 - No live sync with any external service.
 - No formats other than Commander.
@@ -233,6 +233,43 @@ Every shown total is labelled an estimate with store/date. Scryfall warns
 bulk prices are dangerously stale after 24 hours: these are general
 estimates, never live offers. No history, collection, buy links, foil-only
 preferences, vendor API or other price source is introduced.
+
+### 4.5 Tokens and emblems
+
+Deck reads include a sorted, distinct list of Scryfall-related tokens and
+emblems, with their stored image URLs, printed characteristics and producing
+cards. Main-deck cards, commanders and companions contribute; maybe-list cards
+and pending proposals do not. `producer_count` counts distinct producing cards,
+not quantities of tokens. Tokens never enter deck membership, card counts,
+checks, prices, or exports.
+
+This is a reference list from Scryfall's relationships, including copy markers
+and conditional effects, not rules evaluation or a prediction of quantities.
+Same-name tokens with different Oracle identities remain separate. Source
+relationships and facts refresh automatically for new cards, without card-name
+lists, text heuristics, or changes to application code.
+
+Migration v16 adds global `token_catalog` and `card_token_links` tables, without
+changing user data. The existing refresh child streams `default_cards` once for
+both prices and tokens. Related Card Objects identify printings, so staging
+resolves their exact IDs to token Oracle identities before publishing. Emblems
+use `combo_piece` relationships and are recognized by their type. Flip Role
+tokens and reversible-card faces are supported. A bounded collection lookup
+resolves rare related non-English printings absent from the default file;
+this is the sole refresh-time supplement to bulk data, and uses only Scryfall.
+Sources: [Related Card Objects](https://scryfall.com/docs/api/cards#related-card-objects),
+[collection endpoint](https://scryfall.com/docs/api/cards/collection).
+
+The catalog stages on disk in bounded batches and validates card coverage and
+unresolved links before an atomic price/catalog publish. Failed refreshes keep
+the previous token facts, links and freshness marker. Retired cards retain
+known links. Missing `token_catalog_version` triggers the scheduled refresh,
+even when prices are current. `tokens_status` distinguishes an uninitialized
+catalog from a ready deck with no related tokens and includes Scryfall's as-of
+date. Serving a deck uses an indexed local join; it never parses Oracle text or
+contacts Scryfall. Private and explicitly allow-listed public state carry the
+same token reference facts; public producers reveal only visible membership.
+`get_deck sections: ["tokens"]` exposes the same capability to agents.
 
 ---
 

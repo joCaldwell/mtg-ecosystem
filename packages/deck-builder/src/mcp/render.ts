@@ -7,6 +7,8 @@ import type { Database } from "../sqlite.ts";
 import type { CardRow, ResolutionFailure } from "../cards.ts";
 import type { ActivityEntry } from "../activity.ts";
 import { type BracketMapping, getPower, profileLines, targetText } from "../deck/power.ts";
+import { deckTokens, type DeckToken } from "../deck/tokens.ts";
+import type { tokenStatus } from "../token-catalog.ts";
 import type { PublicDeckState } from "../state.ts";
 import { getBrief } from "../deck/brief.ts";
 import { type Finding, checkDeck } from "../deck/checks.ts";
@@ -144,6 +146,7 @@ export const DECK_SECTIONS = [
   "power",
   "list",
   "maybe",
+  "tokens",
   "state",
   "checks",
   "memories",
@@ -300,6 +303,14 @@ function listSection(view: Pick<DeckView, "cards" | "slots" | "tags" | "computed
   return [`## List`, ...vocab, ...groups].join("\n\n");
 }
 
+export function tokenLines(view: { tokens: DeckToken[]; tokens_status: ReturnType<typeof tokenStatus> }): string {
+  const heading = `## Tokens and emblems (${view.tokens.length} types; maybe list excluded)`;
+  if (!view.tokens_status.ready) return `${heading}\nToken data is not ready; refresh card data first.`;
+  const note = `Scryfall related tokens as of ${view.tokens_status.as_of?.slice(0, 10)}; includes copy markers and conditional effects. This is a reference list, not a prediction of quantities.`;
+  return [heading, note, ...view.tokens.map(t => `- ${t.name}${t.power != null && t.toughness != null ? ` ${t.power}/${t.toughness}` : ""} — ${t.type_line}${t.colors ? ` (${t.colors})` : ""}; from ${t.producer_count}: ${t.made_by.map(c => c.name).join("; ")}${t.oracle_text ? `\n${indent(t.oracle_text)}` : ""}`),
+    ...(!view.tokens.length ? ["(no related tokens or emblems)"] : [])].join("\n");
+}
+
 export function renderScope(loaded: LoadedScope, label: string): string {
   if (!loaded.memories.length && !loaded.omitted) return `(no ${label} memories yet)`;
   const lines = loaded.memories.map(memoryLine);
@@ -386,6 +397,7 @@ export function renderDeck(
   }
   if (want.has("power")) out.push(renderPower(getPower(db, actor, deckId)));
   if (want.has("list")) out.push(listSection(view, withText));
+  if (want.has("tokens")) out.push(tokenLines(deckTokens(db, actor, deckId)));
   if (want.has("maybe")) {
     const maybe = view.cards.filter((c) => c.maybe);
     if (maybe.length)
@@ -450,6 +462,7 @@ export function renderPublicDeck(shared: PublicDeckState, sections: readonly Dec
     ].join("\n"));
   }
   if (want.has("list")) out.push(listSection(shared, withText));
+  if (want.has("tokens")) out.push(tokenLines(shared));
   if (want.has("maybe")) {
     const maybe = shared.cards.filter((c) => c.maybe);
     if (maybe.length) out.push(`## Maybe list (${maybe.length}; outside the 100)\n${maybe.map((c) => cardLine(c, { text: withText })).join("\n")}`);

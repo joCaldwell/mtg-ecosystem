@@ -35,6 +35,7 @@ export function stripReminderText(text: string): string {
 interface ImageUris { small?: string; normal?: string; art_crop?: string }
 
 interface ScryfallFace {
+  oracle_id?: string;
   image_uris?: ImageUris;
   artist?: string | null;
   name: string;
@@ -48,6 +49,7 @@ interface ScryfallFace {
 }
 
 export interface ScryfallCard {
+  all_parts?: Array<{ id: string; component: string; name: string; type_line: string }>;
   image_uris?: ImageUris;
   artist?: string | null;
   oracle_id: string;

@@ -4,6 +4,7 @@ import { Readable, Transform, pipeline as pipelineOf } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
+import type { TokenPrinting } from "./token-catalog.ts";
 import type { ScryfallPrinting } from "./prices.ts";
 
 import { DATA_DIR } from "./db.ts";
@@ -74,7 +75,7 @@ export async function bulkEntry(type: string): Promise<BulkEntry> {
 // Every printing, for pricing (spec §4.4). The file is 79 MB compressed and
 // over 600 MB as text, and one number per card is kept from it, so it is read
 // as it arrives and never written to disk.
-export async function* streamPrintings(entry: BulkEntry): AsyncGenerator<ScryfallPrinting> {
+export async function* streamPrintings(entry: BulkEntry): AsyncGenerator<ScryfallPrinting & TokenPrinting> {
   if (!entry.jsonl_download_uri) throw new Error(`${entry.type} entry has no JSONL download URL`);
   const res = await fetch(entry.jsonl_download_uri, { headers: { "User-Agent": USER_AGENT } });
   if (!res.ok || !res.body) throw new Error(`Bulk download failed: HTTP ${res.status}`);
@@ -90,10 +91,10 @@ export async function* streamPrintings(entry: BulkEntry): AsyncGenerator<Scryfal
   for await (const chunk of text) {
     const lines = (remainder + decoder.write(chunk as Buffer)).split(/\r?\n/);
     remainder = lines.pop() ?? "";
-    for (const line of lines) if (line.trim()) yield JSON.parse(line) as ScryfallPrinting;
+    for (const line of lines) if (line.trim()) yield JSON.parse(line) as ScryfallPrinting & TokenPrinting;
   }
   remainder += decoder.end();
-  if (remainder.trim()) yield JSON.parse(remainder) as ScryfallPrinting;
+  if (remainder.trim()) yield JSON.parse(remainder) as ScryfallPrinting & TokenPrinting;
 }
 
 export async function ensureBulkFile(force = false): Promise<string> {
@@ -132,4 +133,26 @@ export async function ensureBulkFile(force = false): Promise<string> {
   renameSync(tmp, CACHE_FILE);
   console.log(`Saved to ${CACHE_FILE}`);
   return CACHE_FILE;
+}
+
+/** Rare all_parts links point to non-English printings absent from default_cards.
+ * Resolve only those IDs in the refresh child, never on a deck read. The
+ * collection endpoint accepts 75 identifiers, at most two requests per second:
+ * https://scryfall.com/docs/api/cards/collection (verified 2026-10-29).
+ */
+export async function* relatedTokenPrintings(ids: string[]): AsyncGenerator<TokenPrinting> {
+  if (ids.length > 750) throw new Error("Too many unresolved token printings; refusing incomplete bulk data");
+  for (let i = 0; i < ids.length; i += 75) {
+    if (i) await new Promise(resolve => setTimeout(resolve, 510));
+    const batch = ids.slice(i, i + 75);
+    const res = await fetch("https://api.scryfall.com/cards/collection", {
+      method: "POST", headers: { "User-Agent": USER_AGENT, Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ identifiers: batch.map(id => ({ id })) }), signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) throw new Error(`Related token lookup failed: HTTP ${res.status}`);
+    const result = await res.json() as { data: TokenPrinting[]; not_found?: unknown[] };
+    if (result.not_found?.length || !Array.isArray(result.data) || result.data.length !== batch.length || result.data.some(c => !batch.includes(c.id)))
+      throw new Error("Scryfall could not resolve every related token printing; previous catalog retained");
+    yield* result.data;
+  }
 }

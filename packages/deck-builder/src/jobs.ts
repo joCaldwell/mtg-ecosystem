@@ -1,3 +1,4 @@
+import { tokenStatus } from "./token-catalog.ts";
 import { PRICE_STORES_VERSION } from "./prices.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -85,7 +86,7 @@ export function createJobs(db: Database, opts: {
     const last = run(name);
     if (last?.result === "error") return Date.parse(last.last_run) + HOUR;
     if (name === "backup") return last ? nextNight(Date.parse(last.last_run)) : initialNight;
-    if (read(db, "price_stores_version") !== PRICE_STORES_VERSION) return Date.now();
+    if (!tokenStatus(db).ready || read(db, "price_stores_version") !== PRICE_STORES_VERSION) return Date.now();
     const dates = [read(db, "last_ingest"), read(db, "prices_as_of")].map(v => v ? Date.parse(v) : 0);
     const freshUntil = Math.min(...dates) + DAY;
     return Math.max(freshUntil, last ? Date.parse(last.last_run) + DAY : 0);
@@ -158,7 +159,7 @@ export function createJobs(db: Database, opts: {
   const timer = setInterval(tick, 30_000);
   timer.unref();
   const start = () => {
-    const fresh = read(db, "price_stores_version") === PRICE_STORES_VERSION && [read(db, "last_ingest"), read(db, "prices_as_of")]
+    const fresh = tokenStatus(db).ready && read(db, "price_stores_version") === PRICE_STORES_VERSION && [read(db, "last_ingest"), read(db, "prices_as_of")]
       .every(value => value != null && Date.now() - Date.parse(value) < DAY);
     if (!fresh) pending.add("refresh");
     tick();
