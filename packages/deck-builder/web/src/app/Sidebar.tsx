@@ -168,7 +168,7 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
 
       {/* Both status rows share one full-size Settings target. The accessible
           name and tooltip retain context even when names or the rail clip. */}
-      <a href={href({ page: "settings" })} className={styles.presence} aria-label={presence}
+      <a href={href({ page: "settings" })} className={styles.presence}
         title={`${presence} Recent requests do not mean an agent is still connected.`}>
         <span className={styles.who} aria-hidden="true">
           <Dot tone={recent ? "agent" : "neutral"} />
