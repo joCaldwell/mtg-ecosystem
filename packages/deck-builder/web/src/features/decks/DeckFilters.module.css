@@ -1,0 +1,8 @@
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-4) var(--s-5); }
+.search { flex: 1 1 var(--toolbar-search-min); max-width: var(--toolbar-search-max); min-width: 0; }
+.count { white-space: nowrap; }
+@media (max-width: 719px) {
+  .search { flex-basis: 100%; max-width: none; }
+  .toolbar > span:has(select) { flex: 1; }
+  .toolbar select { width: 100%; }
+}

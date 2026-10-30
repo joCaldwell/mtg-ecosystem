@@ -254,9 +254,16 @@
   --art-overlay-text: color-mix(in srgb, var(--bg) 94%, transparent);
   --art-aspect: 626 / 457;
   --art-position: center 35%;
-  /* Band heights: the art shows above the content, which starts at the band. */
-  --art-strip-space: 48px;
-  /* The owner's editor header: a thin strip, the credit's line inside it. */
+  /* Gallery tiles use the natural crop ratio, not a fixed band. Caption
+     and flat credits use --art-overlay-text: even over pure white, muted
+     credit is 8.82:1, soft commander 12.90:1, title 17.54:1. No text depends
+     on the artwork's luminance. The actions use this same contrast floor. */
+  --text-deck-title: 21px;
+  --tracking-deck-title: -0.02em;
+  --focus-width: 2px;
+  --art-gallery-motion: 400ms;
+  --art-gallery-zoom: 1.035;
+  /* Band heights: art above content. The editor keeps a thin ribbon. */
   --art-ribbon-space: 20px;
   --art-ribbon-credit-h: 16px;
   --art-banner-space: 72px;

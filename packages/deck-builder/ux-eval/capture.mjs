@@ -135,6 +135,21 @@ const SCREENS = [
   { screen: "sign-in", user: 0, path: "/signin", widths: PUBLIC, states: [{ state: "default", caption: "Sign-in page, signed out" }] },
   { screen: "first-run", user: U.empty, path: "/", widths: ALL, states: [{ state: "default", caption: "A new account with no decks" }] },
   { screen: "decks", user: U.owner, path: "/", widths: ALL, states: [{ state: "default", caption: "All decks, six decks across Paper, Theorycrafted and Archived" }] },
+  { screen: "decks", user: U.owner, path: "/", widths: ALL, states: [{ state: "filtered", caption: "The roster filtered to Paper decks", act: async ({ page, vp }) => {
+    const lifecycle = page.getByRole("combobox", { name: "Lifecycle", exact: true });
+    // The older read-only phone roster has no filters. Capture its original
+    // roster there so the same harness can still recapture that build.
+    if (vp.width < 720 && !(await lifecycle.count())) return;
+    await lifecycle.focus();
+    await lifecycle.press("Home");
+    await lifecycle.press("ArrowDown");
+    await lifecycle.press("Escape");
+  } }] },
+  { screen: "decks", user: U.owner, path: "/", widths: [1280, 1440, ...WIDE], states: [{ state: "tile-hover", caption: "Hovering the second deck tile", act: async ({ page }) => {
+    // Both the old strip and the gallery use the deck title's stretched link.
+    const link = page.getByRole("main").getByRole("heading", { level: 2 }).nth(1).getByRole("link");
+    await link.hover();
+  } }] },
   {
     screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: ALL, states: [
       { state: "default", caption: "A Paper deck with open agent proposals" },

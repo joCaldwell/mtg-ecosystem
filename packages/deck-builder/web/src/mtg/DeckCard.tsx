@@ -18,7 +18,6 @@ export function DeckCard({ name, href, art, identity, category, count, commander
       <div className={styles.deckCard}>
         <div className={styles.cardHeading}>
           <h2><a className={styles.deckLink} href={href}>{name}</a></h2>
-          {actions}
         </div>
         <div className={styles.commander}>{commanders}</div>
         {lineage && <div className={styles.lineage}>{lineage}</div>}
@@ -29,6 +28,7 @@ export function DeckCard({ name, href, art, identity, category, count, commander
           {children}
         </div>
       </div>
+      {actions && <div className={styles.actions}>{actions}</div>}
     </DeckArt>
   </li>;
 }

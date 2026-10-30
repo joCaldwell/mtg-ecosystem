@@ -1,38 +1,32 @@
-.commander {
-  max-width: 360px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.card { display: grid; min-width: 0; }
+.deckCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  min-width: 0;
+  padding: var(--s-7) var(--s-6) var(--s-5);
 }
-
-.lifecycle[data-lifecycle="paper"] {
-  color: var(--lifecycle-paper);
-  background: var(--lifecycle-paper-bg);
+.cardHeading { min-width: 0; }
+.cardHeading h2 {
+  font-size: var(--text-deck-title);
+  line-height: var(--leading-display);
+  font-weight: 650;
+  letter-spacing: var(--tracking-deck-title);
+  overflow-wrap: anywhere;
 }
-
-.lifecycle[data-lifecycle="theorycrafted"] {
-  color: var(--lifecycle-theorycrafted);
-  background: var(--lifecycle-theorycrafted-bg);
-}
-
-.lifecycle[data-lifecycle="archived"] {
-  color: var(--lifecycle-archived);
-  background: var(--lifecycle-archived-bg);
-}
-
-.card { --text-xs: var(--text-sm); display: grid; }
-.deckCard { display: flex; flex-direction: column; gap: var(--s-3); padding: var(--s-3) var(--s-5) var(--s-5); }
-.cardHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s-4); }
-.cardHeading h2 { min-width: 0; font-size: var(--text-lg); font-weight: 650; overflow-wrap: anywhere; }
-.deckLink { display: inline-flex; align-items: center; min-height: var(--h-lg); }
-/* The whole card opens the deck, as the table row did. */
-.deckLink::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.deckLink { display: inline-block; }
+/* The name's link covers the art and caption; card references and the menu
+   remain separate targets above it. Keep the focus outline inside the crop. */
+.deckLink::after { content: ""; position: absolute; inset: 0; border-radius: var(--r-lg); }
 .deckLink:focus-visible { outline: none; }
-.deckLink:focus-visible::after { outline: 2px solid var(--sel); outline-offset: -2px; border-radius: var(--r-lg); }
-.card:hover .deckLink { text-decoration: underline; }
-.cardHeading :is(a, button):not(.deckLink), .commander :is(a, button) { position: relative; z-index: 1; }
-.cardStats { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-4); margin-top: auto; padding-top: var(--s-2); }
-@media (pointer: coarse) and (max-width: 1099px) { .deckLink, .cardHeading button { min-height: var(--tap); } }
-
-.lineage { position: relative; z-index: 1; color: var(--text-soft); font-size: var(--text-sm); }
-
-.lifecycle[data-lifecycle] { color: var(--text-soft); }
+.deckLink:focus-visible::after { outline: var(--focus-width) solid var(--sel); outline-offset: calc(-1 * var(--focus-width)); }
+.commander { color: var(--text-soft); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.commander button { color: inherit; }
+.commander :is(a, button), .lineage a { position: relative; z-index: 1; }
+.cardStats { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-4); font-size: var(--text-sm); padding-top: var(--s-2); }
+.lifecycle[data-lifecycle] { color: var(--text-soft); background: transparent; border-color: transparent; padding-inline: 0; }
+.lineage { color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.actions { position: absolute; top: var(--s-4); right: var(--s-4); z-index: 3; }
+.actions button { width: var(--h-lg); height: var(--h-lg); background: var(--art-overlay-text); color: var(--text-soft); }
+.actions button:hover, .actions button[aria-expanded="true"] { background: var(--bg); color: var(--text); }
+@media (max-width: 1099px) { .actions button { width: var(--tap); height: var(--tap); } }

@@ -77,7 +77,7 @@ D20) and built in phase 4a; phase 4b makes the full app hold up between
 | `--cut` red | Going out, failing, rejected | proposed cut, a rule violation, Reject |
 | `--warn` amber | Off target, missing, provisional | slot under target, incomplete deck |
 | `--sel` blue | The owner's selection, focus and primary action | selected rows, focus ring, focused field; `--action` aliases it for primary buttons |
-| `--identity-*` | That deck’s colour identity | thin stripe on its card or header only |
+| `--identity-*` | That deck’s colour identity | thin stripe; a restrained tint on its gallery fallback |
 | greys | Everything else | structure, text, neutral chips, deck lifecycle |
 
 Mana symbols are the real ones from the cards (owner decision, 2026-10-29,
@@ -94,8 +94,9 @@ colour identity (`mtg/ColorIdentity`) is the same symbols at
 `--identity-pip` (12px), one image named "Colour identity: …", so roster
 cards, public profiles and collection statistics never rely on hue alone.
 The `--mana-*` colours also draw the pip chart. D21 also
-permits `--identity-*` aliases on a deck's own thin stripe, at
-`--identity-opacity`; colourless uses `--identity-grey`. A split gradient
+permits `--identity-*` aliases on a deck's own thin stripe at
+`--identity-opacity`, plus an 18% surface tint on its gallery fallback;
+colourless uses `--identity-grey`. A split gradient
 represents multiple colours. These accents never tint text or controls and
 never replace semantic colours.
 
@@ -365,26 +366,39 @@ generated or stock images, bundled images, large card images, constructed
 URLs or browser Scryfall API calls. On-demand full card pictures keep their
 printed artist and copyright lines.
 
-| Variant | Placement | Band (`--band`) | Loading |
+| Variant | Placement | Reserved frame | Loading |
 | --- | --- | --- | --- |
-| strip | Desktop and phone home cards | `--art-strip-space` | deferred: `load` from `useNearView` (200 px), then eager |
+| strip | Desktop/phone roster, public profile, style guide | `--art-aspect` (626/457) gallery frame | deferred: `load` from `useNearView` (200 px), then eager |
 | ribbon | Owner's deck editor header, every width | `--art-ribbon-space` (20 px) | eager |
 | banner | Phone deck header | `--art-banner-phone-space` on phones | eager |
 | showcase | Public deck page | `--art-showcase-space` (176 px), 112 px on phones | eager, `priority="high"` (`fetchpriority`) |
 | backdrop | Sign-in and empty-account landing only | `--art-backdrop-space` | eager; one land per visit, no rotation |
 | thumbnail | Sidebar rail, including the drawer | `--art-thumb` (16 px), the icon column | deferred: `useNearView` in the rail, `fetchpriority=low` |
 
-- **The art is a band above the content.** Content starts where the band
-  ends, on `--art-overlay-text` or darker, and the crop fades into the
-  surface below it. Nothing sits on bright art except the credit pill. The
-  frame's size comes from the band, never the image, so loading moves nothing.
-- **The credit is inside its crop, bottom-right**, on a small
-  `--art-overlay-text` pill in `--text-xs` `--muted`. Partners get one per
-  crop half. Where the commander's name is visible beside the art (roster
-  cards, deck headers, the public page) it reads "Art by <artist>"; where no
-  card is named (backdrops, the rail tooltip) "Art by <artist> · <card>".
-  Double-faced cards use the front-face name. A failed or not-yet-loaded
-  image takes its credit with it; the empty frame keeps its space.
+- **Roster tiles are pictures with a bottom caption.** The `strip` variant
+  reserves the natural `--art-aspect` (626/457), roughly 280 px tall in the
+  three-column desktop roster. The image fills that frame with no wash over
+  the upper art. Only the caption has a scrim, from transparent at its padding
+  edge to `--art-overlay-text` before any text begins. The 21 px deck name
+  leads; commanders and the wrapping metadata row use quieter 12 px text.
+  Lifecycle is plain grey; off-target counts stay amber and waiting stays
+  violet. Long titles and partner names wrap without truncation; unusually
+  long captions can grow the tile. Grid rows stretch their neighbours to match.
+  At ultrawide sizes the capped page frame gains columns instead of enlarging
+  crops. A gentle art zoom runs only with no reduced-motion preference.
+- **Gallery credits are small, flat labels inside each crop, top-left.**
+  They use `--text-xs` `--muted` on `--art-overlay-text`, with minimal padding
+  and no pill. Gallery labels show the artist name, with "Art by" retained
+  for assistive technology. The last crop leaves room for the owner's actions in the
+  top-right. Partner crops split the frame equally and each keeps its own
+  credit. Other variants retain their bottom-right credit pills and band
+  fades. Those bands read "Art by <artist>" where a commander is named
+  nearby; backdrops name the card too. Double-faced cards use the front
+  face. Failed or deferred images hide their credits and keep the same frame.
+- **No art still has a place in the gallery.** Missing commanders, unknown
+  artists and failed images retain the same frame, with a restrained identity
+  tint over the near-black surface (neutral for colourless). Identity never
+  tints readable text, controls or semantic states.
 - **The rail thumbnail is decorative** (`aria-hidden`), so the link's name is
   the deck name. Its credit is the native tooltip. It sits at
   `--art-thumb-opacity` until its row is current or hovered, replaces the
@@ -394,24 +408,33 @@ printed artist and copyright lines.
   truncate exactly where they did before thumbnails.
 - **Roster cards are one link.** The deck name's link is stretched over the
   card; the commander links and the actions menu sit above it. Cards fill
-  their grid row with the stats pinned to the bottom.
+  their grid row with the caption anchored to the bottom. The whole-link focus
+  ring runs inside the tile; the actions have their own dark surface and grow
+  to a touch target through tablet widths. The phone roster reuses `DeckCard`.
 - **Backdrops show the land unblurred** in a band at the top of a solid
   surface panel; the form or first-run choices sit on the surface below.
 - **Overlays derive from `--bg`** (`color-mix`), so a palette change carries
   them. Measured with WCAG 2.x sRGB luminance over pure white art (94%
   black overlay): muted credit 7.58:1, faint text under any band 6.97:1 or
-  better. Strip, banner, showcase and backdrop share this floor; no overlay
+  better. Gallery over pure white measures 8.82:1 for muted credit, 12.90:1 for
+  soft commander text and 17.54:1 for the title. Gallery captions and credits,
+  banner, showcase and backdrop share this floor; no overlay
   strength changes are needed for the black canvas.
 - **Identity is a 2 px stripe** at `--identity-opacity`, split for several
   colours, grey for colourless. Black uses the darker half of its pip
-  (`--identity-b`) so it never reads as white. No identity fills, tints of
-  text or controls.
+  (`--identity-b`) so it never reads as white. The gallery alone may use a
+  subtle identity surface tint; never tint text or controls.
 - **The editor's art is a ribbon** (owner direction following blind review,
   2026-10-28): a 20 px strip above the title row, fading into the header, so
   the list keeps the height a banner took. Its credit sits inside the strip
   at the right end, in `--text-xs` `--muted` on the overlay. It does not fold
   on scroll: the strip is too thin for a fold to return useful space, and it
   replaced the 72 px banner's fold. Public pages keep their showcase.
+
+The roster filters form one slim, wrapping toolbar: search and a native
+lifecycle select retain explicit accessible names; the count is a status and
+Clear filters appears while filtering. Phones place search on its own line
+and keep lifecycle and count together.
 
 Art does not appear in inbox, activity, memories, Settings, dialogs or the
 playtester content. The rail can still show thumbnails while those screens

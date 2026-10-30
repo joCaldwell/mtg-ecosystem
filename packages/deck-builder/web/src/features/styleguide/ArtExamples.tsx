@@ -22,12 +22,12 @@ function Example({ label, children }: { label: string; children: string }) {
 export function ArtExamples() {
   const { session } = useSession();
   return <Section title="Deck art · D21"><Stack gap={6}>
-    <Text>Decorative Scryfall crops in a band above the content, each credited inside its own crop. Identity is only the thin stripe. Frames reserve their space before images load.</Text>
+    <Text>Real Scryfall crops in gallery tiles and header bands, each credited inside its own crop. Frames reserve their space before images load.</Text>
     <div className={styles.grid}>
       <DeckArt cards={[AKIRI]} identity="W"><Example label="Strip · single">Roster card. The commander is named on the card, so the credit is the artist alone.</Example></DeckArt>
       <DeckArt cards={PAIR} identity="WR"><Example label="Strip · partners">Two crops, one credit in each half.</Example></DeckArt>
       <DeckArt cards={[RUNE_TAIL]} identity="W"><Example label="Strip · double-faced">Credited by its front face.</Example></DeckArt>
-      <DeckArt cards={[]}><Example label="No commander">No art; the grey stripe stands in for identity.</Example></DeckArt>
+      <DeckArt cards={[]}><Example label="No commander">No art; a quiet identity surface keeps the same gallery frame.</Example></DeckArt>
       <DeckArt cards={[{ ...AKIRI, artist: null }]} identity="W"><Example label="Unknown artist">Uncredited art is never drawn.</Example></DeckArt>
       <div className={styles.unavailable}><DeckArt cards={PAIR} identity="WR"><Example label="Image failed">The frame keeps its space; the credit goes with the picture.</Example></DeckArt></div>
     </div>
