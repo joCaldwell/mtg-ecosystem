@@ -10,9 +10,16 @@ import { Banner, Button, Dot, Kbd, Text } from "../../ui/index.ts";
 import { useDeckState } from "./DeckStore.tsx";
 import { useDeckUi } from "./DeckUi.tsx";
 import type { Review } from "./useReview.tsx";
+import { ConfirmStrip } from "./dialogs/ConfirmStrip.tsx";
 import styles from "./ProposalBanner.module.css";
 
-export function ProposalBanner({ units, review }: { units: ReviewUnit[]; review: Review }) {
+export function ProposalBanner({ units, review, confirmingAll, setConfirmingAll }: {
+  units: ReviewUnit[];
+  review: Review;
+  /** "Accept all left" asks first; ⇧A in DeckPage opens the same question. */
+  confirmingAll: boolean;
+  setConfirmingAll: (on: boolean) => void;
+}) {
   const { proposals } = useDeckState();
   const ui = useDeckUi();
 
@@ -30,17 +37,28 @@ export function ProposalBanner({ units, review }: { units: ReviewUnit[]; review:
       <Banner
         tone="agent"
         actions={
-          <>
-            <Text tone="faint" size="xs" className={styles.keys}>
-              <Kbd>J</Kbd> <Kbd>K</Kbd> move · <Kbd>A</Kbd> accept · <Kbd>R</Kbd> reject
-            </Text>
-            <Button size="sm" variant="accept" kbd="⇧A" onClick={() => void review.acceptAll()}>
-              Accept all left
-            </Button>
-            <Button size="sm" variant="ghost" kbd="Esc" onClick={ui.stopReview}>
-              Done
-            </Button>
-          </>
+          confirmingAll ? (
+            <ConfirmStrip
+              tone="accept"
+              confirmLabel="Accept"
+              onCancel={() => setConfirmingAll(false)}
+              onConfirm={() => { setConfirmingAll(false); void review.acceptAll(); }}
+            >
+              Accept {units.length} {units.length === 1 ? "decision" : "decisions"}?
+            </ConfirmStrip>
+          ) : (
+            <>
+              <Text tone="faint" size="xs" className={styles.keys}>
+                <Kbd>J</Kbd> <Kbd>K</Kbd> move · <Kbd>A</Kbd> accept · <Kbd>R</Kbd> reject
+              </Text>
+              <Button size="sm" kbd="⇧A" onClick={() => setConfirmingAll(true)}>
+                Accept all left
+              </Button>
+              <Button size="sm" variant="ghost" kbd="Esc" onClick={ui.stopReview}>
+                Done
+              </Button>
+            </>
+          )
         }
       >
         <div className={styles.line}>

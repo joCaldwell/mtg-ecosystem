@@ -6,6 +6,7 @@ import { CardRef } from "../../../mtg/index.ts";
 import { Button, Eyebrow, Text } from "../../../ui/index.ts";
 import { cx } from "../../../ui/internal.ts";
 import type { Finding } from "../../../api/client.ts";
+import { passingChecks } from "../../../domain/passingChecks.ts";
 import { useDeckList } from "../DeckListStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import styles from "./ChecksPanel.module.css";
@@ -19,6 +20,7 @@ export function ChecksPanel({ checks }: { checks: Finding[] }) {
 
   const offTarget = computed.slot_deltas.filter((d) => d.status === "under" || d.status === "over");
   const hasTargets = computed.slot_deltas.some((d) => d.status !== "untargeted");
+  const passing = passingChecks(checks, computed);
 
   return (
     <>
@@ -51,6 +53,19 @@ export function ChecksPanel({ checks }: { checks: Finding[] }) {
               </div>
             </div>
           ))
+        )}
+        {passing.length > 0 && (
+          <details className={styles.passing}>
+            <summary>Passing · {passing.length}</summary>
+            <ul>
+              {passing.map((label) => (
+                <li key={label} className={styles.finding}>
+                  <span className={cx(styles.glyph, styles.pass)} aria-hidden="true">✓</span>
+                  {label}
+                </li>
+              ))}
+            </ul>
+          </details>
         )}
       </section>
 

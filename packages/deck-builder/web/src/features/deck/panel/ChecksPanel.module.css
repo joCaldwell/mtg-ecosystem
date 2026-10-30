@@ -55,3 +55,22 @@
   justify-items: start;
   gap: var(--s-3);
 }
+
+.pass {
+  color: var(--add);
+}
+
+.passing > summary {
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  padding-block: var(--s-3);
+}
+
+.passing > ul {
+  display: grid;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

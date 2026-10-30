@@ -94,7 +94,7 @@ export function CardPanel({ card: open, backRef, bodyRef }: { card: OpenCard; ba
               <InlineText text={proposal.reason} />
             </Text>
           )}
-          <div><Button size="sm" variant="agent" onClick={() => ui.setTab("review")}>Open Review</Button></div>
+          <div><Button size="sm" variant="agent" onClick={() => (ui.reviewing ? ui.setTab("review") : ui.startReview())}>Review in the list</Button></div>
         </div>
       )}
 

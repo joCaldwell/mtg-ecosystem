@@ -12,21 +12,24 @@ export function ConfirmStrip({
   confirmLabel,
   onConfirm,
   onCancel,
+  tone = "cut",
 }: {
   children: ReactNode;
   confirmLabel: string;
   onConfirm: () => void;
   onCancel: () => void;
+  /** "accept" for a bulk accept, which is a deliberate step but not a loss. */
+  tone?: "cut" | "accept";
 }) {
   const cancel = useRef<HTMLButtonElement>(null);
   useEffect(() => cancel.current?.focus(), []);
   return (
-    <div className={styles.strip} role="alert">
+    <div className={tone === "accept" ? `${styles.strip} ${styles.accept}` : styles.strip} role="alert">
       <span className={styles.text}>{children}</span>
       <Button ref={cancel} size="sm" onClick={onCancel}>
         Cancel
       </Button>
-      <Button size="sm" variant="reject" onClick={onConfirm}>
+      <Button size="sm" variant={tone === "accept" ? "accept" : "reject"} onClick={onConfirm}>
         {confirmLabel}
       </Button>
     </div>

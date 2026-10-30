@@ -38,13 +38,15 @@ export function CardHistory({ oracleId }: { oracleId: string }) {
         {memories.map((m) => (
           <MemoryCard key={m.id} memory={m} onChanged={history.reload} />
         ))}
-      </section> : history.data && <Text tone="muted" size="sm" as="p">No linked memories</Text>}
+      </section> : history.data && decisions.length > 0 && <Text tone="muted" size="sm" as="p">No linked memories</Text>}
       {decisions.length > 0 ? <section className={styles.section}>
         <Eyebrow>Your decisions on it in this deck · {decisions.length}</Eyebrow>
         {decisions.map((r) => (
           <CardDecisionRow key={r.log_id} decision={r} />
         ))}
-      </section> : history.data && <Text tone="muted" size="sm" as="p">No decisions in this deck</Text>}
+      </section> : history.data && (memories.length > 0
+        ? <Text tone="muted" size="sm" as="p">No decisions in this deck</Text>
+        : <Text tone="muted" size="sm" as="p">No linked memories or prior decisions</Text>)}
     </>
   );
 }

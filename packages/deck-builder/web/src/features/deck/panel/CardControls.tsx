@@ -79,7 +79,6 @@ export function CardControls({ card, part = "all" }: { card: DeckCard; part?: "a
             onChange={(ids) => patch({ tag_ids: ids.map(Number) })}
             emptyText="No tags yet. Create one using Edit slots and tags."
           />
-          {card.tag_ids.length === 0 && <Text tone="muted" size="sm">No tags assigned</Text>}
           {tags.length === 0 && <Button size="sm" onClick={() => ui.openDialog("slots")}>Create a tag</Button>}
         </div>
       ),

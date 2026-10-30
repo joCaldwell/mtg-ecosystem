@@ -48,8 +48,6 @@
 .said {
   --sym-size: calc(var(--text-sm) * 1.1);
   grid-column: 1 / -1;
-  /* As tall as the active result's buttons, so moving through the list
-     never changes a row's height. */
   line-height: var(--h-sm);
   overflow: hidden;
   color: var(--muted);
@@ -62,16 +60,22 @@
   color: var(--cut);
 }
 
-/* The active result's text makes room for its actions on the same line. */
-.result:has(.actions) .text,
-.result:has(.actions) .said {
-  grid-column: 1;
+/* The active result grows downward: its rules preview takes two lines and
+   its actions get their own line, so the name, cost, type and price stay
+   together. Every other row keeps its one-line height. */
+.highlighted .text,
+.highlighted .said {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: var(--leading);
+  white-space: normal;
 }
 
 .actions {
   display: flex;
-  grid-column: 2;
+  grid-column: 1 / -1;
   align-items: center;
-  justify-content: flex-end;
   gap: var(--s-2);
+  padding-top: var(--s-2);
 }

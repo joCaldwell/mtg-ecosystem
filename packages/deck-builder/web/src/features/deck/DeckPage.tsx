@@ -6,7 +6,7 @@ import { useQuery } from "../../api/useQuery.ts";
 // deck through the two stores — and owns the keyboard shortcuts, since they
 // cut across regions.
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { href, navigate } from "../../app/routes.ts";
 import { CardOpenProvider, useCardLookup } from "../../mtg/index.ts";
 import { Banner, Button, EmptyState, Loading, Page, pressesFocusedControl, useHotkeys } from "../../ui/index.ts";
@@ -131,10 +131,15 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
     return ui.reviewing && (!inPanel || (!ui.openCard && ui.tab === "review"));
   }
 
+  // "Accept all left" asks for confirmation in the banner first.
+  const [confirmingAll, setConfirmingAll] = useState(false);
+  useEffect(() => { if (!ui.reviewing) setConfirmingAll(false); }, [ui.reviewing]);
+
   useHotkeys({
     // Escape backs out one layer at a time, innermost first.
     escape: () => {
-      if (ui.openCard) ui.openCardPanel(null);
+      if (confirmingAll) setConfirmingAll(false);
+      else if (ui.openCard) ui.openCardPanel(null);
       else if (ui.rejecting) ui.setRejecting(null);
       else if (ui.selected.length) ui.clearSelection();
       else if (ui.reviewing) ui.stopReview();
@@ -148,7 +153,7 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
       e.preventDefault(); // or the "r" lands in the reason field it opens
       ui.setRejecting(review.current.key);
     },
-    "shift+a": (event) => canReview(event) && void review.acceptAll(),
+    "shift+a": (event) => canReview(event) && setConfirmingAll(true),
   });
 
   return (
@@ -163,7 +168,7 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
               {error}
             </Banner>
           )}
-          {state.deck.category === "archived" ? <Banner tone="neutral" actions={<Button size="sm" onClick={() => ui.openDialog("fork")} aria-haspopup="dialog">Fork</Button>}>Archived decks are read-only. To make changes, switch this deck to Paper or Theorycrafted, or fork it.</Banner> : <ProposalBanner units={view.units} review={review} />}
+          {state.deck.category === "archived" ? <Banner tone="neutral" actions={<Button size="sm" onClick={() => ui.openDialog("fork")} aria-haspopup="dialog">Fork</Button>}>Archived decks are read-only. To make changes, switch this deck to Paper or Theorycrafted, or fork it.</Banner> : <ProposalBanner units={view.units} review={review} confirmingAll={confirmingAll} setConfirmingAll={setConfirmingAll} />}
           <DeckBody
             list={
               <>

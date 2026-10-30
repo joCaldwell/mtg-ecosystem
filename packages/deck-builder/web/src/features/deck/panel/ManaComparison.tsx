@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import type { DeckState } from "../../../api/client.ts";
 import { CardRef, ManaCost } from "../../../mtg/index.ts";
 import { Eyebrow, Icon, KeyValue, Stack, Text } from "../../../ui/index.ts";
@@ -23,20 +22,15 @@ const REASONS: Record<string, string> = {
 export function ManaComparison({ mana }: { mana: Mana }) {
   const face = mana.first_face, coverage = mana.coverage;
   const distributions = manaDistributions(mana);
-  // Unresolved or partial sources mean the source chart undercounts; say so
-  // beside it, and let that line open the details that already explain it.
-  const coverageRef = useRef<HTMLDetailsElement>(null);
+  // Unresolved or partial sources mean the source chart undercounts; the
+  // details then open from an amber line beside the chart rather than from a
+  // quiet row at the bottom.
   const limits = [
     coverage.unresolved_source_copies ? `${coverage.unresolved_source_copies} unresolved` : "",
     coverage.partial_source_copies ? `${coverage.partial_source_copies} partial` : "",
+    coverage.cost_issue_copies ? `${coverage.cost_issue_copies} cost issues` : "",
   ].filter(Boolean);
-  function openCoverage() {
-    const details = coverageRef.current;
-    if (!details) return;
-    details.open = true;
-    details.scrollIntoView({ block: "nearest" });
-    details.querySelector("summary")?.focus({ preventScroll: true });
-  }
+  const warn = Boolean(coverage.unresolved_source_copies || coverage.partial_source_copies);
   const flexible = (value: Mana["first_face"]) => Object.entries(value.costs.flexible_symbols).length
     ? <span className={styles.flexible}>{Object.entries(value.costs.flexible_symbols).map(([symbol, count]) => <span key={symbol}><ManaCost cost={symbol} /> × {count}</span>)}</span> : "None";
   const separateSources = (value: Mana["first_face"]) => <KeyValue items={[
@@ -50,15 +44,29 @@ export function ManaComparison({ mana }: { mana: Mana }) {
     ["Variable symbols", Object.entries(value.costs.variable_symbols).filter(([, count]) => count > 0).map(([symbol, count]) => `${symbol} × ${count}`).join(" · ") || "None"],
     ["No printed cost", `${value.costs.no_printed_cost_nonland_copies} nonland copies`],
   ]} />;
+  const coverageDetails = (
+    <details className={warn ? `${styles.details} ${styles.coverageWarning}` : styles.details}>
+      <summary>{warn && <Icon name="warning" />}{limits.length ? `Source coverage · ${limits.join(" · ")}` : "Source recognition details"}</summary>
+      <Stack gap={4}>
+      {separateSources(face)}
+      <Text size="sm" tone="soft">Across printed faces: {coverage.recognized_source_copies} source copies recognized ({coverage.partial_source_copies} partial) · {coverage.no_supported_source_pattern_copies} without a supported pattern.</Text>
+      <Text size="sm" tone="muted">Conditions, spells, fetches and granted production need review. No supported pattern means unrecognized, not a confirmed non-producer.</Text>
+      <Text size="sm" tone="muted">Counts are not available mana or casting odds.</Text>
+      <Stack gap={4}>{mana.issues.map((issue, index) => <div key={`${issue.oracle_id}/${issue.face_index}/${index}`} className={styles.issue}>
+        <div><CardRef name={issue.name} />{issue.quantity > 1 ? ` × ${issue.quantity}` : ""}</div>
+        <Text tone="muted" size="sm">{REASONS[issue.reason] ?? issue.reason}{issue.face_index > 0 ? ` · face ${issue.face_index + 1}` : ""}{issue.excerpt ? `: ${issue.excerpt}` : ""}</Text>
+      </div>)}</Stack>
+      <Text tone="faint" size="sm">Main deck and commanders only; maybe cards and the companion are excluded.</Text>
+      </Stack>
+    </details>
+  );
   return <section className={styles.section} aria-label="Mana demand and sources">
     <Eyebrow>Mana costs and sources</Eyebrow>
     <ManaDistribution series={[
       { title: "Cost demand", unit: "fixed coloured symbols", centerUnit: "symbols", distribution: distributions.costs, empty: "No fixed coloured cost symbols." },
       { title: "Direct sources", unit: "source-colour counts", centerUnit: "counts", distribution: distributions.sources, empty: "No named source colours recognized." },
     ]} />
-    {limits.length > 0 && <button type="button" className={styles.coverageWarning} onClick={openCoverage}>
-      <Icon name="warning" />Source coverage · {limits.join(" · ")}
-    </button>}
+    {warn && coverageDetails}
     {coverage.other_face_copies > 0 && <Text tone="muted" size="sm">First faces only.</Text>}
     {!distributions.sources.total && (face.sources.land.any_color_copies + face.sources.nonland.any_color_copies > 0) && <Text tone="muted" size="sm">Any-colour sources are listed under Source coverage.</Text>}
     <details className={styles.details}>
@@ -78,19 +86,6 @@ export function ManaComparison({ mana }: { mana: Mana }) {
         {otherCosts(mana.other_faces)}
       </Stack>
     </details>}
-    <details ref={coverageRef} className={styles.details}>
-      <summary>{coverage.unresolved_source_copies || coverage.partial_source_copies || coverage.cost_issue_copies ? <>Source coverage{coverage.unresolved_source_copies ? ` · ${coverage.unresolved_source_copies} unresolved` : ""}{coverage.partial_source_copies ? ` · ${coverage.partial_source_copies} partial` : ""}{coverage.cost_issue_copies ? ` · ${coverage.cost_issue_copies} cost issues` : ""}</> : "Source recognition details"}</summary>
-      <Stack gap={4}>
-      {separateSources(face)}
-      <Text size="sm" tone="soft">Across printed faces: {coverage.recognized_source_copies} source copies recognized ({coverage.partial_source_copies} partial) · {coverage.no_supported_source_pattern_copies} without a supported pattern.</Text>
-      <Text size="sm" tone="muted">Conditions, spells, fetches and granted production need review. No supported pattern means unrecognized, not a confirmed non-producer.</Text>
-      <Text size="sm" tone="muted">Counts are not available mana or casting odds.</Text>
-      <Stack gap={4}>{mana.issues.map((issue, index) => <div key={`${issue.oracle_id}/${issue.face_index}/${index}`} className={styles.issue}>
-        <div><CardRef name={issue.name} />{issue.quantity > 1 ? ` × ${issue.quantity}` : ""}</div>
-        <Text tone="muted" size="sm">{REASONS[issue.reason] ?? issue.reason}{issue.face_index > 0 ? ` · face ${issue.face_index + 1}` : ""}{issue.excerpt ? `: ${issue.excerpt}` : ""}</Text>
-      </div>)}</Stack>
-      <Text tone="faint" size="sm">Main deck and commanders only; maybe cards and the companion are excluded.</Text>
-      </Stack>
-    </details>
+    {!warn && coverageDetails}
   </section>;
 }
