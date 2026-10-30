@@ -43,7 +43,21 @@ function Line({ line }: { line: DiffLine }) {
           {line.kind === "add" ? "+" : "−"}
         </span>
       ) : null}
-      {line.text}
+      <LineText text={line.text} />
     </div>
+  );
+}
+
+/** A Markdown list line reads as a bullet, so its hyphen never stacks beside
+ *  the gutter's + or −. */
+function LineText({ text }: { text: string }) {
+  const item = /^(\s*)[-*+]\s+(.*)$/.exec(text);
+  if (!item) return <>{text}</>;
+  return (
+    <span className={styles.item}>
+      {item[1] ? <span>{item[1]}</span> : null}
+      <span className={styles.bullet} aria-hidden="true">•</span>
+      <span>{item[2]}</span>
+    </span>
   );
 }

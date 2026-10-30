@@ -4,7 +4,7 @@
 // own row, a proposal item naming it, then a lookup by name.
 
 import { useLive } from "../../../api/live.tsx";
-import { useEffect, useState, type Ref } from "react";
+import { useEffect, useId, useState, type Ref } from "react";
 import { ptString } from "../../../domain/cards.ts";
 import { formatPrice } from "../../../domain/price.ts";
 import { pendingOf } from "../../../domain/grouping.ts";
@@ -26,6 +26,8 @@ export function CardPanel({ card: open, backRef, bodyRef }: { card: OpenCard; ba
   const { lookup } = useCardLookup();
 
   const owned = state.cards.find((c) => c.oracle_id === open.oracleId);
+  const slotsOnAdd = !!owned?.maybe && state.deck.category !== "archived";
+  const onAddId = useId();
   const proposals = pendingOf(state).filter((i) => i.oracle_id === open.oracleId);
   const proposal = proposals[0];
   // Attribution for a pending item: who proposed it reads `handle via label`.
@@ -108,11 +110,16 @@ export function CardPanel({ card: open, backRef, bodyRef }: { card: OpenCard; ba
       <div className={styles.facts}>
         <CardImage name={open.name} card={info} />
         <div className={styles.side}>
-          {owned && <CardControls card={owned} />}
+          {owned && <CardControls card={owned} part={slotsOnAdd ? "rest" : "all"} />}
         </div>
       </div>
 
       {state.deck.category !== "archived" && <CardActions oracleId={open.oracleId} owned={owned} />}
+      {/* A maybe card's slots take effect when it joins the deck, so they sit under that action. */}
+      {slotsOnAdd && owned && <section className={styles.onAdd} aria-labelledby={onAddId}>
+        <Text as="h3" id={onAddId} size="sm" tone="soft" weight="medium">Slot when added</Text>
+        <CardControls card={owned} part="slots" />
+      </section>}
       <CardHistory oracleId={open.oracleId} />
       </div>
     </>

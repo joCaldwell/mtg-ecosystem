@@ -8,10 +8,13 @@ export interface IconButtonProps
   label: string;
   /** `touch` is one touch target tall (--tap), for phone and touch layouts. */
   size?: "sm" | "md" | "touch";
+  /** `danger`: a grey bordered button that turns red on hover or focus, for a
+   *  destructive row action (delete, remove) that should not dominate the row. */
+  tone?: "plain" | "danger";
 }
 
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
-  { label, size = "md", type = "button", className, children, ...rest },
+  { label, size = "md", tone = "plain", type = "button", className, children, ...rest },
   ref,
 ) {
   return (
@@ -20,7 +23,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
       type={type}
       aria-label={label}
       title={label}
-      className={cx(styles.iconButton, size === "sm" && styles.sm, size === "touch" && styles.touch, className)}
+      className={cx(styles.iconButton, size === "sm" && styles.sm, size === "touch" && styles.touch, tone === "danger" && styles.danger, className)}
       {...rest}
     >
       {children}

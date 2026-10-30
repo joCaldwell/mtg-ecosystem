@@ -1,12 +1,10 @@
 .section, .face, .issue { display: grid; gap: var(--s-4); min-width: 0; }
-.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--deck-mana-chart-min)), 1fr)); gap: var(--s-6); align-items: start; }
 .face { gap: var(--s-3); }
 .flexible { display: flex; flex-wrap: wrap; gap: var(--s-3) var(--s-5); }
 .flexible > span { display: inline-flex; align-items: center; gap: var(--s-2); white-space: nowrap; }
 .details > summary { color: var(--text-soft); cursor: pointer; padding-block: var(--s-3); }
 .details[open] > summary { margin-bottom: var(--s-4); }
 .issue { gap: var(--s-1); overflow-wrap: anywhere; }
-.sourceChart { display: grid; gap: var(--s-4); min-width: 0; }
 /* Amber: the source chart has coverage limits. Opens Source coverage below. */
 .coverageWarning {
   display: inline-flex;

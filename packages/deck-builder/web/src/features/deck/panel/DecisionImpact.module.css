@@ -1,0 +1,18 @@
+.impact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-4);
+  margin: 0 0 var(--s-4);
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+}
+
+.label {
+  color: var(--muted);
+}
+
+.impact > span + span:not(:nth-child(2))::before {
+  content: "·";
+  margin-right: var(--s-4);
+  color: var(--faint);
+}

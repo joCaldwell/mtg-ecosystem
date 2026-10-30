@@ -23,6 +23,18 @@
   font-size: var(--text-sm);
 }
 
+/* Invisible padding: percentages of the button's own height, so any size
+   reaches --tap without moving its border. */
+.reach { position: relative; }
+.reach::before {
+  content: "";
+  position: absolute;
+  top: calc((100% - var(--tap)) / 2);
+  bottom: calc((100% - var(--tap)) / 2);
+  left: calc(-1 * var(--s-2));
+  right: calc(-1 * var(--s-2));
+}
+
 .ghost {
   border-color: transparent;
   background: none;

@@ -101,7 +101,7 @@ const MANA: Token[] = [
 ];
 
 const SIZES = [
-  { token: "--text-2xs", px: "10px", sample: "Key caps and the smallest tags" },
+  { token: "--text-2xs", px: "11px", sample: "Key caps and the smallest tags" },
   { token: "--text-xs", px: "12px", sample: "Labels, eyebrows, meta" },
   { token: "--text-sm", px: "12px", sample: "Secondary text, small buttons, table cells" },
   { token: "--text-md", px: "13px", sample: "Body text: card names, oracle text, fields" },

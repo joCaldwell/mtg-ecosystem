@@ -5,6 +5,6 @@
   border-bottom-width: 2px;
   border-radius: var(--r-sm);
   background: var(--bg);
-  color: var(--muted);
+  color: var(--text-soft);
   font: var(--text-2xs) / 1.2 var(--font-mono);
 }

@@ -4,7 +4,7 @@ import { formatPrice } from "../../../domain/price.ts";
 // every decision without the client recounting anything.
 
 import { formatTarget } from "../../../domain/grouping.ts";
-import { Box, Eyebrow, Text } from "../../../ui/index.ts";
+import { Text } from "../../../ui/index.ts";
 import { useDeckState } from "../DeckStore.tsx";
 import styles from "./ReviewDelta.module.css";
 
@@ -20,7 +20,7 @@ interface DeltaRow {
 }
 
 export function ReviewDelta() {
-  const { computed, slots, proposals } = useDeckState();
+  const { computed, slots } = useDeckState();
   const { pending } = computed;
 
   const rows: DeltaRow[] = [
@@ -50,9 +50,12 @@ export function ReviewDelta() {
     });
   }
 
+  // Closed by default: the focused decision carries its own impact line, and
+  // this one describes accepting everything still open.
   return (
-    <Box>
-      <Eyebrow>If {proposals.length > 1 ? "all " : ""}{proposals.length} pending {proposals.length === 1 ? "proposal is" : "proposals are"} accepted</Eyebrow>
+    <details className={styles.all}>
+      <summary>All pending proposals</summary>
+      <div className={styles.body}>
       <div className={styles.delta}>
         {rows.map((r) => (
           <div key={r.key} className={styles.row}>
@@ -75,6 +78,7 @@ export function ReviewDelta() {
         ))}
       </div>
       {computed.cost.as_of && <Text size="sm" tone="muted">Estimated cost: {formatPrice(computed.cost.cents, computed.cost.currency)} → {formatPrice(computed.pending.projected_cost.cents, computed.cost.currency)} · {computed.pending.projected_cost.unpriced} unpriced cards · {computed.cost.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} · {computed.cost.as_of.slice(0, 10)}</Text>}
-    </Box>
+      </div>
+    </details>
   );
 }

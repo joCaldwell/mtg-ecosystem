@@ -24,3 +24,24 @@
 .to {
   text-align: right;
 }
+
+.all {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+
+.all > summary {
+  padding: var(--s-4) var(--s-5);
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.all > summary:hover { color: var(--text); }
+
+.body {
+  display: grid;
+  gap: var(--s-4);
+  padding: 0 var(--s-5) var(--s-5);
+}
