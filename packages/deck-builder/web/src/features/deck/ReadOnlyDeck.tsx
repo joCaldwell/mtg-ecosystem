@@ -28,6 +28,7 @@ import { layoutDeck, UNFILED_KEY } from "../../domain/grouping.ts";
 import styles from "./ReadOnlyDeck.module.css";
 
 const CardSheet = lazy(() => import("../../mtg/CardSheet.tsx").then(m => ({ default: m.CardSheet })));
+const TokenSheet = lazy(() => import("./panel/TokenSheet.tsx").then(m => ({ default: m.TokenSheet })));
 
 export interface ReadOnlyDeckProps {
   model: ReadOnlyDeckModel;
@@ -43,7 +44,7 @@ export interface ReadOnlyDeckProps {
 
 export function ReadOnlyDeck(props: ReadOnlyDeckProps) {
   return (
-    <DeckListProvider state={props.model.list} readOnly viewer={props.model.viewer}>
+    <DeckListProvider state={props.model.list} tokens={props.model.tokens} readOnly viewer={props.model.viewer}>
       <DeckUiProvider>
         <ReadOnlyBody {...props} />
       </DeckUiProvider>
@@ -89,7 +90,8 @@ function ReadOnlyBody({ model, header, decisions, listNavigation, useView = useP
     for (const p of model.list.proposals) for (const i of p.items) if (!cards.has(i.oracle_id)) cards.set(i.oracle_id, { ...i, name: i.card_name });
     return cards;
   }, [model.list]);
-  const open = ui.openCard ? known.get(ui.openCard.oracleId) ?? null : null;
+  const open = ui.openCard && !ui.openCard.token ? known.get(ui.openCard.oracleId) ?? null : null;
+  const openToken = ui.openCard?.token ? model.tokens.tokens.find((t) => t.oracle_id === ui.openCard!.oracleId) ?? null : null;
   const close = () => { ui.openCardPanel(null); setNamed(null); };
 
   // A card named in prose ([[Card Name]]) opens the same sheet.
@@ -191,6 +193,7 @@ function ReadOnlyBody({ model, header, decisions, listNavigation, useView = useP
             </aside>
           </div>
           <Suspense fallback={null}>{(open ?? named) && <CardSheet card={(open ?? named)!} onClose={close} sheet={phone} />}</Suspense>
+          <Suspense fallback={null}>{openToken && !named && <TokenSheet token={openToken} onClose={close} sheet={phone} />}</Suspense>
         </div>
       </DeckViewProvider>
     </CardOpenProvider>

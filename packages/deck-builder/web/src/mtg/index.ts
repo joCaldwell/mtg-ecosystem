@@ -22,3 +22,6 @@ export { CardInspection } from "./table/CardInspection.tsx";
 
 export { DeckThumbnail } from "./DeckThumbnail.tsx";
 export { DeckCard } from "./DeckCard.tsx";
+export { TokenRow } from "./TokenRow.tsx";
+export { TokenDetail } from "./TokenDetail.tsx";
+export { tokenCardInfo } from "./tokenCard.ts";

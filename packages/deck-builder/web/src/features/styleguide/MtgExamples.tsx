@@ -23,6 +23,7 @@ import {
   type CardInfo,
 } from "../../mtg/index.ts";
 import { Button, Row } from "../../ui/index.ts";
+import { TokenExamples } from "./TokenExamples.tsx";
 import styles from "./MtgExamples.module.css";
 
 const SYMBOLS = ["W", "U", "B", "R", "G", "C", "X", "0", "3", "12", "½", "∞", "S", "T", "Q", "E"];
@@ -265,6 +266,10 @@ export function MtgExamples() {
               <ColorIdentity colors="G" />
               <ColorIdentity colors="" />
             </div>
+          </Example>
+
+          <Example title="TokenRow and TokenDetail" note="A token or emblem the deck makes: one row each in the Tokens section after the maybe list, and its details in the side panel (a dialog on a read-only deck). Hover a row for its picture; ? inspects. In the deck, the cards that make it are list rows that open their own details.">
+            <TokenExamples />
           </Example>
 
           {cards ? (

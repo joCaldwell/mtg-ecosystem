@@ -1,9 +1,10 @@
 // The deck as a list (spec §5): commanders first, then the groups in columns,
-// then the maybe list. In review mode it shows the deck as it would be if
-// every pending item were accepted, drawn in place rather than in a side list,
-// so the owner judges a swap by what the list looks like after it. A find
-// query or tag filter hides the rows, groups and maybe cards that do not
-// match; totals elsewhere keep describing the whole deck.
+// then the maybe list, then the tokens the deck makes. In review mode it
+// shows the deck as it would be if every pending item were accepted, drawn in
+// place rather than in a side list, so the owner judges a swap by what the
+// list looks like after it. A find query or tag filter hides the rows, groups
+// and maybe cards that do not match, and the tokens no matching card makes;
+// totals elsewhere keep describing the whole deck.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import type { ProposalItem } from "../../../api/client.ts";
@@ -16,6 +17,7 @@ import type { DeckViewModel } from "../useDeckView.ts";
 import { GroupBlock } from "./GroupBlock.tsx";
 import { MARK_LABEL, Mark, type MarkKind } from "./Mark.tsx";
 import { MaybeList } from "./MaybeList.tsx";
+import { TokenList } from "./TokenList.tsx";
 import { useContinuedGroups } from "./useContinuedGroups.ts";
 import styles from "./DeckList.module.css";
 
@@ -153,6 +155,7 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
             ))}
           </div>
           <MaybeList cards={layout.maybe} filter={filter} />
+          <TokenList filter={filter} />
         </>
       )}
       {/* The markers are the owner's workflow; a viewer's list has none. */}
