@@ -10,6 +10,9 @@ const PATHS = {
   profile: "M8 8a3 3 0 100-6 3 3 0 000 6z M2.5 14c.6-3 2.8-4 5.5-4s4.9 1 5.5 4",
   settings: "M2 5h7 M12 5h2 M2 11h2 M7 11h7 M10.5 3.5v3 M5.5 9.5v3",
   back: "M13 8H3 M7 4L3 8l4 4",
+  // The left rail itself: a panel with its divider, the chevron says which way it moves.
+  sidebarCollapse: "M3 2.5h10a1 1 0 011 1v9a1 1 0 01-1 1H3a1 1 0 01-1-1v-9a1 1 0 011-1z M6 2.5v11 M11 6L9 8l2 2",
+  sidebarExpand: "M3 2.5h10a1 1 0 011 1v9a1 1 0 01-1 1H3a1 1 0 01-1-1v-9a1 1 0 011-1z M6 2.5v11 M9 6l2 2-2 2",
   close: "M4 4l8 8 M12 4l-8 8",
   check: "M3 8.5l3.2 3.2L13 4.8",
   plus: "M8 3v10 M3 8h10",

@@ -76,7 +76,7 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
       {brand && <div className={styles.brand}>
         <span className={styles.brandName}><BrandMark className={styles.mark} />{!collapsed && "Deck Builder"}</span>
         {onToggle && <IconButton label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed} onClick={onToggle} disabled={toggleDisabled} className={styles.toggle}>
-          <Icon name="back" className={collapsed ? styles.expandIcon : undefined} />
+          <Icon name={collapsed ? "sidebarExpand" : "sidebarCollapse"} />
         </IconButton>}
       </div>}
 
