@@ -72,15 +72,14 @@ export function BriefPanel() {
         <div className={styles.head}>
           <Eyebrow>Engines</Eyebrow>
           {!form && !readOnly && (
-            <Button size="sm" onClick={() => setForm({})}>
+            <Button size="sm" reach onClick={() => setForm({})}>
               Add an engine
             </Button>
           )}
         </div>
         {brief.engines.length === 0 && !form && (
           <Text tone="muted" size="sm" as="p">
-            No engines named yet. An engine is a combo or plan the deck is built around; its pieces are checked
-            against the list.
+            No engines yet
           </Text>
         )}
         {brief.engines.map((engine) =>

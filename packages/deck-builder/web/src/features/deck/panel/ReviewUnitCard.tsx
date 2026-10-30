@@ -10,6 +10,7 @@ import { DecisionControls } from "../../decisions/index.ts";
 import { useDeckUi } from "../DeckUi.tsx";
 import type { Review } from "../useReview.tsx";
 import { revealReviewUnit } from "../reviewArrival.ts";
+import { DecisionImpact } from "./DecisionImpact.tsx";
 import { ReviewItemLine } from "./ReviewItemLine.tsx";
 import styles from "./ReviewUnitCard.module.css";
 
@@ -61,6 +62,7 @@ export function ReviewUnitCard({ unit, index, review, focused, reason, onReason 
         ))}
       </div>
       <div className={styles.foot}>
+        <DecisionImpact unit={unit} />
         <DecisionControls
           rejecting={ui.rejecting === unit.key}
           onAccept={(text) => void review.accept(unit, text, () => onReason(""))}

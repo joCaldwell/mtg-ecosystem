@@ -52,18 +52,15 @@ export function ManaComparison({ mana }: { mana: Mana }) {
   ]} />;
   return <section className={styles.section} aria-label="Mana demand and sources">
     <Eyebrow>Mana costs and sources</Eyebrow>
-    <div className={styles.charts}>
-      <ManaDistribution title="Cost demand" unit="fixed coloured symbols" centerUnit="symbols" distribution={distributions.costs} empty="No fixed coloured cost symbols." />
-      <div className={styles.sourceChart}>
-        <ManaDistribution title="Direct sources" unit="source-colour counts" centerUnit="counts" distribution={distributions.sources} empty="No named source colours recognized." />
-        {limits.length > 0 && <button type="button" className={styles.coverageWarning} onClick={openCoverage}>
-          <Icon name="warning" />Source coverage · {limits.join(" · ")}
-        </button>}
-      </div>
-    </div>
+    <ManaDistribution series={[
+      { title: "Cost demand", unit: "fixed coloured symbols", centerUnit: "symbols", distribution: distributions.costs, empty: "No fixed coloured cost symbols." },
+      { title: "Direct sources", unit: "source-colour counts", centerUnit: "counts", distribution: distributions.sources, empty: "No named source colours recognized." },
+    ]} />
+    {limits.length > 0 && <button type="button" className={styles.coverageWarning} onClick={openCoverage}>
+      <Icon name="warning" />Source coverage · {limits.join(" · ")}
+    </button>}
     {coverage.other_face_copies > 0 && <Text tone="muted" size="sm">First faces only.</Text>}
-    {separateSources(face)}
-    {!distributions.sources.total && (face.sources.land.any_color_copies + face.sources.nonland.any_color_copies > 0) && <Text tone="muted" size="sm">Any-colour sources are listed separately.</Text>}
+    {!distributions.sources.total && (face.sources.land.any_color_copies + face.sources.nonland.any_color_copies > 0) && <Text tone="muted" size="sm">Any-colour sources are listed under Source coverage.</Text>}
     <details className={styles.details}>
       <summary>Exact colour counts</summary>
       <ManaFaceTable face={face} />
@@ -84,6 +81,7 @@ export function ManaComparison({ mana }: { mana: Mana }) {
     <details ref={coverageRef} className={styles.details}>
       <summary>{coverage.unresolved_source_copies || coverage.partial_source_copies || coverage.cost_issue_copies ? <>Source coverage{coverage.unresolved_source_copies ? ` · ${coverage.unresolved_source_copies} unresolved` : ""}{coverage.partial_source_copies ? ` · ${coverage.partial_source_copies} partial` : ""}{coverage.cost_issue_copies ? ` · ${coverage.cost_issue_copies} cost issues` : ""}</> : "Source recognition details"}</summary>
       <Stack gap={4}>
+      {separateSources(face)}
       <Text size="sm" tone="soft">Across printed faces: {coverage.recognized_source_copies} source copies recognized ({coverage.partial_source_copies} partial) · {coverage.no_supported_source_pattern_copies} without a supported pattern.</Text>
       <Text size="sm" tone="muted">Conditions, spells, fetches and granted production need review. No supported pattern means unrecognized, not a confirmed non-producer.</Text>
       <Text size="sm" tone="muted">Counts are not available mana or casting odds.</Text>

@@ -15,6 +15,24 @@
   color: var(--text);
 }
 
+.danger {
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+}
+
+.danger:hover:not(:disabled),
+.danger:focus-visible {
+  border-color: var(--cut);
+  background: var(--cut-bg);
+  color: var(--cut);
+}
+
+.danger:disabled {
+  color: var(--disabled-ink);
+  border-color: var(--disabled-line);
+  background: none;
+}
+
 .sm {
   width: var(--h-sm);
   height: var(--h-sm);

@@ -37,6 +37,8 @@ export function isDoctorPair(cards: { type_line: string; oracle_text: string }[]
   );
 }
 
+const cardCount = (n: number) => `${n} ${n === 1 ? "card" : "cards"}`;
+
 export function checkDeck(db: Database, actor: Actor, deckId: number): Finding[] {
   requireDeck(db, actor, deckId);
   const { deck, cards, computed } = getDeck(db, actor, deckId);
@@ -50,8 +52,8 @@ export function checkDeck(db: Database, actor: Actor, deckId: number): Finding[]
       title: `Deck is ${computed.card_count}/100`,
       detail:
         computed.delta_to_100 < 0
-          ? `${-computed.delta_to_100} card(s) short of 100 (commanders count, the companion doesn't).`
-          : `${computed.delta_to_100} card(s) over 100.`,
+          ? `${cardCount(-computed.delta_to_100)} short of 100 · commanders count, companions don't`
+          : `${cardCount(computed.delta_to_100)} over 100`,
     });
   }
 
@@ -136,7 +138,7 @@ export function checkDeck(db: Database, actor: Actor, deckId: number): Finding[]
         key: `slot_${s.status}:${s.slot_id}`,
         severity: "warn",
         title: `${s.name} is ${s.status} target (${s.count}/${s.target_min ?? 0}–${s.target_max ?? "∞"})`,
-        detail: `${Math.abs(s.delta)} card(s) ${s.status === "under" ? "below the minimum" : "above the maximum"}. Targets are soft — adjust the slot target if this count is deliberate.`,
+        detail: `${cardCount(Math.abs(s.delta))} ${s.status === "under" ? "below the minimum" : "above the maximum"}. Targets are soft — adjust the slot target if this count is deliberate.`,
       });
     }
   }

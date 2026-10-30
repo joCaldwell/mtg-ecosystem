@@ -13,7 +13,8 @@ import styles from "./CardControls.module.css";
 // and Moxfield name them.
 const BOARDS: Record<DeckCard["role"], string> = { card: "Main deck", commander: "Commander", companion: "Companion" };
 
-export function CardControls({ card }: { card: DeckCard }) {
+/** `slots` and `rest` split the fields for a maybe card, whose slots apply when it is added. */
+export function CardControls({ card, part = "all" }: { card: DeckCard; part?: "all" | "slots" | "rest" }) {
   const { slots, tags, deck } = useDeckState();
   const { deckId, run } = useDeck();
   const ui = useDeckUi();
@@ -126,5 +127,6 @@ export function CardControls({ card }: { card: DeckCard }) {
     ["Tags", tags.filter(t => card.tag_ids.includes(t.id)).map(t => t.name).join(", ") || "None"],
     ["Board", BOARDS[card.role]], ["Copies", card.quantity],
   ]} className={styles.kv} />;
-  return <KeyValue items={rows} className={styles.kv} />;
+  const shown = part === "slots" ? rows.slice(0, 2) : part === "rest" ? rows.slice(2) : rows;
+  return <KeyValue items={shown} className={styles.kv} />;
 }

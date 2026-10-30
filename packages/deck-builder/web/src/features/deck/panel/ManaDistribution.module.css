@@ -1,8 +1,9 @@
-.figure { display: grid; gap: var(--s-4); margin: 0; min-width: 0; align-content: start; }
+.distribution { display: grid; gap: var(--s-5); min-width: 0; }
+.donuts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-5); }
+.figure { display: grid; gap: var(--s-4); margin: 0; min-width: 0; align-content: start; justify-items: center; text-align: center; }
 .caption { display: grid; gap: var(--s-1); }
 .caption h2 { margin: 0; font-size: var(--text-md); font-weight: 600; }
 .caption > span { color: var(--muted); font-size: var(--text-sm); }
-.chart { display: grid; grid-template-columns: var(--deck-mana-donut) minmax(0, 1fr); align-items: center; gap: var(--s-5); min-width: 0; }
 .donut { display: block; width: var(--deck-mana-donut); height: var(--deck-mana-donut); }
 .track { stroke: var(--line-strong); }
 .total { fill: var(--text); font: 600 var(--text-xl) var(--font-mono); }
@@ -14,13 +15,17 @@
 .G { --slice: var(--mana-g); }
 .slice { stroke: var(--slice); }
 .blackEdge { stroke: var(--mana-b-ring); }
-.legend { display: grid; gap: var(--s-3); margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); }
-.legend > li { display: grid; grid-template-columns: minmax(0, 1fr) max-content max-content; gap: var(--s-3); align-items: center; }
+/* One compact table under both donuts: each series a count and a share. */
+.legend { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.legend th, .legend td { padding: var(--s-2) var(--s-2); }
+.legend thead th { color: var(--muted); font-weight: 500; text-align: right; padding-bottom: var(--s-3); border-bottom: 1px solid var(--line); }
+.legend tbody th { text-align: left; font-weight: 400; }
+.legend tbody tr:first-child > * { padding-top: var(--s-3); }
 .colour { display: inline-flex; align-items: center; gap: var(--s-3); }
 .colour > i { width: var(--s-4); height: var(--s-4); flex: none; background: var(--slice); border-radius: var(--r-pill); }
 .colour > i.B { box-shadow: inset 0 0 0 1px var(--mana-b-ring); }
-.legend b, .share { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-.legend b { font-weight: 500; }
-.share { min-width: 5ch; text-align: right; color: var(--muted); }
+.count, .share { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
+.count { font-weight: 500; }
+.share { width: 6ch; color: var(--muted); }
 .empty { margin: 0; color: var(--muted); font-size: var(--text-sm); }
-@media (forced-colors: active) { .donut { display: none; } .chart { display: block; } .colour > i { display: none; } }
+@media (forced-colors: active) { .donut { display: none; } .colour > i { display: none; } }

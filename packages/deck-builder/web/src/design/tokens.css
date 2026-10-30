@@ -117,7 +117,8 @@
      beside the sans, so the named Linux faces come before it. */
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Cascadia Mono", "Segoe UI Mono", Consolas,
     "Roboto Mono", "Ubuntu Mono", "DejaVu Sans Mono", "Noto Sans Mono", "Liberation Mono", monospace;
-  --text-2xs: 10px;
+  /* Key caps: at 10px the letters read as dim specks beside 12px labels. */
+  --text-2xs: 11px;
   /* Labels and meta (dates, "Adding to", credits, attribution). 12px, the
      same as --text-sm: at 11px mid-grey meta was hard to read on black. */
   --text-xs: 12px;
@@ -210,7 +211,6 @@
   --page-wide: 1440px;
   --stats-column-min: 280px;
   /* Deck Stats charts: independent of collection-wide summary layouts. */
-  --deck-mana-chart-min: 288px;
   --deck-mana-donut: 112px;
   --deck-curve-bar-height: 112px;
   --deck-curve-height: 152px;

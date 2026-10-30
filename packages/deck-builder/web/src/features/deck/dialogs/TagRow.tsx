@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { Tag } from "../../../api/client.ts";
-import { Button, TextField } from "../../../ui/index.ts";
+import { Icon, IconButton, TextField } from "../../../ui/index.ts";
 import { ConfirmStrip } from "./ConfirmStrip.tsx";
 import styles from "./TagsSection.module.css";
 
@@ -52,9 +52,9 @@ export function TagRow({ tag, onRename, onDelete, onRevert }: Props) {
           onKeyDown={onKeyDown}
           aria-label={`Name of the tag ${tag.name}`}
         />
-        <Button size="sm" variant="reject" onClick={() => setConfirming(true)} aria-label={`Delete tag ${tag.name}`}>
-          Delete
-        </Button>
+        <IconButton tone="danger" onClick={() => setConfirming(true)} label={`Delete ${tag.name}`}>
+          <Icon name="trash" />
+        </IconButton>
       </div>
       {confirming ? (
         <ConfirmStrip confirmLabel="Delete tag" onCancel={() => setConfirming(false)} onConfirm={() => onDelete(tag.id)}>

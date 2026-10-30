@@ -12,14 +12,16 @@
 
 .navigation { flex: none; padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--line); }
 .navigation[data-inspecting] { border-bottom: 0; }
-.navigation:has(.links) { padding: var(--s-2); }
-.links { display: flex; flex-wrap: nowrap; gap: var(--s-1); align-items: center; }
-.links > button { position: relative; display: inline-flex; flex: 1 0 auto; align-items: center; justify-content: center; gap: var(--s-2); padding: var(--s-3) var(--s-1); color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
+.navigation:has(.links) { padding: 0 var(--s-2); }
+/* Each view's whole column of the strip is its target: full strip height and
+   at least one touch target wide, with no dead gap between neighbours. */
+.links { display: flex; flex-wrap: nowrap; align-items: stretch; }
+.links > button { position: relative; display: inline-flex; flex: 1 0 auto; align-items: center; justify-content: center; gap: var(--s-2); min-width: var(--tap); padding: calc(var(--s-3) + var(--s-2)) var(--s-1); color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
 .links > button:hover { color: var(--text); }
-.links > button:focus-visible { outline-offset: 0; border-radius: var(--r-sm); }
+.links > button:focus-visible { outline-offset: -2px; border-radius: var(--r-sm); }
 /* One highlight: the current view is bright with a 2 px bar along its foot;
    every other view is grey. Review's waiting decisions are its violet pill. */
-.links > button::after { content: ""; position: absolute; right: var(--s-2); bottom: calc(-1 * var(--s-2)); left: var(--s-2); height: 2px; border-radius: var(--r-pill); background: transparent; }
+.links > button::after { content: ""; position: absolute; right: var(--s-2); bottom: 0; left: var(--s-2); height: 2px; border-radius: var(--r-pill); background: transparent; }
 .links > button[aria-current] { color: var(--text); }
 .links > button[aria-current]::after { background: var(--text); }
 .count { min-width: var(--s-6); padding-inline: var(--s-1); text-align: center; }

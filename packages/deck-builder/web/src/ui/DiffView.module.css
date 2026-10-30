@@ -22,6 +22,16 @@
   text-decoration: none;
 }
 
+.item {
+  display: flex;
+  gap: var(--s-3);
+}
+
+.bullet {
+  flex: none;
+  color: var(--muted);
+}
+
 .add {
   background: var(--add-bg);
 }

@@ -207,11 +207,11 @@ or about this app.
 
 | Component | For | Variants |
 | --- | --- | --- |
-| `Button` | Any action | `default` `ghost` `primary` `accept` `reject` `agent`; `sm` `md` `touch`; `kbd` hint; disabled is one neutral look for every variant: no fill, `--disabled-ink` label and `--disabled-line` border, visible but clearly unavailable |
+| `Button` | Any action | `default` `ghost` `primary` `accept` `reject` `agent`; `sm` `md` `touch`; `kbd` hint; `reach` (invisible padding to `--tap` tall, for compact Edit controls); disabled is one neutral look for every variant: no fill, `--disabled-ink` label and `--disabled-line` border, visible but clearly unavailable |
 | `ButtonLink` | A link drawn as a Button, for an action that navigates | `default` `ghost` `primary`; `sm` `md` `touch` |
-| `IconButton` | An action with only an icon; `label` is required | `sm` `md` `touch` |
-| `Icon` | The 18 line icons (inbox, decks, memories, activity, profile, settings, back, close, check, plus, chevronDown, undo, redo, search, more, globe, link, warning) | `size` |
-| `Kbd` | A key cap | |
+| `IconButton` | An action with only an icon; `label` is required | `sm` `md` `touch`; tone `danger` (grey bordered, red only on hover or focus: row Delete and Remove) |
+| `Icon` | The 19 line icons (inbox, decks, memories, activity, profile, settings, back, close, check, plus, chevronDown, undo, redo, search, more, globe, link, trash, warning) | `size` |
+| `Kbd` | A key cap, `--text-2xs` (11 px) in `--text-soft` | |
 | `Chip` | A small tag or filter; a button when given `onClick` | tone `neutral` `agent` `warn` `add` `cut`; `dashed` for unconfirmed |
 | `Badge` | A count pill | `neutral` `agent` `warn` |
 | `Pill` | A selectable filter in a row of filters; `aria-pressed` carries the state | `on` |
@@ -237,7 +237,7 @@ or about this app.
 | `Explainer` | Specifically labelled help for unfamiliar concepts | closed, open, keyboard focus, close/Escape and focus return; `defaultOpen` (style guide only); `control` (opened by a menu item, beside its anchor, no trigger of its own) |
 | `Popover`, `placeNear` | A panel anchored to an element, kept inside the viewport | placement `below` `right` `above` `left`; `align` |
 | `ToastProvider`, `useToast` | One toast at a time with an optional action, and a second after it (wrapping below the message where narrow); bottom left at 1100 px and wider (over the sidebar footer, clear of the deck list and the panel's actions), bottom centre below | `duration`; `action` with `kbd`; `secondaryAction` |
-| `DiffView` | Added and deleted lines | line kind `same` `add` `del`; `foldSame` (each unchanged run one closed native disclosure, "4 unchanged lines") |
+| `DiffView` | Added and deleted lines | line kind `same` `add` `del`; `foldSame` (each unchanged run one closed native disclosure, "4 unchanged lines"); Markdown list lines draw a bullet, not their hyphen |
 | `Table`, `ClickableRow` | Plain tables with small uppercase headers; rows that open something | |
 | `CounterControl` | Visible increment/decrement controls and a numeric readout | labeled, disabled |
 | `KeyValue` | Two-column label and value list | |
