@@ -1222,7 +1222,7 @@ snapshot plus compatible code and reconciliation of writes made after it.
   User 1 is claimed with **18 decks/36 memories**. All per-deck USD totals,
   deck names/revisions and memory-row fingerprints match the saved v12
   baseline. No FK errors; the staging claim variable is absent.
-- Job tests prove one redacted error survives hosted child transport, raw
+- Job diagnostics are designed so one redacted error survives hosted child transport, raw
   messages/bodies do not, failed backups retry hourly, and last successful
   backup/staleness survives failures. Admin Settings exposes the 36-hour
   warning; public health stays minimal. The gate passed **1003/1003**, both
@@ -1241,7 +1241,7 @@ for verification rather than forcing a down migration.
 ## Round-2 retention correction
 
 Automatic retention selects the **newest**, rather than first, snapshot per
-UTC day/month. Regression tests cover a legacy date-only key with a later
+UTC day/month. Retention supports a legacy date-only key with a later
 same-day timestamp, monthly newest selection, archive listing/deletion
 exclusion and unconditional protection of the just-uploaded key. Deliberate
 pre-change recovery points use `archive/pre-promotion/` and owner-only manual

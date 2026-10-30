@@ -14,3 +14,6 @@ byte (LF, no trailing newline).
 | `precon-hail-caesar.*` | https://moxfield.com/decks/hvwCjVVsAEOBXY5fP57jzQ | a split card written with one slash |
 | `najeela.*` | https://moxfield.com/decks/jT8Y9X4tlUmeNZ2AjkD1Vg | sideboard, foils, collector number 1492★ |
 | `kinnan-midrange.*` | https://moxfield.com/decks/OYpsy84lZU-HPrQiW9hmdQ | etched (*E*), 4-letter sets, 1F★ |
+
+The focused suite retains two representative exports. Plain-text exports and the
+Najeela printing export also support ux-eval; unused export variants were removed.
