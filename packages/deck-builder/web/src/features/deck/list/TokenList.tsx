@@ -22,7 +22,7 @@ export function TokenList({ filter }: { filter?: DeckFilterMatches }) {
   const shown = filterTokens(tokens, filter);
   if (filtering && shown.length === 0) return null;
 
-  const line = !status.ready ? "Token list not available yet." : tokens.length === 0 ? "This deck makes no tokens." : null;
+  const line = !status.ready ? "Token list not available yet." : tokens.length === 0 ? "No related tokens or emblems found." : null;
   return (
     <div className={styles.cols}>
       <section className={shown.length > LONG_LIST ? `${styles.tokens} ${styles.long}` : styles.tokens} aria-label="Tokens">

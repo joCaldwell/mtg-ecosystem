@@ -8,7 +8,7 @@ export type { PlaytestView, PlaytestAction, PlaytestUiPatch, TableCard, TableObj
 // change on the server fails this typecheck instead of failing at runtime.
 
 import type { PowerProfile, PowerTargetInput, PowerAssessmentInput, BracketMapping } from "../../../src/deck/power.ts";
-import type { DeckState, PublicDeckState, PublicDecision } from "../../../src/state.ts";
+import type { DeckState, PublicDeckState, PublicDecision, DeckToken, TokenProducer } from "../../../src/state.ts";
 import type { PublicProfile, Sharing } from "../../../src/sharing.ts";
 import type { ActivityEntry, activityPage } from "../../../src/activity.ts";
 import type { CardRow } from "../../../src/cards.ts";
@@ -39,6 +39,8 @@ export type {
   DeckComparison,
   DeckCategory,
   DeckState,
+  DeckToken,
+  TokenProducer,
   DeckSummary,
   PublicDeckState,
   PublicDecision,
