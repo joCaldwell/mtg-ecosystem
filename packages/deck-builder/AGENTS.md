@@ -120,7 +120,7 @@ web/                 React UI. web/ARCHITECTURE.md is its manual; web/DESIGN.md 
   src/design/        tokens.css, base.css — the only place raw colours and sizes exist
   src/ui/            generic primitives (Button, Tabs, Dialog, Toast, useHotkeys…)
   src/mtg/           how a card is shown (ManaCost, CardRef + hover card, RichText)
-  src/domain/        pure functions over wire types (grouping, review, marks) — tested in test/web/
+  src/domain/        pure functions over wire types (grouping, review, marks)
   src/api/           client.ts (typed client — wire types imported from src/, erased at build),
                      live.tsx (event stream), useQuery.ts
   src/app/           routes, sidebar shell, app-wide providers
@@ -298,7 +298,7 @@ Vite proxy follows the API port.
     in both roles. Preserve both on parking, promotion, forks and undo.
 *   **Slot and card type are independent axes.** `validateVocabName` rejects
     card types as slot or tag names in singular and plural.
-*   **Tool text is an interface.** `tools.test.ts` pins the wording agents see.
+*   **Tool text is an interface.** The MCP smoke test checks a real tool response.
     Change a description or a rendered line deliberately, then read a real
     transcript (spec §14, phase 6) before trusting it.
 
@@ -348,3 +348,13 @@ is a thin adapter and never replaces an existing sample. UI components call
 only api/ clients, never fetch directly. TabletShell must call useWindowScroll;
 keep the inherited phone and public contracts intact. See DESIGN.md and
 ARCHITECTURE.md for the 720/960/1100 boundaries and lazy-route budget check.
+
+## Focused test gate
+
+Keep tests for tenant isolation and actor permissions, public-state privacy, migrations
+and content preservation, backup/restore, card resolution, membership/undo, proposals,
+import parsing, hosted sessions/headers, MCP smoke and web architecture. Prefer a
+small representative regression over matrices or UI copy/markup/CSS assertions.
+Run `npm run check` before committing; design evaluation lives separately in ux-eval.
+
+See [TESTING.md](TESTING.md) for the 109-test baseline and deletion inventory.

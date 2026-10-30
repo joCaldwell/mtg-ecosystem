@@ -43,7 +43,7 @@ import that the table forbids, the code is in the wrong layer.
 - **It is a number or a colour.** `design/tokens.css`. Never a literal in a component.
 - **It could be used by an app that has nothing to do with Magic.** `ui/`.
 - **It draws part of a Magic card.** `mtg/`.
-- **It turns server data into something to display, and has no JSX.** `domain/`, with a test in `test/web/`.
+- **It turns server data into something to display, and has no JSX.** `domain/`. Test only consequential domain invariants.
 - **It talks to the server.** `api/client.ts`. Components never call `fetch`.
 - **It is one screen, or a workflow shared by two screens.** `features/<name>/`.
 
