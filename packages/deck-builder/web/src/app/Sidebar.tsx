@@ -76,7 +76,10 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
     : connections.data === null ? (connections.error ? "Agent status unavailable" : "Agent status") : connections.data.length ? "No agent requests yet" : "Connect an agent";
   const section = route.page;
 
-  const presence = [contact, "Recent requests do not mean an agent is still connected.", focus ? `Agent context: ${focus.deckName}${focus.selectedCount > 0 ? ` · ${focus.selectedCount} selected` : ""}` : "No deck in agent context"].filter(Boolean).join(". ");
+  const context = focus
+    ? `${focus.stale ? "Last-viewed agent context (stale)" : "Current agent context"}, reported ${focus.ageMinutes} min ago: ${focus.deckName}${focus.selectedCount > 0 ? ` · ${focus.selectedCount} selected` : ""}`
+    : "No deck in agent context";
+  const presence = `${contact}. ${context}. Open agent settings.`;
 
   return (
     <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ""}`} aria-label="Sidebar">
@@ -163,21 +166,28 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
         </div>}
       </nav>
 
-      <div className={styles.presence} title={presence}>
-        {collapsed && <span className="visually-hidden">{presence}</span>}
-        <a href={href({ page: "settings" })} className={styles.who} aria-label={contact}>
+      {/* Both status rows share one full-size Settings target. The accessible
+          name and tooltip retain context even when names or the rail clip. */}
+      <a href={href({ page: "settings" })} className={styles.presence} aria-label={presence}
+        title={`${presence} Recent requests do not mean an agent is still connected.`}>
+        <span className={styles.who} aria-hidden="true">
           <Dot tone={recent ? "agent" : "neutral"} />
           <span className={styles.presenceText}>
             {last?.last_used_at ? <>
               <span className={styles.agent}>{last.label}</span>
-              <span className={styles.when}> · {ago(last.last_used_at, now)}</span>
+              <span className={styles.when}> · request {ago(last.last_used_at, now)}</span>
             </> : contact}
           </span>
-        </a>
-        {!collapsed && <div className={styles.focus}>
-          {focus ? <><span>{focus.stale ? `Last viewed · ${focus.ageMinutes} min ago` : "Agent context"}</span><b>{focus.deckName}</b>{focus.selectedCount > 0 && <span>{focus.selectedCount} selected</span>}</> : "No deck in agent context"}
-        </div>}
-      </div>
+        </span>
+        {!collapsed && <span className={styles.focus} aria-hidden="true">
+          {focus ? <>
+            <span>{focus.stale ? "Last viewed" : "Context"}</span>
+            <b className={styles.focusDeck}>{focus.deckName}</b>
+            {focus.stale && <span>· {focus.ageMinutes}m</span>}
+            {focus.selectedCount > 0 && <span>· {focus.selectedCount} selected</span>}
+          </> : "No deck in agent context"}
+        </span>}
+      </a>
     </aside>
   );
 }

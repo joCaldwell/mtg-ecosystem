@@ -149,7 +149,9 @@
 
 .presence {
   display: grid;
-  gap: var(--s-3);
+  grid-template-rows: repeat(2, calc(var(--tap) / 2));
+  flex: none;
+  min-width: 0;
   padding: var(--s-5);
   border-top: 1px solid var(--line);
   font-size: var(--text-sm);
@@ -172,17 +174,25 @@
 .when {
   flex: none;
   color: var(--faint);
+  white-space: nowrap;
 }
 
 .focus {
-  display: grid;
-  gap: var(--s-1);
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
   color: var(--muted);
   line-height: 1.35;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 
-.focus b {
+.focus > span { flex: none; }
+.focusDeck {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--text);
   font-weight: 550;
 }
@@ -201,7 +211,8 @@
 
 .brandName { flex: 1; white-space: nowrap; }
 .toggle { flex: none; margin-left: auto; }
-.presenceText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.presenceText { display: flex; align-items: baseline; flex: 1; min-width: 0; white-space: nowrap; }
+.agent { min-width: 0; }
 
 /* The desktop rail keeps every link; accessible names and titles survive
    the hidden text, including deck names and the inbox's count. */
@@ -216,7 +227,7 @@
 .collapsed .heading { margin: var(--s-4) var(--s-5); padding: 0; border-top: 1px solid var(--line); }
 .collapsed .heading > * { display: none; }
 .collapsed .presence { justify-items: center; }
-.collapsed .who { min-height: var(--tap); min-width: var(--tap); justify-content: center; }
+.collapsed .who { grid-row: 1 / -1; justify-content: center; }
 
 /* A deferred or failed thumbnail still has a visible rail target. */
 .thumb + .fallback { position: absolute; }

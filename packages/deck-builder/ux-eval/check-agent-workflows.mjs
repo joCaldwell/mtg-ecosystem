@@ -48,7 +48,7 @@ try {
   await b.getByRole('heading', { name: 'Najeela Warriors', exact: true }).waitFor();
   await b.evaluate(() => window.dispatchEvent(new Event('focus')));
   await until(() => focusIs(2));
-  await until(async () => (await a.getByRole('complementary', { name: 'Sidebar' }).innerText()).includes('Agent context\nNajeela Warriors'));
+  await a.getByRole('link', { name: /Current agent context, reported .*: Najeela Warriors/ }).waitFor();
   await a.evaluate(() => { window.dispatchEvent(new Event('mousemove')); document.dispatchEvent(new Event('visibilitychange')); });
   await a.waitForTimeout(150);
   assert.equal(await focusIs(2), true, 'hover and visibility do not steal');
@@ -79,7 +79,7 @@ try {
     db.prepare("UPDATE user_settings SET value=? WHERE user_id=1 AND key='focus'").run(JSON.stringify({ ...raw, at: raw.at - 4 * 60_000 }));
     assert.equal((await api('/api/focus')).focus.stale, true);
     const monitor = await page(); await monitor.goto(base + '/decks');
-    await monitor.getByText('Last viewed · 4 min ago', { exact: true }).waitFor();
+    await monitor.getByRole('link', { name: /Last-viewed agent context \(stale\), reported 4 min ago/ }).waitFor();
     db.prepare("UPDATE user_settings SET value=? WHERE user_id=1 AND key='focus'").run(JSON.stringify({ ...raw, at: raw.at - 31 * 60_000 }));
     await monitor.reload();
     await monitor.getByText('No deck in agent context', { exact: true }).waitFor();

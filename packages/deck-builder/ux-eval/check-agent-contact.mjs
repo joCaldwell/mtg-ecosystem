@@ -24,7 +24,7 @@ try {
   page.on('request', r => { if (r.url().includes('/api/')) requests.push(new URL(r.url()).pathname); });
   await page.goto(base + '/deck/7');
   const sidebar = page.getByRole('complementary', { name: 'Sidebar' });
-  await sidebar.getByRole('link', { name: 'Connect an agent', exact: true }).waitFor();
+  await sidebar.getByRole('link', { name: /^Connect an agent\./ }).waitFor();
   assert.equal(requests.includes('/api/settings'), false);
   credential = await api('/api/settings/tokens', 'POST', { label: 'Audit read-only client' });
   await sidebar.getByText('No agent requests yet', { exact: true }).waitFor();
@@ -48,7 +48,7 @@ try {
   await sidebar.getByRole('link', { name: /Last request: Audit read-only client/ }).waitFor();
   await api(`/api/settings/tokens/${credential.credential.id}`, 'DELETE');
   credential = undefined;
-  await sidebar.getByRole('link', { name: 'Connect an agent', exact: true }).waitFor();
+  await sidebar.getByRole('link', { name: /^Connect an agent\./ }).waitFor();
   console.log('PASS: read-only contact, tenant isolation, live sidebar, elapsed time, collapsed access, revocation, and no data refetch on MCP reads.');
 } finally {
   if (credential) await api(`/api/settings/tokens/${credential.credential.id}`, 'DELETE');
