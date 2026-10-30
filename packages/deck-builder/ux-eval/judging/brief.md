@@ -77,6 +77,14 @@ band or explanatory subtitle. Keep help specific and concise; ordinary
 controls should explain themselves. Maybe rows open card details across the
 row and do not display purpose assignments.
 
+## The All decks page
+
+This page is the owner's collection, and it is the one place where style comes
+before density. It should feel like a showcase of the decks' commander art
+rather than a table. Judge its density by whether the page feels composed, not
+by how many decks fit on a screen; principles 3 and 4 above are about the deck
+editor, not this page. The artist credit stays visible but subtle.
+
 ## How to read the screenshots
 
 Each image is listed in `index.md` with its viewport width, the state it
