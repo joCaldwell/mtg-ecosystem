@@ -117,7 +117,7 @@ const RADII = ["--r-sm", "--r-md", "--r-lg", "--r-xl", "--r-pill"] as const;
 
 const ICONS: IconName[] = [
   "inbox", "decks", "memories", "activity", "profile", "settings", "back",
-  "close", "check", "plus", "chevronDown", "undo", "redo", "search", "more", "globe", "link",
+  "close", "check", "plus", "chevronDown", "undo", "redo", "search", "more", "globe", "link", "warning",
 ];
 
 type Tone = "neutral" | "agent" | "warn" | "add" | "cut";
@@ -164,7 +164,7 @@ function Colours() {
           {SURFACES.map((t) => <Swatch key={t.name} token={t.name} note={t.note} />)}
         </div>
       </Section>
-      <Section title="Colour: text" aside="AA minima including nested tints: 11.51 / 8.47 / 4.97 / 4.57:1">
+      <Section title="Colour: text" aside="AA minima including nested tints: 11.51 / 8.47 / 5.79 / 5.15:1">
         <div className={styles.swatches}>
           {TEXTS.map((t) => <Swatch key={t.name} token={t.name} note={t.note} />)}
         </div>

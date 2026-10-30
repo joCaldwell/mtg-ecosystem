@@ -647,8 +647,8 @@ the proposal holding the review cursor (`ui.cursor`, clamped as `useReview`
 does, so also outside review mode). The others are one-line buttons (queue
 position, plain-text title, agent label, change count) that move the cursor
 to their first decision; J/K reach them the same way. Queue positions come
-from `domain/review` `proposalQueue` ("1 of 3"); the stored id is muted
-secondary text. Only the focused decision has the reason field; its siblings
+from `domain/review` `proposalQueue` ("1 of 3"); the open proposal's
+counter sits at the right of its `ProposalEyebrow` (see round 4 below). Only the focused decision has the reason field; its siblings
 in the open proposal keep Accept/Reject, Reject asking for a reason. Reason
 drafts live in ReviewPanel by unit key, so moving between proposals keeps
 them. `revealReviewUnit` brings a decision in by its top edge (the proposal's
@@ -671,3 +671,18 @@ profile is a centred `--public-profile-w` column with the app's PageHeader
 (name, handle, public deck count) over the All decks roster grid.
 `app/BrandMark` is imported by the sidebar, the public, phone and sign-in
 shells and the style guide.
+
+Deck editor review, round 4 (2026-10-29): every row action in the deck's
+panels and dialogs is a small bordered Button; Delete and Remove use the
+red `reject` outline that Cut uses, behind their existing confirmations. A
+card proposal has one label, `features/decisions` `ProposalEyebrow`:
+"Proposal #5 · rowan via claude-code · yesterday" in sentence case, in the
+inbox (which appends the deck name), deck Review (which adds its "2 of 3"
+counter at the right) and card details. Stats reads Deck totals, Mana curve,
+Card types, then mana costs and sources. When sources are unresolved or
+partial, an amber line with the warning icon sits under Direct sources and
+opens the existing Source coverage details. Card details show an empty
+history as one muted line each ("No linked memories", "No decisions in this
+deck"). Export confirms a copy in the dialog: the button reads "Copied" for
+two seconds beside a polite status ("Copied 1 line"); there is no toast, and
+a changed scope clears it.

@@ -44,8 +44,6 @@ export function StatsPanel() {
         {!Object.values(computed.curve).some(Boolean) && <Text tone="muted" size="sm">No cards in this curve.</Text>}
       </section>
 
-      <Suspense fallback={<Loading />}><ManaComparison mana={computed.mana} /></Suspense>
-
         <section className={styles.section}>
           <Eyebrow>Card types</Eyebrow>
           {typeOrder.length ? <ul className={styles.types} aria-label="Card-type groups and copy counts">
@@ -58,5 +56,8 @@ export function StatsPanel() {
             ))}
           </ul> : <Text tone="muted" size="sm">No cards to group.</Text>}
         </section>
+
+      {/* Card types read fastest, so they come before the colour analysis. */}
+      <Suspense fallback={<Loading />}><ManaComparison mana={computed.mana} /></Suspense>
   </div>;
 }

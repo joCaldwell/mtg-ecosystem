@@ -136,7 +136,7 @@ export function EngineEditor({ engine, onClose }: { engine?: Engine; onClose: ()
         </div>
 
         <div className={styles.actions}>
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
+          <Button onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           <Button type="submit" variant="primary" disabled={busy || !name.trim()}>

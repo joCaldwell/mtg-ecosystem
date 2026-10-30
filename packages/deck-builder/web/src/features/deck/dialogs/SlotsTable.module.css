@@ -29,9 +29,6 @@
 /* The same green and check as an on-target slot header in the list. */
 .onTarget { display: inline-flex; align-items: center; gap: var(--s-1); }
 
-/* A quiet ghost Delete that turns red only when pointed at or focused. */
-.table .delete:is(:hover, :focus-visible):not(:disabled) { border-color: var(--cut-line); background: var(--cut-bg); color: var(--cut); }
-
 .confirm {
   padding-top: 0;
 }

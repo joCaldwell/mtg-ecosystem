@@ -28,7 +28,7 @@ export function BriefEditor({ title, value, purpose, onSave, onClose }: {
     <div className={styles.head}>
       <Eyebrow>{title}</Eyebrow>
       <div className={styles.actions}>
-        <Button size="sm" variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
+        <Button size="sm" onClick={onClose} disabled={busy}>Cancel</Button>
         <Button size="sm" variant="primary" onClick={() => void commit()} disabled={busy || draft === value}>{busy ? "Saving…" : "Save"}</Button>
       </div>
     </div>

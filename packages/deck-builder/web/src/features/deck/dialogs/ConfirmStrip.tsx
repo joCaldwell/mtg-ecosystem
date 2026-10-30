@@ -23,7 +23,7 @@ export function ConfirmStrip({
   return (
     <div className={styles.strip} role="alert">
       <span className={styles.text}>{children}</span>
-      <Button ref={cancel} size="sm" variant="ghost" onClick={onCancel}>
+      <Button ref={cancel} size="sm" onClick={onCancel}>
         Cancel
       </Button>
       <Button size="sm" variant="reject" onClick={onConfirm}>

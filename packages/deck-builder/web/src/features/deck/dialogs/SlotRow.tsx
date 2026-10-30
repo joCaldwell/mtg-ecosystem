@@ -126,8 +126,7 @@ export function SlotRow({ slot, onSave, onInvalid, onRevert, onDelete }: Props) 
           ) : null}
         </td>
         <td className={styles.actions}>
-          {/* Quiet until pointed at or focused, so a table of slots does not read as destructive. */}
-          <Button size="sm" variant="ghost" className={styles.delete} onClick={() => setConfirming(true)} aria-label={`Delete slot ${slot.name}`}>
+          <Button size="sm" variant="reject" onClick={() => setConfirming(true)} aria-label={`Delete slot ${slot.name}`}>
             Delete
           </Button>
         </td>
