@@ -25,8 +25,8 @@ import {
 import { Button, Row } from "../../ui/index.ts";
 import styles from "./MtgExamples.module.css";
 
-const SYMBOLS = ["W", "U", "B", "R", "G", "C", "X", "0", "3", "12", "S", "T"];
-const HYBRIDS = ["W/U", "U/B", "B/G", "R/G", "G/W", "2/W", "2/B", "W/P", "B/P", "G/U/P"];
+const SYMBOLS = ["W", "U", "B", "R", "G", "C", "X", "0", "3", "12", "½", "∞", "S", "T", "Q", "E"];
+const HYBRIDS = ["W/U", "U/B", "B/G", "R/G", "G/W", "C/R", "2/W", "2/B", "W/P", "B/P", "C/P", "G/U/P"];
 
 function Example({ title, note, children }: { title: string; note?: ReactNode; children: ReactNode }) {
   return (
@@ -194,7 +194,7 @@ export function MtgExamples() {
     <CardLookupProvider lookup={lookup}>
       <CardHoverProvider>
         <div className={styles.root}>
-          <Example title="ManaSymbol" note="One symbol from inside the braces. Every pip carries its letter or number, so colour is never the only cue; hybrids carry one per half. Black is a dark disc with a pale ring and pale letter, so it never reads as the grey generic pips.">
+          <Example title="ManaSymbol" note="One symbol from inside the braces, drawn with Scryfall's own SVG; hybrid and Phyrexian symbols are Scryfall's combined drawings. Its name is the spoken symbol. Until the image loads, or offline, it is a plain disc in the same box: colours without letters, generic costs with a centred numeral, black with a pale ring.">
             <Labelled label="single">
               <div className={styles.strip}>
                 {SYMBOLS.map((s) => (
@@ -257,7 +257,7 @@ export function MtgExamples() {
             </Labelled>
           </Example>
 
-          <Example title="ColorIdentity" note="WUBRG order, smaller pips, each lettered. Empty means colourless.">
+          <Example title="ColorIdentity" note="WUBRG order, the same symbols at a smaller size, named as one image. Empty means colourless.">
             <div className={styles.strip}>
               <ColorIdentity colors="WUBRG" />
               <ColorIdentity colors="UBR" />

@@ -10,6 +10,8 @@ import { join } from "node:path";
 const require = createRequire(import.meta.url);
 const AXE_SOURCE = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
 const IMAGE_CACHE = join(UX_EVAL_ROOT, "cache", "images");
+/** The only external origins a capture may load: card images and mana symbol SVGs (web/src/mtg/manaSymbols.ts). */
+const IMAGE_HOSTS = ["https://cards.scryfall.io/", "https://svgs.scryfall.io/"];
 
 /** The four capture viewports. Under 1100 px the device is touch (coarse pointer), as tablets and phones are. */
 /**
@@ -99,8 +101,8 @@ function initScript(frozenNow) {
 
 /**
  * A fresh browser context for one capture. External requests are refused,
- * except card images, which are served from a local cache after the first
- * fetch so every run sees the same bytes.
+ * except card images and Scryfall's mana symbol SVGs, which are served from a
+ * local cache after the first fetch so every run sees the same bytes.
  */
 export async function newContext(browser, { origin, vp, user, frozenNow, notes }) {
   const context = await browser.newContext({
@@ -119,7 +121,7 @@ export async function newContext(browser, { origin, vp, user, frozenNow, notes }
   mkdirSync(IMAGE_CACHE, { recursive: true });
   await context.route((url) => !url.href.startsWith(origin), async (route) => {
     const url = route.request().url();
-    if (!url.startsWith("https://cards.scryfall.io/")) {
+    if (!IMAGE_HOSTS.some((host) => url.startsWith(host))) {
       notes.blocked.add(new URL(url).origin);
       return route.abort();
     }
@@ -140,7 +142,8 @@ export async function newContext(browser, { origin, vp, user, frozenNow, notes }
       }
       writeFileSync(file, body);
     }
-    return route.fulfill({ status: 200, contentType: url.includes(".png") ? "image/png" : "image/jpeg", body: readFileSync(file) });
+    const contentType = url.includes(".svg") ? "image/svg+xml" : url.includes(".png") ? "image/png" : "image/jpeg";
+    return route.fulfill({ status: 200, contentType, body: readFileSync(file) });
   });
   return context;
 }

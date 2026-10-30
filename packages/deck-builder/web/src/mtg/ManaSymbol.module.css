@@ -1,21 +1,31 @@
-/* A mana symbol is a disc. Size is --sym-size so a parent (a colour identity,
-   a line of rules text) can scale every symbol inside it at once; the glyph
-   scales with the disc via --glyph-scale (0 hides it). */
+/* A mana symbol is Scryfall's own SVG in a fixed square box. Size is
+   --sym-size so a parent (a colour identity, a line of rules text) can scale
+   every symbol inside it at once. Under the image, and in its place if it
+   cannot load, is a plain disc of the same size in the symbol's colours. */
 .sym {
   --size: var(--sym-size, 14px);
   position: relative;
-  display: inline-grid;
+  display: inline-block;
   flex: none;
-  place-items: center;
   width: var(--size);
   height: var(--size);
   border-radius: 50%;
   background: var(--mana-generic);
-  color: var(--mana-ink);
-  font: 700 calc(var(--size) * var(--glyph-scale, 0.64)) / 1 var(--font-mono);
   margin-inline: var(--sym-gap, 0);
   vertical-align: middle;
   user-select: none;
+}
+
+.image {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* A few of Scryfall's drawings are not quite square ({E} is 102 × 101). */
+  object-fit: contain;
+  /* Hidden until it has loaded, so a slow or broken image never shows. */
+  opacity: 0;
 }
 
 .w { background: var(--mana-w); }
@@ -26,12 +36,10 @@
 .generic { background: var(--mana-generic); }
 
 /* Black is a dark disc with a pale inset ring: on a dark surface a plain dark
-   disc vanishes, and the ring is what keeps it from reading as grey generic.
-   Its letter takes the ring's colour, the only ink that reads on that fill. */
+   disc vanishes, and the ring is what keeps it from reading as grey generic. */
 .b {
   background: var(--mana-b);
   box-shadow: inset 0 0 0 1.5px var(--mana-b-ring);
-  color: var(--mana-b-ring);
 }
 
 /* Tap and friends: a dark disc with a light glyph. It uses --faint rather
@@ -39,36 +47,40 @@
    cannot be mistaken for black mana. */
 .tap {
   background: var(--faint);
-  color: var(--text);
+  --numeral-ink: var(--text);
 }
-
-/* Two-digit numbers need a smaller glyph to stay inside the disc. */
-.long { font-size: max(var(--mana-min-glyph, 0px), calc(var(--size) * var(--glyph-scale, 0.64) * 0.75)); }
 
 .hybrid { background: linear-gradient(135deg, var(--a) 50%, var(--b) 50%); }
 .hasBlack { box-shadow: inset 0 0 0 1px var(--mana-b-ring); }
 
-/* A hybrid's two glyphs sit near the middle of their own half of the
-   diagonal, each inked for the fill behind it, a little smaller than a
-   single glyph so both fit inside the disc. The offsets are not symmetric
-   because a capital sits above the middle of its line box. */
-.half {
+/* The fallback numeral, drawn in a 100-unit square (ManaSymbol.tsx explains
+   its baseline). Mono bold with tabular digits, three quarters of the disc. */
+.numeral {
   position: absolute;
-  font-size: calc(var(--size) * var(--glyph-scale, 0.64) * 0.75);
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.numeral text {
+  fill: var(--numeral-ink, var(--mana-ink));
+  font-family: var(--font-mono);
+  font-size: 75px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
   line-height: 1;
-  transform: translate(-50%, -50%);
 }
 
-.first {
-  top: 38%;
-  left: 34%;
-  color: var(--a-ink);
+/* Two digits need a smaller numeral to stay inside the disc. */
+.numeral text.long { font-size: 56px; }
+
+/* Loaded: the image is the whole symbol, so the disc and its numeral go.
+   Two classes, so it wins over every colour above. */
+.sym.loaded {
+  background: none;
+  box-shadow: none;
 }
 
-.second {
-  top: 69%;
-  left: 67%;
-  color: var(--b-ink);
-}
-
-.phyrexian { font-size: calc(var(--size) * var(--glyph-scale, 0.64) * 0.9); }
+.loaded .image { opacity: 1; }
+.loaded .numeral { visibility: hidden; }

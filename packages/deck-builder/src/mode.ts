@@ -63,7 +63,7 @@ export function clientIp(req: IncomingMessage, env = process.env): string {
 }
 export function securityHeaders(res: import("node:http").ServerResponse, mode: Mode) {
   if (mode !== "hosted") return;
-  res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cards.scryfall.io; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'");
+  res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cards.scryfall.io https://svgs.scryfall.io; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   if (publicOrigin().startsWith("https:")) res.setHeader("Strict-Transport-Security", "max-age=31536000");

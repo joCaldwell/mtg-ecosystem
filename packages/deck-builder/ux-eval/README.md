@@ -162,7 +162,8 @@ through `addInitScript`; timers of 3 s or more (toasts) are held and released
 just before the next screenshot, so a toast is in exactly the screenshot after
 the action that raised it; fixed locale, time zone, colour scheme and reduced
 motion; software raster on one thread; external requests refused except card
-images, which are cached in `~/.cache/deck-builder-ux-eval/cache/images` after the first fetch.
+images (`cards.scryfall.io`) and mana symbol SVGs (`svgs.scryfall.io`), which are
+cached in `~/.cache/deck-builder-ux-eval/cache/images` after the first fetch.
 Scrolling is only by mouse wheel (a CDP touch drag scrolls too, but lands a
 few pixels differently each run; synthesized gesture scrolling does nothing in
 headless Chromium); the pointer is parked in a corner after each action so no

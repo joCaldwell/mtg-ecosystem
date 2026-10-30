@@ -1,8 +1,6 @@
 .row {
   --price-column-width: var(--price-column-min);
   --sym-size: var(--mana-list-size);
-  --glyph-scale: var(--mana-list-glyph);
-  --mana-min-glyph: var(--text-sm);
   position: relative;
   display: flex;
   align-items: baseline;

@@ -89,8 +89,9 @@
   --lifecycle-archived: var(--muted);
   --lifecycle-archived-bg: var(--raised);
 
-  /* Mana. Black is a dark disc with a pale ring so it cannot be mistaken for
-     the grey generic pip. */
+  /* Mana: the pip chart, and the plain disc a symbol shows until Scryfall's
+     SVG loads (or when it cannot). Black is a dark disc with a pale ring so
+     it cannot be mistaken for the grey generic pip. */
   --mana-w: #efe6c2;
   --mana-u: #74b0e8;
   --mana-b: #17131c;
@@ -155,16 +156,14 @@
      (GroupHeader: its 1.17em line, bottom padding, rule and margin). */
   --group-cont-h: calc(var(--text-md) * 1.17 * var(--leading) + var(--s-2) + 1px + var(--s-1));
   --mana-list-size: 16px;
-  --mana-list-glyph: 0.75;
   /* Touch: the smallest thing a finger is asked to hit (DESIGN.md, narrow screens). */
   --tap: 44px;
   /* The brand mark (app/BrandMark): as tall as its wordmark's capitals, and
      a fixed size where it stands alone in the collapsed rail. */
   --brand-mark-h: 1cap;
   --brand-mark-rail: 16px;
-  /* A colour identity's lettered pips: smaller than a cost, letters kept. */
+  /* A colour identity's mana symbols: smaller than a cost. */
   --identity-pip: 12px;
-  --identity-pip-glyph: 0.75;
 
   /* Layout */
   --drawer-w: 320px;

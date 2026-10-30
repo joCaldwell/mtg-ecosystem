@@ -190,7 +190,13 @@ Images are ingested card facts (`image_small`, `image_normal`,
 uses a supplied card's stored image URL directly, or resolves through
 `CardLookup` (shared with hover cards) when no URL is known. Every image uses
 lazy loading. Missing image data retains the placeholder. Never construct a
-Scryfall API image URL in the client.
+Scryfall API image URL in the client. Mana symbols are the one constructed
+image URL: `mtg/manaSymbols.symbolSvgUrl` names the static SVG on
+`svgs.scryfall.io` that Scryfall's Card Symbols API documents for each symbol
+(pattern cited there, checked against real `/symbology` entries in
+`test/fixtures/scryfall-symbology.json`). The hosted CSP allows that host
+in `img-src`. `ManaSymbol` keeps its plain fallback disc until the image
+loads, and keeps it if the image fails.
 
 Settings enqueues refresh jobs and displays last/next run and result for
 refresh and backup. The server's SSE has a 25-second comment heartbeat;
@@ -490,7 +496,7 @@ Maybe import provenance uses exact strings from interop: one visible count per
 origin and each card's original note as an accessible description. Custom notes
 keep their independent controls, and this presentation changes neither sort order
 nor stored notes. Collection identity statistics label colours visibly, and
-identities are lettered pips (`ColorIdentity`), so no separate code is drawn.
+identities are named images of mana symbols (`ColorIdentity`), so no separate code is drawn.
 
 Review refinement (2026-10-27): CardPanel reserves a readable field width beside
 shrinkable art. AddBar retains search results after maybe-list adds, while its

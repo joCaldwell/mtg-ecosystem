@@ -1,48 +1,59 @@
-import type { CSSProperties } from "react";
-import { parseSymbol, WUBRG } from "./manaSymbols.ts";
+import { useState, type CSSProperties } from "react";
+import { parseSymbol, symbolSvgUrl, WUBRG } from "./manaSymbols.ts";
 import styles from "./ManaSymbol.module.css";
 
-/** The token a hybrid half is painted with. */
+/** The token a hybrid half is painted with in the fallback disc. */
 function halfColor(half: string): string {
   if (half.length === 1 && WUBRG.includes(half)) return `var(--mana-${half.toLowerCase()})`;
   if (half === "C") return "var(--mana-c)";
   return "var(--mana-generic)";
 }
 
-/** The ink that reads on a half's fill: pale on black, dark on the rest. */
-function halfInk(half: string): string {
-  return half === "B" ? "var(--mana-b-ring)" : "var(--mana-ink)";
-}
-
-/** A hybrid half's glyph: its colour letter, or the number of a "2/B" half. */
-function halfGlyph(half: string): string | null {
-  if (half.length === 1 && (WUBRG.includes(half) || half === "C")) return half;
-  if (/^\d+$/.test(half)) return half;
-  return null;
+/**
+ * The fallback's numeral, centred on the disc's middle by its digits, not by
+ * its line box. SVG text is placed on its alphabetic baseline, so the
+ * baseline sits half a digit height below the centre: 0.33em is half the
+ * cap height of the mono faces in --font-mono (0.64–0.73em), which keeps
+ * the ink within half a pixel of the centre at 14 and 16 px. CSS centring
+ * puts it there only if the font's ascent and descent happen to balance,
+ * and for the Linux mono faces they leave the digit 1–1.5 px high.
+ */
+function Numeral({ text }: { text: string }) {
+  return (
+    <svg className={styles.numeral} viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+      <text x="50" y="50" dy="0.33em" textAnchor="middle" className={text.length > 1 ? styles.long : undefined}>
+        {text}
+      </text>
+    </svg>
+  );
 }
 
 /**
  * One mana symbol, from inside the braces: "U", "3", "X", "C", "T", "S",
- * "B/G", "2/B", "W/P". Size comes from the `--sym-size` custom property
- * (default 14px) so a parent can scale a whole row of them.
+ * "B/G", "2/B", "W/P". Drawn with Scryfall's own SVG (symbolSvgUrl). Until
+ * that loads, or if it cannot (offline), the box shows a plain disc in the
+ * symbol's colours: a numeral for generic costs, a glyph for tap and the
+ * like, and no letter on a coloured disc. Size comes from the `--sym-size`
+ * custom property (default 14px) so a parent can scale a whole row of them;
+ * the image and the disc both fill that box, so nothing moves when it loads.
+ * The spoken name is the wrapper's; the image itself is silent.
  */
 export function ManaSymbol({ symbol }: { symbol: string }) {
   const { shape, phyrexian, name } = parseSymbol(symbol);
+  const url = symbolSvgUrl(symbol);
+  // Keyed by URL so a reused element showing another symbol starts over.
+  const [loaded, setLoaded] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
   const cls = [styles.sym];
   let glyph: string | null = null;
-  let halves: [string | null, string | null] | null = null;
   let style: CSSProperties | undefined;
 
   switch (shape.kind) {
     case "colour":
-      // The letter is drawn as well as the fill, so colour is never the only
-      // cue (WCAG 1.4.1). Its name stays the aria-label below.
       cls.push(styles[shape.letter.toLowerCase()]);
-      glyph = shape.letter;
       break;
     case "colourless":
       cls.push(styles.c);
-      glyph = "C";
       break;
     case "generic":
       cls.push(styles.generic);
@@ -56,26 +67,33 @@ export function ManaSymbol({ symbol }: { symbol: string }) {
       const [a, b] = shape.halves;
       cls.push(styles.hybrid);
       if (a === "B" || b === "B") cls.push(styles.hasBlack);
-      style = { "--a": halfColor(a), "--b": halfColor(b), "--a-ink": halfInk(a), "--b-ink": halfInk(b) } as CSSProperties;
-      // Each half carries its own letter (or a "2/B" half its number), tucked
-      // into its corner of the diagonal and inked to suit that half's fill.
-      halves = [halfGlyph(a), halfGlyph(b)];
+      style = { "--a": halfColor(a), "--b": halfColor(b) } as CSSProperties;
       break;
     }
   }
+  if (phyrexian) glyph = null;
 
-  if (phyrexian) {
-    cls.push(styles.phyrexian);
-    glyph = "P";
-    halves = null;
-  }
-  if (glyph && glyph.length > 1) cls.push(styles.long);
+  const showImage = url !== null && failed !== url;
+  if (showImage && loaded === url) cls.push(styles.loaded);
 
   return (
     <span className={cls.join(" ")} style={style} role="img" aria-label={name} title={name}>
-      {glyph}
-      {halves?.[0] && <span className={`${styles.half} ${styles.first}`}>{halves[0]}</span>}
-      {halves?.[1] && <span className={`${styles.half} ${styles.second}`}>{halves[1]}</span>}
+      {glyph && <Numeral text={glyph} />}
+      {showImage && (
+        <img
+          key={url}
+          className={styles.image}
+          src={url}
+          alt=""
+          width={14}
+          height={14}
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+          onLoad={() => setLoaded(url)}
+          onError={() => setFailed(url)}
+        />
+      )}
     </span>
   );
 }

@@ -3,9 +3,9 @@ import { COLOR_NAMES, WUBRG } from "./manaSymbols.ts";
 import styles from "./ColorIdentity.module.css";
 
 /**
- * A colour identity as small lettered pips in WUBRG order, announced once as
+ * A colour identity as small mana symbols in WUBRG order, announced once as
  * the group's name (an image's children are presentational). `colors` is bare letters
- * ("UBR") or "" for colourless, which shows as a single colourless disc.
+ * ("UBR") or "" for colourless, which shows as the single colourless symbol.
  */
 export function ColorIdentity({ colors }: { colors: string }) {
   const upper = colors.toUpperCase();

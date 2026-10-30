@@ -80,14 +80,20 @@ D20) and built in phase 4a; phase 4b makes the full app hold up between
 | `--identity-*` | That deck’s colour identity | thin stripe on its card or header only |
 | greys | Everything else | structure, text, neutral chips, deck lifecycle |
 
-Mana colours (`--mana-*`) appear in symbols and the pip chart. A colour
-identity (`mtg/ColorIdentity`) is the same lettered pips at `--identity-pip`
-(12px), one image named "Colour identity: …", so roster cards, public
-profiles and collection statistics never rely on hue alone. Cost pips
-never rely on hue alone (owner decision, 2026-10-28): each coloured pip
-carries its letter in the numeral's mono bold, dark `--mana-ink` on light
-fills and the pale ring colour on black; a hybrid carries one letter per half
-in its corners. The accessible name stays the spoken colour. D21 also
+Mana symbols are the real ones from the cards (owner decision, 2026-10-29,
+replacing the lettered pips of 2026-10-28): each pip is Scryfall's own SVG
+for that symbol from `svgs.scryfall.io`, in a fixed box at the pip's size.
+Hybrid, monocolour hybrid and Phyrexian pips are Scryfall's combined
+drawings, never our split halves. Each pip is one image named by the spoken
+symbol ("black or green"); the drawing inside it is silent. Until the SVG
+loads, or when it cannot (offline local mode), the box shows a plain disc in
+the `--mana-*` colours with no letter; black keeps its pale ring, and a
+generic cost keeps its numeral in mono bold `--mana-ink`, centred on its
+digits rather than its line box. Nothing moves when the image arrives. A
+colour identity (`mtg/ColorIdentity`) is the same symbols at
+`--identity-pip` (12px), one image named "Colour identity: …", so roster
+cards, public profiles and collection statistics never rely on hue alone.
+The `--mana-*` colours also draw the pip chart. D21 also
 permits `--identity-*` aliases on a deck's own thin stripe, at
 `--identity-opacity`; colourless uses `--identity-grey`. A split gradient
 represents multiple colours. These accents never tint text or controls and

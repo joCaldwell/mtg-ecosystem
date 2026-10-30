@@ -66,7 +66,7 @@ test("hosted HTTP session cookies scope UI data; metadata, headers, invite gate 
     assert.equal((await f.call("/api/decks")).status,401);
     const response=await f.call("/api/decks",{headers:{Cookie:cookie}});
     assert.equal(response.status,200);assert.deepEqual((await response.json() as any[]).map(d=>d.name),["Second deck"]);
-    assert.match(response.headers.get("content-security-policy")!,/cards\.scryfall\.io/);
+    assert.match(response.headers.get("content-security-policy")!,/img-src \x27self\x27 data: https:\/\/cards\.scryfall\.io https:\/\/svgs\.scryfall\.io;/);
     assert.equal(response.headers.get("x-content-type-options"),"nosniff");
     assert.equal((await f.call("/api/decks",{method:"POST",headers:{Cookie:cookie,Origin:"https://evil.invalid","Content-Type":"application/json"},body:'{"name":"bad"}'})).status,403);
     assert.equal((await f.call("/api/signup",{method:"POST",headers:{"Content-Type":"application/json"},body:'{"code":"wrong"}'})).status,403);

@@ -79,17 +79,24 @@ test("colour identity indicators expose colour names and colourless in their acc
   assert.match(renderToStaticMarkup(createElement(ColorIdentity, { colors: "" })), /role="img" aria-label="Colour identity: colourless"/);
 });
 
-test("coloured mana pips draw their letter but keep the spoken colour as their only name", async (t) => {
+test("mana pips draw Scryfall's symbol silently inside one named image, with no letters in the fallback", async (t) => {
   const { ManaSymbol } = await (await modules(t)).ssrLoadModule("/src/mtg/ManaSymbol.tsx");
   const pip = (symbol: string) => renderToStaticMarkup(createElement(ManaSymbol, { symbol }));
+  const image = (file: string) =>
+    `<img class="[^"]*" src="https://svgs\\.scryfall\\.io/card-symbols/${file}\\.svg" alt="" width="14" height="14" loading="lazy" decoding="async" draggable="false"/>`;
   for (const [letter, name] of [["W", "white"], ["U", "blue"], ["B", "black"], ["R", "red"], ["G", "green"], ["C", "colourless"]]) {
-    assert.match(pip(letter), new RegExp(`^<span[^>]*role="img" aria-label="${name}"[^>]*>${letter}</span>$`));
+    assert.match(pip(letter), new RegExp(`^<span[^>]*role="img" aria-label="${name}" title="${name}">${image(letter)}</span>$`), "no letter beside the image");
   }
-  const hybrid = pip("B/G");
-  assert.match(hybrid, /aria-label="black or green"/);
-  assert.match(hybrid, />B<\/span><span[^>]*>G<\/span><\/span>$/, "each half carries its letter");
-  assert.match(pip("2/W"), />2<\/span><span[^>]*>W<\/span><\/span>$/);
-  assert.match(pip("U/P"), />P<\/span>$/, "Phyrexian keeps its P");
+  // Hybrid and Phyrexian symbols are Scryfall's combined drawings, not halves.
+  assert.match(pip("B/G"), new RegExp(`aria-label="black or green"[^>]*>${image("BG")}</span>$`));
+  assert.match(pip("2/W"), new RegExp(`aria-label="generic 2 or white"[^>]*>${image("2W")}</span>$`));
+  assert.match(pip("U/P"), new RegExp(`aria-label="blue or 2 life"[^>]*>${image("UP")}</span>$`));
+  assert.match(pip("G/U/P"), new RegExp(`aria-label="green or blue or 2 life"[^>]*>${image("GUP")}</span>$`));
+  // A generic cost keeps its numeral for the fallback disc, hidden from assistive technology.
+  const three = pip("3");
+  assert.match(three, /^<span[^>]*role="img" aria-label="generic 3"[^>]*><svg[^>]*aria-hidden="true"[^>]*><text[^>]*>3<\/text><\/svg><img /);
+  // A symbol Scryfall does not draw keeps the plain disc and requests nothing.
+  assert.doesNotMatch(pip("PW"), /<img/);
 });
 
 test("the lifecycle pill is a menu button named by its state", async (t) => {
