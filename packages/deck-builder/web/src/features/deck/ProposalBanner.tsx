@@ -76,13 +76,9 @@ export function ProposalBanner({ units, review, confirmingAll, setConfirmingAll 
   const open = proposals.filter((p) => waiting.has(p.id));
   const newest = open.reduce((a, b) => (b.id > a.id ? b : a));
   const changes = units.reduce((n, u) => n + u.itemIds.length, 0);
-  // Every agent behind the waiting proposals, newest first: one is named in
-  // full ("rowan via codex"), several by their agent label.
-  const agents = [...new Map([...open].sort((a, b) => b.id - a.id).map((p) => [p.author_display ?? p.author, p])).values()];
-  const labels = [...new Set(agents.map((p) => p.author_label || p.author))];
-  const what = waiting.size > 1
-    ? `${changes} changes across ${waiting.size} proposals`
-    : `${changes} ${changes === 1 ? "change" : "changes"}`;
+  // Every agent label behind the waiting proposals, newest first.
+  const labels = [...new Set([...open].sort((a, b) => b.id - a.id).map((p) => p.author_label || p.author))];
+  const what = `${changes} ${changes === 1 ? "change" : "changes"} in ${waiting.size} ${waiting.size === 1 ? "proposal" : "proposals"}`;
 
   return (
     <Banner
@@ -96,18 +92,19 @@ export function ProposalBanner({ units, review, confirmingAll, setConfirmingAll 
       <div className={styles.line}>
         <Dot tone="agent" pulse />
         <span className={styles.who}>
-          {agents.length === 1 ? (
-            <><Text tone="agent" weight="medium">{newest.author_display ?? newest.author}</Text> proposes {what}</>
-          ) : labels.length === 2 ? (
-            <>{what} from <Text tone="agent" weight="medium">{labels[0]}</Text> and <Text tone="agent" weight="medium">{labels[1]}</Text></>
-          ) : (
-            <>{what} from <Text tone="agent" weight="medium">{agents.length} agents</Text></>
-          )}
+          {what} · from{" "}
+          {labels.length > 2 ? (
+            <Text tone="agent" weight="medium">{labels.length} agents</Text>
+          ) : labels.map((l, i) => (
+            <span key={l}>{i > 0 && " and "}<Text tone="agent" weight="medium">{l}</Text></span>
+          ))}
         </span>
-        <span className={styles.summary}>
-          “<InlineText text={newest.summary} />”
+        <span className={styles.tail}>
+          <span className={styles.summary}>
+            {waiting.size > 1 && <Text tone="muted">latest: </Text>}“<InlineText text={newest.summary} />”
+          </span>
+          <Text tone="faint" size="sm" className={styles.when}>· {ago(newest.created_at)}</Text>
         </span>
-        <Text tone="faint" size="sm" className={styles.when}>{ago(newest.created_at)}</Text>
       </div>
     </Banner>
   );

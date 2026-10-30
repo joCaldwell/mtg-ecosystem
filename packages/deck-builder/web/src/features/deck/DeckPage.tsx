@@ -162,7 +162,6 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
         <div className={styles.page}>
           <DeckHeader />
           <DeckToolbar />
-          <DeckFilterSummary />
           {error && (
             <Banner tone="error" actions={<Button size="sm" variant="ghost" onClick={clearError}>Dismiss</Button>}>
               {error}
@@ -172,6 +171,7 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
           <DeckBody
             list={
               <>
+                <DeckFilterSummary />
                 <DeckList view={view} emptyAction={state.deck.category === "archived" ? undefined : <><p>Search above to add cards, or bring a list.</p><Button onClick={() => ui.openDialog("import")} aria-haspopup="dialog">Import a list</Button></>} />
                 {state.deck.category !== "archived" && <SelectionBar />}
               </>

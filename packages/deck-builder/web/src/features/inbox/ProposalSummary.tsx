@@ -4,7 +4,7 @@ import { href } from "../../app/routes.ts";
 import { reviewUnits } from "../../domain/review.ts";
 import { changesSince, staleNote, staleTouches } from "../../domain/staleChanges.ts";
 import { InlineText } from "../../mtg/index.ts";
-import { ErrorNote, Kbd, Loading, Section, Stack, Text } from "../../ui/index.ts";
+import { ButtonLink, ErrorNote, Kbd, Loading, Section, Stack, Text } from "../../ui/index.ts";
 import { ProposalEyebrow } from "../decisions/index.ts";
 import { ChangeUnit } from "./ChangeUnit.tsx";
 import { DeckProjection } from "./DeckProjection.tsx";
@@ -55,9 +55,9 @@ export function ProposalSummary({ proposal }: { proposal: Proposal }) {
         : <DeckProjection state={state} />)}
       {state && <ProposalDecision proposal={proposal} state={state} onDecided={deck.reload} />}
       <div className={styles.action}>
-        <a className={styles.review} href={href({ page: "deck", deckId: proposal.deck_id, review: true, proposal: proposal.id })}>
+        <ButtonLink variant="agent" className={styles.review} href={href({ page: "deck", deckId: proposal.deck_id, review: true, proposal: proposal.id })}>
           Review in the list <Kbd>↵</Kbd>
-        </a>
+        </ButtonLink>
       </div>
     </>
   );

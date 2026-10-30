@@ -1,0 +1,6 @@
+.back {
+  flex: none;
+  gap: var(--s-2);
+  height: var(--h-back);
+  padding-inline: var(--s-3) var(--s-5);
+}

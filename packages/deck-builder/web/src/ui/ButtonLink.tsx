@@ -4,7 +4,7 @@ import styles from "./Button.module.css";
 
 export interface ButtonLinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
   href: string;
-  variant?: "default" | "ghost" | "primary";
+  variant?: "default" | "ghost" | "primary" | "agent";
   /** `touch` is one touch target tall (--tap), for phone and touch layouts. */
   size?: "sm" | "md" | "touch";
 }

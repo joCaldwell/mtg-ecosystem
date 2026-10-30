@@ -3,6 +3,8 @@
 
 import { createContext, useContext } from "react";
 
-export type SaveStatus = "idle" | "saving" | "saved";
-export const SaveStatusContext = /* @__PURE__ */ createContext<(status: SaveStatus) => void>(() => {});
+export type SaveStatus = "idle" | "saving" | "saved" | "failed";
+/** `message` is the failed request's own error, for "failed". */
+export type SaveStatusReport = (status: SaveStatus, message?: string) => void;
+export const SaveStatusContext = /* @__PURE__ */ createContext<SaveStatusReport>(() => {});
 export const useSaveStatusReport = () => useContext(SaveStatusContext);

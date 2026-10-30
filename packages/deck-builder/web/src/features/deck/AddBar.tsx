@@ -118,6 +118,8 @@ export function AddBar() {
   );
   const shown = open && (loading || results !== null || error !== null);
   const highlighted = Math.min(index, Math.max(rows.length - 1, 0));
+  // The highlighted card is already here: Enter views it instead of adding.
+  const viewing = !!rows[highlighted] && (rows[highlighted].inDeck || rows[highlighted].onMaybe);
   // No match inside the commander's colours: the empty state offers the
   // wider search as a button, in place of the footer's checkbox.
   const offerEveryColour = limited && !loading && !error && results !== null && rows.length === 0;
@@ -273,8 +275,14 @@ export function AddBar() {
           </div>
           <div className={styles.foot}>
             <span className={styles.hints}>
-              <span><Kbd>↵</Kbd> add</span>
-              <span><Kbd>⇧↵</Kbd> maybe list</span>
+              {viewing && !loading && !error ? (
+                <span><Kbd>↵</Kbd> view</span>
+              ) : (
+                <>
+                  <span><Kbd>↵</Kbd> add</span>
+                  <span><Kbd>⇧↵</Kbd> maybe list</span>
+                </>
+              )}
               <span><Kbd>Esc</Kbd> close</span>
             </span>
             <span className={styles.limit}>

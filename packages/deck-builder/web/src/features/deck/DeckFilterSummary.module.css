@@ -1,6 +1,5 @@
-/* The filter toolbar's second row: the toolbar's surface, with a hairline in
-   place of the toolbar's stronger bottom rule (the -1px overlaps it). */
-.summary { display: flex; align-items: center; gap: var(--s-4); margin-top: -1px; padding: var(--s-3) var(--s-6); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line-strong); background: var(--surface); }
+/* The list area's first line: the toolbar's surface over a hairline. */
+.summary { display: flex; flex: none; align-items: center; gap: var(--s-4); padding: var(--s-3) var(--s-6); border-bottom: 1px solid var(--line); background: var(--surface); }
 .query { max-width: var(--toolbar-search-max); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .summary > *:not(.query) { flex: none; }
 .count { color: var(--text-soft); }

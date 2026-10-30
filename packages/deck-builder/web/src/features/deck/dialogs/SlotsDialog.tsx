@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Explainer } from "../../../ui/index.ts";
 import { Button, Dialog, Section, Stack, Text } from "../../../ui/index.ts";
 import { SaveStatusContext, type SaveStatus } from "./saveStatus.ts";
@@ -6,20 +6,19 @@ import { SlotsTable } from "./SlotsTable.tsx";
 import { TagsSection } from "./TagsSection.tsx";
 import styles from "./SlotsDialog.module.css";
 
-const SAVED_MS = 2000;
-
 // Slots say what a card does in the deck, tags are free labels (spec §5.4).
 // The server rejects names that collide with a card type or a search prefix;
-// its message is shown as it comes. Edits save on their own, so the footer
-// says when one has landed.
+// its message is shown as it comes. Edits save on their own, so once one has
+// landed the footer keeps saying so until the dialog closes.
 export function SlotsDialog({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState<SaveStatus>("idle");
-  const report = useCallback((next: SaveStatus) => setStatus(next), []);
-  useEffect(() => {
-    if (status !== "saved") return;
-    const timer = setTimeout(() => setStatus("idle"), SAVED_MS);
-    return () => clearTimeout(timer);
-  }, [status]);
+  const [failure, setFailure] = useState("");
+  const [savedOnce, setSavedOnce] = useState(false);
+  const report = useCallback((next: SaveStatus, message?: string) => {
+    setStatus(next);
+    setFailure(next === "failed" ? message ?? "" : "");
+    if (next === "saved") setSavedOnce(true);
+  }, []);
 
   return (
     <SaveStatusContext.Provider value={report}>
@@ -28,8 +27,8 @@ export function SlotsDialog({ onClose }: { onClose: () => void }) {
         width="lg"
         onClose={onClose}
         footer={<>
-          <Text role="status" tone="muted" size="sm" className={styles.status}>
-            {status === "saving" ? "Saving…" : status === "saved" ? "Saved" : ""}
+          <Text role="status" tone={status === "failed" ? "cut" : "muted"} size="sm" className={styles.status}>
+            {status === "saving" ? "Saving…" : status === "failed" ? failure : savedOnce ? "All changes saved" : ""}
           </Text>
           <Button onClick={onClose}>Close</Button>
         </>}

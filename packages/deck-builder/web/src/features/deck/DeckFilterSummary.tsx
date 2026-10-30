@@ -6,8 +6,9 @@ import { useDeckUi } from "./DeckUi.tsx";
 import styles from "./DeckFilterSummary.module.css";
 
 /** The active filters, how many cards they leave in the list, and what to do
- *  with them. Part of the toolbar; on tablets it stays below the navigation
- *  as the toolbar scrolls away. */
+ *  with them. The first line of the list area, so the proposal banner stays
+ *  under the toolbar; on tablets it stays below the navigation as the
+ *  toolbar scrolls away. */
 export function DeckFilterSummary() {
   const ui = useDeckUi();
   const { tags } = useDeckState();

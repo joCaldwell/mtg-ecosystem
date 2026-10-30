@@ -1,9 +1,9 @@
 .section { display: grid; gap: var(--s-3); align-content: start; min-width: 0; }
 .totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-4); margin: 0; }
 .totals > div { display: grid; gap: var(--s-2); align-content: start; }
-.totals dt { color: var(--muted); font-size: var(--text-sm); }
+.totals dt { color: var(--text-soft); font-size: var(--text-md); }
 .totals dd { margin: 0; font: var(--text-xl) var(--font-mono); font-variant-numeric: tabular-nums; }
-.maximum { color: var(--muted); font-size: var(--text-sm); }
+.maximum { color: var(--text-soft); font-size: var(--text-md); }
 .curve {
   display: grid;
   grid-template-columns: repeat(8, minmax(0, 1fr));
@@ -31,15 +31,8 @@
 
 .count,
 .bucket {
-  font: var(--text-sm) var(--font-mono);
-}
-
-.count {
-  color: var(--muted);
-}
-
-.bucket {
-  color: var(--faint);
+  color: var(--text-soft);
+  font: var(--text-md) var(--font-mono);
 }
 
 .types {
@@ -48,7 +41,7 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: var(--text-sm);
+  font-size: var(--text-md);
 }
 .types > li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) max-content; align-items: center; gap: var(--s-5); }
 .typeTrack { display: block; height: var(--s-4); background: var(--raised); border-radius: var(--r-sm); overflow: hidden; }
@@ -60,3 +53,7 @@
   font-weight: 600;
 }
 .stats { display: grid; gap: var(--s-6); min-width: 0; }
+
+/* Section labels: uppercase like every Eyebrow, but a step larger and in the
+   secondary colour, so the panel's structure reads at a glance. */
+.label { color: var(--text-soft); font-size: var(--text-md); }

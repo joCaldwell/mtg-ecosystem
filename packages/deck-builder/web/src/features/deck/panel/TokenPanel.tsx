@@ -3,22 +3,21 @@
 
 import type { Ref } from "react";
 import { ColorIdentity, TokenDetail } from "../../../mtg/index.ts";
-import { Chip, Icon, IconButton } from "../../../ui/index.ts";
+import { Chip } from "../../../ui/index.ts";
 import { useDeckList } from "../DeckListStore.tsx";
-import { useDeckUi, type OpenCard } from "../DeckUi.tsx";
-import { panelViewLabel } from "../panelViews.ts";
+import type { OpenCard } from "../DeckUi.tsx";
 import { TokenProducers } from "./TokenProducers.tsx";
 import panelStyles from "./DeckPanel.module.css";
+import { PanelBack } from "./PanelBack.tsx";
 import styles from "./CardPanel.module.css";
 
 export function TokenPanel({ token: open, backRef, bodyRef }: { token: OpenCard; backRef: Ref<HTMLButtonElement>; bodyRef: Ref<HTMLDivElement> }) {
-  const ui = useDeckUi();
   const token = useDeckList().tokens.tokens.find((t) => t.oracle_id === open.oracleId);
   return (
     <>
       <div className={panelStyles.navigation} data-inspecting>
         <div className={styles.header}>
-          <IconButton ref={backRef} size="sm" label={`Back to ${panelViewLabel(ui.tab)}`} onClick={() => ui.openCardPanel(null)}><Icon name="back" /></IconButton>
+          <PanelBack backRef={backRef} />
           <h2 className={styles.name}>{open.name}</h2>
           {token && <div className={styles.status}><Chip>{token.kind === "emblem" ? "Emblem" : "Token"}</Chip></div>}
           {token?.colors && <span className={styles.cost}><ColorIdentity colors={token.colors} label="Colour" /></span>}

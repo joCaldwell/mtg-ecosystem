@@ -75,7 +75,14 @@ export function AddBarResult({ result, id, highlighted, offerCommander, onPick, 
         {said ? `You said: “${said}”` : oneLine(card.oracle_text)}
       </span>
       {/* The active result names what Enter and Shift+Enter do. A card already
-          here opens instead, so it has nothing to add. */}
+          here opens instead, so it offers that: drawn as a button, but only a
+          picture of the row's own click and Enter (an option may not contain
+          a control), so a click on it is the row's. */}
+      {highlighted && (inDeck || onMaybe) && (
+        <span className={styles.actions} aria-hidden="true">
+          <span className={styles.view}>View card</span>
+        </span>
+      )}
       {highlighted && !inDeck && !onMaybe && (
         <span className={styles.actions}>
           <Button size="sm" tabIndex={-1} onClick={(e) => { e.stopPropagation(); onPick(false); }}>Add</Button>

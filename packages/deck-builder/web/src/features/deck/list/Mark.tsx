@@ -3,7 +3,8 @@ import styles from "./Mark.module.css";
 export type MarkKind = "memory" | "decision";
 
 // What each marker says: a row's marker is named with it, and the legend
-// under the list prints it beside the same shape. No tooltip (owner rule).
+// under the list prints it beside the same shape. Its native hover label is
+// that name and nothing more (owner rule, 2026-10-29).
 export const MARK_LABEL: Record<MarkKind, string> = {
   memory: "Memory linked",
   decision: "Decided before",
@@ -15,5 +16,5 @@ export function Mark({ kind, decorative }: { kind: MarkKind; decorative?: boolea
   const cls = `${styles.mark} ${styles[kind]}`;
   return decorative
     ? <i className={cls} aria-hidden="true" />
-    : <i className={cls} role="img" aria-label={MARK_LABEL[kind]} />;
+    : <i className={cls} role="img" aria-label={MARK_LABEL[kind]} title={MARK_LABEL[kind]} />;
 }

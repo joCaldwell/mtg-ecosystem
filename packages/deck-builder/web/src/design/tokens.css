@@ -155,6 +155,8 @@
   --h-sm: 22px;
   --h-md: 26px;
   --h-lg: 30px;
+  /* The card and token panels' "← Back": a comfortable pointer target. */
+  --h-back: 32px;
   --row: 24px;
   /* A row's memory/decision marker: big enough to read as a shape beside 13px text. */
   --row-mark: 7px;

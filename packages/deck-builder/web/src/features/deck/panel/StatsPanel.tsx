@@ -18,17 +18,17 @@ export function StatsPanel() {
   const typeOrder = [...TYPE_GROUPS, "Other"].filter(type => (computed.type_counts[type] ?? 0) > 0);
   return <div className={styles.stats}>
       <section className={styles.section}>
-        <Eyebrow>Deck totals</Eyebrow>
+        <Eyebrow className={styles.label}>Deck totals</Eyebrow>
         <dl className={styles.totals}>
           <div><dt>Cards</dt><dd>{computed.card_count}<span className={styles.maximum}> / 100</span></dd></div>
           <div><dt>Lands</dt><dd>{computed.land_count}</dd></div>
           <div><dt>Avg. nonland MV</dt><dd>{computed.average_mana_value == null ? "—" : computed.average_mana_value.toFixed(1)}</dd></div>
         </dl>
-        {!viewer && <Text size="sm" tone="muted">{computed.unslotted_count} unfiled · {computed.maybe_count} on the maybe list</Text>}
+        {!viewer && <Text size="md" tone="soft">{computed.unslotted_count} unfiled · {computed.maybe_count} on the maybe list</Text>}
       </section>
 
       <section className={styles.section}>
-        <Eyebrow>Mana curve</Eyebrow>
+        <Eyebrow className={styles.label}>Mana curve</Eyebrow>
         <div className={styles.curve} role="img" aria-label={`Mana curve: ${CURVE_BUCKETS.map((b) => `${computed.curve[b] ?? 0} at ${b}`).join(", ")}`}>
           {CURVE_BUCKETS.map((b) => {
             const n = computed.curve[b] ?? 0;
@@ -45,7 +45,7 @@ export function StatsPanel() {
       </section>
 
         <section className={styles.section}>
-          <Eyebrow>Card types</Eyebrow>
+          <Eyebrow className={styles.label}>Card types</Eyebrow>
           {typeOrder.length ? <ul className={styles.types} aria-label="Card-type groups and copy counts">
             {typeOrder.map((t) => (
               <li key={t}>

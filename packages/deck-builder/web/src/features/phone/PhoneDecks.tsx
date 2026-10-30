@@ -19,7 +19,7 @@ function PhoneDeckRow({ deck, fork }: { deck: DeckSummary; fork: boolean }) {
       <DeckArt cards={deck.commander_art} identity={deck.color_identity} load={near}><a className={styles.row} href={href({ page: "deck", deckId: deck.id, review: waiting > 0 && deck.category !== "archived" })}>
         <span className={styles.name}>
           {deck.name}
-          {deck.visibility !== "private" && <span role="img" aria-label={deck.visibility === "public" ? "Public" : "Unlisted"}><Icon name={deck.visibility === "public" ? "globe" : "link"} /></span>}
+          {deck.visibility !== "private" && <span role="img" aria-label={deck.visibility === "public" ? "Public" : "Unlisted"} title={deck.visibility === "public" ? "Public" : "Unlisted"}><Icon name={deck.visibility === "public" ? "globe" : "link"} /></span>}
         </span>
         <span className={styles.meta}>
           <ColorIdentity colors={deck.color_identity} />

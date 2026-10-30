@@ -16,3 +16,6 @@
 .coverageWarning > summary > svg { flex: none; }
 .coverageWarning > summary:hover { text-decoration: underline; }
 @media (max-width: 1099px) { .coverageWarning > summary { min-height: var(--tap); } }
+
+/* As StatsPanel's section labels. */
+.label { color: var(--text-soft); font-size: var(--text-md); }

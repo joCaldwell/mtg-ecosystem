@@ -81,6 +81,21 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
     else if (was) restoreScroll(scroll.current, unfiltered.current);
   }, [matches.active, ui.searchTerm, ui.tagIds, ui.tagMatch, ui.tagInverted, readOnly]);
 
+  // The legend names only the markers drawn on the rows now in the list.
+  const legend = useMemo(() => {
+    const ids = new Set<string>();
+    const card = (id: string) => { if (!filter || filter.cardIds.has(id)) ids.add(id); };
+    for (const c of [...layout.commanders, ...layout.companions]) card(c.oracle_id);
+    for (const g of layout.groups) {
+      for (const c of g.cards) card(c.oracle_id);
+      if (!filter) for (const c of [...(g.secondaryCards ?? []), ...(g.commandZoneCards ?? [])]) ids.add(c.oracle_id);
+    }
+    for (const adds of addsByGroup.values())
+      for (const item of adds) if (!filter || filter.addIds.has(item.id)) ids.add(item.oracle_id);
+    const shown = [...ids].map((id) => marks.get(id));
+    return LEGEND.filter((kind) => shown.some((m) => (kind === "memory" ? m?.memories : m?.decisions)));
+  }, [layout, addsByGroup, filter, marks]);
+
   const nothingToShow = state.cards.length === 0 && !(reviewing && overlay.addsByGroup.size > 0);
   const nothingMatches = !!filter && matchCount(filter) === 0;
 
@@ -159,17 +174,12 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
         </>
       )}
       {/* The markers are the owner's workflow; a viewer's list has none. */}
-      {!viewer && <p className={styles.legend}>
-        {LEGEND.map((kind) => (
+      {!viewer && !nothingToShow && !nothingMatches && legend.length > 0 && <p className={styles.legend}>
+        {legend.map((kind) => (
           <Text key={kind} tone="faint" size="xs" className={styles.legendItem}>
             <Mark kind={kind} decorative /> {MARK_LABEL[kind]}
           </Text>
         ))}
-        {!readOnly && (
-          <Text tone="faint" size="xs">
-            Ctrl-click to select several
-          </Text>
-        )}
       </p>}
     </div>
   );

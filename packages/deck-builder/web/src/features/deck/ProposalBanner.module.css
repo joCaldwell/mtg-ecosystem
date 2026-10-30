@@ -9,6 +9,15 @@
   flex: none;
 }
 
+/* The quoted title and its time read as one phrase. */
+.tail {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
 /* One line; a long summary is cut rather than pushing the button away. */
 .summary {
   flex: 0 1 auto;

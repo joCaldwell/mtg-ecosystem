@@ -9,6 +9,3 @@
 }
 
 /* Kept rendered while empty: a hidden live region is never announced. */
-.status {
-  white-space: nowrap;
-}

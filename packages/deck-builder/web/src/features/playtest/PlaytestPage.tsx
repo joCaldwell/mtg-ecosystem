@@ -34,7 +34,7 @@ export function PlaytestPage({ deckId }: { deckId: number }) {
               className={styles.deckLink}
               href={href({ page: "deck", deckId })}
               aria-label="Back to deck overview"
-              title="Deck overview"
+              title="Back to deck overview"
             >
               <Icon name="back" />
             </a>

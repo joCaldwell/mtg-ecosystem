@@ -8,14 +8,19 @@ import styles from "./ProposalEyebrow.module.css";
  * case, so handles and agent labels read as they are written. Violet marks
  * an agent's proposal (DESIGN.md). Review alone adds its queue counter at
  * the right; the inbox, which spans decks, appends the deck's name.
+ * Brief, profile and power target edits pass their own `label`
+ * ("Brief edit · rowan via codex · yesterday").
  */
 export function ProposalEyebrow({
   proposal,
+  label,
   counter,
   deck,
   className,
 }: {
   proposal: Pick<Proposal, "id" | "author" | "author_display" | "author_via" | "created_at">;
+  /** In place of "Proposal #5". */
+  label?: string;
   counter?: string;
   deck?: string;
   className?: string;
@@ -24,7 +29,7 @@ export function ProposalEyebrow({
   return (
     <div className={className ? `${styles.eyebrow} ${className}` : styles.eyebrow}>
       <span className={styles.parts}>
-        <span className={agent}>Proposal #{proposal.id}</span>
+        <span className={agent}>{label ?? `Proposal #${proposal.id}`}</span>
         <span className={agent}>{proposal.author_display ?? proposal.author}</span>
         <span>{ago(proposal.created_at)}</span>
         {deck ? <span>{deck}</span> : null}

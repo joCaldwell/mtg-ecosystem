@@ -9,15 +9,15 @@ import { ptString } from "../../../domain/cards.ts";
 import { formatPrice } from "../../../domain/price.ts";
 import { pendingOf } from "../../../domain/grouping.ts";
 import { CardImage, InlineText, ManaCost, OracleText, RichText, useCardLookup, type CardInfo } from "../../../mtg/index.ts";
-import { Button, Chip, Icon, IconButton, Loading, Text } from "../../../ui/index.ts";
+import { Button, Chip, Loading, Text } from "../../../ui/index.ts";
 import { ProposalEyebrow } from "../../decisions/index.ts";
 import { useDeckState } from "../DeckStore.tsx";
 import { useDeckUi, type OpenCard } from "../DeckUi.tsx";
 import { CardActions } from "./CardActions.tsx";
 import { CardControls } from "./CardControls.tsx";
 import { CardHistory } from "./CardHistory.tsx";
-import { panelViewLabel } from "../panelViews.ts";
 import panelStyles from "./DeckPanel.module.css";
+import { PanelBack } from "./PanelBack.tsx";
 import styles from "./CardPanel.module.css";
 
 export function CardPanel({ card: open, backRef, bodyRef }: { card: OpenCard; backRef: Ref<HTMLButtonElement>; bodyRef: Ref<HTMLDivElement> }) {
@@ -64,7 +64,7 @@ export function CardPanel({ card: open, backRef, bodyRef }: { card: OpenCard; ba
     <>
       <div className={panelStyles.navigation} data-inspecting>
         <div className={styles.header}>
-          <IconButton ref={backRef} size="sm" label={`Back to ${panelViewLabel(ui.tab)}`} onClick={() => ui.openCardPanel(null)}><Icon name="back" /></IconButton>
+          <PanelBack backRef={backRef} />
           <h2 className={styles.name}>{open.name}</h2>
           <div className={styles.status}>
             <Chip>{where}</Chip>

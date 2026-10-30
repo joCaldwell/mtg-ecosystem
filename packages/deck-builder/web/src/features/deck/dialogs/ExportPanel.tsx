@@ -17,8 +17,8 @@ export function ExportPanel() {
   const [includeMaybe, setIncludeMaybe] = useState(() => matches.active && matches.addIds.size === 0 && matches.cardIds.size > 0
     && [...matches.cardIds].every(id => cards.some(c => c.oracle_id === id && c.maybe)));
   const [copyError, setCopyError] = useState<string | null>(null);
-  // Copy confirms itself beside the button ("Copied 1 line") for about two
-  // seconds, instead of a toast across the screen.
+  // Copy confirms itself on the button ("Copied") for about two seconds,
+  // instead of a toast across the screen; "Copied 1 line" is announced.
   const [copied, setCopied] = useState<string | null>(null);
   const copiedTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(copiedTimer.current), []);
@@ -99,8 +99,9 @@ export function ExportPanel() {
           </Text>
         ) : null}
         <Spacer />
-        {/* Always present, so the polite announcement is heard when it fills. */}
-        <Text tone="muted" size="sm" role="status" aria-live="polite" className={styles.status}>{copied}</Text>
+        {/* Always present, so the polite announcement is heard when it fills;
+            visually the button's "Copied" says it. */}
+        <Text role="status" aria-live="polite" className="visually-hidden">{copied}</Text>
         {/* Disabled looks disabled: an empty export has no primary action. */}
         <Button variant={result?.text ? "primary" : "default"} onClick={copy} disabled={!result?.text}>
           {copied ? "Copied" : "Copy"}

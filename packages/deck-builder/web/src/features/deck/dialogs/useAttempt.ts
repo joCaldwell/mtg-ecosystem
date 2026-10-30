@@ -31,9 +31,12 @@ export function useAttempt() {
   const mutate = useCallback(
     async <T extends Envelope>(fn: () => Promise<T>): Promise<T | null> => {
       report("saving");
-      const result = await attempt(fn);
+      let failure: string | undefined;
+      const result = await attempt(async () => {
+        try { return await fn(); } catch (e: unknown) { failure = e instanceof Error ? e.message : String(e); throw e; }
+      });
       if (result) apply(result);
-      report(result ? "saved" : "idle");
+      report(result ? "saved" : failure === undefined ? "idle" : "failed", failure);
       return result;
     },
     [attempt, apply, report],

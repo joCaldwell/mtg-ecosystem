@@ -79,7 +79,7 @@ function SharedDeck({ shared }: { shared: PublicDeckState }) {
         {note && <Banner tone="neutral">
           <span className={styles.note}>
             {deckId != null && (
-              <a className={styles.back} href={href({ page: "deck", deckId })} aria-label={`Back to ${shared.deck.name}`} title={shared.deck.name}>
+              <a className={styles.back} href={href({ page: "deck", deckId })} aria-label={`Back to ${shared.deck.name}`} title={`Back to ${shared.deck.name}`}>
                 <Icon name="back" />
               </a>
             )}

@@ -3,11 +3,11 @@
 .figure { display: grid; gap: var(--s-4); margin: 0; min-width: 0; align-content: start; justify-items: center; text-align: center; }
 .caption { display: grid; gap: var(--s-1); }
 .caption h2 { margin: 0; font-size: var(--text-md); font-weight: 600; }
-.caption > span { color: var(--muted); font-size: var(--text-sm); }
+.caption > span { color: var(--text-soft); font-size: var(--text-md); }
 .donut { display: block; width: var(--deck-mana-donut); height: var(--deck-mana-donut); }
 .track { stroke: var(--line-strong); }
 .total { fill: var(--text); font: 600 var(--text-xl) var(--font-mono); }
-.unit { fill: var(--muted); font-size: var(--text-sm); }
+.unit { fill: var(--text-soft); font-size: var(--text-md); }
 .W { --slice: var(--mana-w); }
 .U { --slice: var(--mana-u); }
 .B { --slice: var(--mana-b); }
@@ -16,9 +16,9 @@
 .slice { stroke: var(--slice); }
 .blackEdge { stroke: var(--mana-b-ring); }
 /* One compact table under both donuts: each series a count and a share. */
-.legend { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.legend { width: 100%; border-collapse: collapse; font-size: var(--text-md); }
 .legend th, .legend td { padding: var(--s-2) var(--s-2); }
-.legend thead th { color: var(--muted); font-weight: 500; text-align: right; padding-bottom: var(--s-3); border-bottom: 1px solid var(--line); }
+.legend thead th { color: var(--text-soft); font-weight: 500; text-align: right; padding-bottom: var(--s-3); border-bottom: 1px solid var(--line); }
 .legend tbody th { text-align: left; font-weight: 400; }
 .legend tbody tr:first-child > * { padding-top: var(--s-3); }
 .colour { display: inline-flex; align-items: center; gap: var(--s-3); }
@@ -26,6 +26,6 @@
 .colour > i.B { box-shadow: inset 0 0 0 1px var(--mana-b-ring); }
 .count, .share { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
 .count { font-weight: 500; }
-.share { width: 6ch; color: var(--muted); }
-.empty { margin: 0; color: var(--muted); font-size: var(--text-sm); }
+.share { width: 6ch; color: var(--text-soft); }
+.empty { margin: 0; color: var(--text-soft); font-size: var(--text-md); }
 @media (forced-colors: active) { .donut { display: none; } .colour > i { display: none; } }

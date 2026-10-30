@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { api, type DocumentEdit, type Envelope, type Inbox } from "../../api/client.ts";
 import { editDiff, editTitle, isTextEdit } from "../../domain/documents.ts";
-import { ago } from "../../domain/time.ts";
 import { RichText } from "../../mtg/index.ts";
 import { Box, Checkbox, Chip, DiffView, ErrorNote, Eyebrow, Row, Stack, Text } from "../../ui/index.ts";
 import { DecisionControls } from "./DecisionControls.tsx";
+import { ProposalEyebrow } from "./ProposalEyebrow.tsx";
 import styles from "./DocumentEditCard.module.css";
 
 function Change({ edit }: { edit: DocumentEdit }) {
@@ -80,12 +80,11 @@ export function DocumentEditCard({
   return (
     <Box tone="agent" className={styles.card}>
       <Stack gap={2}>
-        <Eyebrow className={styles.eyebrow}>
-          <span className={styles.kind}>{edit.kind === "profile" ? "Profile edit" : edit.kind === "power_target" ? "Power target edit" : "Brief edit"}</span>
-          <span className={styles.author_display ?? styles.author}>{edit.author_display ?? edit.author}</span>
-          <span>{ago(edit.created_at)}</span>
-          {showDeck && <span>{edit.deck_name ?? "Your profile"}</span>}
-        </Eyebrow>
+        <ProposalEyebrow
+          proposal={edit}
+          label={edit.kind === "profile" ? "Profile edit" : edit.kind === "power_target" ? "Power target edit" : "Brief edit"}
+          deck={showDeck ? edit.deck_name ?? "Your profile" : undefined}
+        />
         <div className={styles.title}>{editTitle(edit)}</div>
       </Stack>
 
