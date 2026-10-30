@@ -11,7 +11,7 @@ import styles from "./DeckArt.module.css";
  * the DOM, so a screen reader meets the deck before its credit. */
 export function DeckArt({ cards, identity = "", variant = "strip", load = true, priority, children }: {
   cards: readonly ArtFacts[] | null | undefined; identity?: string;
-  variant?: "strip" | "ribbon" | "banner" | "showcase" | "backdrop";
+  variant?: "strip" | "editor" | "banner" | "showcase" | "backdrop";
   load?: boolean; priority?: "auto" | "high"; children?: ReactNode;
 }) {
   const art = creditedArt(cards);
@@ -19,11 +19,12 @@ export function DeckArt({ cards, identity = "", variant = "strip", load = true, 
   const tint = colors.length ? `var(--identity-${colors[0]!.toLowerCase()})` : "var(--identity-grey)";
   return <div className={`${styles.surface} ${styles[variant]}`}
     data-art={art.length > 0 || undefined}
-    style={variant === "strip" ? { "--deck-tint": tint } as CSSProperties : undefined}>
+    style={variant === "strip" || variant === "editor" || variant === "banner" ? { "--deck-tint": tint } as CSSProperties : undefined}>
     {children}
+    {load && art.length > 0 && (variant === "editor" || variant === "banner") && <div className={styles.atmosphere} aria-hidden="true">{art.map(c => <img key={c.oracle_id} src={c.image_art_crop} alt="" decoding="async" onError={e => { e.currentTarget.hidden = true; }} />)}</div>}
     {art.length > 0 && <div className={styles.visual}>{art.map(c => <div className={styles.crop} key={c.oracle_id}>
       {load && <img src={c.image_art_crop} alt="" loading="eager" fetchPriority={priority} decoding="async" onError={e => { e.currentTarget.parentElement!.dataset.failed = ""; }} />}
-      <span className={styles.credit}>{variant === "strip" ? <><span className="visually-hidden">Art by </span>{c.artist}</> : artCredit(c, variant !== "backdrop")}</span>
+      <span className={styles.credit}>{["strip", "editor", "banner"].includes(variant) ? <><span className="visually-hidden">Art by </span>{c.artist}</> : artCredit(c, variant !== "backdrop")}</span>
     </div>)}</div>}
     <div className={styles.identity} aria-hidden="true">{colors.map(c => <i key={c} data-color={c} />)}</div>
   </div>;

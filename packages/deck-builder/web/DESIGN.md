@@ -93,7 +93,8 @@ digits rather than its line box. Nothing moves when the image arrives. A
 colour identity (`mtg/ColorIdentity`) is the same symbols at
 `--identity-pip` (12px), one image named "Colour identity: …", so roster
 cards, public profiles and collection statistics never rely on hue alone.
-The `--mana-*` colours also draw the pip chart. D21 also
+The `--mana-*` colours also draw the pip chart and the named collection
+identity bars; the collection's black bar uses a solid charcoal alias. D21 also
 permits `--identity-*` aliases on a deck's own thin stripe at
 `--identity-opacity`, plus an 18% surface tint on its gallery fallback;
 colourless uses `--identity-grey`. A split gradient
@@ -369,8 +370,8 @@ printed artist and copyright lines.
 | Variant | Placement | Reserved frame | Loading |
 | --- | --- | --- | --- |
 | strip | Desktop/phone roster, public profile, style guide | `--art-aspect` (626/457) gallery frame | deferred: `load` from `useNearView` (200 px), then eager |
-| ribbon | Owner's deck editor header, every width | `--art-ribbon-space` (20 px) | eager |
-| banner | Phone deck header | `--art-banner-phone-space` on phones | eager |
+| editor | Owner’s desktop/tablet deck header | `--art-editor-h` (200–240 px by viewport height); tablet 256 px | eager |
+| banner | Phone deck header | `--art-editor-phone-h` (224 px minimum) | eager |
 | showcase | Public deck page | `--art-showcase-space` (176 px), 112 px on phones | eager, `priority="high"` (`fetchpriority`) |
 | backdrop | Sign-in and empty-account landing only | `--art-backdrop-space` | eager; one land per visit, no rotation |
 | thumbnail | Sidebar rail, including the drawer | `--art-thumb` (16 px), the icon column | deferred: `useNearView` in the rail, `fetchpriority=low` |
@@ -383,8 +384,9 @@ printed artist and copyright lines.
   a masked 8 px backdrop blur was compared in captures and removed because
   the plain gradient preserved more of the painted detail.
   Legibility never depends on backdrop support.
-  The 21 px deck name leads; commanders and metadata are 12 px, or 14 px on
-  phones. Long titles and partner names wrap without truncation; unusually
+  The 21 px deck name leads; commanders are 12 px, or 14 px on phones.
+  Owner roster metadata is 14 px with 16 px symbols; shared profile tiles
+  retain their existing metadata sizing. Long titles and partner names wrap without truncation; unusually
   long captions can grow the tile. Grid rows stretch neighbours to match.
 - **Gallery credits are unboxed text inside each crop, bottom-right.**
   They use `--text-xs` `--text-soft` on the lower caption gradient, with
@@ -393,7 +395,8 @@ printed artist and copyright lines.
   exempt from text contrast by owner direction. Hover-capable tile hover or
   focus within raises the credit to full opacity; touch at rest stays quiet. Partner crops split the frame
   equally and each keeps its own credit. The artist name is visible; "Art
-  by" stays in the accessible text. Other variants retain their existing
+  by" stays in the accessible text. Editor and phone headers use the same
+  unboxed, low-emphasis rule; showcase and backdrop retain their existing
   credit pills and band fades, and backdrops name the card too. Double-faced
   cards use the front face. Failed or deferred images hide their credits and
   retain the frame.
@@ -405,8 +408,9 @@ printed artist and copyright lines.
   IconButton hover: 64% black at rest, 74% on hover/focus/open, 82% while
   pressed, with brighter ink and border in the active states. Over white
   art those icon contrasts are 4.53:1, 9.17:1 and 12.47:1 respectively. Touch keeps the menu visible with a 44 px hit area. The
-  commander's dotted underline stays 2 px below its text, with touch targets
-  supplied by padding around that text rather than an extended bottom border.
+  owner tile's commander names show a dotted underline 2 px below the text
+  only on the name's own hover or focus on hover-capable devices. Touch has
+  no underline, and gets its hit target from padding around the text.
 - **The My decks frame grows only at ultrawide sizes.** Its roster uses
   three desktop columns, including at 1920, so six decks form two full rows.
   Starting at 2200 px the page alone grows from 1440 toward 1940 px, leaving
@@ -437,18 +441,63 @@ printed artist and copyright lines.
   credits at full opacity `--text-soft` at 74% black are 6.75:1. Amber count text is 4.73:1
   there. Metadata uses the soft tier because muted would be only 3.09:1
   against the commander's 64% floor. The waiting chip is filled `--agent` with
-  `--bg` ink, 7.72:1 independently of the art. Other art variants retain
+  `--bg` ink, 7.72:1 independently of the art. Showcase and backdrop retain
   `--art-overlay-text` (94% black) and their existing contrast floors.
 - **Identity is a 2 px stripe** at `--identity-opacity`, split for several
   colours, grey for colourless. Black uses the darker half of its pip
-  (`--identity-b`) so it never reads as white. The gallery alone may use a
+  (`--identity-b`) so it never reads as white. The gallery and owner header may use a
   subtle identity surface tint; never tint text or controls.
-- **The editor's art is a ribbon** (owner direction following blind review,
-  2026-10-28): a 20 px strip above the title row, fading into the header, so
-  the list keeps the height a banner took. Its credit sits inside the strip
-  at the right end, in `--text-xs` `--muted` on the overlay. It does not fold
-  on scroll: the strip is too thin for a fold to return useful space, and it
-  replaced the 72 px banner's fold. Public pages keep their showcase.
+- **The editor opens with a large commander-art header.** A 36 px headline
+  and lifecycle pill lead, followed by commander names and identity, estimate
+  and power, then counts and the right-aligned Playtest, Share and More.
+  The sharp art bleeds in from the right, capped at 626 px (760 px for two
+  crops); only a dim 34 px blurred wash stretches across the canvas. Long
+  eased horizontal and bottom fades derive from `--bg`. Missing or failed
+  art keeps the same black frame with a 12% identity tint. Credits stay
+  inside their own crops, unboxed at the gallery's 0.22 emphasis.
+- **The header yields to work through native scrolling.** Desktop has a
+  short outer page scroll before the existing independent card-list scroll.
+  The full header scrolls away to a 56 px compact title, lifecycle and action
+  bar. The workspace grows into the uncovered space while an equal end
+  spacer shrinks, keeping the native scroll range constant. Rows move only
+  through scrolling, the list and panel stay mounted, and list scroll offsets
+  are never rewritten by the fold. Panel scrolling alone leaves the header
+  open. Find/review/keyboard list reveals also expose the compact workspace;
+  clearing a filter restores the saved outer, list and window positions.
+  There is no height animation or smooth-scroll dependency, including with
+  reduced motion. At 1280 × 800 the header is about 213 px; at 1440 × 900
+  it is 240 px. Tablets retain window scrolling and 44 px controls; their
+  180 px hero leaves naturally. Commander and estimate text stay on the dark
+  side; the status chips and Playtest, Share and More share one row. Add cards
+  and Find share the next row at 768 px, with filters beneath. Touch targets
+  remain 44 px, and longer content can grow the header. Phones use `banner`, a 26 px title and a
+  224 px minimum; proposal notices follow outside the art.
+  Each independent list/panel scroller also owns its absolute descendants:
+  hidden accessibility suffixes cannot escape into the outer header scroll.
+  The outer range is exactly the hero-to-compact height difference, including
+  when the list fits. End-of-list space is the normal 16 px gutter; the extra
+  64 px bulk-action clearance exists only while the selection bar is present.
+- **Header contrast is local to the text.** The canvas fade ends at 75%
+  of the header, leaving the exposed face and sky at native brightness. A
+  soft bottom gradient starts at 55% of the crop's height and reaches only
+  32% black at the bottom; opaque action buttons supply their own contrast.
+  Title, commander and metadata blocks each carry a content-sized 64% black
+  scrim. Its 104 px horizontal fade and 24 px vertical feather sit outside
+  the text, including on phone and tablet; no full-width narrow-screen wash.
+  Over pure white art, conservative WCAG sRGB minima are 6.15:1 for the
+  `--text` title/commander and 4.53:1 for `--text-soft` metadata. Action labels
+  remain at least 15.79:1 through rest and hover; lifecycle soft text is
+  11.74:1. Counts retain opaque black chips. Credits remain intentionally
+  exempt. Public `showcase` pages and roster `strip` tiles keep their own
+  composition.
+- **Owner deck text underlines follow the glyphs.** As on roster tiles,
+  dotted text decoration sits 2 px below the text at every width. Padding
+  supplies the 44 px touch target, with compensating margins and a retained
+  row height so the title, metadata and list keep their positions. The same
+  treatment covers card references throughout the owner’s phone deck view
+  and the editor’s power link, including proposal names and linked prose.
+
+
 
 The roster filters form one slim, wrapping toolbar: search and a native
 lifecycle select retain explicit accessible names; the count is a status and
@@ -640,3 +689,32 @@ none. Until the server's token catalog exists the section says "Token list
 not available yet."; a deck with none says "This deck makes no tokens."
 Both are one faint line. A token with no stored image shows no picture
 rather than looking one up by name.
+
+
+## My decks and touch polish
+
+The collection summary names its metrics “Average mana value” and “Average
+lands per deck”. Common colour identities pair 16 px symbols with written
+colour names from `COLOR_NAMES`; all five read “All five colours”. Counts
+remain aligned at the row end. “Colours in deck identities” is an allowed
+use of mana colours: its named bars count Paper decks including each colour.
+Black uses a solid charcoal fill (`--collection-mana-b`), with no pale outline.
+Slot averages and deck counts align in a monospaced column at each row’s end.
+
+Owner roster metadata is 14 px, with 16 px identity symbols and a thin black
+ring. Its existing caption gradient keeps the same contrast floors over
+white art: soft metadata 6.75:1 and amber counts 4.73:1. Commander names have
+no underline at rest; on hover-capable devices the name’s own hover or focus
+shows its dotted underline. Touch keeps the padded hit area and hover-card
+behaviour without an underline. Shared profile tiles retain their own style.
+The fixed My decks title gains a 1 px line-colour edge after its content
+scrolls, without moving the page frame.
+
+On phones, the lifecycle pill sits beside the deck title and wraps with long
+names. “Read deck · N cards” is a full-width secondary grey button.
+Proposed brief edits keep their label left-aligned and link to the inbox
+through a separate violet-outlined “Review in inbox” button. Tablets have
+one “Deck details” entry in the pinned navigation bar; the art header has no
+duplicate entry. Coarse tablet pointers omit keyboard hints on Add cards
+and the review banner, while fine pointers retain them. The details sheet
+still uses the same portal and preserves its current view and drafts.

@@ -102,3 +102,7 @@
 /* Touch: the field inside is a full tap target (base.css, DeckToolbar), so
    the frame around it grows with it. */
 @media (max-width: 1099px) { .bar { height: auto; min-height: var(--tap); } }
+
+@media (pointer: coarse) {
+  .bar > kbd { display: none; }
+}

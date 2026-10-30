@@ -23,10 +23,11 @@
 .layout { display: flex; flex: none; align-items: center; gap: var(--s-5); }
 .choice { display: flex; align-items: center; gap: var(--s-3); white-space: nowrap; }
 @media (max-width: 1099px) {
-  .toolbar { flex-wrap: wrap; gap: var(--s-3); padding: var(--s-3) var(--s-4); }
-  .add { flex-basis: 100%; border: 0; padding: 0; }
-  .view { flex-wrap: wrap; gap: var(--s-3); }
-  .layout { gap: var(--s-4); }
-  .search { min-width: var(--toolbar-search-min); }
+  .toolbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-3) var(--s-4); padding: var(--s-3) var(--s-4); }
+  .add { min-width: 0; border: 0; padding: 0; }
+  .view, .filters { display: contents; }
+  .layout { grid-column: 2; justify-self: end; gap: var(--s-4); }
+  .search { grid-column: 2; grid-row: 1; min-width: 0; }
+  .toolbar:not(:has(.add)) .search { grid-column: 1 / -1; }
   .toolbar :is(button, input, select) { min-height: var(--tap); }
 }

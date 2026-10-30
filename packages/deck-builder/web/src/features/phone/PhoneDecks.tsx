@@ -18,7 +18,7 @@ function PhoneDeckRow({ deck, fork }: { deck: DeckSummary; fork: boolean }) {
   const { deckWaiting } = useInbox();
   const { count: waiting, pending } = deckWaitingState(deck, deckWaiting);
   const route = { page: "deck" as const, deckId: deck.id, review: pending && deck.category !== "archived" };
-  return <DeckCard name={deck.name} href={href(route)} art={deck.commander_art}
+  return <DeckCard roster name={deck.name} href={href(route)} art={deck.commander_art}
     identity={deck.color_identity} category={deck.category} count={deck.card_count}
     commanders={deck.commanders.length ? deck.commanders.map((name, i) => <Fragment key={name}>
       {i > 0 && " + "}<CardRef name={name} onOpen={() => navigate(route)} />

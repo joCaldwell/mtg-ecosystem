@@ -16,3 +16,12 @@
 .roster { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-6); padding: 0; margin: 0; list-style: none; }
 
 @media (max-width: 1099px) { .roster { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.page > header { position: relative; }
+.page.scrolled > header::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  border-bottom: 1px solid var(--line);
+  pointer-events: none;
+}

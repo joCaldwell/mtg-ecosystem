@@ -48,7 +48,13 @@
 
 /* On a phone the card name opens its sheet: a full tap target. */
 @media (max-width: 719px) {
+  .line { min-height: var(--tap); }
   .name button {
-    min-height: var(--tap);
+    --card-ref-hit-pad: calc((var(--tap) - 1em * var(--leading)) / 2 + var(--s-1) / 2);
+    display: inline-block;
+    min-height: 0;
+    padding-block: var(--card-ref-hit-pad);
+    margin-block: calc(-1 * var(--card-ref-hit-pad));
+    line-height: inherit;
   }
 }

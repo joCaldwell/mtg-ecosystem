@@ -44,3 +44,7 @@
   .line { flex-wrap: wrap; gap: var(--s-2) var(--s-4); }
   .who { flex-shrink: 1; }
 }
+
+@media (pointer: coarse) {
+  .banner kbd, .banner .keys { display: none; }
+}

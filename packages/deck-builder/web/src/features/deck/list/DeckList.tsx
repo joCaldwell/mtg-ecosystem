@@ -58,16 +58,18 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
   // Where the unfiltered list was scrolled, kept up to date only while no
   // filter is active, so clearing one returns the owner to it. The desktop
   // list scrolls itself; below 1100 px the window scrolls it.
-  const unfiltered = useRef({ list: 0, window: 0 });
+  const unfiltered = useRef({ list: 0, window: 0, header: 0 });
   const filtering = useRef(false);
   useEffect(() => {
     const list = scroll.current;
     if (!list || readOnly) return;
-    const remember = () => { if (!filtering.current) unfiltered.current = { list: list.scrollTop, window: scrollY }; };
+    const page = list.closest<HTMLElement>("[data-deck-page]");
+    const remember = () => { if (!filtering.current) unfiltered.current = { list: list.scrollTop, window: scrollY, header: page?.scrollTop ?? 0 }; };
     remember();
+    page?.addEventListener("scroll", remember, { passive: true });
     list.addEventListener("scroll", remember, { passive: true });
     addEventListener("scroll", remember, { passive: true });
-    return () => { list.removeEventListener("scroll", remember); removeEventListener("scroll", remember); };
+    return () => { page?.removeEventListener("scroll", remember); list.removeEventListener("scroll", remember); removeEventListener("scroll", remember); };
   }, [readOnly]);
 
   // Each filter change shows its results from the top; clearing the filter
@@ -196,8 +198,10 @@ export function revealFilterResults(list: HTMLElement | null): void {
 }
 
 /** Return to where the unfiltered list was. */
-export function restoreScroll(list: HTMLElement | null, to: { list: number; window: number }): void {
+export function restoreScroll(list: HTMLElement | null, to: { list: number; window: number; header?: number }): void {
   if (!list) return;
+  const page = list.closest<HTMLElement>("[data-deck-page]");
+  if (page && to.header !== undefined) page.scrollTop = to.header;
   list.scrollTop = to.list;
   if (scrollY !== to.window) scrollTo({ top: to.window, behavior: "instant" });
 }

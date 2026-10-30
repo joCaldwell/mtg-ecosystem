@@ -23,6 +23,7 @@ export function CardRef({ name, card, onOpen }: { name: string; card?: CardInfo;
   return (
     <button
       type="button"
+      data-card-ref
       className={open ? `${styles.ref} ${styles.openable}` : styles.ref}
       {...hover(card ?? name)}
       onKeyDown={(e) => { if (e.key === "?") { e.preventDefault(); e.stopPropagation(); inspect(card ?? name); } }}

@@ -16,6 +16,15 @@ function Block({ title, children, className = "" }: { title: string; children: R
 
 const num = (n: number | null, digits = 1) => (n == null ? "–" : n.toFixed(digits).replace(/\.0+$/, ""));
 
+function identityNames(identity: string) {
+  const colours = WUBRG.filter(c => identity.includes(c));
+  if (colours.length === WUBRG.length) return "All five colours";
+  return (colours.length ? colours : ["C"]).map(c => {
+    const name = COLOR_NAMES[c]!;
+    return name[0]!.toUpperCase() + name.slice(1);
+  }).join(", ");
+}
+
 function Colors({ stats }: { stats: PlayerStats }) {
   return <Block title="Colours in deck identities">
     <div className={styles.bars}>
@@ -47,8 +56,8 @@ export function PlayerStatsPanel() {
   const figures = [
     ["Paper decks", stats.deck_count],
     ["Families", stats.families],
-    ["Mana value", num(stats.averages.mana_value, 2)],
-    ["Land count", num(stats.averages.lands)],
+    ["Average mana value", num(stats.averages.mana_value, 2)],
+    ["Average lands per deck", num(stats.averages.lands)],
   ] as const;
 
   return <section className={styles.stats} aria-labelledby="paper-stats-heading">
@@ -65,7 +74,10 @@ export function PlayerStatsPanel() {
         {stats.identities.length > 0 && <Block title="Common colour identities">
           <div className={styles.identities}>
             {stats.identities.map(i => <div key={i.identity} className={styles.identity}>
-              <span className={styles.pips}><ColorIdentity colors={i.identity === "C" ? "" : i.identity} /></span>
+              <span className={styles.identityLabel}>
+                <span className={styles.pips}><ColorIdentity colors={i.identity === "C" ? "" : i.identity} /></span>
+                <span>{identityNames(i.identity)}</span>
+              </span>
               <Text mono tone="soft" size="sm">{i.decks} {i.decks === 1 ? "deck" : "decks"}</Text>
             </div>)}
           </div>

@@ -88,10 +88,63 @@ const PUBLIC = [375, 768, 1280, 1440, ...WIDE];
 
 const cardRow = (page, name) => page.getByRole("button", { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`) }).first();
 
+/** End geometry is recorded with the screenshots, so a pane clipped above
+ * the viewport bottom or an outer scroll tail cannot pass visual review. */
+async function deckScrollMetrics(page) {
+  return page.evaluate(() => {
+    const list = document.querySelector("[data-deck-list]");
+    const panel = document.querySelector("[data-deck-panel]");
+    const root = document.querySelector("[data-deck-page]");
+    const workspace = document.querySelector("[data-deck-workspace]");
+    const hero = document.querySelector("[data-deck-hero]");
+    const compact = document.querySelector("[data-deck-compact] > header");
+    const rect = list.getBoundingClientRect();
+    const contentBottom = Math.max(...[...list.children].map(el => el.getBoundingClientRect().bottom));
+    const controls = document.querySelector('[aria-label="Deck view controls"]');
+    const views = panel.querySelector('nav, [role="tablist"], select');
+    return {
+      list_range: list.scrollHeight - list.clientHeight,
+      list_remaining: list.scrollHeight - list.clientHeight - list.scrollTop,
+      list_top: rect.top, list_bottom: rect.bottom,
+      content_bottom: contentBottom, bottom_gap: rect.bottom - contentBottom,
+      panel_top: panel.getBoundingClientRect().top,
+      panel_bottom: panel.getBoundingClientRect().bottom,
+      panel_views_top: views?.getBoundingClientRect().top ?? null,
+      controls_top: controls?.getBoundingClientRect().top ?? null,
+      page_range: root ? root.scrollHeight - root.clientHeight : 0,
+      page_remaining: root ? root.scrollHeight - root.clientHeight - root.scrollTop : 0,
+      header_travel: hero && compact ? hero.offsetHeight - compact.offsetHeight : 0,
+      workspace_range: workspace ? workspace.scrollHeight - workspace.clientHeight : 0,
+      viewport_bottom: innerHeight,
+    };
+  });
+}
+
+async function scrollDeckToEnd({ page, watch }) {
+  const list = page.locator("[data-deck-list]");
+  const box = await list.boundingBox();
+  if (!box) throw new Error("Deck list has no rendered bounds");
+  await page.mouse.move(box.x + box.width / 2, Math.min(box.y + 120, 700));
+  // Extra input after reaching the list end exposes accidental scroll
+  // chaining into an oversized ancestor, including on older builds.
+  for (let pass = 0; pass < 3; pass++) {
+    await page.mouse.wheel(0, await list.evaluate(el => Math.max(2000, el.scrollHeight * 2)));
+    await settle(page, watch);
+  }
+  const m = await deckScrollMetrics(page);
+  if (Math.abs(m.list_remaining) > 1 || Math.abs(m.list_bottom - m.viewport_bottom) > 1
+    || Math.abs(m.panel_bottom - m.viewport_bottom) > 1 || m.panel_top < 0
+    || (m.panel_views_top != null && m.panel_views_top < 0)
+    || (m.controls_top != null && m.controls_top < 0)
+    || m.page_range > m.header_travel + 1 || m.workspace_range > 1) {
+    throw new Error(`Deck end lost its viewport: ${JSON.stringify(m)}`);
+  }
+}
+
 /** Select the same destination across navigation compositions. Older builds
  * kept statistics in Checks; they remain a valid comparison of that task. */
 async function panelView(page, vp, view) {
-  if (vp.width < 1100) await press(page, page.getByRole("button", { name: "Open deck details", exact: true }), vp);
+  if (vp.width < 1100) await press(page, page.getByRole("button", { name: /^(Deck details|Open deck details)$/ }).first(), vp);
   const selector = page.getByRole("combobox", { name: "Panel view", exact: true });
   const links = page.getByRole("navigation", { name: "Deck panel views", exact: true });
   if (await links.isVisible()) await press(page, links.getByRole("button", { name: view === "stats" ? "Stats" : "Checks", exact: true }), vp);
@@ -159,6 +212,31 @@ const SCREENS = [
   {
     screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: ALL, states: [
       { state: "default", caption: "A Paper deck with open agent proposals" },
+    ],
+  },
+  {
+    screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: [1280, 1440, ...WIDE], states: [
+      { state: "list-scrolled", caption: "Working in the deck after scrolling the card list", act: async ({ page, watch }) => {
+        // This stable marker also exists in older builds. Trusted wheel input
+        // exercises both an independent pane and a yielding commander header.
+        const box = await page.locator("[data-deck-list]").boundingBox();
+        if (!box) throw new Error("Deck list has no rendered bounds");
+        await page.mouse.move(box.x + box.width / 2, box.y + Math.min(120, box.height / 2));
+        await page.mouse.wheel(0, 480);
+        await settle(page, watch);
+      } },
+    ],
+  },
+  {
+    screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: [1280, 1440, 2560], states: [
+      { state: "list-end", caption: "The card list at its end, with the toolbar and full-height panel pinned", act: scrollDeckToEnd },
+    ],
+  },
+  {
+    // The sample has the fewest saved rows in this seed and fits at 2560.
+    screen: "deck", user: U.sample, path: `/deck/${D.sample}`, widths: [2560], states: [
+      { state: "short-deck-open", caption: "The shortest seeded deck, with no list overflow" },
+      { state: "short-deck", caption: "The short deck after yielding its header, still without list overflow", act: scrollDeckToEnd },
     ],
   },
   {
@@ -382,6 +460,7 @@ async function runScreen(def, width, slug) {
       const file = join(RUN, "screens", `${key}.png`);
       // Full-page screenshots can reset Chromium touch emulation; measure first.
       const m = await pageMetrics(page, vp);
+      if (def.screen === "deck" && ["list-end", "short-deck", "short-deck-open"].includes(s.state)) m.deck_scroll = await deckScrollMetrics(page);
       const full = await shoot(page, file);
       m.axe = await axe(page);
       m.axe_violations = m.axe.reduce((n, v) => n + v.nodes, 0);

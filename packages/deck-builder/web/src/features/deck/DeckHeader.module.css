@@ -1,135 +1,94 @@
-/* DeckArt's banner draws the rule below and the art behind. */
 .header {
-  padding: var(--s-5) var(--s-6);
-}
-
-.top {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s-4) var(--s-5);
-}
-
-/* As tall as the rename field, so renaming does not move the header. */
-.title {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  min-height: var(--h-lg);
-  font-size: var(--text-xl);
-  font-weight: 650;
-  letter-spacing: -0.01em;
-}
-
-.name {
-  max-width: 100%;
-  border-radius: var(--r-sm);
-  text-align: left;
-}
-
-button.name:hover {
-  color: var(--text-soft);
-  text-decoration: underline dotted var(--faint);
-  text-underline-offset: 4px;
-}
-
-.rename {
-  width: 340px;
-  max-width: 100%;
-}
-
-.stats {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  margin-left: auto;
-}
-
-.sub {
-  margin-top: var(--s-2);
-  color: var(--text-soft);
-  font-size: var(--text-sm);
-}
-
-.commander {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-4);
-}
-
-.link {
-  color: var(--text-soft);
-  border-bottom: 1px dotted var(--faint);
-}
-
-.link:hover {
-  border-bottom-color: var(--sel);
-}
-
-/* Opens the Power tab; drawn as the row's links so it reads as one. */
-.powerLink {
-  border-bottom: 1px dotted var(--faint);
-  border-radius: 0;
-  color: var(--text-soft);
-  text-align: left;
-}
-
-.powerLink:hover {
+  flex-direction: column;
+  justify-content: end;
+  min-height: calc(var(--art-editor-h) - 1px);
+  padding: var(--s-7) var(--s-7) var(--art-editor-bottom-inset);
   color: var(--text);
-  border-bottom-color: var(--sel);
 }
-
-/* Playtest, Share and More are peers: one secondary style (Button's default,
-   which Share and More use), and a rule between them and the status chips. */
-.actions {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  margin-left: var(--s-3);
-  padding-left: var(--s-5);
-  border-left: 1px solid var(--line);
-}
-
-.action {
-  display: inline-flex;
-  align-items: center;
-  height: var(--h-md);
-  padding: 0 var(--s-5);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-md);
-  background: var(--raised);
-  color: var(--text);
-  white-space: nowrap;
-  transition: background var(--fast), border-color var(--fast);
-}
-
-.action:hover {
-  background: var(--hover);
-  border-color: var(--line-hover);
-}
-
-
-.details { display: none; }
-
-.lifecycle {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-}
-
+.top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-4) var(--s-5); max-width: var(--art-editor-text-width); }
+.title { min-width: 0; font-size: var(--art-editor-title); line-height: var(--art-editor-leading); font-weight: 650; letter-spacing: var(--art-editor-tracking); overflow-wrap: anywhere; }
+.name { max-width: 100%; border-radius: var(--r-sm); text-align: left; }
+button.name:hover { color: var(--text-soft); text-decoration: underline dotted var(--faint); text-underline-offset: var(--s-2); }
+.rename { width: var(--art-editor-rename-w); max-width: 100%; }
+.sub, .metadata { max-width: var(--art-editor-text-width); color: var(--text-soft); font-size: var(--text-sm); margin-top: var(--s-4); }
+.sub { font-size: var(--text-md); }
+.commander { display: inline-flex; align-items: center; gap: var(--s-4); }
+.link { color: var(--text-soft); border-bottom: 1px dotted var(--faint); }
+.link:hover { border-bottom-color: var(--sel); }
+.powerLink { text-decoration: underline dotted var(--faint); text-underline-offset: var(--s-1); border-radius: 0; color: var(--text-soft); text-align: left; }
+.powerLink:hover { color: var(--text); text-decoration-color: var(--sel); }
+.stats { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); margin-top: var(--s-7); }
+.actions { display: flex; align-items: center; gap: var(--s-3); margin-left: auto; }
+/* Opaque controls keep their contrast even on the brightest part of a crop.
+   Override transparent generic hover fills as well as the resting surface. */
+.actions > button, .actions [aria-haspopup="menu"], .action { background: var(--raised); }
+.actions > button:hover, .actions [aria-haspopup="menu"]:hover, .action:hover { background: var(--surface); border-color: var(--line-hover); }
+.action { display: inline-flex; align-items: center; height: var(--h-md); padding: 0 var(--s-5); border: 1px solid var(--line-strong); border-radius: var(--r-md); color: var(--text); white-space: nowrap; }
+.lifecycle { display: flex; align-items: center; gap: var(--s-3); }
+.compact { flex-direction: row; align-items: center; justify-content: start; gap: var(--s-5); min-height: var(--art-editor-compact-h); height: var(--art-editor-compact-h); padding: var(--s-4) var(--s-6); background: var(--bg); border-bottom: 1px solid var(--line); }
+.compact .top { flex-wrap: nowrap; max-width: none; min-width: 0; }
+.compact .title { font-size: var(--text-xl); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compact .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compact .sub, .compact .metadata { display: none; }
+.compact .stats { flex: 1; flex-wrap: nowrap; margin: 0; }
 @media (max-width: 1099px) {
-  .details { display: inline-flex; }
-  .header { padding: var(--s-3) var(--s-4); }
-  .top { gap: var(--s-2) var(--s-4); }
-  .title { flex: 0 1 auto; font-size: var(--text-lg); }
-  .stats { flex: 1 1 100%; flex-wrap: wrap; margin-left: 0; }
-  .actions { margin-left: auto; padding-left: var(--s-3); }
-  .sub { column-gap: var(--s-4); row-gap: var(--s-1); }
-}
-
-/* Touch tablets: header actions are full tap targets. */
-@media (max-width: 1099px) {
+  .header { gap: var(--s-2); min-height: var(--art-editor-tablet-h); padding: var(--s-4) var(--s-6); }
+  .title { font-size: var(--art-editor-title-tablet); }
+  .top, .sub, .metadata { max-width: 100%; }
+  .sub, .metadata, .stats { margin-top: 0; }
+  .actions { flex-wrap: nowrap; }
   .stats > button, .actions > a, .actions > button, .stats [aria-haspopup="menu"], .lifecycle [aria-haspopup="menu"] { display: inline-flex; align-items: center; min-height: var(--tap); }
   button.name, .powerLink { min-height: var(--tap); }
 }
 
+/* Content-sized scrims leave the exposed face and sky untouched. Their
+   fully opaque mask covers every glyph; only the surrounding feather fades. */
+.header:not(.compact) :is(.top, .sub, .metadata) {
+  position: relative;
+  isolation: isolate;
+  width: fit-content;
+}
+.header:not(.compact) :is(.top, .sub, .metadata)::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: calc(-1 * var(--art-editor-text-feather)) calc(-1 * var(--art-editor-text-fade)) calc(-1 * var(--art-editor-text-feather)) calc(-1 * var(--s-7));
+  background: var(--art-editor-text-scrim);
+  mask-image: var(--art-editor-text-mask);
+  pointer-events: none;
+}
+/* Underline the glyphs, not the bottom edge of a tall touch control. */
+.commander button {
+  border-bottom: 0;
+  text-decoration: underline dotted;
+  text-decoration-color: var(--faint);
+  text-underline-offset: var(--s-1);
+}
+.commander button:hover { text-decoration-color: var(--sel); }
+@media (max-width: 1099px) {
+  .sub { min-height: var(--tap); }
+  .sub .commander button {
+    --commander-hit-pad: calc((var(--tap) - 1em * var(--leading)) / 2 + var(--s-1) / 2);
+    display: inline-block;
+    min-height: 0;
+    padding-block: var(--commander-hit-pad);
+    margin-block: calc(-1 * var(--commander-hit-pad));
+    line-height: inherit;
+  }
+}
+
+@media (max-width: 1099px) {
+  /* The power hit area extends into empty space beside the commander and
+     between the status chips and actions, rather than adding a blank row. */
+  .metadata { min-height: 0; }
+  .metadata:has(.powerLink:only-child),
+  .header:has(.commander + .commander) .metadata { min-height: var(--tap); }
+  .header .powerLink {
+    --power-hit-pad: calc((var(--tap) - 1em * var(--leading)) / 2 + var(--s-1) / 2);
+    min-height: 0;
+    padding-block: var(--power-hit-pad);
+    margin-block: calc(-1 * var(--power-hit-pad));
+    line-height: inherit;
+  }
+}

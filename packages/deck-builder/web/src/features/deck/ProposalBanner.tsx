@@ -35,6 +35,7 @@ export function ProposalBanner({ units, review, confirmingAll, setConfirmingAll 
   if (ui.reviewing)
     return (
       <Banner
+        className={styles.banner}
         tone="agent"
         actions={
           confirmingAll ? (
@@ -82,6 +83,7 @@ export function ProposalBanner({ units, review, confirmingAll, setConfirmingAll 
 
   return (
     <Banner
+      className={styles.banner}
       tone="agent"
       actions={
         <>

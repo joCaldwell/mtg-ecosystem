@@ -20,7 +20,7 @@ export function TabletScroll() {
 /** Below 1100 px: the menu bar and its navigation drawer. */
 export function TabletBar({ route }: { route: Route }) {
   const { waiting } = useInbox();
-  const names: Record<Route["page"], string> = { decks: "My decks", deck: "Deck", playtest: "Playtest", inbox: "Inbox", memories: "Memories", profile: "Profile", activity: "Activity", settings: "Settings", design: "Design reference", signin: "Sign in", privacy: "Privacy", terms: "Terms", shared: "Shared deck", user: "Profile", missing: "Page not found" };
+  const names: Record<Route["page"], string> = { decks: "My decks", deck: "Deck details", playtest: "Playtest", inbox: "Inbox", memories: "Memories", profile: "Profile", activity: "Activity", settings: "Settings", design: "Design reference", signin: "Sign in", privacy: "Privacy", terms: "Terms", shared: "Shared deck", user: "Profile", missing: "Page not found" };
   const [open, setOpen] = useState(false);
   useEffect(() => setOpen(false), [route]);
   // Unmounted when the window widens past the panel breakpoint, so the
@@ -28,7 +28,9 @@ export function TabletBar({ route }: { route: Route }) {
   return <>
     <header className={styles.bar}>
       <Button size="touch" onClick={() => setOpen(true)} aria-haspopup="dialog">Menu</Button>
-      <span className={styles.location}>{names[route.page]}</span>
+      <span className={styles.location}>{route.page === "deck"
+        ? <Button size="touch" onClick={() => window.dispatchEvent(new Event("deck-details"))} aria-haspopup="dialog">Deck details</Button>
+        : names[route.page]}</span>
       <a className={styles.inboxLink} href={href({ page: "inbox" })} aria-current={route.page === "inbox" ? "page" : undefined}>Inbox {waiting > 0 && <><Badge tone="agent" className={styles.inboxBadge}>{waiting}</Badge><span className="visually-hidden"> waiting</span></>}</a>
     </header>
     {open && <Dialog title="Navigation" placement="drawer" onClose={() => setOpen(false)}><Sidebar route={route} brand={false} /></Dialog>}

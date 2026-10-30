@@ -52,7 +52,10 @@ a public page, which anyone can open without an account.
    proposed it. Green: coming in, passing, accepted. Red: going out, failing,
    rejected. Amber: off target or missing. Blue: the owner's selection and
    focus. Everything else is grey. Mana colours appear in mana symbols and in the
-   paired colour-distribution charts in deck Stats. The charts compare fixed
+   paired colour-distribution charts in deck Stats, and the My decks
+   collection chart showing which colours appear in deck identities. That
+   collection chart uses named mana-coloured bars, including a solid charcoal
+   fill for black. The deck Stats charts compare fixed
    coloured cost symbols and recognized source-colour counts, each normalized
    to its own total; multicolour sources contribute to multiple colour counts.
 3. **Text first.** Cards are names, costs and rules text; the card picture
@@ -85,6 +88,13 @@ rather than a table. Judge its density by whether the page feels composed, not
 by how many decks fit on a screen; principles 3 and 4 above are about the deck
 editor, not this page. The unboxed artist credit is intentionally barely visible
 at rest, and can become readable on tile hover or keyboard focus.
+
+## Deck header
+
+The deck page opens with a large commander-art header that yields its height
+once the owner is working in the list. Principle 3 (text first) applies to the
+card list, rather than the header. Artist credits are unboxed and deliberately
+very low emphasis at rest.
 
 ## How to read the screenshots
 

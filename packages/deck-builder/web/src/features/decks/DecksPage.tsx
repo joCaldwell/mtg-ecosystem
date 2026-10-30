@@ -49,7 +49,7 @@ function Commanders({ deck }: { deck: DeckSummary }) {
 function RosterCard({ deck, fork, onAction }: { deck: DeckSummary; fork: boolean; onAction: (action: DeckAction) => void }) {
   const { deckWaiting } = useInbox();
   const { count: waiting, pending } = deckWaitingState(deck, deckWaiting);
-  return <DeckCard name={deck.name} href={href({ page: "deck", deckId: deck.id })}
+  return <DeckCard roster name={deck.name} href={href({ page: "deck", deckId: deck.id })}
     art={deck.commander_art} identity={deck.color_identity} category={deck.category} count={deck.card_count}
     commanders={<Commanders deck={deck} />} lineage={fork && deck.parent_name ? `Fork of ${deck.parent_name}` : undefined}
     actions={<DeckActions deck={deck} onAction={onAction} />}>
@@ -60,6 +60,7 @@ function RosterCard({ deck, fork, onAction }: { deck: DeckSummary; fork: boolean
 
 /** The roster, spec §9: every deck, how far along it is, and what is waiting on the owner. */
 export function DecksPage() {
+  const [scrolled, setScrolled] = useState(false);
   const [importing, setImporting] = useState(false);
   const decks = useQuery(() => api.listDecks(), [], "decks");
   const [creating, setCreating] = useState(false);
@@ -74,7 +75,8 @@ export function DecksPage() {
   return (
     <Page
       width="lg"
-      className={styles.page}
+      className={`${styles.page} ${scrolled ? styles.scrolled : ""}`}
+      onScroll={event => setScrolled(event.currentTarget.scrollTop > 0)}
       header={
         <PageHeader
           title="My decks"

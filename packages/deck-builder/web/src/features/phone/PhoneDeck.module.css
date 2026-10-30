@@ -1,7 +1,9 @@
 .head {
   display: grid;
   gap: var(--s-3);
-  padding: var(--s-4) var(--s-4) 0;
+  min-height: var(--art-editor-phone-h);
+  align-content: end;
+  padding: var(--s-4) var(--s-5) var(--s-5);
 }
 
 .back {
@@ -12,8 +14,14 @@
   color: var(--muted);
 }
 
+.top { font-size: var(--art-editor-title-phone); line-height: var(--art-editor-leading); }
+.lifecycle { margin-inline-start: var(--s-1); vertical-align: middle; }
 .title {
-  font-size: var(--text-xl);
+  display: inline;
+  min-width: 0;
+  font-size: var(--art-editor-title-phone);
+  line-height: var(--art-editor-leading);
+  letter-spacing: var(--art-editor-tracking);
   font-weight: 650;
   overflow-wrap: anywhere;
 }
@@ -35,13 +43,6 @@
   color: var(--muted);
 }
 
-/* A link inside a banner sentence is still a full tap target. */
-.tap {
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--tap);
-}
-
 .jump {
   display: inline-flex;
   align-items: center;
@@ -51,3 +52,52 @@
   text-decoration: underline;
   text-underline-offset: var(--s-1);
 }
+
+.commanders { min-height: var(--tap); display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3) var(--s-4); color: var(--text-soft); font-size: var(--text-sm); }
+
+/* The art stays bright outside each text block, even at phone width. */
+.head > :is(.back, .top, .commanders, .meta) {
+  position: relative;
+  isolation: isolate;
+  width: fit-content;
+  max-width: 100%;
+}
+.head > :is(.back, .top, .commanders, .meta)::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: calc(-1 * var(--art-editor-text-feather)) calc(-1 * var(--art-editor-text-fade)) calc(-1 * var(--art-editor-text-feather)) calc(-1 * var(--s-5));
+  background: var(--art-editor-text-scrim);
+  mask-image: var(--art-editor-text-mask);
+  pointer-events: none;
+}
+.head .commanders button {
+  --commander-hit-pad: calc((var(--tap) - 1em * var(--leading)) / 2 + var(--s-1) / 2);
+  display: inline-block;
+  min-height: 0;
+  padding-block: var(--commander-hit-pad);
+  margin-block: calc(-1 * var(--commander-hit-pad));
+  line-height: inherit;
+  border-bottom: 0;
+  text-decoration: underline dotted;
+  text-decoration-color: var(--faint);
+  text-underline-offset: var(--s-1);
+}
+.head .commanders button:hover { text-decoration-color: var(--sel); }
+
+.readDeck, .reviewInbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  padding: 0 var(--s-5);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+}
+.readDeck { width: 100%; }
+.readDeck:hover { background: linear-gradient(var(--hover), var(--hover)), var(--surface); border-color: var(--line-hover); }
+.reviewInbox { border-color: var(--agent-line); background: var(--agent-bg); color: var(--agent); font-size: var(--text-sm); white-space: nowrap; }
+.reviewInbox:hover { border-color: var(--agent); }

@@ -2,9 +2,12 @@
   /* Essential workspace metadata stays readable without expanding desktop rows. */
   --text-xs: var(--text-sm);
   --deck-column-min: var(--deck-editor-column-min);
-  display: flex;
+  position: relative;
+  overflow: auto;
+  overflow-anchor: none;
+  scrollbar-width: none;
+  display: block;
   flex: 1;
-  flex-direction: column;
   min-height: 0;
 }
 
@@ -14,4 +17,19 @@
      sticky navigation bar and the active-filter row (CardRow, MaybeList). */
   .page { --deck-column-min: var(--deck-reader-column-min); --list-scroll-offset: calc(var(--tablet-bar-outer-h) + var(--tap) + var(--s-4)); }
   .page :is(button, select, input) { min-height: var(--tap); }
+}
+
+/* The hero scrolls normally; the compact header occupies no extra flow space.
+   Hidden copies are also inert (useDeckHeaderScroll), so menus and focus only
+   belong to the visible header. There is no animated height or smooth scroll;
+   reduced-motion users get the same direct native scroll path. */
+.compact { position: sticky; top: 0; height: 0; z-index: var(--z-sticky); visibility: hidden; }
+.page[data-compact="true"] .compact { visibility: visible; }
+.page[data-compact="true"] [data-deck-hero] > * > header { visibility: hidden; }
+.workspace { display: flex; flex-direction: column; height: var(--deck-workspace-h); min-height: 0; }
+.scrollTail { height: var(--deck-fold-room, 0px); pointer-events: none; }
+@media (max-width: 1099px) {
+  .page { overflow: visible; }
+  .compact, .scrollTail { display: none; }
+  .workspace { height: auto; }
 }
