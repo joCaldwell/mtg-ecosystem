@@ -1,3 +1,4 @@
+import { withReadContext } from "./read-context.ts";
 import type { Actor } from "./actor.ts";
 // The composite deck view: one payload with everything the deck page needs,
 // returned by every mutation so the client never reconciles partial updates.
@@ -16,6 +17,9 @@ import { listDocumentEdits } from "./documents.ts";
 import { loadScope } from "./memory.ts";
 
 export function deckState(db: Database, actor: Actor, deckId: number) {
+  return withReadContext(() => readDeckState(db, actor, deckId));
+}
+function readDeckState(db: Database, actor: Actor, deckId: number) {
   const memories = loadScope(db, actor, "deck", deckId);
   return {
     ...getDeck(db, actor, deckId),

@@ -28,7 +28,7 @@ export function ExportPanel() {
   // Keep a previous scope's response from being copied while the new export loads.
   const exported = useQuery(
     async () => ({ key: queryKey, result: await api.exportDeck(deckId, { categories, oracleIds, includeMaybe }) }),
-    [queryKey],
+    [queryKey], { resources: ["deck"], deckId },
   );
   const result = exported.data?.key === queryKey && !exported.error ? exported.data.result : null;
   // A changed scope is a different export; what was copied no longer describes it.

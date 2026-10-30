@@ -1,3 +1,4 @@
+import { memoRead } from "../read-context.ts";
 import { requireDeckOwner } from "../actor.ts";
 // Spec §5.7: power is a declared profile, not an algorithm that evaluates cards.
 // The app maps the profile to bracket guidance and computes Game Changers.
@@ -250,6 +251,9 @@ export function gameChangerFacts(db: Database, actor: Actor, deckId: number) {
 }
 
 export function getPower(db: Database, actor: Actor, deckId: number) {
+  return memoRead(db, `power:${actor.user_id}:${deckId}`, () => readPower(db, actor, deckId));
+}
+function readPower(db: Database, actor: Actor, deckId: number) {
   const deck = requireDeck(db, actor, deckId);
   const targetValue = getPowerTarget(db, actor, deckId);
   const targetMeta = db.prepare("SELECT author, author_user_id, author_via, author_label, updated_at FROM power_targets WHERE deck_id = ?").get(deckId) as (Attribution & { author: string; updated_at: string }) | undefined;

@@ -38,7 +38,7 @@ export function MemoriesPage() {
         status: showOld ? "any" : "active",
         q, ...cursor, basis: basis === "any" ? undefined : basis,
       }),
-    [scope, showOld, q, cursor, basis],
+    [scope, showOld, q, cursor, basis], { resources: ["memories", "decks"] },
   );
   const scopes = list.data?.scopes ?? [];
   const archived = new Set(scopes.filter(d => d.category === "archived").map(d => d.id));

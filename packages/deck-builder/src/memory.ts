@@ -1,3 +1,4 @@
+import { withActivity } from "./activity.ts";
 import { displayAuthor, requireActor } from "./actor.ts";
 // Memories (spec §7): short notes about preferences, reasons and outcomes.
 // Agents write them without approval; the owner can always see, edit and
@@ -324,56 +325,59 @@ function validateText(text: string): string {
 
 /** Write a memory. No approval; always visible to the owner (spec §7.3, §7.5). */
 export function remember(db: Database, actor: Actor, input: RememberInput): RememberResult {
-  if (input.deck_id != null) requireEditableDeck(db, actor, input.deck_id);
-  if (input.source_log_id != null && !db.prepare("SELECT 1 FROM log WHERE id = ? AND user_id = ?").get(input.source_log_id, actor.user_id))
-    throw new ServiceError("Source decision not found", 404);
-  const text = validateText(input.text);
-  if (input.scope !== "global" && input.scope !== "deck")
-    throw new ServiceError("A memory's scope is 'global' or 'deck'");
-  const deckId = input.scope === "deck" ? (input.deck_id ?? null) : null;
-  if (input.scope === "deck" && deckId == null)
-    throw new ServiceError("A deck-scoped memory needs the deck it belongs to");
-  const deck = deckId == null ? null : requireEditableDeck(db, actor, deckId);
-  if (input.deck_revision !== undefined && (!deck || !Number.isInteger(input.deck_revision) || input.deck_revision < 0 || input.deck_revision > deck.revision))
-    throw new ServiceError("The tested revision must be a revision of this deck");
-  const cardIds = linkedCards(db, actor, text, input.cards);
-  // What an agent concludes is a hypothesis until the owner says so.
-  const basis: MemoryBasis = input.basis ?? (actor.via === "ui" ? "stated" : "inferred");
-  if (basis !== "stated" && basis !== "inferred")
-    throw new ServiceError("A memory's basis is 'stated' or 'inferred'");
+  return withActivity(db, actor, "remember", () => {
+    if (input.deck_id != null) requireEditableDeck(db, actor, input.deck_id);
+    if (input.source_log_id != null && !db.prepare("SELECT 1 FROM log WHERE id = ? AND user_id = ?").get(input.source_log_id, actor.user_id))
+      throw new ServiceError("Source decision not found", 404);
+    const text = validateText(input.text);
+    if (input.scope !== "global" && input.scope !== "deck")
+      throw new ServiceError("A memory's scope is 'global' or 'deck'");
+    const deckId = input.scope === "deck" ? (input.deck_id ?? null) : null;
+    if (input.scope === "deck" && deckId == null)
+      throw new ServiceError("A deck-scoped memory needs the deck it belongs to");
+    const deck = deckId == null ? null : requireEditableDeck(db, actor, deckId);
+    if (input.deck_revision !== undefined && (!deck || !Number.isInteger(input.deck_revision) || input.deck_revision < 0 || input.deck_revision > deck.revision))
+      throw new ServiceError("The tested revision must be a revision of this deck");
+    const cardIds = linkedCards(db, actor, text, input.cards);
+    // What an agent concludes is a hypothesis until the owner says so.
+    const basis: MemoryBasis = input.basis ?? (actor.via === "ui" ? "stated" : "inferred");
+    if (basis !== "stated" && basis !== "inferred")
+      throw new ServiceError("A memory's basis is 'stated' or 'inferred'");
 
-  const similar = findSimilar(db, actor, text, input.scope, deckId, cardIds);
-  const duplicate = similar.find(
-    (m) => fold(m.text) === fold(text) && m.scope === input.scope && m.deck_id === deckId,
-  );
-  if (duplicate)
-    throw new ServiceError(
-      `Memory #${duplicate.id} already says exactly this. Nothing was written.`,
-      409,
+    const similar = findSimilar(db, actor, text, input.scope, deckId, cardIds);
+    const duplicate = similar.find(
+      (m) => fold(m.text) === fold(text) && m.scope === input.scope && m.deck_id === deckId,
     );
-
-  return withTransaction(db, () => {
-    const r = db
-      .prepare(
-        `INSERT INTO memories (text, scope, deck_id, basis, author, owner_touched, source_log_id, deck_revision, user_id, author_user_id, author_via, author_label)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        text,
-        input.scope,
-        deckId,
-        basis,
-        authorOf(actor),
-        actor.via === "ui" ? 1 : 0,
-        input.source_log_id ?? null,
-        input.deck_revision ?? deck?.revision ?? null,
-        actor.user_id, actor.user_id, actor.via, actor.label,
+    if (duplicate)
+      throw new ServiceError(
+        `Memory #${duplicate.id} already says exactly this. Nothing was written.`,
+        409,
       );
-    const id = Number(r.lastInsertRowid);
-    setCards(db, actor, id, cardIds);
-    indexText(db, actor, id, text);
-    return { memory: getMemory(db, actor, id), similar };
-  });
+
+    return withTransaction(db, () => {
+      const r = db
+        .prepare(
+          `INSERT INTO memories (text, scope, deck_id, basis, author, owner_touched, source_log_id, deck_revision, user_id, author_user_id, author_via, author_label)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          text,
+          input.scope,
+          deckId,
+          basis,
+          authorOf(actor),
+          actor.via === "ui" ? 1 : 0,
+          input.source_log_id ?? null,
+          input.deck_revision ?? deck?.revision ?? null,
+          actor.user_id, actor.user_id, actor.via, actor.label,
+        );
+      const id = Number(r.lastInsertRowid);
+      setCards(db, actor, id, cardIds);
+      indexText(db, actor, id, text);
+      return { memory: getMemory(db, actor, id), similar };
+    });
+
+  }, result => ({ deckId: result.memory.deck_id, summary: `Memory #${result.memory.id}: ${result.memory.text}` }));
 }
 
 // Spec §7.3: the owner outranks the agent. Once the owner has written or
@@ -408,78 +412,81 @@ export function reviseMemory(
   id: number,
   revision: Revision,
 ): MemoryView {
-  const memory = getMemory(db, actor, id);
-  if (memory.deck_id != null) requireEditableDeck(db, actor, memory.deck_id);
-  const touched = actor.via === "ui" ? 1 : memory.owner_touched ? 1 : 0;
+  return withActivity(db, actor, "reviseMemory", () => {
+    const memory = getMemory(db, actor, id);
+    if (memory.deck_id != null) requireEditableDeck(db, actor, memory.deck_id);
+    const touched = actor.via === "ui" ? 1 : memory.owner_touched ? 1 : 0;
 
-  switch (revision.action) {
-    case "update": {
-      assertMayChange(actor, memory);
-      if (memory.status !== "active")
-        throw new ServiceError(`Memory #${id} is ${memory.status}; restore it before editing`);
-      const text = revision.text !== undefined ? validateText(revision.text) : memory.text;
-      const cards = linkedCards(
-        db, actor,
-        text,
-        revision.cards ?? memory.cards.map((c) => c.oracle_id),
-      );
-      return withTransaction(db, () => {
-        db.prepare(
-          `UPDATE memories SET text = ?, basis = ?, owner_touched = ?, revised_at = datetime('now')
-           WHERE id = ?`,
-        ).run(text, revision.basis ?? memory.basis, touched, id);
-        setCards(db, actor, id, cards);
-        indexText(db, actor, id, text);
-        return getMemory(db, actor, id);
-      });
-    }
-    case "supersede": {
-      assertMayChange(actor, memory);
-      if (memory.status !== "active")
-        throw new ServiceError(`Memory #${id} is already ${memory.status}`);
-      const scope = revision.scope ?? memory.scope;
-      return withTransaction(db, () => {
-        // Out of the way first, so the replacement is not refused as its duplicate.
-        db.prepare("UPDATE memories SET status = 'superseded' WHERE id = ?").run(id);
-        const { memory: replacement } = remember(db, actor, {
-          text: revision.text,
-          scope,
-          deck_id: scope === "deck" ? (revision.deck_id ?? memory.deck_id) : null,
-          cards: revision.cards ?? memory.cards.map((c) => c.oracle_id),
-          basis: revision.basis ?? memory.basis,
-          source_log_id: memory.source_log_id,
+    switch (revision.action) {
+      case "update": {
+        assertMayChange(actor, memory);
+        if (memory.status !== "active")
+          throw new ServiceError(`Memory #${id} is ${memory.status}; restore it before editing`);
+        const text = revision.text !== undefined ? validateText(revision.text) : memory.text;
+        const cards = linkedCards(
+          db, actor,
+          text,
+          revision.cards ?? memory.cards.map((c) => c.oracle_id),
+        );
+        return withTransaction(db, () => {
+          db.prepare(
+            `UPDATE memories SET text = ?, basis = ?, owner_touched = ?, revised_at = datetime('now')
+             WHERE id = ?`,
+          ).run(text, revision.basis ?? memory.basis, touched, id);
+          setCards(db, actor, id, cards);
+          indexText(db, actor, id, text);
+          return getMemory(db, actor, id);
         });
-        db.prepare("UPDATE memories SET superseded_by = ? WHERE id = ?").run(replacement.id, id);
-        return replacement;
-      });
+      }
+      case "supersede": {
+        assertMayChange(actor, memory);
+        if (memory.status !== "active")
+          throw new ServiceError(`Memory #${id} is already ${memory.status}`);
+        const scope = revision.scope ?? memory.scope;
+        return withTransaction(db, () => {
+          // Out of the way first, so the replacement is not refused as its duplicate.
+          db.prepare("UPDATE memories SET status = 'superseded' WHERE id = ?").run(id);
+          const { memory: replacement } = remember(db, actor, {
+            text: revision.text,
+            scope,
+            deck_id: scope === "deck" ? (revision.deck_id ?? memory.deck_id) : null,
+            cards: revision.cards ?? memory.cards.map((c) => c.oracle_id),
+            basis: revision.basis ?? memory.basis,
+            source_log_id: memory.source_log_id,
+          });
+          db.prepare("UPDATE memories SET superseded_by = ? WHERE id = ?").run(replacement.id, id);
+          return replacement;
+        });
+      }
+      case "retire":
+        assertMayChange(actor, memory);
+        db.prepare(
+          "UPDATE memories SET status = 'retired', owner_touched = ?, revised_at = datetime('now') WHERE id = ?",
+        ).run(touched, id);
+        return getMemory(db, actor, id);
+      case "restore":
+        assertMayChange(actor, memory);
+        db.prepare(
+          `UPDATE memories SET status = 'active', superseded_by = NULL, owner_touched = ?,
+             revised_at = datetime('now') WHERE id = ?`,
+        ).run(touched, id);
+        return getMemory(db, actor, id);
+      case "confirm":
+        assertMayChange(actor, memory);
+        // The owner said so, in the app or in conversation: a hypothesis
+        // becomes a stated fact. Confirming does not hand the memory to the
+        // owner; only their own edit does that.
+        db.prepare(
+          "UPDATE memories SET basis = 'stated', revised_at = datetime('now') WHERE id = ?",
+        ).run(id);
+        return getMemory(db, actor, id);
+      default:
+        throw new ServiceError(
+          "A revision's action is one of: update, supersede, retire, restore, confirm",
+        );
     }
-    case "retire":
-      assertMayChange(actor, memory);
-      db.prepare(
-        "UPDATE memories SET status = 'retired', owner_touched = ?, revised_at = datetime('now') WHERE id = ?",
-      ).run(touched, id);
-      return getMemory(db, actor, id);
-    case "restore":
-      assertMayChange(actor, memory);
-      db.prepare(
-        `UPDATE memories SET status = 'active', superseded_by = NULL, owner_touched = ?,
-           revised_at = datetime('now') WHERE id = ?`,
-      ).run(touched, id);
-      return getMemory(db, actor, id);
-    case "confirm":
-      assertMayChange(actor, memory);
-      // The owner said so, in the app or in conversation: a hypothesis
-      // becomes a stated fact. Confirming does not hand the memory to the
-      // owner; only their own edit does that.
-      db.prepare(
-        "UPDATE memories SET basis = 'stated', revised_at = datetime('now') WHERE id = ?",
-      ).run(id);
-      return getMemory(db, actor, id);
-    default:
-      throw new ServiceError(
-        "A revision's action is one of: update, supersede, retire, restore, confirm",
-      );
-  }
+
+  }, result => ({ deckId: result.deck_id, summary: `${revision.action} memory #${id}: ${result.text}` }));
 }
 
 // A fork starts with its parent's deck memories (spec §5.3). They are copies:

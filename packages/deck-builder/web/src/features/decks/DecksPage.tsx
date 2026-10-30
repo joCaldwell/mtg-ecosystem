@@ -61,7 +61,7 @@ function RosterCard({ deck, fork, onAction }: { deck: DeckSummary; fork: boolean
 /** The roster, spec §9: every deck, how far along it is, and what is waiting on the owner. */
 export function DecksPage() {
   const [importing, setImporting] = useState(false);
-  const decks = useQuery(() => api.listDecks(), []);
+  const decks = useQuery(() => api.listDecks(), [], "decks");
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");

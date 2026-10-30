@@ -1,3 +1,4 @@
+import { executeCommand } from "../src/commands.ts";
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { beginSignup, provisionIdentity } from "../src/auth.ts";
@@ -74,8 +75,9 @@ test("export/delete inventory walks sqlite_master; every tenant row, auth grant,
     db.prepare('INSERT INTO oauthClient(id,clientId,userId,redirectUris) VALUES(?,?,?,?)').run("owned","owned","delete-user","[]");
     db.prepare('INSERT INTO oauthConsent(id,clientId,userId,scopes,createdAt,updatedAt) VALUES(?,?,?,?,?,?)').run("c","owned","delete-user","[]",Date.now(),Date.now());
     db.prepare('INSERT INTO verification(id,identifier,value,expiresAt,createdAt,updatedAt) VALUES(?,?,?,?,?,?)').run("v","code-hash",JSON.stringify({userId:"delete-user",secret:"hidden"}),Date.now()+60_000,Date.now(),Date.now());
+    executeCommand(db, ui, { operation: "remember", input: {}, idempotency_key: "account-receipt" }, () => ({ ok: true }));
     const owner=createDeck(db,OWNER,"Preserve this"),before=db.prepare("SELECT * FROM decks WHERE id=?").get(owner);
-    const data=exportAccount(db,ui);assert.match(data.decks[0].name,/Delete/);assert.equal(data.tables.account.length,1);assert.equal(data.tables.verification.length,1);
+    const data=exportAccount(db,ui);assert.match(data.decks[0].name,/Delete/);assert.equal(data.tables.account.length,1);assert.equal(data.tables.verification.length,1);assert.equal(data.tables.command_receipts.length,1);
     assert.doesNotMatch(JSON.stringify(data),/session-secret|provider-secret|hidden/);
     assert.ok(accountScopes(db).length>20);
     deleteAccount(db,ui,accountInfo(db,ui).handle);

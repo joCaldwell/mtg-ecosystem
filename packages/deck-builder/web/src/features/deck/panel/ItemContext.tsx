@@ -12,7 +12,7 @@ import styles from "./ItemContext.module.css";
 
 export function ItemContext({ item }: { item: ProposalItem }) {
   const { deckId } = useDeck();
-  const history = useQuery(() => api.cardHistory(deckId, item.oracle_id), [deckId, item.oracle_id]);
+  const history = useQuery(() => api.cardHistory(deckId, item.oracle_id), [deckId, item.oracle_id], { resources: ["deck"], deckId });
 
   const memories = history.data?.memories ?? [];
   const decisions = history.data?.decisions ?? [];

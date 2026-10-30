@@ -74,7 +74,7 @@ The auth CLI is an offline schema-generation tool, not a runtime dependency. Pre
 src/
   errors.ts          AppError base — every user-facing failure carries its HTTP status
   actor.ts           Actor with principal; requireDeckOwner, requireSelf, requireUi, PermissionError
-  db.ts              ordered migrations through v16, nested savepoints, per-user settings
+  db.ts              ordered migrations through v17, nested savepoints, per-user settings
   cards.ts           ⭐ exact card resolution, suggestions, prose linting
   ingest.ts          Scryfall bulk → SQLite            search/  Scryfall-syntax subset
   prices.ts          actor-scoped estimates per store and personal price source (spec §4.4)
@@ -98,6 +98,9 @@ src/
   memory.ts          ⭐ memories: scopes, card links, budgets, supersede/retire
   playtest/          owner-only manual session service and action model; snapshot, undo, resume
   stats.ts           player statistics across Paper decks only
+  commands.ts        shared transaction, retry receipts, guards and structured outcomes
+  changes.ts         resource/deck invalidation vocabulary
+  read-context.ts    request-local read reuse, invalidated by SQLite writes
   activity.ts        the activity feed          focus.ts   what the owner has open
   tokens.ts          per-user hashed personal credentials; create/list/revoke/verify, legacy import
   auth.ts            hosted sessions, safe claim/invite registration and OAuth verification

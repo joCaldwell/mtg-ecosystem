@@ -53,57 +53,70 @@ async function forward(line: string): Promise<void> {
   } catch {
     return write({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } });
   }
-  const first = Array.isArray(message) ? message[0] : message;
-  const expectsReply = first && "id" in first && "method" in first;
+  if (!message || typeof message !== "object" || Array.isArray(message))
+    return write({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Expected one JSON-RPC message" } });
+  const first = message;
+  const expectsReply = "id" in first && "method" in first;
+  const fail = (message: string) => {
+    if (expectsReply) write({ jsonrpc: "2.0", id: first.id, error: { code: -32000, message } });
+  };
 
-  const token = readToken();
-  if (!token) throw new Error("No agent token is configured; pass --token-file <file>");
-  let res: Response;
   try {
-    res = await fetch(ENDPOINT, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-        Authorization: `Bearer ${token}`,
-        ...(negotiated && first?.method !== "initialize" ? { "MCP-Protocol-Version": negotiated } : {}),
-      },
-      body: line,
-    });
-  } catch {
-    if (expectsReply)
-      write({
-        jsonrpc: "2.0",
-        id: first.id,
-        error: {
-          code: -32000,
-          message:
-            `The deck builder app is not running on port ${PORT}. ` +
-            `Start it (npm start in packages/deck-builder) and try again.`,
-        },
-      });
-    return;
-  }
-
-  const body = await res.text();
-  if (!body.trim()) return; // a notification: accepted, nothing to relay
-  const messages = (res.headers.get("content-type") ?? "").includes("text/event-stream")
-    ? body
-        .split(/\r?\n/)
-        .filter((l) => l.startsWith("data:"))
-        .map((l) => l.slice(5).trim())
-        .filter(Boolean)
-    : [body.trim()];
-  for (const m of messages) {
+    const token = readToken();
+    if (!token) return fail("No agent token is configured; pass --token-file <file>");
+    let res: Response;
     try {
-      const parsed = JSON.parse(m);
-      if (first?.method === "initialize" && parsed?.result?.protocolVersion)
-        negotiated = parsed.result.protocolVersion;
-      // Re-serialized so a pretty-printed body can never break line framing.
-      write(parsed);
+      res = await fetch(ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Authorization: `Bearer ${token}`,
+          ...(negotiated && first?.method !== "initialize" ? { "MCP-Protocol-Version": negotiated } : {}),
+        },
+        body: line,
+      });
     } catch {
-      /* not a JSON-RPC message; nothing a stdio client could use */
+      return fail(`Could not reach the deck builder on port ${PORT}. Check the app, then read the current state before retrying a write.`);
     }
+
+    const body = await res.text();
+    if (!res.ok) {
+      // HTTP auth/rate-limit errors have id:null because they precede RPC
+      // dispatch. Restore this request's id so the stdio caller can recover.
+      let reason = `The deck builder returned HTTP ${res.status}.`;
+      try { const error = JSON.parse(body)?.error; if (typeof error?.message === "string") reason = error.message; } catch { /* a proxy may return HTML */ }
+      return fail(reason);
+    }
+    if (!body.trim()) {
+      if (expectsReply) fail("The deck builder returned an empty response. Read the current state before retrying a write.");
+      return;
+    }
+    const messages = (res.headers.get("content-type") ?? "").includes("text/event-stream")
+      ? body
+          .split(/\r?\n/)
+          .filter((l) => l.startsWith("data:"))
+          .map((l) => l.slice(5).trim())
+          .filter(Boolean)
+      : [body.trim()];
+    let replied = false;
+    for (const m of messages) {
+      try {
+        const parsed = JSON.parse(m);
+        if (first?.method === "initialize" && parsed?.result?.protocolVersion)
+          negotiated = parsed.result.protocolVersion;
+        // Re-serialized so a pretty-printed body can never break line framing.
+        write(parsed);
+        if (parsed?.id === first.id && ("result" in parsed || "error" in parsed)) replied = true;
+      } catch {
+        /* not a JSON-RPC message; nothing a stdio client could use */
+      }
+    }
+    if (expectsReply && !replied) fail("The deck builder returned no matching response. Read the current state before retrying a write.");
+  } catch {
+    // A removed/unreadable token file or interrupted response must not kill
+    // the pipe or silently abandon the client's outstanding request.
+    fail("Could not complete the request. Check the token file and app, then read the current state before retrying a write.");
   }
 }
 

@@ -68,7 +68,7 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
     }
   }, [ui.openDialog, state.deck.id]);
   // Only this deck's and the global memories can mark its rows (spec §7.2).
-  const memories = useQuery(() => api.deckMemories(state.deck.id), [state.deck.id]);
+  const memories = useQuery(() => api.deckMemories(state.deck.id), [state.deck.id], { resources: ["memories"], deckId: state.deck.id });
   const view = useDeckView(memories.data ?? undefined);
   const review = useReview(view.units);
   const { lookup, prime } = useCardLookup();

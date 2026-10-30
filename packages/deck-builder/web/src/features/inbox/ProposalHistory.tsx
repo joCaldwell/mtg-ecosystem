@@ -7,7 +7,7 @@ import { HistoryEntry } from "./HistoryEntry.tsx";
 
 /** Read-only audit view. Earlier drafts never expose approval controls. */
 export function ProposalHistory({ unreviewed }: { unreviewed: number }) {
-  const history = useQuery(api.proposalHistory, []);
+  const history = useQuery(api.proposalHistory, [], "inbox");
   if (history.error) return <ErrorNote>{history.error}</ErrorNote>;
   if (!history.data) return <Loading />;
   const { document_edits, proposals } = history.data;

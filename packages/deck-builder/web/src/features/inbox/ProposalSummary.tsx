@@ -17,7 +17,7 @@ import styles from "./ProposalSummary.module.css";
  * individual changes in the deck.
  */
 export function ProposalSummary({ proposal }: { proposal: Proposal }) {
-  const deck = useQuery(() => api.getDeck(proposal.deck_id), [proposal.deck_id]);
+  const deck = useQuery(() => api.getDeck(proposal.deck_id), [proposal.deck_id], { resources: ["deck"], deckId: proposal.deck_id });
   const units = reviewUnits([proposal]);
   const state = deck.data?.state ?? null;
 

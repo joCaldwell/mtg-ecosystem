@@ -4,7 +4,7 @@ import { useQuery } from "../../api/useQuery.ts";
 import { Box, Button, ErrorNote, Row, Stack, Text } from "../../ui/index.ts";
 import { CopyButton } from "./CopyButton.tsx";
 export function AdminCard() {
-  const query=useQuery(()=>api.admin(),[]),[error,setError]=useState<string|null>(null),[busy,setBusy]=useState(false);
+  const query=useQuery(()=>api.admin(),[],"jobs"),[error,setError]=useState<string|null>(null),[busy,setBusy]=useState(false);
   async function run(action:()=>Promise<unknown>) {setBusy(true);setError(null);try{await action();query.reload();}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
   return <Box><Stack gap={4}><Text as="h2" size="lg" weight="bold">Admin</Text>
     {query.data && <><Text>{query.data.users} users · {(query.data.database_bytes/1024/1024).toFixed(1)} MiB database</Text>

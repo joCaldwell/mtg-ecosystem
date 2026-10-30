@@ -201,7 +201,6 @@
 
 .brandName { flex: 1; white-space: nowrap; }
 .toggle { flex: none; margin-left: auto; }
-.expandIcon { transform: rotate(180deg); }
 .presenceText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* The desktop rail keeps every link; accessible names and titles survive
@@ -217,6 +216,7 @@
 .collapsed .heading { margin: var(--s-4) var(--s-5); padding: 0; border-top: 1px solid var(--line); }
 .collapsed .heading > * { display: none; }
 .collapsed .presence { justify-items: center; }
+.collapsed .who { min-height: var(--tap); min-width: var(--tap); justify-content: center; }
 
 /* A deferred or failed thumbnail still has a visible rail target. */
 .thumb + .fallback { position: absolute; }

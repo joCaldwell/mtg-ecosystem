@@ -6,7 +6,6 @@ import type {
   Zone,
   TableRow,
 } from "../../api/client.ts";
-import { useReportFocus } from "../../app/useReportFocus.ts";
 import { href } from "../../app/routes.ts";
 import {
   ROW_LABELS,
@@ -157,9 +156,6 @@ export function PlaytestTable({
     setHover(null);
     c.editUi({ selected: [], pinned: null });
   };
-  useReportFocus(s.deck_id, s.deck_name, [
-    ...new Set(selected.map((id) => f.objects[id].oracle_id)),
-  ]);
   function select(id: string, multiple: boolean) {
     c.editUi({
       selected: selectedAfterClick(c.ui.selected, id, multiple),

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useLive } from "../../api/live.tsx";
 import { api } from "../../api/client.ts";
 import type {
   Mode,
@@ -16,6 +17,7 @@ const EMPTY_UI: Ui = {
 /** Serialize writes against the latest server version. Drafts are independent
  * of returned game frames so a delayed response never overwrites newer typing. */
 export function usePlaytest(deckId: number) {
+  const live = useLive({ resources: ["playtest"], deckId });
   const [view, setView] = useState<PlaytestView | null>(null),
     current = useRef<PlaytestView | null>(null);
   const [ui, setUi] = useState<Ui>(EMPTY_UI),
@@ -189,6 +191,7 @@ export function usePlaytest(deckId: number) {
       }
     };
   }, [reload, persistUi]);
+  useEffect(() => { if (live) void reload(); }, [live, reload]);
   const start = (mode: Mode, replace = false) =>
     enqueue(async () => {
       if (draftTimer.current) {

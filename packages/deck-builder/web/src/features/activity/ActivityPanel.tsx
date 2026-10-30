@@ -51,7 +51,7 @@ export function ActivityPanel() {
   const [cursors, setCursors] = useState<number[]>([]);
   const [agent, setAgent] = useState<string | null>(null);
   const before = cursors.at(-1);
-  const feed = useQuery(() => api.listActivity({ before_id: before, actor: agent ?? undefined }), [before, agent]);
+  const feed = useQuery(() => api.listActivity({ before_id: before, actor: agent ?? undefined }), [before, agent], "activity");
   const choose = (next: string | null) => { setAgent(next); setCursors([]); };
 
   const entries = feed.data?.entries ?? [];

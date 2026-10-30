@@ -51,8 +51,8 @@ import that the table forbids, the code is in the wrong layer.
 
 The server is the source of truth and the client never merges.
 
-1. **Reads.** `useQuery(() => api.something(), [deps])` fetches, and refetches
-   whenever that user’s event stream names a change (`useLive`). That
+1. **Reads.** `useQuery(() => api.something(), [deps], scope)` fetches, and refetches
+   when that user’s event stream names a matching resource/deck (`useLive`). That
    is what makes an agent's proposal appear without a reload.
 2. **The open deck.** `features/deck/DeckStore.tsx` holds the `DeckState`
    composite. Every mutation endpoint returns a fresh composite under
@@ -220,9 +220,9 @@ Legal pages and shared pages bypass sign-in; `/signin` is an auth boundary. The 
 HTML with an external script; it submits Better Auth's signed oauth_query.
 Local mode never renders sign-in, regardless of the path.
 
-`api/live.tsx` consumes `{ kind, deck_id? }` events on a per-user SSE stream.
-It initially invalidates all queries for that stream; the typed payload is
-available for later selective refetch. Another principal's mutations never
+`api/live.tsx` consumes `{ kind, resources?, deck_ids?, global_resources? }`
+events on a per-user SSE stream. Reconnect invalidates every query; ordinary
+events refresh matching resource/deck subscriptions. Another principal's mutations never
 reach the stream. Attribution uses structured user/via/label fields and
 `author_display` (`handle via label`), while compact MCP author text stays
 stable. UI/agent distinctions must use `author_via`, not an agent's name.
@@ -289,12 +289,12 @@ budgets in one transaction.
 
 ## Phase 4b: first run, tablets and loading
 
-`PreferencesProvider` reads /api/settings once for the private shell. It
+`PreferencesProvider` reads /api/preferences for the private shell. It
 supplies `has_agent_activity`, both copy voices through `useVoice`, and the
 account’s desktop sidebar collapse state. Saving that preference is UI-only
-below HTTP. Sidebar
-presence is absent until an agent write; /api/activity/latest reads one
-activity row. Creating a token or reading with it does not count.
+below HTTP. Sidebar status uses /api/agents and includes authenticated reads. The
+first-run voice remains write-based; token creation and read-only requests
+do not enable it. /api/activity/latest remains a write-history endpoint.
 
 Owner decision (2026-10-27, §11.3): Advanced and its account preference are
 removed. History owns current and entry revisions; card decisions show their
@@ -686,3 +686,22 @@ history as one muted line each ("No linked memories", "No decisions in this
 deck"). Export confirms a copy in the dialog: the button reads "Copied" for
 two seconds beside a polite status ("Copied 1 line"); there is no toast, and
 a changed scope clears it.
+
+
+Agent interaction audit (2026-10-30): PreferencesProvider reads the lightweight
+`/api/preferences` endpoint, avoiding full Settings' per-deck memory loading
+on every live invalidation. Sidebar reads `/api/agents`: authorization and
+last authenticated request are separate from Activity's writes. It remains
+visible before the first write and links to Settings when collapsed too.
+`useLive` / `useQuery` subscribe by resource family and optional deck ID.
+A stable external store batches bursts and only notifies changed snapshots;
+contact events touch `agents`, and focus touches `focus`. Memory scope moves
+invalidate memory views together; cross-deck effects name global resources.
+Unknown legacy events and initial/reconnected streams still refresh all reads.
+Every private query declares its resource; `data` remains a conservative fallback.
+`FocusProvider` reads the server-confirmed context, keeping it on failure;
+`useReportFocus` owns compare-and-clear tab tokens with visible heartbeats,
+interaction claims and pagehide cleanup (spec §10.3). UI domain requests get
+retry keys and retry a dropped response once, preserving that key. A replayed
+deck composite is refreshed before the store applies it.
+The existing `has_agent_activity` preference retains its write-only meaning.

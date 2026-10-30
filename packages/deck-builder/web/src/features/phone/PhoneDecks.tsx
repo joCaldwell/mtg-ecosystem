@@ -34,7 +34,7 @@ export function PhoneDecks() {
   const [category, setCategory] = useState("all");
   const voice = useVoice();
   const { session } = useSession();
-  const decks = useQuery(() => api.listDecks(), []);
+  const decks = useQuery(() => api.listDecks(), [], "decks");
   useScrollRestore(decks.data !== null);
   if (decks.error && !decks.data) return <ErrorNote>{decks.error}</ErrorNote>;
   if (!decks.data) return <Loading />;

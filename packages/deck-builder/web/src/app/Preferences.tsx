@@ -13,7 +13,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
   const [sidebarSaved, setSidebarSaved] = useState<boolean | null>(null);
   const [sidebarBusy, setSidebarBusy] = useState(false);
-  const settings = useQuery(() => api.getSettings(), []);
+  const settings = useQuery(() => api.getPreferences(), [], "preferences");
   useEffect(() => setSidebarSaved(null), [settings.data]);
   async function setSidebarCollapsed(collapsed: boolean) {
     if (sidebarBusy) return;

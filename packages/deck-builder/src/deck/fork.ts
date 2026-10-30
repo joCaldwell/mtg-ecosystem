@@ -1,3 +1,4 @@
+import { withActivity } from "../activity.ts";
 import { requireDeckOwner } from "../actor.ts";
 // Forks and comparison (spec §5.3). A fork copies a deck's list,
 // organization, brief and deck memories into a new Theorycrafted deck and records the
@@ -23,120 +24,123 @@ import { type DeckRow, createDeck, getDeck, recomputeIdentity, requireDeck, requ
 export type DeckSource = number | { slug: string };
 
 export function forkDeck(db: Database, actor: Actor, source: DeckSource, name: string): number {
-  const parent: DeckRow = typeof source === "number" ? requireDeckOwner(db, actor, source) : requireViewableDeck(db, actor, source.slug);
-  const deckId = parent.id;
-  // Forking one's own deck by its link is the ordinary fork.
-  const foreign = parent.user_id !== actor.user_id;
-  return withTransaction(db, () => {
-    const forkId = createDeck(db, actor, name, foreign ? {} : { parentId: deckId });
-    if (foreign) {
-      const handle = (db.prepare("SELECT handle FROM users WHERE id = ?").get(parent.user_id) as { handle: string }).handle;
-      // Lineage by snapshot only: the other user's numeric id is theirs (§18.3)
-      // and never stored where the forker's own reads or export could show it.
-      db.prepare("UPDATE decks SET parent_owner_handle = ?, parent_slug = ?, parent_name = ? WHERE id = ?")
-        .run(handle, parent.slug, parent.name, forkId);
-    }
+  return withActivity(db, actor, "forkDeck", () => {
+    const parent: DeckRow = typeof source === "number" ? requireDeckOwner(db, actor, source) : requireViewableDeck(db, actor, source.slug);
+    const deckId = parent.id;
+    // Forking one's own deck by its link is the ordinary fork.
+    const foreign = parent.user_id !== actor.user_id;
+    return withTransaction(db, () => {
+      const forkId = createDeck(db, actor, name, foreign ? {} : { parentId: deckId });
+      if (foreign) {
+        const handle = (db.prepare("SELECT handle FROM users WHERE id = ?").get(parent.user_id) as { handle: string }).handle;
+        // Lineage by snapshot only: the other user's numeric id is theirs (§18.3)
+        // and never stored where the forker's own reads or export could show it.
+        db.prepare("UPDATE decks SET parent_owner_handle = ?, parent_slug = ?, parent_name = ? WHERE id = ?")
+          .run(handle, parent.slug, parent.name, forkId);
+      }
 
-    const slotMap = new Map<number, number>();
-    const insSlot = db.prepare(
-      "INSERT INTO slots (deck_id, name, target_min, target_max, position) VALUES (?, ?, ?, ?, ?)",
-    );
-    for (const s of db
-      .prepare("SELECT id, name, target_min, target_max, position FROM slots WHERE deck_id = ?")
-      .all(deckId) as unknown as Array<{
-      id: number;
-      name: string;
-      target_min: number | null;
-      target_max: number | null;
-      position: number;
-    }>)
-      slotMap.set(
-        s.id,
-        Number(insSlot.run(forkId, s.name, s.target_min, s.target_max, s.position).lastInsertRowid),
+      const slotMap = new Map<number, number>();
+      const insSlot = db.prepare(
+        "INSERT INTO slots (deck_id, name, target_min, target_max, position) VALUES (?, ?, ?, ?, ?)",
       );
+      for (const s of db
+        .prepare("SELECT id, name, target_min, target_max, position FROM slots WHERE deck_id = ?")
+        .all(deckId) as unknown as Array<{
+        id: number;
+        name: string;
+        target_min: number | null;
+        target_max: number | null;
+        position: number;
+      }>)
+        slotMap.set(
+          s.id,
+          Number(insSlot.run(forkId, s.name, s.target_min, s.target_max, s.position).lastInsertRowid),
+        );
 
-    // Tags record sourcing and status, "Have" being ownership evidence
-    // (§5.4, §5.5): another user's are about their copies, not the forker's.
-    const tagMap = new Map<number, number>();
-    const insTag = db.prepare("INSERT INTO tags (deck_id, name) VALUES (?, ?)");
-    for (const t of (foreign ? [] : db.prepare("SELECT id, name FROM tags WHERE deck_id = ?").all(deckId)) as unknown as Array<{
-      id: number;
-      name: string;
-    }>)
-      tagMap.set(t.id, Number(insTag.run(forkId, t.name).lastInsertRowid));
+      // Tags record sourcing and status, "Have" being ownership evidence
+      // (§5.4, §5.5): another user's are about their copies, not the forker's.
+      const tagMap = new Map<number, number>();
+      const insTag = db.prepare("INSERT INTO tags (deck_id, name) VALUES (?, ?)");
+      for (const t of (foreign ? [] : db.prepare("SELECT id, name FROM tags WHERE deck_id = ?").all(deckId)) as unknown as Array<{
+        id: number;
+        name: string;
+      }>)
+        tagMap.set(t.id, Number(insTag.run(forkId, t.name).lastInsertRowid));
 
-    const insCard = db.prepare(
-      `INSERT INTO deck_cards (deck_id, oracle_id, slot_id, role, maybe, maybe_note, quantity)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    );
-    for (const c of db
-      .prepare(
-        "SELECT oracle_id, slot_id, role, maybe, maybe_note, quantity FROM deck_cards WHERE deck_id = ?",
-      )
-      .all(deckId) as unknown as Array<{
-      oracle_id: string;
-      slot_id: number | null;
-      role: string;
-      maybe: number;
-      maybe_note: string;
-      quantity: number;
-    }>)
-      insCard.run(
-        forkId,
-        c.oracle_id,
-        c.slot_id == null ? null : (slotMap.get(c.slot_id) ?? null),
-        c.role,
-        c.maybe,
-        foreign ? "" : c.maybe_note,
-        c.quantity,
+      const insCard = db.prepare(
+        `INSERT INTO deck_cards (deck_id, oracle_id, slot_id, role, maybe, maybe_note, quantity)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       );
+      for (const c of db
+        .prepare(
+          "SELECT oracle_id, slot_id, role, maybe, maybe_note, quantity FROM deck_cards WHERE deck_id = ?",
+        )
+        .all(deckId) as unknown as Array<{
+        oracle_id: string;
+        slot_id: number | null;
+        role: string;
+        maybe: number;
+        maybe_note: string;
+        quantity: number;
+      }>)
+        insCard.run(
+          forkId,
+          c.oracle_id,
+          c.slot_id == null ? null : (slotMap.get(c.slot_id) ?? null),
+          c.role,
+          c.maybe,
+          foreign ? "" : c.maybe_note,
+          c.quantity,
+        );
 
-    const insSecondary = db.prepare("INSERT INTO deck_card_secondary_slots (deck_id, oracle_id, slot_id) VALUES (?, ?, ?)");
-    for (const c of db.prepare("SELECT oracle_id, slot_id FROM deck_card_secondary_slots WHERE deck_id = ?").all(deckId) as unknown as { oracle_id: string; slot_id: number }[]) {
-      const slotId = slotMap.get(c.slot_id);
-      if (slotId != null) insSecondary.run(forkId, c.oracle_id, slotId);
-    }
+      const insSecondary = db.prepare("INSERT INTO deck_card_secondary_slots (deck_id, oracle_id, slot_id) VALUES (?, ?, ?)");
+      for (const c of db.prepare("SELECT oracle_id, slot_id FROM deck_card_secondary_slots WHERE deck_id = ?").all(deckId) as unknown as { oracle_id: string; slot_id: number }[]) {
+        const slotId = slotMap.get(c.slot_id);
+        if (slotId != null) insSecondary.run(forkId, c.oracle_id, slotId);
+      }
 
-    const insCardTag = db.prepare(
-      "INSERT INTO deck_card_tags (deck_id, oracle_id, tag_id) VALUES (?, ?, ?)",
-    );
-    for (const ct of db
-      .prepare("SELECT oracle_id, tag_id FROM deck_card_tags WHERE deck_id = ?")
-      .all(deckId) as unknown as Array<{ oracle_id: string; tag_id: number }>) {
-      const tagId = tagMap.get(ct.tag_id);
-      if (tagId != null) insCardTag.run(forkId, ct.oracle_id, tagId);
-    }
+      const insCardTag = db.prepare(
+        "INSERT INTO deck_card_tags (deck_id, oracle_id, tag_id) VALUES (?, ?, ?)",
+      );
+      for (const ct of db
+        .prepare("SELECT oracle_id, tag_id FROM deck_card_tags WHERE deck_id = ?")
+        .all(deckId) as unknown as Array<{ oracle_id: string; tag_id: number }>) {
+        const tagId = tagMap.get(ct.tag_id);
+        if (tagId != null) insCardTag.run(forkId, ct.oracle_id, tagId);
+      }
 
-    db.prepare(
-      `INSERT INTO briefs (deck_id, thesis, constraints_md)
-       SELECT ?, thesis, constraints_md FROM briefs WHERE deck_id = ?`,
-    ).run(forkId, deckId);
-    const insEngine = db.prepare("INSERT INTO engines (deck_id, name, description) VALUES (?, ?, ?)");
-    const insPiece = db.prepare(
-      "INSERT INTO engine_pieces (engine_id, oracle_id, note) SELECT ?, oracle_id, note FROM engine_pieces WHERE engine_id = ?",
-    );
-    for (const e of db
-      .prepare("SELECT id, name, description FROM engines WHERE deck_id = ?")
-      .all(deckId) as unknown as Array<{ id: number; name: string; description: string }>)
-      insPiece.run(Number(insEngine.run(forkId, e.name, e.description).lastInsertRowid), e.id);
+      db.prepare(
+        `INSERT INTO briefs (deck_id, thesis, constraints_md)
+         SELECT ?, thesis, constraints_md FROM briefs WHERE deck_id = ?`,
+      ).run(forkId, deckId);
+      const insEngine = db.prepare("INSERT INTO engines (deck_id, name, description) VALUES (?, ?, ?)");
+      const insPiece = db.prepare(
+        "INSERT INTO engine_pieces (engine_id, oracle_id, note) SELECT ?, oracle_id, note FROM engine_pieces WHERE engine_id = ?",
+      );
+      for (const e of db
+        .prepare("SELECT id, name, description FROM engines WHERE deck_id = ?")
+        .all(deckId) as unknown as Array<{ id: number; name: string; description: string }>)
+        insPiece.run(Number(insEngine.run(forkId, e.name, e.description).lastInsertRowid), e.id);
 
-    recomputeIdentity(db, actor, forkId);
-    if (foreign) {
-      const upstream = getDeck(db, actor, forkId).deck.upstream!;
-      writeLog(db, actor, { deck_id: forkId, kind: "edit", summary: `Forked from ${upstream.owner_handle}/${upstream.name}` });
+      recomputeIdentity(db, actor, forkId);
+      if (foreign) {
+        const upstream = getDeck(db, actor, forkId).deck.upstream!;
+        writeLog(db, actor, { deck_id: forkId, kind: "edit", summary: `Forked from ${upstream.owner_handle}/${upstream.name}` });
+        return forkId;
+      }
+      copyPowerTarget(db, actor, deckId, forkId);
+      const memories = copyDeckMemories(db, actor, deckId, forkId);
+      writeLog(db, actor, {
+        deck_id: forkId,
+        kind: "edit",
+        summary:
+          `Forked from "${parent.name}" at its revision ${parent.revision}` +
+          (memories ? `, with ${memories} deck memor${memories === 1 ? "y" : "ies"}` : ""),
+      });
       return forkId;
-    }
-    copyPowerTarget(db, actor, deckId, forkId);
-    const memories = copyDeckMemories(db, actor, deckId, forkId);
-    writeLog(db, actor, {
-      deck_id: forkId,
-      kind: "edit",
-      summary:
-        `Forked from "${parent.name}" at its revision ${parent.revision}` +
-        (memories ? `, with ${memories} deck memor${memories === 1 ? "y" : "ies"}` : ""),
     });
-    return forkId;
-  });
+
+  }, result => ({ deckId: result, summary: `Created fork #${result}` }));
 }
 
 export interface CompareCard {

@@ -1,3 +1,4 @@
+import { useReportFocus } from "../../app/useReportFocus.ts";
 import { api } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
 import { href, navigate } from "../../app/routes.ts";
@@ -8,8 +9,10 @@ import { usePlaytest } from "./usePlaytest.ts";
 import styles from "./PlaytestTable.module.css";
 
 export function PlaytestPage({ deckId }: { deckId: number }) {
-  const deck = useQuery(() => api.getDeck(deckId), [deckId]),
+  const deck = useQuery(() => api.getDeck(deckId), [deckId], { resources: ["deck"], deckId }),
     controller = usePlaytest(deckId);
+  const frame = controller.view?.session.frame;
+  useReportFocus(deckId, deck.data?.state.deck.name ?? null, [...new Set(controller.ui.selected.flatMap(id => frame?.objects[id] ? [frame.objects[id].oracle_id] : []))]);
   if (deck.loading || (controller.loading && !controller.view))
     return <Loading />;
   if (!deck.data)

@@ -1,3 +1,5 @@
+import { withTransaction } from "../db.ts";
+import { withActivity } from "../activity.ts";
 import { displayAuthor, requireActor } from "../actor.ts";
 import { requireDeck } from "./service.ts";
 // The decisions log (spec §8.2): the deck's version history and the record of
@@ -6,6 +8,7 @@ import { requireDeck } from "./service.ts";
 // the cards an act touched are queryable per card (§8.3).
 
 import type { Database } from "../sqlite.ts";
+import { lintProse } from "../cards.ts";
 import { ServiceError } from "../errors.ts";
 import { type Actor, authorOf, requireSelf, isDeckOwner, requireDeckOwner, requireUi } from "../actor.ts";
 
@@ -67,6 +70,10 @@ export function writeLog(
     requireSelf(actor, row.user_id);
   }
 
+  if (actor.via === "agent") {
+    for (const text of [entry.summary, entry.decision_reason, ...cards.map(c => c.reason)])
+      if (text) lintProse(db, text);
+  }
   const r = db
     .prepare(
       `INSERT INTO log (deck_id, revision, kind, summary, ruling_reason, proposal_id,
@@ -312,26 +319,29 @@ export function markReviewed(
   db: Database, actor: Actor,
   which: { ids?: number[]; through?: number },
 ): number {
-  requireActor(actor);
-  if (which.through != null) {
-    if (which.through === 0) return 0;
-    const entry = db.prepare("SELECT deck_id FROM log WHERE id = ? AND user_id = ?").get(which.through, actor.user_id) as { deck_id: number | null } | undefined;
-    if (!entry) throw new ServiceError("The decision to review through does not exist", 404);
-    const r = db
-      .prepare("UPDATE log SET reviewed_at = datetime('now') WHERE reviewed_at IS NULL AND id <= ? AND deck_id IS ? AND user_id = ?")
-      .run(which.through, entry.deck_id, actor.user_id);
-    return Number(r.changes);
-  }
-  const ids = which.ids ?? [];
-  if (!ids.length) throw new ServiceError("Give the ids of the decisions you have read, or 'through'");
-  for (const id of ids) {
-    const tenant = db.prepare("SELECT user_id FROM log WHERE id = ? AND user_id = ?").get(id, actor.user_id) as { user_id: number } | undefined;
-    if (!tenant) throw new ServiceError(`Log entry ${id} not found`, 404);
-  }
-  const stmt = db.prepare(
-    "UPDATE log SET reviewed_at = datetime('now') WHERE reviewed_at IS NULL AND id = ? AND user_id = ?",
-  );
-  let n = 0;
-  for (const id of ids) n += Number(stmt.run(id, actor.user_id).changes);
-  return n;
+  return withActivity(db, actor, "markReviewed", () => {
+    requireActor(actor);
+    if (which.through != null) {
+      if (which.through === 0) return 0;
+      const entry = db.prepare("SELECT deck_id FROM log WHERE id = ? AND user_id = ?").get(which.through, actor.user_id) as { deck_id: number | null } | undefined;
+      if (!entry) throw new ServiceError("The decision to review through does not exist", 404);
+      const r = db
+        .prepare("UPDATE log SET reviewed_at = datetime('now') WHERE reviewed_at IS NULL AND id <= ? AND deck_id IS ? AND user_id = ?")
+        .run(which.through, entry.deck_id, actor.user_id);
+      return Number(r.changes);
+    }
+    const ids = which.ids ?? [];
+    if (!ids.length) throw new ServiceError("Give the ids of the decisions you have read, or 'through'");
+    for (const id of ids) {
+      const tenant = db.prepare("SELECT user_id FROM log WHERE id = ? AND user_id = ?").get(id, actor.user_id) as { user_id: number } | undefined;
+      if (!tenant) throw new ServiceError(`Log entry ${id} not found`, 404);
+    }
+    const stmt = db.prepare(
+      "UPDATE log SET reviewed_at = datetime('now') WHERE reviewed_at IS NULL AND id = ? AND user_id = ?",
+    );
+    let n = 0;
+    for (const id of ids) n += Number(stmt.run(id, actor.user_id).changes);
+    return n;
+
+  }, result => ({ deckId: null, summary: `Reviewed ${result} decision(s)` }));
 }

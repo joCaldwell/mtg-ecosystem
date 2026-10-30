@@ -1,7 +1,6 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DeckThumbnail } from "../mtg/index.ts";
 import { BrandMark } from "./BrandMark.tsx";
-import { usePreferences } from "./Preferences.tsx";
 import { familyOrder } from "../domain/familyOrder.ts";
 import { waitingByDeck } from "../domain/inbox.ts";
 // The left rail: where to go, which decks exist, and what an agent connected
@@ -11,7 +10,7 @@ import { waitingByDeck } from "../domain/inbox.ts";
 import { api } from "../api/client.ts";
 import { useQuery } from "../api/useQuery.ts";
 import { DECK_CATEGORY_LABELS } from "../domain/deckCategory.ts";
-import { ago } from "../domain/time.ts";
+import { ago, parseServerTime } from "../domain/time.ts";
 import { Badge, Dot, Eyebrow, Icon, IconButton, TextField } from "../ui/index.ts";
 import { useFocus } from "./Focus.tsx";
 import { useInbox } from "./Inbox.tsx";
@@ -32,12 +31,16 @@ const NAV: Array<{ page: PageName; label: string; icon: "inbox" | "decks" | "mem
 export function Sidebar({ route, brand = true, collapsed = false, onToggle, toggleDisabled = false }: {
   route: Route; brand?: boolean; collapsed?: boolean; onToggle?: () => void; toggleDisabled?: boolean;
 }) {
-  const { hasAgentActivity } = usePreferences();
   const { waiting, inbox } = useInbox();
   const deckWaiting = useMemo(() => inbox ? waitingByDeck(inbox) : new Map<number, number>(), [inbox]);
   const { focus } = useFocus();
-  const decks = useQuery(() => api.listDecks(), []);
-  const activity = useQuery(() => api.latestActivity(), []);
+  const decks = useQuery(() => api.listDecks(), [], "decks");
+  const connections = useQuery(() => api.agentConnections(), [], "agents");
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const [deckQuery, setDeckQuery] = useState("");
   const filterInput = useRef<HTMLInputElement>(null);
   const deckNav = useRef<HTMLElement>(null);
@@ -66,10 +69,14 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
     sizes.observe(nav);
     return () => { waiting.disconnect(); sizes.disconnect(); };
   }, [brand, collapsed, currentDeckId, route.page]);
-  const last = activity.data;
+  const last = connections.data?.find(client => client.last_used_at !== null);
+  const recent = !!last?.last_used_at && now - parseServerTime(last.last_used_at) < 5 * 60_000;
+  const contact = last?.last_used_at
+    ? `Last request: ${last.label} · ${ago(last.last_used_at, now)}`
+    : connections.data === null ? (connections.error ? "Agent status unavailable" : "Agent status") : connections.data.length ? "No agent requests yet" : "Connect an agent";
   const section = route.page;
 
-  const presence = [last && `${last.actor} · ${ago(last.ts)}`, focus ? `Agent context: ${focus.deckName}${focus.selectedCount > 0 ? ` · ${focus.selectedCount} selected` : ""}` : "No deck in agent context"].filter(Boolean).join(". ");
+  const presence = [contact, "Recent requests do not mean an agent is still connected.", focus ? `Agent context: ${focus.deckName}${focus.selectedCount > 0 ? ` · ${focus.selectedCount} selected` : ""}` : "No deck in agent context"].filter(Boolean).join(". ");
 
   return (
     <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ""}`} aria-label="Sidebar">
@@ -156,19 +163,21 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
         </div>}
       </nav>
 
-      {hasAgentActivity && <div className={styles.presence} title={presence}>
+      <div className={styles.presence} title={presence}>
         {collapsed && <span className="visually-hidden">{presence}</span>}
-        <div className={styles.who}>
-          <Dot tone="agent" />
+        <a href={href({ page: "settings" })} className={styles.who} aria-label={contact}>
+          <Dot tone={recent ? "agent" : "neutral"} />
           <span className={styles.presenceText}>
-            <span className={styles.agent}>{last?.actor ?? "Agent activity"}</span>
-            {last && <span className={styles.when}> · {ago(last.ts)}</span>}
+            {last?.last_used_at ? <>
+              <span className={styles.agent}>{last.label}</span>
+              <span className={styles.when}> · {ago(last.last_used_at, now)}</span>
+            </> : contact}
           </span>
-        </div>
+        </a>
         {!collapsed && <div className={styles.focus}>
-          {focus ? <><span>Agent context</span><b>{focus.deckName}</b>{focus.selectedCount > 0 && <span>{focus.selectedCount} selected</span>}</> : "No deck in agent context"}
+          {focus ? <><span>{focus.stale ? `Last viewed · ${focus.ageMinutes} min ago` : "Agent context"}</span><b>{focus.deckName}</b>{focus.selectedCount > 0 && <span>{focus.selectedCount} selected</span>}</> : "No deck in agent context"}
         </div>}
-      </div>}
+      </div>
     </aside>
   );
 }

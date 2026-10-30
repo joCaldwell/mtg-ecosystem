@@ -1,4 +1,8 @@
-import { createToken } from "../src/tokens.ts";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { createToken, revokeToken } from "../src/tokens.ts";
+import { agentConnections } from "../src/agent-status.ts";
+import { uiPreferences } from "../src/preferences.ts";
 import { OWNER } from "./actors.ts";
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -63,4 +67,72 @@ describe("the agent endpoint, through the official MCP client (spec §10.1)", ()
     await legacy.close();
     await modern.close();
   });
+});
+
+
+test("read-only MCP contact is visible without claiming a write; revoked tokens disappear", async () => {
+  const credential = createToken(db, OWNER, "read-only audit");
+  const client = new Client({ name: "reader", version: "1" });
+  try {
+    assert.equal(agentConnections(db, OWNER).find(c => c.label === "read-only audit")?.last_used_at, null);
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), {
+      requestInit: { headers: { Authorization: `Bearer ${credential.token}` } },
+    }));
+    const session = await client.callTool({ name: "start_session", arguments: {} });
+    assert.equal(session.isError, undefined);
+    assert.equal(uiPreferences(db, OWNER).has_agent_activity, false);
+    const response = await fetch(`${base}/api/agents`);
+    const connections = await response.json() as ReturnType<typeof agentConnections>;
+    assert.ok(connections.find(c => c.label === "read-only audit")?.last_used_at);
+    assert.ok(!JSON.stringify(connections).includes(credential.token));
+    revokeToken(db, OWNER, credential.credential.id);
+    assert.ok(!agentConnections(db, OWNER).some(c => c.label === "read-only audit"));
+  } finally { await client.close(); }
+});
+
+
+test("stdio returns authentication failures to the original request", async () => {
+  const file = join(tokenDir, "revoked");
+  const credential = createToken(db, OWNER, "revoked shim");
+  writeFileSync(file, credential.token, { mode: 0o600 });
+  revokeToken(db, OWNER, credential.credential.id);
+  const child = spawn(process.execPath, [new URL("../src/mcp/stdio.ts", import.meta.url).pathname, "--token-file", file], {
+    env: { ...process.env, DECKBUILDER_MODE: "local", DECKBUILDER_PORT: new URL(base).port },
+  });
+  let stdout = "", stderr = "";
+  child.stdout.on("data", data => { stdout += data; });
+  child.stderr.on("data", data => { stderr += data; });
+  const timeout = setTimeout(() => child.kill(), 5000);
+  try {
+    child.stdin.end(JSON.stringify({ jsonrpc: "2.0", id: 42, method: "tools/list", params: {} }) + "\n");
+    const [code] = await once(child, "exit");
+    assert.equal(code, 0, stderr);
+    const response = JSON.parse(stdout.trim());
+    assert.equal(response.id, 42);
+    assert.match(response.error.message, /token/i);
+  } finally { clearTimeout(timeout); child.kill(); }
+});
+
+test("UI commands replay safely and MCP retries recheck revoked credentials", async () => {
+  const headers = { "Content-Type": "application/json", "Idempotency-Key": "http-create" };
+  const body = JSON.stringify({ name: "Retry-safe UI deck" });
+  const write = () => fetch(`${base}/api/decks`, { method: "POST", headers, body });
+  const first = await (await write()).json() as any;
+  const second = await (await write()).json() as any;
+  assert.equal(second.state.deck.id, first.state.deck.id);
+  assert.equal(second.command.replayed, true);
+  assert.ok(first.command.resources.includes("decks"));
+  const conflict = await fetch(`${base}/api/decks/${first.state.deck.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Stale rename", expected_edit_version: 999 }) });
+  assert.equal(conflict.status, 409);
+  const credential = createToken(db, OWNER, "write retry");
+  const client = new Client({ name: "write-retry", version: "1" });
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${credential.token}` } } }));
+    const args = { deck: first.state.deck.id, add: [{ card: "id-forest" }], idempotency_key: "write-once" };
+    const result = await client.callTool({ name: "edit_cards", arguments: args });
+    assert.equal((result.structuredContent as any).command.decks[0].computed.card_count, 1);
+    assert.equal(((await client.callTool({ name: "edit_cards", arguments: args })).structuredContent as any).command.replayed, true);
+    revokeToken(db, OWNER, credential.credential.id);
+    await assert.rejects(() => client.callTool({ name: "edit_cards", arguments: args }), /401|revoked|token/i);
+  } finally { await client.close(); }
 });

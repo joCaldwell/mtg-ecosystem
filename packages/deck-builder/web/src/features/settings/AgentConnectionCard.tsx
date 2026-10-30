@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { api, type Settings } from "../../api/client.ts";
-import { ago } from "../../domain/time.ts";
+import { ago, parseServerTime } from "../../domain/time.ts";
 import { Box, Button, ConfirmDialog, ErrorNote, Field, KeyValue, Row, Select, Stack, Text, TextField } from "../../ui/index.ts";
 import styles from "./AgentConnectionCard.module.css";
 import { clientConfigs, type ClientId, type Part } from "./clients.tsx";
@@ -18,7 +18,7 @@ export function AgentConnectionCard({ agent, onChanged }: { agent: Settings["age
   const clients = clientConfigs(agent.url, secret ?? "<your agent token>", agent.stdio_command);
   const client = clients.find(c => c.id === clientId) ?? clients[0];
   const lastSeen = [...agent.tokens.filter(t => t.last_used_at && !t.revoked_at).map(t => ({ label: t.label, last_used_at: t.last_used_at! })), ...(agent.oauth_usage ?? [])]
-    .sort((a, b) => b.last_used_at.localeCompare(a.last_used_at))[0];
+    .sort((a, b) => parseServerTime(b.last_used_at) - parseServerTime(a.last_used_at))[0];
   // First connection needs the commands; established accounts keep them on demand.
   const [instructionsInitiallyOpen] = useState(!lastSeen);
   const instructions = useRef<HTMLDetailsElement>(null);
@@ -67,14 +67,14 @@ export function AgentConnectionCard({ agent, onChanged }: { agent: Settings["age
     {agent.mode === "hosted" && <Stack gap={3}>
       <Text as="h3" weight="bold">Connected OAuth apps</Text>
       {(agent.oauth_clients ?? []).map(c=><Row key={c.client_id} gap={4} justify="between">
-        <Stack gap={1} className={styles.value}><Text weight="medium">{c.label ?? "OAuth app"}</Text><Text size="sm" mono>{c.client_id}</Text><Text tone="muted" size="sm">{c.last_used_at ? `Last used ${ago(c.last_used_at)}` : "No tool calls yet"}</Text></Stack>
+        <Stack gap={1} className={styles.value}><Text weight="medium">{c.label ?? "OAuth app"}</Text><Text size="sm" mono>{c.client_id}</Text><Text tone="muted" size="sm">{c.last_used_at ? `Last used ${ago(c.last_used_at)}` : "No MCP requests yet"}</Text></Stack>
         <Button size="sm" variant="reject" disabled={busy} onClick={()=>setDisconnecting(c.client_id)}>Disconnect</Button>
       </Row>)}
       {!agent.oauth_clients?.length && <Text size="sm" tone="muted">No OAuth apps connected.</Text>}
     </Stack>}
     </Stack><Stack gap={4}>
       <Text as="h3" weight="bold">Client setup</Text>
-      <Text tone="muted" size="sm">{lastSeen ? `Last seen: ${lastSeen.label}, ${ago(lastSeen.last_used_at)}` : "Last seen: no agent has connected yet"}</Text>
+      <Text tone="muted" size="sm">{lastSeen ? `Last request: ${lastSeen.label}, ${ago(lastSeen.last_used_at)}` : "No authenticated MCP requests yet"}</Text>
       <Field label="Connection method"><Select value={client.id} onChange={e => { setClientId(e.target.value as ClientId); showInstructions(); }}>{clients.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}</Select></Field>
       {/* The browser owns toggling; refreshes and queued toggle events must not
           overwrite an explicit close or a request to show a new method. */}

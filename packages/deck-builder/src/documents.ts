@@ -5,7 +5,7 @@ import { displayAuthor, requireActor } from "./actor.ts";
 // on. This applies to all editable decks; Archived decks are read-only.
 
 import type { Database } from "./sqlite.ts";
-import { recordActivity } from "./activity.ts";
+import { recordActivity, withActivity } from "./activity.ts";
 import { type PowerTarget, getPowerTarget, parseTarget, targetText, writePowerTarget } from "./deck/power.ts";
 import { ServiceError } from "./errors.ts";
 import { withTransaction } from "./db.ts";
@@ -190,37 +190,38 @@ export function proposeDocumentEdit(
   reason: string,
   options: { expected_revision?: number; proposal_only?: boolean } = {},
 ): ProposeResult {
-  if ((kind === "profile") !== (deckId == null))
-    throw new ServiceError("A profile edit has no deck; a brief edit needs one");
-  if (deckId != null) requireEditableDeck(db, actor, deckId);
-  if (deckId != null) requireRevision(db, actor, deckId, options.expected_revision);
-  validateEdit(db, actor, kind, deckId, payload);
-  if (kind === "power_target") {
-    if (actor.via === "agent" && !reason?.trim()) throw new ServiceError("A power target needs a reason grounded in the owner's preferences");
+  return withActivity(db, actor, `propose_${kind}`, () => {
+    if ((kind === "profile") !== (deckId == null))
+      throw new ServiceError("A profile edit has no deck; a brief edit needs one");
+    if (deckId != null) requireEditableDeck(db, actor, deckId);
+    if (deckId != null) requireRevision(db, actor, deckId, options.expected_revision);
+    validateEdit(db, actor, kind, deckId, payload);
+    if (kind === "power_target") {
+      if (actor.via === "agent" && !reason?.trim()) throw new ServiceError("A power target needs a reason grounded in the owner's preferences");
+      lintProse(db, reason);
+    }
+
+    if (actor.via === "ui" && !options.proposal_only) {
+      applyEdit(db, actor, kind, deckId, payload);
+      return { applied: true, edit_id: null };
+    }
+
+    if (!reason?.trim())
+      throw new ServiceError("A proposed edit needs a reason citing what prompted it");
     lintProse(db, reason);
-  }
+    const stored: DocumentEditPayload = { ...payload };
+    stored.base = currentText(db, actor, kind, deckId, payload.engine_name);
+    const conflict = listDocumentEdits(db, actor, { status: "pending", ...(deckId == null ? { profileOnly: true } : { deckId }) })
+      .find(e => isAuthor(actor, e) && editKey(e.kind, e.payload) === editKey(kind, payload));
+    if (conflict) throw new ServiceError(`Edit #${conflict.id} is already current for this document. Amend or explicitly supersede it.`);
+    const r = db
+      .prepare(
+        "INSERT INTO document_edits (deck_id, kind, payload_json, reason, author, base_revision, user_id, author_user_id, author_via, author_label, author_token_id, author_oauth_client_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(deckId, kind, JSON.stringify(stored), reason.trim(), authorOf(actor), deckId == null ? null : requireDeck(db, actor, deckId).revision, actor.user_id, actor.user_id, actor.via, actor.label, actor.token_id ?? null, actor.oauth_client_id ?? null);
+    return { applied: false, edit_id: Number(r.lastInsertRowid) };
 
-  if (actor.via === "ui" && !options.proposal_only) {
-    applyEdit(db, actor, kind, deckId, payload);
-    if (kind === "power_target") recordActivity(db, actor, "propose_power_target", deckId, `Set power target: ${reason}`);
-    return { applied: true, edit_id: null };
-  }
-
-  if (!reason?.trim())
-    throw new ServiceError("A proposed edit needs a reason citing what prompted it");
-  lintProse(db, reason);
-  const stored: DocumentEditPayload = { ...payload };
-  stored.base = currentText(db, actor, kind, deckId, payload.engine_name);
-  const conflict = listDocumentEdits(db, actor, { status: "pending", ...(deckId == null ? { profileOnly: true } : { deckId }) })
-    .find(e => isAuthor(actor, e) && editKey(e.kind, e.payload) === editKey(kind, payload));
-  if (conflict) throw new ServiceError(`Edit #${conflict.id} is already current for this document. Amend or explicitly supersede it.`);
-  const r = db
-    .prepare(
-      "INSERT INTO document_edits (deck_id, kind, payload_json, reason, author, base_revision, user_id, author_user_id, author_via, author_label, author_token_id, author_oauth_client_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .run(deckId, kind, JSON.stringify(stored), reason.trim(), authorOf(actor), deckId == null ? null : requireDeck(db, actor, deckId).revision, actor.user_id, actor.user_id, actor.via, actor.label, actor.token_id ?? null, actor.oauth_client_id ?? null);
-  if (kind === "power_target") recordActivity(db, actor, "propose_power_target", deckId, `Proposed power target edit #${r.lastInsertRowid}: ${reason}`);
-  return { applied: false, edit_id: Number(r.lastInsertRowid) };
+  }, result => ({ deckId, summary: result.applied ? `Updated ${kind.replaceAll("_", " ")}` : `Proposed ${kind.replaceAll("_", " ")} edit #${result.edit_id}: ${reason}` }));
 }
 
 interface EditRow {

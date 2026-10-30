@@ -1,3 +1,4 @@
+import { memoRead } from "../read-context.ts";
 import { requireDeck } from "./service.ts";
 import type { Actor } from "../actor.ts";
 // Deterministic checks (spec §9): computed on request from the current list,
@@ -40,6 +41,9 @@ export function isDoctorPair(cards: { type_line: string; oracle_text: string }[]
 const cardCount = (n: number) => `${n} ${n === 1 ? "card" : "cards"}`;
 
 export function checkDeck(db: Database, actor: Actor, deckId: number): Finding[] {
+  return memoRead(db, `checks:${actor.user_id}:${deckId}`, () => readChecks(db, actor, deckId));
+}
+function readChecks(db: Database, actor: Actor, deckId: number): Finding[] {
   requireDeck(db, actor, deckId);
   const { deck, cards, computed } = getDeck(db, actor, deckId);
   const inDeck = cards.filter((c) => !c.maybe);

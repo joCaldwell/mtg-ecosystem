@@ -1,29 +1,18 @@
-// Focus (spec §10.3): the deck and cards the owner has open. The deck page
-// reports it to the server so that "this deck" in a conversation with an
-// agent means the one on screen; the sidebar shows the same thing back to the
-// owner, so what an agent will be told is never a surprise.
-
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
-
-export interface Focus {
-  deckId: number;
-  deckName: string;
-  selectedCount: number;
-}
-
-interface FocusStore {
-  focus: Focus | null;
-  setFocus: (focus: Focus | null) => void;
-}
-
-const FocusContext = /* @__PURE__ */ createContext<FocusStore>({ focus: null, setFocus: () => {} });
-
+// The sidebar shows the context the server would give an agent, including
+// when another tab owns it. A failed refresh preserves the last confirmed view.
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
+import { api } from "../api/client.ts";
+import { useQuery } from "../api/useQuery.ts";
+export interface Focus { deckId: number; deckName: string; selectedCount: number; stale: boolean; ageMinutes: number }
+const FocusContext = createContext<{ focus: Focus | null }>({ focus: null });
 export function FocusProvider({ children }: { children: ReactNode }) {
-  const [focus, setFocus] = useState<Focus | null>(null);
-  const store = useMemo(() => ({ focus, setFocus }), [focus]);
-  return <FocusContext.Provider value={store}>{children}</FocusContext.Provider>;
+  const query = useQuery(api.getFocus, [], "focus");
+  useEffect(() => {
+    const timer = window.setInterval(query.reload, 30_000);
+    return () => window.clearInterval(timer);
+  }, [query.reload]);
+  const state = query.data?.focus;
+  const value = useMemo(() => ({ focus: state ? { deckId: state.deck_id, deckName: state.deck_name, selectedCount: state.selected.length, stale: state.stale, ageMinutes: state.age_minutes } : null }), [state]);
+  return <FocusContext.Provider value={value}>{children}</FocusContext.Provider>;
 }
-
-export function useFocus(): FocusStore {
-  return useContext(FocusContext);
-}
+export function useFocus() { return useContext(FocusContext); }

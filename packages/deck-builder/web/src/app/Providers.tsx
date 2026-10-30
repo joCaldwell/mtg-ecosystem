@@ -22,7 +22,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
 /** A change (a new price source, a refresh) can change what a looked-up card shows (§4.4). */
 function ClearCardCache() {
-  const live = useLive();
+  const live = useLive("cards");
   const { clear } = useCardLookup();
   useEffect(clear, [live, clear]);
   return null;

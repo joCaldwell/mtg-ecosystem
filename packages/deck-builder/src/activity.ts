@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 // The activity feed (spec §11): every write an agent makes, approved or not.
 // It is the audit trail for writes that needed no approval — memories,
 // filing, shortlists, draft edits — so "silent when written" never means
@@ -5,6 +6,7 @@
 
 import type { Database } from "./sqlite.ts";
 import { displayAuthor, requireActor, requireDeckOwner, SAMPLE_AGENT_LABEL, type Actor } from "./actor.ts";
+import { withTransaction } from "./db.ts";
 
 export interface ActivityEntry {
   id: number;
@@ -21,6 +23,40 @@ export interface ActivityEntry {
   summary: string;
 }
 
+type Draft = { action: string; deckId: number | null; summary: string };
+const batch = new AsyncLocalStorage<{ db: Database; actor: Actor; entries: Draft[] }>();
+
+/** One command may compose many capabilities; attribute it once. */
+export function batchActivity<T, R>(db: Database, actor: Actor, action: string, work: () => T, summarize: (value: T, deckIds: number[]) => R) {
+  const scope = { db, actor, entries: [] as Draft[] };
+  const value = batch.run(scope, work);
+  const entries = scope.entries;
+  const deck_ids = [...new Set(entries.flatMap(e => e.deckId == null ? [] : [e.deckId]))];
+  // Compute the result before the Activity insert invalidates request-local reads.
+  const result = summarize(value, deck_ids);
+  const activity_ids: number[] = [];
+  if (actor.via === "agent" && entries.length) {
+    const deckId = deck_ids.length === 1 && db.prepare("SELECT 1 FROM decks WHERE id=? AND user_id=?").get(deck_ids[0], actor.user_id) ? deck_ids[0] : null;
+    activity_ids.push(insertActivity(db, actor, action, deckId, [...new Set(entries.map(e => e.summary))].join("; ")));
+  }
+  return { value: result, activity_ids };
+}
+
+/** Attribution belongs to the capability, including calls outside a transport. */
+export function withActivity<T>(db: Database, actor: Actor, action: string, work: () => T, describe: (value: T) => { deckId: number | null; summary: string } | null): T {
+  return withTransaction(db, () => {
+    const value = work();
+    const description = describe(value);
+    if (description) recordActivity(db, actor, action, description.deckId, description.summary);
+    return value;
+  });
+}
+
+function insertActivity(db: Database, actor: Actor, action: string, deckId: number | null, summary: string): number {
+  return Number(db.prepare("INSERT INTO activity (actor, action, deck_id, summary, user_id, actor_user_id, actor_via, actor_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(actor.label, action, deckId, summary, actor.user_id, actor.user_id, actor.via, actor.label).lastInsertRowid);
+}
+
 /** Record an agent's write. The owner's own actions are not activity. */
 export function recordActivity(
   db: Database,
@@ -30,13 +66,12 @@ export function recordActivity(
   summary: string,
 ): void {
   if (deckId != null) requireDeckOwner(db, actor, deckId);
-  if (actor.via !== "agent") return;
-  db.prepare("INSERT INTO activity (actor, action, deck_id, summary, user_id, actor_user_id, actor_via, actor_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
-    actor.label,
-    action,
-    deckId,
-    summary, actor.user_id, actor.user_id, actor.via, actor.label,
-  );
+  const scope = batch.getStore();
+  if (scope?.db === db && scope.actor === actor) {
+    scope.entries.push({ action, deckId, summary });
+    return;
+  }
+  if (actor.via === "agent") insertActivity(db, actor, action, deckId, summary);
 }
 
 export interface ActivityQuery {

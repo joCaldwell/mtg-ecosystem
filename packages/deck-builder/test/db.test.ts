@@ -1,4 +1,4 @@
-import { removeIdentity } from "./legacy-db.ts";
+import { removeIdentity, legacyDb } from "./legacy-db.ts";
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -22,7 +22,7 @@ test.after(() => rmSync(dir, { recursive: true, force: true }));
 describe("opening a database", () => {
   test("schema 8 drops Draft/Active and preserves categories, IDs and related records", () => {
     const path = join(dir, "v8-lifecycle.db");
-    const old = openDb(path);
+    const old = legacyDb(path);
     ingestCards(old, FIXTURES);
     const ids = (["paper", "theorycrafted", "archived"] as const).map((category, index) => {
       const id = createDeck(old, OWNER, `Lifecycle ${index}`);
@@ -50,7 +50,7 @@ describe("opening a database", () => {
   });
   test("schema 7 gains secondary purposes without changing existing decks or historical undo", () => {
     const path = join(dir, "v7.db");
-    const old = openDb(path);
+    const old = legacyDb(path);
     ingestCards(old, FIXTURES);
     const deck = createDeck(old, OWNER, "Existing purposes");
     const primary = createSlot(old, OWNER, deck, "Ramp", 1, 2);
@@ -88,7 +88,7 @@ describe("opening a database", () => {
   });
   test("schema 5 discards assembly marks while preserving cards, tags and historical undo", () => {
     const path = join(dir, "v5.db");
-    const old = openDb(path);
+    const old = legacyDb(path);
     ingestCards(old, FIXTURES);
     const deck = createDeck(old, OWNER, "Existing assembled deck", { category: "paper" });
     setDeckCategory(old, OWNER, deck, "paper");
@@ -147,7 +147,7 @@ describe("opening a database", () => {
   });
   test("schema 4 preserves document edits and treats missing Game Changer metadata as unknown", () => {
     const path = join(dir, "v4.db");
-    const old = openDb(path);
+    const old = legacyDb(path);
     ingestCards(old, FIXTURES);
     const id = createDeck(old, OWNER, "Power migration", { category: "paper" });
     add(old, id, "id-solring");
@@ -171,7 +171,7 @@ describe("opening a database", () => {
   });
   test("schema 2 migrates without losing decks and keeps classification on reopen", () => {
     const path = join(dir, "v2.db");
-    const old = openDb(path);
+    const old = legacyDb(path);
     ingestCards(old, FIXTURES);
     const id = createDeck(old, OWNER, "Existing deck", { category: "paper" });
     add(old, id, "id-solring");
@@ -198,7 +198,7 @@ describe("opening a database", () => {
   });
   test("schema 3 preserves assignments and adds deck-scoped tag foreign keys", () => {
     const path = join(dir, "v3.db");
-    const old = openDb(path);
+    const old = legacyDb(path);
     ingestCards(old, FIXTURES);
     const deck = createDeck(old, OWNER, "Tagged deck");
     const other = createDeck(old, OWNER, "Other deck");
@@ -235,7 +235,7 @@ describe("opening a database", () => {
   });
   test("an invalid legacy tag link aborts migration without deleting assignments", () => {
     const path = join(dir, "invalid-tags.db");
-    const old = openDb(path);
+    const old = legacyDb(path);
     ingestCards(old, FIXTURES);
     const deck = createDeck(old, OWNER, "Invalid tag deck");
     const other = createDeck(old, OWNER, "Tag owner");
@@ -263,7 +263,7 @@ describe("opening a database", () => {
 
 test("schema 9 migrates Have evidence and proposal bases conservatively, preserving IDs and rerunning safely", () => {
   const path = join(dir, "v9-sourcing-proposals.db");
-  const old = openDb(path);
+  const old = legacyDb(path);
   ingestCards(old, FIXTURES);
   const id = createDeck(old, OWNER, "Old sourcing list");
   add(old, id, "id-solring");
@@ -310,7 +310,7 @@ test("v10 identity migration preserves data, sequences and structured authors, w
   const { createProposal } = await import("../src/deck/proposals.ts");
   const { startPlaytest, getPlaytest } = await import("../src/playtest/service.ts");
   const { setPowerTarget, recordPowerAssessment } = await import("../src/deck/power.ts");
-  const path = join(dir, "identity-v10.db"), old = openDb(path);
+  const path = join(dir, "identity-v10.db"), old = legacyDb(path);
   ingestCards(old, FIXTURES);
   const deck = createDeck(old, OWNER, "Existing tenant deck", { category: "paper" });
   add(old, deck, "id-forest", { quantity: 7 });
@@ -363,7 +363,7 @@ test("v10 identity migration preserves data, sequences and structured authors, w
 });
 
 test("a v10 FK failure rolls back every identity table and the version together", () => {
-  const path = join(dir, "identity-invalid.db"), old = openDb(path);
+  const path = join(dir, "identity-invalid.db"), old = legacyDb(path);
   removeIdentity(old);
   old.exec("PRAGMA foreign_keys = OFF; UPDATE meta SET value = '10' WHERE key = 'schema_version'; INSERT INTO memories(text,scope,deck_id,basis,author) VALUES ('Broken link','deck',999,'inferred','agent')");
   old.close();
@@ -380,7 +380,7 @@ test("a v10 FK failure rolls back every identity table and the version together"
 test("v12 populated prices migrate without changing content or USD estimates and reopen safely", async () => {
   const { removePriceSources } = await import("./legacy-db.ts");
   const { ingestPrices, cheapestPrintings, getPriceSource } = await import("../src/prices.ts");
-  const file = join(dir, "v12-prices.db"), db = openDb(file);
+  const file = join(dir, "v12-prices.db"), db = legacyDb(file);
   ingestCards(db, FIXTURES);
   const deck = createDeck(db, OWNER, "Preserved price deck");
   add(db, deck, "id-solring");

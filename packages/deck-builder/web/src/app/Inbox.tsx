@@ -20,7 +20,7 @@ interface InboxStore {
 const InboxContext = /* @__PURE__ */ createContext<InboxStore>({ inbox: null, waiting: 0, deckWaiting: null, apply: () => {}, reload: () => {} });
 
 export function InboxProvider({ children }: { children: ReactNode }) {
-  const query = useQuery(() => api.getInbox(), []);
+  const query = useQuery(() => api.getInbox(), [], "inbox");
   const [inbox, setInbox] = useState<Inbox | null>(null);
   useEffect(() => {
     if (query.data) setInbox(query.data);

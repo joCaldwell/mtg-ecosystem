@@ -14,7 +14,7 @@ export function MemoriesPanel() {
   const voice = useVoice();
   const { deck } = useDeckState();
   const { deckId } = useDeck();
-  const list = useQuery(() => api.listMemories({ scope: "deck", deck: deckId }), [deckId]);
+  const list = useQuery(() => api.listMemories({ scope: "deck", deck: deckId }), [deckId], { resources: ["memories"], deckId });
   const memories = list.data?.memories ?? [];
 
   return (

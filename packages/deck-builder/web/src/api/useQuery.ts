@@ -3,7 +3,7 @@
 // what makes an agent's write appear here without a reload (spec §11).
 
 import { useCallback, useEffect, useState } from "react";
-import { useLive } from "./live.tsx";
+import { useLive, type LiveScope } from "./live.tsx";
 
 export interface Query<T> {
   /** The last successful result. Kept while a refetch is in flight, so a live
@@ -15,8 +15,8 @@ export interface Query<T> {
   reload: () => void;
 }
 
-export function useQuery<T>(load: () => Promise<T>, deps: unknown[]): Query<T> {
-  const live = useLive();
+export function useQuery<T>(load: () => Promise<T>, deps: unknown[], scope: LiveScope = "data"): Query<T> {
+  const live = useLive(scope);
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

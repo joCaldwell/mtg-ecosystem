@@ -35,7 +35,7 @@ export function CardPanel({ card: open, backRef, bodyRef }: { card: OpenCard; ba
   const byAgent = proposedBy?.author_via !== "ui";
   const seen = state.proposals.flatMap((p) => p.items).find((i) => i.oracle_id === open.oracleId);
 
-  const live = useLive();
+  const live = useLive("cards");
   const [looked, setLooked] = useState<CardInfo | null>(null);
   const needsLookup = !owned && !seen;
   useEffect(() => {

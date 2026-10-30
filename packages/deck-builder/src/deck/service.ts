@@ -1,3 +1,4 @@
+import { memoRead } from "../read-context.ts";
 import { analyzeMana, type ManaCard } from "./mana.ts";
 import { creditedArt, type CardArt } from "../art.ts";
 // Decks, their organization, and the composite deck view. What is *in* a deck
@@ -9,8 +10,8 @@ import type { Database } from "../sqlite.ts";
 import { isUniqueViolation, ServiceError } from "../errors.ts";
 import { withTransaction } from "../db.ts";
 import { type Actor, type DeckRole, isDeckOwner, requireDeckOwner, authorOf, PermissionError, requireUi } from "../actor.ts";
-import { recordActivity } from "../activity.ts";
-import { requireCardById } from "../cards.ts";
+import { recordActivity, withActivity } from "../activity.ts";
+import { lintProse, requireCardById } from "../cards.ts";
 import { estimateCost, priceResolver, type PriceMetadata, type ResolvedPrice } from "../prices.ts";
 
 export type Role = "card" | "commander" | "companion";
@@ -90,6 +91,7 @@ export interface DeckRow {
   ci_mask: number | null;
   color_identity: string;
   revision: number;
+  edit_version: number;
   created_at: string;
   visibility: Visibility;
   slug: string | null;
@@ -205,6 +207,7 @@ export interface DeckSummary {
   parent_name: string | null;
   color_identity: string;
   revision: number;
+  edit_version: number;
   created_at: string;
   card_count: number;
   commanders: string[];
@@ -220,7 +223,7 @@ export function listDecks(db: Database, actor: Actor): DeckSummary[] {
   const rows = db
     .prepare(
       `SELECT d.id, d.name, d.category, CASE WHEN p.id IS NOT NULL THEN d.parent_id END AS parent_id, p.name AS parent_name, d.color_identity,
-              d.revision, d.created_at, d.visibility, d.slug,
+              d.revision, d.edit_version, d.created_at, d.visibility, d.slug,
               COALESCE((SELECT SUM(quantity) FROM deck_cards dc
                         WHERE dc.deck_id = d.id AND dc.role != 'companion' AND dc.maybe = 0), 0) AS card_count,
               (SELECT COUNT(*) FROM proposal_items pi JOIN proposals pr ON pr.id = pi.proposal_id
@@ -663,49 +666,52 @@ export interface FilingInput {
 // Bulk filing by name, for agents: every entry lands or none does. Tags named
 // here are created if the deck lacks them, subject to the near-duplicate rule.
 export function fileCards(db: Database, actor: Actor, deckId: number, filings: FilingInput[], removeUnusedTags: string[] = []): void {
-  requireEditableDeck(db, actor, deckId);
-  if (!Array.isArray(removeUnusedTags) || removeUnusedTags.some(name => typeof name !== "string"))
-    throw new ServiceError("Unused tags to remove must be an array of tag names");
-  withTransaction(db, () => {
-    for (const f of filings) {
-      requireDeckCard(db, actor, deckId, f.oracle_id);
-      const patch: OrganizePatch = {};
-      if (f.slot !== undefined)
-        patch.slotId = f.slot === null ? null : requireSlotByName(db, actor, deckId, f.slot).id;
-      if (f.secondary_slots !== undefined) {
-        if (!Array.isArray(f.secondary_slots) || f.secondary_slots.some(name => typeof name !== "string"))
-          throw new ServiceError("Secondary slots must be an array of slot names");
-        patch.secondarySlotIds = f.secondary_slots.map(name => requireSlotByName(db, actor, deckId, name).id);
-      }
-      if (f.add_tags?.length || f.remove_tags?.length) {
-        const current = new Set(
-          (
-            db
-              .prepare("SELECT tag_id FROM deck_card_tags WHERE deck_id = ? AND oracle_id = ?")
-              .all(deckId, f.oracle_id) as unknown as { tag_id: number }[]
-          ).map((t) => t.tag_id),
-        );
-        for (const name of f.add_tags ?? []) current.add(findOrCreateTag(db, actor, deckId, name));
-        for (const name of f.remove_tags ?? []) {
-          const tag = listTags(db, actor, deckId).find(
-            (t) => t.name.toLowerCase() === name.trim().toLowerCase(),
-          );
-          if (tag) current.delete(tag.id);
+  return withActivity(db, actor, "fileCards", () => {
+    requireEditableDeck(db, actor, deckId);
+    if (!Array.isArray(removeUnusedTags) || removeUnusedTags.some(name => typeof name !== "string"))
+      throw new ServiceError("Unused tags to remove must be an array of tag names");
+    withTransaction(db, () => {
+      for (const f of filings) {
+        requireDeckCard(db, actor, deckId, f.oracle_id);
+        const patch: OrganizePatch = {};
+        if (f.slot !== undefined)
+          patch.slotId = f.slot === null ? null : requireSlotByName(db, actor, deckId, f.slot).id;
+        if (f.secondary_slots !== undefined) {
+          if (!Array.isArray(f.secondary_slots) || f.secondary_slots.some(name => typeof name !== "string"))
+            throw new ServiceError("Secondary slots must be an array of slot names");
+          patch.secondarySlotIds = f.secondary_slots.map(name => requireSlotByName(db, actor, deckId, name).id);
         }
-        patch.tagIds = [...current];
+        if (f.add_tags?.length || f.remove_tags?.length) {
+          const current = new Set(
+            (
+              db
+                .prepare("SELECT tag_id FROM deck_card_tags WHERE deck_id = ? AND oracle_id = ?")
+                .all(deckId, f.oracle_id) as unknown as { tag_id: number }[]
+            ).map((t) => t.tag_id),
+          );
+          for (const name of f.add_tags ?? []) current.add(findOrCreateTag(db, actor, deckId, name));
+          for (const name of f.remove_tags ?? []) {
+            const tag = listTags(db, actor, deckId).find(
+              (t) => t.name.toLowerCase() === name.trim().toLowerCase(),
+            );
+            if (tag) current.delete(tag.id);
+          }
+          patch.tagIds = [...current];
+        }
+        organizeCard(db, actor, deckId, f.oracle_id, patch);
       }
-      organizeCard(db, actor, deckId, f.oracle_id, patch);
-    }
-    // Explicit vocabulary cleanup, never inferred from an empty assignment.
-    // Reserved status tags can stay even while no card carries them.
-    for (const name of removeUnusedTags) {
-      const tag = listTags(db, actor, deckId).find(t => t.name.toLowerCase() === name.trim().toLowerCase());
-      if (!tag) continue;
-      if (db.prepare("SELECT 1 FROM deck_card_tags WHERE deck_id = ? AND tag_id = ? LIMIT 1").get(deckId, tag.id))
-        throw new ServiceError(`Tag '${tag.name}' is still assigned; remove its assignments before removing it from the vocabulary`);
-      deleteTag(db, actor, deckId, tag.id);
-    }
-  });
+      // Explicit vocabulary cleanup, never inferred from an empty assignment.
+      // Reserved status tags can stay even while no card carries them.
+      for (const name of removeUnusedTags) {
+        const tag = listTags(db, actor, deckId).find(t => t.name.toLowerCase() === name.trim().toLowerCase());
+        if (!tag) continue;
+        if (db.prepare("SELECT 1 FROM deck_card_tags WHERE deck_id = ? AND tag_id = ? LIMIT 1").get(deckId, tag.id))
+          throw new ServiceError(`Tag '${tag.name}' is still assigned; remove its assignments before removing it from the vocabulary`);
+        deleteTag(db, actor, deckId, tag.id);
+      }
+    });
+
+  }, result => ({ deckId: deckId, summary: `Filed ${filings.length} card(s)` }));
 }
 
 export interface SlotSpec {
@@ -721,27 +727,30 @@ export interface SlotSpec {
 // Create, rename, retarget and remove slots in one transactional call. A slot
 // named here that does not exist is created; one that exists is updated.
 export function defineSlots(db: Database, actor: Actor, deckId: number, specs: SlotSpec[]): void {
-  requireEditableDeck(db, actor, deckId);
-  withTransaction(db, () => {
-    for (const s of specs) {
-      const existing = findSlotByName(db, actor, deckId, s.name);
-      if (s.remove) {
-        if (!existing) requireSlotByName(db, actor, deckId, s.name);
-        deleteSlot(db, actor, deckId, existing!.id);
-        continue;
+  return withActivity(db, actor, "defineSlots", () => {
+    requireEditableDeck(db, actor, deckId);
+    withTransaction(db, () => {
+      for (const s of specs) {
+        const existing = findSlotByName(db, actor, deckId, s.name);
+        if (s.remove) {
+          if (!existing) requireSlotByName(db, actor, deckId, s.name);
+          deleteSlot(db, actor, deckId, existing!.id);
+          continue;
+        }
+        if (!existing) {
+          if (s.rename_to !== undefined) requireSlotByName(db, actor, deckId, s.name);
+          createSlot(db, actor, deckId, s.name, s.target_min ?? null, s.target_max ?? null);
+          continue;
+        }
+        updateSlot(db, actor, deckId, existing.id, {
+          name: s.rename_to,
+          targetMin: s.target_min,
+          targetMax: s.target_max,
+        });
       }
-      if (!existing) {
-        if (s.rename_to !== undefined) requireSlotByName(db, actor, deckId, s.name);
-        createSlot(db, actor, deckId, s.name, s.target_min ?? null, s.target_max ?? null);
-        continue;
-      }
-      updateSlot(db, actor, deckId, existing.id, {
-        name: s.rename_to,
-        targetMin: s.target_min,
-        targetMax: s.target_max,
-      });
-    }
-  });
+    });
+
+  }, result => ({ deckId: deckId, summary: "Updated purpose slots" }));
 }
 
 // ---------- the maybe list (spec §5.4) ----------
@@ -755,33 +764,40 @@ export function shortlistCard(
   oracleId: string,
   note = "",
 ): void {
-  requireEditableDeck(db, actor, deckId);
-  const card = requireCardById(db, oracleId);
-  const existing = findDeckCard(db, actor, deckId, oracleId);
-  if (existing && !existing.maybe)
-    throw new ServiceError(`${card.name} is already in the deck, so it cannot be shortlisted`);
-  if (existing) {
-    db.prepare("UPDATE deck_cards SET maybe_note = ? WHERE deck_id = ? AND oracle_id = ?").run(
-      note.trim() || existing.maybe_note,
-      deckId,
-      oracleId,
-    );
-    return;
-  }
-  db.prepare(
-    "INSERT INTO deck_cards (deck_id, oracle_id, maybe, maybe_note) VALUES (?, ?, 1, ?)",
-  ).run(deckId, oracleId, note.trim());
+  return withActivity(db, actor, "shortlistCard", () => {
+    requireEditableDeck(db, actor, deckId);
+    lintProse(db, note);
+    const card = requireCardById(db, oracleId);
+    const existing = findDeckCard(db, actor, deckId, oracleId);
+    if (existing && !existing.maybe)
+      throw new ServiceError(`${card.name} is already in the deck, so it cannot be shortlisted`);
+    if (existing) {
+      db.prepare("UPDATE deck_cards SET maybe_note = ? WHERE deck_id = ? AND oracle_id = ?").run(
+        note.trim() || existing.maybe_note,
+        deckId,
+        oracleId,
+      );
+      return;
+    }
+    db.prepare(
+      "INSERT INTO deck_cards (deck_id, oracle_id, maybe, maybe_note) VALUES (?, ?, 1, ?)",
+    ).run(deckId, oracleId, note.trim());
+
+  }, () => ({ deckId, summary: `Shortlisted ${requireCardById(db, oracleId).name}` }));
 }
 
 export function unshortlistCard(db: Database, actor: Actor, deckId: number, oracleId: string): void {
-  requireEditableDeck(db, actor, deckId);
-  const row = requireDeckCard(db, actor, deckId, oracleId);
-  if (!row.maybe)
-    throw new ServiceError(
-      `${requireCardById(db, oracleId).name} is in the deck, not on the maybe list. ` +
-        `Removing it from the deck is a membership change.`,
-    );
-  db.prepare("DELETE FROM deck_cards WHERE deck_id = ? AND oracle_id = ?").run(deckId, oracleId);
+  return withActivity(db, actor, "unshortlistCard", () => {
+    requireEditableDeck(db, actor, deckId);
+    const row = requireDeckCard(db, actor, deckId, oracleId);
+    if (!row.maybe)
+      throw new ServiceError(
+        `${requireCardById(db, oracleId).name} is in the deck, not on the maybe list. ` +
+          `Removing it from the deck is a membership change.`,
+      );
+    db.prepare("DELETE FROM deck_cards WHERE deck_id = ? AND oracle_id = ?").run(deckId, oracleId);
+
+  }, () => ({ deckId, summary: `Removed ${requireCardById(db, oracleId).name} from the maybe list` }));
 }
 
 // ---------- the deck view ----------
@@ -821,6 +837,9 @@ export interface DeckCardView extends ResolvedPrice {
  * owner (null is anonymous USD/lowest), and count nothing pending, so a
  * shared deck's computed state carries no trace of proposals. */
 export function getDeck(db: Database, actor: Actor, deckId: number, opts: { pricesFor?: Actor | null; withoutPending?: boolean } = {}) {
+  return memoRead(db, JSON.stringify(["deck", actor.user_id, deckId, opts]), () => readDeck(db, actor, deckId, opts));
+}
+function readDeck(db: Database, actor: Actor, deckId: number, opts: { pricesFor?: Actor | null; withoutPending?: boolean }) {
   const deck = requireDeck(db, actor, deckId);
   const slots = listSlots(db, actor, deckId);
   const tags = listTags(db, actor, deckId);
@@ -892,6 +911,7 @@ export function getDeck(db: Database, actor: Actor, deckId: number, opts: { pric
       ci_mask: deck.ci_mask,
       color_identity: deck.color_identity,
       revision: deck.revision,
+      edit_version: deck.edit_version,
     },
     slots,
     tags,

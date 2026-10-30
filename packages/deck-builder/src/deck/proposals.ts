@@ -11,7 +11,7 @@ import { ServiceError } from "../errors.ts";
 import { withTransaction } from "../db.ts";
 import { type Actor, authorOf, isAuthor, requireUi, PermissionError } from "../actor.ts";
 import { lintProse, requireCardById } from "../cards.ts";
-import { recordActivity } from "../activity.ts";
+import { recordActivity, withActivity } from "../activity.ts";
 import { type LogCardInput, decisionReason, writeLog } from "./log.ts";
 import { type Change, applyChanges } from "./membership.ts";
 import { copyLimit, findDeckCard, requireDeck, requireEditableDeck, requireRevision, listSlots, validateSlotAssignments } from "./service.ts";
@@ -38,94 +38,97 @@ export function createProposal(
   deckId: number,
   input: { summary?: string; items: ProposalItemInput[]; expected_revision?: number },
 ): number {
-  requireEditableDeck(db, actor, deckId);
-  requireRevision(db, actor, deckId, input.expected_revision);
-  const items = input.items ?? [];
-  if (!items.length) throw new ServiceError("A proposal needs at least one item");
+  return withActivity(db, actor, "createProposal", () => {
+    requireEditableDeck(db, actor, deckId);
+    requireRevision(db, actor, deckId, input.expected_revision);
+    const items = input.items ?? [];
+    if (!items.length) throw new ServiceError("A proposal needs at least one item");
 
-  const seen = new Set<string>();
-  for (const item of items) {
-    const card = requireCardById(db, item.oracle_id);
-    if (item.action !== "add" && item.action !== "cut")
-      throw new ServiceError(`An item's action is 'add' or 'cut' (got '${item.action}')`);
-    if (!item.reason?.trim())
-      throw new ServiceError(`The ${item.action} of ${card.name} needs a reason`);
-    lintProse(db, item.reason);
+    const seen = new Set<string>();
+    for (const item of items) {
+      const card = requireCardById(db, item.oracle_id);
+      if (item.action !== "add" && item.action !== "cut")
+        throw new ServiceError(`An item's action is 'add' or 'cut' (got '${item.action}')`);
+      if (!item.reason?.trim())
+        throw new ServiceError(`The ${item.action} of ${card.name} needs a reason`);
+      lintProse(db, item.reason);
 
-    const key = `${item.action}:${item.oracle_id}`;
-    if (seen.has(key))
-      throw new ServiceError(`${card.name} appears twice as '${item.action}' in this proposal`);
-    seen.add(key);
+      const key = `${item.action}:${item.oracle_id}`;
+      if (seen.has(key))
+        throw new ServiceError(`${card.name} appears twice as '${item.action}' in this proposal`);
+      seen.add(key);
 
-    const row = findDeckCard(db, actor, deckId, item.oracle_id);
-    const inDeck = !!row && !row.maybe;
-    if (item.action === "cut" && !inDeck)
-      throw new ServiceError(`${card.name} is not in the deck, so it cannot be proposed as a cut`);
-    if (item.action === "add" && inDeck && row!.quantity >= copyLimit(card))
-      throw new ServiceError(
-        `${card.name} is already in the deck, and a Commander deck holds one copy of it`,
-      );
-    if (item.to_maybe) {
-      if (item.action !== "cut")
+      const row = findDeckCard(db, actor, deckId, item.oracle_id);
+      const inDeck = !!row && !row.maybe;
+      if (item.action === "cut" && !inDeck)
+        throw new ServiceError(`${card.name} is not in the deck, so it cannot be proposed as a cut`);
+      if (item.action === "add" && inDeck && row!.quantity >= copyLimit(card))
         throw new ServiceError(
-          `Only a cut can move a card to the maybe list; to shortlist ${card.name} without adding it, use the maybe list directly`,
+          `${card.name} is already in the deck, and a Commander deck holds one copy of it`,
         );
-      // The maybe list holds a card once, so parking takes every copy out.
-      if (row!.quantity > 1)
+      if (item.to_maybe) {
+        if (item.action !== "cut")
+          throw new ServiceError(
+            `Only a cut can move a card to the maybe list; to shortlist ${card.name} without adding it, use the maybe list directly`,
+          );
+        // The maybe list holds a card once, so parking takes every copy out.
+        if (row!.quantity > 1)
+          throw new ServiceError(
+            `${card.name} has ${row!.quantity} copies in the deck, and moving it to the maybe list would take all of them out. ` +
+              `Propose the cut without to_maybe.`,
+          );
+      }
+      if (item.slot_id != null) {
+        if (item.action !== "add")
+          throw new ServiceError("Only an add can name a slot; a cut leaves the card's slot as it is");
+        if (!db.prepare("SELECT 1 FROM slots WHERE id = ? AND deck_id = ?").get(item.slot_id, deckId))
+          throw new ServiceError(`Slot ${item.slot_id} not found in deck ${deckId}`, 404);
+      }
+      if (item.secondary_slot_ids !== undefined && item.action !== "add")
+        throw new ServiceError("Only an add can name secondary slots; a cut keeps the card's purposes");
+      if (item.action === "add") {
+        const primary = item.slot_id ?? (row?.maybe ? row.slot_id : null);
+        validateSlotAssignments(db, actor, deckId, primary, item.secondary_slot_ids !== undefined ? item.secondary_slot_ids : (row?.maybe ? row.secondary_slot_ids.filter(id => id !== primary) : []));
+      }
+
+      const pending = db
+        .prepare(
+          `SELECT p.id FROM proposal_items pi JOIN proposals p ON p.id = pi.proposal_id
+           WHERE p.deck_id = ? AND pi.oracle_id = ? AND pi.action = ? AND pi.status = 'pending' AND p.status = 'open'`,
+        )
+        .get(deckId, item.oracle_id, item.action) as { id: number } | undefined;
+      if (pending)
         throw new ServiceError(
-          `${card.name} has ${row!.quantity} copies in the deck, and moving it to the maybe list would take all of them out. ` +
-            `Propose the cut without to_maybe.`,
+          `Proposal #${pending.id} already has a pending ${item.action} of ${card.name}. ` +
+            `Wait for the owner's decision on it.`,
         );
     }
-    if (item.slot_id != null) {
-      if (item.action !== "add")
-        throw new ServiceError("Only an add can name a slot; a cut leaves the card's slot as it is");
-      if (!db.prepare("SELECT 1 FROM slots WHERE id = ? AND deck_id = ?").get(item.slot_id, deckId))
-        throw new ServiceError(`Slot ${item.slot_id} not found in deck ${deckId}`, 404);
-    }
-    if (item.secondary_slot_ids !== undefined && item.action !== "add")
-      throw new ServiceError("Only an add can name secondary slots; a cut keeps the card's purposes");
-    if (item.action === "add") {
-      const primary = item.slot_id ?? (row?.maybe ? row.slot_id : null);
-      validateSlotAssignments(db, actor, deckId, primary, item.secondary_slot_ids !== undefined ? item.secondary_slot_ids : (row?.maybe ? row.secondary_slot_ids.filter(id => id !== primary) : []));
-    }
+    if (input.summary) lintProse(db, input.summary);
 
-    const pending = db
-      .prepare(
-        `SELECT p.id FROM proposal_items pi JOIN proposals p ON p.id = pi.proposal_id
-         WHERE p.deck_id = ? AND pi.oracle_id = ? AND pi.action = ? AND pi.status = 'pending' AND p.status = 'open'`,
-      )
-      .get(deckId, item.oracle_id, item.action) as { id: number } | undefined;
-    if (pending)
-      throw new ServiceError(
-        `Proposal #${pending.id} already has a pending ${item.action} of ${card.name}. ` +
-          `Wait for the owner's decision on it.`,
+    return withTransaction(db, () => {
+      const r = db
+        .prepare("INSERT INTO proposals (deck_id, summary, author, base_revision, author_user_id, author_via, author_label, author_token_id, author_oauth_client_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(deckId, (input.summary ?? "").trim(), authorOf(actor), requireDeck(db, actor, deckId).revision, actor.user_id, actor.via, actor.label, actor.token_id ?? null, actor.oauth_client_id ?? null);
+      const proposalId = Number(r.lastInsertRowid);
+      const ins = db.prepare(
+        `INSERT INTO proposal_items (proposal_id, action, oracle_id, slot_id, secondary_slot_ids_json, to_maybe, reason, group_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       );
-  }
-  if (input.summary) lintProse(db, input.summary);
+      for (const item of items)
+        ins.run(
+          proposalId,
+          item.action,
+          item.oracle_id,
+          item.slot_id ?? null,
+          item.secondary_slot_ids === undefined ? null : JSON.stringify([...new Set(item.secondary_slot_ids)]),
+          item.to_maybe ? 1 : 0,
+          item.reason.trim(),
+          item.group?.trim() || null,
+        );
+      return proposalId;
+    });
 
-  return withTransaction(db, () => {
-    const r = db
-      .prepare("INSERT INTO proposals (deck_id, summary, author, base_revision, author_user_id, author_via, author_label, author_token_id, author_oauth_client_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(deckId, (input.summary ?? "").trim(), authorOf(actor), requireDeck(db, actor, deckId).revision, actor.user_id, actor.via, actor.label, actor.token_id ?? null, actor.oauth_client_id ?? null);
-    const proposalId = Number(r.lastInsertRowid);
-    const ins = db.prepare(
-      `INSERT INTO proposal_items (proposal_id, action, oracle_id, slot_id, secondary_slot_ids_json, to_maybe, reason, group_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-    for (const item of items)
-      ins.run(
-        proposalId,
-        item.action,
-        item.oracle_id,
-        item.slot_id ?? null,
-        item.secondary_slot_ids === undefined ? null : JSON.stringify([...new Set(item.secondary_slot_ids)]),
-        item.to_maybe ? 1 : 0,
-        item.reason.trim(),
-        item.group?.trim() || null,
-      );
-    return proposalId;
-  });
+  }, result => ({ deckId: deckId, summary: `Created proposal #${result}` }));
 }
 
 // ---------- reading ----------

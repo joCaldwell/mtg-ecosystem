@@ -9,7 +9,7 @@ export const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const DATA_DIR = resolve(process.env.DECKBUILDER_DATA ?? join(PKG_ROOT, "data"));
 export const DEFAULT_DB_PATH = resolve(process.env.DECKBUILDER_DB ?? join(DATA_DIR, "deck-builder.db"));
 
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 const SCHEMA = `
 -- Explicit physical evidence survives deck membership, forks and deletion.
@@ -542,6 +542,34 @@ const MIGRATIONS: Array<{ version: number; up: (db: Database) => void }> = [
       PRIMARY KEY (oracle_id, token_oracle_id)
     );`);
   } },
+
+  { version: 17, up(db) {
+    db.exec(`ALTER TABLE decks ADD COLUMN edit_version INTEGER NOT NULL DEFAULT 0;
+      CREATE TABLE command_receipts (
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        credential TEXT NOT NULL, key_hash TEXT NOT NULL, input_hash TEXT NOT NULL,
+        result_json TEXT, expires_at INTEGER NOT NULL,
+        PRIMARY KEY(user_id, credential, key_hash)
+      );
+      CREATE INDEX idx_command_receipts_expiry ON command_receipts(user_id, expires_at);`);
+    // Membership revision retains its existing meaning. This broader version
+    // detects organization/brief changes from either front door as well.
+    for (const table of ["deck_cards", "slots", "tags", "deck_card_tags", "deck_card_secondary_slots", "briefs", "engines", "power_targets"]) {
+      for (const event of ["INSERT", "UPDATE", "DELETE"]) {
+        const row = event === "DELETE" ? "OLD" : "NEW";
+        db.exec(`CREATE TRIGGER edit_version_${table}_${event.toLowerCase()} AFTER ${event} ON ${table}
+          BEGIN UPDATE decks SET edit_version=edit_version+1 WHERE id=${row}.deck_id; END`);
+      }
+    }
+    for (const event of ["INSERT", "UPDATE", "DELETE"]) {
+      const row = event === "DELETE" ? "OLD" : "NEW";
+      db.exec(`CREATE TRIGGER edit_version_engine_pieces_${event.toLowerCase()} AFTER ${event} ON engine_pieces
+        BEGIN UPDATE decks SET edit_version=edit_version+1 WHERE id=(SELECT deck_id FROM engines WHERE id=${row}.engine_id); END`);
+    }
+    db.exec(`CREATE TRIGGER edit_version_decks AFTER UPDATE OF name,category,parent_id,visibility,publish_decisions ON decks
+      BEGIN UPDATE decks SET edit_version=edit_version+1 WHERE id=NEW.id; END`);
+  } },
+
 ];
 
 function removeDeckStatus(db: Database) {
@@ -719,7 +747,7 @@ function assertOurs(db: Database, path: string) {
   } catch {
     /* no meta table at all */
   }
-  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6" || found === "7" || found === "8" || found === "9" || found === "10" || found === "11" || found === "12" || found === "13" || found === "14" || found === "15") return found;
+  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6" || found === "7" || found === "8" || found === "9" || found === "10" || found === "11" || found === "12" || found === "13" || found === "14" || found === "15" || found === "16") return found;
   throw new SchemaError(
     `${path} is not a database this version of the deck builder can open ` +
       `(it reports schema ${found ?? "unknown"}; this version uses ${SCHEMA_VERSION}). ` +

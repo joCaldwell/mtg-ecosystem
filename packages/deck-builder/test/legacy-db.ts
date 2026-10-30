@@ -1,4 +1,22 @@
 import type { Database } from "../src/sqlite.ts";
+import { openDb } from "../src/db.ts";
+
+/** Build old fixtures without accumulating an edit version that did not exist. */
+export function legacyDb(path: string): Database {
+  const db = openDb(path);
+  dropEditTriggers(db);
+  return db;
+}
+function dropEditTriggers(db: Database) {
+  for (const { name } of db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'edit_version_%'").all() as { name: string }[])
+    db.exec(`DROP TRIGGER "${name}"`);
+}
+export function removeCommands(db: Database) {
+  dropEditTriggers(db);
+  db.exec("DROP TABLE IF EXISTS command_receipts");
+  if ((db.prepare("PRAGMA table_info(decks)").all() as { name: string }[]).some(c => c.name === "edit_version"))
+    db.exec("ALTER TABLE decks DROP COLUMN edit_version");
+}
 
 /** Tests seed through current services, then reconstruct a real pre-identity
  * file before applying their historical schema edits. Never just relabel v11. */
@@ -36,6 +54,7 @@ export function removeIdentity(db: Database): void {
 
 /** Reconstruct the USD-only price table when testing historical migrations. */
 export function removePriceSources(db: Database): void {
+  removeCommands(db);
   db.exec(`CREATE TABLE card_prices_legacy (
     oracle_id TEXT PRIMARY KEY, usd_cents INTEGER NOT NULL, set_code TEXT NOT NULL,
     collector_number TEXT NOT NULL, finish TEXT NOT NULL CHECK(finish IN ('nonfoil','foil','etched'))

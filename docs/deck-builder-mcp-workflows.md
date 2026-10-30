@@ -267,3 +267,84 @@ Grouped document changes do not include card membership changes.
 
 Search pagination, compact mutation responses, richer type statistics, manual
 price refresh controls and advisory interaction warnings remain backlog.
+
+
+## Agent interaction audit — 2026-10-30
+
+This audit traced MCP HTTP and stdio through tool validation, capability
+writes, response rendering, user-scoped SSE, sidebar status and Settings.
+The production browser reached the sign-in screen; authenticated production
+OAuth/client interoperability was not exercised. Behavioral checks use
+isolated SQLite fixtures, both official MCP protocol clients, and the
+seeded ux-eval browser environment. No production data or deployment changed.
+
+Corrected:
+
+- The sidebar was gated on an agent **write**, so successful read-only use
+  remained invisible. It now shows last authenticated request from current
+  credentials, with unused/revoked states and a Settings link. This is not
+  a live connection count: the endpoint is stateless. Token use timestamps
+  retain their existing one-minute write throttle.
+- Nested MCP argument objects stripped unknown keys. A misspelled quantity
+  could silently become the default quantity. Tool-owned nested objects now
+  reject unknown keys before the write.
+- A tool could commit its domain mutation and then fail writing Activity or
+  rendering its response. Each mutating tool now wraps execution, attribution
+  and response construction in one savepoint. The regression forces a late
+  Activity failure and verifies membership, revision and log all roll back.
+- Direct-edit log notes bypassed card-reference linting. Agent-authored log
+  prose now goes through the same exact-reference validation below both doors.
+- The stdio shim relayed HTTP failures with `id: null`, abandoning the actual
+  request ID. It now returns correlated errors and handles missing credentials,
+  interrupted responses and invalid message shapes without abandoning requests.
+- Routine preference loads fetched all Settings, including each deck's memory
+  scope. They now use a dedicated small endpoint. Contact events invalidate
+  only agent status. Settings' latest-use comparison now parses timestamps,
+  correctly ordering SQLite UTC strings against ISO token timestamps.
+
+Recommendations implemented together (schema 17):
+
+1. **Concurrency and retry contract.** Direct edits and organization tools
+   accept optional membership revision and broader edit-version guards. Writes
+   accept credential-scoped retry keys with durable 24-hour replay; expired
+   keys fail rather than execute again. UI domain writes retry a dropped
+   response once with the original key. Public arguments remain additive.
+2. **Typed change subscriptions.** Events name resource families, deck IDs and
+   cross-deck effects. Queries subscribe narrowly, bursts batch, and reconnects
+   still invalidate everything. Agent reads touch only the status query.
+3. **Shared command results.** UI and MCP share transaction/guard/receipt logic.
+   Capabilities own attribution; composed agent commands produce one Activity
+   entry. Structured results carry IDs, versions, count deltas and findings,
+   alongside readable text and tool-specific IDs.
+4. **Focus ownership and expiry.** Interaction claims a visible deck/playtest
+   tab; visible owners heartbeat each minute. Token/sequence comparison stops
+   other tabs or late requests clearing its context. Hidden tabs retain stale
+   read context after three minutes and expire at thirty; stale implicit writes
+   require an explicit ID. The sidebar uses server-confirmed context. Policy
+   was coordinated with the UX loop to preserve conversations in other tabs.
+5. **Lean read projections.** Brief/memory/history reads use a small header;
+   full composites share request-local deck/power/check results. Any SQLite
+   write invalidates reuse. No persistent cache or per-connection state.
+
+Verification on the disposable seeded 100-card Hail Caesar deck: the same
+combined deck/power/check result used 117 SQL executions with a shared read
+context versus 220 without one. A brief-only render used 8 executions and
+preserved the full render's header. These are fixture query counts, not a
+production latency claim. Browser checks confirm scoped deck/memory events,
+multi-tab ownership, hidden/stale/expired context, non-owner close, and a
+committed HTTP response deliberately dropped before the retry. Migration,
+receipt restart/expiry/credential isolation, account lifecycle and transport
+revocation are covered by the package gate. Three additional focused tests
+cover the five recommendations; existing migration tests reuse their fixtures.
+
+The implementation branch incorporates the UX loop's My decks pass 2 and
+sidebar icons. Pushes and promotion remain held during its banner release.
+
+Regression commands: `npm run check` in the package, plus
+`node ux-eval/check-agent-contact.mjs` against a disposable `ux-eval/serve.ts`
+server on port 8879 (or `UX_EVAL_URL`). Browser coverage includes read-only
+contact, tenant separation, live updates, aging timestamps, collapsed access,
+revocation, and no deck/settings refetch from a read-only MCP request.
+
+The combined workflow smoke is `node ux-eval/check-agent-workflows.mjs`
+against the same disposable server. It deliberately changes only that fixture.

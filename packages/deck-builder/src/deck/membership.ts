@@ -1,3 +1,4 @@
+import { withActivity } from "../activity.ts";
 import { requireDeckOwner } from "../actor.ts";
 // Membership: the one place the contents of a deck change. Accepted
 // proposals, direct edits, imports and undos all arrive here as a list of
@@ -248,40 +249,43 @@ export function applyChanges(
   changes: Change[],
   entry: ChangeEntry,
 ): number | null {
-  requireDirectCardEdit(db, actor, deckId);
-  if (actor.via === "agent" && entry.kind !== "edit")
-    throw new PermissionError("Only the owner can decide proposals, import over a deck, or undo.");
+  return withActivity(db, actor, "applyChanges", () => {
+    requireDirectCardEdit(db, actor, deckId);
+    if (actor.via === "agent" && entry.kind !== "edit")
+      throw new PermissionError("Only the owner can decide proposals, import over a deck, or undo.");
 
-  return withTransaction(db, () => {
-    const logged: LogCardInput[] = [];
-    for (const c of changes) {
-      const row =
-        c.action === "add"
-          ? applyAdd(db, actor, deckId, c)
-          : c.action === "cut"
-            ? applyCut(db, actor, deckId, c)
-            : applyRole(db, actor, deckId, c);
-      if (row) logged.push(row);
-    }
-    if (!logged.length) return null;
+    return withTransaction(db, () => {
+      const logged: LogCardInput[] = [];
+      for (const c of changes) {
+        const row =
+          c.action === "add"
+            ? applyAdd(db, actor, deckId, c)
+            : c.action === "cut"
+              ? applyCut(db, actor, deckId, c)
+              : applyRole(db, actor, deckId, c);
+        if (row) logged.push(row);
+      }
+      if (!logged.length) return null;
 
-    // Any of these can move a card into or out of the command zone.
-    recomputeIdentity(db, actor, deckId);
-    db.prepare("UPDATE decks SET revision = revision + 1 WHERE id = ?").run(deckId);
-    return writeLog(
-      db,
-      actor,
-      {
-        deck_id: deckId,
-        kind: entry.kind,
-        summary: entry.summary ?? summarize(logged),
-        decision_reason: entry.decision_reason,
-        proposal_id: entry.proposal_id,
-        undo_of: entry.undo_of,
-      },
-      logged,
-    );
-  });
+      // Any of these can move a card into or out of the command zone.
+      recomputeIdentity(db, actor, deckId);
+      db.prepare("UPDATE decks SET revision = revision + 1 WHERE id = ?").run(deckId);
+      return writeLog(
+        db,
+        actor,
+        {
+          deck_id: deckId,
+          kind: entry.kind,
+          summary: entry.summary ?? summarize(logged),
+          decision_reason: entry.decision_reason,
+          proposal_id: entry.proposal_id,
+          undo_of: entry.undo_of,
+        },
+        logged,
+      );
+    });
+
+  }, result => result === null ? null : ({ deckId, summary: entry.summary ?? "Changed deck cards" }));
 }
 
 function summarize(cards: LogCardInput[]): string {

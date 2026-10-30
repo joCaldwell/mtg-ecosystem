@@ -1,3 +1,4 @@
+import { legacyDb, removeCommands } from "./legacy-db.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, mkdtempSync, rmSync } from "node:fs";
@@ -108,12 +109,13 @@ test("v16 migration preserves existing decks and distinguishes an uninitialized 
   const dir = mkdtempSync(join(tmpdir(), "token-migration-"));
   try {
     const path = join(dir, "deck.db");
-    const old = openDb(path);
+    const old = legacyDb(path);
     ingestCards(old, fixture.producers as ScryfallCard[]);
     const deck = createDeck(old, OWNER, "Existing hosted deck");
     add(old, deck, teferi!.oracle_id!, {role: "commander"});
     old.exec("DROP TABLE card_token_links; DROP TABLE token_catalog; UPDATE meta SET value = '15' WHERE key = 'schema_version'");
     const before = old.prepare("SELECT * FROM decks").all();
+    removeCommands(old);
     old.close();
     const migrated = openDb(path);
     try {

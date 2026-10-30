@@ -15,7 +15,7 @@ import styles from "./SettingsPage.module.css";
 /** Connection details for agents, memory budgets, and card data (spec §10.1, §7.4). */
 export function SettingsPage() {
   const {session} = useSession();
-  const settings = useQuery(() => api.getSettings(), []);
+  const settings = useQuery(() => api.getSettings(), [], "settings");
   const data = settings.data;
   useEffect(() => { const timer=setInterval(settings.reload,30_000); return () => clearInterval(timer); },[settings.reload]);
 

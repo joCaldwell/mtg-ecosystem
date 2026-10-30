@@ -30,7 +30,7 @@ function Colors({ stats }: { stats: PlayerStats }) {
 
 /** Server-computed Paper-deck statistics (§10.3); the gallery only arranges them. */
 export function PlayerStatsPanel() {
-  const query = useQuery(() => api.getStats(), []);
+  const query = useQuery(() => api.getStats(), [], "stats");
   const stats = query.data;
   if (query.error && !stats) return <ErrorNote>{query.error}</ErrorNote>;
   if (!stats) return null;

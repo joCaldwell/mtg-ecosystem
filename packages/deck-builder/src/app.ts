@@ -1,3 +1,7 @@
+import { executeCommand } from "./commands.ts";
+import { commandResources, type Change } from "./changes.ts";
+export type { Change } from "./changes.ts";
+import { agentConnections } from "./agent-status.ts";
 import { visitBackdrop } from "./art.ts";
 import { createDemo } from "./demo.ts";
 import { uiPreferences, setSidebarCollapsed } from "./preferences.ts";
@@ -104,7 +108,6 @@ export function resolveUiActor(req: IncomingMessage, mode: Mode, auth?: HostedAu
   return mode === "local" ? localActor() : auth?.resolveUiActor(req) ?? null;
 }
 
-export interface Change { kind: string; deck_id?: number }
 
 /** Reject invalid numeric input before it reaches SQLite or arithmetic. */
 /** A memory page's keyset cursor: the previous page's last revised_at and id, together. */
@@ -124,7 +127,7 @@ function num(value: unknown, name = "number", min = 0): number {
 }
 
 function validateNumbers(body: Record<string, any>) {
-  for (const key of ["quantity", "slot_id", "deck_id", "parent_id", "target_min", "target_max", "expected_revision"])
+  for (const key of ["quantity", "slot_id", "deck_id", "parent_id", "target_min", "target_max", "expected_revision", "expected_edit_version"])
     if (body[key] != null) body[key] = num(body[key], key, key === "quantity" ? 1 : 0);
   for (const key of ["tag_ids", "secondary_slot_ids"])
     if (body[key] !== undefined) {
@@ -503,6 +506,8 @@ export function createApp(db: Database, opts: AppOptions = {}) {
       },
     };
   };
+  route("GET", /^\/api\/preferences$/, actor => uiPreferences(db, actor));
+  route("GET", /^\/api\/agents$/, actor => agentConnections(db, actor));
   route("GET", /^\/api\/settings$/, settings);
   route("PUT", /^\/api\/settings$/, (actor, _p, body) => withTransaction(db, () => {
     if (body.sidebar_collapsed !== undefined) setSidebarCollapsed(db, actor, body.sidebar_collapsed);
@@ -562,14 +567,15 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     }
   });
 
-  // Focus is reported by the page, constantly, and changes nothing an agent
-  // or another tab needs to redraw for, so it is the one write that does not
-  // notify.
   const quiet = new Set(["/api/focus"]);
-  route("PUT", /^\/api\/focus$/, (actor, _p, body) => {
-    setFocus(db, actor, body.deck_id ?? null, Array.isArray(body.selected) ? body.selected.map(String) : []);
-    return { ok: true };
-  });
+  const reportFocus: Handler = (actor, _p, body) => {
+    const accepted = setFocus(db, actor, body.deck_id ?? null, Array.isArray(body.selected) ? body.selected.map(String) : [],
+      body.tab_id === undefined ? undefined : { tab_id: body.tab_id, sequence: body.sequence, claim: body.claim });
+    if (accepted) notify(actor.user_id, { kind: "focus", resources: ["focus"] });
+    return { accepted, focus: getFocus(db, actor) };
+  };
+  route("PUT", /^\/api\/focus$/, reportFocus);
+  route("POST", /^\/api\/focus$/, reportFocus); // pagehide beacon, same origin and actor checks
 
   // ---------- plumbing ----------
   const MIME: Record<string, string> = {
@@ -746,11 +752,27 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         if (!m) continue;
         const body = req.method === "GET" ? {} : await readJson(req);
         validateNumbers(body);
-        const result = await r.handler(r.anonymous ? actor : actor!, m.slice(1), body, url);
+        const isCommand = r.mutates && /^\/api\/(?:decks(?:\/|$)|memories(?:\/|$)|profile(?:\/|$)|document-edits(?:\/|$)|demo$|public\/decks\/.+\/fork$)/.test(url.pathname);
+        const target = url.pathname.match(/^\/api\/decks\/(\d+)/)?.[1];
+        const operation = `${req.method} ${url.pathname}`;
+        const outcome = isCommand ? executeCommand(db, actor!, {
+          operation, input: body, idempotency_key: typeof req.headers["idempotency-key"] === "string" ? req.headers["idempotency-key"] : undefined,
+          ...(target ? { deck: () => Number(target), expected_revision: body.expected_revision, expected_edit_version: body.expected_edit_version } : {}),
+        }, () => {
+          const value = r.handler(actor!, m.slice(1), body, url);
+          if (value instanceof Promise) throw new Error("Commands must finish synchronously inside the transaction");
+          return value;
+        }) : null;
+        const result = outcome ? { ...(outcome.value as object), command: outcome.command } : await r.handler(r.anonymous ? actor : actor!, m.slice(1), body, url);
         // Showing or hiding UI controls changes no data any view displays, so it
         // must not make every open view refetch (a price-source change still does).
         const preferenceOnly = url.pathname === "/api/settings" && Object.keys(body).length > 0 && Object.keys(body).every(k => k === "sidebar_collapsed");
-        if (r.mutates && url.pathname !== "/api/account" && !quiet.has(url.pathname) && !preferenceOnly) notify(actor!.user_id, { kind: url.pathname.split("/")[2] ?? "change", ...(url.pathname.match(/^\/api\/decks\/(\d+)/) ? { deck_id: Number(url.pathname.match(/^\/api\/decks\/(\d+)/)![1]) } : {}) });
+        if (r.mutates && !outcome?.command.replayed && url.pathname !== "/api/account" && !quiet.has(url.pathname)) notify(actor!.user_id, {
+          kind: url.pathname.split("/")[2] ?? "change",
+          resources: preferenceOnly ? ["preferences"] : outcome?.command.resources ?? commandResources(operation),
+          global_resources: outcome?.command.global_resources,
+          ...(outcome?.command.deck_ids.length ? { deck_ids: outcome.command.deck_ids } : target ? { deck_id: Number(target) } : {}),
+        });
         return json(200, result);
       }
       if ((req.method === "GET" || req.method === "HEAD") && !url.pathname.startsWith("/api/") && serveStatic(url.pathname, res, actor, req))

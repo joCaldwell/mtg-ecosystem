@@ -400,15 +400,15 @@ public sign-up; there is no compatibility alias for the old tools.
 
 The sidebar labels Theorycrafted and Archived decks in readable neutral text
 below their names; collapsed links retain the words in accessible names and
-tooltips. Paper has no extra sidebar label. All decks lifecycle pills are
+tooltips. Paper has no extra sidebar label. My decks lifecycle pills are
 neutral too: colour remains reserved for actions, selection and warnings.
 
-Only Paper decks contribute to All decks statistics and `player_stats`.
+Only Paper decks contribute to My decks statistics and `player_stats`.
 Changing lifecycle immediately updates statistics. Fork-family ancestry is
 preserved through Theorycrafted and Archived ancestors, whose cards and totals
 are excluded.
 
-All decks has a menu for rename, change lifecycle and delete. Agents can
+My decks has a menu for rename, change lifecycle and delete. Agents can
 rename or delete Paper and Theorycrafted decks through `rename_deck` and
 `delete_deck`; lifecycle changes are owner-only and have no MCP tool. Archived
 rename and delete actions are disabled. Deletion permanently removes the
@@ -804,10 +804,42 @@ Export text, decision lists and memory writes have no price-source line.
 and simulate pending one-copy adds/cuts and whole-card parking in item order.
 The delta's `unpriced` is signed (change in distinct unpriced cards).
 
-**Focus.** The app records what the owner has open in the UI (which deck,
-which cards are selected). `start_session` returns it and `get_deck` accepts
-`"focus"` as the deck, so "this deck" in conversation means the one on
-screen.
+**Focus.** The most recently interacted visible deck/playtest tab owns the
+per-user context. Pointer-down, key-down and window focus claim it; hover,
+scrolling and visibility alone never steal it. Visible owners heartbeat each
+minute even while reading. Hidden tabs stop reporting, but keep last-viewed
+read context: stale after three minutes, absent after thirty. Stale implicit
+writes are refused; the agent must reread and name the deck explicitly.
+Reports have a tab token and increasing sequence; leaving a deck or pagehide
+clears only that token's context. A restored bfcache page gets a new token.
+My decks/Inbox tabs never clear another tab. The sidebar reads the confirmed
+server context and retains its previous line on a failed request.
+
+**Command contract (schema 17).** UI domain writes and MCP mutations use a
+shared synchronous transaction containing capability writes, attribution and
+result construction. One agent command has one Activity entry. Optional
+`expected_revision` checks membership and `expected_edit_version` additionally
+checks organization, brief, target and deck metadata. The latter is an opaque
+monotonic version, not a count of commands; membership revision keeps its
+existing meaning. The guards are additive and optional for existing clients.
+
+MCP writes accept `idempotency_key`; synchronous domain HTTP writes accept
+`Idempotency-Key`. User plus verified credential scopes a key, not the URL
+label. Identical requests replay their stored outcome for 24 hours without
+another write/event; different arguments or expired keys fail. Receipts
+survive restarts. Expired response payloads are pruned on the user's next keyed
+command; compact tombstones remain until account deletion. Account export and
+deletion include receipts. Credentials are still verified on every request.
+The browser retries an interrupted domain request once with the same key and
+refreshes a replayed deck composite before showing it. Authentication and
+once-shown token creation are excluded.
+
+Structured command results carry resource/deck IDs, versions, count changes
+and deterministic findings; tool-specific IDs accompany the existing text.
+SSE names resource families and deck IDs; cross-deck effects explicitly name
+global resources. Reconnect and unknown legacy events invalidate all reads.
+Request-local read reuse clears after SQLite writes and never persists between
+requests; brief-only reads avoid building the full deck composite.
 
 Ownership evidence persists after cutting, moving, untagging, forking or deleting
 a deck. An explicit `Have` tag records ownership with unknown physical quantity
@@ -970,8 +1002,7 @@ and wider it keeps the desktop panes. Phones retain this read-and-rule scope.
   a memory, proposal, document edit or log entry for this principal. Token
   creation, read-only agent calls and the sample's `sample-agent` writes do
   not enable it, before or after the sample deck is deleted. Each table is
-  probed through an index. The sidebar presence
-  block is absent until then. Agent-sensitive empty states, subtitles and
+  probed through an index. Agent-sensitive empty states, subtitles and
   help have a deck-first and an agent-connected voice. Neutral hints and
   errors are identical in both. A first-run pointer leads to Settings →
   Connect an agent, without making connection a prerequisite.
@@ -1000,7 +1031,7 @@ and wider it keeps the desktop panes. Phones retain this read-and-rule scope.
   may cover the list without changing DESIGN.md principle 1. The tablet
   shell calls `useWindowScroll()` like the phone and shared shells. At
   1100+ the body stays pinned and panes scroll. Playtest needs 1100+ px.
-- **Sidebar:** All decks leads navigation, above Inbox; Memories, Activity, Profile and
+- **Sidebar:** My decks leads navigation, above Inbox; Memories, Activity, Profile and
   Settings follow. Decks have a separate “Your decks” heading. At 1100+ px an
   accessible collapse/expand control switches to an icon rail, preserving nav
   icons, the inbox badge, and deck thumbnails or dots with names in titles
@@ -1010,9 +1041,18 @@ and wider it keeps the desktop panes. Phones retain this read-and-rule scope.
   and reports an error. The 960–1099 rail deliberately remains expanded for
   visible tablet navigation; the drawer under 960 also remains expanded.
   Widening restores the saved desktop choice. Layout changes keep `<main>`
-  mounted; tablet window scrolling and the phone shell are unchanged. Agent
-  presence briefly names the last writer/time and the
-  open deck/selection as agent context.
+  mounted; tablet window scrolling and the phone shell are unchanged.
+  **Agent interaction audit, 2026-10-30:** the sidebar always exposes agent
+  setup/status, independently of the write-based first-run voice. It shows
+  the last authenticated MCP request among non-revoked tokens and authorized
+  OAuth clients, including reads, or says that no requests have arrived yet.
+  A request within five minutes gets the agent-colour dot; this is recent
+  contact, not proof of a persistent connection. Relative times update while
+  idle. The link reaches Settings in expanded and collapsed layouts, and the
+  open deck/selection remains visible as agent context. Write history stays
+  in Activity. Contact events refresh only the lightweight connection query;
+  ordinary mutations use resource-scoped invalidation, while reconnects
+  always refresh every subscribed query.
 - Tables scroll sideways inside their containers. MultiSelect is a
   searchable multi-select listbox; card rows support `?` to inspect and a
   tapped mana cost opens CardSheet. Archived titles are plain headings. A

@@ -35,7 +35,7 @@ function wordCount(text: string): number {
  *  an agent can only propose a change for the owner to decide. */
 export function ProfilePage() {
   const voice = useVoice();
-  const profile = useQuery(() => api.getProfile(), []);
+  const profile = useQuery(() => api.getProfile(), [], "profile");
   const inbox = useInbox();
   // null means not editing. The draft lives here, not in the query, so a live refetch never overwrites it.
   const [draft, setDraft] = useState<string | null>(null);

@@ -28,10 +28,10 @@ import { AppError } from "../errors.ts";
 import { verifyToken } from "../tokens.ts";
 import { INSTRUCTIONS } from "./playbook.ts";
 import { TOOLS, inputSchema, runTool } from "./tools.ts";
+import type { Change } from "../changes.ts";
 import { logging } from "../logging.ts";
 
 export const MCP_PATH = "/mcp";
-const MAX_BODY_BYTES = 1024 * 1024;
 
 // The 2026-07-28 revision carries the client's identity in every request's
 // _meta; the 2025 revisions sent it once, in initialize.
@@ -44,7 +44,7 @@ export interface AgentEndpointOptions {
   rateLimit?: ReturnType<typeof createRateLimiter>;
   withDatabase?: <T>(work:()=>T|Promise<T>)=>Promise<T>;
   /** Called after any tool wrote something, so the UI can refresh. */
-  onChange?: (userId: number, change: { kind: string; deck_id?: number }) => void;
+  onChange?: (userId: number, change: Change) => void;
 }
 
 // Who is calling, for attribution only (spec §1, rule 5) — it grants nothing.
@@ -96,7 +96,7 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
           const start = performance.now();
           try {
             const result = runTool({ db, actor }, tool, args ?? {});
-            if (result.changed) opts.onChange?.(actor.user_id, { kind: tool.name });
+            if (result.changed) opts.onChange?.(actor.user_id, { kind: tool.name, resources: result.command?.resources, deck_ids: result.command?.deck_ids, global_resources: result.command?.global_resources });
             logging.tool(actor, tool.name, start, 200);
             return { content: [{ type: "text" as const, text: result.text }],
               ...(result.structuredContent ? { structuredContent: result.structuredContent } : {}) };
@@ -188,6 +188,8 @@ export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
     // claims it, by URL, token label or OAuth name, is attributed apart.
     const actor: Actor = { ...authenticated, label: name === SAMPLE_AGENT_LABEL ? `${name} (connected)` : name };
     logging.actor(actor);
+    // A read also proves contact. This event only invalidates connection UI.
+    opts.onChange?.(actor.user_id, { kind: "agent_contact" });
     const response = await handler.fetch(request, {
       authInfo: { token: presented, clientId: name, scopes: [], extra: { actor } },
       parsedBody: parsed,

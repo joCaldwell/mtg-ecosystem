@@ -1,3 +1,5 @@
+import { withReadContext } from "../read-context.ts";
+import { priceResolver } from "../prices.ts";
 import type { Actor } from "../actor.ts";
 // Text for agents (spec §10.2): compact, meant to be read, grouped the way
 // the deck is organized. No JSON blobs and no ids the agent will not need.
@@ -21,6 +23,7 @@ import {
   type DeckSummary,
   type DeckView,
   getDeck,
+  requireDeck,
 } from "../deck/service.ts";
 import { type DocumentEditView, listDocumentEdits } from "../documents.ts";
 import { type LoadedScope, type MemoryView, loadScope } from "../memory.ts";
@@ -155,11 +158,12 @@ export const DECK_SECTIONS = [
 ] as const;
 export type DeckSection = (typeof DECK_SECTIONS)[number];
 
-function header(view: DeckView): string {
+function header(view: { deck: DeckView["deck"]; computed: { card_count: number; cost: PriceMetadata } }): string {
   const d = view.deck;
   const bits = [
     `lifecycle ${d.category}`,
     `revision ${d.revision}`,
+    `edit version ${d.edit_version}`,
     `identity ${d.color_identity || (d.ci_mask === 0 ? "colourless" : "none yet (no commander)")}`,
     `${view.computed.card_count}/100 cards`,
   ];
@@ -172,6 +176,15 @@ function header(view: DeckView): string {
       ? "Paper: change its cards only with propose_changes."
       : "Theorycrafted: edit its cards directly with edit_cards.") + " Brief and power target changes always require proposals.";
   return `# Deck ${d.id} "${d.name}" — ${bits.join(" · ")}\n${rule}\n${priceSourceLine(view.computed.cost)}`;
+}
+
+function compactHeader(db: Database, actor: Actor, deckId: number): string {
+  const deck = requireDeck(db, actor, deckId);
+  const { n } = db.prepare("SELECT COALESCE(SUM(quantity),0) n FROM deck_cards WHERE deck_id=? AND maybe=0 AND role<>'companion'").get(deckId) as { n: number };
+  const parent = deck.parent_id == null ? null : db.prepare("SELECT id,name FROM decks WHERE id=? AND user_id=?").get(deck.parent_id, actor.user_id) as { id: number; name: string } | undefined;
+  return header({ deck: { ...deck, publish_decisions: !!deck.publish_decisions, parent: parent ?? null,
+    upstream: deck.parent_slug && deck.parent_owner_handle ? { slug: deck.parent_slug, owner_handle: deck.parent_owner_handle, name: deck.parent_name ?? "" } : null },
+    computed: { card_count: n, cost: priceResolver(db, actor) } });
 }
 
 export function stateLines(view: Pick<DeckView, "slots" | "computed">): string {
@@ -377,55 +390,60 @@ export function renderDeck(
   sections: readonly DeckSection[] = DECK_SECTIONS,
   withText = true,
 ): string {
-  const view = getDeck(db, actor, deckId);
-  const want = new Set(sections);
-  const out: string[] = [header(view)];
+  return withReadContext(() => {
+    const want = new Set(sections);
+    // Brief, memory, power, proposal and history reads need only a small header.
+    // Materialize the list/computed composite only when those sections need it.
+    const needsView = ["list", "maybe", "state", "checks"].some(section => want.has(section as DeckSection));
+    const view = needsView ? getDeck(db, actor, deckId) : null;
+    const out: string[] = [view ? header(view) : compactHeader(db, actor, deckId)];
 
-  if (want.has("brief")) {
-    const brief = getBrief(db, actor, deckId);
-    const engines = brief.engines.map((e) => {
-      const pieces = e.pieces
-        .map((p) => `${p.name}${p.in_deck ? "" : " (NOT in the deck)"}${p.note ? ` — ${p.note}` : ""}`)
-        .join("; ");
-      return `- ${e.name}: ${e.description || "(no description)"}\n  pieces: ${pieces || "(none listed)"}`;
-    });
-    out.push(
-      `## Brief (the owner's document)\n### Thesis\n${brief.thesis || "(not written yet)"}\n### Constraints\n${
-        brief.constraints_md || "(none recorded)"
-      }\n### Engines\n${engines.join("\n") || "(none defined)"}`,
-    );
-  }
-  if (want.has("power")) out.push(renderPower(getPower(db, actor, deckId)));
-  if (want.has("list")) out.push(listSection(view, withText));
-  if (want.has("tokens")) out.push(tokenLines(deckTokens(db, actor, deckId)));
-  if (want.has("maybe")) {
-    const maybe = view.cards.filter((c) => c.maybe);
-    if (maybe.length)
+    if (want.has("brief")) {
+      const brief = getBrief(db, actor, deckId);
+      const engines = brief.engines.map((e) => {
+        const pieces = e.pieces
+          .map((p) => `${p.name}${p.in_deck ? "" : " (NOT in the deck)"}${p.note ? ` — ${p.note}` : ""}`)
+          .join("; ");
+        return `- ${e.name}: ${e.description || "(no description)"}\n  pieces: ${pieces || "(none listed)"}`;
+      });
       out.push(
-        `## Maybe list (${maybe.length}; outside the 100)\n` +
-          maybe
-            .map(c => cardLine(c, { text: withText, suffix: [
-              c.slot_id == null ? "" : `  [primary slot: ${view.slots.find(s => s.id === c.slot_id)?.name}]`,
-              c.secondary_slot_ids.length ? `  [secondary slots: ${c.secondary_slot_ids.map(id => view.slots.find(s => s.id === id)?.name).join(", ")}]` : "",
-              c.maybe_note ? `  — ${c.maybe_note}` : "",
-            ].join("") }))
-            .join("\n"),
+        `## Brief (the owner's document)\n### Thesis\n${brief.thesis || "(not written yet)"}\n### Constraints\n${
+          brief.constraints_md || "(none recorded)"
+        }\n### Engines\n${engines.join("\n") || "(none defined)"}`,
       );
-  }
-  if (want.has("state")) out.push(`## Computed state (the app's counts; do not recount)\n${stateLines(view)}`);
-  if (want.has("checks")) out.push(`## Checks\n${findingLines(checkDeck(db, actor, deckId))}`);
-  if (want.has("memories"))
-    out.push(`## Memories for this deck\n${renderScope(loadScope(db, actor, "deck", deckId), "deck")}`);
-  if (want.has("proposals"))
-    out.push(
-      `## Awaiting the owner's decision\n${proposalLines(
-        listProposals(db, actor, { deckId, status: "open" }),
-        listDocumentEdits(db, actor, { deckId, status: "pending" }),
-      )}`,
-    );
-  if (want.has("decisions"))
-    out.push(`## Recent decisions and changes (newest first)\n${logLines(listLog(db, actor, { deckId, limit: 15 }))}`);
-  return out.join("\n\n");
+    }
+    if (want.has("power")) out.push(renderPower(getPower(db, actor, deckId)));
+    if (want.has("list")) out.push(listSection(view!, withText));
+    if (want.has("tokens")) out.push(tokenLines(deckTokens(db, actor, deckId)));
+    if (want.has("maybe")) {
+      const maybe = view!.cards.filter((c) => c.maybe);
+      if (maybe.length)
+        out.push(
+          `## Maybe list (${maybe.length}; outside the 100)\n` +
+            maybe
+              .map(c => cardLine(c, { text: withText, suffix: [
+                c.slot_id == null ? "" : `  [primary slot: ${view!.slots.find(s => s.id === c.slot_id)?.name}]`,
+                c.secondary_slot_ids.length ? `  [secondary slots: ${c.secondary_slot_ids.map(id => view!.slots.find(s => s.id === id)?.name).join(", ")}]` : "",
+                c.maybe_note ? `  — ${c.maybe_note}` : "",
+              ].join("") }))
+              .join("\n"),
+        );
+    }
+    if (want.has("state")) out.push(`## Computed state (the app's counts; do not recount)\n${stateLines(view!)}`);
+    if (want.has("checks")) out.push(`## Checks\n${findingLines(checkDeck(db, actor, deckId))}`);
+    if (want.has("memories"))
+      out.push(`## Memories for this deck\n${renderScope(loadScope(db, actor, "deck", deckId), "deck")}`);
+    if (want.has("proposals"))
+      out.push(
+        `## Awaiting the owner's decision\n${proposalLines(
+          listProposals(db, actor, { deckId, status: "open" }),
+          listDocumentEdits(db, actor, { deckId, status: "pending" }),
+        )}`,
+      );
+    if (want.has("decisions"))
+      out.push(`## Recent decisions and changes (newest first)\n${logLines(listLog(db, actor, { deckId, limit: 15 }))}`);
+    return out.join("\n\n");
+  });
 }
 
 /** A shared deck as its viewers may read it (spec §18.7): PublicDeckState only. */

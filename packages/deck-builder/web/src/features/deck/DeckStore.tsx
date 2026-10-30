@@ -49,7 +49,7 @@ const DeckContext = /* @__PURE__ */ createContext<DeckStore | null>(null);
 
 export function DeckProvider({ deckId, children }: { deckId: number; children: ReactNode }) {
   const [data, dispatch] = useReducer(reducer, { state: null, missing: false, loadError: null, error: null });
-  const live = useLive();
+  const live = useLive({ resources: ["deck"], deckId });
   const [attempt, setAttempt] = useState(0);
   const retry = useCallback(() => setAttempt(n => n + 1), []);
 

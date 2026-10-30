@@ -1,3 +1,7 @@
+import type { CommandMeta } from "../../../src/commands.ts";
+import type { Focus as ServerFocus, FocusReport } from "../../../src/focus.ts";
+import type { AgentConnection } from "../../../src/agent-status.ts";
+import type { uiPreferences } from "../../../src/preferences.ts";
 import type { CardArt } from "../../../src/art.ts";
 import type { accountInfo, adminInfo } from "../../../src/accounts.ts";
 import type { AgentToken } from "../../../src/tokens.ts";
@@ -106,6 +110,7 @@ export interface MemoryList {
 // The server's envelope rule: a response carrying a domain composite names
 // it. The deck store's apply() takes `state`; pages take the rest.
 export interface Envelope {
+  command?: CommandMeta;
   state?: DeckState;
   inbox?: Inbox;
   profile?: Profile;
@@ -114,7 +119,7 @@ export interface Envelope {
 export { ApiError } from "./transport.ts";
 import { request } from "./transport.ts";
 
-type StateResponse = { state: DeckState };
+type StateResponse = { state: DeckState; command?: CommandMeta };
 export type Outcome = "accept" | "reject";
 
 export const api = {
@@ -297,8 +302,12 @@ export const api = {
   },
   createSample: () => request<{ state: DeckState; missing: string[] }>("POST", "/api/demo"),
   getStats: () => request<PlayerStats>("GET", "/api/stats"),
-  setFocus: (deckId: number | null, selected: string[] = []) =>
-    request<{ ok: true }>("PUT", "/api/focus", { deck_id: deckId, selected }),
+  getFocus: () => request<{ focus: ServerFocus | null }>("GET", "/api/focus"),
+  setFocus: (deckId: number | null, selected: string[] = [], report?: FocusReport) =>
+    request<{ accepted: boolean; focus: ServerFocus | null }>("PUT", "/api/focus", { deck_id: deckId, selected, ...report }),
+  clearFocusOnExit: (report: FocusReport) => navigator.sendBeacon("/api/focus", new Blob([JSON.stringify({ deck_id: null, ...report })], { type: "application/json" })),
+  agentConnections: () => request<AgentConnection[]>("GET", "/api/agents"),
+  getPreferences: () => request<ReturnType<typeof uiPreferences>>("GET", "/api/preferences"),
   getSettings: () => request<Settings>("GET", "/api/settings"),
   updateSettings: (patch: { sidebar_collapsed?: boolean; price_source?: PriceSource; budgets?: { global?: number; deck?: number } }) =>
     request<Settings>("PUT", "/api/settings", patch),

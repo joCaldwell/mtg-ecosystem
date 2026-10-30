@@ -17,13 +17,13 @@ export function CompareDialog({ onClose }: { onClose: () => void }) {
   const [other, setOther] = useState<number | "upstream" | null>(parent?.id ?? (upstream ? "upstream" : null));
   const { error, mutate } = useAttempt();
 
-  const decks = useQuery(() => api.listDecks(), []);
+  const decks = useQuery(() => api.listDecks(), [], "decks");
   const others = (decks.data ?? []).filter((d) => d.id !== deckId);
 
   // Refetched when this deck's revision moves, so the diff never describes a list that has changed.
   const comparison = useQuery(
     () => (other == null ? Promise.resolve(null) : other === "upstream" ? api.compareShared(deckId, upstream!.slug) : api.compareDecks(deckId, other)),
-    [deckId, other, deck.revision],
+    [deckId, other, deck.revision], "deck",
   );
   // The previous result stays while a refetch runs; it must not be shown for a different deck.
   const diff = comparison.data && (other === "upstream" ? comparison.data.b.slug === upstream?.slug : comparison.data.b.id === other) ? comparison.data : null;

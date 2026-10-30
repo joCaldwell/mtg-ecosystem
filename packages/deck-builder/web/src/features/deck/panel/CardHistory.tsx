@@ -15,7 +15,7 @@ import styles from "./CardHistory.module.css";
 export function CardHistory({ oracleId }: { oracleId: string }) {
   const { deckId } = useDeck();
   const { deck } = useDeckState();
-  const history = useQuery(() => api.cardHistory(deckId, oracleId), [deckId, oracleId, deck.revision]);
+  const history = useQuery(() => api.cardHistory(deckId, oracleId), [deckId, oracleId, deck.revision], { resources: ["deck"], deckId });
   const memories = history.data?.memories ?? [];
   const decisions = history.data?.decisions ?? [];
   const ownership = history.data?.ownership ?? [];
