@@ -10,6 +10,7 @@ import { formatPrice } from "../../../domain/price.ts";
 import { pendingOf } from "../../../domain/grouping.ts";
 import { CardImage, InlineText, ManaCost, OracleText, RichText, useCardLookup, type CardInfo } from "../../../mtg/index.ts";
 import { Button, Chip, Icon, IconButton, Loading, Text } from "../../../ui/index.ts";
+import { ProposalEyebrow } from "../../decisions/index.ts";
 import { useDeckState } from "../DeckStore.tsx";
 import { useDeckUi, type OpenCard } from "../DeckUi.tsx";
 import { CardActions } from "./CardActions.tsx";
@@ -83,9 +84,9 @@ export function CardPanel({ card: open, backRef, bodyRef }: { card: OpenCard; ba
 
       {proposal && (
         <div className={styles.note}>
-          <Text tone={byAgent ? "agent" : "muted"} size="sm">
-            Proposal {proposal.proposal_id}{proposedBy ? ` · ${proposedBy.author_display ?? proposedBy.author}` : ""}
-          </Text>
+          {proposedBy
+            ? <ProposalEyebrow proposal={proposedBy} />
+            : <Text tone="muted" size="xs" weight="medium">Proposal #{proposal.proposal_id}</Text>}
           {proposal.reason && (
             <Text tone="soft" size="sm" as="p">
               <InlineText text={proposal.reason} />

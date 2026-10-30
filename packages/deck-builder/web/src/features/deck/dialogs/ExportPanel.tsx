@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../../api/client.ts";
 import { useQuery } from "../../../api/useQuery.ts";
-import { Button, Checkbox, ErrorNote, Row, Spacer, Stack, Text, TextArea, useToast } from "../../../ui/index.ts";
+import { Button, Checkbox, ErrorNote, Row, Spacer, Stack, Text, TextArea } from "../../../ui/index.ts";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
 import { useSharedDeckView } from "../DeckViewContext.ts";
 import styles from "./ExportPanel.module.css";
@@ -10,7 +10,6 @@ export function ExportPanel() {
   const { deckId } = useDeck();
   const { deck, cards } = useDeckState();
   const { matches } = useSharedDeckView();
-  const { toast } = useToast();
   const [filtered, setFiltered] = useState(matches.active);
   const [categories, setCategories] = useState(!matches.active);
   // When every match is on the maybe list, a filtered export without it would
@@ -18,6 +17,11 @@ export function ExportPanel() {
   const [includeMaybe, setIncludeMaybe] = useState(() => matches.active && matches.addIds.size === 0 && matches.cardIds.size > 0
     && [...matches.cardIds].every(id => cards.some(c => c.oracle_id === id && c.maybe)));
   const [copyError, setCopyError] = useState<string | null>(null);
+  // Copy confirms itself beside the button ("Copied 1 line") for about two
+  // seconds, instead of a toast across the screen.
+  const [copied, setCopied] = useState<string | null>(null);
+  const copiedTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(copiedTimer.current), []);
 
   const oracleIds = filtered ? [...matches.cardIds].sort() : undefined;
   const queryKey = JSON.stringify([deckId, categories, includeMaybe, oracleIds, deck.revision]);
@@ -27,6 +31,11 @@ export function ExportPanel() {
     [queryKey],
   );
   const result = exported.data?.key === queryKey && !exported.error ? exported.data.result : null;
+  // A changed scope is a different export; what was copied no longer describes it.
+  useEffect(() => {
+    window.clearTimeout(copiedTimer.current);
+    setCopied(null);
+  }, [queryKey]);
   // An empty filtered export whose matches sit only on the maybe list says so;
   // the Include maybe list box above is the way to include them.
   const maybeMatches = filtered && !includeMaybe
@@ -38,7 +47,9 @@ export function ExportPanel() {
     setCopyError(null);
     try {
       await navigator.clipboard.writeText(result.text);
-      toast(`Copied ${result.line_count} ${result.line_count === 1 ? "line" : "lines"}.`);
+      window.clearTimeout(copiedTimer.current);
+      setCopied(`Copied ${result.line_count} ${result.line_count === 1 ? "line" : "lines"}`);
+      copiedTimer.current = window.setTimeout(() => setCopied(null), 2000);
     } catch {
       setCopyError("The browser blocked the clipboard. Select the text and copy it by hand.");
     }
@@ -88,9 +99,11 @@ export function ExportPanel() {
           </Text>
         ) : null}
         <Spacer />
+        {/* Always present, so the polite announcement is heard when it fills. */}
+        <Text tone="muted" size="sm" role="status" aria-live="polite" className={styles.status}>{copied}</Text>
         {/* Disabled looks disabled: an empty export has no primary action. */}
         <Button variant={result?.text ? "primary" : "default"} onClick={copy} disabled={!result?.text}>
-          Copy
+          {copied ? "Copied" : "Copy"}
         </Button>
       </Row>
     </Stack>

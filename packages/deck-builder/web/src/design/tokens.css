@@ -41,13 +41,19 @@
                   --bg   --surface --raised  hover  --overlay  worst tint
        text        19.26     17.32     15.96     14.39     17.32     11.51
        soft        14.17     12.74     11.74     10.58     12.74      8.47
-       muted        8.33      7.49      6.90      6.22      7.49      4.97
-       faint        7.65      6.88      6.34      5.71      6.88      4.57
-     Re-measure if a surface or tint changes; never dim readable metadata. */
+       muted        9.68      8.71      8.03      7.23      8.71      5.79
+       faint        8.63      7.76      7.15      6.44      7.76      5.15
+     Muted and faint were raised on 2026-10-29 (from #a3a3a3 and #9c9c9c,
+     6.90 and 6.34:1 on --raised) after blind review read meta and
+     tertiary lines as dim grey on near-black. Faint stays one visible
+     step below muted and both well below soft, so tertiary lines still
+     read as tertiary. The dimmest grey, --disabled-ink, is for disabled
+     controls only. Re-measure if a surface or tint changes; never dim
+     readable metadata. */
   --text: #f5f5f5;
   --text-soft: #d4d4d4;
-  --muted: #a3a3a3;
-  --faint: #9c9c9c;
+  --muted: #b0b0b0;
+  --faint: #a6a6a6;
   /* Disabled Buttons: about half the enabled label's brightness and a full
      control border, with no fill, so an unavailable action still reads as
      present but is never mistaken for an enabled one (5.32:1 on --bg). */

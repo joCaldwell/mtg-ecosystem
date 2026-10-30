@@ -8,9 +8,9 @@ import { useState } from "react";
 import { plainText } from "../../../domain/inbox.ts";
 import { proposalQueue } from "../../../domain/review.ts";
 import { changesSince, staleNote, staleTouches } from "../../../domain/staleChanges.ts";
-import { ago } from "../../../domain/time.ts";
 import { InlineText } from "../../../mtg/index.ts";
-import { Button, EmptyState, Explainer, Eyebrow, Text } from "../../../ui/index.ts";
+import { Button, EmptyState, Explainer, Text } from "../../../ui/index.ts";
+import { ProposalEyebrow } from "../../decisions/index.ts";
 import { useDeckState } from "../DeckStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import type { DeckViewModel } from "../useDeckView.ts";
@@ -59,13 +59,7 @@ export function ReviewPanel({ view, review }: { view: DeckViewModel; review: Rev
           return (
             <div key={proposal.id} className={styles.proposal} data-proposal={proposal.id}>
               <div className={styles.head}>
-                <Eyebrow className={styles.eyebrow}>
-                  <span className={styles.position}>{position}</span>
-                  <span>
-                    {proposal.author_display ?? proposal.author} · {ago(proposal.created_at)}
-                  </span>
-                  <span className={styles.id}><span className="visually-hidden">Proposal </span>#{proposal.id}</span>
-                </Eyebrow>
+                <ProposalEyebrow proposal={proposal} counter={position} />
                 <p className={styles.summary}>
                   <InlineText text={proposal.summary} />
                 </p>

@@ -122,9 +122,12 @@ Inputs use the near-black surface and control border. Primary buttons use
 `--action` blue with black ink (8.30:1; 9.64:1 on hover); accept/reject
 and agent actions keep their semantic colours.
 
-Text is neutral #f5f5f5 / #d4d4d4 / #a3a3a3 / #9c9c9c. Conservative
+Text is neutral #f5f5f5 / #d4d4d4 / #b0b0b0 / #a6a6a6 (muted and faint
+raised on 2026-10-29: meta lines read as dim grey on black). Conservative
 minimum ratios, including two stacked 6% semantic tints over a hovered
-raised surface: text 11.51:1, soft 8.47:1, muted 4.97:1, faint 4.57:1.
+raised surface: text 11.51:1, soft 8.47:1, muted 5.79:1, faint 5.15:1;
+on `--bg` and `--raised`, muted 9.68 and 8.03:1, faint 8.63 and 7.15:1.
+The dimmer `--disabled-ink` (#808080) is for disabled controls only.
 The semantic tints use 32% borders. Violet, green, red, amber and blue text
 also pass AA across that envelope; exact measurements are in tokens.css.
 Red is slightly lighter to keep nested reject controls readable.
@@ -157,6 +160,8 @@ severity before a message, the rest of a link's name.
 - Page titles `--text-xl`, weight 650. Card and section titles `--text-lg`.
 - Eyebrows (small section labels): `--text-xs`, uppercase, letter-spaced,
   `--faint`.
+  A card proposal's label is the one exception: `ProposalEyebrow` keeps
+  sentence case so handles and agent labels read as written.
 - Counts, revisions, mana values, times: `--font-mono` with tabular numerals.
   It is one stack of platform UI monospace faces (no downloads); named Linux
   faces precede the bare generic, which is often a Courier clone there.
@@ -205,7 +210,7 @@ or about this app.
 | `Button` | Any action | `default` `ghost` `primary` `accept` `reject` `agent`; `sm` `md` `touch`; `kbd` hint; disabled is one neutral look for every variant: no fill, `--disabled-ink` label and `--disabled-line` border, visible but clearly unavailable |
 | `ButtonLink` | A link drawn as a Button, for an action that navigates | `default` `ghost` `primary`; `sm` `md` `touch` |
 | `IconButton` | An action with only an icon; `label` is required | `sm` `md` `touch` |
-| `Icon` | The 17 line icons (inbox, decks, memories, activity, profile, settings, back, close, check, plus, chevronDown, undo, redo, search, more, globe, link) | `size` |
+| `Icon` | The 18 line icons (inbox, decks, memories, activity, profile, settings, back, close, check, plus, chevronDown, undo, redo, search, more, globe, link, warning) | `size` |
 | `Kbd` | A key cap | |
 | `Chip` | A small tag or filter; a button when given `onClick` | tone `neutral` `agent` `warn` `add` `cut`; `dashed` for unconfirmed |
 | `Badge` | A count pill | `neutral` `agent` `warn` |

@@ -1,6 +1,7 @@
+import { useRef } from "react";
 import type { DeckState } from "../../../api/client.ts";
 import { CardRef, ManaCost } from "../../../mtg/index.ts";
-import { Eyebrow, KeyValue, Stack, Text } from "../../../ui/index.ts";
+import { Eyebrow, Icon, KeyValue, Stack, Text } from "../../../ui/index.ts";
 import { manaDistributions } from "../../../domain/deckStats.ts";
 import { ManaFaceTable } from "./ManaFaceTable.tsx";
 import { ManaDistribution } from "./ManaDistribution.tsx";
@@ -22,6 +23,20 @@ const REASONS: Record<string, string> = {
 export function ManaComparison({ mana }: { mana: Mana }) {
   const face = mana.first_face, coverage = mana.coverage;
   const distributions = manaDistributions(mana);
+  // Unresolved or partial sources mean the source chart undercounts; say so
+  // beside it, and let that line open the details that already explain it.
+  const coverageRef = useRef<HTMLDetailsElement>(null);
+  const limits = [
+    coverage.unresolved_source_copies ? `${coverage.unresolved_source_copies} unresolved` : "",
+    coverage.partial_source_copies ? `${coverage.partial_source_copies} partial` : "",
+  ].filter(Boolean);
+  function openCoverage() {
+    const details = coverageRef.current;
+    if (!details) return;
+    details.open = true;
+    details.scrollIntoView({ block: "nearest" });
+    details.querySelector("summary")?.focus({ preventScroll: true });
+  }
   const flexible = (value: Mana["first_face"]) => Object.entries(value.costs.flexible_symbols).length
     ? <span className={styles.flexible}>{Object.entries(value.costs.flexible_symbols).map(([symbol, count]) => <span key={symbol}><ManaCost cost={symbol} /> × {count}</span>)}</span> : "None";
   const separateSources = (value: Mana["first_face"]) => <KeyValue items={[
@@ -39,7 +54,12 @@ export function ManaComparison({ mana }: { mana: Mana }) {
     <Eyebrow>Mana costs and sources</Eyebrow>
     <div className={styles.charts}>
       <ManaDistribution title="Cost demand" unit="fixed coloured symbols" centerUnit="symbols" distribution={distributions.costs} empty="No fixed coloured cost symbols." />
-      <ManaDistribution title="Direct sources" unit="source-colour counts" centerUnit="counts" distribution={distributions.sources} empty="No named source colours recognized." />
+      <div className={styles.sourceChart}>
+        <ManaDistribution title="Direct sources" unit="source-colour counts" centerUnit="counts" distribution={distributions.sources} empty="No named source colours recognized." />
+        {limits.length > 0 && <button type="button" className={styles.coverageWarning} onClick={openCoverage}>
+          <Icon name="warning" />Source coverage · {limits.join(" · ")}
+        </button>}
+      </div>
     </div>
     {coverage.other_face_copies > 0 && <Text tone="muted" size="sm">First faces only.</Text>}
     {separateSources(face)}
@@ -61,7 +81,7 @@ export function ManaComparison({ mana }: { mana: Mana }) {
         {otherCosts(mana.other_faces)}
       </Stack>
     </details>}
-    <details className={styles.details}>
+    <details ref={coverageRef} className={styles.details}>
       <summary>{coverage.unresolved_source_copies || coverage.partial_source_copies || coverage.cost_issue_copies ? <>Source coverage{coverage.unresolved_source_copies ? ` · ${coverage.unresolved_source_copies} unresolved` : ""}{coverage.partial_source_copies ? ` · ${coverage.partial_source_copies} partial` : ""}{coverage.cost_issue_copies ? ` · ${coverage.cost_issue_copies} cost issues` : ""}</> : "Source recognition details"}</summary>
       <Stack gap={4}>
       <Text size="sm" tone="soft">Across printed faces: {coverage.recognized_source_copies} source copies recognized ({coverage.partial_source_copies} partial) · {coverage.no_supported_source_pattern_copies} without a supported pattern.</Text>

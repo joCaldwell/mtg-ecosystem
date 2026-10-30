@@ -17,24 +17,12 @@
   gap: var(--s-3);
 }
 
-.eyebrow {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--s-1) var(--s-4);
-}
-
-/* Queue position leads; the stored id follows, quietly. */
+/* A one-line neighbour's queue position leads it. */
 .position {
   color: var(--agent);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-
-.id {
-  color: var(--muted);
-  font-weight: 400;
 }
 
 .summary {

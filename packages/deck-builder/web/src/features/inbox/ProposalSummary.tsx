@@ -1,11 +1,11 @@
 import { api, type Proposal } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
 import { href } from "../../app/routes.ts";
-import { ago } from "../../domain/time.ts";
 import { reviewUnits } from "../../domain/review.ts";
 import { changesSince, staleNote, staleTouches } from "../../domain/staleChanges.ts";
 import { InlineText } from "../../mtg/index.ts";
-import { ErrorNote, Eyebrow, Kbd, Loading, Section, Stack, Text } from "../../ui/index.ts";
+import { ErrorNote, Kbd, Loading, Section, Stack, Text } from "../../ui/index.ts";
+import { ProposalEyebrow } from "../decisions/index.ts";
 import { ChangeUnit } from "./ChangeUnit.tsx";
 import { DeckProjection } from "./DeckProjection.tsx";
 import { DeckProjectionSummary } from "./DeckProjectionSummary.tsx";
@@ -24,12 +24,7 @@ export function ProposalSummary({ proposal }: { proposal: Proposal }) {
   return (
     <>
       <Stack gap={2}>
-        <Eyebrow className={styles.eyebrow}>
-          <span className={styles.agent}>Proposal {proposal.id}</span>
-          <span className={styles.agent}>{proposal.author_display ?? proposal.author}</span>
-          <span>{ago(proposal.created_at)}</span>
-          <span>{proposal.deck_name}</span>
-        </Eyebrow>
+        <ProposalEyebrow proposal={proposal} deck={proposal.deck_name} />
         <div className={styles.title}>
           {proposal.summary ? <InlineText text={proposal.summary} /> : "No summary given"}
         </div>

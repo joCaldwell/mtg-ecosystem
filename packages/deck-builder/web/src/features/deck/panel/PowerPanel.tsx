@@ -22,13 +22,13 @@ export function PowerPanel() {
   const t = power.target;
   return <>
     <Stack gap={4}>
-      <Row justify="between"><Eyebrow>Deck power</Eyebrow><Button size="sm" variant="ghost" disabled={readOnly} onClick={() => setEditing("assessment")}>{a ? "Reassess" : "Assess deck"}</Button></Row>
+      <Row justify="between"><Eyebrow>Deck power</Eyebrow><Button size="sm" disabled={readOnly} onClick={() => setEditing("assessment")}>{a ? "Reassess" : "Assess deck"}</Button></Row>
       <div className={styles.summary}>
         <Stack gap={2}><Text size="xs" tone="muted">Current assessment</Text><Text size="xl" mono tone={a?.stale ? "warn" : "soft"}>{a ? bracketLabel(a.mapping) : "Not assessed"}</Text>
           {a && <Text title={`Assessed at r${a.revision}`} size="xs" tone={a.owner_touched ? "muted" : "agent"}>{a.author_display ?? a.author} · {ago(a.created_at)}</Text>}
         </Stack>
         <Stack gap={2}><Text size="xs" tone="muted">Target</Text><Text size="xl" mono>{t ? bracketLabel(t.mapping) : "Not set"}</Text>
-          <Button size="sm" variant="ghost" disabled={readOnly} onClick={() => setEditing("target")}>{t ? "Edit target" : "Set target"}</Button>
+          <Button size="sm" disabled={readOnly} onClick={() => setEditing("target")}>{t ? "Edit target" : "Set target"}</Button>
           {t && <Text size="xs" tone={t.author_via === "ui" ? "muted" : "agent"}>{t.author_display ?? t.author} · {ago(t.updated_at)}</Text>}
         </Stack>
       </div>
@@ -62,7 +62,7 @@ export function PowerPanel() {
       </Stack>)}
     </Stack></details>}
     <Stack gap={3}>
-      {t && !readOnly && <Button size="sm" variant="ghost" onClick={() => void run(() => api.setPowerTarget(deckId, null))}>Clear target</Button>}
+      {t && !readOnly && <Button size="sm" onClick={() => void run(() => api.setPowerTarget(deckId, null))}>Clear target</Button>}
     </Stack>
     {editing && !readOnly && <PowerEditor kind={editing} power={power} revision={deck.revision} onClose={() => setEditing(null)} />}
   </>;

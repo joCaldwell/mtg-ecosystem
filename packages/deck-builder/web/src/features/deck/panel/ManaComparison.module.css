@@ -6,3 +6,21 @@
 .details > summary { color: var(--text-soft); cursor: pointer; padding-block: var(--s-3); }
 .details[open] > summary { margin-bottom: var(--s-4); }
 .issue { gap: var(--s-1); overflow-wrap: anywhere; }
+.sourceChart { display: grid; gap: var(--s-4); min-width: 0; }
+/* Amber: the source chart has coverage limits. Opens Source coverage below. */
+.coverageWarning {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: var(--s-3);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--warn);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.coverageWarning > svg { flex: none; }
+.coverageWarning:hover { text-decoration: underline; }
+@media (max-width: 1099px) { .coverageWarning { min-height: var(--tap); } }
