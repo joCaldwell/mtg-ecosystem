@@ -143,11 +143,10 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
                   <Icon name={deck.visibility === "public" ? "globe" : "link"} size={12} />
                 </span>
               )}
-              {deck.category !== "paper" && (
-                <span className={styles.lifecycle} data-lifecycle={deck.category}>
-                  {DECK_CATEGORY_LABELS[deck.category]}
-                </span>
-              )}
+              {/* Every row names its lifecycle, Paper too, so the rows stay even. */}
+              <span className={styles.lifecycle} data-lifecycle={deck.category}>
+                {DECK_CATEGORY_LABELS[deck.category]}
+              </span>
             </a>
           );
         })}

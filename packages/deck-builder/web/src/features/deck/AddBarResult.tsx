@@ -74,6 +74,14 @@ export function AddBarResult({ result, id, highlighted, offerCommander, onPick, 
       <span className={said ? styles.said : styles.text}>
         {said ? `You said: “${said}”` : oneLine(card.oracle_text)}
       </span>
+      {/* The active result names what Enter and Shift+Enter do. A card already
+          here opens instead, so it has nothing to add. */}
+      {highlighted && !inDeck && !onMaybe && (
+        <span className={styles.actions}>
+          <Button size="sm" tabIndex={-1} onClick={(e) => { e.stopPropagation(); onPick(false); }}>Add</Button>
+          <Button size="sm" tabIndex={-1} kbd="⇧↵" onClick={(e) => { e.stopPropagation(); onPick(true); }}>Add to maybe</Button>
+        </span>
+      )}
     </div>
   );
 }

@@ -55,8 +55,16 @@ export function ProposalBanner({ units, review }: { units: ReviewUnit[]; review:
 
   // Units only hold pending items, so these are the open proposals that still need a decision.
   const waiting = new Set(units.map((u) => u.proposalId));
-  const newest = proposals.filter((p) => waiting.has(p.id)).reduce((a, b) => (b.id > a.id ? b : a));
+  const open = proposals.filter((p) => waiting.has(p.id));
+  const newest = open.reduce((a, b) => (b.id > a.id ? b : a));
   const changes = units.reduce((n, u) => n + u.itemIds.length, 0);
+  // Every agent behind the waiting proposals, newest first: one is named in
+  // full ("rowan via codex"), several by their agent label.
+  const agents = [...new Map([...open].sort((a, b) => b.id - a.id).map((p) => [p.author_display ?? p.author, p])).values()];
+  const labels = [...new Set(agents.map((p) => p.author_label || p.author))];
+  const what = waiting.size > 1
+    ? `${changes} changes across ${waiting.size} proposals`
+    : `${changes} ${changes === 1 ? "change" : "changes"}`;
 
   return (
     <Banner
@@ -70,10 +78,13 @@ export function ProposalBanner({ units, review }: { units: ReviewUnit[]; review:
       <div className={styles.line}>
         <Dot tone="agent" pulse />
         <span className={styles.who}>
-          <Text tone="agent" weight="medium">{newest.author_display ?? newest.author}</Text>{" "}
-          {waiting.size > 1
-            ? `proposes ${changes} changes across ${waiting.size} proposals`
-            : `proposes ${changes} ${changes === 1 ? "change" : "changes"}`}
+          {agents.length === 1 ? (
+            <><Text tone="agent" weight="medium">{newest.author_display ?? newest.author}</Text> proposes {what}</>
+          ) : labels.length === 2 ? (
+            <>{what} from <Text tone="agent" weight="medium">{labels[0]}</Text> and <Text tone="agent" weight="medium">{labels[1]}</Text></>
+          ) : (
+            <>{what} from <Text tone="agent" weight="medium">{agents.length} agents</Text></>
+          )}
         </span>
         <span className={styles.summary}>
           “<InlineText text={newest.summary} />”

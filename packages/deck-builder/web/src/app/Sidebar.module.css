@@ -135,6 +135,10 @@
   font-size: var(--text-xs);
 }
 
+.lifecycle[data-lifecycle="paper"] {
+  color: var(--lifecycle-paper);
+}
+
 .lifecycle[data-lifecycle="theorycrafted"] {
   color: var(--lifecycle-theorycrafted);
 }

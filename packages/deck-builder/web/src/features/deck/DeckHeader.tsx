@@ -180,7 +180,7 @@ export function DeckHeader() {
             est. {formatPrice(computed.cost.cents, computed.cost.currency)} · {computed.cost.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} · {computed.cost.as_of.slice(0, 10)}
           </Text>
         )}
-        <button type="button" className={styles.name} onClick={() => ui.setTab("power")} title="Set the power target or assess this deck">
+        <button type="button" className={styles.powerLink} onClick={() => ui.setTab("power")} title="Set the power target or assess this deck">
           Power: {state.power.assessment ? `${bracketLabel(state.power.assessment.mapping)}${state.power.assessment.stale ? " · needs review" : ""}` : "not assessed"}
           {state.power.target ? ` · target ${bracketLabel(state.power.target.mapping)}` : ""}
         </button>

@@ -48,6 +48,9 @@
 .said {
   --sym-size: calc(var(--text-sm) * 1.1);
   grid-column: 1 / -1;
+  /* As tall as the active result's buttons, so moving through the list
+     never changes a row's height. */
+  line-height: var(--h-sm);
   overflow: hidden;
   color: var(--muted);
   font-size: var(--text-sm);
@@ -57,4 +60,18 @@
 
 .said {
   color: var(--cut);
+}
+
+/* The active result's text makes room for its actions on the same line. */
+.result:has(.actions) .text,
+.result:has(.actions) .said {
+  grid-column: 1;
+}
+
+.actions {
+  display: flex;
+  grid-column: 2;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--s-2);
 }
