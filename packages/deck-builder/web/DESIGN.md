@@ -537,8 +537,8 @@ and wider widths: Review, Brief, Power, Stats, Checks, Memories and History.
 The current destination has bright text, a 2 px bar along its foot and
 aria-current; the others stay grey, and Review shows waiting decisions only as
 its violet count pill. Inspection replaces
-these controls in the same header with an arrow-and-"Back" button
-(`--h-back` tall), title, status and mana cost inline, without a divider
+these controls in the same header with an icon-only back arrow
+(a `--h-back` square hit area, hover label "Back to <view>"), title, status and mana cost inline, without a divider
 underneath; its accessible name names the previous view. The body never duplicates the title.
 Keep that view mounted, hidden and inert, preserving drafts and scroll; switching
 cards retains the first origin. Stats and Checks remain distinct. A named region
