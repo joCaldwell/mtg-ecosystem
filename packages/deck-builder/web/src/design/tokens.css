@@ -302,7 +302,7 @@
   /* Editor art stays near the crops' native resolution. The blurred wash
      supplies colour outside this frame; only the wash is enlarged. */
   --art-editor-h: clamp(200px, 26.667vh, 240px);
-  --art-editor-tablet-h: 256px;
+  --art-editor-tablet-h: 180px;
   --art-editor-phone-h: 224px;
   --art-editor-compact-h: 56px;
   --art-editor-width: 626px;

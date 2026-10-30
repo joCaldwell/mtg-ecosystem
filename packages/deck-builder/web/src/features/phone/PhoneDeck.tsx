@@ -46,17 +46,17 @@ function Deck({ proposalId }: { proposalId?: number }) {
       header={<>
         <DeckArt cards={proposalId ? [] : state!.cards.filter(c => c.role === "commander" && !c.maybe)} identity={deck.color_identity} variant="banner" priority="auto"><header className={styles.head}>
           <a className={styles.back} href={href({ page: proposalId ? "inbox" : "decks" })}><Icon name="back" /> {proposalId ? "Inbox" : "Decks"}</a>
-          <h1 className={styles.title}>{deck.name}</h1>
+          <div className={styles.top}>
+            <h1 className={styles.title}>{deck.name}</h1>
+            {!proposalId && <> <Chip className={styles.lifecycle}>{DECK_CATEGORY_LABELS[deck.category]}</Chip></>}
+          </div>
           {!proposalId && <div className={styles.commanders}>
             {state!.cards.filter(c => c.role === "commander" && !c.maybe).map(c => <CardRef key={c.oracle_id} name={c.name} card={c} />)}
             <ColorIdentity colors={deck.color_identity} />
           </div>}
           {!proposalId && <a className={styles.readDeck} href="#deck-list">Read deck · {model.list.computed.card_count} cards</a>}
-          {!proposalId && <div className={styles.meta}>
-            <Chip>{DECK_CATEGORY_LABELS[deck.category]}</Chip>
-            {deck.visibility !== "private" && deck.slug && (
-              <a href={href({ page: "shared", slug: deck.slug })}><Icon name={deck.visibility === "public" ? "globe" : "link"} /> {deck.visibility === "public" ? "Public" : "Unlisted"} page</a>
-            )}
+          {!proposalId && deck.visibility !== "private" && deck.slug && <div className={styles.meta}>
+            <a href={href({ page: "shared", slug: deck.slug })}><Icon name={deck.visibility === "public" ? "globe" : "link"} /> {deck.visibility === "public" ? "Public" : "Unlisted"} page</a>
           </div>}
         </header></DeckArt>
         {error && <Banner tone="error" actions={<Button size="touch" variant="ghost" onClick={clearError}>Dismiss</Button>}>{error}</Banner>}

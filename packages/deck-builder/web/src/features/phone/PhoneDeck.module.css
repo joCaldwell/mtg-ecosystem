@@ -14,7 +14,11 @@
   color: var(--muted);
 }
 
+.top { font-size: var(--art-editor-title-phone); line-height: var(--art-editor-leading); }
+.lifecycle { margin-inline-start: var(--s-1); vertical-align: middle; }
 .title {
+  display: inline;
+  min-width: 0;
   font-size: var(--art-editor-title-phone);
   line-height: var(--art-editor-leading);
   letter-spacing: var(--art-editor-tracking);
@@ -52,13 +56,13 @@
 .commanders { min-height: var(--tap); display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3) var(--s-4); color: var(--text-soft); font-size: var(--text-sm); }
 
 /* The art stays bright outside each text block, even at phone width. */
-.head > :is(.back, .title, .commanders, .meta) {
+.head > :is(.back, .top, .commanders, .meta) {
   position: relative;
   isolation: isolate;
   width: fit-content;
   max-width: 100%;
 }
-.head > :is(.back, .title, .commanders, .meta)::before {
+.head > :is(.back, .top, .commanders, .meta)::before {
   content: "";
   position: absolute;
   z-index: -1;

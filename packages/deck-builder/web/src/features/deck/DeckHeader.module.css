@@ -33,11 +33,11 @@ button.name:hover { color: var(--text-soft); text-decoration: underline dotted v
 .compact .sub, .compact .metadata { display: none; }
 .compact .stats { flex: 1; flex-wrap: nowrap; margin: 0; }
 @media (max-width: 1099px) {
-  .header { min-height: var(--art-editor-tablet-h); padding: var(--s-6); }
+  .header { gap: var(--s-2); min-height: var(--art-editor-tablet-h); padding: var(--s-4) var(--s-6); }
   .title { font-size: var(--art-editor-title-tablet); }
   .top, .sub, .metadata { max-width: 100%; }
-  .stats { margin-top: var(--s-5); }
-  .actions { flex-wrap: wrap; }
+  .sub, .metadata, .stats { margin-top: 0; }
+  .actions { flex-wrap: nowrap; }
   .stats > button, .actions > a, .actions > button, .stats [aria-haspopup="menu"], .lifecycle [aria-haspopup="menu"] { display: inline-flex; align-items: center; min-height: var(--tap); }
   button.name, .powerLink { min-height: var(--tap); }
 }
@@ -79,7 +79,11 @@ button.name:hover { color: var(--text-soft); text-decoration: underline dotted v
 }
 
 @media (max-width: 1099px) {
-  .metadata { min-height: var(--tap); }
+  /* The power hit area extends into empty space beside the commander and
+     between the status chips and actions, rather than adding a blank row. */
+  .metadata { min-height: 0; }
+  .metadata:has(.powerLink:only-child),
+  .header:has(.commander + .commander) .metadata { min-height: var(--tap); }
   .header .powerLink {
     --power-hit-pad: calc((var(--tap) - 1em * var(--leading)) / 2 + var(--s-1) / 2);
     min-height: 0;

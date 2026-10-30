@@ -467,7 +467,10 @@ printed artist and copyright lines.
   There is no height animation or smooth-scroll dependency, including with
   reduced motion. At 1280 × 800 the header is about 213 px; at 1440 × 900
   it is 240 px. Tablets retain window scrolling and 44 px controls; their
-  256 px hero leaves naturally. Phones use `banner`, a 26 px title and a
+  180 px hero leaves naturally. Commander and estimate text stay on the dark
+  side; the status chips and Playtest, Share and More share one row. Add cards
+  and Find share the next row at 768 px, with filters beneath. Touch targets
+  remain 44 px, and longer content can grow the header. Phones use `banner`, a 26 px title and a
   224 px minimum; proposal notices follow outside the art.
   Each independent list/panel scroller also owns its absolute descendants:
   hidden accessibility suffixes cannot escape into the outer header scroll.
@@ -707,7 +710,8 @@ behaviour without an underline. Shared profile tiles retain their own style.
 The fixed My decks title gains a 1 px line-colour edge after its content
 scrolls, without moving the page frame.
 
-On phones, “Read deck · N cards” is a full-width secondary grey button.
+On phones, the lifecycle pill sits beside the deck title and wraps with long
+names. “Read deck · N cards” is a full-width secondary grey button.
 Proposed brief edits keep their label left-aligned and link to the inbox
 through a separate violet-outlined “Review in inbox” button. Tablets have
 one “Deck details” entry in the pinned navigation bar; the art header has no
