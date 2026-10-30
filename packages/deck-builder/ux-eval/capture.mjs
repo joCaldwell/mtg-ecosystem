@@ -166,6 +166,26 @@ const SCREENS = [
       },
     ],
   },
+  {
+    // Needs a seed with the token catalog (seed-tokens); without one the
+    // section reads "Token list not available yet" and still captures.
+    screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: [1280, 1440, ...WIDE], states: [
+      {
+        state: "tokens", caption: "Scrolled to the deck's tokens",
+        act: async ({ page, vp }) => scrollUntilVisible(page, page.getByRole("region", { name: "Tokens", exact: true }).first(), vp, { top: true }),
+      },
+      {
+        state: "token-selected", caption: "A token's details",
+        act: async ({ page, vp }) => {
+          const row = page.getByRole("region", { name: "Tokens", exact: true }).locator("[data-token-id]").first();
+          if (!(await row.count())) throw Error("Token capture needs a seed with the token catalog");
+          await scrollUntilVisible(page, row, vp);
+          await press(page, row, vp);
+          await page.getByText("Made by", { exact: true }).first().waitFor();
+        },
+      },
+    ],
+  },
   ...[false, true].map(costless => ({
     screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: [1280, 1440, ...WIDE],
     states: [{ state: costless ? "maybe-note-costless" : "maybe-note", caption: costless ? "A costless shortlisted card and its saved note" : "A shortlisted card and its saved note", act: async ({ page, vp }) => {
