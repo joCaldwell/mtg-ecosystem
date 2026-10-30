@@ -1,3 +1,5 @@
+import { useInbox } from "../../app/Inbox.tsx";
+import { deckWaitingState } from "../../domain/inbox.ts";
 import { DeckFilters } from "./DeckFilters.tsx";
 import { FirstRun } from "./FirstRun.tsx";
 import { familyOrder } from "../../domain/familyOrder.ts";
@@ -45,13 +47,14 @@ function Commanders({ deck }: { deck: DeckSummary }) {
 /** One deck on the roster. The name's link covers the whole card, as the
  * table row did; the commander links and the actions sit above it. */
 function RosterCard({ deck, fork, onAction }: { deck: DeckSummary; fork: boolean; onAction: (action: DeckAction) => void }) {
-  const waiting = deck.pending_items + deck.pending_document_edits;
+  const { deckWaiting } = useInbox();
+  const { count: waiting, pending } = deckWaitingState(deck, deckWaiting);
   return <DeckCard name={deck.name} href={href({ page: "deck", deckId: deck.id })}
     art={deck.commander_art} identity={deck.color_identity} category={deck.category} count={deck.card_count}
     commanders={<Commanders deck={deck} />} lineage={fork && deck.parent_name ? `Fork of ${deck.parent_name}` : undefined}
     actions={<DeckActions deck={deck} onAction={onAction} />}>
     {deck.visibility !== "private" && <span className={styles.shared} role="img" aria-label={deck.visibility === "public" ? "Public" : "Unlisted"} title={deck.visibility === "public" ? "Public" : "Unlisted"}><Icon name={deck.visibility === "public" ? "globe" : "link"} size={12} /></span>}
-    {waiting > 0 && <Chip tone={deck.category === "archived" ? "neutral" : "agent"}>{waiting} {deck.category === "archived" ? "paused" : "waiting"}</Chip>}
+    {pending && <Chip data-deck-waiting={deck.category !== "archived" || undefined} tone={deck.category === "archived" ? "neutral" : "agent"}>{waiting !== null && `${waiting} `}{deck.category === "archived" ? "paused" : "waiting"}</Chip>}
   </DeckCard>;
 }
 
@@ -71,9 +74,10 @@ export function DecksPage() {
   return (
     <Page
       width="lg"
+      className={styles.page}
       header={
         <PageHeader
-          title="All decks"
+          title="My decks"
           actions={
             <Row gap={4} wrap><Button onClick={() => setCreating(true)} aria-haspopup="dialog">New deck</Button>
             <Button onClick={() => setImporting(true)} aria-haspopup="dialog">Import deck</Button></Row>

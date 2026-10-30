@@ -20,7 +20,7 @@ export function TabletScroll() {
 /** Below 1100 px: the menu bar and its navigation drawer. */
 export function TabletBar({ route }: { route: Route }) {
   const { waiting } = useInbox();
-  const names: Record<Route["page"], string> = { decks: "All decks", deck: "Deck", playtest: "Playtest", inbox: "Inbox", memories: "Memories", profile: "Profile", activity: "Activity", settings: "Settings", design: "Design reference", signin: "Sign in", privacy: "Privacy", terms: "Terms", shared: "Shared deck", user: "Profile", missing: "Page not found" };
+  const names: Record<Route["page"], string> = { decks: "My decks", deck: "Deck", playtest: "Playtest", inbox: "Inbox", memories: "Memories", profile: "Profile", activity: "Activity", settings: "Settings", design: "Design reference", signin: "Sign in", privacy: "Privacy", terms: "Terms", shared: "Shared deck", user: "Profile", missing: "Page not found" };
   const [open, setOpen] = useState(false);
   useEffect(() => setOpen(false), [route]);
   // Unmounted when the window widens past the panel breakpoint, so the

@@ -254,15 +254,47 @@
   --art-overlay-text: color-mix(in srgb, var(--bg) 94%, transparent);
   --art-aspect: 626 / 457;
   --art-position: center 35%;
-  /* Gallery tiles use the natural crop ratio, not a fixed band. Caption
-     and flat credits use --art-overlay-text: even over pure white, muted
-     credit is 8.82:1, soft commander 12.90:1, title 17.54:1. No text depends
-     on the artwork's luminance. The actions use this same contrast floor. */
+  /* The gallery alone uses lighter, eased scrims. Pure-white worst case,
+     without blur: title at >=58% black 4.88:1 (--text), commander at >=64%
+     4.53:1 (--text-soft), metadata at >=74% 6.75:1 (--text-soft), amber
+     4.73:1. Credits at full opacity share that 6.75:1 floor. The violet fill with black ink
+     is 7.72:1, independent of art. Controls use a separate 64% scrim; their blur is optional. */
   --text-deck-title: 21px;
+  --text-deck-phone: 14px;
   --tracking-deck-title: -0.02em;
   --focus-width: 2px;
   --art-gallery-motion: 400ms;
   --art-gallery-zoom: 1.035;
+  --art-gallery-highlight: color-mix(in srgb, var(--text) 8%, transparent);
+  --art-caption-fade: 104px;
+  --art-caption-gradient: linear-gradient(to bottom,
+    transparent 0,
+    color-mix(in srgb, var(--bg) 6%, transparent) 16px,
+    color-mix(in srgb, var(--bg) 20%, transparent) 40px,
+    color-mix(in srgb, var(--bg) 39%, transparent) 64px,
+    color-mix(in srgb, var(--bg) 54%, transparent) 88px,
+    color-mix(in srgb, var(--bg) 58%, transparent) var(--art-caption-fade),
+    color-mix(in srgb, var(--bg) 64%, transparent) calc(var(--art-caption-fade) + 24px),
+    color-mix(in srgb, var(--bg) 74%, transparent) calc(var(--art-caption-fade) + 44px),
+    color-mix(in srgb, var(--bg) 74%, transparent) 100%);
+  /* Credits are intentionally barely visible at rest (owner direction). */
+  --art-gallery-credit-opacity: 0.22;
+  --art-control-blur: 8px;
+  --art-control-bg: color-mix(in srgb, var(--bg) 64%, transparent);
+  --art-control-hover: color-mix(in srgb, var(--bg) 74%, transparent);
+  --art-control-pressed: color-mix(in srgb, var(--bg) 82%, transparent);
+  --art-gallery-line: color-mix(in srgb, var(--text) 55%, transparent);
+  --deck-waiting-bg: var(--agent);
+  --deck-waiting-ink: var(--bg);
+  /* Only My decks expands after 2200px. Three columns at every desktop
+     width avoid a 4+2 roster, and cap the largest tile near the native crop. */
+  --decks-page-expand-at: 2200px;
+  --decks-page-wide: 1940px;
+  --decks-page-fluid: calc(var(--page-wide) + (100vw - var(--decks-page-expand-at)) * 2);
+  --stats-figure: 32px;
+  --stats-type-pair: 184px;
+  --stats-slot-pair: 360px;
+  --stats-panel-bg: color-mix(in srgb, var(--surface) 65%, var(--bg));
   /* Band heights: art above content. The editor keeps a thin ribbon. */
   --art-ribbon-space: 20px;
   --art-ribbon-credit-h: 16px;

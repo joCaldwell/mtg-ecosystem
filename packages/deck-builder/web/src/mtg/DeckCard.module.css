@@ -1,5 +1,7 @@
 .card { display: grid; min-width: 0; }
 .deckCard {
+  --muted: var(--text-soft);
+  --faint: var(--text-soft);
   display: flex;
   flex-direction: column;
   gap: var(--s-3);
@@ -25,8 +27,55 @@
 .commander :is(a, button), .lineage a { position: relative; z-index: 1; }
 .cardStats { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-4); font-size: var(--text-sm); padding-top: var(--s-2); }
 .lifecycle[data-lifecycle] { color: var(--text-soft); background: transparent; border-color: transparent; padding-inline: 0; }
-.lineage { color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.lineage { color: var(--text-soft); font-size: var(--text-sm); overflow-wrap: anywhere; }
+/* Violet is the tile's one action cue; opaque ink/fill keeps its contrast
+   independent of the underlying art and matches the sidebar badge. */
+.cardStats [data-deck-waiting] { background: var(--deck-waiting-bg); color: var(--deck-waiting-ink); }
 .actions { position: absolute; top: var(--s-4); right: var(--s-4); z-index: 3; }
-.actions button { width: var(--h-lg); height: var(--h-lg); background: var(--art-overlay-text); color: var(--text-soft); }
-.actions button:hover, .actions button[aria-expanded="true"] { background: var(--bg); color: var(--text); }
-@media (max-width: 1099px) { .actions button { width: var(--tap); height: var(--tap); } }
+.actions button {
+  width: var(--h-lg);
+  height: var(--h-lg);
+  background: var(--art-control-bg);
+  backdrop-filter: blur(var(--art-control-blur));
+  color: var(--text-soft);
+  border: 1px solid var(--line-hover);
+}
+/* Match the primitive's :not(:disabled) specificity so its translucent
+   white hover cannot replace the tile's dark glass surface. */
+.actions button:is(:hover, :focus-visible, :active, [aria-expanded="true"]):not(:disabled) {
+  background: var(--art-control-hover);
+  color: var(--text);
+  border-color: var(--text-soft);
+}
+.actions button:active:not(:disabled) { background: var(--art-control-pressed); }
+@media (hover: hover) and (pointer: fine) {
+  .actions { opacity: 0; pointer-events: none; }
+  .card:is(:hover, :focus-within) .actions,
+  .actions:has(button[aria-expanded="true"]) { opacity: 1; pointer-events: auto; }
+}
+/* Decorate the text itself, rather than the edge of a padded touch target. */
+.commander button {
+  border-bottom: 0;
+  text-decoration: underline dotted;
+  text-decoration-color: var(--text-soft);
+  text-underline-offset: var(--s-1);
+}
+.commander button:hover { text-decoration-color: var(--sel); }
+@media (max-width: 1099px) {
+  .actions button { width: var(--tap); height: var(--tap); }
+}
+@media (hover: none) {
+  .actions button { width: var(--tap); height: var(--tap); }
+  .commander button {
+    --commander-hit-pad: calc((var(--tap) - 1em * var(--leading)) / 2 + var(--s-1) / 2);
+    display: inline-block;
+    min-height: 0;
+    padding-block: var(--commander-hit-pad);
+    margin-block: calc(-1 * var(--commander-hit-pad));
+    line-height: inherit;
+  }
+}
+@media (max-width: 719px) {
+  .commander, .cardStats, .lineage { font-size: var(--text-deck-phone); }
+  .cardStats { --text-xs: var(--text-deck-phone); }
+}

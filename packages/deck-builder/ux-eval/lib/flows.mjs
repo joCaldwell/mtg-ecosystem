@@ -1,7 +1,7 @@
 // The task flows. Each is a sequence of real user actions, with a screenshot
 // after each one and a caption that says what was done (never why). Elements
 // are found by role and accessible name, and a step looks for a better path
-// when one exists (an import entry on All decks, a reason field for
+// when one exists (an import entry on My decks, a reason field for
 // accepting), so the flows keep working while the UI improves.
 //
 // run(t) returns { completed, facts }: whether the task's outcome is really in
@@ -168,7 +168,7 @@ export const FLOWS = [
       const { page } = t;
       const list = readFileSync(join(t.PKG, "test/fixtures/moxfield/kinnan-midrange.copy-plain-text.txt"), "utf8");
       await page.goto(t.origin + "/");
-      await t.step("Open All decks");
+      await t.step("Open My decks");
       await t.press(control(page, /^Import deck$/));
       await t.step("Click “Import deck”");
       const name = page.getByRole("textbox", { name: /deck name/i });

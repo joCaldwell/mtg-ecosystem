@@ -101,7 +101,7 @@ represents multiple colours. These accents never tint text or controls and
 never replace semantic colours.
 
 Deck lifecycle (Paper, Theorycrafted, Archived) is a state, not a meaning, so
-its labels are grey and the word carries it: All decks pills, sidebar labels
+its labels are grey and the word carries it: My decks metadata, sidebar labels
 and the deck header's lifecycle control. The header shows lifecycle as a
 pill, not a tab row (owner decision, 2026-10-28): the owner opens it as a
 single-choice menu, moving to Archived asks first, and read-only headers show
@@ -375,26 +375,43 @@ printed artist and copyright lines.
 | backdrop | Sign-in and empty-account landing only | `--art-backdrop-space` | eager; one land per visit, no rotation |
 | thumbnail | Sidebar rail, including the drawer | `--art-thumb` (16 px), the icon column | deferred: `useNearView` in the rail, `fetchpriority=low` |
 
-- **Roster tiles are pictures with a bottom caption.** The `strip` variant
-  reserves the natural `--art-aspect` (626/457), roughly 280 px tall in the
-  three-column desktop roster. The image fills that frame with no wash over
-  the upper art. Only the caption has a scrim, from transparent at its padding
-  edge to `--art-overlay-text` before any text begins. The 21 px deck name
-  leads; commanders and the wrapping metadata row use quieter 12 px text.
-  Lifecycle is plain grey; off-target counts stay amber and waiting stays
-  violet. Long titles and partner names wrap without truncation; unusually
-  long captions can grow the tile. Grid rows stretch their neighbours to match.
-  At ultrawide sizes the capped page frame gains columns instead of enlarging
-  crops. A gentle art zoom runs only with no reduced-motion preference.
-- **Gallery credits are small, flat labels inside each crop, top-left.**
-  They use `--text-xs` `--muted` on `--art-overlay-text`, with minimal padding
-  and no pill. Gallery labels show the artist name, with "Art by" retained
-  for assistive technology. The last crop leaves room for the owner's actions in the
-  top-right. Partner crops split the frame equally and each keeps its own
-  credit. Other variants retain their bottom-right credit pills and band
-  fades. Those bands read "Art by <artist>" where a commander is named
-  nearby; backdrops name the card too. Double-faced cards use the front
-  face. Failed or deferred images hide their credits and keep the same frame.
+- **Roster captions sit on the art, without a panel edge.** The `strip`
+  variant reserves `--art-aspect` (626/457), roughly 280 px tall at 1440.
+  Its image runs through the full tile. The caption's eased, multi-stop fade
+  begins 104 px above its text, reaching 58% black by the title, 64% before
+  commanders and 74% before metadata. The caption keeps the painted detail:
+  a masked 8 px backdrop blur was compared in captures and removed because
+  the plain gradient preserved more of the painted detail.
+  Legibility never depends on backdrop support.
+  The 21 px deck name leads; commanders and metadata are 12 px, or 14 px on
+  phones. Long titles and partner names wrap without truncation; unusually
+  long captions can grow the tile. Grid rows stretch neighbours to match.
+- **Gallery credits are unboxed text inside each crop, bottom-right.**
+  They use `--text-xs` `--text-soft` on the lower caption gradient, with
+  their own reserved line below the metadata. At rest, the tile token
+  `--art-gallery-credit-opacity` is 0.22: intentionally barely there and
+  exempt from text contrast by owner direction. Hover-capable tile hover or
+  focus within raises the credit to full opacity; touch at rest stays quiet. Partner crops split the frame
+  equally and each keeps its own credit. The artist name is visible; "Art
+  by" stays in the accessible text. Other variants retain their existing
+  credit pills and band fades, and backdrops name the card too. Double-faced
+  cards use the front face. Failed or deferred images hide their credits and
+  retain the frame.
+- **Gallery interaction is visible without motion.** Hover and focus within
+  brighten the art with an 8% neutral highlight and lighten its border. The art also zooms gently
+  only with no reduced-motion preference. Desktop menus reveal on tile hover
+  or keyboard focus within; their translucent, blurred background has its own
+  contrast floor. Its tile-specific hover/focus rule overrides the generic
+  IconButton hover: 64% black at rest, 74% on hover/focus/open, 82% while
+  pressed, with brighter ink and border in the active states. Over white
+  art those icon contrasts are 4.53:1, 9.17:1 and 12.47:1 respectively. Touch keeps the menu visible with a 44 px hit area. The
+  commander's dotted underline stays 2 px below its text, with touch targets
+  supplied by padding around that text rather than an extended bottom border.
+- **The My decks frame grows only at ultrawide sizes.** Its roster uses
+  three desktop columns, including at 1920, so six decks form two full rows.
+  Starting at 2200 px the page alone grows from 1440 toward 1940 px, leaving
+  three approximately 620 px tiles at 2560, close to the crops' native width.
+  Statistics share that frame. Tablets keep two columns and phones one.
 - **No art still has a place in the gallery.** Missing commanders, unknown
   artists and failed images retain the same frame, with a restrained identity
   tint over the near-black surface (neutral for colourless). Identity never
@@ -409,17 +426,19 @@ printed artist and copyright lines.
 - **Roster cards are one link.** The deck name's link is stretched over the
   card; the commander links and the actions menu sit above it. Cards fill
   their grid row with the caption anchored to the bottom. The whole-link focus
-  ring runs inside the tile; the actions have their own dark surface and grow
-  to a touch target through tablet widths. The phone roster reuses `DeckCard`.
+  ring runs inside the tile. The phone roster reuses `DeckCard` and calls the
+  page "My decks", while its navigation keeps "Decks".
 - **Backdrops show the land unblurred** in a band at the top of a solid
   surface panel; the form or first-run choices sit on the surface below.
 - **Overlays derive from `--bg`** (`color-mix`), so a palette change carries
-  them. Measured with WCAG 2.x sRGB luminance over pure white art (94%
-  black overlay): muted credit 7.58:1, faint text under any band 6.97:1 or
-  better. Gallery over pure white measures 8.82:1 for muted credit, 12.90:1 for
-  soft commander text and 17.54:1 for the title. Gallery captions and credits,
-  banner, showcase and backdrop share this floor; no overlay
-  strength changes are needed for the black canvas.
+  them. Gallery minima over pure white art, using WCAG 2.x sRGB luminance and
+  no blur: title `--text` on at least 58% black is 4.88:1; commanders
+  `--text-soft` on at least 64% black are 4.53:1; metadata and
+  credits at full opacity `--text-soft` at 74% black are 6.75:1. Amber count text is 4.73:1
+  there. Metadata uses the soft tier because muted would be only 3.09:1
+  against the commander's 64% floor. The waiting chip is filled `--agent` with
+  `--bg` ink, 7.72:1 independently of the art. Other art variants retain
+  `--art-overlay-text` (94% black) and their existing contrast floors.
 - **Identity is a 2 px stripe** at `--identity-opacity`, split for several
   colours, grey for colourless. Black uses the darker half of its pip
   (`--identity-b`) so it never reads as white. The gallery alone may use a
@@ -434,7 +453,11 @@ printed artist and copyright lines.
 The roster filters form one slim, wrapping toolbar: search and a native
 lifecycle select retain explicit accessible names; the count is a status and
 Clear filters appears while filtering. Phones place search on its own line
-and keep lifecycle and count together.
+and keep lifecycle and count together. Tile waiting counts come from the Inbox
+store's shared map of proposals and document edit groups. It uses the same
+`waitingByDeck` helper as the sidebar's local derivation. Until that map loads,
+the summary may show a
+waiting flag without guessing a count; a loaded zero is authoritative.
 
 Art does not appear in inbox, activity, memories, Settings, dialogs or the
 playtester content. The rail can still show thumbnails while those screens
@@ -446,7 +469,7 @@ public showcase band.
 
 ## Sidebar and Profile navigation
 
-All decks comes first, then Inbox, Memories, Activity, Profile and Settings. Deck links
+My decks comes first, then Inbox, Memories, Activity, Profile and Settings. Deck links
 have a separate “Your decks” heading, with the same icon/text alignment and
 row spacing as section links. Agent presence is a quiet summary:
 last writer and time, then “Agent context” with the open deck and selection.
@@ -482,7 +505,7 @@ so very wide windows keep each name near its pips and price. Row prices sit
 in a fixed, right-aligned tabular column (`--price-column-min`) with
 `--price-gap` after the pips, in the editor, maybe list and shared lists.
 
-Owner UX decision (2026-10-27): inbox proposal details can accept or reject the whole selected proposal with an optional reason; Review in the list remains secondary. A phone inbox opens the selected proposal beneath a compact deck heading. Its individual decisions come first; Review all decisions discloses deck-wide actions and other proposals. All inbox badges hide zero counts and use bright violet with black ink. Profiles pair their document and Edit action with proposed edits; public profiles reuse the All decks card presentation. Import previews use the wide dialog, a bounded change list with an explicit continuation count, and warnings outside that list.
+Owner UX decision (2026-10-27): inbox proposal details can accept or reject the whole selected proposal with an optional reason; Review in the list remains secondary. A phone inbox opens the selected proposal beneath a compact deck heading. Its individual decisions come first; Review all decisions discloses deck-wide actions and other proposals. All inbox badges hide zero counts and use bright violet with black ink. Profiles pair their document and Edit action with proposed edits; public profiles reuse the My decks card presentation. Import previews use the wide dialog, a bounded change list with an explicit continuation count, and warnings outside that list.
 
 Review refinement (2026-10-27): Shift+Enter retains add-bar results and marks
 the added card “maybe list”; its Undo removes that shortlisted card. Phone
@@ -499,7 +522,7 @@ can cross native columns without painting one card over another.
 Owner layout direction (2026-10-27): secondary pages use a centered, fluid
 application frame up to `--page-wide` (1440 px), with page titles and actions
 aligned to the same edges as the content. Reading-width pages center their
-shorter measure; full workspace pages retain their full width. The All decks
+shorter measure; full workspace pages retain their full width. The My decks
 roster fills this frame with responsive columns. Its Paper overview uses four
 comparable panels, followed by full-width, wrapping grids for slot usage and
 reused cards. Long slot names remain visible, with their values alongside.
@@ -572,6 +595,21 @@ source copies do not imply guaranteed output, adequacy or casting probability.
 
 
 ## Visual deck statistics
+
+The My decks Paper overview uses a real section heading at the page title's
+visual scale, followed by large monospaced Paper decks, families, mana value
+and land count figures. The family explanation remains beneath them. Filled
+near-black panels have clearer hairline borders and soft, heavier titles.
+Common identities occupy one column. Label/value pairs use short measures or
+row rules; slot values sit directly beside their names. WUBRG bars match the
+named mana legend, with a pale boundary around Black's dark fill.
+
+Only the headline shows land count. `src/stats.ts` groups types from the front
+face, whereas `computed.land_count` counts a card with Land anywhere in its
+type line. The front-face Land subset is omitted from the type grid to avoid
+presenting those different values as competing land totals. All other figures
+and averages still come from the server unchanged.
+
 
 Deck Stats uses summary metrics, a count-labelled mana curve, paired colour
 distributions and neutral type-group bars. The owner authorizes WUBRG colour

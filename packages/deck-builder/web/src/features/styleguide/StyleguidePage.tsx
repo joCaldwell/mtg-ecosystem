@@ -382,7 +382,7 @@ function Navigation() {
   return (
     <Stack gap={7}>
       <Section title="Sidebar">
-        <Text tone="muted">All decks comes first. Profile holds Profile and Activity tabs. At 1100 px and wider, the sidebar’s collapse control saves your account’s choice; icons, inbox counts and named deck thumbnails stay visible in the rail. Tablet navigation keeps its labels.</Text>
+        <Text tone="muted">My decks comes first. Profile holds Profile and Activity tabs. At 1100 px and wider, the sidebar’s collapse control saves your account’s choice; icons, inbox counts and named deck thumbnails stay visible in the rail. Tablet navigation keeps its labels.</Text>
       </Section>
       <Section title="Tabs" aside="arrow keys move between tabs">
         <Demo>

@@ -77,13 +77,14 @@ band or explanatory subtitle. Keep help specific and concise; ordinary
 controls should explain themselves. Maybe rows open card details across the
 row and do not display purpose assignments.
 
-## The All decks page
+## My decks
 
-This page is the owner's collection, and it is the one place where style comes
+My decks is the owner's collection, and it is the one place where style comes
 before density. It should feel like a showcase of the decks' commander art
 rather than a table. Judge its density by whether the page feels composed, not
 by how many decks fit on a screen; principles 3 and 4 above are about the deck
-editor, not this page. The artist credit stays visible but subtle.
+editor, not this page. The unboxed artist credit is intentionally barely visible
+at rest, and can become readable on tile hover or keyboard focus.
 
 ## How to read the screenshots
 

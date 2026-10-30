@@ -1,6 +1,6 @@
 .page { display: grid; gap: var(--s-6); padding: var(--s-5) var(--s-4) var(--s-8); }
 .title { font-size: var(--text-xl); font-weight: 650; }
 .list { display: grid; gap: var(--s-6); margin: 0; padding: 0; list-style: none; }
-.shared { color: var(--muted); }
+.shared { color: var(--text-soft); }
 .empty { display: grid; gap: var(--s-2); padding: var(--s-5); }
 .empty h2 { font-size: var(--text-lg); font-weight: 600; }

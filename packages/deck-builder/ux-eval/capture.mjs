@@ -134,7 +134,7 @@ async function statsSection(page, vp, watch, section) {
 const SCREENS = [
   { screen: "sign-in", user: 0, path: "/signin", widths: PUBLIC, states: [{ state: "default", caption: "Sign-in page, signed out" }] },
   { screen: "first-run", user: U.empty, path: "/", widths: ALL, states: [{ state: "default", caption: "A new account with no decks" }] },
-  { screen: "decks", user: U.owner, path: "/", widths: ALL, states: [{ state: "default", caption: "All decks, six decks across Paper, Theorycrafted and Archived" }] },
+  { screen: "decks", user: U.owner, path: "/", widths: ALL, states: [{ state: "default", caption: "My decks, six decks across Paper, Theorycrafted and Archived" }] },
   { screen: "decks", user: U.owner, path: "/", widths: ALL, states: [{ state: "filtered", caption: "The roster filtered to Paper decks", act: async ({ page, vp }) => {
     const lifecycle = page.getByRole("combobox", { name: "Lifecycle", exact: true });
     // The older read-only phone roster has no filters. Capture its original
@@ -149,6 +149,12 @@ const SCREENS = [
     // Both the old strip and the gallery use the deck title's stretched link.
     const link = page.getByRole("main").getByRole("heading", { level: 2 }).nth(1).getByRole("link");
     await link.hover();
+  } }] },
+  { screen: "decks", user: U.owner, path: "/", widths: [1440], states: [{ state: "tile-actions-hover", caption: "Hovering the second deck's actions button", act: async ({ page }) => {
+    const main = page.getByRole("main");
+    await main.getByRole("heading", { level: 2 }).nth(1).getByRole("link").hover();
+    // Keep the index stable when only the hovered tile reveals its trigger.
+    await main.getByRole("button", { name: /^Actions for /, includeHidden: true }).nth(1).hover();
   } }] },
   {
     screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: ALL, states: [

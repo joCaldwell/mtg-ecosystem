@@ -1,3 +1,4 @@
+.page { --page-width: clamp(var(--page-wide), var(--decks-page-fluid), var(--decks-page-wide)); }
 /* The roster and statistics share the centered application page frame. */
 .body {
   --text-xs: var(--text-sm);
@@ -7,9 +8,11 @@
 }
 
 .shared {
-  color: var(--faint);
+  color: var(--text-soft);
 }
 .collection { display: grid; gap: var(--s-6); min-width: 0; }
 /* Cards fill their grid row, so a partner's two-line commander leaves no
    ragged gap; the stats line is pinned to the bottom. */
-.roster { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--deck-card-min)), 1fr)); gap: var(--s-6); padding: 0; margin: 0; list-style: none; }
+.roster { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-6); padding: 0; margin: 0; list-style: none; }
+
+@media (max-width: 1099px) { .roster { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

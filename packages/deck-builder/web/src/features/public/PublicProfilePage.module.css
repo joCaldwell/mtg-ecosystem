@@ -1,4 +1,4 @@
-/* A centred column with the app's page header and the All decks roster grid. */
+/* A centred column with the app's page header and the My decks roster grid. */
 .page {
   --page-width: var(--public-profile-w);
   --page-gutter: var(--s-6);

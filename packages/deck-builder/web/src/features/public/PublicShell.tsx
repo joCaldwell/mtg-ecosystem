@@ -20,7 +20,7 @@ export function PublicShell({ children }: { children: ReactNode }) {
         </a>
         <nav className={styles.nav} aria-label="Account">
           {signedIn
-            ? <a href={href({ page: "decks" })}>Your decks</a>
+            ? <a href={href({ page: "decks" })}>My decks</a>
             : <a href={signInHref(location.pathname)}>Sign in</a>}
         </nav>
       </header>

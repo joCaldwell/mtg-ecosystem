@@ -19,7 +19,7 @@ import { href, type PageName, type Route } from "./routes.ts";
 import styles from "./Sidebar.module.css";
 
 const NAV: Array<{ page: PageName; label: string; icon: "inbox" | "decks" | "memories" | "activity" | "profile" | "settings" }> = [
-  { page: "decks", label: "All decks", icon: "decks" },
+  { page: "decks", label: "My decks", icon: "decks" },
   { page: "inbox", label: "Inbox", icon: "inbox" },
   { page: "memories", label: "Memories", icon: "memories" },
   { page: "activity", label: "Activity", icon: "activity" },

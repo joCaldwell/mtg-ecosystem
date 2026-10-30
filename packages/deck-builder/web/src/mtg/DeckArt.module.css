@@ -27,9 +27,8 @@
 .identity [data-color="R"] { background: var(--identity-r); }
 .identity [data-color="G"] { background: var(--identity-g); }
 
-/* The roster is the picture. Only the caption and each credit have a scrim;
-   the upper art has no wash. The preferred ratio reserves space even with no
-   commander, a deferred download or a failed image. Long captions may grow. */
+/* Art runs through the caption. A long eased fade starts a full caption
+   fade above the title; the gradient alone supplies every contrast floor. */
 .strip {
   display: grid;
   aspect-ratio: var(--art-aspect);
@@ -39,30 +38,41 @@
   overflow: hidden;
   background: linear-gradient(135deg, color-mix(in srgb, var(--deck-tint) 18%, transparent), transparent), var(--surface);
 }
-.strip > :first-child:not(.visual, .identity) { align-self: end; padding-top: var(--s-7); background: linear-gradient(to bottom, transparent, var(--art-overlay-text) var(--s-6)); }
-.strip:hover { border-color: var(--line-hover); }
-.strip .visual { height: 100%; }
+.strip > :first-child:not(.visual, .identity) {
+  --muted: var(--text-soft);
+  --faint: var(--text-soft);
+  align-self: end;
+  z-index: 1;
+  padding-top: var(--art-caption-fade);
+  padding-bottom: var(--s-8);
+  background: var(--art-caption-gradient);
+}
+.strip:is(:hover, :focus-within) { border-color: var(--art-gallery-line); }
+.strip .visual { height: 100%; z-index: auto; }
 .strip .visual::after { content: none; }
 .strip .crop { overflow: hidden; }
+.strip:is(:hover, :focus-within) .visual::after { content: ""; background: var(--art-gallery-highlight); }
+/* Each credit stays in its crop, but sits above the caption's shared scrim.
+   The extra caption inset keeps both partner credits below all metadata. */
 .strip .credit {
-  top: var(--s-4);
-  left: var(--s-4);
-  right: auto;
+  z-index: 2;
+  top: auto;
+  bottom: var(--s-3);
+  right: var(--s-5);
   transform: none;
-  padding: var(--s-1) var(--s-2);
+  padding: 0;
   border-radius: 0;
-  color: var(--muted);
+  background: none;
+  color: color-mix(in srgb, var(--text-soft) calc(var(--art-gallery-credit-opacity) * 100%), transparent);
   font-size: var(--text-xs);
   white-space: normal;
   overflow-wrap: anywhere;
 }
-/* Leave the action target its own clear corner, including a partner's half. */
-.strip:has(button[aria-haspopup="menu"]) .crop:last-child .credit {
-  max-width: calc(100% - var(--tap) - var(--s-6));
-}
+.strip:focus-within .credit { color: var(--text-soft); }
+@media (hover: hover) { .strip:hover .credit { color: var(--text-soft); } }
 @media (prefers-reduced-motion: no-preference) {
   .strip .crop img { transition: transform var(--art-gallery-motion); }
-  .strip:hover .crop img { transform: scale(var(--art-gallery-zoom)); }
+  .strip:is(:hover, :focus-within) .crop img { transform: scale(var(--art-gallery-zoom)); }
 }
 
 /* The owner's editor: a thin strip of art above the title, so the list keeps
