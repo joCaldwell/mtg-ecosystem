@@ -15,10 +15,17 @@ try{for(const width of process.argv.includes('--promotion-only')?[]:[1280,1440,1
  const context=await newContext(browser,{origin,vp:VIEWPORTS[width],user:1,frozenNow:'2026-10-20T17:00:00Z',notes:{blocked:new Set(),imageFailures:new Set()}}),page=await context.newPage(),watch=watchPage(page);
  await page.goto(origin+`/deck/${deckId}`);await settle(page,watch);const panel=page.getByRole('complementary',{name:'Deck panel',exact:true}),resize=page.getByRole('separator',{name:'Resize the deck panel',exact:true}),maybe=page.getByRole('region',{name:'Maybe list',exact:true}),rows=maybe.locator('[data-oracle-id]');
  const originalOrder=await rows.evaluateAll(nodes=>nodes.map(n=>n.dataset.oracleId));
+ const defaultWidth=Math.round((await panel.boundingBox()).width);
  if(!baseline){await panel.getByRole('button',{name:'Edit the thesis',exact:true}).click();await panel.getByRole('textbox',{name:'Thesis',exact:true}).fill('Keep this unsaved brief while browsing long shortlist notes.');}
  const sizes=[];
  for(const size of [340,392,640]){
-  if(size===392)await resize.dblclick();else {await resize.focus();await resize.press(size===340?'Home':'End');}await settle(page,watch);assert.equal(Math.round((await panel.boundingBox()).width),size);
+  if(size===392){
+   // The default grows on wide windows (ARCHITECTURE.md). Verify reset,
+   // then drag to the actual 392px case rather than assuming they coincide.
+   await resize.dblclick();await settle(page,watch);assert.equal(Math.round((await panel.boundingBox()).width),defaultWidth,'reset restores the fluid default');
+   const handle=await resize.boundingBox(),x=handle.x+handle.width/2,y=handle.y+handle.height/2;
+   await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+defaultWidth-size,y);await page.mouse.up();
+  }else {await resize.focus();await resize.press(size===340?'Home':'End');}await settle(page,watch);assert.equal(Math.round((await panel.boundingBox()).width),size);
   await scrollUntilVisible(page,maybe,VIEWPORTS[width],{top:true});assert.equal(await rows.count(),20);assert.deepEqual(await rows.evaluateAll(nodes=>nodes.map(n=>n.dataset.oracleId)),originalOrder);
   const boxes=await rows.evaluateAll(nodes=>nodes.map(n=>{const b=n.getBoundingClientRect();return {id:n.dataset.oracleId,x:b.x,y:b.y,width:b.width,height:b.height,text:n.innerText};})),span=Math.max(...boxes.map(b=>b.y+b.height))-Math.min(...boxes.map(b=>b.y));
   if(!baseline){assert(boxes.every(b=>b.height<=64),'note prose cannot make a shortlist row tall');assert(boxes.every(b=>!b.text.includes('Option ')&&!b.text.includes('After the next playtest')));assert.equal(await maybe.locator('[class*="_purpose_"], [class*="_note_"]').count(),0);}
