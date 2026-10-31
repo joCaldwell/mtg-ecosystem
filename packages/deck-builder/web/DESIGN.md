@@ -604,8 +604,9 @@ query syntax lives with the results. Deck search stays with the filters.
 Workspace and roster metadata is at least 12 px; prices, totals, counts and
 lifecycle labels use the soft grey tier unless they convey a semantic state.
 Desktop list
-columns use a 250 px minimum and 12 px gaps, fitting three at 1440 px with
-the default panel, and falling back to two when the panel leaves less room.
+columns use a 300 px minimum and 12 px gaps, fitting two at 1280 and 1440 px
+with the default panel. Tablet columns retain a 250 px minimum; desktop readers
+use the same 300 px minimum as the editor.
 At 1100 px and wider the editor adds columns instead of stretching three,
 so very wide windows keep each name near its pips and price. Row prices sit
 in a fixed, right-aligned tabular column (`--price-column-min`) with

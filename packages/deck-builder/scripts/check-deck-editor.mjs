@@ -42,7 +42,8 @@ async function tracks(page) {
   });
   assert.deepEqual(result.overlaps, [], 'rows and headers reserve non-overlapping tracks');
   assert.deepEqual(result.fragmented, [], 'rows and headers never split across columns');
-  assert(result.widths.every(w => w >= 249), 'card columns are at least about 250px');
+  const minimum = page.viewportSize().width >= 1100 ? 300 : 250;
+  assert(result.widths.every(w => w >= minimum - 1), `card columns are at least about ${minimum}px`);
   return result;
 }
 async function click(locator) {
@@ -104,7 +105,9 @@ try {
       await until(() => page.evaluate(y => scrollY > y, before), 'phone window wheel scrolling works');
     } else {
       const layout = await tracks(page);
-      if (width >= 1280) assert.equal(layout.columns, width === 1440 ? 3 : 2, 'three columns fit at 1440; a narrow list falls back to two');
+      // ARCHITECTURE.md: desktop editors deliberately use 300px columns
+      // (9180883), leaving two readable columns at these default-panel widths.
+      if (width >= 1280) assert.equal(layout.columns, 2, 'two 300px columns fit at 1280 and 1440 with the default panel');
       if (width < 1100) {
         assert(await page.locator('[data-deck-list] button[data-oracle-id]').first().evaluate(el => el.getBoundingClientRect().height >= 44), 'tablet card rows are 44px with a fine pointer');
         assert(await page.getByRole('combobox', { name: 'Add a card or search' }).evaluate(el => el.getBoundingClientRect().height >= 44), 'tablet add input is 44px');

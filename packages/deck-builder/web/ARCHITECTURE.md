@@ -483,15 +483,15 @@ five viewport widths, real wheel scrolling, proposal handoffs, add/undo, column
 reflow, post-import tablet targets, and panel identity across 1100 px. It requires
 the seeded evaluation database and never runs against live data.
 
-The card list uses native balanced columns with a 250 px target minimum and
+The card list uses native balanced columns with the width minima below and
 unfragmented row/header tracks. The browser recalculates breaks as content sizes
 change. Review arrival reveals the chosen decision's first card, then focuses
 its optional reason in the panel (the requested sheet on tablets). Panel-only
 scrolling and resize observation keep asynchronously loaded context from moving
 the controls away or undoing the list reveal.
 
-Desktop editors use a 300 px column minimum to leave more room for names beside
-mana and estimates; reader and narrow layouts retain the 250 px minimum.
+Desktop editors and readers use a 300 px column minimum to leave more room for
+names beside mana and estimates; narrow layouts retain the 250 px minimum.
 All decks filters its existing family-ordered roster by deck/commander name and
 lifecycle. Collection statistics continue to describe all Paper decks. Memories
 uses a labelled scope selector with stable width, so loading deck choices cannot
