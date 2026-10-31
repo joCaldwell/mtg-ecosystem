@@ -12,11 +12,13 @@
 
 .navigation { flex: none; padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--line); }
 .navigation[data-inspecting] { border-bottom: 0; }
-.navigation:has(.links) { padding: 0 var(--s-2); }
+.navigation:has(.links) { padding: 0; }
 /* Each view's whole column of the strip is its target: full strip height and
    at least one touch target wide, with no dead gap between neighbours. */
 .links { display: flex; flex-wrap: nowrap; align-items: stretch; }
-.links > button { position: relative; display: inline-flex; flex: 1 0 auto; align-items: center; justify-content: center; gap: var(--s-2); min-width: var(--tap); padding: calc(var(--s-3) + var(--s-2)) var(--s-1); color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
+/* The 340px minimum fits all seven labels and the waiting badge when the
+   strip has no extra horizontal gutters. Keep every target at least 44px. */
+.links > button { position: relative; display: inline-flex; flex: 1 0 auto; align-items: center; justify-content: center; gap: var(--s-2); min-width: var(--tap); padding: calc(var(--s-3) + var(--s-2)) 0; color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
 .links > button:hover { color: var(--text); }
 .links > button:focus-visible { outline-offset: -2px; border-radius: var(--r-sm); }
 /* One highlight: the current view is bright with a 2 px bar along its foot;
