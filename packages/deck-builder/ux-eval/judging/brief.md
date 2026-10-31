@@ -96,6 +96,18 @@ once the owner is working in the list. Principle 3 (text first) applies to the
 card list, rather than the header. Artist credits are unboxed and deliberately
 very low emphasis at rest.
 
+## Deck list boards
+
+The main deck, the maybe list and the tokens are three boards, each with its
+own heading above the smaller purpose groups.
+
+## Card details
+
+Selecting a card fills the side panel with what the card is, then what this
+deck does with it. The owner would rather this section take more vertical space
+and feel composed than squeeze controls in, so principle 4 does not ask for it
+to be compact. Selected slots and tags are shown as removable chips.
+
 ## How to read the screenshots
 
 Each image is listed in `index.md` with its viewport width, the state it
