@@ -925,6 +925,9 @@ card.
   Archived decks retain existing tag filters and omit Create tags.
   An empty catalogue search omits add/maybe shortcut hints while retaining
   Escape, query guidance and Search every colour.
+  Card inspection pairs the picture with type, price and source in its top
+  row, then gives rules text a separate full-width block with one reading
+  measure. The card's form, Back control and remaining composition stay as-is.
 - **Proposals inbox:** everything waiting on the owner across decks. A proposal is ruled on in its deck's list, where each change is drawn in place among the cards around it — per item, per group or all at once, with an optional reason; the inbox links there. Proposed brief and profile edits are ruled in the inbox as diffs. (Settled 2026-10-10: the owner preferred reviewing in the list to decision from the inbox.)
 - **Decisions log:** per deck, with undo.
 - **Memories:** §7.5.

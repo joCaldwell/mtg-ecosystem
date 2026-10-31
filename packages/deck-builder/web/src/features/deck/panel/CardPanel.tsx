@@ -105,6 +105,8 @@ export function CardPanel({ card: open, backRef, bodyRef }: { card: OpenCard; ba
                 </Text>
               </div>}
             </div>}
+          </div>
+          <div className={styles.rules}>
             {info ? info.oracle_text && <OracleText text={info.oracle_text} bare /> : <Loading />}
           </div>
         </div>

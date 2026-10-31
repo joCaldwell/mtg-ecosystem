@@ -363,8 +363,10 @@ sheet over the list (principle 1's existing requested-dialog exception).
 - **Card details (owner direction, 2026-10-30):** two blocks, what the card
   is and what this deck does with it, each its full width. The picture takes
   half the panel, up to `--card-image-max`. Type, price and source sit beside
-  it, and rules text wraps around it and carries on underneath, so no length
-  of text leaves a hole next to the picture. The form below is a `Box`, the
+  it in the top row. Rules text has its own full-width block below, keeping a
+  constant reading measure at minimum and default panel widths. The bounded
+  space beneath short facts is preferable to narrowing the start of a long
+  paragraph around the image. The form below is a `Box`, the
   app's black well: one `--card-label-w` label column and one right edge for
   every row, with controls a size taller (`--h-lg`). A hairline separates
   purpose (slots, tags) from place (Board, Copies), and Move to maybe and Cut

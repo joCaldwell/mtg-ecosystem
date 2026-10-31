@@ -21,22 +21,23 @@
   gap: var(--s-6);
 }
 
-/* The picture takes half the panel, up to its cap. Rules text wraps around it
-   and carries on underneath, so no length of text leaves a hole beside it. */
+/* Picture and facts share the first row; rules keep one reading measure. */
 .card {
-  display: flow-root;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--s-5) calc(var(--s-3) * 2);
 }
 
 .picture {
-  float: left;
-  width: min(calc(50% - var(--s-3)), var(--card-image-max));
-  margin: 0 calc(var(--s-3) * 2) var(--s-4) 0;
+  width: 100%;
+  max-width: var(--card-image-max);
 }
+.rules { grid-column: 1 / -1; min-width: 0; }
 
 .head {
   display: grid;
   gap: var(--s-3);
-  margin-bottom: var(--s-5);
 }
 
 .price {
@@ -63,7 +64,7 @@
   .card { display: contents; }
   /* A long form scrolls beside the picture, which stays in view. */
   .picture { position: sticky; top: 0; grid-row: 1 / span 3; float: none; width: auto; margin: 0; }
-  .about, .layout > :not(.card) { grid-column: 2; }
+  .about, .rules, .layout > :not(.card) { grid-column: 2; }
 }
 
 .note {
