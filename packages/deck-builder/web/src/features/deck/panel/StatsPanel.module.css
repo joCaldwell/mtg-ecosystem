@@ -1,5 +1,5 @@
 .section { display: grid; gap: var(--s-3); align-content: start; min-width: 0; }
-.totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-4); margin: 0; }
+.totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: var(--s-4); margin: 0; }
 .totals > div { display: grid; gap: var(--s-2); align-content: start; }
 .totals dt { color: var(--text-soft); font-size: var(--text-md); }
 .totals dd { margin: 0; font: var(--text-xl) var(--font-mono); font-variant-numeric: tabular-nums; }
