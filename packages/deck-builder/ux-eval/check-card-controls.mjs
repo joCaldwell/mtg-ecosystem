@@ -82,7 +82,9 @@ try {
     // A wrong role is still accepted through PATCH and remains offered until
     // the owner repairs it. No new membership eligibility restriction.
     const land = cards[0];
-    await api(`/api/decks/${deck}/cards/${land.oracle_id}`, 'PATCH', { role: 'commander' });
+    const invalid = (await api(`/api/decks/${deck}/cards/${land.oracle_id}`, 'PATCH', { role: 'commander' })).state;
+    assert.equal(invalid.cards.find(card => card.oracle_id === land.oracle_id).can_be_commander, false);
+    assert(invalid.checks.some(finding => finding.key === `commander_ineligible:${land.oracle_id}`), 'the same eligibility predicate supplies the check');
     await inspect(land);
     const board = panel.getByRole('group', { name: 'Board', exact: true });
     assert.deepEqual(await board.getByRole('button').allTextContents(), ['Main deck', 'Commander']);
@@ -94,6 +96,9 @@ try {
     assert.equal((await axe(page)).length, 0); assert.deepEqual(watch.errors, []);
     await context.close(); console.log(`Card controls ${width} passed`);
   }
+  const tag = await api(`/api/decks/${deck}/tags`, 'POST', { name: 'Owned' });
+  const tagId = tag.state.tags.find(item => item.name === 'Owned').id;
+  await api(`/api/decks/${deck}/cards/${cards[0].oracle_id}`, 'PATCH', { tag_ids: [tagId] });
   await api(`/api/decks/${deck}`, 'PATCH', { category: 'archived' });
   const context = await newContext(browser, { origin, vp: VIEWPORTS[1440], user: 1, frozenNow: '2026-10-20T17:00:00Z', notes: { blocked: new Set(), imageFailures: new Set() } });
   const page = await context.newPage(), watch = watchPage(page);
@@ -106,6 +111,14 @@ try {
     assert.equal(await panel.getByRole('textbox', { name: /Copies of/ }).count(), 0, 'archived copies stay read-only');
     assert.equal(await panel.getByRole('button', { name: /copy of/ }).count(), 0);
   }
+  const filter = page.getByRole('button', { name: /Filter by tags$/ });
+  await filter.click();
+  await page.getByRole('option', { name: 'Owned', exact: true }).click();
+  await page.keyboard.press('Escape'); await settle(page, watch);
+  const filtered = page.locator('[data-deck-list] button[data-oracle-id]');
+  assert.equal(await filtered.count(), 1, 'archived decks retain tag filtering');
+  assert.equal(await filtered.getAttribute('data-oracle-id'), cards[0].oracle_id);
+  assert.equal(await page.getByRole('button', { name: 'Create tags', exact: true }).count(), 0);
   await context.close();
   writeFileSync(join(out, 'qa.json'), JSON.stringify({ results, invalid_role_can_return_to_main: true, archived_eligibility_preserved: true, cards }, null, 2) + '\n');
   console.log('check-card-controls passed');

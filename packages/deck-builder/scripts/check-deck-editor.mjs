@@ -103,6 +103,16 @@ try {
       await page.mouse.move(width / 2, 800);
       await page.mouse.wheel(0, 700);
       await until(() => page.evaluate(y => scrollY > y, before), 'phone window wheel scrolling works');
+      const heading = page.getByRole('region', { name: 'Current deck', exact: true });
+      await heading.waitFor();
+      assert((await heading.innerText()).includes(deck.name), 'phone scrolling retains the deck name');
+      const maybe = page.getByRole('region', { name: 'Maybe list', exact: true });
+      const geometry = await maybe.locator('[data-oracle-id]').evaluateAll(rows => rows.map(row => {
+        const name = row.querySelector('[class*="_name_"]'), price = row.querySelector('[class*="_price_"]');
+        const box = row.getBoundingClientRect(), p = price.getBoundingClientRect();
+        return { grid: getComputedStyle(row).display, nowrap: getComputedStyle(name).whiteSpace, height: box.height, priceFits: p.right <= box.right && p.top >= box.top && p.bottom <= box.bottom };
+      }));
+      assert(geometry.length > 0 && geometry.every(row => row.grid === 'grid' && row.nowrap === 'nowrap' && row.height === 44 && row.priceFits), 'phone maybe rows keep name, mana and price on one tap-height line');
     } else {
       const layout = await tracks(page);
       // ARCHITECTURE.md: desktop editors deliberately use 300px columns
@@ -115,6 +125,9 @@ try {
         await page.mouse.move(width / 2, 800);
         await page.mouse.wheel(0, 700);
         await until(() => page.evaluate(y => scrollY > y, before), 'tablet window wheel scrolling works');
+        const heading = page.getByRole('region', { name: 'Current deck', exact: true });
+        await heading.waitFor();
+        assert((await heading.innerText()).includes(deck.name), 'tablet scrolling retains the deck name');
       }
       await page.goto(origin + `/inbox?entry=proposal-${proposal.id}`);
       await click(page.getByRole('link', { name: /^Review in the list/ }).or(page.getByRole('button', { name: /^Review in the list/ })));
@@ -124,7 +137,18 @@ try {
       await until(() => reason.evaluate(el => document.activeElement === el).catch(() => false), 'handoff focuses chosen proposal reason');
       await until(() => visibleInPane(chosen.getByRole('button', { name: /^Accept/ })), 'chosen decision controls remain visible after history loads');
       await audit(page, `${width} review`);
-      if (width < 1100) await click(page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }));
+      if (width < 1100) {
+        await click(page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }));
+        const resume = page.getByRole('button', { name: 'Current proposal', exact: true });
+        await resume.waitFor();
+        const strip = page.locator('[data-tablet-review]');
+        assert(await strip.getByText('Reviewing', { exact: true }).isVisible(), 'tablet review keeps its progress visible');
+        assert.match(await strip.innerText(), /\d+ of \d+ decisions? left/);
+        await click(resume);
+        await reason.waitFor();
+        assert.equal(await chosen.count(), 1, 'Current proposal returns to the chosen proposal');
+        await click(page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }));
+      }
       const current = page.locator(`[data-deck-list] [data-current="true"][data-oracle-id="${first.oracle_id}"]`).first();
       assert(await current.evaluate(el => {
         const r = el.getBoundingClientRect(), list = el.closest('[data-deck-list]').getBoundingClientRect();
@@ -137,6 +161,10 @@ try {
       await tracks(page);
       await style.evaluate(el => el.remove());
       await page.screenshot({ path: `${artifacts}/review-${width}.png` });
+      if (width < 1100) {
+        await click(page.getByRole('button', { name: 'Done', exact: true }));
+        assert.equal(await page.getByRole('button', { name: 'Current proposal', exact: true }).count(), 0, 'Done ends the tablet review');
+      }
       // Start from the normal editor so a request to open a card closes no review draft.
       await page.goto(origin + `/deck/${deck.id}`);
       await click(page.locator('[data-deck-list] button[data-oracle-id]').first());
@@ -184,6 +212,13 @@ try {
         await until(async () => await add.inputValue() === '' && await add.getAttribute('aria-expanded') === 'false', 'normal deck add clears and closes results too');
         await click(page.getByRole('button', { name: 'Undo', exact: true }));
         await until(async () => !(await get(`/api/decks/${deck.id}`)).state.cards.some(c => c.oracle_id === candidate.oracle_id), 'undo toast reverses normal deck add');
+        await add.fill('no-such-catalogue-card');
+        await page.getByRole('status').filter({ hasText: /^No cards match this search/ }).waitFor();
+        const hints = await page.locator('[class*="_hints_"]').innerText();
+        assert(/Esc/.test(hints) && !/add|maybe list/.test(hints), 'empty catalogue results only advertise Escape');
+        assert(await page.getByText('Search by name, or use o:text t:type mv<=2.', { exact: true }).isVisible());
+        assert(await page.getByRole('button', { name: 'Search every colour', exact: true }).isVisible());
+        await add.press('Escape');
       }
     }
     if (width === 768) {
@@ -208,6 +243,13 @@ try {
     await page.goto(origin + '/decks');
     await page.getByRole('heading', { level: 1 }).waitFor();
     await audit(page, `${width} roster`);
+    if (width >= 720) {
+      const archived = decks.find(deck => deck.category === 'archived');
+      assert(archived);
+      await page.goto(origin + `/deck/${archived.id}`);
+      await page.getByRole('heading', { level: 1, name: archived.name }).waitFor();
+      assert.equal(await page.getByRole('button', { name: 'Create tags', exact: true }).count(), 0, 'archived decks never offer tag creation');
+    }
     console.log(`PASS ${width}px: accessibility, scrolling, layout and editor regressions`);
     await context.close();
   }
