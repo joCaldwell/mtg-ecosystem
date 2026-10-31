@@ -141,6 +141,50 @@ async function scrollDeckToEnd({ page, watch }) {
   }
 }
 
+/** Frame both sides of a board boundary using real wheel input. The same
+ * semantic regions exist in the unchanged build, the editor and the reader. */
+async function boardBoundary({ page, vp, watch }, name) {
+  const target = page.getByRole("region", { name, exact: true }).first();
+  await target.waitFor();
+  for (let pass = 0; pass < 50; pass++) {
+    const box = await target.boundingBox();
+    if (!box) throw new Error(`Missing ${name} boundary`);
+    const desired = vp.height * 0.48;
+    if (Math.abs(box.y - desired) < 3) break;
+    const at = await target.evaluate(el => {
+      for (let n = el.parentElement; n; n = n.parentElement) {
+        if (/(auto|scroll)/.test(getComputedStyle(n).overflowY) && n.scrollHeight > n.clientHeight + 1) {
+          const r = n.getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: (Math.max(0, r.top) + Math.min(innerHeight, r.bottom)) / 2 };
+        }
+      }
+      return { x: innerWidth / 2, y: innerHeight / 2 };
+    });
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.wheel(0, Math.sign(box.y - desired) * Math.min(650, Math.abs(box.y - desired)));
+    // Settle only at the final position. Waiting on lazy images encountered
+    // mid-scroll can deadlock the harness's held long-timer fallback.
+    await page.waitForTimeout(150);
+    const after = await target.boundingBox();
+    if (Math.abs(after.y - box.y) < 1) break;
+  }
+  // Wheel input leaves the mouse over rows even in touch contexts. Park it
+  // off the list so a hover card or a highlighted row cannot obscure a boundary.
+  await page.mouse.move(vp.width - 1, vp.height - 1);
+  // Chromium can leave lazy mana images unrequested in a reader's Stats
+  // column after a wheel scroll. Load visible pixels before settle waits on
+  // them; its long-timer fallback is intentionally held by the frozen clock.
+  await page.evaluate(() => {
+    for (const img of document.images) {
+      const r = img.getBoundingClientRect();
+      if (!img.complete && r.width > 0 && r.bottom > 0 && r.top < innerHeight) img.loading = "eager";
+    }
+  });
+  const box = await target.boundingBox();
+  if (!box || box.y < 100 || box.y > vp.height * 0.8) throw new Error(`${name} boundary is outside the capture`);
+  if (!await target.getByRole("button").count()) throw new Error(`${name} seed has no rows`);
+}
+
 /** Select the same destination across navigation compositions. Older builds
  * kept statistics in Checks; they remain a valid comparison of that task. */
 async function panelView(page, vp, view) {
@@ -268,8 +312,19 @@ const SCREENS = [
     ],
   },
   {
-    screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: [1280, 1440, 2560], states: [
+    screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: [1280, 1440, ...WIDE], states: [
       { state: "list-end", caption: "The card list at its end, with the toolbar and full-height panel pinned", act: scrollDeckToEnd },
+    ],
+  },
+  {
+    screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: ALL, states: [
+      { state: "boards", caption: "Main deck to maybe list boundary", act: args => boardBoundary(args, "Maybe list") },
+      { state: "boards-tokens", caption: "Maybe list to tokens boundary", act: args => boardBoundary(args, "Tokens") },
+    ],
+  },
+  {
+    screen: "public-deck", user: 0, path: "/d/{slug}", widths: [375, 768, 1440, 1920], states: [
+      { state: "boards", caption: "Public deck to tokens boundary", act: args => boardBoundary(args, "Tokens") },
     ],
   },
   {
@@ -536,6 +591,12 @@ async function runScreen(def, width, slug) {
       // Full-page screenshots can reset Chromium touch emulation; measure first.
       const m = await pageMetrics(page, vp);
       if (def.screen === "deck" && ["list-end", "short-deck", "short-deck-open"].includes(s.state)) m.deck_scroll = await deckScrollMetrics(page);
+      if (s.state.startsWith("boards")) m.board_boundaries = await page.evaluate(() => {
+        const maybe = document.querySelector('[aria-label="Maybe list"]');
+        const tokens = document.querySelector('[aria-label="Tokens"]');
+        const bounds = el => el ? { top: el.getBoundingClientRect().top, bottom: el.getBoundingClientRect().bottom, rows: el.querySelectorAll("button").length } : null;
+        return { maybe: bounds(maybe), tokens: bounds(tokens) };
+      });
       const full = await shoot(page, file);
       m.axe = await axe(page);
       m.axe_violations = m.axe.reduce((n, v) => n + v.nodes, 0);
