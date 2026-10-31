@@ -38,7 +38,10 @@ export function Dialog({ title, onClose, onEscape, width = "md", placement = "ce
     const el = panel.current;
     const visible = (selector: string) => Array.from(el?.querySelectorAll<HTMLElement>(selector) ?? []).find(item => item.getClientRects().length > 0);
     const target = visible("[data-autofocus]") ?? visible(FOCUSABLE);
-    (target ?? el)?.focus();
+    // A workflow may have already focused its destination after the portal
+    // attached (for example an inbox handoff to a decision in the sheet).
+    // The dialog's later passive effect must not replace that explicit focus.
+    if (!el?.contains(document.activeElement)) (target ?? el)?.focus();
 
     const unlock = lockBodyScroll();
     // A field inside the dialog that handles its own Escape (an inline
