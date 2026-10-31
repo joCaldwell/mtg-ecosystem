@@ -127,7 +127,7 @@ try {
   await page.evaluate(() => { window.__sharedDraft = document.querySelector('textarea[aria-label="Thesis"]'); });
   for (const width of [1024, 1440, 768, 1440]) {
     await page.setViewportSize({ width, height: width < 1100 ? 1024 : 900 }); await settle(page, watch);
-    if (width < 1100 && await page.getByRole("dialog").count() === 0) await page.getByRole("button", { name: "Open deck details", exact: true }).click();
+    if (width < 1100 && await page.getByRole("dialog").count() === 0) await page.getByRole("button", { name: "Deck details", exact: true }).click();
     assert.equal(await draft.inputValue(), "Unsaved shared popup draft");
     assert.equal(await page.evaluate(() => window.__sharedDraft === document.querySelector('textarea[aria-label="Thesis"]')), true);
   }
@@ -135,14 +135,14 @@ try {
   await scrollUntilVisible(page, trigger, VIEWPORTS[1440]); await trigger.click(); await settle(page, watch);
   for (const width of [1024, 768]) {
     await page.setViewportSize({ width, height: 1024 }); await settle(page, watch);
-    if (await page.getByRole("dialog").count() === 0) await page.getByRole("button", { name: "Open deck details", exact: true }).click();
+    if (await page.getByRole("dialog").count() === 0) await page.getByRole("button", { name: "Deck details", exact: true }).click();
     const sheet = page.getByRole("dialog", { name: "Deck details", exact: true }); await sheet.waitFor();
     const back = panel.getByRole("button", { name: "Back to Brief", exact: true }); await back.focus(); await back.press("Escape"); await settle(page, watch);
     await page.getByRole("dialog", { name: "Deck details · Brief", exact: true }).waitFor(); assert.equal(await draft.inputValue(), "Unsaved shared popup draft");
     await scrollUntilVisible(page, trigger, { width, height: 1024 }); await trigger.click(); await settle(page, watch);
   }
   await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click(); await settle(page, watch); assert.equal(await page.getByRole("dialog").count(), 0);
-  await page.getByRole("button", { name: "Open deck details", exact: true }).click(); assert.equal(await draft.inputValue(), "Unsaved shared popup draft");
+  await page.getByRole("button", { name: "Deck details", exact: true }).click(); assert.equal(await draft.inputValue(), "Unsaved shared popup draft");
   assert.equal((await axe(page)).length, 0); await context.close();
   assert.deepEqual(await read(), before, "inspection and unsaved forms do not write deck data");
   const report = { results, deck_data_unchanged: true, shared_popup_escape_back_close_distinct: true, shared_draft_dom_preserved_across_resize: true };

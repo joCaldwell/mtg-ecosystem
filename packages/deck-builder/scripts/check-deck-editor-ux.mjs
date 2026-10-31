@@ -58,10 +58,20 @@ try {
       await page.waitForTimeout(100);
       assert.ok(await page.evaluate(y => scrollY > y, before), "phone window scroll responds to wheel input");
       assert.equal(await page.getByRole("button", { name: "Edit the thesis" }).count(), 0);
+      // DESIGN.md: deck-wide actions follow the individual phone decisions
+      // inside Review all decisions, rather than competing above them.
+      const all = page.locator("summary").filter({ hasText: /^Review all decisions/ });
+      assert.equal(await all.locator("..").getAttribute("open"), null);
+      assert.equal(await page.getByRole("button", { name: "Accept all", exact: true }).count(), 0);
+      await all.click();
       assert.equal(await page.getByRole("button", { name: "Accept all", exact: true }).count(), 1);
+      assert.equal(await page.getByRole("button", { name: "Reject all", exact: true }).count(), 1);
+      assert.equal(await page.getByRole("textbox", { name: "Reason for accepting or rejecting everything, optional", exact: true }).count(), 1);
     } else {
       if (state.computed.card_count !== 100) {
-        assert.equal(await page.locator('[class*="_stats_"] button').first().evaluate(e => e.className.includes("_warn_")), true, "off-target card count is amber");
+        // The compact header also has a stats/action row in the DOM. Select
+        // the accessible card-count control, not that hidden row's first button.
+        assert.equal(await page.getByRole('button', { name: `${state.computed.card_count} / 100 cards`, exact: true }).evaluate(e => e.className.includes("_warn_")), true, "off-target card count is amber");
       }
       const numericSizes = await page.locator('[class*="_price_"], [class*="_count_"], [class*="_figure_"]').evaluateAll(elements => elements.map(e => parseFloat(getComputedStyle(e).fontSize)));
       assert.ok(numericSizes.length > 0 && numericSizes.every(size => size >= 12), "numeric metadata is at least 12px");
@@ -115,7 +125,7 @@ try {
         await thesis.fill("Unsaved rotation check");
         await page.setViewportSize({ width: 1024, height: 900 });
         assert.equal(await page.evaluate(() => window.qaRow === document.querySelector('button[class*="_row_"]')), true);
-        await page.getByRole("button", { name: "Open deck details", exact: true }).click();
+        await page.getByRole("button", { name: "Deck details", exact: true }).click();
         assert.equal(await thesis.inputValue(), "Unsaved rotation check");
         await page.setViewportSize({ width: 1280, height: 900 });
         assert.equal(await thesis.inputValue(), "Unsaved rotation check");
@@ -127,12 +137,18 @@ try {
     console.log(`${width}: owner deck passed; first card ${Math.round(first.y)}px, row ${first.height}px; axe 0`);
 
     const { state: shared } = await (await context.request.get(`${origin}/api/decks/4`)).json();
-    await context.clearCookies();
-    await page.goto(`${origin}/d/${shared.deck.slug}`);
-    await page.locator(rows).first().waitFor();
-    assert.ok((await page.locator(rows).first().boundingBox()).height >= (width < 1100 ? 44 : 24));
-    await audit(page);
+    // Removing cookies while the private app is mounted races its background
+    // requests and 401 sign-in navigation against the public-page navigation.
+    const publicContext = await browser.newContext({ viewport: { width, height: 900 }, hasTouch: width < 1100, reducedMotion: "reduce" });
+    const publicPage = await publicContext.newPage();
+    publicPage.on("pageerror", error => errors.push(error.message));
+    await publicPage.goto(`${origin}/d/${shared.deck.slug}`);
+    await publicPage.locator(rows).first().waitFor();
+    assert.ok((await publicPage.locator(rows).first().boundingBox()).height >= (width < 1100 ? 44 : 24));
+    await audit(publicPage);
+    assert.deepEqual(errors, []);
     console.log(`${width}: signed-out public deck passed; axe 0`);
+    await publicContext.close();
     await context.close();
   }
 } finally {
