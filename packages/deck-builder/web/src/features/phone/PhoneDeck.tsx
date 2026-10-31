@@ -45,7 +45,10 @@ function Deck({ proposalId }: { proposalId?: number }) {
       useView={useDeckView}
       header={<>
         <DeckArt cards={proposalId ? [] : state!.cards.filter(c => c.role === "commander" && !c.maybe)} identity={deck.color_identity} variant="banner" priority="auto"><header className={styles.head}>
-          <a className={styles.back} href={href({ page: proposalId ? "inbox" : "decks" })}><Icon name="back" /> {proposalId ? "Inbox" : "Decks"}</a>
+          <div className={styles.navigation}>
+            <a className={styles.back} href={href({ page: proposalId ? "inbox" : "decks" })}><Icon name="back" /> {proposalId ? "Inbox" : "Decks"}</a>
+            {deck.category === "archived" && <p className={styles.archiveNotice}>Read-only. Switch to Paper or Theorycrafted, or fork to edit.</p>}
+          </div>
           <div className={styles.top}>
             <h1 className={styles.title}>{deck.name}</h1>
             {!proposalId && <> <Chip className={styles.lifecycle}>{DECK_CATEGORY_LABELS[deck.category]}</Chip></>}

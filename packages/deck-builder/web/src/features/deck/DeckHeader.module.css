@@ -26,6 +26,8 @@ button.name:hover { color: var(--text-soft); text-decoration: underline dotted v
 .actions > button:hover, .actions [aria-haspopup="menu"]:hover, .action:hover { background: var(--surface); border-color: var(--line-hover); }
 .action { display: inline-flex; align-items: center; height: var(--h-md); padding: 0 var(--s-5); border: 1px solid var(--line-strong); border-radius: var(--r-md); color: var(--text); white-space: nowrap; }
 .lifecycle { display: flex; align-items: center; gap: var(--s-3); }
+.archived:not(.compact) { padding-top: var(--s-6); isolation: isolate; }
+.archiveNotice { color: var(--text-soft); font-size: var(--text-sm); margin-bottom: var(--s-4); max-width: 100%; }
 .compact { flex-direction: row; align-items: center; justify-content: start; gap: var(--s-5); min-height: var(--art-editor-compact-h); height: var(--art-editor-compact-h); padding: var(--s-4) var(--s-6); background: var(--bg); border-bottom: 1px solid var(--line); }
 .compact .top { flex-wrap: nowrap; max-width: none; min-width: 0; }
 .compact .title { font-size: var(--text-xl); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -44,12 +46,12 @@ button.name:hover { color: var(--text-soft); text-decoration: underline dotted v
 
 /* Content-sized scrims leave the exposed face and sky untouched. Their
    fully opaque mask covers every glyph; only the surrounding feather fades. */
-.header:not(.compact) :is(.top, .sub, .metadata) {
+.header:not(.compact) :is(.top, .sub, .metadata, .archiveNotice) {
   position: relative;
   isolation: isolate;
   width: fit-content;
 }
-.header:not(.compact) :is(.top, .sub, .metadata)::before {
+.header:not(.compact) :is(.top, .sub, .metadata, .archiveNotice)::before {
   content: "";
   position: absolute;
   z-index: -1;
@@ -58,6 +60,9 @@ button.name:hover { color: var(--text-soft); text-decoration: underline dotted v
   mask-image: var(--art-editor-text-mask);
   pointer-events: none;
 }
+/* All archive scrims paint behind the text, including where the notice's
+   feather meets the title's. A neighbouring scrim must never dim its ink. */
+.header.archived:not(.compact) :is(.top, .sub, .metadata, .archiveNotice) { isolation: auto; }
 /* Underline the glyphs, not the bottom edge of a tall touch control. */
 .commander button {
   border-bottom: 0;
@@ -91,4 +96,10 @@ button.name:hover { color: var(--text-soft); text-decoration: underline dotted v
     margin-block: calc(-1 * var(--power-hit-pad));
     line-height: inherit;
   }
+  /* Use the existing hero's space: the notice is one line at tablet width,
+     and the power control's padded hit area already reaches into the gaps. */
+  .header.archived { gap: 0; padding-block: var(--s-2); }
+  .archived .archiveNotice { margin-bottom: 0; }
+  .header.archived .metadata,
+  .header.archived:has(.commander + .commander) .metadata { min-height: 0; }
 }

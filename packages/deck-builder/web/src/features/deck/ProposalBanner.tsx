@@ -1,6 +1,6 @@
 // The strip under the toolbar that says whether anything is waiting on the
 // owner (spec §8.2): an agent's proposal, or the review in progress. Archived
-// decks show an archive notice instead.
+// decks keep their read-only notice inside the art header instead.
 
 import { useEffect, useState } from "react";
 import { ago } from "../../domain/time.ts";

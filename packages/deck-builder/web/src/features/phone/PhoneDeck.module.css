@@ -6,7 +6,11 @@
   padding: var(--s-4) var(--s-5) var(--s-5);
 }
 
+.navigation { display: flex; align-items: center; gap: var(--s-5); }
+.archiveNotice { color: var(--text-soft); font-size: var(--text-sm); }
+.head:has(.archiveNotice) { isolation: isolate; }
 .back {
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: var(--s-3);
@@ -56,13 +60,13 @@
 .commanders { min-height: var(--tap); display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3) var(--s-4); color: var(--text-soft); font-size: var(--text-sm); }
 
 /* The art stays bright outside each text block, even at phone width. */
-.head > :is(.back, .top, .commanders, .meta) {
+.head > :is(.navigation, .top, .commanders, .meta) {
   position: relative;
   isolation: isolate;
   width: fit-content;
   max-width: 100%;
 }
-.head > :is(.back, .top, .commanders, .meta)::before {
+.head > :is(.navigation, .top, .commanders, .meta)::before {
   content: "";
   position: absolute;
   z-index: -1;
@@ -71,6 +75,7 @@
   mask-image: var(--art-editor-text-mask);
   pointer-events: none;
 }
+.head:has(.archiveNotice) > :is(.navigation, .top, .commanders, .meta) { isolation: auto; }
 .head .commanders button {
   --commander-hit-pad: calc((var(--tap) - 1em * var(--leading)) / 2 + var(--s-1) / 2);
   display: inline-block;

@@ -171,7 +171,7 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
                 {error}
               </Banner>
             )}
-            {state.deck.category === "archived" ? <Banner tone="neutral" actions={<Button size="sm" onClick={() => ui.openDialog("fork")} aria-haspopup="dialog">Fork</Button>}>Archived decks are read-only. To make changes, switch this deck to Paper or Theorycrafted, or fork it.</Banner> : <ProposalBanner units={view.units} review={review} confirmingAll={confirmingAll} setConfirmingAll={setConfirmingAll} />}
+            {state.deck.category !== "archived" && <ProposalBanner units={view.units} review={review} confirmingAll={confirmingAll} setConfirmingAll={setConfirmingAll} />}
             <DeckBody
               list={
                 <>

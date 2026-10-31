@@ -397,7 +397,7 @@ printed artist and copyright lines.
 | Variant | Placement | Reserved frame | Loading |
 | --- | --- | --- | --- |
 | strip | Desktop/phone roster, public profile, style guide | `--art-aspect` (626/457) gallery frame | deferred: `load` from `useNearView` (200 px), then eager |
-| editor | Owner’s desktop/tablet deck header | `--art-editor-h` (200–240 px by viewport height); tablet 256 px | eager |
+| editor | Owner’s desktop/tablet deck header | `--art-editor-h` (200–240 px by viewport height); tablet 180 px minimum | eager |
 | banner | Phone deck header | `--art-editor-phone-h` (224 px minimum) | eager |
 | showcase | Public deck page | `--art-showcase-space` (176 px), 112 px on phones | eager, `priority="high"` (`fetchpriority`) |
 | backdrop | Sign-in and empty-account landing only | `--art-backdrop-space` | eager; one land per visit, no rotation |
@@ -482,6 +482,20 @@ printed artist and copyright lines.
   eased horizontal and bottom fades derive from `--bg`. Missing or failed
   art keeps the same black frame with a 12% identity tint. Credits stay
   inside their own crops, unboxed at the gallery's 0.22 emphasis.
+- **An archived deck's notice belongs inside the art, above its title.**
+  Desktop and tablet retain “Archived decks are read-only. To make changes,
+  switch this deck to Paper or Theorycrafted, or fork it.” in `--text-sm`
+  `--text-soft`, with the same local text scrim. Neighbouring archive scrims
+  paint behind all header text so their feathers cannot dim the notice.
+  It occupies existing hero space; no notice or empty slot sits between
+  toolbar and list. Archived tablet spacing fits the 180 px hero without
+  reducing touch targets. Fork joins Playtest, Share and More as a visible
+  dialog button, including in the 56 px compact bar. The full notice scrolls
+  away there; the lifecycle pill retains Archived. On phones the existing
+  Back row carries “Read-only. Switch to Paper or Theorycrafted, or fork to
+  edit.” beside Back, above the title, without growing the 224 px frame.
+  Phone capabilities stay read-and-decide; owner forking remains in the full
+  editor. Non-archived headers and proposal notices keep their composition.
 - **The header yields to work through native scrolling.** Desktop has a
   short outer page scroll before the existing independent card-list scroll.
   The full header scrolls away to a 56 px compact title, lifecycle and action

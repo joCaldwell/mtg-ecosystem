@@ -80,7 +80,8 @@ export function DeckHeader({ compact = false }: { compact?: boolean }) {
   ];
 
   const content = (
-    <header className={`${styles.header} ${compact ? styles.compact : ""}`}>
+    <header className={`${styles.header} ${compact ? styles.compact : ""} ${readOnly ? styles.archived : ""}`}>
+      {readOnly && !compact && <p className={styles.archiveNotice}>Archived decks are read-only. To make changes, switch this deck to Paper or Theorycrafted, or fork it.</p>}
       <div className={styles.top}>
         {draft == null ? (
           <h1 className={styles.title}>
@@ -173,6 +174,7 @@ export function DeckHeader({ compact = false }: { compact?: boolean }) {
         </DeckStat>}
         {/* Peers, so one secondary style, set apart from the status chips. */}
         <div className={styles.actions}>
+          {readOnly && <Button onClick={() => ui.openDialog("fork")} aria-haspopup="dialog">Fork</Button>}
           {/* A link, so it opens in a new tab too; drawn as Button's default. */}
           <a className={styles.action} href={href({ page: "playtest", deckId: deck.id })}>Playtest</a>
           {/* One word wide in every state, so publishing never wraps the

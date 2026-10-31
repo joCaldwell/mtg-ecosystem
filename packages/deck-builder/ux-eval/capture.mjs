@@ -220,6 +220,41 @@ const SCREENS = [
     ],
   },
   {
+    screen: "deck", user: U.owner, path: `/deck/${D.rograkh}`, widths: ALL, states: [
+      { state: "archived", caption: "An archived deck with its read-only notice" },
+      { state: "archived-scrolled", caption: "An archived deck after scrolling", act: async ({ page, vp, watch }) => {
+        const target = vp.width < 720 ? page.getByRole("heading", { level: 1 }) : page.locator("[data-deck-list]");
+        const box = await target.boundingBox();
+        if (!box) throw new Error("Archived deck has no rendered bounds");
+        await page.mouse.move(box.x + box.width / 2, Math.min(box.y + 120, vp.height - 120));
+        await page.mouse.wheel(0, 480);
+        await settle(page, watch);
+      } },
+    ],
+  },
+  ...[false, true].map(scrolled => ({
+    screen: "deck", user: U.owner, path: `/deck/${D.rograkh}`, widths: APP,
+    states: [{ state: scrolled ? "archived-scrolled-fork" : "archived-fork", caption: "Fork an archived deck from the header", act: async ({ page, vp, watch }) => {
+      if (scrolled) {
+        const box = await page.locator("[data-deck-list]").boundingBox();
+        if (!box) throw new Error("Archived deck list has no rendered bounds");
+        await page.mouse.move(box.x + box.width / 2, Math.min(box.y + 120, vp.height - 120));
+        await page.mouse.wheel(0, 480);
+        await settle(page, watch);
+        // Tablets scroll the hero away with the window, so return to its
+        // actions using real input; desktop keeps the compact Fork in view.
+        if (vp.width < 1100) {
+          await page.mouse.wheel(0, -2000);
+          await settle(page, watch);
+        }
+      }
+      const fork = page.getByRole("button", { name: "Fork", exact: true });
+      if (await fork.getAttribute("aria-haspopup") !== "dialog") throw new Error("Fork must announce its dialog");
+      await press(page, fork, vp);
+      await page.getByRole("dialog", { name: "Fork this deck", exact: true }).waitFor();
+    } }],
+  })),
+  {
     screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: [1280, 1440, ...WIDE], states: [
       { state: "list-scrolled", caption: "Working in the deck after scrolling the card list", act: async ({ page, watch }) => {
         // This stable marker also exists in older builds. Trusted wheel input

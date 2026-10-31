@@ -388,7 +388,13 @@ editing permissions (§5.2); per-card tags remain independent (§5.4). Changing
 lifecycle never changes the card list or its revision.
 
 The UI shows one Lifecycle control in the deck header and one column in All
-decks. New decks and forks default to Theorycrafted. Schema 9 preserves
+decks. The archived read-only notice sits inside the art header above the
+title, using its existing space rather than a row below the toolbar. Fork
+is a visible header action on desktop/tablet and remains in the 56 px compact
+bar when the full notice scrolls away. Phones put a shortened notice beside
+Back above the title, preserving their existing frame and read-and-decide
+scope (§11.2). Non-archived proposal notices keep their placement.
+New decks and forks default to Theorycrafted. Schema 9 preserves
 existing categories and removes the Draft/Active column; it does not infer a
 lifecycle from the former flag. The internal field remains `category`.
 Schema 15 (v3 4b, after sharing's 14) changes only the persisted lifecycle
