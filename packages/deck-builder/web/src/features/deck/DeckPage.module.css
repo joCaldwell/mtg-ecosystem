@@ -19,13 +19,11 @@
   .page :is(button, select, input) { min-height: var(--tap); }
 }
 
-/* The hero scrolls normally; the compact header occupies no extra flow space.
-   Hidden copies are also inert (useDeckHeaderScroll), so menus and focus only
-   belong to the visible header. There is no animated height or smooth scroll;
-   reduced-motion users get the same direct native scroll path. */
-.compact { position: sticky; top: 0; height: 0; z-index: var(--z-sticky); visibility: hidden; }
-.page[data-compact="true"] .compact { visibility: visible; }
-.page[data-compact="true"] [data-deck-hero] > * > header { visibility: hidden; }
+/* Scroll-linked opacity overlaps the two headers before the hero leaves.
+   Inert switches only at the completed fold; there is no timed animation. */
+.compact { position: sticky; top: 0; height: 0; z-index: var(--z-sticky); opacity: var(--deck-compact-opacity, 0); pointer-events: none; }
+.page[data-compact="true"] .compact { pointer-events: auto; }
+.page [data-deck-hero] > * > header { opacity: calc(1 - var(--deck-compact-opacity, 0)); }
 .workspace { display: flex; flex-direction: column; height: var(--deck-workspace-h); min-height: 0; }
 .scrollTail { height: var(--deck-fold-room, 0px); pointer-events: none; }
 @media (max-width: 1099px) {

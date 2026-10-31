@@ -104,87 +104,89 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
 
   return (
     <div ref={scroll} data-deck-list={!readOnly ? "true" : undefined} className={readOnly ? styles.flow : styles.scroll}>
-      {nothingToShow ? (
-        <EmptyState title="No cards yet">
-          {emptyAction ?? "This deck has no cards in it yet."}
-        </EmptyState>
-      ) : nothingMatches ? (
-        <p className={styles.noMatches}>{noMatchesLine(ui.searchTerm, ui.tagIds.length > 0)}</p>
-      ) : (
-        <>
-          <div className={styles.frame}>
-            <GroupHeader title="Main deck" board />
-            <div ref={cols} className={styles.cols}>
-              <GroupBlock
-                filter={filter}
-                title="Commander"
-                cost={commanderCost}
-                cards={layout.commanders}
-                cuts={cuts}
-                current={current}
-                marks={marks}
-                bold
-                empty={
-                  <p className={styles.hint}>
-                    {readOnly ? "No commander yet." : "No commander yet. Search for a legendary creature above and add it as the commander."}
-                  </p>
-                }
-              />
-              {layout.groups.map((g) => (
+      <div data-deck-list-content className={styles.content}>
+        {nothingToShow ? (
+          <EmptyState title="No cards yet">
+            {emptyAction ?? "This deck has no cards in it yet."}
+          </EmptyState>
+        ) : nothingMatches ? (
+          <p className={styles.noMatches}>{noMatchesLine(ui.searchTerm, ui.tagIds.length > 0)}</p>
+        ) : (
+          <>
+            <div className={styles.frame}>
+              <GroupHeader title="Main deck" board />
+              <div ref={cols} className={styles.cols}>
                 <GroupBlock
                   filter={filter}
-                  key={g.key}
-                  title={g.title}
-                  count={g.count}
-                  target={g.target}
-                  status={g.status}
-                  delta={g.delta}
-                  projected={reviewing ? overlay.projected.get(g.key) : undefined}
-                  cost={g.cost}
-                  cards={g.cards}
-                  secondaryCards={g.secondaryCards}
-                  commandZoneCards={g.commandZoneCards}
-                  primaryCount={g.primaryCount}
-                  secondaryCount={g.secondaryCount}
-                  adds={addsByGroup.get(g.key)}
+                  title="Commander"
+                  cost={commanderCost}
+                  cards={layout.commanders}
                   cuts={cuts}
                   current={current}
                   marks={marks}
-                  empty={<p className={styles.hint}>Nothing filed here.</p>}
+                  bold
+                  empty={
+                    <p className={styles.hint}>
+                      {readOnly ? "No commander yet." : "No commander yet. Search for a legendary creature above and add it as the commander."}
+                    </p>
+                  }
                 />
-              ))}
-              {layout.companions.length > 0 && (
-                <GroupBlock
-                  filter={filter}
-                  title="Companion"
-                  cost={companionCost}
-                  cards={layout.companions}
-                  cuts={cuts}
-                  current={current}
-                  marks={marks}
-                />
-              )}
-            </div>
-            {/* A long group's name at the top of each column it continues into.
-                Not a heading: the group already has one in the outline. */}
-            {continued.map((c) => (
-              <div key={c.key} className={styles.continued} style={{ top: c.top, left: c.left, width: c.width }} aria-hidden="true">
-                <span className={styles.continuedTitle}>{c.title}</span> <span className={styles.continuedMark}>(cont.)</span>
+                {layout.groups.map((g) => (
+                  <GroupBlock
+                    filter={filter}
+                    key={g.key}
+                    title={g.title}
+                    count={g.count}
+                    target={g.target}
+                    status={g.status}
+                    delta={g.delta}
+                    projected={reviewing ? overlay.projected.get(g.key) : undefined}
+                    cost={g.cost}
+                    cards={g.cards}
+                    secondaryCards={g.secondaryCards}
+                    commandZoneCards={g.commandZoneCards}
+                    primaryCount={g.primaryCount}
+                    secondaryCount={g.secondaryCount}
+                    adds={addsByGroup.get(g.key)}
+                    cuts={cuts}
+                    current={current}
+                    marks={marks}
+                    empty={<p className={styles.hint}>Nothing filed here.</p>}
+                  />
+                ))}
+                {layout.companions.length > 0 && (
+                  <GroupBlock
+                    filter={filter}
+                    title="Companion"
+                    cost={companionCost}
+                    cards={layout.companions}
+                    cuts={cuts}
+                    current={current}
+                    marks={marks}
+                  />
+                )}
               </div>
-            ))}
-          </div>
-          <MaybeList cards={layout.maybe} filter={filter} />
-          <TokenList filter={filter} />
-        </>
-      )}
-      {/* The markers are the owner's workflow; a viewer's list has none. */}
-      {!viewer && !nothingToShow && !nothingMatches && legend.length > 0 && <p className={styles.legend}>
-        {legend.map((kind) => (
-          <Text key={kind} tone="faint" size="xs" className={styles.legendItem}>
-            <Mark kind={kind} decorative /> {MARK_LABEL[kind]}
-          </Text>
-        ))}
-      </p>}
+              {/* A long group's name at the top of each column it continues into.
+                  Not a heading: the group already has one in the outline. */}
+              {continued.map((c) => (
+                <div key={c.key} className={styles.continued} style={{ top: c.top, left: c.left, width: c.width }} aria-hidden="true">
+                  <span className={styles.continuedTitle}>{c.title}</span> <span className={styles.continuedMark}>(cont.)</span>
+                </div>
+              ))}
+            </div>
+            <MaybeList cards={layout.maybe} filter={filter} />
+            <TokenList filter={filter} />
+          </>
+        )}
+        {/* The markers are the owner's workflow; a viewer's list has none. */}
+        {!viewer && !nothingToShow && !nothingMatches && legend.length > 0 && <p className={styles.legend}>
+          {legend.map((kind) => (
+            <Text key={kind} tone="faint" size="xs" className={styles.legendItem}>
+              <Mark kind={kind} decorative /> {MARK_LABEL[kind]}
+            </Text>
+          ))}
+        </p>}
+      </div>
     </div>
   );
 }
@@ -195,6 +197,7 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
 export function revealFilterResults(list: HTMLElement | null): void {
   if (!list) return;
   list.scrollTop = 0;
+  list.dispatchEvent(new Event("deck-workspace-reveal"));
   const offset = parseFloat(getComputedStyle(list).scrollMarginTop) || 0;
   if (list.getBoundingClientRect().top < offset) list.scrollIntoView({ block: "start", inline: "nearest" });
 }
@@ -246,6 +249,9 @@ export function revealCardRow(root: ParentNode, oracleId: string): void {
 /** Scroll whichever holds the rows: the desktop list pane, or below 1100 px
  *  the window, under its sticky bars (the rows' scroll margin). */
 function revealRows(list: HTMLElement, rows: HTMLElement[], named: HTMLElement | undefined): void {
+  // Explicit reveals may need the whole viewport immediately. Measure after
+  // the fold so centring uses the final viewport rather than the old hero.
+  list.dispatchEvent(new Event("deck-workspace-reveal"));
   const boxes = rows.map(row => row.getBoundingClientRect());
   const namedBox = named ? boxes[rows.indexOf(named)] : undefined;
   const style = getComputedStyle(list);

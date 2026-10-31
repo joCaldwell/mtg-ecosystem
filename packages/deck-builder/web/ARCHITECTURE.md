@@ -380,11 +380,18 @@ pass `load` from `ui/useNearView`, which observes the nearest container that
 actually scrolls (or the window) with a 200 px margin, so off-screen roster
 and rail art is not downloaded. The owner's editor uses `editor`: native-size
 right-aligned crops and a dim blurred wash behind the title. `useDeckHeaderScroll`
-coordinates a short native page scroll with the independent list pane. A compact
-header stays above the toolbar; workspace height grows by the exact scroll
-amount while an end spacer shrinks, without remounting or rewriting the list
-scroll offset. Panel-only scrolling does not fold it. The list's filter restore
-also remembers the outer page offset. Tablet/phone/public shells retain
+uses the list's native scroll offset for the entire header-to-list gesture.
+The first hero-to-compact pixels scroll the outer page and expand the workspace;
+a matching translation inside the list compensates for those pixels. Its range
+stays constant, including on short decks. No wheel event is cancelled or smoothed
+in JavaScript, so native wheel animation and precise trackpad momentum both
+survive the hand-off in either direction. Dimensions are cached on resize, and
+past the fold the hook makes no style writes. The headers crossfade with scroll
+position and only the active copy is accessible. Panel-only scrolling does not
+fold it. Explicit find/review/card reveals expose the full viewport before
+measuring their target; native keyboard/scrollbar scrolling uses the continuous
+offset. Filter restore remembers both list and outer page positions.
+Tablet/phone/public shells retain
 `useWindowScroll` and let their headers leave naturally with the document. Sign-in uses that same hook and a labelled main. The public/phone
 reader uses `BriefText`, without the editable
 brief wrapper's state or loader in its initial dependency graph.

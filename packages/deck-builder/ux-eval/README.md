@@ -309,3 +309,38 @@ feedback, setup-disclosure keyboard behavior and unsaved token labels at every
 desktop width. A regular account verifies open initial instructions and disabled
 admin refresh. The once-only token/revocation flow is exercised only in the
 fixture; its secret is never logged or captured.
+
+### Header scroll timing (separate from deterministic capture)
+
+`capture.mjs` forces reduced motion and disables smooth scrolling. Use the
+native-input timing probe to evaluate the header/list hand-off:
+
+```sh
+npx vite build --outDir /tmp/deck-scroll-dist --emptyOutDir
+node ux-eval/check-header-scroll.mjs --port 8850 \
+  --seed ~/.cache/deck-builder-ux-eval/seed-tokens/seed.db \
+  --dist /tmp/deck-scroll-dist --out /tmp/deck-scroll-frames.json
+```
+
+Run it against immutable baseline and candidate builds. It starts `serve.ts`
+against a copy of the seed, enables Chromium smooth scrolling and shows native
+scrollbars. Each rAF records header position, compact opacity/visibility,
+toolbar position, list offset, an anchor row and the first visible row. The
+summaries include largest frame movements, reversals, interior stalls,
+hand-off neighbourhoods, row/column changes, range drift and browser timing.
+Scenarios cover one notch, accumulating notches, 4 px every frame, reverse,
+mid-list, keyboard, native focus reveal and resize, with both motion preferences.
+Extra assertions exercise panel-only scrolling, card inspection, find/clear
+restoration, review keys and dragging the native scrollbar. Use
+`--regressions-only` for those assertions alone, or `--only <regex>` to select
+`input-mode/motion-preference/scenario` timing cases.
+
+Playwright's `page.mouse.wheel` always sends Chromium **precise pixel** input:
+even a 120 px event bypasses native notch animation. The probe keeps those
+real wheel events for direct-input measurements, and also uses CDP's pixel-wheel
+path (`Input.emulateTouchFromMouseEvent`, wheel events only) to exercise the
+browser's native animator. Its sign is opposite Playwright's. The distinction
+comes from Chromium's [input handler](https://github.com/chromium/chromium/blob/main/content/browser/devtools/protocol/input_handler.cc).
+Neither path is a physical mouse or trackpad; validate hardware feel separately.
+External images are blocked consistently in timing runs to isolate layout/input;
+ordinary captures still exercise the stored art and symbol assets.

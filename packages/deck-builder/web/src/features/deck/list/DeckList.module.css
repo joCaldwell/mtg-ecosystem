@@ -120,3 +120,18 @@
 
 /* A filter confined to maybes has no main board to title. */
 .frame:has(> .cols:empty) { display: none; }
+
+/* One native list offset includes the header's travel. Compensation keeps
+   rows at their original content coordinates while the workspace grows. The
+   minimum gives even an empty deck enough native range to yield its hero. */
+@media not all and (max-width: 1099px) {
+  .scroll { overflow-anchor: none; scrollbar-gutter: stable; }
+  .scroll, .scroll:has(+ [role="toolbar"]) { padding-bottom: 0; }
+  .scroll > .content {
+    display: flow-root;
+    padding-bottom: var(--s-6);
+    min-height: calc(100% + var(--deck-fold-room, 0px));
+    transform: translateY(var(--deck-fold, 0px));
+  }
+  .scroll:has(+ [role="toolbar"]) > .content { padding-bottom: calc(var(--s-8) * 2); }
+}

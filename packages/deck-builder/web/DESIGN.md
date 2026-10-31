@@ -510,16 +510,21 @@ printed artist and copyright lines.
   Phone capabilities stay read-and-decide; owner forking remains in the full
   editor. Non-archived headers and proposal notices keep their composition.
 - **The header yields to work through native scrolling.** Desktop has a
-  short outer page scroll before the existing independent card-list scroll.
-  The full header scrolls away to a 56 px compact title, lifecycle and action
-  bar. The workspace grows into the uncovered space while an equal end
+  continuous native card-list offset that first scrolls the outer header away
+  to a 56 px compact title, lifecycle and action bar. The two headers crossfade
+  over the last compact-bar height of travel, without an abrupt visibility swap.
+  The workspace grows into the uncovered space while an equal end
   spacer shrinks, keeping the native scroll range constant. Rows move only
-  through scrolling, the list and panel stay mounted, and list scroll offsets
-  are never rewritten by the fold. Panel scrolling alone leaves the header
+  through scrolling, with a matching content translation during the fold. The
+  list and panel stay mounted and columns keep the same width and breaks.
+  Panel scrolling alone leaves the header
   open. Find/review/keyboard list reveals also expose the compact workspace;
   clearing a filter restores the saved outer, list and window positions.
-  There is no height animation or smooth-scroll dependency, including with
-  reduced motion. At 1280 × 800 the header is about 213 px; at 1440 × 900
+  Wheel input is never intercepted: the browser owns wheel animation, precise
+  trackpad input and momentum across the whole gesture, in either direction.
+  Workspace sizing and header opacity follow that position directly; there is
+  no added timed animation or easing, including with reduced motion. At
+  1280 × 800 the header is about 213 px; at 1440 × 900
   it is 240 px. Tablets retain window scrolling and 44 px controls; their
   180 px hero leaves naturally. Commander and estimate text stay on the dark
   side; the status chips and Playtest, Share and More share one row. Add cards
