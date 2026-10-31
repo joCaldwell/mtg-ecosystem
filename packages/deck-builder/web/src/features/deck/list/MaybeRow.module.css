@@ -55,6 +55,9 @@
 
 /* Full-row pointer and focus target. Full notes and their links live in details. */
 .hit { position: absolute; inset: 0; width: 100%; border-radius: inherit; }
+/* Grid items paint above the empty positioned button. Identity text and
+   symbol images must pass clicks through to that same whole-row target. */
+.row > :not(.hit) { pointer-events: none; }
 .hit:focus-visible { outline-offset: -2px; }
 @media (max-width: 1099px) { .row { min-height: var(--tap); } }
 
