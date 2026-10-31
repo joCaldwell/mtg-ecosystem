@@ -830,6 +830,8 @@ export interface DeckCardView extends ResolvedPrice {
   maybe: number;
   maybe_note: string;
   quantity: number;
+  /** Most copies the card allows (copyLimit); null when there is no limit. */
+  copy_limit: number | null;
   tag_ids: number[];
 }
 
@@ -865,7 +867,11 @@ function readDeck(db: Database, actor: Actor, deckId: number, opts: { pricesFor?
     list.push(r.tag_id);
     tagsByCard.set(r.oracle_id, list);
   }
-  for (const card of cards) card.tag_ids = tagsByCard.get(card.oracle_id) ?? [];
+  for (const card of cards) {
+    card.tag_ids = tagsByCard.get(card.oracle_id) ?? [];
+    const limit = copyLimit(card);
+    card.copy_limit = Number.isFinite(limit) ? limit : null;
+  }
   const secondaryRows = db.prepare("SELECT oracle_id, slot_id FROM deck_card_secondary_slots WHERE deck_id = ? ORDER BY slot_id")
     .all(deckId) as unknown as { oracle_id: string; slot_id: number }[];
   const secondaryByCard = new Map<string, number[]>();

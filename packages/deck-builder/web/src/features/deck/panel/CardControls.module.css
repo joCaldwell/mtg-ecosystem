@@ -16,12 +16,7 @@
   min-width: 0;
 }
 
-.quantity {
-  width: calc(var(--s-8) * 2);
-  font-family: var(--font-mono);
-}
-
-.kv dd > :not(.quantity), .tags > div { width: 100%; }
+.kv dd > :not(:has(> input)), .tags > div { width: 100%; }
 
 /* Three labels need more than the column beside the row labels, so Board
    takes the whole width under its label. The tablet sheet has the room. */

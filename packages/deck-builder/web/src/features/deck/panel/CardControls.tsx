@@ -1,9 +1,10 @@
 // The owner's own edits to a card already in this deck (or on its maybe list).
 // They apply at once and are logged; nothing here is a proposal.
 
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { api, type DeckCard } from "../../../api/client.ts";
-import { Button, KeyValue, MultiSelect, Segmented, Select, Text, TextField } from "../../../ui/index.ts";
+import { Button, KeyValue, MultiSelect, Segmented, Select, Text } from "../../../ui/index.ts";
+import { CopiesControl } from "./CopiesControl.tsx";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import styles from "./CardControls.module.css";
@@ -19,18 +20,8 @@ export function CardControls({ card, part = "all" }: { card: DeckCard; part?: "a
   const { slots, tags, deck } = useDeckState();
   const { deckId, run } = useDeck();
   const ui = useDeckUi();
-  const [quantity, setQuantity] = useState(String(card.quantity));
-  useEffect(() => setQuantity(String(card.quantity)), [card.quantity]);
 
   const patch = (change: Parameters<typeof api.updateCard>[2]) => run(() => api.updateCard(deckId, card.oracle_id, change));
-
-  async function commitQuantity() {
-    const n = Number(quantity.trim());
-    if (!/^\d+$/.test(quantity.trim()) || n < 1) return setQuantity(String(card.quantity));
-    setQuantity(String(n));
-    if (n === card.quantity) return;
-    if (!(await patch({ quantity: n }))) setQuantity(String(card.quantity));
-  }
 
   const inDeck = !card.maybe;
   // Singleton format: a second copy only makes sense of a basic land, so the
@@ -95,26 +86,7 @@ export function CardControls({ card, part = "all" }: { card: DeckCard; part?: "a
     );
   }
   if (showQuantity)
-    rows.push([
-      "Copies",
-      <TextField
-        key="quantity"
-        className={styles.quantity}
-        inputMode="numeric"
-        value={quantity}
-        aria-label={`Copies of ${card.name}`}
-        onChange={(e) => setQuantity(e.target.value)}
-        onFocus={(e) => e.currentTarget.select()}
-        onBlur={() => void commitQuantity()}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
-          if (e.key === "Escape") {
-            e.stopPropagation();
-            setQuantity(String(card.quantity));
-          }
-        }}
-      />,
-    ]);
+    rows.push(["Copies", <CopiesControl key={card.oracle_id} card={card} />]);
 
   if (deck.category === "archived") return <KeyValue items={[
     ["Primary slot", slots.find(s => s.id === card.slot_id)?.name ?? "Unfiled"],

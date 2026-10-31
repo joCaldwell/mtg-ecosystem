@@ -213,7 +213,7 @@ or about this app.
 | `Button` | Any action | `default` `ghost` `primary` `accept` `reject` `agent`; `sm` `md` `touch`; `kbd` hint; `reach` (invisible padding to `--tap` tall, for compact Edit controls); disabled is one neutral look for every variant: no fill, `--disabled-ink` label and `--disabled-line` border, visible but clearly unavailable |
 | `ButtonLink` | A link drawn as a Button, for an action that navigates | `default` `ghost` `primary`; `sm` `md` `touch` |
 | `IconButton` | An action with only an icon; `label` is required | `sm` `md` `touch`; tone `danger` (grey bordered, red only on hover or focus: row Delete and Remove) |
-| `Icon` | The 19 line icons (inbox, decks, memories, activity, profile, settings, back, close, check, plus, chevronDown, undo, redo, search, more, globe, link, trash, warning) | `size` |
+| `Icon` | The 21 line icons (inbox, decks, memories, activity, profile, settings, back, close, check, plus, chevronDown, arrowUp, arrowDown, undo, redo, search, more, globe, link, trash, warning) | `size` |
 | `Kbd` | A key cap, `--text-2xs` (11 px) in `--text-soft` | |
 | `Chip` | A small tag or filter; a button when given `onClick` | tone `neutral` `agent` `warn` `add` `cut`; `dashed` for unconfirmed |
 | `Badge` | A count pill | `neutral` `agent` `warn` |
@@ -232,6 +232,7 @@ or about this app.
 | `Meter` | A bar toward a limit | `neutral` `agent` `warn` `add`; clamps to 0-100% |
 | `Box` | A bordered container | tone `neutral` `agent` `warn`; `dashed`; padding `none` `sm` `md` |
 | `Eyebrow`, `Section` | The small uppercase label, and a titled group with an `aside` | |
+| `Stepper` | A number you can type or nudge, with side-by-side arrows that never read as a dropdown | `onStepUp`, `onStepDown`; `upLabel`, `downLabel`; `upDisabled`, `downDisabled` stay focusable; `disabled` |
 | `Stack`, `Row`, `Spacer` | Layout on the spacing scale `--s-1` to `--s-8` | `gap` 1-8; Row `align`, `justify`, `wrap` |
 | `Text` | Text with a tone, size and weight from the tokens | tone: 8; size `xs` to `xl`; `mono`; weight 3 |
 | `Banner` | A full-width strip under a header | `agent` `warn` `error` `neutral`; `actions` |
@@ -342,6 +343,12 @@ sheet over the list (principle 1's existing requested-dialog exception).
 - **Chevron:** `ui/Chevron` is the one dropdown chevron, on every Select,
   MultiSelect and Menu trigger: `--chevron-size`, `--chevron-inset` from the
   edge, turning over on `--base` while `aria-expanded` is true.
+- **Copies** is a `Stepper`: down, then up, beside the typed number. Shafted
+  arrows say step, not list, and side by side each is a whole target,
+  `--tap` square through 1099 px. A run of clicks shows its running number
+  at once and settles into one write, so it is one decision and one undo.
+  The floor is 1, since removing a card is Cut, and the ceiling is the
+  server's `copy_limit`; typing past it stays possible and is a check.
 - **Board** is `Segmented`, not a dropdown: three short, always-visible
   choices, changed rarely and worth seeing at a glance. It needs more room
   than the field column, so at 1100 px and wider it takes the full width

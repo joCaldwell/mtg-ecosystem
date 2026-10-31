@@ -17,6 +17,9 @@ const PATHS = {
   check: "M3 8.5l3.2 3.2L13 4.8",
   plus: "M8 3v10 M3 8h10",
   chevronDown: "M4 6l4 4 4-4",
+  // A step, not a dropdown: the shaft keeps these from reading as a chevron.
+  arrowUp: "M8 13V3 M4 7l4-4 4 4",
+  arrowDown: "M8 3v10 M4 9l4 4 4-4",
   undo: "M5.5 3.5l-3 3 3 3 M2.5 6.5H9a4 4 0 010 8H6",
   redo: "M10.5 3.5l3 3-3 3 M13.5 6.5H7a4 4 0 000 8h3",
   search: "M7 12a5 5 0 100-10 5 5 0 000 10z M11 11l3 3",

@@ -709,3 +709,11 @@ interaction claims and pagehide cleanup (spec §10.3). UI domain requests get
 retry keys and retry a dropped response once, preserving that key. A replayed
 deck composite is refreshed before the store applies it.
 The existing `has_agent_activity` preference retains its write-only meaning.
+
+Copies (2026-10-30): `features/deck/panel/CopiesControl` owns the card panel's
+quantity edit, mounted per card. Each `setQuantity` is one log entry and one
+undo, so arrow clicks show a running number and settle after 500 ms into one
+absolute write; writes run one at a time, newest wins, and an unmount saves a
+run in progress. A failed write returns to the server's number. Cards carry
+`copy_limit` (null is unlimited) from `copyLimit`, so the client never reads
+oracle text for it.

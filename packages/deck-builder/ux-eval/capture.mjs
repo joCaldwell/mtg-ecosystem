@@ -267,6 +267,14 @@ const SCREENS = [
     ],
   },
   {
+    screen: "deck", user: U.owner, path: `/deck/${D.caesar}`, widths: [768, 1440], states: [
+      { state: "copies", caption: "A basic land's copies in the card panel", act: async ({ page, vp }) => {
+        await press(page, page.locator("[data-deck-list] button[data-oracle-id]").filter({ hasText: "Mountain" }).first(), vp);
+        await page.getByRole("button", { name: "Add a copy of Mountain", exact: true }).waitFor();
+      } },
+    ],
+  },
+  {
     screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: [768, 1440], states: [
       { state: "dialog-select-open", caption: "A list open inside the Compare dialog", act: async ({ page, vp }) => {
         await press(page, page.getByRole("button", { name: "More", exact: true }), vp);

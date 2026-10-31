@@ -41,6 +41,7 @@ import {
   SplitPane,
   Stack,
   Table,
+  Stepper,
   Tabs,
   Text,
   TextArea,
@@ -117,7 +118,7 @@ const RADII = ["--r-sm", "--r-md", "--r-lg", "--r-xl", "--r-pill"] as const;
 
 const ICONS: IconName[] = [
   "inbox", "decks", "memories", "activity", "profile", "settings", "back",
-  "close", "check", "plus", "chevronDown", "undo", "redo", "search", "more", "globe", "link", "warning",
+  "close", "check", "plus", "chevronDown", "arrowUp", "arrowDown", "undo", "redo", "search", "more", "globe", "link", "warning",
 ];
 
 const LONG_OPTIONS = Array.from({ length: 24 }, (_, i) => ({ value: String(i + 1), label: `Option ${i + 1}` }));
@@ -490,6 +491,7 @@ function Forms() {
   const [requiredFormat, setRequiredFormat] = useState("");
   const [withDisabled, setWithDisabled] = useState("a");
   const [long, setLong] = useState("7");
+  const [copies, setCopies] = useState(4);
   const [multi, setMulti] = useState<string[]>([]);
   return (
     <Stack gap={7}>
@@ -520,6 +522,16 @@ function Forms() {
             <Select aria-label="Select with a disabled option" options={[{ value: "a", label: "Available" }, { value: "b", label: "Unavailable", disabled: true }, { value: "c", label: "Also available" }]} value={withDisabled} onChange={setWithDisabled} />
             <Select aria-label="Long select example" options={LONG_OPTIONS} value={long} onChange={setLong} />
             <Select aria-label="Open select example" defaultOpen options={[{ value: "a", label: "Commander" }, { value: "b", label: "Brawl" }, { value: "c", label: "A longer label that wraps when space is limited" }]} value="a" onChange={() => undefined} />
+          </Row>
+        </Demo>
+      </Section>
+      <Section title="Stepper" aside="type the number or nudge it; at a limit that arrow is off">
+        <Demo>
+          <Row gap={6} wrap>
+            <Stepper aria-label="Example copies" upLabel="Add a copy" downLabel="Remove a copy" value={String(copies)} onChange={(e) => setCopies(Number(e.target.value) || 1)} onStepUp={() => setCopies(copies + 1)} onStepDown={() => setCopies(copies - 1)} downDisabled={copies <= 1} />
+            <Stepper aria-label="At the lowest quantity" upLabel="Add a copy" downLabel="Remove a copy" value="1" readOnly onStepUp={() => undefined} onStepDown={() => undefined} downDisabled />
+            <Stepper aria-label="At a printed limit" upLabel="Add a copy" downLabel="Remove a copy" value="7" readOnly onStepUp={() => undefined} onStepDown={() => undefined} upDisabled />
+            <Stepper aria-label="Disabled stepper" upLabel="Add a copy" downLabel="Remove a copy" value="4" disabled onStepUp={() => undefined} onStepDown={() => undefined} />
           </Row>
         </Demo>
       </Section>

@@ -1,0 +1,69 @@
+/* One control, drawn with an inset edge so a touch layout's minimum heights
+   on the input and buttons cannot add to the outline. */
+.stepper {
+  display: inline-flex;
+  height: var(--h-md);
+  max-width: 100%;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  transition: box-shadow var(--fast);
+}
+
+.stepper:hover {
+  box-shadow: inset 0 0 0 1px var(--line-hover);
+}
+
+.stepper:has(input:focus) {
+  box-shadow: inset 0 0 0 1px var(--sel), 0 0 0 3px var(--sel-bg);
+}
+
+.stepper .input {
+  flex: 0 1 var(--stepper-input-w);
+  width: var(--stepper-input-w);
+  height: auto;
+  /* Mono digits ride high in their line box (DESIGN.md, Type), by a different
+     amount per platform: a small nudge, not a fit to one font. */
+  padding: var(--s-2) var(--s-5) 0;
+  border: 0;
+  background: none;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.stepper .input:focus {
+  box-shadow: none;
+}
+
+.arrow {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--h-md);
+  border-left: 1px solid var(--line-strong);
+  color: var(--text-soft);
+  transition: background var(--fast), color var(--fast);
+}
+
+.arrow:last-child {
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+}
+
+.arrow:hover:not([aria-disabled="true"]) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.arrow:focus-visible {
+  outline-offset: -2px;
+}
+
+.arrow[aria-disabled="true"] {
+  color: var(--disabled-ink);
+  cursor: default;
+}
+
+@media (max-width: 1099px) {
+  .stepper { height: var(--tap); }
+  .arrow { width: var(--tap); }
+}

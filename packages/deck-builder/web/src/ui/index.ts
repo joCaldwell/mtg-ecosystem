@@ -37,6 +37,7 @@ export { Select, type SelectOption, type SelectProps } from "./Select.tsx";
 export { Spacer } from "./Spacer.tsx";
 export { SplitPane, type SplitPaneProps } from "./SplitPane.tsx";
 export { Stack, type Gap, type StackProps } from "./Stack.tsx";
+export { Stepper, type StepperProps } from "./Stepper.tsx";
 export { ClickableRow, Table, type ClickableRowProps } from "./Table.tsx";
 export { Tabs, type TabSpec, type TabsProps } from "./Tabs.tsx";
 export { Text, type TextProps } from "./Text.tsx";
