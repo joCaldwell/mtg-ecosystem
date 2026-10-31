@@ -8,8 +8,8 @@ the rules behind it.
 
 1. **The deck list is home.** Everything else comes to it: a side panel, a
    banner, a hover card. Nothing covers the list except a dialog you asked for.
-2. **Colour means something or it is neutral.** The canvas and sidebar are
-   true black. Near-black surfaces lift slightly; transparent white hairlines
+2. **Colour means something or it is neutral.** The canvas is true black and
+   the sidebar just above it. Near-black surfaces lift slightly; transparent white hairlines
    and hover states separate them. No blue-tinted greys or milky fills. One
    blue action colour serves primary actions; the meanings below stay distinct.
    A new feature does not get a new colour.
@@ -115,9 +115,10 @@ Theorycrafted and Archived below the deck name. Collapsed links retain those
 labels in their accessible names and tooltips. Paper stays implicit.
 
 The palette follows [T3 Code’s redesign dark theme](https://github.com/pingdotgg/t3code/blob/main/apps/web/src/index.css)
-(`html.dark[data-redesign]`): `--bg` is #000, including the sidebar;
+(`html.dark[data-redesign]`): `--bg` is #000;
 `--surface` and `--overlay` are #111 (neutral-950 with about 3% white),
 with #1a1a1a for `--raised` selected/control surfaces. Popovers stay opaque.
+The sidebar departs from it: `--sidebar-bg` is #0a0a0a behind a 16% white edge.
 Hover is 4% white over the existing surface. Rules are 8% white, control
 borders 11%, hover borders 18%; dim decorative elements with transparency.
 Inputs use the near-black surface and control border. Primary buttons use
@@ -518,9 +519,9 @@ public showcase band.
 
 ## Sidebar and Profile navigation
 
-My decks comes first, then Inbox, Memories, Activity, Profile and Settings. Deck links
-have a separate “Your decks” heading, with the same icon/text alignment and
-row spacing as section links. Agent presence is a quiet summary:
+My decks comes first, then Inbox, Memories, Activity, Profile and Settings. A
+hairline divider separates them from the deck links, which have the same
+icon/text alignment and row spacing as section links. Agent presence is a quiet summary:
 last writer and time, then “Agent context” with the open deck and selection.
 
 At 1100 px and up, Collapse sidebar switches to a 64 px icon rail. Expand

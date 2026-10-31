@@ -2,9 +2,12 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--line);
-  background: var(--bg);
+  border-right: 1px solid var(--sidebar-line);
+  background: var(--sidebar-bg);
 }
+
+/* The drawer draws its own edge. */
+.inDrawer { border-right: 0; }
 
 /* Inline, the mark sits on the wordmark's baseline at its cap height. */
 .brand {
@@ -76,8 +79,10 @@
   margin-left: auto;
 }
 
-.heading {
-  padding: var(--s-6) calc(var(--s-5) + var(--s-4)) var(--s-3);
+.divider {
+  flex: none;
+  margin: var(--s-4) var(--s-5);
+  border-top: 1px solid var(--line);
 }
 
 .decks a.fork {
@@ -119,7 +124,7 @@
   position: absolute;
   right: calc(var(--s-1) * -1);
   bottom: calc(var(--s-1) * -1);
-  box-shadow: 0 0 0 var(--s-1) var(--bg);
+  box-shadow: 0 0 0 var(--s-1) var(--sidebar-bg);
 }
 
 .name {
@@ -224,8 +229,6 @@
 .collapsed .nav a, .collapsed .decks a { justify-content: center; position: relative; padding-inline: 0; min-height: var(--tap); }
 .collapsed .label, .collapsed .name, .collapsed .lifecycle, .collapsed .shared, .collapsed .waiting, .collapsed .presenceText { display: none; }
 .collapsed .end { position: absolute; top: 0; right: 0; }
-.collapsed .heading { margin: var(--s-4) var(--s-5); padding: 0; border-top: 1px solid var(--line); }
-.collapsed .heading > * { display: none; }
 .collapsed .presence { justify-items: center; }
 .collapsed .who { grid-row: 1 / -1; justify-content: center; }
 
@@ -235,8 +238,6 @@
 
 /* Larger desktop collections are searchable without leaving the current deck.
    These controls are absent from the compact rail and the tablet drawer. */
-.heading { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-3); }
-.matches { color: var(--muted); font-size: var(--text-xs); white-space: nowrap; }
 .filter { padding: 0 var(--s-5) var(--s-4); }
 .noMatches { display: grid; gap: var(--s-4); padding: var(--s-4); color: var(--muted); font-size: var(--text-sm); }
 .noMatches button { justify-self: start; color: var(--text); text-decoration: underline; text-underline-offset: var(--s-1); }

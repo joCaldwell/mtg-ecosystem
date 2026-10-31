@@ -11,7 +11,7 @@ import { api } from "../api/client.ts";
 import { useQuery } from "../api/useQuery.ts";
 import { DECK_CATEGORY_LABELS } from "../domain/deckCategory.ts";
 import { ago, parseServerTime } from "../domain/time.ts";
-import { Badge, Dot, Eyebrow, Icon, IconButton, TextField } from "../ui/index.ts";
+import { Badge, Dot, Icon, IconButton, TextField } from "../ui/index.ts";
 import { useFocus } from "./Focus.tsx";
 import { useInbox } from "./Inbox.tsx";
 import { href, type PageName, type Route } from "./routes.ts";
@@ -82,7 +82,7 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
   const presence = `${contact}. ${context}. Open agent settings.`;
 
   return (
-    <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ""}`} aria-label="Sidebar">
+    <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ""} ${brand ? "" : styles.inDrawer}`} aria-label="Sidebar">
       {brand && <div className={styles.brand}>
         <span className={styles.brandName}><BrandMark className={styles.mark} />{!collapsed && "Deck Builder"}</span>
         {onToggle && <IconButton label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed} onClick={onToggle} disabled={toggleDisabled} className={styles.toggle}>
@@ -111,10 +111,8 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
         ))}
       </nav>
 
-      <div className={styles.heading} aria-hidden={collapsed || undefined}>
-        <Eyebrow>Your decks</Eyebrow>
-        {query && <span className={styles.matches} role="status">{shownDecks.length} {shownDecks.length === 1 ? "match" : "matches"}</span>}
-      </div>
+      <div className={styles.divider} />
+      <span className="visually-hidden" role="status">{query && `${shownDecks.length} ${shownDecks.length === 1 ? "match" : "matches"}`}</span>
       {canFilter && <div className={styles.filter}>
         <TextField ref={filterInput} type="search" aria-label="Find a deck or commander in sidebar" placeholder="Find a deck…"
           value={deckQuery} onChange={event => setDeckQuery(event.target.value)}

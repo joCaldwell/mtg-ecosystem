@@ -1032,7 +1032,7 @@ and wider it keeps the desktop panes. Phones retain this read-and-rule scope.
   shell calls `useWindowScroll()` like the phone and shared shells. At
   1100+ the body stays pinned and panes scroll. Playtest needs 1100+ px.
 - **Sidebar:** My decks leads navigation, above Inbox; Memories, Activity, Profile and
-  Settings follow. Decks have a separate “Your decks” heading. At 1100+ px an
+  Settings follow. A divider separates the deck links. At 1100+ px an
   accessible collapse/expand control switches to an icon rail, preserving nav
   icons, the inbox badge, and deck thumbnails or dots with names in titles
   and accessible labels. Its `aria-expanded` reflects the layout. The boolean

@@ -15,6 +15,10 @@
      html.dark[data-redesign]: neutral-950 + ~3% white for surfaces, a
      slightly brighter selected tier, transparent white for hover/rules. */
   --bg: #000;
+  /* The rail sits just above the canvas behind a firmer edge, so it stays
+     distinct from black pages without taking contrast from the art beside it. */
+  --sidebar-bg: #0a0a0a;
+  --sidebar-line: rgba(255, 255, 255, 0.16);
   --surface: #111;
   --raised: #1a1a1a;
   --hover: rgba(255, 255, 255, 0.04);
