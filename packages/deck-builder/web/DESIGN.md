@@ -675,6 +675,8 @@ Once the art header leaves a phone or tablet's usable viewport, a compact
 black header retains the deck name and lifecycle beneath navigation. Decks
 and Inbox paths remain available. Tablet review and active-filter strips stack
 under it. The phone archived notice remains above the title in the art.
+Archived decks retain filtering for existing tags; an untagged archived deck
+has no Create tags action.
 
 Shared desktop lists require the same minimum column width as the editor and
 allow long names to wrap; readers can identify every card without opening it.

@@ -5,13 +5,15 @@ import { useDeckUi } from "./DeckUi.tsx";
 import styles from "./DeckTagFilter.module.css";
 
 export function DeckTagFilter() {
-  const { tags } = useDeckState();
+  const { tags, deck } = useDeckState();
   const { tagIds, tagMatch, tagInverted, setTagIds, setTagMatch, setTagInverted, openDialog } = useDeckUi();
   // A deleted tag must not leave an invisible filter muting the whole list.
   const liveIds = tagIds.filter((id) => tags.some((tag) => tag.id === id));
   useEffect(() => {
     if (liveIds.length !== tagIds.length) setTagIds(liveIds);
   }, [tags, tagIds, setTagIds]);
+
+  if (tags.length === 0 && deck.category === "archived") return null;
 
   return (
     <div className={styles.filters}>

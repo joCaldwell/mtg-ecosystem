@@ -922,6 +922,7 @@ card.
   paths. Review and active filters stack beneath that compact header.
   Phone maybe rows keep one centred line of name, mana and right-aligned price,
   truncating only the name.
+  Archived decks retain existing tag filters and omit Create tags.
 - **Proposals inbox:** everything waiting on the owner across decks. A proposal is ruled on in its deck's list, where each change is drawn in place among the cards around it — per item, per group or all at once, with an optional reason; the inbox links there. Proposed brief and profile edits are ruled in the inbox as diffs. (Settled 2026-10-10: the owner preferred reviewing in the list to decision from the inbox.)
 - **Decisions log:** per deck, with undo.
 - **Memories:** §7.5.
