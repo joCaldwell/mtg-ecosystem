@@ -360,6 +360,6 @@ Keep tests for tenant isolation and actor permissions, public-state privacy, mig
 and content preservation, backup/restore, card resolution, membership/undo, proposals,
 import parsing, hosted sessions/headers, MCP smoke and web architecture. Prefer a
 small representative regression over matrices or UI copy/markup/CSS assertions.
-Run `npm run check` before committing; design evaluation lives separately in ux-eval.
+Run `npm run check` before committing; browser regressions live separately in `browser-checks/`.
 
 See [TESTING.md](TESTING.md) for the 109-test baseline and deletion inventory.

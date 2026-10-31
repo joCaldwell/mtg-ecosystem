@@ -16,9 +16,9 @@ Measured on Node 26.12.1 in this worktree (one full successful run each):
 | Full npm run check | 36.92 s | 6.56 s |
 | Test runner | 31.29 s | 1.56 s |
 
-No tests are skipped. Application behavior and ux-eval are unchanged.
+No tests are skipped. Application behavior and browser-checks are unchanged.
 Plain-text Moxfield fixtures and the Najeela printing export remain because
-ux-eval uses them. The architecture documentation retains its symbology fixture.
+browser-checks uses them. The architecture documentation retains its symbology fixture.
 
 ## Files deleted outright
 

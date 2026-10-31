@@ -276,7 +276,7 @@ writes, response rendering, user-scoped SSE, sidebar status and Settings.
 The production browser reached the sign-in screen; authenticated production
 OAuth/client interoperability was not exercised. Behavioral checks use
 isolated SQLite fixtures, both official MCP protocol clients, and the
-seeded ux-eval browser environment. No production data or deployment changed.
+seeded browser fixture. No production data or deployment changed.
 
 Corrected:
 
@@ -341,10 +341,10 @@ The implementation branch incorporates the UX loop's My decks pass 2 and
 sidebar icons. Pushes and promotion remain held during its banner release.
 
 Regression commands: `npm run check` in the package, plus
-`node ux-eval/check-agent-contact.mjs` against a disposable `ux-eval/serve.ts`
-server on port 8879 (or `UX_EVAL_URL`). Browser coverage includes read-only
+`node browser-checks/check-agent-contact.mjs` against a disposable `browser-checks/serve.ts`
+server on port 8879 (or `CHECKS_URL`). Browser coverage includes read-only
 contact, tenant separation, live updates, aging timestamps, collapsed access,
 revocation, and no deck/settings refetch from a read-only MCP request.
 
-The combined workflow smoke is `node ux-eval/check-agent-workflows.mjs`
+The combined workflow smoke is `node browser-checks/check-agent-workflows.mjs`
 against the same disposable server. It deliberately changes only that fixture.

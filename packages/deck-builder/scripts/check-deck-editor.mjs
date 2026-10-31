@@ -1,4 +1,4 @@
-// Browser regressions against the disposable UX-eval server, never live data.
+// Browser regressions against the disposable fixture server, never live data.
 // PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs AXE_MODULE=/path/to/axe.min.js \
 //   node scripts/check-deck-editor.mjs [http://127.0.0.1:8873]
 import assert from 'node:assert/strict';
@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const origin = process.argv[2] ?? 'http://127.0.0.1:8873';
-assert.equal(new URL(origin).hostname, '127.0.0.1', 'use the disposable local UX-eval server');
+assert.equal(new URL(origin).hostname, '127.0.0.1', 'use the disposable local fixture server');
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ? pathToFileURL(resolve(process.env.PLAYWRIGHT_MODULE)).href : 'playwright');
 const axe = await readFile(process.env.AXE_MODULE, 'utf8');
 const artifacts = new URL('../.dev/ux-p4-a', import.meta.url).pathname;
@@ -78,7 +78,7 @@ try {
   for (const width of [375, 768, 1024, 1280, 1440]) {
     // Fine pointer as well: tablet sizing must not depend on device emulation.
     const context = await browser.newContext({ viewport: { width, height: width < 1100 ? 1024 : 900 }, reducedMotion: 'reduce' });
-    await context.addCookies([{ name: 'uxeval_user', value: '1', url: origin }]);
+    await context.addCookies([{ name: 'checks_user', value: '1', url: origin }]);
     const page = await context.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));

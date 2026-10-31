@@ -16,4 +16,4 @@ byte (LF, no trailing newline).
 | `kinnan-midrange.*` | https://moxfield.com/decks/OYpsy84lZU-HPrQiW9hmdQ | etched (*E*), 4-letter sets, 1F★ |
 
 The focused suite retains two representative exports. Plain-text exports and the
-Najeela printing export also support ux-eval; unused export variants were removed.
+Najeela printing export also support browser-checks; unused export variants were removed.

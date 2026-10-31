@@ -476,7 +476,7 @@ Phone decks use native fragment links between the title, card list and pending
 proposals. The read-only composition accepts optional list navigation; editing
 and phone decision permissions are unchanged.
 
-Deck-editor UX regressions can be checked against the disposable `ux-eval/serve.ts`
+Deck-editor UX regressions can be checked against the disposable `browser-checks/serve.ts`
 server with `scripts/check-deck-editor.mjs`; set `PLAYWRIGHT_MODULE` to an installed
 Playwright entry point and `AXE_MODULE` to axe-core's `axe.min.js`. It checks all
 five viewport widths, real wheel scrolling, proposal handoffs, add/undo, column

@@ -1,11 +1,11 @@
-// Run against ux-eval/serve.ts --port 8871. No writes to the fixture deck.
+// Run against browser-checks/serve.ts --port 8871. No writes to the fixture deck.
 // PLAYWRIGHT_MODULE may name an installed Playwright index.mjs; no app dependency.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? "playwright");
 const origin = process.env.UX_ORIGIN ?? "http://127.0.0.1:8871";
-const axe = await readFile(new URL("../ux-eval/node_modules/axe-core/axe.min.js", import.meta.url), "utf8");
+const axe = await readFile(new URL("../browser-checks/node_modules/axe-core/axe.min.js", import.meta.url), "utf8");
 const browser = await chromium.launch({ headless: true });
 const rows = 'button[class*="_row_"]';
 
@@ -31,7 +31,7 @@ async function audit(page) {
 try {
   for (const width of [375, 768, 1024, 1280]) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, hasTouch: width < 1100, reducedMotion: "reduce" });
-    await context.addCookies([{ name: "uxeval_user", value: "1", url: origin }]);
+    await context.addCookies([{ name: "checks_user", value: "1", url: origin }]);
     const page = await context.newPage();
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));

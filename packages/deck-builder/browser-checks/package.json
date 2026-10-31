@@ -1,0 +1,17 @@
+{
+  "name": "deck-builder-browser-checks",
+  "private": true,
+  "type": "module",
+  "description": "Browser regression checks for the deck-builder web app. Dev tooling only: outside the npm workspace and the gate.",
+  "scripts": {
+    "seed": "node seed.ts",
+    "serve": "node serve.ts"
+  },
+  "devDependencies": {
+    "axe-core": "4.14.0",
+    "playwright-core": "1.62.1"
+  },
+  "engines": {
+    "node": ">=24.12"
+  }
+}
