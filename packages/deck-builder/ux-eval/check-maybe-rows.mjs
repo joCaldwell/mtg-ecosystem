@@ -84,7 +84,9 @@ try {
         await settle(page, watch);
         await page.getByRole('heading', { name: other.name, exact: true }).waitFor();
         await close();
-        const main = page.locator('[data-deck-list="true"] > [class*="_cols_"] [data-oracle-id]').first();
+        // Native header scrolling added a content/frame wrapper around the
+        // columns; select the actual main-list row regardless of that nesting.
+        const main = page.locator('[data-deck-list="true"] [class*="_cols_"] button[data-oracle-id]').first();
         await scrollUntilVisible(page, main, VIEWPORTS[width]);
         await main.click({ modifiers: ['Control'] });
         await page.getByRole('toolbar', { name: 'Selected cards' }).waitFor();
