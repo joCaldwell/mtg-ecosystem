@@ -275,14 +275,14 @@ export function AddBar() {
           </div>
           <div className={styles.foot}>
             <span className={styles.hints}>
-              {viewing && !loading && !error ? (
+              {rows.length > 0 && !loading && !error && (viewing ? (
                 <span><Kbd>↵</Kbd> view</span>
               ) : (
                 <>
                   <span><Kbd>↵</Kbd> add</span>
                   <span><Kbd>⇧↵</Kbd> maybe list</span>
                 </>
-              )}
+              ))}
               <span><Kbd>Esc</Kbd> close</span>
             </span>
             <span className={styles.limit}>

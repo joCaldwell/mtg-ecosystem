@@ -665,6 +665,8 @@ current commander identity. While a replacement search is pending, show a
 Searching status with no actionable old results. Enter and Shift+Enter only
 act on current options. Loading, errors and no matches are status content,
 not options in the result listbox.
+With no results, omit the add and maybe-list keyboard hints. Escape, query
+guidance and the wider-colour search remain available.
 
 ## Desktop reading and details
 
