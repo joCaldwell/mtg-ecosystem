@@ -687,6 +687,8 @@ settings refreshes. Tokens and connected apps remain directly visible.
 Maybe rows omit slot and purpose labels. Their native button covers the entire
 row, including blank space, mana and price. Full note prose and its linked-card
 controls belong to details so long notes cannot enlarge grid tracks.
+Phone maybe rows use one vertically centred grid line with a flexible name,
+the complete mana cost and a right-aligned price; only the name truncates.
 Enter and Space open details and ? inspects. Main-list modifier
 selection is unchanged; maybe cards do not join bulk operations that assume
 deck membership. Slot assignments remain stored.

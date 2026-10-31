@@ -35,22 +35,27 @@
   align-self: center;
 }
 
-/* Narrow screens keep names readable beside mana and price. */
+.mana, .price { display: contents; }
+
+/* Phones keep one centred line: only the flexible name can truncate. */
 @media (max-width: 719px) {
   .row {
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     align-items: center;
-    gap: 0 var(--s-4);
+    gap: 0 var(--s-3);
     min-height: var(--tap);
   }
   .name {
-    flex: 1 1 0;
+    grid-column: 1;
+    grid-row: 1;
     width: auto;
     min-width: 0;
-    min-height: var(--tap);
-    overflow-wrap: anywhere;
-    white-space: normal;
+    min-height: 0;
+    white-space: nowrap;
   }
+  .mana { display: inline-flex; grid-column: 2; grid-row: 1; }
+  .price { display: inline-flex; grid-column: 3; grid-row: 1; margin-left: var(--price-gap); }
 }
 
 /* Full-row pointer and focus target. Full notes and their links live in details. */
@@ -60,8 +65,6 @@
 .row > :not(.hit) { pointer-events: none; }
 .hit:focus-visible { outline-offset: -2px; }
 @media (max-width: 1099px) { .row { min-height: var(--tap); } }
-
-.mana, .price { display: contents; }
 
 /* Wide lists keep each name beside its own numbers. */
 @media not all and (max-width: 1099px) {
