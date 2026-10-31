@@ -5,6 +5,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { UX_EVAL_ROOT } from './lib/paths.mjs';
+import { COLOR_NAMES, WUBRG } from '../web/src/mtg/manaSymbols.ts';
 import { BROWSER_ARGS, VIEWPORTS, newContext, watchPage, settle, scrollUntilVisible, axe } from './lib/browser.mjs';
 const option = name => { const i = process.argv.indexOf('--'+name); return i < 0 ? undefined : process.argv[i+1]; };
 const origin = option('origin') ?? 'http://127.0.0.1:8854';
@@ -47,7 +48,14 @@ try {
    assert.equal(await colour.getByText(name,{exact:true}).isVisible(),true);
   }
   const identities=page.getByText('Common colour identities',{exact:true}).locator('..');
-  for(const i of stats.identities)assert.equal(await identities.getByText(i.identity==='C'?'Colourless':[...i.identity].join('/'),{exact:true}).isVisible(),true);
+  // DESIGN.md: identities use symbols plus written colour names, with the
+  // concise All five colours label for WUBRG; retain each server deck count.
+  for(const i of stats.identities){
+   const colours=[...WUBRG].filter(c=>i.identity.includes(c));
+   const label=colours.length===5?'All five colours':(colours.length?colours:['C']).map(c=>COLOR_NAMES[c][0].toUpperCase()+COLOR_NAMES[c].slice(1)).join(', ');
+   const identity=identities.getByText(label,{exact:true});assert.equal(await identity.isVisible(),true);
+   assert.equal(await identity.locator('../..').getByText(`${i.decks} ${i.decks===1?'deck':'decks'}`,{exact:true}).isVisible(),true);
+  }
   await scrollUntilVisible(page,colour,VIEWPORTS[width]);await page.screenshot({path:join(out,`collection-colours-${width}.png`)});assert.equal((await axe(page)).length,0);
   await page.goto(origin+'/deck/2');await settle(page,watch);
   const maybe=page.getByRole('region',{name:'Maybe list'});await scrollUntilVisible(page,maybe,VIEWPORTS[width]);
@@ -64,7 +72,7 @@ try {
   await page.screenshot({path:join(out,`slots-${width}.png`)});assert.equal((await axe(page)).length,0);await page.keyboard.press('Escape');
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);assert.equal(watch.errors.length,0);
   assert.deepEqual(membership((await api('/api/decks/2')).state),membership(before));
-  results.push({width,selected_changes_first:true,aggregate_closed_labelled:true,reason_survives_disclosure:true,decision_heights:targets,collection_colours_match_server:true,exact_identity_codes:true,import_count:imported.length,per_card_provenance_accessible:true,custom_notes_preserved:true,slot_help_gap:gap,axe:0,overflow:false,data_unchanged:true});await context.close();console.log(`Clarity ${width} passed`);
+  results.push({width,selected_changes_first:true,aggregate_closed_labelled:true,reason_survives_disclosure:true,decision_heights:targets,collection_colours_match_server:true,identity_names_and_counts:true,import_count:imported.length,per_card_provenance_accessible:true,custom_notes_preserved:true,slot_help_gap:gap,axe:0,overflow:false,data_unchanged:true});await context.close();console.log(`Clarity ${width} passed`);
  }
  // Mixed import notes: one custom linked note and one blank must not repeat
  // the remaining shared provenance or alter sorting, assignments or membership.
