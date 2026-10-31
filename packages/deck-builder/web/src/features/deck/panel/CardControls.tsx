@@ -27,6 +27,10 @@ export function CardControls({ card, part = "all" }: { card: DeckCard; part?: "a
   // Singleton format: the field appears for a card that allows more than one
   // copy, and for any stack the deck already has, so it can be lowered.
   const showQuantity = inDeck && (card.quantity > 1 || card.copy_limit !== 1);
+  // Keep an invalid current role available so it can always be moved back.
+  const roles = ROLES.filter(role => role === "card" || role === card.role ||
+    (role === "commander" ? card.can_be_commander : card.can_be_companion));
+  const showBoard = inDeck && roles.length > 1;
 
   const rows: Array<[string, ReactNode]> = [
     [
@@ -70,24 +74,16 @@ export function CardControls({ card, part = "all" }: { card: DeckCard; part?: "a
     ],
   ];
   // Where the card is played from, apart from what it is there to do.
-  const place: Array<[string, ReactNode]> = [];
-  if (inDeck) {
-    place.push(
-      [
-        "Board",
-        <Segmented
-          key="role"
-          label="Board"
-          className={styles.board}
-          options={ROLES.map((role) => ({ value: role, label: BOARDS[role] }))}
-          value={card.role}
-          onChange={(role) => void patch({ role })}
-        />,
-      ],
-    );
-  }
-  if (showQuantity)
-    place.push(["Copies", <CopiesControl key={card.oracle_id} card={card} />]);
+  const place = <div className={styles.place}>
+    {showBoard && <Segmented
+      label="Board"
+      className={styles.board}
+      options={roles.map(role => ({ value: role, label: BOARDS[role] }))}
+      value={card.role}
+      onChange={role => void patch({ role })}
+    />}
+    {showQuantity && <div className={styles.copies}><span>Copies</span><CopiesControl key={card.oracle_id} card={card} /></div>}
+  </div>;
 
   if (deck.category === "archived") return (
     <div className={`${styles.form} ${styles.readOnly}`}>
@@ -96,14 +92,17 @@ export function CardControls({ card, part = "all" }: { card: DeckCard; part?: "a
         ["Secondary slots", slots.filter(s => card.secondary_slot_ids.includes(s.id)).map(s => s.name).join(", ") || "None"],
         ["Tags", tags.filter(t => card.tag_ids.includes(t.id)).map(t => t.name).join(", ") || "None"],
       ]} />
-      <KeyValue className={styles.kv} items={[["Board", BOARDS[card.role]], ["Copies", card.quantity]]} />
+      <div className={styles.place}>
+        {showBoard && <div role="group" aria-label="Board">{BOARDS[card.role]}</div>}
+        <div className={styles.copies}><span>Copies</span><span>{card.quantity}</span></div>
+      </div>
     </div>
   );
   const shown = part === "slots" ? rows.slice(0, 2) : part === "rest" ? rows.slice(2) : rows;
   return (
     <div className={styles.form}>
       <KeyValue items={shown} className={styles.kv} />
-      {part !== "slots" && place.length > 0 && <KeyValue items={place} className={styles.kv} />}
+      {part !== "slots" && (showBoard || showQuantity) && place}
     </div>
   );
 }

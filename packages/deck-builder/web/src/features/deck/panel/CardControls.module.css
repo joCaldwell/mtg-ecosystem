@@ -12,10 +12,16 @@
   gap: var(--s-4);
 }
 
-.kv + .kv {
+.place {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-4);
   padding-top: var(--s-6);
   border-top: 1px solid var(--line);
 }
+.copies { display: flex; flex: none; align-items: center; gap: var(--s-3); color: var(--text-soft); }
+.copies > :last-child { color: var(--text); }
 
 .kv dt,
 .kv dd {
@@ -52,8 +58,8 @@
 
 .tags > div { width: 100%; }
 
-.kv .board { display: flex; }
-.kv .board > button { flex: 1 1 auto; min-width: 0; padding: 0 var(--s-2); }
+.board { display: flex; max-width: 100%; }
+.board > button { min-width: 0; padding: 0 var(--s-3); }
 
 /* The narrowest panel gives each field its full width, label above. */
 @container (max-width: 379px) {
@@ -64,5 +70,5 @@
 
 @media (max-width: 1099px) {
   .kv dt, .kv dd { min-height: var(--tap); }
-  .kv .board { height: auto; }
+  .board { height: auto; }
 }

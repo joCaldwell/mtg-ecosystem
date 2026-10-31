@@ -351,8 +351,15 @@ sheet over the list (principle 1's existing requested-dialog exception).
   at once and settles into one write, so it is one decision and one undo.
   The floor is 1, since removing a card is Cut, and the ceiling is the
   server's `copy_limit`; typing past it stays possible and is a check.
-- **Board** is `Segmented`, not a dropdown: three short, always-visible
-  choices, changed rarely and worth seeing at a glance.
+- **Board** is `Segmented`, named for accessibility without a visible Board
+  label. The server supplies `can_be_commander` and `can_be_companion`, using
+  the checks' ingested commander classification and the printed Companion
+  keyword. Offer Main deck and only eligible roles, always retaining the
+  current role so an invalid assignment can be repaired. Hide it when Main
+  deck is the only option, including in archived details. This does not
+  restrict membership writes or evaluate a companion's deck condition.
+  Board and the compact, intrinsic-width Copies control share a wrapping row;
+  Copies retains its visible label and touch-sized arrows.
 - **Card details (owner direction, 2026-10-30):** two blocks, what the card
   is and what this deck does with it, each its full width. The picture takes
   half the panel, up to `--card-image-max`. Type, price and source sit beside

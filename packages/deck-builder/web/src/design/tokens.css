@@ -175,6 +175,7 @@
   --chevron-size: 14px;
   --chevron-inset: var(--s-4);
   --stepper-input-w: calc(var(--s-8) * 2);
+  --card-copies-input-w: calc(3ch + var(--s-5) * 2);
   /* The brand mark (app/BrandMark): as tall as its wordmark's capitals, and
      a fixed size where it stands alone in the collapsed rail. */
   --brand-mark-h: 1cap;

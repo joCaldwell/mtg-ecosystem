@@ -258,6 +258,17 @@ try {
     await choose(session, primary, card.slot_id ?? '');
     assert.equal((await api(`/api/decks/${deckId}`)).state.cards.find(item => item.oracle_id === card.oracle_id).slot_id, card.slot_id);
 
+    // Board only offers eligible roles now. Use a DB-resolved Companion
+    // rather than putting an arbitrary card outside the game through the UI.
+    const roleName = 'Jegantha, the Wellspring';
+    const roleCard = (await api('/api/search?filter=off&q=' + encodeURIComponent(`!"${roleName}"`))).find(item => item.name === roleName);
+    assert(roleCard, 'Companion fixture resolves exactly');
+    assert(!before.cards.some(item => item.oracle_id === roleCard.oracle_id), 'temporary Companion is absent before this check');
+    const roleResponse = await session.context.request.post(`${origin}/api/decks/${deckId}/cards`, { headers: { Origin: origin }, data: { oracle_id: roleCard.oracle_id } });
+    assert(roleResponse.ok());
+    await page.goto(origin + `/deck/${deckId}`); await settle(page, watch);
+    const roleRow = page.locator(`[data-deck-list] button[data-oracle-id="${roleCard.oracle_id}"]`).first();
+    await scrollUntilVisible(page, roleRow, vp); await roleRow.click(); await settle(page, watch);
     // Board is not a select: a pressed button writes the role and shows it.
     const board = page.getByRole('group', { name: 'Board', exact: true });
     await scrollUntilVisible(page, board, vp);
@@ -267,11 +278,11 @@ try {
     if (width < 1100) assert(labels.every(label => label.height >= 44), 'Board is one tap tall');
     assert.equal(labels[0].pressed, 'true');
     await board.getByRole('button', { name: 'Companion', exact: true }).click(); await settle(page, watch);
-    assert.equal((await api(`/api/decks/${deckId}`)).state.cards.find(item => item.oracle_id === card.oracle_id).role, 'companion');
+    assert.equal((await api(`/api/decks/${deckId}`)).state.cards.find(item => item.oracle_id === roleCard.oracle_id).role, 'companion');
     assert.equal(await board.getByRole('button', { name: 'Companion', exact: true }).getAttribute('aria-pressed'), 'true');
     await capture('board-companion');
     await board.getByRole('button', { name: 'Main deck', exact: true }).click(); await settle(page, watch);
-    assert.equal((await api(`/api/decks/${deckId}`)).state.cards.find(item => item.oracle_id === card.oracle_id).role, 'card');
+    assert.equal((await api(`/api/decks/${deckId}`)).state.cards.find(item => item.oracle_id === roleCard.oracle_id).role, 'card');
     results.push({ width, boardBox, boardLabels: labels });
     if (width < 1100) { await page.keyboard.press('Escape'); await settle(page, watch); await page.keyboard.press('Escape'); await settle(page, watch); }
 
@@ -328,6 +339,8 @@ try {
       await capture('playtest-library');
     }
     await session.context.close();
+    const removedRoleCard = await fetch(`${origin}/api/decks/${deckId}/cards/${roleCard.oracle_id}`, { method: 'DELETE', headers: { Cookie: 'uxeval_user=1', Origin: origin } });
+    assert(removedRoleCard.ok, 'remove only the temporary Companion fixture');
     results.push({ width, migratedControls: true });
     console.log(`${width} ok`);
   }

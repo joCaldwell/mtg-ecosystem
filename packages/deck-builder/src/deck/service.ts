@@ -1,5 +1,6 @@
 import { memoRead } from "../read-context.ts";
 import { analyzeMana, type ManaCard } from "./mana.ts";
+import { roleEligibility } from "./roles.ts";
 import { creditedArt, type CardArt } from "../art.ts";
 // Decks, their organization, and the composite deck view. What is *in* a deck
 // changes only through deck/membership.ts; everything here is either deck
@@ -832,6 +833,9 @@ export interface DeckCardView extends ResolvedPrice {
   quantity: number;
   /** Most copies the card allows (copyLimit); null when there is no limit. */
   copy_limit: number | null;
+  /** Offered panel roles, not write restrictions or companion-condition checks. */
+  can_be_commander: boolean;
+  can_be_companion: boolean;
   tag_ids: number[];
 }
 
@@ -871,6 +875,7 @@ function readDeck(db: Database, actor: Actor, deckId: number, opts: { pricesFor?
     card.tag_ids = tagsByCard.get(card.oracle_id) ?? [];
     const limit = copyLimit(card);
     card.copy_limit = Number.isFinite(limit) ? limit : null;
+    Object.assign(card, roleEligibility(card));
   }
   const secondaryRows = db.prepare("SELECT oracle_id, slot_id FROM deck_card_secondary_slots WHERE deck_id = ? ORDER BY slot_id")
     .all(deckId) as unknown as { oracle_id: string; slot_id: number }[];

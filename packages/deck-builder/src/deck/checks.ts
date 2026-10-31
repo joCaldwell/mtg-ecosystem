@@ -9,6 +9,7 @@ import type { Database } from "../sqlite.ts";
 import { getPower } from "./power.ts";
 import { getBrief } from "./brief.ts";
 import { getDeck } from "./service.ts";
+import { roleEligibility } from "./roles.ts";
 
 export interface Finding {
   key: string;
@@ -77,7 +78,7 @@ function readChecks(db: Database, actor: Actor, deckId: number): Finding[] {
     });
   }
   for (const c of commanders) {
-    if (!c.is_commander) {
+    if (!roleEligibility(c).can_be_commander) {
       findings.push({
         key: `commander_ineligible:${c.oracle_id}`,
         severity: "error",

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api, type DeckCard } from "../../../api/client.ts";
 import { Stepper } from "../../../ui/index.ts";
 import { useDeck } from "../DeckStore.tsx";
+import styles from "./CopiesControl.module.css";
 
 // A quantity write is one entry in the decisions log and one undo, so a run of
 // clicks waits this long, showing its running number, and saves as one write.
@@ -86,6 +87,7 @@ export function CopiesControl({ card }: { card: DeckCard }) {
 
   return (
     <Stepper
+      className={styles.control}
       value={draft}
       aria-label={`Copies of ${card.name}`}
       upLabel={`Add a copy of ${card.name}`}
