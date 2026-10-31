@@ -550,8 +550,9 @@ ManaComparison loads only with Stats or the reader's statistical composition.
 Totals and a readable count-labelled curve lead. Paired WUBRG donuts use
 independent fixed-symbol and source-colour-count denominators, with visible exact
 legends. Source colours overlap; shares are never unique-card percentages.
-Chart groups stack at small/default panel widths and pair only when each has
-room. The pure domain/deckStats adapter arranges computed buckets; it does not
+The 2026-10-29 panel refinement pairs the donuts above one shared colour table,
+with each series' count and share on every colour row at every panel width.
+The pure domain/deckStats adapter arranges computed buckets; it does not
 parse cards or infer production. Colourless, any-colour and flexible counts stay
 separate. Exact tables, other costs/faces and coverage use specific disclosures.
 Type bars use the server's exclusive display groups, one group per card. The

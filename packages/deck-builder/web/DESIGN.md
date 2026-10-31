@@ -723,9 +723,10 @@ fills for these charts, matching named visible legends; Black uses its dark
 mana fill with a pale boundary, distinct from an empty ring. Each donut states
 its own units and total. Fixed cost symbols and recognized source-colour counts
 are different denominators; source colours may overlap. No shared total,
-deficit, available-mana or casting-odds implication is made. Chart groups stack
-at minimum/default panel widths, pairing only with enough actual content width
-for two readable charts and legends. Empty rings show explicit zero states;
+deficit, available-mana or casting-odds implication is made. The two donuts share
+one row above a common colour table, with a count and percentage for each series
+on every colour row, including at minimum panel width (the 2026-10-29 panel
+refinement). Empty rings show explicit zero states;
 mono-colour is a complete ring. Exact non-coloured costs, any-colour output,
 alternative faces and incomplete source evidence stay separate in specific
 details. Chart labels remain at least the small text size; values need no hover.

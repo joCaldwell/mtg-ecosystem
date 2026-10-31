@@ -54,11 +54,14 @@ async function wheelTo(page, panel, target) {
 async function checkCharts(page, state) {
   const comparison = page.getByRole("region", { name: "Mana demand and sources", exact: true }); await comparison.waitFor();
   const face = state.computed.mana.first_face;
-  for (const [title, values] of [["Cost demand", colours.map(c => face.costs.fixed_symbols[c])], ["Direct sources", colours.map(c => face.sources.land.by_type[c] + face.sources.nonland.by_type[c])]]) {
-    const figure = comparison.getByRole("figure", { name: title, exact: true }), total = values.reduce((a, b) => a + b, 0);
-    assert.deepEqual((await figure.locator("li b").allTextContents()).map(Number), values);
-    const legend = await figure.locator("li").allTextContents();
-    for (let i = 0; i < 5; i++) assert(legend[i].endsWith(percentage(values[i], total)));
+  const legend = comparison.getByRole("table").first();
+  assert.deepEqual(await legend.locator("thead th").allTextContents(), ["Colour", "Cost demand", "Direct sources"]);
+  assert.deepEqual(await legend.locator("tbody th").allTextContents(), ["White", "Blue", "Black", "Red", "Green"]);
+  for (const [title, values, column, unit] of [["Cost demand", colours.map(c => face.costs.fixed_symbols[c]), 2, "fixed coloured symbols"], ["Direct sources", colours.map(c => face.sources.land.by_type[c] + face.sources.nonland.by_type[c]), 4, "source-colour counts"]]) {
+    const figure = comparison.getByRole("figure").filter({ has: page.getByRole("heading", { name: title, exact: true }) }), total = values.reduce((a, b) => a + b, 0);
+    await figure.getByText(`${total} ${unit}`, { exact: true }).waitFor();
+    assert.deepEqual((await legend.locator(`tbody td:nth-child(${column})`).allTextContents()).map(Number), values);
+    assert.deepEqual(await legend.locator(`tbody td:nth-child(${column + 1})`).allTextContents(), values.map(value => percentage(value, total)));
     const slices = await figure.locator('svg circle[pathLength="100"][stroke-width="16"]').evaluateAll(nodes => nodes.map(node => node.getAttribute("stroke-dasharray").split(" ").map(Number)));
     assert(slices.flat().every(Number.isFinite)); assert.equal(slices.length, values.filter(Boolean).length);
     if (!total) { assert.equal(slices.length, 0); assert.equal(await figure.locator("p").count(), 1); }
@@ -83,12 +86,13 @@ try {
       const comparison = await checkCharts(page, main); await wheelTo(page, panel, comparison); await settle(page, watch);
       const figures = comparison.getByRole("figure"), first = await figures.nth(0).boundingBox(), second = await figures.nth(1).boundingBox();
       assert(first && second);
-      if (actualWidth < 500) assert(second.y > first.y + first.height, "small/default panels stack readable chart groups");
-      else assert(Math.abs(first.y - second.y) < 2, "roomy panel pairs the two chart groups");
+      assert(Math.abs(first.y - second.y) < 2, "the paired donuts share one row above their common table");
+      const content = await comparison.boundingBox();
+      for (const box of [first, second, await comparison.getByRole("table").first().boundingBox()]) assert(box.x >= content.x - 1 && box.x + box.width <= content.x + content.width + 1, "charts and exact colour table fit the actual panel content width");
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       const violations = await axe(page); assert.equal(violations.length, 0, JSON.stringify(violations));
       assert.deepEqual(watch.errors, []);
-      const fontSizes = await comparison.locator("li").evaluateAll(nodes => nodes.map(node => parseFloat(getComputedStyle(node).fontSize))); assert(fontSizes.every(size => size >= 12));
+      const fontSizes = await comparison.locator("th, td, figcaption").evaluateAll(nodes => nodes.map(node => parseFloat(getComputedStyle(node).fontSize))); assert(fontSizes.length > 0 && fontSizes.every(size => size >= 12));
       await shoot(page, join(output, `main-${width}-${size}-colours.png`), { full: false });
       const types = panel.getByText("Card types", { exact: true }); await wheelTo(page, panel, types); await settle(page, watch);
       const typeValues = await panel.getByRole("list", { name: "Card-type groups and copy counts" }).locator("li b").allTextContents();
@@ -105,7 +109,12 @@ try {
     await panel.getByRole("navigation", { name: "Deck panel views" }).getByRole("button", { name: "Stats", exact: true }).click(); await settle(page, watch);
     const comparison = await checkCharts(page, fixture.state); await wheelTo(page, panel, comparison); await settle(page, watch);
     if (fixture.key === "overlapping-sources") await comparison.getByText("5 source-colour counts", { exact: true }).waitFor();
-    if (fixture.key === "any-colour") await comparison.getByText("Any-colour sources are listed separately.", { exact: true }).waitFor();
+    if (fixture.key === "any-colour") {
+      await comparison.getByText("Any-colour sources are listed under Source coverage.", { exact: true }).waitFor();
+      await comparison.locator("summary").filter({ hasText: /^Source (coverage|recognition details)/ }).click();
+      await comparison.getByText("Any-colour sources", { exact: true }).waitFor();
+      await comparison.getByText(`${fixture.state.computed.mana.first_face.sources.land.any_color_copies} lands · ${fixture.state.computed.mana.first_face.sources.nonland.any_color_copies} other permanents`, { exact: true }).waitFor();
+    }
     if (fixture.key === "empty") await panel.getByText("No cards in this curve.", { exact: true }).waitFor();
     const violations = await axe(page); assert.equal(violations.length, 0, JSON.stringify(violations)); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.deepEqual(watch.errors, []);
@@ -123,7 +132,7 @@ try {
   const publication = !await checkbox.isChecked(); await checkbox.click(); await settle(page, watch);
   assert.equal(await checkbox.isChecked(), publication); assert.equal((await api("GET", `/api/decks/${id}`)).state.deck.publish_decisions, publication);
   assert.equal(await dialog.getByText(/Viewers never see|Off by default|Only you can see/).count(), 0);
-  await visibility.getByRole("button", { name: "Unlisted", exact: true }).click(); await settle(page, watch); await dialog.getByRole("textbox", { name: "Link to this deck", exact: true }).waitFor(); assert.equal(await dialog.getByRole("button", { name: "Copy link", exact: true }).isEnabled(), true); await dialog.getByRole("link", { name: "See what viewers see", exact: true }).waitFor();
+  await visibility.getByRole("button", { name: "Unlisted", exact: true }).click(); await settle(page, watch); await dialog.getByRole("textbox", { name: "Link to this deck", exact: true }).waitFor(); assert.equal(await dialog.getByRole("button", { name: "Copy link", exact: true }).isEnabled(), true); await dialog.getByRole("link", { name: "Preview public page", exact: true }).waitFor();
   await shoot(page, join(output, "share-controls.png"), { full: false }); await context.close();
   writeFileSync(join(output, "qa.json"), JSON.stringify({ results, fixture_decks: fixtures.map(({ key, state }) => ({ key, id: state.deck.id, mana: state.computed.mana })), share_controls_and_capability_unchanged: true }, null, 2) + "\n");
 } finally { await browser.close(); }

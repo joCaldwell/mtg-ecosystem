@@ -42,13 +42,18 @@ try {
         const expected = before.computed.mana.first_face;
         const costCounts = ["W", "U", "B", "R", "G"].map(color => expected.costs.fixed_symbols[color]);
         const sourceCounts = ["W", "U", "B", "R", "G"].map(color => expected.sources.land.by_type[color] + expected.sources.nonland.by_type[color]);
-        assert.deepEqual((await comparison.getByRole("figure", { name: "Cost demand", exact: true }).locator("li b").allTextContents()).map(Number), costCounts);
-        assert.deepEqual((await comparison.getByRole("figure", { name: "Direct sources", exact: true }).locator("li b").allTextContents()).map(Number), sourceCounts);
+        // 290efc7 paired the donuts over one shared colour table. Preserve
+        // the exact data assertions against its count columns.
+        const legend = comparison.getByRole("table").first();
+        assert.deepEqual(await legend.locator("thead th").allTextContents(), ["Colour", "Cost demand", "Direct sources"]);
+        const legendRows = legend.locator("tbody tr");
+        assert.deepEqual((await legendRows.locator("td:nth-child(2)").allTextContents()).map(Number), costCounts);
+        assert.deepEqual((await legendRows.locator("td:nth-child(4)").allTextContents()).map(Number), sourceCounts);
         await comparison.getByText(`${costCounts.reduce((a, b) => a + b, 0)} fixed coloured symbols`, { exact: true }).waitFor();
         await comparison.getByText(`${sourceCounts.reduce((a, b) => a + b, 0)} source-colour counts`, { exact: true }).waitFor();
         const exact = comparison.locator("summary").filter({ hasText: "Exact colour counts" });
         await exact.focus(); await exact.press("Enter");
-        const rows = comparison.locator("table").first().locator("tbody tr");
+        const rows = exact.locator("..").getByRole("table").locator("tbody tr");
         for (const [index, color] of ["W", "U", "B", "R", "G"].entries()) {
           const expected = before.computed.mana.first_face;
           assert.deepEqual((await rows.nth(index).locator("td").allTextContents()).map(Number), [expected.costs.fixed_symbols[color], expected.sources.land.by_type[color], expected.sources.nonland.by_type[color]]);
