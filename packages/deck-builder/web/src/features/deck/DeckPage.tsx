@@ -162,6 +162,7 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
     <CardOpenProvider onOpen={openByName}>
       <DeckViewProvider value={view}>
         <div ref={page} data-deck-page className={styles.page}>
+          {state.deck.category !== "archived" && <ProposalBanner tablet units={view.units} review={review} confirmingAll={confirmingAll} setConfirmingAll={setConfirmingAll} />}
           <div data-deck-compact className={styles.compact}><DeckHeader compact /></div>
           <div data-deck-hero><DeckHeader /></div>
           <div data-deck-workspace className={styles.workspace}>

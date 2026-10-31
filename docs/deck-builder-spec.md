@@ -914,6 +914,9 @@ card.
   Archived details follows the same visibility rule. Board and compact Copies
   share a row and wrap when needed. These presentation hints add no restrictions
   to patch, proposals, MCP or import.
+  On tablets, an active review keeps Reviewing, its remaining decision count,
+  Current proposal and Done pinned beneath navigation. Current proposal opens
+  the existing Review sheet at the current cursor.
 - **Proposals inbox:** everything waiting on the owner across decks. A proposal is ruled on in its deck's list, where each change is drawn in place among the cards around it — per item, per group or all at once, with an optional reason; the inbox links there. Proposed brief and profile edits are ruled in the inbox as diffs. (Settled 2026-10-10: the owner preferred reviewing in the list to decision from the inbox.)
 - **Decisions log:** per deck, with undo.
 - **Memories:** §7.5.

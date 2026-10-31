@@ -13,12 +13,13 @@ import type { Review } from "./useReview.tsx";
 import { ConfirmStrip } from "./dialogs/ConfirmStrip.tsx";
 import styles from "./ProposalBanner.module.css";
 
-export function ProposalBanner({ units, review, confirmingAll, setConfirmingAll }: {
+export function ProposalBanner({ units, review, confirmingAll, setConfirmingAll, tablet = false }: {
   units: ReviewUnit[];
   review: Review;
   /** "Accept all left" asks first; ⇧A in DeckPage opens the same question. */
   confirmingAll: boolean;
   setConfirmingAll: (on: boolean) => void;
+  tablet?: boolean;
 }) {
   const { proposals } = useDeckState();
   const ui = useDeckUi();
@@ -30,12 +31,22 @@ export function ProposalBanner({ units, review, confirmingAll, setConfirmingAll 
     if (!ui.reviewing) setBegan(units.length);
   }, [ui.reviewing, units.length]);
 
-  if (units.length === 0) return null;
+  if (units.length === 0 || (tablet && !ui.reviewing)) return null;
+
+  if (tablet) return <Banner className={styles.tabletReview} tone="agent" actions={<>
+    <Button size="touch" aria-haspopup="dialog" onClick={() => ui.setTab("review")}>Current proposal</Button>
+    <Button size="touch" variant="ghost" onClick={ui.stopReview}>Done</Button>
+  </>}>
+    <div className={styles.line}>
+      <Text tone="agent" weight="medium">Reviewing</Text>
+      <Text tone="soft">{units.length} of {Math.max(began, units.length)} {Math.max(began, units.length) === 1 ? "decision" : "decisions"} left</Text>
+    </div>
+  </Banner>;
 
   if (ui.reviewing)
     return (
       <Banner
-        className={styles.banner}
+        className={`${styles.banner} ${styles.desktopReview}`}
         tone="agent"
         actions={
           confirmingAll ? (

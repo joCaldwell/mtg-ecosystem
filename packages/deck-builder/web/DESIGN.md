@@ -668,6 +668,10 @@ not options in the result listbox.
 
 ## Desktop reading and details
 
+Tablet review retains a pinned black strip beneath navigation: Reviewing,
+remaining decisions, Current proposal and Done. Current proposal opens the
+existing Review sheet at its cursor, retaining drafts and the list position.
+
 Shared desktop lists require the same minimum column width as the editor and
 allow long names to wrap; readers can identify every card without opening it.
 Editor rows retain their single-line density.

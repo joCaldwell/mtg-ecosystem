@@ -34,6 +34,7 @@
 .keys {
   white-space: nowrap;
 }
+.tabletReview { display: none; }
 
 
 
@@ -41,6 +42,16 @@
 @media (max-width: 1099px) { .tap { min-height: var(--tap); } }
 
 @media (max-width: 1099px) {
+  .desktopReview { display: none; }
+  .tabletReview {
+    position: sticky;
+    top: calc(var(--tablet-bar-outer-h) + var(--deck-scroll-heading-space, 0px));
+    z-index: var(--z-sticky);
+    display: flex;
+    min-height: var(--tablet-review-h);
+    padding: var(--s-2) var(--s-4);
+    background: var(--bg);
+  }
   .line { flex-wrap: wrap; gap: var(--s-2) var(--s-4); }
   .who { flex-shrink: 1; }
 }
