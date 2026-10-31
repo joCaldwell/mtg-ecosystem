@@ -188,8 +188,9 @@
   --sidebar-w: 216px;
   --sidebar-rail-w: 64px;
   --panel-w: 392px;
-  --card-fields-min: 240px;
-  --card-art-max: 150px;
+  /* Card details: the picture's cap, and the form's one label column. */
+  --card-image-max: 280px;
+  --card-label-w: 92px;
   --deck-reader-column-min: 250px;
   --deck-column-min: var(--deck-reader-column-min);
   --deck-editor-column-min: 300px;

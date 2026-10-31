@@ -304,8 +304,8 @@ sheet over the list (principle 1's existing requested-dialog exception).
 - **Contextual details (owner decision, 2026-10-27):** revisions belong in
   History and card decisions; memory/assessment revision metadata goes in
   titles. Deck headers have no revision chip. Budgets and usage belong only
-  in Settings. Secondary slots sit directly below the primary slot as a
-  compact field; list rows do not repeat them. Agent review status is plain
+  in Settings. Secondary slots sit directly below the primary slot; list
+  rows do not repeat them. Agent review status is plain
   in decisions and the inbox. Ownership evidence appears in the card panel
   only when present, with its basis and attribution. No shared disclosure.
 - **Explainer (owner direction, 2026-10-27):** only for unfamiliar concepts,
@@ -352,9 +352,20 @@ sheet over the list (principle 1's existing requested-dialog exception).
   The floor is 1, since removing a card is Cut, and the ceiling is the
   server's `copy_limit`; typing past it stays possible and is a check.
 - **Board** is `Segmented`, not a dropdown: three short, always-visible
-  choices, changed rarely and worth seeing at a glance. It needs more room
-  than the field column, so at 1100 px and wider it takes the full width
-  under its label.
+  choices, changed rarely and worth seeing at a glance.
+- **Card details (owner direction, 2026-10-30):** two blocks, what the card
+  is and what this deck does with it, each its full width. The picture takes
+  half the panel, up to `--card-image-max`. Type, price and source sit beside
+  it, and rules text wraps around it and carries on underneath, so no length
+  of text leaves a hole next to the picture. The form below is a `Box`, the
+  app's black well: one `--card-label-w` label column and one right edge for
+  every row, with controls a size taller (`--h-lg`). A hairline separates
+  purpose (slots, tags) from place (Board, Copies), and Move to maybe and Cut
+  close the well as equal buttons. Chosen slots and tags are chips inside
+  their own field, whose edge runs on around them. A panel under 380 px
+  stacks each label above its field; the tablet sheet (680 px and wider) puts
+  everything beside a sticky picture. Read-only rows use the same columns and
+  close up. Tokens share the picture layout (`TokenDetail`).
 - **Card inspection:** `?` on a focused card row opens the same CardSheet as
   tapping its mana cost. Inline card names without a host action open it too.
   The modal is named, traps focus, closes with Escape and restores focus.
@@ -587,9 +598,7 @@ slot targets and proposal mechanics. Its add bar uses a plus label and raised su
 query syntax lives with the results. Deck search stays with the filters.
 Workspace and roster metadata is at least 12 px; prices, totals, counts and
 lifecycle labels use the soft grey tier unless they convey a semantic state.
-Card-panel slot, tag and role fields sit beside the art below the rules.
-The art shrinks first, reserving at least 240 px for compact label-and-control rows; their
-controls fill that width without clipping the tags chevron. Desktop list
+Desktop list
 columns use a 250 px minimum and 12 px gaps, fitting three at 1440 px with
 the default panel, and falling back to two when the panel leaves less room.
 At 1100 px and wider the editor adds columns instead of stretching three,
@@ -648,8 +657,7 @@ not options in the result listbox.
 
 Shared desktop lists require the same minimum column width as the editor and
 allow long names to wrap; readers can identify every card without opening it.
-Editor rows retain their single-line density. Card details keep compact aligned
-label/value rows, bringing card actions and history into view without a scroll.
+Editor rows retain their single-line density.
 Settings keeps the connection method visible and puts detailed commands inside
 “Setup instructions”. They start open until an agent has connected and reopen
 when choosing a method or creating a token. Explicit disclosure choices survive

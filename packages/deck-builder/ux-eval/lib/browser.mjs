@@ -183,7 +183,8 @@ export async function settle(page, watch, { timeout = 15000 } = {}) {
       const r = i.getBoundingClientRect();
       return r.bottom > 0 && r.top < innerHeight && r.width > 0;
     });
-    await Promise.all(imgs.map((i) => (i.complete ? null : new Promise((r) => { i.onload = i.onerror = r; setTimeout(r, 5000); }))));
+    // Under the 3 s at which installed timers are held, or this would never fire.
+    await Promise.all(imgs.map((i) => (i.complete ? null : new Promise((r) => { i.onload = i.onerror = r; setTimeout(r, 2500); }))));
   });
   let last = "";
   for (let i = 0; i < 40; i++) {

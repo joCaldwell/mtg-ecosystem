@@ -1,24 +1,22 @@
 .detail {
   display: grid;
-  gap: var(--s-4);
+  gap: var(--s-6);
 }
 
 .summary {
-  color: var(--text-soft);
-  font-size: var(--text-sm);
+  margin-bottom: var(--s-5);
 }
 
-/* As in card details: readable rows first, the picture yields as it narrows. */
-.facts {
-  display: grid;
-  grid-template-columns: minmax(0, min(33%, var(--card-art-max))) minmax(var(--card-fields-min), 1fr);
-  gap: var(--s-4);
-  align-items: start;
+/* As in card details: the picture takes half, its text wraps around it. */
+.card {
+  display: flow-root;
 }
 
 .figure {
   display: grid;
-  margin: 0;
+  float: left;
+  width: min(calc(50% - var(--s-3)), var(--card-image-max));
+  margin: 0 calc(var(--s-3) * 2) var(--s-4) 0;
   gap: var(--s-2);
   min-width: 0;
 }
@@ -35,16 +33,17 @@
   align-content: start;
   gap: var(--s-1);
   min-width: 0;
+  padding-top: var(--s-6);
+  border-top: 1px solid var(--line);
 }
 
 .heading {
-  padding: 0 var(--s-3) var(--s-1);
+  padding-bottom: var(--s-1);
   color: var(--muted);
   font-size: var(--text-sm);
   font-weight: 500;
 }
 
 @media (max-width: 719px) {
-  .facts { grid-template-columns: minmax(0, 1fr); }
-  .figure { max-width: var(--sheet-image-w-phone); }
+  .figure { float: none; width: auto; max-width: var(--sheet-image-w-phone); margin: 0 0 var(--s-4); }
 }

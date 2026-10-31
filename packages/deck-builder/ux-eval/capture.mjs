@@ -227,6 +227,75 @@ async function statsSection(page, vp, watch, section) {
   }
 }
 
+/** Writes for a state's setup, on a `fresh` fixture server only. */
+async function fixtureWrite(path, method, body) {
+  const res = await fetch(ORIGIN + path, { method, headers: { Cookie: `uxeval_user=${U.owner}`, Origin: ORIGIN, "Content-Type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  if (!res.ok) throw new Error(`${method} ${path}: ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+/** Gives one singleton long secondary slots and many selected tags. */
+async function loadCardWithTags() {
+  const deck = D.najeela;
+  for (const name of ["Waiting on the reprint before buying", "Borrowed from a friend", "Foil upgrade", "Proxy for now"])
+    await fixtureWrite(`/api/decks/${deck}/tags`, "POST", { name });
+  await fixtureWrite(`/api/decks/${deck}/slots`, "POST", { name: "Recursive graveyard value engines", target_min: null, target_max: null });
+  const { state } = await api(`/api/decks/${deck}`, U.owner);
+  const card = state.cards.find(item => item.name === "Underworld Breach");
+  await fixtureWrite(`/api/decks/${deck}/cards/${card.oracle_id}`, "PATCH", { tag_ids: state.tags.map(tag => tag.id), secondary_slot_ids: state.slots.filter(slot => slot.id !== card.slot_id).map(slot => slot.id).slice(-3) });
+  return card;
+}
+
+const inList = (page, oracleId) => page.locator(`[data-deck-list] [data-oracle-id="${oracleId}"]`).locator("visible=true").first();
+async function openCard(page, vp, watch, oracleId) {
+  await press(page, inList(page, oracleId), vp);
+  await page.locator("[data-panel-body][aria-label^='Card details for'], [data-panel-body][aria-label^='Token details for']").locator("visible=true").waitFor();
+  await settle(page, watch);
+}
+
+/** Every shape of the card details section, each seen whole: a window tall
+ * enough for all of it, at each of the panel's widths on desktop, and in the
+ * tablet sheet. */
+const CARD_PANELS = [
+  { key: "basic", caption: "A basic land with Copies", path: `/deck/${D.caesar}`, open: async ({ page, vp, watch }) => {
+    await openCard(page, vp, watch, (await api(`/api/decks/${D.caesar}`, U.owner)).state.cards.find(item => item.name === "Mountain").oracle_id);
+  } },
+  { key: "singleton", caption: "A singleton with long secondary slots and many tags", path: `/deck/${D.najeela}`, fresh: true, open: async ({ page, vp, watch }) => {
+    const card = await loadCardWithTags();
+    await page.reload(); await settle(page, watch);
+    await openCard(page, vp, watch, card.oracle_id);
+  } },
+  { key: "archived", caption: "A card on an archived, read-only deck", path: `/deck/${D.rograkh}`, open: async ({ page, vp, watch }) => {
+    await openCard(page, vp, watch, (await api(`/api/decks/${D.rograkh}`, U.owner)).state.cards.find(item => !item.maybe && item.role === "card").oracle_id);
+  } },
+  { key: "long-text", caption: "The longest rules text in a seeded deck", path: `/deck/${D.kinnan}`, open: async ({ page, vp, watch }) => {
+    await openCard(page, vp, watch, (await api(`/api/decks/${D.kinnan}`, U.owner)).state.cards.filter(item => !item.maybe && item.role === "card").sort((a, b) => b.oracle_text.length - a.oracle_text.length)[0].oracle_id);
+  } },
+  { key: "commander", caption: "The commander, which has no card actions", path: `/deck/${D.najeela}`, open: async ({ page, vp, watch }) => {
+    await openCard(page, vp, watch, (await api(`/api/decks/${D.najeela}`, U.owner)).state.cards.find(item => item.role === "commander").oracle_id);
+  } },
+  { key: "maybe", caption: "A maybe card, with its note and slots for when it is added", path: `/deck/${D.najeela}`, open: async ({ page, vp, watch }) => {
+    const { cards } = (await api(`/api/decks/${D.najeela}`, U.owner)).state;
+    await openCard(page, vp, watch, (cards.find(item => item.maybe && item.maybe_note) ?? cards.find(item => item.maybe)).oracle_id);
+  } },
+  { key: "not-in-deck", caption: "A card the brief names that has left the deck", path: `/deck/${D.najeela}`, fresh: true, open: async ({ page, vp, watch }) => {
+    const name = "Thassa's Oracle";
+    const card = (await api(`/api/decks/${D.najeela}`, U.owner)).state.cards.find(item => item.name === name);
+    await fixtureWrite(`/api/decks/${D.najeela}/cards/${card.oracle_id}`, "DELETE");
+    await page.reload(); await settle(page, watch);
+    if (vp.width < 1100) await press(page, page.getByRole("button", { name: /^(Deck details|Open deck details)$/ }).first(), vp);
+    await press(page, page.locator("[data-panel-body]").locator("visible=true").getByText(name, { exact: true }).first(), vp);
+    await page.getByRole("heading", { name, exact: true }).waitFor();
+    await settle(page, watch);
+  } },
+  { key: "token", caption: "A token, which shares the picture layout", path: `/deck/${D.najeela}`, open: async ({ page, vp, watch }) => {
+    const row = page.getByRole("region", { name: "Tokens", exact: true }).locator("[data-token-id]").first();
+    await scrollUntilVisible(page, row, vp);
+    await press(page, row, vp);
+    await page.getByText("Made by", { exact: true }).first().waitFor();
+  } },
+];
+
 /** One screen: a path, a user, and the states reached from it in order. */
 const SCREENS = [
   { screen: "sign-in", user: 0, path: "/signin", widths: PUBLIC, states: [{ state: "default", caption: "Sign-in page, signed out" }] },
@@ -356,6 +425,13 @@ const SCREENS = [
       } },
     ],
   },
+  ...CARD_PANELS.flatMap(({ key, caption, path, fresh, open }) => [
+    ...[["min", 340], ["default", 392], ["wide", 560], ["max", 640]].map(([name, px]) => ({ width: 1440, panelWidth: px, name })),
+    { width: 768, name: "sheet" },
+  ].map(({ width, panelWidth, name }) => ({
+    screen: "deck", user: U.owner, path, widths: [width], height: 1400, panelWidth, fresh,
+    states: [{ state: `card-${key}-${name}`, caption: `${caption}, ${name === "sheet" ? "in the tablet sheet" : `${name} panel`}`, act: open }],
+  }))),
   {
     screen: "deck", user: U.owner, path: `/deck/${D.caesar}`, widths: [768, 1440], states: [
       { state: "copies", caption: "A basic land's copies in the card panel", act: async ({ page, vp }) => {
@@ -560,11 +636,13 @@ const browser = await chromium.launch({ args: BROWSER_ARGS });
 const failures = [];
 
 async function runScreen(def, width, slug) {
-  const vp = { ...VIEWPORTS[width], key: width };
+  const vp = { ...VIEWPORTS[width], ...(def.height ? { height: def.height } : {}), key: width };
   const keys = def.states.map((s) => `${def.screen}--${s.state}--${width}`);
   if (ONLY && !keys.some((k) => ONLY.test(k))) return;
   if (def.fresh) await startServer();
   const context = await newContext(browser, { origin: ORIGIN, vp, user: def.user, frozenNow: FROZEN_NOW, notes });
+  // The width a dragged panel saves (DeckBody); nothing else reads this key.
+  if (def.panelWidth) await context.addInitScript(px => localStorage.setItem("deck.panelWidth", px), String(def.panelWidth));
   const page = await context.newPage();
   const watch = watchPage(page);
   try {

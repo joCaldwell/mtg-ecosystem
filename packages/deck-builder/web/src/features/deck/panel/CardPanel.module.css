@@ -10,27 +10,60 @@
   gap: var(--s-2);
 }
 
-.head {
-  display: grid;
-  gap: var(--s-1);
-}
-
 .date {
   white-space: nowrap;
 }
 
-.facts {
+/* What the card is, then what this deck does with it, each its full width. */
+.layout {
   display: grid;
-  /* Reserve readable controls first; the picture yields as the panel narrows. */
-  grid-template-columns: minmax(0, min(33%, var(--card-art-max))) minmax(var(--card-fields-min), 1fr);
-  gap: var(--s-4);
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-6);
 }
 
-.side {
+/* The picture takes half the panel, up to its cap. Rules text wraps around it
+   and carries on underneath, so no length of text leaves a hole beside it. */
+.card {
+  display: flow-root;
+}
+
+.picture {
+  float: left;
+  width: min(calc(50% - var(--s-3)), var(--card-image-max));
+  margin: 0 calc(var(--s-3) * 2) var(--s-4) 0;
+}
+
+.head {
   display: grid;
-  gap: var(--s-4);
-  min-width: 0;
+  gap: var(--s-3);
+  margin-bottom: var(--s-5);
+}
+
+.price {
+  display: grid;
+  gap: var(--s-1);
+}
+
+/* The deck's own black well, as Box draws it, wide enough for one label column. */
+.work {
+  gap: var(--s-6);
+  padding: var(--s-5);
+}
+
+.history {
+  display: grid;
+  gap: calc(var(--s-5) + var(--s-3));
+  padding-top: var(--s-6);
+  border-top: 1px solid var(--line);
+}
+
+/* The tablet sheet has room for the facts and the form beside the picture. */
+@container (min-width: 680px) {
+  .layout { grid-template-columns: var(--card-image-max) minmax(0, 1fr); align-items: start; column-gap: var(--s-7); }
+  .card { display: contents; }
+  /* A long form scrolls beside the picture, which stays in view. */
+  .picture { position: sticky; top: 0; grid-row: 1 / span 3; float: none; width: auto; margin: 0; }
+  .about, .layout > :not(.card) { grid-column: 2; }
 }
 
 .note {
@@ -39,4 +72,4 @@
 }
 .maybeNote { display: grid; gap: var(--s-3); }
 /* A maybe card's slot fields, under a hairline below "Add to the deck". */
-.onAdd { display: grid; gap: var(--s-4); padding-top: var(--s-5); border-top: 1px solid var(--line); }
+.onAdd { display: grid; gap: var(--s-4); padding-top: var(--s-6); border-top: 1px solid var(--line); }

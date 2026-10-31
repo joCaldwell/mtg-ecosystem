@@ -3,7 +3,7 @@
 
 import type { ReactNode } from "react";
 import { api, type DeckCard } from "../../../api/client.ts";
-import { Button, KeyValue, MultiSelect, Segmented, Select, Text } from "../../../ui/index.ts";
+import { Button, KeyValue, MultiSelect, Segmented, Select } from "../../../ui/index.ts";
 import { CopiesControl } from "./CopiesControl.tsx";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
@@ -44,7 +44,6 @@ export function CardControls({ card, part = "all" }: { card: DeckCard; part?: "a
       <MultiSelect
         key={`purposes-${card.oracle_id}`}
         label="Secondary slots"
-        compact
         placeholder="Select purposes…"
         options={slots.filter(s => s.id !== card.slot_id).map(s => ({ value: String(s.id), label: s.name }))}
         value={card.secondary_slot_ids.map(String)}
@@ -70,8 +69,10 @@ export function CardControls({ card, part = "all" }: { card: DeckCard; part?: "a
       ),
     ],
   ];
+  // Where the card is played from, apart from what it is there to do.
+  const place: Array<[string, ReactNode]> = [];
   if (inDeck) {
-    rows.push(
+    place.push(
       [
         "Board",
         <Segmented
@@ -86,14 +87,23 @@ export function CardControls({ card, part = "all" }: { card: DeckCard; part?: "a
     );
   }
   if (showQuantity)
-    rows.push(["Copies", <CopiesControl key={card.oracle_id} card={card} />]);
+    place.push(["Copies", <CopiesControl key={card.oracle_id} card={card} />]);
 
-  if (deck.category === "archived") return <KeyValue items={[
-    ["Primary slot", slots.find(s => s.id === card.slot_id)?.name ?? "Unfiled"],
-    ["Secondary slots", slots.filter(s => card.secondary_slot_ids.includes(s.id)).map(s => s.name).join(", ") || "None"],
-    ["Tags", tags.filter(t => card.tag_ids.includes(t.id)).map(t => t.name).join(", ") || "None"],
-    ["Board", BOARDS[card.role]], ["Copies", card.quantity],
-  ]} className={styles.kv} />;
+  if (deck.category === "archived") return (
+    <div className={`${styles.form} ${styles.readOnly}`}>
+      <KeyValue className={styles.kv} items={[
+        ["Primary slot", slots.find(s => s.id === card.slot_id)?.name ?? "Unfiled"],
+        ["Secondary slots", slots.filter(s => card.secondary_slot_ids.includes(s.id)).map(s => s.name).join(", ") || "None"],
+        ["Tags", tags.filter(t => card.tag_ids.includes(t.id)).map(t => t.name).join(", ") || "None"],
+      ]} />
+      <KeyValue className={styles.kv} items={[["Board", BOARDS[card.role]], ["Copies", card.quantity]]} />
+    </div>
+  );
   const shown = part === "slots" ? rows.slice(0, 2) : part === "rest" ? rows.slice(2) : rows;
-  return <KeyValue items={shown} className={styles.kv} />;
+  return (
+    <div className={styles.form}>
+      <KeyValue items={shown} className={styles.kv} />
+      {part !== "slots" && place.length > 0 && <KeyValue items={place} className={styles.kv} />}
+    </div>
+  );
 }

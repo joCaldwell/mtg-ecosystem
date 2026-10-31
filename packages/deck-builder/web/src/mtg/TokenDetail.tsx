@@ -18,17 +18,17 @@ export function TokenDetail({ token, producers }: { token: DeckToken; producers:
   const pictured = !!cardImageUrl(info);
   return (
     <div className={styles.detail}>
-      <p className={styles.summary}>{tokenSummary(token)}</p>
-      {token.oracle_text && <OracleText text={token.oracle_text} />}
-      <div className={pictured ? styles.facts : undefined}>
+      <div className={styles.card}>
         {pictured && <figure className={styles.figure}>
           <CardImage name={token.name} card={info} />
           {token.artist && <figcaption className={styles.credit}>Art by {token.artist}</figcaption>}
         </figure>}
-        <div className={styles.producers}>
-          <h3 className={styles.heading}>Made by</h3>
-          {producers}
-        </div>
+        <p className={styles.summary}>{tokenSummary(token)}</p>
+        {token.oracle_text && <OracleText text={token.oracle_text} bare />}
+      </div>
+      <div className={styles.producers}>
+        <h3 className={styles.heading}>Made by</h3>
+        {producers}
       </div>
     </div>
   );

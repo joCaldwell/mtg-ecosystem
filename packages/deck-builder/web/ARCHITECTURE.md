@@ -300,7 +300,7 @@ Owner decision (2026-10-27, §11.3): Advanced and its account preference are
 removed. History owns current and entry revisions; card decisions show their
 revision, while memory and power assessment metadata uses native titles.
 Neither desktop nor phone deck headers show revisions. CardControls keeps
-secondary slots directly under the primary field, compact and ungated.
+secondary slots directly under the primary field, ungated.
 LogRow shows review status, and the inbox's proposal history shows the count
 of decisions no agent has read yet. CardHistory's owner-scoped response adds ownership
 evidence, rendered only when nonempty with basis, quantities and attribution.
@@ -502,8 +502,7 @@ keep their independent controls, and this presentation changes neither sort orde
 nor stored notes. Collection identity statistics label colours visibly, and
 identities are named images of mana symbols (`ColorIdentity`), so no separate code is drawn.
 
-Review refinement (2026-10-27): CardPanel reserves a readable field width beside
-shrinkable art. AddBar retains search results after maybe-list adds, while its
+Review refinement (2026-10-27): AddBar retains search results after maybe-list adds, while its
 Undo uses removeCard; ordinary membership Undo still uses its log entry.
 PhoneDecisions falls back to the first pending proposal after its selected one
 is resolved.

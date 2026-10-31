@@ -19,8 +19,9 @@
 }
 
 .stepper .input {
-  flex: 0 1 var(--stepper-input-w);
+  flex: 1 1 var(--stepper-input-w);
   width: var(--stepper-input-w);
+  min-width: 0;
   height: auto;
   /* Mono digits ride high in their line box (DESIGN.md, Type), by a different
      amount per platform: a small nudge, not a fit to one font. */

@@ -9,7 +9,7 @@ import { ptString } from "../../../domain/cards.ts";
 import { formatPrice } from "../../../domain/price.ts";
 import { pendingOf } from "../../../domain/grouping.ts";
 import { CardImage, InlineText, ManaCost, OracleText, RichText, useCardLookup, type CardInfo } from "../../../mtg/index.ts";
-import { Button, Chip, Loading, Text } from "../../../ui/index.ts";
+import { Box, Button, Chip, Loading, Text } from "../../../ui/index.ts";
 import { ProposalEyebrow } from "../../decisions/index.ts";
 import { useDeckState } from "../DeckStore.tsx";
 import { useDeckUi, type OpenCard } from "../DeckUi.tsx";
@@ -74,16 +74,6 @@ export function CardPanel({ card: open, backRef, bodyRef }: { card: OpenCard; ba
         </div>
       </div>
       <div ref={bodyRef} className={panelStyles.body} role="region" aria-label={`Card details for ${open.name}`} tabIndex={0} data-panel-body>
-      {/* The type line, then the estimate and where it comes from: the date
-          is one unit, so it never breaks. */}
-      {info && (type || info.cents != null) && <div className={styles.head}>
-        {type && <Text tone="soft" size="sm" as="p">{type}</Text>}
-        {info.cents != null && <Text tone="soft" size="sm" as="p">
-          <Text mono>{formatPrice(info.cents, info.currency)}</Text> cheapest printing · {info.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} · Scryfall{" "}
-          {info.as_of ? <Text mono className={styles.date}>{info.as_of.slice(0, 10)}</Text> : "date unknown"}
-        </Text>}
-      </div>}
-
       {proposal && (
         <div className={styles.note}>
           {proposedBy
@@ -98,29 +88,48 @@ export function CardPanel({ card: open, backRef, bodyRef }: { card: OpenCard; ba
         </div>
       )}
 
-      {!!owned?.maybe && owned.maybe_note && (
-        <section className={styles.maybeNote} aria-label="Maybe note">
-          <Text as="h3" size="sm" tone="muted" weight="medium">Maybe note</Text>
-          <RichText text={owned.maybe_note} />
-        </section>
-      )}
-
-      {info ? info.oracle_text && <OracleText text={info.oracle_text} /> : <Loading />}
-
-      <div className={styles.facts}>
-        <CardImage name={open.name} card={info} />
-        <div className={styles.side}>
-          {owned && <CardControls card={owned} part={slotsOnAdd ? "rest" : "all"} />}
+      {/* What the card is, then what this deck does with it. */}
+      <div className={styles.layout}>
+        <div className={styles.card}>
+          <div className={styles.picture}><CardImage name={open.name} card={info} /></div>
+          <div className={styles.about}>
+            {/* The type line, then the estimate and where it comes from: the
+                date is one unit, so it never breaks. */}
+            {info && (type || info.cents != null) && <div className={styles.head}>
+              {type && <Text as="p">{type}</Text>}
+              {info.cents != null && <div className={styles.price}>
+                <Text tone="soft" as="p"><Text mono>{formatPrice(info.cents, info.currency)}</Text> <span className={styles.date}>cheapest printing</span></Text>
+                <Text tone="muted" size="sm" as="p">
+                  {info.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} · Scryfall{" "}
+                  {info.as_of ? <Text mono className={styles.date}>{info.as_of.slice(0, 10)}</Text> : "date unknown"}
+                </Text>
+              </div>}
+            </div>}
+            {info ? info.oracle_text && <OracleText text={info.oracle_text} bare /> : <Loading />}
+          </div>
         </div>
+
+        {!!owned?.maybe && owned.maybe_note && (
+          <section className={styles.maybeNote} aria-label="Maybe note">
+            <Text as="h3" size="sm" tone="muted" weight="medium">Maybe note</Text>
+            <RichText text={owned.maybe_note} />
+          </section>
+        )}
+
+        {owned
+          ? <Box className={styles.work}>
+              <CardControls card={owned} part={slotsOnAdd ? "rest" : "all"} />
+              {state.deck.category !== "archived" && <CardActions oracleId={open.oracleId} owned={owned} />}
+              {/* A maybe card's slots take effect when it joins the deck, so they sit under that action. */}
+              {slotsOnAdd && <section className={styles.onAdd} aria-labelledby={onAddId}>
+                <Text as="h3" id={onAddId} size="sm" tone="soft" weight="medium">Slot when added</Text>
+                <CardControls card={owned} part="slots" />
+              </section>}
+            </Box>
+          : state.deck.category !== "archived" && <CardActions oracleId={open.oracleId} owned={owned} />}
       </div>
 
-      {state.deck.category !== "archived" && <CardActions oracleId={open.oracleId} owned={owned} />}
-      {/* A maybe card's slots take effect when it joins the deck, so they sit under that action. */}
-      {slotsOnAdd && owned && <section className={styles.onAdd} aria-labelledby={onAddId}>
-        <Text as="h3" id={onAddId} size="sm" tone="soft" weight="medium">Slot when added</Text>
-        <CardControls card={owned} part="slots" />
-      </section>}
-      <CardHistory oracleId={open.oracleId} />
+      <div className={styles.history}><CardHistory oracleId={open.oracleId} /></div>
       </div>
     </>
   );

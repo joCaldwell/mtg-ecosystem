@@ -1,30 +1,68 @@
+/* One label column and one field edge for every row. Controls stand a size
+   taller here than in the list: this is the card's own form. */
+.form {
+  --h-md: var(--h-lg);
+  display: grid;
+  gap: var(--s-6);
+}
+
 .kv {
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: var(--card-label-w) minmax(0, 1fr);
   align-items: start;
-  gap: var(--s-2) var(--s-4);
+  gap: var(--s-4);
+}
+
+.kv + .kv {
+  padding-top: var(--s-6);
+  border-top: 1px solid var(--line);
+}
+
+.kv dt,
+.kv dd {
+  display: flex;
+  align-items: center;
+  min-height: var(--h-md);
 }
 
 .kv dt {
-  padding-top: var(--s-2);
   color: var(--text-soft);
+}
+
+.kv dd > * {
+  width: 100%;
+}
+
+/* Nothing to line up with a control: rows close up and values can wrap. */
+.readOnly .kv {
+  gap: var(--s-3) var(--s-4);
+}
+
+.readOnly .kv :is(dt, dd) {
+  min-height: 0;
+  align-items: start;
 }
 
 .tags {
   display: flex;
   flex-direction: column;
-  gap: var(--s-1);
+  align-items: flex-start;
+  gap: var(--s-3);
   min-width: 0;
 }
 
-.kv dd > :not(:has(> input)), .tags > div { width: 100%; }
+.tags > div { width: 100%; }
 
-/* Three labels need more than the column beside the row labels, so Board
-   takes the whole width under its label. The tablet sheet has the room. */
-.kv dd:has(> .board) { grid-column: 1 / -1; }
 .kv .board { display: flex; }
 .kv .board > button { flex: 1 1 auto; min-width: 0; padding: 0 var(--s-2); }
 
+/* The narrowest panel gives each field its full width, label above. */
+@container (max-width: 379px) {
+  .kv { grid-template-columns: minmax(0, 1fr); row-gap: var(--s-2); }
+  .kv dt, .kv dd { min-height: 0; }
+  .kv dd + dt { margin-top: var(--s-3); }
+}
+
 @media (max-width: 1099px) {
-  .kv dd:has(> .board) { grid-column: auto; }
+  .kv dt, .kv dd { min-height: var(--tap); }
   .kv .board { height: auto; }
 }

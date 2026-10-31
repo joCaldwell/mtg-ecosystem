@@ -139,12 +139,11 @@ try {
       await click(page.locator('[data-deck-list] button[data-oracle-id]').first());
       await page.getByRole('combobox', { name: 'Primary slot', exact: true }).waitFor();
       const fields = await page.getByRole('combobox', { name: 'Primary slot', exact: true }).evaluate(el => {
-        const fields = el.closest('dl'), facts = fields.parentElement.parentElement, image = facts.firstElementChild;
-        const r = fields.getBoundingClientRect(), art = image.getBoundingClientRect();
+        const fields = el.closest('dl'), r = fields.getBoundingClientRect(), art = el.closest('[data-panel-body]').querySelector('img')?.getBoundingClientRect();
         const triggers = [...fields.querySelectorAll('button[aria-haspopup="listbox"]')];
-        return { width: el.getBoundingClientRect().width, container: r.width, artBeside: art.right <= r.left && Math.abs(art.top - r.top) < 1, overflow: triggers.some(t => t.scrollWidth > t.clientWidth || t.getBoundingClientRect().right > r.right + 1), truncated: triggers.some(t => { const text = t.querySelector('span'); return text.scrollWidth > text.clientWidth; }) };
+        return { width: el.getBoundingClientRect().width, container: r.width, artClear: !art || art.bottom <= r.top || art.right <= r.left, overflow: triggers.some(t => t.scrollWidth > t.clientWidth || t.getBoundingClientRect().right > r.right + 1), truncated: triggers.some(t => { const text = t.querySelector('span'); return text.scrollWidth > text.clientWidth; }) };
       });
-      assert(fields.width >= 140 && fields.container >= 240 && fields.artBeside && !fields.overflow && !fields.truncated, 'compact art and fields fit without clipped selects or chevrons');
+      assert(fields.width >= 140 && fields.container >= 240 && fields.artClear && !fields.overflow && !fields.truncated, 'the form clears the picture without clipped selects or chevrons');
       await audit(page, `${width} card panel`);
       if (width === 1024) {
         const select = page.getByRole('combobox', { name: 'Primary slot', exact: true });
