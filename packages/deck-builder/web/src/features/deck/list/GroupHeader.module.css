@@ -70,3 +70,19 @@
 .head {
   break-after: avoid;
 }
+
+/* Board titles sit one level above the smaller card-group headings. */
+.board {
+  gap: var(--s-5);
+  margin-bottom: var(--s-6);
+  padding: 0 var(--s-3);
+  border: 0;
+  font-size: var(--text-xl);
+}
+
+.board .title {
+  font-size: inherit;
+  font-weight: 700;
+}
+
+.board .spacer { flex: none; }

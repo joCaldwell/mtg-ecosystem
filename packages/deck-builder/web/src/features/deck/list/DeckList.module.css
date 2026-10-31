@@ -117,3 +117,6 @@
     --card-name-white-space: nowrap;
   }
 }
+
+/* A filter confined to maybes has no main board to title. */
+.frame:has(> .cols:empty) { display: none; }

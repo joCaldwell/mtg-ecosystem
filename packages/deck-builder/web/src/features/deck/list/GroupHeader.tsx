@@ -6,6 +6,8 @@ import styles from "./GroupHeader.module.css";
 
 export interface GroupHeaderProps {
   title: string;
+  /** Board-level headings span the list above its card columns. */
+  board?: boolean;
   /** Omitted for the commander and companion groups, which are not counted. */
   count?: number;
   primaryCount?: number;
@@ -46,11 +48,11 @@ function StatusSign({ status, delta, target }: { status: GroupStatus; delta: num
   );
 }
 
-export function GroupHeader({ title, count, primaryCount, secondaryCount, target, status = "untargeted", delta = 0, projected, cost, matched }: GroupHeaderProps) {
+export function GroupHeader({ board = false, title, count, primaryCount, secondaryCount, target, status = "untargeted", delta = 0, projected, cost, matched }: GroupHeaderProps) {
   // A total of nothing priced would read as "free".
   const total = matched == null && cost?.priced ? cost : null;
   return (
-    <h2 className={styles.head}>
+    <h2 className={board ? `${styles.head} ${styles.board}` : styles.head}>
       <span className={styles.title}>{title}</span>
       <span className={styles.spacer} />
       {count != null && matched != null && (

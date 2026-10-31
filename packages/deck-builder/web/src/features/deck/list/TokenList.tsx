@@ -24,9 +24,10 @@ export function TokenList({ filter }: { filter?: DeckFilterMatches }) {
 
   const line = !status.ready ? "Token list not available yet." : tokens.length === 0 ? "No related tokens or emblems found." : null;
   return (
-    <div className={styles.cols}>
-      <section className={shown.length > LONG_LIST ? `${styles.tokens} ${styles.long}` : styles.tokens} aria-label="Tokens">
-        <GroupHeader title="Tokens" count={line ? undefined : tokens.length} matched={filtering ? shown.length : undefined} />
+    <section className={styles.board} aria-label="Tokens">
+      <GroupHeader board title="Tokens" count={line ? undefined : tokens.length} matched={filtering ? shown.length : undefined} />
+      <div className={styles.cols}>
+        <div className={shown.length > LONG_LIST ? `${styles.tokens} ${styles.long}` : styles.tokens}>
         {line
           ? <p className={styles.line}>{line}</p>
           : shown.map((t) => {
@@ -41,7 +42,8 @@ export function TokenList({ filter }: { filter?: DeckFilterMatches }) {
                 />
               );
             })}
-      </section>
-    </div>
+        </div>
+      </div>
+    </section>
   );
 }
