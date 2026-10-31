@@ -15,7 +15,15 @@
 @media (max-width: 1099px) {
   /* The window scrolls: a revealed row or the maybe list lands below the
      sticky navigation bar and the active-filter row (CardRow, MaybeList). */
-  .page { --deck-column-min: var(--deck-reader-column-min); --list-scroll-offset: calc(var(--tablet-bar-outer-h) + var(--tap) + var(--s-4)); }
+  .page {
+    --deck-column-min: var(--deck-reader-column-min);
+    --deck-scroll-heading-space: 0px;
+    --deck-review-space: 0px;
+    --deck-sticky-offset: calc(var(--tablet-bar-outer-h) + var(--deck-scroll-heading-space) + var(--deck-review-space));
+    --list-scroll-offset: calc(var(--deck-sticky-offset) + var(--tap) + var(--s-4));
+  }
+  .page[data-scrolled-heading] { --deck-scroll-heading-space: var(--deck-scroll-heading-h); }
+  .page[data-reviewing] { --deck-review-space: var(--tablet-review-h); }
   .page :is(button, select, input) { min-height: var(--tap); }
 }
 

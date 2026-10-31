@@ -5,3 +5,5 @@ export { useReview, type Review } from "./useReview.tsx";
 export { Differences as DeckDifferences } from "./dialogs/Differences.tsx";
 export { ReviewItemLine } from "./panel/ReviewItemLine.tsx";
 export { useDeckView } from "./useDeckView.ts";
+export { DeckScrollHeading } from "./DeckScrollHeading.tsx";
+export { useScrolledDeckHero } from "./useScrolledDeckHero.ts";

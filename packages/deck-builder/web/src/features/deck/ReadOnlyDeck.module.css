@@ -79,6 +79,7 @@
     grid-template-columns: minmax(0, 1fr);
     padding: var(--s-5) var(--s-4);
   }
+  .list { scroll-margin-top: calc(var(--phone-bar-h) + var(--deck-scroll-heading-h)); }
 }
 
 /* Owner phone references decorate their text, including proposal names and

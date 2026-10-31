@@ -104,5 +104,6 @@
 }
 .readDeck { width: 100%; }
 .readDeck:hover { background: linear-gradient(var(--hover), var(--hover)), var(--surface); border-color: var(--line-hover); }
+.proposals { scroll-margin-top: calc(var(--phone-bar-h) + var(--deck-scroll-heading-h)); }
 .reviewInbox { border-color: var(--agent-line); background: var(--agent-bg); color: var(--agent); font-size: var(--text-sm); white-space: nowrap; }
 .reviewInbox:hover { border-color: var(--agent); }

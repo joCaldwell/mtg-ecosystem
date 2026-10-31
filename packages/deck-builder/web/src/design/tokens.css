@@ -384,6 +384,7 @@
      The minimum above is also used by the desktop brand row. */
   --tablet-bar-outer-h: max(var(--tablet-bar-h), calc(var(--tap) + var(--s-2) * 2 + 1px));
   --tablet-review-h: calc(var(--tap) + var(--s-2) * 2 + 1px);
+  --deck-scroll-heading-h: var(--tap);
   --sheet-max-h: 86dvh;
   /* The card picture in CardSheet: beside the text, and alone on a phone. */
   --sheet-image-w: 200px;

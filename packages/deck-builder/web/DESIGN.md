@@ -671,6 +671,10 @@ not options in the result listbox.
 Tablet review retains a pinned black strip beneath navigation: Reviewing,
 remaining decisions, Current proposal and Done. Current proposal opens the
 existing Review sheet at its cursor, retaining drafts and the list position.
+Once the art header leaves a phone or tablet's usable viewport, a compact
+black header retains the deck name and lifecycle beneath navigation. Decks
+and Inbox paths remain available. Tablet review and active-filter strips stack
+under it. The phone archived notice remains above the title in the art.
 
 Shared desktop lists require the same minimum column width as the editor and
 allow long names to wrap; readers can identify every card without opening it.

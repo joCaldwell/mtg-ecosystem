@@ -33,7 +33,7 @@ export function ProposalBanner({ units, review, confirmingAll, setConfirmingAll,
 
   if (units.length === 0 || (tablet && !ui.reviewing)) return null;
 
-  if (tablet) return <Banner className={styles.tabletReview} tone="agent" actions={<>
+  if (tablet) return <Banner className={styles.tabletReview} data-tablet-review tone="agent" actions={<>
     <Button size="touch" aria-haspopup="dialog" onClick={() => ui.setTab("review")}>Current proposal</Button>
     <Button size="touch" variant="ghost" onClick={ui.stopReview}>Done</Button>
   </>}>

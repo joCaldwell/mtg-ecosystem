@@ -29,6 +29,8 @@ import { focusReviewArrival } from "./reviewArrival.ts";
 import { firstUnitOf, proposalParam } from "../../domain/reviewStart.ts";
 import styles from "./DeckPage.module.css";
 import { useDeckHeaderScroll } from "./useDeckHeaderScroll.ts";
+import { useScrolledDeckHero } from "./useScrolledDeckHero.ts";
+import { DeckScrollHeading } from "./DeckScrollHeading.tsx";
 
 export function DeckPage({ deckId, review = false }: { deckId: number; review?: boolean }) {
   return (
@@ -63,6 +65,7 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
   const state = useDeckState();
   const { error, clearError } = useDeck();
   const ui = useDeckUi();
+  const { hero, passed } = useScrolledDeckHero(ui.reviewing);
   useEffect(() => {
     if (new URLSearchParams(location.search).get("import") === "1") {
       ui.openDialog("import");
@@ -161,10 +164,11 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
   return (
     <CardOpenProvider onOpen={openByName}>
       <DeckViewProvider value={view}>
-        <div ref={page} data-deck-page className={styles.page}>
+        <div ref={page} data-deck-page data-scrolled-heading={passed || undefined} data-reviewing={ui.reviewing && view.units.length > 0 || undefined} className={styles.page}>
+          <DeckScrollHeading deck={state.deck} shown={passed} />
           {state.deck.category !== "archived" && <ProposalBanner tablet units={view.units} review={review} confirmingAll={confirmingAll} setConfirmingAll={setConfirmingAll} />}
           <div data-deck-compact className={styles.compact}><DeckHeader compact /></div>
-          <div data-deck-hero><DeckHeader /></div>
+          <div ref={hero} data-deck-hero><DeckHeader /></div>
           <div data-deck-workspace className={styles.workspace}>
             <DeckToolbar />
             {error && (

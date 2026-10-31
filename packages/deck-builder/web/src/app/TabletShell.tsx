@@ -26,7 +26,7 @@ export function TabletBar({ route }: { route: Route }) {
   // Unmounted when the window widens past the panel breakpoint, so the
   // drawer cannot linger over desktop.
   return <>
-    <header className={styles.bar}>
+    <header className={styles.bar} data-window-navigation>
       <Button size="touch" onClick={() => setOpen(true)} aria-haspopup="dialog">Menu</Button>
       <span className={styles.location}>{route.page === "deck"
         ? <Button size="touch" onClick={() => window.dispatchEvent(new Event("deck-details"))} aria-haspopup="dialog">Deck details</Button>

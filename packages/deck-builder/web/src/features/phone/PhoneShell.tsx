@@ -16,7 +16,7 @@ export function PhoneShell({ route, children }: { route: Route; children: ReactN
   useWindowScroll();
   return (
     <div className={styles.shell}>
-      <header className={styles.bar}>
+      <header className={styles.bar} data-window-navigation>
         <a className={styles.brand} href={href({ page: "decks" })} aria-label="Deck Builder, all decks">
           <BrandMark className={styles.mark} />
         </a>
