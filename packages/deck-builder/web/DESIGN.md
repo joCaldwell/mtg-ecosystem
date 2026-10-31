@@ -343,7 +343,9 @@ sheet over the list (principle 1's existing requested-dialog exception).
 - **Chevron:** `ui/Chevron` is the one dropdown chevron, on every Select,
   MultiSelect and Menu trigger: `--chevron-size`, `--chevron-inset` from the
   edge, turning over on `--base` while `aria-expanded` is true.
-- **Copies** is a `Stepper`: down, then up, beside the typed number. Shafted
+- **Copies** is a `Stepper`, shown for a card whose `copy_limit` allows more
+  than one copy and for any stack already above one: down, then up, beside
+  the typed number. Shafted
   arrows say step, not list, and side by side each is a whole target,
   `--tap` square through 1099 px. A run of clicks shows its running number
   at once and settles into one write, so it is one decision and one undo.

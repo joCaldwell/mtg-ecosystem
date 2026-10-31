@@ -52,9 +52,17 @@ describe("creating a proposal (spec §8.1)", () => {
       () => createProposal(db, AGENT, id, { items: [{ action: "add", oracle_id: "id-counterspell", reason: "x" }] }),
       /already in the deck/,
     );
+    // Naming copies in an effect is not a deck-building rule.
+    add(db, id, "id-squadron-hawk");
+    assert.throws(
+      () => createProposal(db, AGENT, id, { items: [{ action: "add", oracle_id: "id-squadron-hawk", reason: "x" }] }),
+      /already in the deck/,
+    );
     // A card that allows more copies can be proposed again.
     add(db, id, "id-forest");
     createProposal(db, AGENT, id, { items: [{ action: "add", oracle_id: "id-forest", reason: "One more land." }] });
+    add(db, id, "id-relentless-rats");
+    createProposal(db, AGENT, id, { items: [{ action: "add", oracle_id: "id-relentless-rats", reason: "One more rat." }] });
   });
   test("a second pending proposal for the same change is refused", () => {
     const id = seeded();

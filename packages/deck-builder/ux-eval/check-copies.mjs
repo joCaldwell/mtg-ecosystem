@@ -7,7 +7,7 @@
 //   node check-copies.mjs [--origin http://127.0.0.1:8871]
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
-import { BROWSER_ARGS, VIEWPORTS, newContext, watchPage, settle } from './lib/browser.mjs';
+import { BROWSER_ARGS, VIEWPORTS, newContext, watchPage, scrollUntilVisible, settle } from './lib/browser.mjs';
 
 const opt = name => { const i = process.argv.indexOf('--' + name); return i < 0 ? undefined : process.argv[i + 1]; };
 const origin = opt('origin') ?? 'http://127.0.0.1:8871';
@@ -180,6 +180,83 @@ try {
     await page.getByText('Copies', { exact: true }).waitFor();
     assert.equal(await page.getByRole('button', { name: /copy of/ }).count(), 0, 'No arrows when read-only');
     await context.close();
+  }
+
+  // Every copy rule, with real cards. Only "A deck can have…" sets a limit: the
+  // search effects on Squadron Hawk and Battalion Foot Soldier are not one.
+  {
+    const rulesDeck = 5, cards = { unlimited: 'Relentless Rats', capped: 'Seven Dwarves', searchesThree: 'Squadron Hawk', searchesAny: 'Battalion Foot Soldier' };
+    const found = {};
+    for (const [key, card] of Object.entries(cards)) {
+      const results = await api('/api/search?filter=off&q=' + encodeURIComponent(`!"${card}"`));
+      found[key] = results.find(item => item.name === card)?.oracle_id;
+      assert(found[key], `${card} resolves in the card database`);
+      await api(`/api/decks/${rulesDeck}/cards`, { method: 'POST', body: JSON.stringify({ oracle_id: found[key] }) });
+    }
+    const rulesState = async () => (await api(`/api/decks/${rulesDeck}`)).state;
+    const held = async id => (await rulesState()).cards.find(item => item.oracle_id === id);
+    assert.equal((await held(found.unlimited)).copy_limit, null, 'Any number reaches the panel as null');
+    assert.equal((await held(found.capped)).copy_limit, 7, 'A printed cap reaches the panel');
+    assert.equal((await held(found.searchesThree)).copy_limit, 1);
+    assert.equal((await held(found.searchesAny)).copy_limit, 1);
+
+    const { context, page, watch } = await open(1440, { deck: rulesDeck });
+    const select = async id => {
+      const row = page.locator(`[data-deck-list] [data-oracle-id="${id}"]`).first();
+      await scrollUntilVisible(page, row, VIEWPORTS[1440]); await row.click(); await settle(page, watch);
+    };
+    // Any number: up from 1, past any cap, and down stops at 1.
+    await select(found.unlimited);
+    let { input, up, down } = controls(page, cards.unlimited);
+    assert.equal(await input.inputValue(), '1');
+    assert.equal(await down.getAttribute('aria-disabled'), 'true', 'Down is off at 1');
+    await up.click(); await up.click();
+    assert.equal(await input.inputValue(), '3');
+    await page.waitForTimeout(SETTLE + 300); await settle(page, watch);
+    assert.equal((await held(found.unlimited)).quantity, 3, 'Raised from 1');
+    await input.click(); await page.keyboard.type('12'); await page.keyboard.press('Enter'); await settle(page, watch);
+    await up.click();
+    assert.equal(await input.inputValue(), '13', 'No ceiling');
+    await page.waitForTimeout(SETTLE + 300); await settle(page, watch);
+    await input.click(); await page.keyboard.type('2'); await page.keyboard.press('Enter'); await settle(page, watch);
+    await down.click(); await down.click({ force: true });
+    await page.waitForTimeout(SETTLE + 300); await settle(page, watch);
+    assert.equal(await input.inputValue(), '1');
+    assert.equal((await held(found.unlimited)).quantity, 1, 'Down stops at 1 and keeps the card');
+
+    // A printed cap: up from 1, then off at seven.
+    await select(found.capped);
+    ({ input, up, down } = controls(page, cards.capped));
+    assert.equal(await input.inputValue(), '1');
+    for (let i = 0; i < 6; i++) await up.click();
+    assert.equal(await input.inputValue(), '7');
+    assert.equal(await up.getAttribute('aria-disabled'), 'true', 'Up is off at the printed cap');
+    await up.click({ force: true });
+    assert.equal(await input.inputValue(), '7');
+    await page.waitForTimeout(SETTLE + 300); await settle(page, watch);
+    assert.equal((await held(found.capped)).quantity, 7);
+
+    // A singleton has no control at 1, even one whose text mentions other copies.
+    for (const key of ['searchesThree', 'searchesAny']) {
+      await select(found[key]);
+      await page.getByRole('heading', { name: cards[key], exact: true }).waitFor();
+      assert.equal(await page.getByRole('button', { name: /copy of/ }).count(), 0, `${cards[key]} has no Copies at 1`);
+    }
+    // A singleton somehow above 1 can be lowered, not raised, and the control leaves at 1.
+    await api(`/api/decks/${rulesDeck}/cards/${found.searchesThree}`, { method: 'PATCH', body: JSON.stringify({ quantity: 2 }) });
+    await settle(page, watch);
+    await select(found.searchesThree);
+    ({ input, up, down } = controls(page, cards.searchesThree));
+    await input.waitFor();
+    assert.equal(await input.inputValue(), '2');
+    assert.equal(await up.getAttribute('aria-disabled'), 'true', 'Up is off above the limit');
+    await down.click();
+    await page.waitForTimeout(SETTLE + 300); await settle(page, watch);
+    assert.equal((await held(found.searchesThree)).quantity, 1);
+    assert.equal(await page.getByRole('button', { name: /copy of/ }).count(), 0, 'The control leaves at 1');
+    assert.deepEqual(watch.errors, []);
+    await context.close();
+    for (const id of Object.values(found)) await api(`/api/decks/${rulesDeck}/cards/${id}`, { method: 'DELETE' });
   }
 
   // Touch widths: each arrow is a whole tap target, and the control one tall.

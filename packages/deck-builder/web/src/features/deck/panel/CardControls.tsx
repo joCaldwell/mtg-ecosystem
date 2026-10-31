@@ -24,9 +24,9 @@ export function CardControls({ card, part = "all" }: { card: DeckCard; part?: "a
   const patch = (change: Parameters<typeof api.updateCard>[2]) => run(() => api.updateCard(deckId, card.oracle_id, change));
 
   const inDeck = !card.maybe;
-  // Singleton format: a second copy only makes sense of a basic land, so the
-  // field appears for those and for any stack the deck already has.
-  const showQuantity = inDeck && (card.quantity > 1 || /\bBasic\b/.test(card.type_line));
+  // Singleton format: the field appears for a card that allows more than one
+  // copy, and for any stack the deck already has, so it can be lowered.
+  const showQuantity = inDeck && (card.quantity > 1 || card.copy_limit !== 1);
 
   const rows: Array<[string, ReactNode]> = [
     [

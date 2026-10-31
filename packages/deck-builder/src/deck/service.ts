@@ -68,15 +68,15 @@ const WORD_NUMBERS: Record<string, number> = {
   eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
 };
 
-// How many copies a card allows: 1 (singleton), a printed cap ("up to seven
-// cards named..."), or Infinity (basics, "any number of cards named...").
+// How many copies a card allows: 1 (singleton), a printed cap ("A deck can have
+// up to seven cards named..."), or Infinity (basics, "A deck can have any number
+// of cards named..."). Only that sentence counts: "search your library for up to
+// three cards named Squadron Hawk" is an effect, not a deck-building rule.
 export function copyLimit(card: { type_line: string; oracle_text?: string }): number {
   if (/\bBasic\b/.test(card.type_line)) return Infinity;
-  const text = (card.oracle_text ?? "").toLowerCase();
-  if (text.includes("any number of cards named")) return Infinity;
-  const m = text.match(/up to (\w+) cards named/);
-  if (m) return WORD_NUMBERS[m[1]] ?? 1;
-  return 1;
+  const rule = (card.oracle_text ?? "").toLowerCase().match(/a deck can have (any number of|up to (\w+)) cards named/);
+  if (!rule) return 1;
+  return rule[2] ? WORD_NUMBERS[rule[2]] ?? 1 : Infinity;
 }
 
 // ---------- deck lifecycle ----------
