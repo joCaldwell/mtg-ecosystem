@@ -71,9 +71,7 @@ export function DeckActionDialog({ deck, action, onClose, onSaved }: {
             </Field>
           ) : action === "category" ? (
             <Field label={`Lifecycle for ${deck.name}`} hint={voice("Paper is a deck you play. Theorycrafted is a work in progress. Archived is read-only. Only you can change this.", "Paper requires agent card proposals; Theorycrafted allows direct agent card edits; Archived is read-only. Only you can change lifecycle.")}>
-              <Select data-autofocus value={category} disabled={busy} onChange={(e) => setCategory(e.target.value as DeckCategory)}>
-                {DECK_CATEGORY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </Select>
+              <Select data-autofocus options={DECK_CATEGORY_OPTIONS.map(({ value, label }) => ({ value, label }))} value={category} disabled={busy} onChange={(value) => setCategory(value as DeckCategory)} />
             </Field>
           ) : (
             <>

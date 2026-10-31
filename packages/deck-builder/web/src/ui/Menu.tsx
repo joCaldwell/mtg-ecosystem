@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Button, type ButtonProps } from "./Button.tsx";
+import { Chevron } from "./Chevron.tsx";
 import { Icon, type IconName } from "./Icon.tsx";
 import { IconButton } from "./IconButton.tsx";
 import { Popover } from "./Popover.tsx";
@@ -108,13 +109,13 @@ export function Menu({ label, icon, ariaLabel, items, variant = "default", size 
         <button {...triggerProps} type="button" className={styles.pill} aria-label={ariaLabel}>
           <span className={styles.pillFace}>
             {label}
-            <Icon name="chevronDown" size={10} />
+            <Chevron />
           </span>
         </button>
       ) : (
         <Button {...triggerProps} size={size} variant={variant} aria-label={ariaLabel}>
           {label}
-          <Icon name="chevronDown" size={12} />
+          <Chevron />
         </Button>
       )}
       <Popover anchor={trigger} open={open} onClose={close} align={align}>

@@ -171,6 +171,9 @@
   --mana-list-size: 16px;
   /* Touch: the smallest thing a finger is asked to hit (DESIGN.md, narrow screens). */
   --tap: 44px;
+  /* The dropdown chevron (ui/Chevron), and the gap from it to its trigger's edge. */
+  --chevron-size: 14px;
+  --chevron-inset: var(--s-4);
   /* The brand mark (app/BrandMark): as tall as its wordmark's capitals, and
      a fixed size where it stands alone in the collapsed rail. */
   --brand-mark-h: 1cap;

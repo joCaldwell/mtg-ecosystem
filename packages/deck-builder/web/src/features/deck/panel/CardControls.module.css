@@ -21,4 +21,15 @@
   font-family: var(--font-mono);
 }
 
-.kv dd > :not(.quantity), .kv select, .tags > div { width: 100%; }
+.kv dd > :not(.quantity), .tags > div { width: 100%; }
+
+/* Three labels need more than the column beside the row labels, so Board
+   takes the whole width under its label. The tablet sheet has the room. */
+.kv dd:has(> .board) { grid-column: 1 / -1; }
+.kv .board { display: flex; }
+.kv .board > button { flex: 1 1 auto; min-width: 0; padding: 0 var(--s-2); }
+
+@media (max-width: 1099px) {
+  .kv dd:has(> .board) { grid-column: auto; }
+  .kv .board { height: auto; }
+}

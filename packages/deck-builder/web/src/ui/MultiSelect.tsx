@@ -1,8 +1,11 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Button } from "./Button.tsx";
+import { Chevron } from "./Chevron.tsx";
 import { Icon } from "./Icon.tsx";
+import { cx } from "./internal.ts";
 import { Popover } from "./Popover.tsx";
 import { TextField } from "./TextField.tsx";
+import listbox from "./Listbox.module.css";
 import styles from "./MultiSelect.module.css";
 
 export interface MultiSelectProps {
@@ -75,7 +78,7 @@ export function MultiSelect({ label, placeholder = "Select…", options, value, 
     <div className={styles.control} aria-busy={busy}>
       <Button
         ref={setAnchor}
-        className={`${styles.trigger} ${compact && selected.length > 0 ? styles.active : ""}`}
+        className={cx(listbox.trigger, styles.trigger, compact && selected.length > 0 && styles.active)}
         aria-label={`${triggerText}, ${label}`}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -91,7 +94,7 @@ export function MultiSelect({ label, placeholder = "Select…", options, value, 
         <span className={compact ? styles.summary : undefined}>
           {triggerText}
         </span>
-        <Icon name="chevronDown" size={12} />
+        <Chevron />
       </Button>
       {!compact && selected.length > 0 && (
         <div className={styles.selected} aria-label={`${label}: selected`}>
@@ -115,7 +118,7 @@ export function MultiSelect({ label, placeholder = "Select…", options, value, 
           id={id}
           role="group"
           aria-label={label}
-          className={styles.panel}
+          className={listbox.panel}
           onBlur={(event) => {
             // Disabling a focused checkbox during a write can blur it with
             // no next target. Keep the dropdown open for further selections.
@@ -130,11 +133,11 @@ export function MultiSelect({ label, placeholder = "Select…", options, value, 
           }}
         >
           <TextField ref={search} type="search" aria-label={`Search ${label.toLowerCase()}`} placeholder="Search…" value={query} onChange={(event) => setQuery(event.target.value)} />
-          <div className={styles.options} id={`${id}-choices`} role="listbox" aria-label={label} aria-multiselectable="true">
+          <div className={listbox.options} id={`${id}-choices`} role="listbox" aria-label={label} aria-multiselectable="true">
             {visible.map((option) => (
-              <button type="button" role="option" key={option.value} className={styles.option} aria-selected={value.includes(option.value)} disabled={busy} onClick={() => void toggle(option.value)}><span aria-hidden="true">{value.includes(option.value) ? "✓" : "○"}</span>{option.label}</button>
+              <button type="button" role="option" key={option.value} className={listbox.option} aria-selected={value.includes(option.value)} disabled={busy} onClick={() => void toggle(option.value)}><span aria-hidden="true">{value.includes(option.value) ? "✓" : "○"}</span>{option.label}</button>
             ))}
-            {visible.length === 0 && <p role="option" aria-selected="false" aria-disabled="true" className={styles.empty}>{options.length ? "No matching options." : emptyText}</p>}
+            {visible.length === 0 && <p role="option" aria-selected="false" aria-disabled="true" className={listbox.empty}>{options.length ? "No matching options." : emptyText}</p>}
           </div>
           {footer}
           <Button size="sm" variant="ghost" onClick={close}>Done</Button>

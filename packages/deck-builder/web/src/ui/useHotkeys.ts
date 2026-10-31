@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 
 export interface HotkeyOptions {
   enabled?: boolean;
-  /** Fire even while focus is in an input, textarea, select or editable element. */
+  /** Fire even while focus is in an input, textarea, Select or editable element. */
   allowInInputs?: boolean;
 }
 
@@ -44,7 +44,7 @@ function inEditable(target: EventTarget | null): boolean {
   return (
     target.tagName === "INPUT" ||
     target.tagName === "TEXTAREA" ||
-    target.tagName === "SELECT" ||
+    target.getAttribute("role") === "combobox" ||
     target.isContentEditable
   );
 }

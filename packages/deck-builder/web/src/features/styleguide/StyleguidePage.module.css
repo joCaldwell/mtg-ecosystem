@@ -182,3 +182,8 @@
 .brandRail { display: inline-flex; color: var(--text); --brand-mark-h: var(--brand-mark-rail); }
 .brandLarge { --brand-mark-h: var(--s-7); }
 .brandMuted { color: var(--muted); }
+
+/* Room below the row for the Select example that starts open. */
+.openSelect {
+  min-height: calc(var(--s-8) * 5);
+}

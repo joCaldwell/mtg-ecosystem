@@ -34,19 +34,15 @@ export function CompareDialog({ onClose }: { onClose: () => void }) {
         <Row align="end" wrap>
           <Field label="Compare with">
             <Select
-              value={other ?? ""}
-              onChange={(e) => setOther(e.target.value === "" ? null : e.target.value === "upstream" ? "upstream" : Number(e.target.value))}
+              options={[
+                { value: "", label: "Choose a deck…" },
+                ...(upstream ? [{ value: "upstream", label: `${upstream.owner_handle}/${upstream.name} (forked from, shared)` }] : []),
+                ...others.map((d) => ({ value: String(d.id), label: `${d.name}${d.id === parent?.id ? " (parent)" : ""}` })),
+              ]}
+              value={String(other ?? "")}
+              onChange={(value) => setOther(value === "" ? null : value === "upstream" ? "upstream" : Number(value))}
               data-autofocus=""
-            >
-              <option value="">Choose a deck…</option>
-              {upstream && <option value="upstream">{upstream.owner_handle}/{upstream.name} (forked from, shared)</option>}
-              {others.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                  {d.id === parent?.id ? " (parent)" : ""}
-                </option>
-              ))}
-            </Select>
+            />
           </Field>
           <Spacer />
           {typeof other === "number" && other !== parent?.id ? (

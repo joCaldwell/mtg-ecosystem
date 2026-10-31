@@ -7,8 +7,6 @@
 
 .trigger {
   width: 100%;
-  justify-content: space-between;
-  text-align: left;
 }
 
 .trigger span, .chip span {
@@ -25,10 +23,6 @@
 .trigger.active {
   border-color: var(--sel-line);
   background: var(--sel-bg);
-}
-
-.trigger > svg {
-  flex-shrink: 0;
 }
 
 .selected {
@@ -63,29 +57,3 @@
 .popover {
   width: min(var(--panel-w), calc(100vw - var(--s-8)));
 }
-
-.panel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-3);
-  padding: var(--s-4);
-}
-
-.options {
-  max-height: calc(var(--s-8) * 7);
-  overflow-y: auto;
-}
-
-.option {
-  display: flex;
-  min-height: var(--h-lg);
-  padding: var(--s-2) var(--s-3);
-  border-radius: var(--r-sm);
-  overflow-wrap: anywhere;
-}
-
-.option:hover { background: var(--hover); }
-.empty { margin: var(--s-4); color: var(--muted); }
-
-.option { width: 100%; text-align: left; align-items: center; gap: var(--s-4); }
-.option[aria-selected="true"] { background: var(--sel-bg); color: var(--sel); }

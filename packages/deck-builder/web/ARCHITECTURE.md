@@ -661,7 +661,7 @@ left under the panel navigation; while reviewing, a blank tail
 (`--review-scroll-tail`) gives the last proposals room to reach that edge,
 and a clamped scroll shows a cut neighbour whole when it can. The projection (ReviewDelta) leads the
 destination once. Brief, profile and power-target edits show only changed
-lines (`DiffView foldSame`). The card panel's Role select is "Board" (Main
+lines (`DiffView foldSame`). The card panel's role control is "Board" (Main
 deck, Commander, Companion); its meta is the type line, then the estimate
 with mono price and an unbroken date. Export keeps the header's close button
 only and states format and exclusions on its count line.

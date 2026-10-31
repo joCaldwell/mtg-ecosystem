@@ -1,0 +1,60 @@
+/* The closed trigger and the open list shared by Select and MultiSelect. */
+
+.trigger {
+  justify-content: space-between;
+  text-align: left;
+}
+
+.trigger[aria-expanded="true"] {
+  border-color: var(--line-hover);
+  background: linear-gradient(var(--hover), var(--hover)), var(--surface);
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4);
+}
+
+.options {
+  max-height: calc(var(--s-8) * 7);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  width: 100%;
+  min-height: var(--h-lg);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.option:hover,
+.option[data-active] {
+  background: var(--hover);
+}
+
+.option[aria-selected="true"] {
+  background: var(--sel-bg);
+  color: var(--sel);
+}
+
+.option[aria-selected="true"]:hover,
+.option[aria-selected="true"][data-active] {
+  background: linear-gradient(var(--hover), var(--hover)), var(--sel-bg);
+}
+
+.empty {
+  margin: var(--s-4);
+  color: var(--muted);
+}
+
+@media (max-width: 1099px) {
+  .option { min-height: var(--tap); }
+}

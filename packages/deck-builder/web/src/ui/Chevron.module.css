@@ -1,0 +1,15 @@
+.chevron {
+  flex: none;
+  width: var(--chevron-size);
+  height: var(--chevron-size);
+  transition: transform var(--base);
+}
+
+[aria-expanded="true"] .chevron {
+  transform: rotate(180deg);
+}
+
+/* Whatever size the button, the chevron sits the same distance from its edge. */
+button:has(> .chevron) {
+  padding-right: var(--chevron-inset);
+}

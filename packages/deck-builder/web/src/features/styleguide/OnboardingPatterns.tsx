@@ -14,7 +14,7 @@ export function OnboardingPatterns() {
         <KeyValue items={[
           ["History", <Text mono size="sm">r95</Text>],
           ["Review status", "Unreviewed"],
-          ["Primary slot", <Select aria-label="Example primary slot"><option>Support</option></Select>],
+          ["Primary slot", <Select aria-label="Example primary slot" options={[{ value: "support", label: "Support" }]} value="support" onChange={() => undefined} />],
           ["Secondary slots", <MultiSelect compact label="Example secondary slots" options={[{ value: "one", label: "Utility" }]} value={secondary} onChange={setSecondary} />],
           ["Updated", <Text size="sm" title="Recorded at r95">Today</Text>],
         ]} />

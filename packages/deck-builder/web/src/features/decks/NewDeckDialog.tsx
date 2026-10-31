@@ -50,11 +50,7 @@ export function NewDeckDialog({ onClose }: { onClose: () => void }) {
           <TextField data-autofocus value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
         </Field>
         <Field label="Lifecycle" hint={voice("Theorycrafted is a work in progress. Paper is a deck you play. You can archive either later.", "Paper requires agent card proposals; Theorycrafted allows direct agent card edits. Brief changes always need approval. You can archive either later.")}>
-          <Select value={category} onChange={(e) => setCategory(e.target.value as DeckCategory)} disabled={busy}>
-            {DECK_CATEGORY_OPTIONS.filter(o => o.value !== "archived").map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </Select>
+          <Select options={DECK_CATEGORY_OPTIONS.filter(o => o.value !== "archived").map(({ value, label }) => ({ value, label }))} value={category} onChange={(value) => setCategory(value as DeckCategory)} disabled={busy} />
         </Field>
         {error && <ErrorNote>{error}</ErrorNote>}
       </form>

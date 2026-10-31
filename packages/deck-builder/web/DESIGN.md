@@ -225,7 +225,8 @@ or about this app.
 | `ContextMenu` | Pointer-positioned actions for a right-click or keyboard menu request | disabled items, separators, arrow navigation, focus restoration |
 | `TextField` | One-line input | `fieldSize` `md` `lg`; `invalid` |
 | `TextArea` | Multi-line input | `autosize` |
-| `Select`, `Checkbox` | Native controls, restyled | |
+| `Select` | Pick one of a list: a select-only combobox over the same list as MultiSelect, never a native `<select>` | `options` (item `disabled`, `title`); `placeholder`; `invalid`; `disabled`; `defaultOpen` (style guide only) |
+| `Checkbox` | A native checkbox, restyled | |
 | `MultiSelect` | Searchable multiple-selection listbox with removable selected chips | controlled `value`, async `onChange`, empty state, `compact` trigger summary, dropdown `footer` |
 | `Field` | Label, control and hint, wired together | |
 | `Meter` | A bar toward a limit | `neutral` `agent` `warn` `add`; clamps to 0-100% |
@@ -238,7 +239,7 @@ or about this app.
 | `Dialog` | A modal: focus trap, Esc, backdrop click, focus restore, `data-autofocus` | width `md` `lg` `wide`; placement `center` `sheet` `drawer`; `footer` |
 | `ConfirmDialog` | A question with Cancel and a confirm button | tone `default` `danger` |
 | `Explainer` | Specifically labelled help for unfamiliar concepts | closed, open, keyboard focus, close/Escape and focus return; `defaultOpen` (style guide only); `control` (opened by a menu item, beside its anchor, no trigger of its own) |
-| `Popover`, `placeNear` | A panel anchored to an element, kept inside the viewport | placement `below` `right` `above` `left`; `align` |
+| `Popover`, `placeNear` | A panel anchored to an element, kept inside the viewport | placement `below` `right` `above` `left`; `align`; `fitAnchor` |
 | `ToastProvider`, `useToast` | One toast at a time with an optional action, and a second after it (wrapping below the message where narrow); bottom left at 1100 px and wider (over the sidebar footer, clear of the deck list and the panel's actions), bottom centre below | `duration`; `action` with `kbd`; `secondaryAction` |
 | `DiffView` | Added and deleted lines | line kind `same` `add` `del`; `foldSame` (each unchanged run one closed native disclosure, "4 unchanged lines"); Markdown list lines draw a bullet, not their hyphen |
 | `Table`, `ClickableRow` | Plain tables with small uppercase headers; rows that open something | |
@@ -327,6 +328,24 @@ sheet over the list (principle 1's existing requested-dialog exception).
   search and options; Space/Enter toggles; Escape/Done returns to the trigger.
   The listbox shows empty and no-match states as a disabled option (so its
   required option role remains present), and disables writes while busy.
+- **Dropdowns (owner decision, 2026-10-30, replacing native selects):** a
+  native select's open list cannot be styled, so every dropdown is `Select`
+  or `MultiSelect`, drawn from the same trigger and list
+  (`ui/Listbox.module.css`). `Select` is the WAI-ARIA select-only combobox:
+  focus stays on the trigger and the list follows `aria-activedescendant`,
+  so a Dialog's focus trap and Escape order are untouched. Up/Down, Home/End,
+  Page Up/Down and type-ahead move; Enter and Space commit; Escape closes
+  without changing anything; Tab keeps the highlighted option and moves on.
+  A trigger keeps one width whichever option is chosen. Its list is portalled
+  (into the dialog when in one), never narrower than the trigger, flips at
+  the viewport edge, scrolls when long and has `--tap` rows through 1099 px.
+- **Chevron:** `ui/Chevron` is the one dropdown chevron, on every Select,
+  MultiSelect and Menu trigger: `--chevron-size`, `--chevron-inset` from the
+  edge, turning over on `--base` while `aria-expanded` is true.
+- **Board** is `Segmented`, not a dropdown: three short, always-visible
+  choices, changed rarely and worth seeing at a glance. It needs more room
+  than the field column, so at 1100 px and wider it takes the full width
+  under its label.
 - **Card inspection:** `?` on a focused card row opens the same CardSheet as
   tapping its mana cost. Inline card names without a host action open it too.
   The modal is named, traps focus, closes with Escape and restores focus.
@@ -500,8 +519,8 @@ printed artist and copyright lines.
 
 
 
-The roster filters form one slim, wrapping toolbar: search and a native
-lifecycle select retain explicit accessible names; the count is a status and
+The roster filters form one slim, wrapping toolbar: search and a lifecycle
+Select retain explicit accessible names; the count is a status and
 Clear filters appears while filtering. Phones place search on its own line
 and keep lifecycle and count together. Tile waiting counts come from the Inbox
 store's shared map of proposals and document edit groups. It uses the same
@@ -586,7 +605,7 @@ These layouts stack on tablets, and phone capabilities remain unchanged.
 
 Owner toolbar direction (2026-10-27): the editor has one aligned desktop
 working row. “Add cards” is a raised catalogue field, separated by a rule from
-the deck search, compact tag filter, and labelled Group/Sort native selects.
+the deck search, compact tag filter, and labelled Group/Sort selects.
 Controls stay adjacent and share a height instead of occupying opposite ends
 of the viewport. On tablets the add field takes its own row above those view
 controls. The always-available add input retains `/`, Enter, Shift+Enter and

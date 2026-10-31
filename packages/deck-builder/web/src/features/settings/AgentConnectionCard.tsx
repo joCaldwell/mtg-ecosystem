@@ -75,7 +75,7 @@ export function AgentConnectionCard({ agent, onChanged }: { agent: Settings["age
     </Stack><Stack gap={4}>
       <Text as="h3" weight="bold">Client setup</Text>
       <Text tone="muted" size="sm">{lastSeen ? `Last request: ${lastSeen.label}, ${ago(lastSeen.last_used_at)}` : "No authenticated MCP requests yet"}</Text>
-      <Field label="Connection method"><Select value={client.id} onChange={e => { setClientId(e.target.value as ClientId); showInstructions(); }}>{clients.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}</Select></Field>
+      <Field label="Connection method"><Select options={clients.map(c => ({ value: c.id, label: c.label }))} value={client.id} onChange={value => { setClientId(value as ClientId); showInstructions(); }} /></Field>
       {/* The browser owns toggling; refreshes and queued toggle events must not
           overwrite an explicit close or a request to show a new method. */}
       <details ref={instructions} className={styles.instructions} open={instructionsInitiallyOpen}>

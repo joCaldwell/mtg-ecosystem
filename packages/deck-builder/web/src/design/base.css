@@ -69,8 +69,7 @@ samp {
 }
 
 input,
-textarea,
-select {
+textarea {
   color: inherit;
   font: inherit;
 }
@@ -110,5 +109,5 @@ a {
 .skip-link:focus { transform: none; }
 
 @media (hover: none) {
-  button, select, input:not([type="checkbox"]), a[role="button"] { min-height: var(--tap); }
+  button, input:not([type="checkbox"]), a[role="button"] { min-height: var(--tap); }
 }

@@ -33,7 +33,7 @@ export { ResizeHandle, type ResizeHandleProps } from "./ResizeHandle.tsx";
 export { Row, type RowProps } from "./Row.tsx";
 export { Section, type SectionProps } from "./Section.tsx";
 export { Segmented, type SegmentedProps } from "./Segmented.tsx";
-export { Select, type SelectProps } from "./Select.tsx";
+export { Select, type SelectOption, type SelectProps } from "./Select.tsx";
 export { Spacer } from "./Spacer.tsx";
 export { SplitPane, type SplitPaneProps } from "./SplitPane.tsx";
 export { Stack, type Gap, type StackProps } from "./Stack.tsx";

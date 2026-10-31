@@ -79,14 +79,15 @@ export function MemoriesPage() {
           they would only explain an empty list. */}
       {showFilters && <div className={styles.filters}>
         <Field label="Scope" className={styles.scope}>
-          <Select value={scope} onChange={event => {
-            const value = event.target.value;
-            setScope(value === "all" || value === "global" ? value : Number(value));
-          }}>
-            <option value="all">All scopes</option>
-            <option value="global">Global</option>
-            {scopes.map(deck => <option key={deck.id} value={deck.id}>{deck.name}{deck.category === "archived" ? " · Archived" : ""}</option>)}
-          </Select>
+          <Select
+            options={[
+              { value: "all", label: "All scopes" },
+              { value: "global", label: "Global" },
+              ...scopes.map(deck => ({ value: String(deck.id), label: `${deck.name}${deck.category === "archived" ? " · Archived" : ""}` })),
+            ]}
+            value={String(scope)}
+            onChange={value => setScope(value === "all" || value === "global" ? value : Number(value))}
+          />
         </Field>
         <div className={styles.group} role="group" aria-label="Basis">
           <Text size="sm" tone="muted">Basis</Text>

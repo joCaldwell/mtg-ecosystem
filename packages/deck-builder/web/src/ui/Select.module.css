@@ -1,68 +1,53 @@
-.wrap {
-  position: relative;
-  display: inline-flex;
+.trigger {
   max-width: 100%;
   min-width: 0;
   vertical-align: middle;
 }
 
-.select {
-  width: 100%;
-  min-width: 0;
-  height: var(--h-md);
-  padding: 0 calc(var(--s-5) + var(--s-6)) 0 var(--s-5);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-md);
-  outline: 0;
-  appearance: none;
-  background: var(--surface);
-  color: var(--text);
-  line-height: var(--leading);
-  color-scheme: dark;
-  transition: background var(--fast), border-color var(--fast), box-shadow var(--fast);
-}
-
-.select:where(:hover:not(:disabled)) {
-  border-color: var(--line-hover);
-  background: linear-gradient(var(--hover), var(--hover)), var(--surface);
-}
-
-.select:focus {
-  border-color: var(--sel);
-  box-shadow: 0 0 0 3px var(--sel-bg);
-}
-
-.select:disabled,
-.select:disabled + .chevron {
-  opacity: 0.5;
-}
-
-.select[aria-invalid="true"] {
+.trigger[aria-invalid="true"] {
   border-color: var(--cut);
 }
 
-.select[aria-invalid="true"]:focus {
-  box-shadow: 0 0 0 3px var(--cut-bg);
+.trigger[aria-invalid="true"]:focus-visible {
+  outline-color: var(--cut);
 }
 
-/* The native popup cannot use the layered hover background. */
-.select option,
-.select optgroup {
-  background: var(--surface);
-  color: var(--text);
+.value {
+  display: inline-grid;
+  grid-template-columns: minmax(0, max-content);
+  min-width: 0;
 }
 
-.chevron {
-  position: absolute;
-  top: 0;
-  right: var(--s-4);
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  color: var(--muted);
-  pointer-events: none;
+.sizer,
+.current {
+  grid-area: 1 / 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-@media (max-width: 1099px) {
-  .select { min-height: var(--tap); }
+.sizer {
+  visibility: hidden;
+  height: 0;
+}
+
+.popover {
+  width: max-content;
+  max-width: min(var(--panel-w), calc(100vw - var(--s-8)));
+}
+
+.option {
+  cursor: pointer;
+}
+
+.option[aria-disabled="true"] {
+  background: none;
+  color: var(--disabled-ink);
+  cursor: default;
+}
+
+.keyed .option[data-active] {
+  outline: 2px solid var(--sel);
+  outline-offset: -2px;
 }

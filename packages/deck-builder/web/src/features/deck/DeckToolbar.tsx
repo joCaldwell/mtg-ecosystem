@@ -64,14 +64,10 @@ export function DeckToolbar() {
         </div>
         <div className={styles.layout}>
           <label className={styles.choice}><Text size="sm" tone="muted">Group</Text>
-            <Select aria-label="Group the list" value={ui.groupBy} onChange={e => ui.setGroupBy(e.target.value as GroupBy)}>
-              {GROUP_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </Select>
+            <Select aria-label="Group the list" options={GROUP_OPTIONS} value={ui.groupBy} onChange={value => ui.setGroupBy(value as GroupBy)} />
           </label>
           <label className={styles.choice}><Text size="sm" tone="muted">Sort</Text>
-            <Select aria-label="Order the cards in each group" value={ui.sortBy} onChange={e => ui.setSortBy(e.target.value as SortBy)}>
-              {SORT_OPTIONS.map(o => <option key={o.value} value={o.value} title={o.title}>{o.label}</option>)}
-            </Select>
+            <Select aria-label="Order the cards in each group" options={SORT_OPTIONS} value={ui.sortBy} onChange={value => ui.setSortBy(value as SortBy)} />
           </label>
         </div>
       </div>

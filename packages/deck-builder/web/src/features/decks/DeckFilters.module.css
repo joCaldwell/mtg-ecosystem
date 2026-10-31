@@ -3,6 +3,5 @@
 .count { white-space: nowrap; }
 @media (max-width: 719px) {
   .search { flex-basis: 100%; max-width: none; }
-  .toolbar > span:has(select) { flex: 1; }
-  .toolbar select { width: 100%; }
+  .lifecycle { flex: 1; }
 }

@@ -3,7 +3,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { api, type DeckCard } from "../../../api/client.ts";
-import { Button, KeyValue, MultiSelect, Select, Text, TextField } from "../../../ui/index.ts";
+import { Button, KeyValue, MultiSelect, Segmented, Select, Text, TextField } from "../../../ui/index.ts";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import styles from "./CardControls.module.css";
@@ -12,6 +12,7 @@ import styles from "./CardControls.module.css";
 // zone, or outside the game as a companion. Named as boards, as Archidekt
 // and Moxfield name them.
 const BOARDS: Record<DeckCard["role"], string> = { card: "Main deck", commander: "Commander", companion: "Companion" };
+const ROLES: Array<DeckCard["role"]> = ["card", "commander", "companion"];
 
 /** `slots` and `rest` split the fields for a maybe card, whose slots apply when it is added. */
 export function CardControls({ card, part = "all" }: { card: DeckCard; part?: "all" | "slots" | "rest" }) {
@@ -42,16 +43,10 @@ export function CardControls({ card, part = "all" }: { card: DeckCard; part?: "a
       <Select
         key="slot"
         aria-label="Primary slot"
-        value={card.slot_id ?? ""}
-        onChange={(e) => void patch({ slot_id: e.target.value === "" ? null : Number(e.target.value) })}
-      >
-        <option value="">Unfiled</option>
-        {slots.map((s) => (
-          <option key={s.id} value={s.id}>
-            {s.name}
-          </option>
-        ))}
-      </Select>,
+        options={[{ value: "", label: "Unfiled" }, ...slots.map((s) => ({ value: String(s.id), label: s.name }))]}
+        value={String(card.slot_id ?? "")}
+        onChange={(value) => void patch({ slot_id: value === "" ? null : Number(value) })}
+      />,
     ],
     [
       "Secondary slots",
@@ -88,13 +83,14 @@ export function CardControls({ card, part = "all" }: { card: DeckCard; part?: "a
     rows.push(
       [
         "Board",
-        <Select key="role" aria-label="Board" value={card.role} onChange={(e) => void patch({ role: e.target.value })}>
-          {Object.entries(BOARDS).map(([role, label]) => (
-            <option key={role} value={role}>
-              {label}
-            </option>
-          ))}
-        </Select>,
+        <Segmented
+          key="role"
+          label="Board"
+          className={styles.board}
+          options={ROLES.map((role) => ({ value: role, label: BOARDS[role] }))}
+          value={card.role}
+          onChange={(role) => void patch({ role })}
+        />,
       ],
     );
   }

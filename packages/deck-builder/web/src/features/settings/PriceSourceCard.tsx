@@ -19,13 +19,8 @@ export function PriceSourceCard({ source, onSaved }: { source: Settings["price_s
     <Text as="h2" size="lg" weight="bold">Price source</Text>
     <Text tone="muted" size="sm">Daily Scryfall estimates of the cheapest playable printing; no currency conversion.</Text>
     <Row gap={5} wrap>
-      <Field label="Currency"><Select value={value.currency} onChange={e => setValue({ currency: e.target.value as PriceSource["currency"], store: "lowest" })}>
-        <option value="USD">USD — US dollars</option><option value="EUR">EUR — euros</option>
-      </Select></Field>
-      <Field label="Store"><Select value={value.store} onChange={e => setValue({ ...value, store: e.target.value as PriceSource["store"] })}>
-        <option value="lowest">Lowest in {value.currency} ({value.currency === "USD" ? "TCGplayer" : "Cardmarket"})</option>
-        {value.currency === "USD" ? <option value="tcgplayer">TCGplayer</option> : <option value="cardmarket">Cardmarket</option>}
-      </Select></Field>
+      <Field label="Currency"><Select options={[{ value: "USD", label: "USD — US dollars" }, { value: "EUR", label: "EUR — euros" }]} value={value.currency} onChange={currency => setValue({ currency: currency as PriceSource["currency"], store: "lowest" })} /></Field>
+      <Field label="Store"><Select options={[{ value: "lowest", label: `Lowest in ${value.currency} (${value.currency === "USD" ? "TCGplayer" : "Cardmarket"})` }, value.currency === "USD" ? { value: "tcgplayer", label: "TCGplayer" } : { value: "cardmarket", label: "Cardmarket" }]} value={value.store} onChange={store => setValue({ ...value, store: store as PriceSource["store"] })} /></Field>
     </Row>
     {error && <ErrorNote>{error}</ErrorNote>}
     <Row><Button variant="primary" disabled={busy || !dirty} onClick={save}>{busy ? "Saving…" : "Save price source"}</Button></Row>

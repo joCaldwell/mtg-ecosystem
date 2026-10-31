@@ -97,9 +97,7 @@ export function ImportDialog({ deckId = null, onClose, onApplied }: {
       </> : <form id={formId} className={styles.form} onSubmit={e => { e.preventDefault(); void preview(); }}>
         {deckId === null && <div className={styles.metadata}>
           <Field label="Deck name (optional)"><TextField value={name} placeholder="Use commander name" disabled={busy || created.current !== null} onChange={e => setName(e.target.value)} /></Field>
-          <Field label="Lifecycle"><Select value={category} disabled={busy || created.current !== null} onChange={e => setCategory(e.target.value as DeckCategory)}>
-            {DECK_CATEGORY_OPTIONS.filter(o => o.value !== "archived").map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </Select></Field>
+          <Field label="Lifecycle"><Select options={DECK_CATEGORY_OPTIONS.filter(o => o.value !== "archived").map(({ value, label }) => ({ value, label }))} value={category} disabled={busy || created.current !== null} onChange={value => setCategory(value as DeckCategory)} /></Field>
         </div>}
         <Field label="List to import" className={styles.source}><TextArea ref={textarea} data-autofocus value={paste} rows={12} disabled={busy} onChange={e => setPaste(e.target.value)} placeholder="Paste your deck list…" className={styles.paste} /></Field>
         <details className={styles.formats}><summary>Formats</summary><Text as="p" tone="muted" size="sm">Moxfield: Export → Copy Plain Text includes the commander. Archidekt text exports and quantity-and-name lists also work. Sideboard and Maybeboard go to the maybe list. Paste up to 5,000 lines.</Text></details>

@@ -55,7 +55,7 @@
   align-items: center;
   gap: var(--s-2);
   height: var(--h-sm);
-  padding: 0 var(--s-3) 0 var(--s-4);
+  padding: 0 var(--chevron-inset) 0 var(--s-4);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-pill);
   background: var(--raised);

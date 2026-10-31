@@ -11,6 +11,8 @@ export interface PopoverProps extends Omit<HTMLAttributes<HTMLDivElement>, "chil
   placement?: "below" | "right" | "above" | "left";
   /** Which edge of the anchor the panel lines up with. */
   align?: "start" | "end";
+  /** Never narrower than the anchor, as a dropdown under its trigger. */
+  fitAnchor?: boolean;
   children: ReactNode;
 }
 
@@ -21,6 +23,7 @@ export function Popover({
   onClose,
   placement = "below",
   align = "start",
+  fitAnchor = false,
   children,
   className,
   ...rest
@@ -59,6 +62,11 @@ export function Popover({
       const t = e.target as Node;
       // The anchor toggles the popover itself; closing here would reopen it on click.
       if (panel.current?.contains(t) || anchor?.contains(t)) return;
+      // So does its label, which clicks it; pressing one would otherwise blur the anchor first.
+      if (anchor instanceof HTMLButtonElement && Array.from(anchor.labels).some((label) => label.contains(t))) {
+        e.preventDefault();
+        return;
+      }
       closeRef.current();
     };
     const releaseEscape = dismissOnEscape(() => closeRef.current());
@@ -74,7 +82,10 @@ export function Popover({
     <div
       ref={panel}
       className={cx(styles.popover, className)}
-      style={pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, opacity: 0 }}
+      style={{
+        ...(pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, opacity: 0 }),
+        ...(fitAnchor ? { minWidth: anchor.getBoundingClientRect().width } : {}),
+      }}
       {...rest}
     >
       {children}

@@ -12,5 +12,5 @@
 .footer { display: flex; align-items: flex-end; justify-content: flex-end; gap: var(--s-5); width: 100%; flex-wrap: wrap; }
 .note { flex: 1; }
 @media (pointer: coarse) and (max-width: 1099px) {
-  .footer button, .metadata input, .metadata select, .note input, .formats summary { min-height: var(--tap); }
+  .footer button, .metadata input, .metadata button, .note input, .formats summary { min-height: var(--tap); }
 }

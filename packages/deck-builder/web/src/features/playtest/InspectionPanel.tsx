@@ -78,7 +78,7 @@ export function InspectionPanel({
   }, [target, c.ui.draft.text]);
   const busy = c.pending > 0,
     playing = f.opening.stage === "playing";
-  const selectFocus = useRef<{ control: HTMLSelectElement; objectId: string | null; sessionId: string } | null>(null);
+  const selectFocus = useRef<{ control: HTMLButtonElement; objectId: string | null; sessionId: string } | null>(null);
   useEffect(() => {
     if (busy) return;
     const previous = selectFocus.current;
@@ -88,9 +88,11 @@ export function InspectionPanel({
     if (previous && previous.objectId === objectId && previous.sessionId === s.id && previous.control.isConnected && !previous.control.disabled && document.activeElement === document.body)
       previous.control.focus({ preventScroll: true });
   }, [busy, objectId, s.id]);
-  function changeSelect(control: HTMLSelectElement, action: PlaytestAction, requiresPlaying = false) {
+  function changeSelect(action: PlaytestAction, requiresPlaying = false) {
     if (busy || (requiresPlaying && !playing)) return;
-    if (document.activeElement === control) selectFocus.current = { control, objectId, sessionId: s.id };
+    // Select hands focus back to its trigger before it reports the change.
+    const control = document.activeElement;
+    if (control instanceof HTMLButtonElement) selectFocus.current = { control, objectId, sessionId: s.id };
     void c.act(action);
   }
   const act = (action: PlaytestAction) => {
@@ -162,21 +164,16 @@ export function InspectionPanel({
                 <Select
                   aria-label="Card face"
                   disabled={busy}
-                  value={object.face}
-                  onChange={(e) => {
-                    changeSelect(e.currentTarget, {
+                  options={card.faces.map((face, i) => ({ value: String(i), label: face.name }))}
+                  value={String(object.face)}
+                  onChange={(value) => {
+                    changeSelect({
                         type: "edit",
                         id: object.id,
-                        face: Number(e.target.value),
+                        face: Number(value),
                       });
                   }}
-                >
-                  {card.faces.map((face, i) => (
-                    <option key={i} value={i}>
-                      {face.name}
-                    </option>
-                  ))}
-                </Select>
+                />
               </label>
             )}
             {!pinned && (
@@ -310,26 +307,22 @@ export function InspectionPanel({
                 Attached to
                 <Select
                   aria-label="Attachment host"
+                  options={[
+                    { value: "", label: "Not attached" },
+                    ...f.zones.battlefield
+                      .filter((id) => id !== object.id)
+                      .map((id) => ({ value: id, label: `${s.cards[f.objects[id].oracle_id].name} · ${id.slice(0, 4)}` })),
+                  ]}
                   value={object.attached_to ?? ""}
                   disabled={busy || !playing}
-                  onChange={(e) =>
-                    changeSelect(e.currentTarget, {
+                  onChange={(value) =>
+                    changeSelect({
                       type: "attach",
                       id: object.id,
-                      host: e.target.value || null,
+                      host: value || null,
                     }, true)
                   }
-                >
-                  <option value="">Not attached</option>
-                  {f.zones.battlefield
-                    .filter((id) => id !== object.id)
-                    .map((id) => (
-                      <option key={id} value={id}>
-                        {s.cards[f.objects[id].oracle_id].name} ·{" "}
-                        {id.slice(0, 4)}
-                      </option>
-                    ))}
-                </Select>
+                />
               </label>
             )}
             </div>

@@ -154,7 +154,7 @@ try {
         assert(await select.evaluate((el, old) => el === old, handle), 'panel is not remounted crossing 1100px');
         await page.setViewportSize({ width: 1024, height: 1024 });
         await settle(page);
-        assert(await handle.evaluate(el => el.tagName === 'SELECT'), 'card controls survive in the detached tablet panel host');
+        assert(await handle.evaluate(el => el.tagName === 'BUTTON'), 'card controls survive in the detached tablet panel host');
         await page.setViewportSize({ width: 1280, height: 900 });
         await until(() => select.isVisible(), 'desktop panel returns after second rotation');
         assert(await select.evaluate((el, old) => el === old, handle), 'panel identity survives both directions across 1100px');

@@ -45,15 +45,10 @@ export function PowerEditor({ kind, power, revision, onClose }: {
       <Text as="p" tone="muted">{target ? "Describe the experience you want to build toward. Leave undecided fields unknown." : `Describe the list at r${assessedRevision}. Leave uncertain fields unknown and explain your evidence.`}</Text>
       <div className={styles.fields}>
         {fields.map(field => <Field key={field.key} label={field.label} hint={field.options.find(o => o.value === profile[field.key])?.hint ?? voice("Unknown until you assess it.", "Unknown until you or an agent assesses it.")}>
-          <Select value={profile[field.key] ?? ""} onChange={e => setProfile({ ...profile, [field.key]: e.target.value || null })}>
-            <option value="">Unknown / undecided</option>
-            {field.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </Select>
+          <Select options={[{ value: "", label: "Unknown / undecided" }, ...field.options.map(o => ({ value: o.value, label: o.label }))]} value={profile[field.key] ?? ""} onChange={value => setProfile({ ...profile, [field.key]: value || null })} />
         </Field>)}
         <Field label="Mass land denial" hint="Destroying, bouncing or shutting off several lands or their mana. Review this from card text and the deck's plan.">
-          <Select value={profile.mass_land_denial == null ? "" : profile.mass_land_denial ? "yes" : "no"} onChange={e => setProfile({ ...profile, mass_land_denial: e.target.value === "" ? null : e.target.value === "yes" })}>
-            <option value="">Unknown / undecided</option><option value="no">None</option><option value="yes">{target ? "Allowed" : "Present"}</option>
-          </Select>
+          <Select options={[{ value: "", label: "Unknown / undecided" }, { value: "no", label: "None" }, { value: "yes", label: target ? "Allowed" : "Present" }]} value={profile.mass_land_denial == null ? "" : profile.mass_land_denial ? "yes" : "no"} onChange={value => setProfile({ ...profile, mass_land_denial: value === "" ? null : value === "yes" })} />
         </Field>
         <Field label="Usual win range (turns)" hint={target ? "An acceptable range when the deck normally threatens a win." : "Normal win attempts under representative conditions, rather than one perfect draw."}>
           <Row gap={3}>
@@ -69,12 +64,8 @@ export function PowerEditor({ kind, power, revision, onClose }: {
           <TextField type="number" min={0} max={100} value={limit} placeholder="No limit set" onChange={e => setLimit(e.target.value)} />
         </Field>}
         {!target && <>
-          <Field label="Evidence"><Select value={evidence} onChange={e => setEvidence(e.target.value as typeof evidence)}>
-            <option value="list">Reading the list</option><option value="goldfish">Goldfishing</option><option value="games">Actual games</option>
-          </Select></Field>
-          <Field label="Confidence" hint="Supported means there is evidence for these judgments, not that the bracket is certified."><Select value={confidence} onChange={e => setConfidence(e.target.value as typeof confidence)}>
-            <option value="tentative">Tentative</option><option value="supported">Supported by evidence</option>
-          </Select></Field>
+          <Field label="Evidence"><Select options={[{ value: "list", label: "Reading the list" }, { value: "goldfish", label: "Goldfishing" }, { value: "games", label: "Actual games" }]} value={evidence} onChange={value => setEvidence(value as typeof evidence)} /></Field>
+          <Field label="Confidence" hint="Supported means there is evidence for these judgments, not that the bracket is certified."><Select options={[{ value: "tentative", label: "Tentative" }, { value: "supported", label: "Supported by evidence" }]} value={confidence} onChange={value => setConfidence(value as typeof confidence)} /></Field>
         </>}
       </div>
       <Field label={target ? "Preferences and reasoning" : "Assessment reasoning"} hint={target ? "What matters most to your pod and what tradeoffs you want." : "Explain the win range, key lines, disruption and any observations. Card references use [[Card Name]]."}>

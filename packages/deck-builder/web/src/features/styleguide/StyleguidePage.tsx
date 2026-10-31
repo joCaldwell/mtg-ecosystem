@@ -120,6 +120,8 @@ const ICONS: IconName[] = [
   "close", "check", "plus", "chevronDown", "undo", "redo", "search", "more", "globe", "link", "warning",
 ];
 
+const LONG_OPTIONS = Array.from({ length: 24 }, (_, i) => ({ value: String(i + 1), label: `Option ${i + 1}` }));
+
 type Tone = "neutral" | "agent" | "warn" | "add" | "cut";
 const TONES: Tone[] = ["neutral", "agent", "warn", "add", "cut"];
 
@@ -486,6 +488,8 @@ function Forms() {
   const [checked, setChecked] = useState(true);
   const [sel, setSel] = useState("b");
   const [requiredFormat, setRequiredFormat] = useState("");
+  const [withDisabled, setWithDisabled] = useState("a");
+  const [long, setLong] = useState("7");
   const [multi, setMulti] = useState<string[]>([]);
   return (
     <Stack gap={7}>
@@ -507,20 +511,21 @@ function Forms() {
           </Stack>
         </Demo>
       </Section>
-      <Section title="Select and Checkbox">
+      <Section title="Select" aside="closed, placeholder and invalid, disabled, a disabled option, a long list, open">
+        <Demo>
+          <Row gap={6} wrap align="start" className={styles.openSelect}>
+            <Select aria-label="Select example" options={[{ value: "a", label: "Commander" }, { value: "b", label: "Brawl" }, { value: "c", label: "Standard" }]} value={sel} onChange={setSel} />
+            <Select aria-label="Required format" placeholder="Choose a format…" invalid={!requiredFormat} options={[{ value: "commander", label: "Commander" }, { value: "brawl", label: "Brawl" }]} value={requiredFormat} onChange={setRequiredFormat} />
+            <Select aria-label="Disabled select example" disabled options={[{ value: "a", label: "Disabled" }]} value="a" onChange={() => undefined} />
+            <Select aria-label="Select with a disabled option" options={[{ value: "a", label: "Available" }, { value: "b", label: "Unavailable", disabled: true }, { value: "c", label: "Also available" }]} value={withDisabled} onChange={setWithDisabled} />
+            <Select aria-label="Long select example" options={LONG_OPTIONS} value={long} onChange={setLong} />
+            <Select aria-label="Open select example" defaultOpen options={[{ value: "a", label: "Commander" }, { value: "b", label: "Brawl" }, { value: "c", label: "A longer label that wraps when space is limited" }]} value="a" onChange={() => undefined} />
+          </Row>
+        </Demo>
+      </Section>
+      <Section title="Checkbox">
         <Demo>
           <Row gap={6} wrap>
-            <Select aria-label="Select example" value={sel} onChange={(e) => setSel(e.target.value)}>
-              <option value="a">Commander</option>
-              <option value="b">Brawl</option>
-              <option value="c">Standard</option>
-            </Select>
-            <Select aria-label="Disabled select example" disabled defaultValue="a"><option value="a">Disabled</option></Select>
-            <Select aria-label="Required format" aria-invalid={!requiredFormat || undefined} required value={requiredFormat} onChange={e => setRequiredFormat(e.target.value)}>
-              <option value="" disabled>Choose a format…</option>
-              <option value="commander">Commander</option>
-              <option value="brawl">Brawl</option>
-            </Select>
             <Checkbox checked={checked} onChange={setChecked} label="Checked" />
             <Checkbox checked={false} onChange={() => undefined} label="Unchecked" />
             <Checkbox checked disabled onChange={() => undefined} label="Disabled" />
@@ -541,7 +546,7 @@ function Forms() {
         <Demo>
           <Stack gap={5} className={styles.narrow}>
             <Field label="Deck name" hint="Shown in the sidebar."><TextField defaultValue="Jo's upkeep" /></Field>
-            <Field label="Format"><Select defaultValue="b"><option value="b">Commander</option></Select></Field>
+            <Field label="Format"><Select options={[{ value: "b", label: "Commander" }]} value="b" onChange={() => undefined} /></Field>
             <Field label="Brief" hint="Only you can set this."><TextArea rows={2} /></Field>
           </Stack>
         </Demo>

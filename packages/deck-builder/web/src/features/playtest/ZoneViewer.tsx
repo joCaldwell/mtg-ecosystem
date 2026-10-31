@@ -55,15 +55,13 @@ export function ZoneViewer({
           <>
             <Select
               aria-label="Library viewer mode"
+              options={[{ value: "top", label: "Ordered top cards" }, { value: "search", label: "Search whole library" }]}
               value={kind}
-              onChange={(e) => {
-                setKind(e.target.value as "top" | "search");
+              onChange={(value) => {
+                setKind(value as "top" | "search");
                 setSelected([]);
               }}
-            >
-              <option value="top">Ordered top cards</option>
-              <option value="search">Search whole library</option>
-            </Select>
+            />
             {kind === "top" && (
               <TextField
                 type="number"

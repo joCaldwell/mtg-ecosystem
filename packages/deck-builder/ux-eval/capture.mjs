@@ -196,7 +196,12 @@ const SCREENS = [
     await lifecycle.focus();
     await lifecycle.press("Home");
     await lifecycle.press("ArrowDown");
-    await lifecycle.press("Escape");
+    // A native select changed on those keys; the listbox commits on Enter.
+    await lifecycle.press(await lifecycle.evaluate(el => el.tagName === "SELECT") ? "Escape" : "Enter");
+  } }] },
+  { screen: "decks", user: U.owner, path: "/", widths: [375, 768, 1440], states: [{ state: "lifecycle-open", caption: "The roster's lifecycle filter open", act: async ({ page, vp }) => {
+    await press(page, page.getByRole("combobox", { name: "Lifecycle", exact: true }), vp);
+    await page.getByRole("listbox", { name: "Lifecycle", exact: true }).waitFor();
   } }] },
   { screen: "decks", user: U.owner, path: "/", widths: [1280, 1440, ...WIDE], states: [{ state: "tile-hover", caption: "Hovering the second deck tile", act: async ({ page }) => {
     // Both the old strip and the gallery use the deck title's stretched link.
@@ -242,6 +247,33 @@ const SCREENS = [
   {
     screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: APP, states: [
       { state: "card-selected", caption: "A card in the list opened", act: async ({ page, vp }) => press(page, cardRow(page, "Underworld Breach"), vp) },
+    ],
+  },
+  ...[["group", "Group the list"], ["sort", "Order the cards in each group"]].map(([state, name]) => ({
+    screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: [768, 1440], states: [
+      { state: `toolbar-${state}-open`, caption: `The toolbar's ${state} list open`, act: async ({ page, vp }) => {
+        await press(page, page.getByRole("combobox", { name, exact: true }), vp);
+        await page.getByRole("listbox", { name, exact: true }).waitFor();
+      } },
+    ],
+  })),
+  {
+    screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: [768, 1440], states: [
+      { state: "card-primary-slot-open", caption: "A card's primary slot list open beside the Board control", act: async ({ page, vp }) => {
+        await press(page, cardRow(page, "Underworld Breach"), vp);
+        await press(page, page.getByRole("combobox", { name: "Primary slot", exact: true }), vp);
+        await page.getByRole("listbox", { name: "Primary slot", exact: true }).waitFor();
+      } },
+    ],
+  },
+  {
+    screen: "deck", user: U.owner, path: `/deck/${D.najeela}`, widths: [768, 1440], states: [
+      { state: "dialog-select-open", caption: "A list open inside the Compare dialog", act: async ({ page, vp }) => {
+        await press(page, page.getByRole("button", { name: "More", exact: true }), vp);
+        await press(page, page.getByRole("menuitem", { name: "Compare", exact: true }), vp);
+        await press(page, page.getByRole("dialog", { name: "Compare decks", exact: true }).getByRole("combobox", { name: "Compare with", exact: true }), vp);
+        await page.getByRole("listbox", { name: "Compare with", exact: true }).waitFor();
+      } },
     ],
   },
   {

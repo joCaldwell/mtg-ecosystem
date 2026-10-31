@@ -139,7 +139,7 @@ function dismissOnEscape(close: () => void): () => void {
   let deferred: Event | null = null;
   const onKey = (event: KeyboardEvent) => {
     if (event.key !== "Escape" || escapeLayers.at(-1) !== close) return;
-    if (event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable]")) {
+    if (event.target instanceof Element && event.target.closest("input, textarea, [contenteditable]")) {
       deferred = event;
       return;
     }

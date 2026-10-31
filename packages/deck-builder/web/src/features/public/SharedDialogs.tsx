@@ -97,10 +97,7 @@ export function CompareSharedDialog({ shared, onClose }: { shared: PublicDeckSta
       footer={<Button size={phone ? "touch" : "md"} onClick={onClose}>Close</Button>}>
       <Stack gap={6}>
         <Field label="One of your decks">
-          <Select value={mine ?? ""} onChange={(e) => setMine(e.target.value === "" ? null : Number(e.target.value))} data-autofocus="">
-            <option value="">Choose a deck…</option>
-            {(decks ?? []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </Select>
+          <Select options={[{ value: "", label: "Choose a deck…" }, ...(decks ?? []).map((d) => ({ value: String(d.id), label: d.name }))]} value={String(mine ?? "")} onChange={(value) => setMine(value === "" ? null : Number(value))} data-autofocus="" />
         </Field>
         {decks && decks.length === 0 && <Text tone="muted" as="p">You have no decks yet. Fork this one to start.</Text>}
         {error && <ErrorNote>{error}</ErrorNote>}
