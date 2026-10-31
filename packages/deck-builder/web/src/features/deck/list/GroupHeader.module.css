@@ -73,7 +73,7 @@
 
 /* Board titles sit one level above the smaller card-group headings. */
 .board {
-  gap: var(--s-5);
+  gap: var(--s-4);
   margin-bottom: var(--s-6);
   padding: 0 var(--s-3);
   border: 0;
@@ -85,4 +85,5 @@
   font-weight: 700;
 }
 
-.board .spacer { flex: none; }
+/* The count sits by the title, as Maybe's does, not across the list's columns. */
+.board .spacer { display: none; }

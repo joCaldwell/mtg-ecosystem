@@ -20,6 +20,7 @@
 
 .sharedNote {
   margin-bottom: var(--s-4);
+  padding: 0 var(--s-3);
   color: var(--muted);
   font-size: var(--text-sm);
 }
