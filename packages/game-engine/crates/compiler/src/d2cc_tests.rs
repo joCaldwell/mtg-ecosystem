@@ -51,14 +51,19 @@ fn d2cc_archived_whole_programs_min_ir_capability_closure() {
         let mut bad = d.clone();
         bad.capabilities.remove(&Capability::CastTriggerV1);
         assert!(bad.validate().is_err());
-        for version in [22, 23, 24] {
+        for version in [22, 23, 24, 25] {
             let c = Catalog {
                 schema_version: version,
                 rules_edition: RULES_EDITION.into(),
                 rules_sha256: RULES_SHA256.into(),
                 definitions: vec![d.clone()],
             };
-            assert_eq!(c.validate().is_ok(), version == 23, "{} v{version}", d.name);
+            assert_eq!(
+                c.validate().is_ok(),
+                matches!(version, 23 | 24),
+                "{} v{version}",
+                d.name
+            );
         }
     }
     assert!(
@@ -213,12 +218,12 @@ fn d2cc_actor_binding_is_cast_only_and_no_intervening_extension() {
         serde_json::json!({"predicate":"type","kind":"creature","unknown":true}),
         serde_json::json!({"predicate":"all","terms":[{"predicate":"any"}],"unknown":true}),
     ] {
-        assert!(serde_json::from_value::<SpellPredicate>(raw).is_err());
+        assert!(serde_json::from_value::<TypePredicate>(raw).is_err());
     }
     for predicate in [
-        SpellPredicate::All { terms: vec![] },
-        SpellPredicate::AnyOf {
-            terms: vec![SpellPredicate::Any {}; 33],
+        TypePredicate::All { terms: vec![] },
+        TypePredicate::AnyOf {
+            terms: vec![TypePredicate::Any {}; 33],
         },
     ] {
         assert!(predicate.validate().is_err());

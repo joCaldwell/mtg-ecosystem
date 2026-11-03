@@ -244,7 +244,7 @@ fn pass_until(g: &mut Game, pred: impl Fn(&Game) -> bool) {
 fn modes() -> [TraceMode; 3] {
     [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed]
 }
-fn synthetic_relation(p: &mut Prepared, relation: CasterRelation, predicate: SpellPredicate) {
+fn synthetic_relation(p: &mut Prepared, relation: CasterRelation, predicate: TypePredicate) {
     edit(p, STUDENT, |d| {
         d.triggered[0].condition = TriggerCondition::SpellCast {
             caster: relation,
@@ -379,7 +379,7 @@ fn d2cc_synthetic_nonactive_flash_caster_apnap_order_and_actor_binding_all_trace
             ],
             TurnStep::PrecombatMain,
         );
-        synthetic_relation(&mut p, CasterRelation::AnyPlayer, SpellPredicate::Any {});
+        synthetic_relation(&mut p, CasterRelation::AnyPlayer, TypePredicate::Any {});
         edit(&mut p, STUDENT, |d| {
             d.triggered[0].program.instructions = vec![Instruction::GainLife {
                 recipient: LifeRecipient::EventPlayer,
@@ -424,14 +424,14 @@ fn d2cc_synthetic_same_controller_order_and_independent_opponent_predicate() {
         ],
         TurnStep::PrecombatMain,
     );
-    synthetic_relation(&mut p, CasterRelation::Opponent, SpellPredicate::Any {});
+    synthetic_relation(&mut p, CasterRelation::Opponent, TypePredicate::Any {});
     let mut g = Game::new(p);
     cast(&mut g, 3);
     assert_eq!(g.state.stack.len(), 2);
     assert_eq!(g.state.stack[1].controller, PlayerId(1));
     recover(&g);
     let mut p = g.prepared.as_ref().clone();
-    synthetic_relation(&mut p, CasterRelation::Controller, SpellPredicate::Any {});
+    synthetic_relation(&mut p, CasterRelation::Controller, TypePredicate::Any {});
     let mut g = Game::new(p);
     answer(&mut g, Response::Cast { card: CardId(3) });
     fund(&mut g);
@@ -462,24 +462,24 @@ fn d2cc_synthetic_same_controller_order_and_independent_opponent_predicate() {
 fn d2cc_synthetic_runtime_boolean_combined_type_positive_and_negative() {
     let filters = [
         (
-            SpellPredicate::NotType {
+            TypePredicate::NotType {
                 kind: CardKind::Creature,
             },
             false,
         ),
         (
-            SpellPredicate::Type {
+            TypePredicate::Type {
                 kind: CardKind::Enchantment,
             },
             true,
         ),
         (
-            SpellPredicate::All {
+            TypePredicate::All {
                 terms: vec![
-                    SpellPredicate::Type {
+                    TypePredicate::Type {
                         kind: CardKind::Enchantment,
                     },
-                    SpellPredicate::Type {
+                    TypePredicate::Type {
                         kind: CardKind::Creature,
                     },
                 ],
@@ -487,12 +487,12 @@ fn d2cc_synthetic_runtime_boolean_combined_type_positive_and_negative() {
             true,
         ),
         (
-            SpellPredicate::AnyOf {
+            TypePredicate::AnyOf {
                 terms: vec![
-                    SpellPredicate::Type {
+                    TypePredicate::Type {
                         kind: CardKind::Artifact,
                     },
-                    SpellPredicate::Type {
+                    TypePredicate::Type {
                         kind: CardKind::Instant,
                     },
                 ],
@@ -604,7 +604,7 @@ fn d2cc_no_cast_on_nonmana_activated_invocation_or_its_resolution() {
         ],
         TurnStep::PrecombatMain,
     );
-    synthetic_relation(&mut p, CasterRelation::AnyPlayer, SpellPredicate::Any {});
+    synthetic_relation(&mut p, CasterRelation::AnyPlayer, TypePredicate::Any {});
     let mut g = Game::new(p);
     let object = g.object_id(CardId(1)).unwrap();
     answer(&mut g, Response::ActivateAbility { object, ability: 0 });
@@ -635,7 +635,7 @@ fn d2cc_command_origin_success_tax_and_unpaid_command_reversal() {
     );
     p.config.commanders.push(CardId(1));
     p.profile_digest = digest(&p.config).unwrap();
-    synthetic_relation(&mut p, CasterRelation::Controller, SpellPredicate::Any {});
+    synthetic_relation(&mut p, CasterRelation::Controller, TypePredicate::Any {});
     let mut g = Game::new(p);
     cast(&mut g, 1);
     let first = g.state.stack[0].source;
@@ -695,7 +695,7 @@ fn d2cc_source_controller_owner_actor_departures_pending_and_placed_all_traces()
                     ],
                     TurnStep::PrecombatMain,
                 );
-                synthetic_relation(&mut p, CasterRelation::AnyPlayer, SpellPredicate::Any {});
+                synthetic_relation(&mut p, CasterRelation::AnyPlayer, TypePredicate::Any {});
                 edit(&mut p, MINE, |d| {
                     d.keywords.push(KeywordAbility::Flash);
                     d.spell.as_mut().unwrap().timing = SpellTiming::Instant;
@@ -734,7 +734,7 @@ fn d2cc_cast_witness_pending_placed_resolving_fragmented_restore_and_coherent_fo
             ],
             TurnStep::PrecombatMain,
         );
-        synthetic_relation(&mut p, CasterRelation::AnyPlayer, SpellPredicate::Any {});
+        synthetic_relation(&mut p, CasterRelation::AnyPlayer, TypePredicate::Any {});
         let mut g = Game::with_trace(p, mode);
         answer(&mut g, Response::Cast { card: CardId(1) });
         fund(&mut g);
@@ -800,7 +800,7 @@ fn d2cc_counter_original_preserves_cast_trigger_counter_trigger_preserves_spell(
             synthetic_relation(
                 &mut p,
                 CasterRelation::AnyPlayer,
-                SpellPredicate::Type {
+                TypePredicate::Type {
                     kind: CardKind::Artifact,
                 },
             );
@@ -884,7 +884,7 @@ fn d2cc_stack_capacity_fault_at_cast_collection_preserves_payment_and_tax() {
     );
     p.config.commanders.push(CardId(1));
     p.profile_digest = digest(&p.config).unwrap();
-    synthetic_relation(&mut p, CasterRelation::Controller, SpellPredicate::Any {});
+    synthetic_relation(&mut p, CasterRelation::Controller, TypePredicate::Any {});
     let mut g = Game::with_trace(p, TraceMode::Off);
     answer(&mut g, Response::Cast { card: CardId(1) });
     fund(&mut g);
@@ -970,7 +970,7 @@ fn d2cc_actor_commander_draw_suspension_departure_and_decline_all_traces() {
                 ],
                 TurnStep::PrecombatMain,
             );
-            synthetic_relation(&mut p, CasterRelation::AnyPlayer, SpellPredicate::Any {});
+            synthetic_relation(&mut p, CasterRelation::AnyPlayer, TypePredicate::Any {});
             edit(&mut p, STUDENT, |d| {
                 d.triggered[0].program.instructions = vec![
                     Instruction::DrawCards {

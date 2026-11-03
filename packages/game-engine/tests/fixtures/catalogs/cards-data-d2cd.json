@@ -1,0 +1,26 @@
+{
+  "schema_version": 24,
+  "output_order": "sorted",
+  "provenance": "../cards-data-d2cd/provenance.json",
+  "records": [
+    "../cards-data-d2cd/0931206b-eed2-40d0-9496-5ecefc7f8f90.json",
+    "../cards-data-d2cd/218f835b-4195-4ee8-a4ef-e5ba58fa5374.json",
+    "../cards-data-d2cd/26b077df-7a05-459a-b5ff-bf27767bb519.json",
+    "../cards-data-d2cd/27596982-f4ab-488f-a974-5b0404438504.json",
+    "../cards-data-d2cd/3d563149-7d4e-43e5-b701-28e3212051ec.json",
+    "../cards-data-d2cd/47e33aa1-2f54-471c-a484-de13bcd2dceb.json",
+    "../cards-data-d2cd/5905c55a-f1d1-4021-a9af-f85b02ae21f3.json",
+    "../cards-data-d2cd/8d038c81-b43f-4721-abda-5dacfc194ed3.json",
+    "../cards-data-d2cd/8e03797d-dd61-439f-b4ce-996cd71bdcf5.json",
+    "../cards-data-d2cd/980affa7-6308-4acd-af64-f804e574a89b.json",
+    "../cards-data-d2cd/9cd8f7f6-0b69-466a-8f4c-d864ff682457.json",
+    "../cards-data-d2cd/b81a748b-f7a6-4ec4-8b18-40a1819745f6.json",
+    "../cards-data-d2cd/bbd84035-3efd-4301-9778-913898efd57a.json",
+    "../cards-data-d2cd/cb97da84-1d13-4795-b68a-2bf111a50067.json",
+    "../cards-data-d2cd/e7572317-6bec-4fb0-81ac-76aec04f14ad.json",
+    "../cards-data-d2cd/eb0e6f63-2861-4392-ac0e-64380fbbd8ae.json",
+    "../cards-data-d2cd/f916f689-a314-4952-8107-41c4c2f2e811.json"
+  ],
+  "expected_ir": "../cards-data-d2cd/expected-ir.json",
+  "expected_digest": "cards-data-d2cd.sha256"
+}

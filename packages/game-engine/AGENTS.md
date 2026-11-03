@@ -501,3 +501,11 @@ stay 19/20; old catalog/history references are unchanged. Hosting/search exclude
 the new capability. Implementer checks are focused only; the parent owns final
 acceptance. See `docs/game-engine-cards-as-data-d2c-c.md` for exact scope, source
 witnesses, coverage and retained development evidence.
+
+D2c-d ordinary per-creature declared-attack triggers are a separate implementation
+candidate for independent source review, not a full acceptance claim. IR24 adds
+`AttackTriggerV1`, exact-source/compositional attacker predicates, and frozen typed
+attacker/defender witnesses under the actual declaration batch occurrence.
+Snapshot/bundle stay 19/20 and public versions stay 16/16/15. Hosting/search exclude
+the new capability. No parser or old golden changes are part of this increment.
+See `docs/game-engine-cards-as-data-d2c-d.md`; the parent owns final acceptance.
