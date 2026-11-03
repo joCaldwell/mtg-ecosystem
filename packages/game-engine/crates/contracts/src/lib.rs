@@ -778,7 +778,7 @@ impl TriggerCondition {
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum InterveningCondition {
     ControllerHandEmpty,
     SourceStatus { status: TapStatus },

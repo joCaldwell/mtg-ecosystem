@@ -436,34 +436,63 @@ fn d2cb_synthetic_fretwork_reentry_preserves_loss_without_successor_counter() {
 #[test]
 fn d2cb_archived_mine_actor_commander_draw_continuation_and_empty_library() {
     for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
-        let mut p = prepared(&[(MINE, 2, 1, Zone::Battlefield)], TurnStep::Upkeep);
-        // The first card is the turn-based draw; the second is the trigger draw.
-        let commander = p.config.cards[2].id;
-        p.config.cards[2].oracle_id = YARGLE.into();
-        p.config.commanders.push(commander);
-        p.profile_digest = digest(&p.config).unwrap();
-        let mut g = Game::with_trace(p, mode);
-        to_step(&mut g, 1, TurnStep::Draw);
-        recover(&g);
-        for _ in 0..4 {
-            answer(&mut g, Response::Pass);
-        }
-        assert!(matches!(
-            settle(&mut g),
-            Request::CommanderReturn {
-                player: PlayerId(0),
-                ..
+        for id in [MINE, SEIZAN] {
+            let start = if id == MINE {
+                TurnStep::Upkeep
+            } else {
+                TurnStep::Untap
+            };
+            let step = if id == MINE {
+                TurnStep::Draw
+            } else {
+                TurnStep::Upkeep
+            };
+            let mut p = prepared(&[(id, 2, 1, Zone::Battlefield)], start);
+            // Mine's turn-based draw precedes the trigger; Seizan starts with
+            // the commander attempt and must continue to its second draw.
+            let index = if id == MINE { 2 } else { 1 };
+            let commander = p.config.cards[index].id;
+            p.config.cards[index].oracle_id = YARGLE.into();
+            p.config.commanders.push(commander);
+            p.profile_digest = digest(&p.config).unwrap();
+            let mut g = Game::with_trace(p, mode);
+            to_step(&mut g, 1, step);
+            recover(&g);
+            for _ in 0..4 {
+                answer(&mut g, Response::Pass);
             }
-        ));
-        recover(&g);
-        answer(&mut g, Response::CommanderReturn { to_command: true });
-        placed(&mut g);
-        assert_eq!(
-            g.state.objects[&commander].zone,
-            Zone::Command { owner: PlayerId(0) }
-        );
-        assert_eq!(g.state.libraries[&PlayerId(0)].len(), 6);
-        recover(&g);
+            assert!(matches!(
+                settle(&mut g),
+                Request::CommanderReturn {
+                    player: PlayerId(0),
+                    ..
+                }
+            ));
+            recover(&g);
+            // Source owner leaves during the suspended draw. The invocation's
+            // historical condition check stays frozen and its actor stays player 0.
+            g.concede(PlayerId(2)).unwrap();
+            assert!(matches!(
+                settle(&mut g),
+                Request::CommanderReturn {
+                    player: PlayerId(0),
+                    ..
+                }
+            ));
+            recover(&g);
+            answer(&mut g, Response::CommanderReturn { to_command: true });
+            placed(&mut g);
+            assert_eq!(
+                g.state.objects[&commander].zone,
+                Zone::Command { owner: PlayerId(0) }
+            );
+            assert_eq!(g.state.libraries[&PlayerId(0)].len(), 6);
+            assert_eq!(
+                g.state.players[0].life,
+                if id == SEIZAN { 38.into() } else { 40.into() }
+            );
+            recover(&g);
+        }
         let mut p = prepared(&[(MINE, 2, 1, Zone::Battlefield)], TurnStep::Upkeep);
         let mut first = true;
         p.config.cards.retain(|c| {

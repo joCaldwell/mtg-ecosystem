@@ -24,6 +24,15 @@ fn changed(raw: &str, f: impl FnOnce(&mut serde_json::Value)) -> String {
 fn d2cb_archive_programs_and_exact_minimum_capability_schema_closure() {
     let mine = lower(MINE);
     let seizan = lower(SEIZAN);
+    let mut forged = serde_json::to_value(&mine).unwrap();
+    forged["triggered"][0]["intervening_if"]["source_status"]["extra"] = true.into();
+    assert!(
+        serde_json::from_value::<Definition>(forged)
+            .unwrap_err()
+            .to_string()
+            .contains("unknown field")
+    );
+
     assert_eq!(
         mine.triggered[0].intervening_if,
         Some(InterveningCondition::SourceStatus {
@@ -76,6 +85,27 @@ fn d2cb_archive_programs_and_exact_minimum_capability_schema_closure() {
 }
 #[test]
 fn d2cb_condition_composition_and_unbound_actor_whole_card_rejections() {
+    // Exercise the ordinary spell/activation binder itself, so another card-kind
+    // rejection cannot mask an accidental fallback for an unbound actor.
+    for op in ["draw", "gain-life", "lose-life"] {
+        let effects: Vec<Sentence> = serde_json::from_value(serde_json::json!([{"steps":[{"effect":op,"who":{"player":"that-player"},"amount":{"amount":"fixed","value":1}}]}])).unwrap();
+        let mut program = lower(MINE).triggered.remove(0).program;
+        program.instructions.clear();
+        assert!(
+            append_spell_effects(
+                &mut program,
+                &effects,
+                0,
+                &mut BTreeMap::new(),
+                PlayerBinding::Unbound
+            )
+            .is_err()
+        );
+        assert!(
+            lower_activation(&[SourceCost::TapSelf {}], &effects, 0, CardKind::Creature).is_err()
+        );
+    }
+
     for status in ["tapped", "untapped"] {
         lower(&changed(MINE, |a| a["condition"]["status"] = status.into()));
     }
