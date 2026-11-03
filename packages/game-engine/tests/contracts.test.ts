@@ -1690,5 +1690,5 @@ test("D2c-b event-player and source status shapes require IR22", () => {
 
 
 test("D2c-c cast predicates require IR23 with strict boolean/type shapes", () => {
-  assertCastTriggerSchema(run("schema"), loadCatalog("cards-data-d2cc"), [loadCatalog("cards-data-d2c-b"),loadCatalog("triggers")]);
+  assertCastTriggerSchema(run("schema"), loadCatalog("cards-data-d2cc"), [loadCatalog("cards-data-d2c-b"),loadCatalog("trigger")]);
 });
