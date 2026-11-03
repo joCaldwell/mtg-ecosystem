@@ -36,9 +36,23 @@ fn d2cb_archive_programs_and_exact_minimum_capability_schema_closure() {
     assert!(
         matches!(seizan.triggered[0].program.instructions.as_slice(), [Instruction::LoseLife {recipient: LifeRecipient::EventPlayer, amount, ..}, Instruction::DrawCards {recipient: Some(LifeRecipient::EventPlayer), ..}, Instruction::DrawCards {recipient: Some(LifeRecipient::EventPlayer), ..}] if *amount == 2.into())
     );
-    for d in [mine, seizan] {
+    let mut status_only = mine.clone();
+    if let Instruction::DrawCards { recipient, .. } =
+        &mut status_only.triggered[0].program.instructions[0]
+    {
+        *recipient = None;
+    }
+    status_only.capabilities = status_only.requirements();
+    let mut actor_only = mine.clone();
+    actor_only.triggered[0].intervening_if = None;
+    actor_only.capabilities = actor_only.requirements();
+    for d in [mine, seizan, status_only, actor_only] {
         assert_eq!(d.capabilities, d.requirements());
-        assert!(d.capabilities.contains(&Capability::EventPlayerRecipientV1));
+        assert!(
+            d.capabilities.contains(&Capability::EventPlayerRecipientV1)
+                || d.capabilities
+                    .contains(&Capability::SourceStatusConditionV1)
+        );
         for cap in [
             Capability::EventPlayerRecipientV1,
             Capability::SourceStatusConditionV1,
@@ -96,8 +110,7 @@ fn d2cb_condition_composition_and_unbound_actor_whole_card_rejections() {
         changed(SEIZAN, |a| {
             a["kind"] = "activated".into();
             a.as_object_mut().unwrap().remove("trigger");
-            a["costs"] =
-                serde_json::json!([{"cost":"tap","what":{"ref":"this","noun":"creature"}}]);
+            a["costs"] = serde_json::json!([{"cost":"tap-self"}]);
         }),
         changed(SEIZAN, |a| {
             a["effects"][0]["steps"][1]["optional"] = true.into()

@@ -25,7 +25,22 @@ impl Game {
                 .get(*target_slot as usize)
                 .copied()
                 .ok_or_else(|| "missing draw target".into()),
-            Some(Instruction::DrawCards { .. }) => Ok(frame.spell.controller),
+            Some(Instruction::DrawCards {
+                recipient: Some(LifeRecipient::EventPlayer),
+                ..
+            }) => frame
+                .spell
+                .kind
+                .event_player()?
+                .ok_or_else(|| "absent draw event player".into()),
+            Some(Instruction::DrawCards {
+                recipient: Some(LifeRecipient::EachOpponent),
+                ..
+            }) => Err("unsupported each-opponent draw".into()),
+            Some(Instruction::DrawCards {
+                recipient: None | Some(LifeRecipient::Controller),
+                ..
+            }) => Ok(frame.spell.controller),
             _ => Err("not draw instruction".into()),
         }
     }

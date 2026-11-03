@@ -573,9 +573,17 @@ pub(super) fn row(enabled: bool, empty_hand: bool, rep: usize, collect: bool) ->
         .collect::<Vec<_>>();
     assert_eq!(checks.len(), usize::from(enabled));
     if enabled {
-        assert_eq!(checks[0].controller, PlayerId(3));
-        assert_eq!(checks[0].hand_count, u32::from(!empty_hand));
-        assert_eq!(checks[0].passed, empty_hand);
+        assert!(matches!(
+            checks[0],
+            InterveningCheck::ControllerHandEmpty {
+                controller: PlayerId(3),
+                ..
+            }
+        ));
+        assert!(
+            matches!(checks[0], InterveningCheck::ControllerHandEmpty { hand_count, .. } if hand_count == u32::from(!empty_hand))
+        );
+        assert_eq!(checks[0].passed(), empty_hand);
     }
     let prior = canonical_state(&game.state);
     let expired = game.state.effects.iter().map(|e| e.id).collect::<Vec<_>>();

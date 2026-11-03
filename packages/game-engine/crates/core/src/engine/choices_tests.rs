@@ -189,7 +189,7 @@ fn intervening_match_uses_common_lookback_and_never_retroactively_triggers() {
             .any(|t| t.source == bouncer)
     );
     assert_eq!(simultaneous.state.next_trigger_id, 2);
-    assert!(simultaneous.events().iter().any(|e|matches!(e,Event::TriggerConditionChecked{source,stage:InterveningStage::Match{..},check,..} if *source==bouncer&&check.hand_count==1&&!check.passed)));
+    assert!(simultaneous.events().iter().any(|e|matches!(e,Event::TriggerConditionChecked{source,stage:InterveningStage::Match{..},check,..} if *source==bouncer&&matches!(check, InterveningCheck::ControllerHandEmpty { hand_count:1, passed:false, .. }))));
     let mut ordered = g;
     ordered
         .commit_batch(
@@ -208,7 +208,7 @@ fn intervening_match_uses_common_lookback_and_never_retroactively_triggers() {
         .iter()
         .find(|t| t.source == bouncer)
         .unwrap();
-    assert!(trigger.match_condition.as_ref().unwrap().passed);
+    assert!(trigger.match_condition.as_ref().unwrap().passed());
     assert_eq!(ordered.state.next_trigger_id, 3);
 }
 #[test]

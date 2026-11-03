@@ -244,6 +244,17 @@ fn resolve(g: &mut Game, p: &Prepared) {
     }
     panic!("resolve bound")
 }
+fn hand_check(c: &InterveningCheck) -> (PlayerId, u32) {
+    let InterveningCheck::ControllerHandEmpty {
+        controller,
+        hand_count,
+        ..
+    } = c
+    else {
+        panic!("expected hand condition")
+    };
+    (*controller, *hand_count)
+}
 fn checks(g: &Game) -> Vec<(InterveningStage, InterveningCheck)> {
     g.events()
         .iter()
@@ -600,9 +611,9 @@ fn intervening_condition_rechecks_once_at_start_and_allows_true_false_true() {
     let first = checks(&g);
     assert_eq!(first.len(), 1);
     assert!(matches!(first[0].0, InterveningStage::Match { .. }));
-    assert_eq!(first[0].1.controller, PlayerId(0));
-    assert_eq!(first[0].1.hand_count, 0);
-    assert!(first[0].1.passed);
+    assert_eq!(hand_check(&first[0].1).0, PlayerId(0));
+    assert_eq!(hand_check(&first[0].1).1, 0);
+    assert!(first[0].1.passed());
     place(&mut g, &p);
     mage_draw(&mut g, &p);
     assert_eq!(
@@ -629,8 +640,8 @@ fn intervening_condition_rechecks_once_at_start_and_allows_true_false_true() {
         let all = checks(&b);
         assert_eq!(all.len(), 2);
         assert!(matches!(all[1].0, InterveningStage::ResolutionStart { .. }));
-        assert_eq!(all[1].1.passed, cast);
-        assert_eq!(all[1].1.hand_count, if cast { 0 } else { 1 });
+        assert_eq!(all[1].1.passed(), cast);
+        assert_eq!(hand_check(&all[1].1).1, if cast { 0 } else { 1 });
         assert_eq!(effects(&b).len(), usize::from(cast));
         assert_eq!(
             life(&b, PlayerId(1)),
@@ -646,8 +657,8 @@ fn false_match_never_creates_a_trigger_even_if_hand_empties_later() {
     let (p, mut g) = kill_bouncer(ScenarioConfig::conditions_nonempty());
     let first = checks(&g);
     assert_eq!(first.len(), 1);
-    assert!(!first[0].1.passed);
-    assert_eq!(first[0].1.hand_count, 1);
+    assert!(!first[0].1.passed());
+    assert_eq!(hand_check(&first[0].1).1, 1);
     resolve(&mut g, &p);
     salve(&mut g, &p, 0, PlayerId(0));
     assert_eq!(checks(&g).len(), 1);
@@ -674,8 +685,8 @@ fn borrowed_bouncer_uses_controller_hand_and_survives_owner_departure() {
             .hand_count
             > 0
     );
-    assert_eq!(checks(&g)[0].1.controller, PlayerId(0));
-    assert!(checks(&g)[0].1.passed);
+    assert_eq!(hand_check(&checks(&g)[0].1).0, PlayerId(0));
+    assert!(checks(&g)[0].1.passed());
     g.concede(PlayerId(2)).unwrap();
     assert!(matches!(settle(&mut g), Advance::AwaitingDecision(_)));
     assert!(g.object_id(CardId(2)).is_none());
@@ -683,8 +694,8 @@ fn borrowed_bouncer_uses_controller_hand_and_survives_owner_departure() {
     resolve(&mut g, &p);
     let all = checks(&g);
     assert_eq!(all.len(), 2);
-    assert!(all[1].1.passed);
-    assert_eq!(all[1].1.controller, PlayerId(0));
+    assert!(all[1].1.passed());
+    assert_eq!(hand_check(&all[1].1).0, PlayerId(0));
     let e = effects(&g);
     assert_eq!(e.len(), 1);
     assert_eq!(e[0]["origin"]["source"]["card"], json!(2));
@@ -700,7 +711,7 @@ fn mandatory_bouncer_without_any_legal_creature_is_removed_without_hanging() {
     assert!(observe(&g, PlayerId(0)).view.stack.is_empty());
     let c = checks(&g);
     assert_eq!(c.len(), 1);
-    assert!(c[0].1.passed);
+    assert!(c[0].1.passed());
     assert_eq!(
         g.events()
             .iter()
