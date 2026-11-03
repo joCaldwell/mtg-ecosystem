@@ -186,7 +186,7 @@ pub fn coverage(archive: &Path, out: &Path) -> Result<CoverageSummary, CoverageE
         archive_sha256: hash,
         archive_manifest_sha256: accepted.manifest_sha256.clone(),
         parser_revision: accepted.parser_revision.clone(),
-        ir_version: 20,
+        ir_version: 21,
         total: 0,
         commander_legal: 0,
         lowered_validated: 0,
@@ -235,7 +235,7 @@ pub fn coverage(archive: &Path, out: &Path) -> Result<CoverageSummary, CoverageE
         } else {
             match compile(header, raw) {
                 CompileResult::Lowered { definition } => match (Catalog {
-                    schema_version: 20,
+                    schema_version: 21,
                     rules_edition: RULES_EDITION.into(),
                     rules_sha256: RULES_SHA256.into(),
                     definitions: vec![*definition],

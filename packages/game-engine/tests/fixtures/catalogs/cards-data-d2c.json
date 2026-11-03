@@ -1,0 +1,20 @@
+{
+  "schema_version": 21,
+  "output_order": "struct",
+  "provenance": "../cards-data-d2c/provenance.json",
+  "records": [
+    "../cards-data-d2c/418be12f-b40a-4018-86c1-98c9000a999a.json",
+    "../cards-data-d2c/5a20113c-7ea8-4edf-af9f-148ccd326a88.json",
+    "../cards-data-d2c/8add6996-6c5c-4aa2-93d4-a39efcfd22b2.json",
+    "../cards-data-d2c/ee579a32-a048-4335-b966-231ba731cdea.json",
+    "../cards-data-d2c/f26fa9e4-f528-4e22-8f7c-329fc3b633e4.json",
+    "../cards-data-d2c/7a21ea22-3cd7-4c11-8895-5943c0d93a0d.json",
+    "../cards-data-d2c/95f5ddb6-e3e5-4b35-88ac-eae192783eda.json",
+    "../cards-data-d2c/987f8c13-0164-4536-b505-d9fa799222fb.json",
+    "../cards-data-d2c/df024c55-c008-48ec-a1a5-02ce336e3de6.json",
+    "../cards-data-d2c/e64b184d-9746-4723-a928-d459b5c3ee6c.json",
+    "../cards-data-d2c/ea73153b-1ecb-4593-a9ec-ce4f54e69824.json"
+  ],
+  "expected_ir": "../cards-data-d2c/expected-ir.json",
+  "expected_digest": "cards-data-d2c.sha256"
+}

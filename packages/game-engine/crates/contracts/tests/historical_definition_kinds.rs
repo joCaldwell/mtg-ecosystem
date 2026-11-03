@@ -4,7 +4,7 @@ fn load(name: &str) -> Catalog {
     Catalog::read(&std::fs::read_to_string(p).unwrap()).unwrap()
 }
 #[test]
-fn v18_rejects_noncreature_enchantment_trigger() {
+fn supported_enchantment_trigger_programs_do_not_depend_on_source_kind_templates() {
     let mut c = load("expected-removal-ir.json");
     let s = load("expected-sacrifice-ir.json");
     let bastion = s
@@ -19,6 +19,15 @@ fn v18_rejects_noncreature_enchantment_trigger() {
         .unwrap();
     furnace.triggered = vec![bastion.triggered[0].clone()];
     furnace.capabilities = furnace.requirements();
+    // D2c removes the source-kind template: the same complete self-entry
+    // program runs on any ordinary permanent. No new event semantics occur.
+    c.validate().unwrap();
+    let furnace = c
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Furnace of Rath")
+        .unwrap();
+    furnace.triggered[0].functioning_zone = FunctioningZone::Stack;
     assert!(c.validate().is_err());
 }
 #[test]
