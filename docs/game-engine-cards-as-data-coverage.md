@@ -336,3 +336,31 @@ Top fifteen remaining first reasons (not independent admission predictions):
 | `abilities[*].effects[*].steps[*]:data_did_not_match_any_variant_of_untagged_enum_sourcecounterrecipient` | 331 |
 | `abilities[*].effect.condition` | 329 |
 | `effect:tap` | 317 |
+
+
+## D2c-c candidate: ordinary cast triggers
+
+**Source review and final combined acceptance are pending.** The focused
+compiler/source audit measures **1,968/32,116 (6.12779%)**, **39 additions and zero
+losses** from the exact D2c-b legal lowered-ID set. Increase: **0.12143 percentage
+points**. All 38,721 archive rows are classified; legal statuses are 1,968
+lowered/validated, 27,666 unsupported, 2,482 unparsed and zero invalid.
+
+IR23 separates caster relations from compositional positive/negative full type
+membership and AND/OR predicates. It reuses mandatory programs, with a frozen
+real successful-cast witness. Colors, zones, ownership, targets-source, MV/X,
+ordinals, turn limits, self-cast stack functioning, cast-or-copy and optionality
+remain rejected. Hosting/search exclude the capability. See
+[the D2c-c report](game-engine-cards-as-data-d2c-c.md) for rules, exact source
+identities, focused checks and persisted-version implications.
+
+The 39 audited additions are:
+
+Arasta of the Endless Web, Argothian Enchantress, Beast Whisperer, Blessed Spirits, Boar-q-pine, Chandra's Emberling, Citanul Druid, Contemplation, Dawnhart Geist, Deeproot Champion, Dragonlair Spider, Ebon Drake, Electrostatic Field, Electrostatic Infantry, Enchantress's Presence, Erebor Flamesmith, Firebrand Archer, Generous Visitor, Guttersnipe, Kambal, Consul of Allocation, Kessig Flamebreather, Managorger Hydra, Medusa, Inhuman Queen, Murmuring Mystic, Pyre Hound, Pyroceratops, Rite of the Dragoncaller, Satyr Enchanter, Sigil of the Empty Throne, Spellgorger Weird, Sprite Dragon, Student of Ojutai, Sunscorch Regent, Sythis, Harvest's Hand, Talrand, Sky Summoner, Tura Kennerüd, Skyknight, Vedalken Archmage, Whirlwind of Thought, Young Pyromancer.
+
+Every complete source/AST and extracted validated IR is retained under
+`generated/final-engine-verification/d2c-c/source-admissions/`; exact ID-by-ID
+comparison and all archive classifications are under
+`generated/cards-as-data-coverage/d2c-c/`. These are compiler metrics, not a claim
+that the new cards played in unchanged legal profile batches. No full gate was
+authorized for this implementing agent.

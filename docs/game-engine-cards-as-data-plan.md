@@ -137,7 +137,11 @@ recipients and typed source-status conditions at IR v22, reaching **1,929/32,116
 (6.00635%)**, six additions and zero losses from D2c-a. Existing hand-empty
 conditions compose with step triggers; current/LKI source information is bounded
 by outstanding continuations. See [D2c-b](game-engine-cards-as-data-d2c-b.md).
-Broader phase forms, cast/attack/damage/draw-event triggers and other P6.11
+D2c-c adds an IR23 ordinary cast-trigger candidate with independent caster
+relations, compositional type predicates and frozen successful-cast occurrence
+evidence. Focused checks/source review precede parent-owned final acceptance; see
+[the D2c-c report](game-engine-cards-as-data-d2c-c.md).
+Broader phase forms, attack/damage/draw-event triggers and other P6.11
 operations remain open; optional payment, multiplayer draw and library selection
 were not added.
 
