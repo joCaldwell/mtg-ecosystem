@@ -79,8 +79,17 @@ impl Invocation<'_> {
 pub(super) fn game(catalog: &Catalog, evidence: &Evidence) -> Result<serde_json::Value, String> {
     let p = Prepared::admit_pod(catalog.clone(), evidence.config.clone())
         .map_err(|e| format!("{e:?}"))?;
-    let physical = p.config().cards.clone();
     let g = Game::replay_with_trace(p, &evidence.journal, TraceMode::Detailed)?;
+    scan(catalog, &g)
+}
+pub(super) fn verified_game(
+    catalog: &Catalog,
+    verified: &VerifiedReplay,
+) -> Result<serde_json::Value, String> {
+    scan(catalog, &verified.game)
+}
+fn scan(catalog: &Catalog, g: &Game) -> Result<serde_json::Value, String> {
+    let physical = &g.config().cards;
     let lookup = |card: CardId| {
         physical
             .iter()

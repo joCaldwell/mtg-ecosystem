@@ -12,6 +12,8 @@ mod interactions;
 mod mana_policy;
 #[cfg(test)]
 mod ordinary_diagnostic;
+#[cfg(test)]
+mod replay_reuse_tests;
 
 // Evidence belongs outside native crate sources regardless of Cargo's test cwd.
 fn artifact_root() -> std::path::PathBuf {
@@ -738,6 +740,16 @@ fn verify_replay(
     catalog: &Catalog,
     e: &Evidence,
 ) -> Result<Vec<(PlayerId, mtg_core::PlayerLossReason)>, String> {
+    verify_replay_game(catalog, e).map(|verified| verified.loss_facts)
+}
+// Process-local proof ownership only: neither the Game nor a claim to having
+// verified it is serialized into retained evidence. Standalone verification
+// still constructs and checks its own independent replay.
+struct VerifiedReplay {
+    game: Game,
+    loss_facts: Vec<(PlayerId, mtg_core::PlayerLossReason)>,
+}
+fn verify_replay_game(catalog: &Catalog, e: &Evidence) -> Result<VerifiedReplay, String> {
     verify_host_metrics(e)?;
     let p = Prepared::admit_pod(catalog.clone(), e.config.clone()).map_err(|e| format!("{e:?}"))?;
     let mut verifier = SnapshotVerifier::new(p.clone(), e.trace_mode);
@@ -797,7 +809,10 @@ fn verify_replay(
         return Err("match replay outcome mismatch".into());
     }
     verify_terminal_result(&g, e)?;
-    Ok(loss_facts)
+    Ok(VerifiedReplay {
+        game: g,
+        loss_facts,
+    })
 }
 fn verify_terminal_result(game: &Game, e: &Evidence) -> Result<(), String> {
     let mut probe = game.fork();
@@ -867,16 +882,19 @@ pub(super) fn batch(
         )
         .map_err(|e| e.to_string())?;
         let replay =
-            verify_suite_entry(index as usize, &e).and_then(|()| verify_replay(catalog, &e));
+            verify_suite_entry(index as usize, &e).and_then(|()| verify_replay_game(catalog, &e));
         if !matches!(e.outcome.as_str(), "finished" | "draw") || replay.is_err() {
             failures.push(
                 serde_json::json!({"index":index,"outcome":e.outcome,"replay_error":replay.as_ref().err()}),
             );
         }
-        let mut report = serde_json::json!({"index":index,"outcome":e.outcome,"winner":e.winner,"survivor_counts":e.survivor_counts,"turns":e.turns,"decisions":e.decisions,"advances":e.advances,"rule_steps":e.rule_steps,"query_calls":e.query_calls,"verified_losses":replay.as_ref().ok(),"elapsed_millis":e.elapsed_millis,"final_state_sha256":e.final_state_sha256});
-        {
-            report["interactions"] = interactions::game(catalog, &e)?;
-        }
+        let mut report = serde_json::json!({"index":index,"outcome":e.outcome,"winner":e.winner,"survivor_counts":e.survivor_counts,"turns":e.turns,"decisions":e.decisions,"advances":e.advances,"rule_steps":e.rule_steps,"query_calls":e.query_calls,"verified_losses":replay.as_ref().ok().map(|verified| &verified.loss_facts),"elapsed_millis":e.elapsed_millis,"final_state_sha256":e.final_state_sha256});
+        report["interactions"] = match &replay {
+            Ok(verified) => interactions::verified_game(catalog, verified)?,
+            // Keep the existing independent diagnostic replay for failed or
+            // nonterminal evidence; a failed proof cannot supply this fast path.
+            Err(_) => interactions::game(catalog, &e)?,
+        };
         reports.push(report);
     }
     let interaction_summary = interactions::summarize(catalog, &reports)?;
