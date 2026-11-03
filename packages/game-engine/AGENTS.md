@@ -1,5 +1,17 @@
 # Compiler and engine development
 
+## Review and verification ownership
+
+Josh's 2026-11-03 workflow requires focused implementer checks, independent source
+review, then **one full acceptance run on the final reviewed freeze**, owned by
+the reviewer or a designated verifier. Implementers must not each run the full
+engine/demo/all-profile suite. Do not rerun a passed full gate after read-only
+review or documentation-only edits; explain which source change invalidates a
+phase before repeating it. Preserve every required guard, workload and replay.
+See `docs/game-engine-verification-workflow.md` for ownership, parallel work and
+the measured optimization loop. This supersedes earlier task briefs assigning
+the complete gate to every implementation agent.
+
 D1b-2 removes runtime lineage gates. The historical profile descriptions below
 record earlier release boundaries; they no longer enable rules or select limits.
 All admitted catalogs execute the common rules implementation. See

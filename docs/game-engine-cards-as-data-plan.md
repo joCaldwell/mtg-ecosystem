@@ -189,3 +189,9 @@ merged, as before. A review checks for:
 Verification stays proportional. It covers the engine check, SDK
 verification, the batch and coverage numbers. No new audit frameworks are
 added.
+
+
+The user's 2026-11-03 [verification workflow](game-engine-verification-workflow.md)
+sets ownership: implementers run focused checks, source review happens first,
+and one verifier runs full acceptance on the final reviewed freeze. Preserve
+required checks while removing repeated execution and improving fail-fast order.

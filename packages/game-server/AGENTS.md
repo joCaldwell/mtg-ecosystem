@@ -1,5 +1,10 @@
 # Local Rust hosting and generated clients
 
+Engine/server follow-ups use `docs/game-engine-verification-workflow.md`: focused
+implementer checks and independent source review precede one centrally owned
+full run on the final reviewed freeze. Read-only review does not require another
+full suite.
+
 D1b-3 hosting admission treats each profile's `hosted` flag as a request,
 validated against the explicit reviewed IR capability set at build time and admission. The current hosted
 profiles remain foundations and attachments. Registry tests iterate the data
