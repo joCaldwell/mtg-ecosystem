@@ -189,6 +189,20 @@ fn rule_bearing_subtypes_are_explicit_boundaries_in_intake_and_ir() {
 }
 
 #[test]
+fn identical_nested_errors_follow_source_field_order() {
+    for (first, second) in [("toughness", "power"), ("power", "toughness")] {
+        let raw = format!(
+            r#"[{{"kind":"spell","effects":[{{"steps":[{{"effect":"create-token","count":{{"amount":"fixed","value":1}},"token":{{"colors":[],"supertypes":[],"types":["creature"],"subtypes":["Spirit"],"keywords":[],"{first}":{{"amount":"fixed","value":"bad"}},"{second}":{{"amount":"fixed","value":"bad"}}}}}}]}}]}}]"#
+        );
+        let failure = read_abilities(&raw).unwrap_err();
+        assert_eq!(
+            failure.path,
+            format!("abilities[0].effects[0].steps[0].token.{first}")
+        );
+    }
+}
+
+#[test]
 fn diagnostics_follow_the_second_ability_instead_of_a_repeated_discriminator() {
     let raw = r#"[{"kind":"keywords","keywords":[{"keyword":"menace"}]},{"kind":"triggered","trigger":{"trigger":"enters","what":{"ref":"self"}},"effects":[]}]"#;
     let failure = read_abilities(raw).unwrap_err();

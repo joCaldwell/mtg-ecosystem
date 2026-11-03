@@ -1441,6 +1441,62 @@ fn legend_rule_controller_keeps_each_permanent_type_through_public_choices_and_r
 }
 
 #[test]
+fn legend_wave_finishes_before_fresh_commander_graveyard_return_choices() {
+    // CR 704.5j / 903.9a: first put every unkept legend into its owner's
+    // graveyard simultaneously, then offer the commanders' new incarnations.
+    let mut p = prepared(&[
+        ("Isamaru, Hound of Konda", 0, false),
+        ("Isamaru, Hound of Konda", 0, false),
+        ("Isamaru, Hound of Konda", 1, false),
+        ("Isamaru, Hound of Konda", 1, false),
+    ]);
+    p.config.commanders = vec![CardId(0), CardId(2)];
+    p.profile_digest = digest(&p.config).unwrap();
+    traces(p, |g| {
+        answer(g, Response::Pass);
+        let first = object(g, 0);
+        let second = object(g, 2);
+        answer(g, Response::LegendRule { keep: object(g, 1) });
+        assert!(matches!(
+            request(g),
+            Request::LegendRule {
+                player: PlayerId(1),
+                ..
+            }
+        ));
+        assert_eq!(g.zone(first), Some(Zone::Battlefield));
+        assert_eq!(g.zone(second), Some(Zone::Battlefield));
+        answer(g, Response::LegendRule { keep: object(g, 3) });
+        let r = request(g);
+        for (old, owner) in [(first, PlayerId(0)), (second, PlayerId(1))] {
+            assert!(g.current(old).is_err());
+            assert_eq!(g.state.objects[&old.card].zone, Zone::Graveyard { owner });
+        }
+        assert!(
+            matches!(r, Request::CommanderReturn { player: PlayerId(0), object, .. } if object == self::object(g, 0))
+        );
+        check(g);
+        answer(g, Response::CommanderReturn { to_command: true });
+        assert!(
+            matches!(request(g), Request::CommanderReturn { player: PlayerId(1), object, .. } if object == self::object(g, 2))
+        );
+        check(g);
+        answer(g, Response::CommanderReturn { to_command: false });
+        request(g);
+        assert_eq!(
+            g.state.objects[&first.card].zone,
+            Zone::Command { owner: PlayerId(0) }
+        );
+        assert_eq!(
+            g.state.objects[&second.card].zone,
+            Zone::Graveyard { owner: PlayerId(1) }
+        );
+        assert_eq!(g.zone(object(g, 1)), Some(Zone::Battlefield));
+        assert_eq!(g.zone(object(g, 3)), Some(Zone::Battlefield));
+    });
+}
+
+#[test]
 fn artifact_land_survives_nonland_wipe_and_is_removed_by_artifact_removal() {
     let mut p = prepared(&[("Forest", 0, false)]);
     let d = Arc::make_mut(&mut p.catalog)

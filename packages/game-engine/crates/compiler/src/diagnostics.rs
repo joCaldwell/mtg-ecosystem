@@ -4,6 +4,33 @@
 use super::*;
 use serde_json::Value;
 type Decoder = fn(&str) -> Result<(), serde_json::Error>;
+// Serde visits struct fields in input order. Preserve that order when two
+// children produce the same error; a sorted JSON object loses this evidence.
+#[derive(Default)]
+struct FieldOrder(Vec<String>);
+impl<'de> Deserialize<'de> for FieldOrder {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = FieldOrder;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("object")
+            }
+            fn visit_map<M: serde::de::MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> Result<Self::Value, M::Error> {
+                let mut keys = vec![];
+                while let Some(key) = map.next_key()? {
+                    keys.push(key);
+                    map.next_value::<serde::de::IgnoredAny>()?;
+                }
+                Ok(FieldOrder(keys))
+            }
+        }
+        d.deserialize_map(Visitor)
+    }
+}
 fn check<T: serde::de::DeserializeOwned>(v: &str) -> Result<(), serde_json::Error> {
     serde_json::from_str::<T>(v).map(|_| ())
 }
@@ -143,6 +170,14 @@ fn locate(raw: &str, path: &str, decoder: Decoder, context: &str) -> Failure {
         }
         _ => {}
     }
+    let order: FieldOrder = serde_json::from_str(raw).unwrap_or_default();
+    children.sort_by_key(|(_, child_path, _, _)| {
+        let field = child_path[path.len() + 1..]
+            .split(['[', '.'])
+            .next()
+            .unwrap();
+        order.0.iter().position(|key| key == field).unwrap()
+    });
     // Preserve the parent's actual first error when a different child also
     // fails. Only descend into a typed child reproducing that error.
     for (child, child_path, decode, ctx) in children {

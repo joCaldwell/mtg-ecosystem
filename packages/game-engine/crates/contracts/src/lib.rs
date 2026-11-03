@@ -2666,7 +2666,7 @@ mod tests {
             (17, &[AttachmentsV1]),
             (18, &[PermanentRemovalV1]),
             (19, &[SacrificeV1]),
-            (20, &[BoardWipesV1]),
+            (20, &[BoardWipesV1, FlashV1, EntersTappedV1]),
         ];
         // Enumerate the public vocabulary, so a new capability cannot silently
         // escape this contract. Check real, fully valid definitions rather than
