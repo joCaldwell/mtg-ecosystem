@@ -212,3 +212,37 @@ All final phase logs, both complete batch directories, SDK verification and
 `verification-summary.json` are retained under
 `generated/final-engine-verification/d2a/` (ignored). The release batch build ID
 is `76f3950a308cf83a4709191c0ee99a6b591d047c70037e325a780e85d99dce6e`.
+
+## D2b: bound sources, flash and source entry replacements
+
+The [D2b report](game-engine-cards-as-data-d2b.md) records the rules, independent
+reviews, source audit, witnesses and exact verification qualifications. Against
+an independently rebuilt `a5f59b1` base, sequential measurements give:
+
+| Stage | Legal lowered | Delta |
+| --- | ---: | ---: |
+| D2a merged base | 1,828 | — |
+| Subtype, diagnostic and artifact-land corrections | 1,828 | +0 |
+| Bound source references | 1,828 | +0 |
+| Flash | 1,882 | +54 |
+| Source enters tapped | 1,904 | +22 |
+| General ability-word annotations | 1,904 | +0 |
+
+The final result is **1,904 / 32,116 (5.92851%)**, **76 additions and zero
+regressions** from D2a. There are zero legal Invalid records. Source binding is a
+prerequisite for two of the entry-tapped additions; all five admitted labeled
+cards already had supported triggered labels. Separate feature counts therefore
+must not be added as independent gains: 56 flash and 22 entry-tapped cards
+include two overlaps.
+
+Two final full CLI runs produced byte-identical JSON and TSV, also identical to
+the fully enabled diagnostic stage. Raw outputs, the preserved baseline and
+feature-mask measurement source are ignored under
+`generated/cards-as-data-coverage/d2b/` in the D2b worktree. The report explains
+that source-copy measurement and retains its failed preparation attempts.
+
+The largest remaining first boundaries are `trigger:phase` (1,133),
+`effect:gain-abilities` (922), `trigger:attacks` (918), `trigger:cast` (808), and
+`trigger:deals-damage` (526). These are first-failure counts, rather than counts
+of cards that one capability alone would admit. Broader phase/cast/draw trigger
+and card-flow work remains the next capability track.

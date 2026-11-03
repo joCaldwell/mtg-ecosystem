@@ -16,6 +16,13 @@ and the selected dated banned-list digest remain bound independently.
 D1c uses one IR-driven Develop policy and one generic interaction summary;
 see `docs/game-engine-cards-as-data-d1c.md` for the re-baseline and witnesses.
 
+D2b adds common APNAP legend-rule choices, exact archive-bound source references,
+intrinsic flash and unconditional source entry tapped. The two new capabilities
+require IR v20 and remain outside reviewed hosting/search sets. Ability-word
+labels never replace underlying semantics. Rule-bearing subtypes retain explicit
+rejections. See `docs/game-engine-cards-as-data-d2b.md` for witnesses, reviews,
+verification and the 1,904/32,116 compiler coverage measurement.
+
 
 Rust owns contracts, offline compilation, deterministic core, and the scenario
 CLI. Read `docs/game-engine-first-scenario.md` for frozen inputs and restrictions.
