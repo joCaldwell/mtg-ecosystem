@@ -11,7 +11,17 @@ const root = fileURLToPath(new URL("../../../", import.meta.url));
 const fixtureDir = new URL("fixtures/", import.meta.url);
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 const read = (name: string) => fs.readFileSync(new URL(name, fixtureDir), "utf8");
+const preflight = process.env.MTG_ENGINE_CONTRACT_PREFLIGHT === "1";
+// The normal acceptance run registers every existing test. Only the explicit
+// early preflight omits runtime-backed cases; it repeats cheap source/schema
+// contracts so new catalog negatives cannot wait behind the recovery demo.
+function runtimeTest(name: string, body: () => void) {
+  if (!preflight) test(name, body);
+}
 function run(command: string, ...args: string[]) {
+  if (preflight && command !== "schema" && command !== "catalog") {
+    throw new Error(`Runtime command ${command} is forbidden in contract preflight`);
+  }
   // The package gate already runs all Rust tests in debug; use the optimized CLI
   // for these profile-independent contracts and the full recovery demonstration.
   return captureJsonOutput<any>("cargo", ["run", "--quiet", "--locked", "--release", "-p", "mtg-sim", "--", command, ...args], { cwd: root });
@@ -59,7 +69,7 @@ test("retained archive hashes agree with JavaScript and source parser", () => {
   }
 });
 
-test("player CLI projections keep private card data and recovery fields out", () => {
+runtimeTest("player CLI projections keep private card data and recovery fields out", () => {
   const own = run("observe", "0");
   const other = run("observe", "1");
   const spell = JSON.parse(read("unsummon.json")).oracleIdentity;
@@ -614,7 +624,7 @@ function assertScenarioDigests(family: string, reports: any[]) {
 let demoResult: any;
 function demo() { return demoResult ??= run("demo"); }
 
-test("choice witnesses retain independent targets, selected modes and twice-checked conditions", () => {
+runtimeTest("choice witnesses retain independent targets, selected modes and twice-checked conditions", () => {
   const reports=demo().choices;
   assertScenarioDigests("choices", reports);
   const policies="seeds_same seeds_distinct seeds_one_illegal seeds_two_illegal seeds_all_illegal seeds_reincarnation seeds_countered seeds_caster_leaves seeds_cleanup salve_gain_self salve_gain_opponent salve_shield_player salve_shield_creature salve_residual_budget salve_split_first salve_split_last salve_countered salve_fizzle salve_double_first salve_prevent_first bouncer_empty bouncer_nonempty bouncer_draw_false bouncer_draw_cast_true bouncer_stifled bouncer_target_gone bouncer_borrowed_owner_leaves bouncer_controller_leaves bouncer_no_targets bouncer_cast".split(" ");
@@ -726,7 +736,7 @@ test("choice witnesses retain independent targets, selected modes and twice-chec
   }
 });
 
-test("effects witnesses retain signed characteristics, actual damage and affected-player choices", () => {
+runtimeTest("effects witnesses retain signed characteristics, actual damage and affected-player choices", () => {
   const reports=demo().effects;
   assertScenarioDigests("effects", reports);
   const policies=["growth","growth_countered","additive_modifiers","multi_caster_modifiers","zero_toughness_return","zero_toughness_decline","negative_power","growth_reincarnation","growth_caster_leaves","growth_cleanup","growth_active_leaves_cleanup","pumped_pinger","pumped_pinger_bounced","pumped_pinger_borrowed_owner_leaves","shield_player","shield_creature","shield_next_ping","shield_stifled","shield_source_bounced","shield_borrowed_owner_leaves","shield_target_reincarnation","shield_fizzle","furnace_cast","furnace_bolt","two_furnaces_bolt","furnace_source_leaves","double_then_prevent","prevent_then_double","fog_combat","fog_noncombat","fog_then_shield","shield_then_fog","shield_simultaneous_first","shield_simultaneous_last","prevented_death","amplified_death","commander_amplified","fog_caster_leaves","accepted_source_leaves","applied_prefix_source_leaves","bolt_eliminates_player"];
@@ -900,7 +910,7 @@ test("effects witnesses retain signed characteristics, actual damage and affecte
   }
 });
 
-test("ordinary trigger witnesses retain APNAP order, countered programs and historical sources", () => {
+runtimeTest("ordinary trigger witnesses retain APNAP order, countered programs and historical sources", () => {
   const reports = demo().triggers;
   assertScenarioDigests("triggers", reports);
   const expected: Record<string,number[]> = {
@@ -1029,7 +1039,7 @@ test("ordinary trigger witnesses retain APNAP order, countered programs and hist
   assert.equal(historical.view.stack.at(-1).triggered.source.current,null);
 });
 
-test("damage and life witnesses retain ordered effects, mixed targets and historical sources", () => {
+runtimeTest("damage and life witnesses retain ordered effects, mixed targets and historical sources", () => {
   const reports = demo().damage_life;
   assertScenarioDigests("damage_life", reports);
   assert.equal(reports.length, 28);
@@ -1103,7 +1113,7 @@ test("damage and life witnesses retain ordered effects, mixed targets and histor
   }
 });
 
-test("stack and cost witnesses preserve instance targets, paid costs and nested choices", () => {
+runtimeTest("stack and cost witnesses preserve instance targets, paid costs and nested choices", () => {
   const reports = demo().stack_costs;
   assertScenarioDigests("stack_costs", reports);
   assert.equal(reports.length, 18);
@@ -1172,7 +1182,7 @@ test("stack and cost witnesses preserve instance targets, paid costs and nested 
   }
 });
 
-test("action witnesses preserve explicit spending, player sacrifice and noncard ability choices", () => {
+runtimeTest("action witnesses preserve explicit spending, player sacrifice and noncard ability choices", () => {
   const reports = demo().actions_payments;
   assertScenarioDigests("actions_payments", reports);
   assert.equal(reports.length, 14);
@@ -1218,7 +1228,7 @@ test("action witnesses preserve explicit spending, player sacrifice and noncard 
   }
 });
 
-test("response observations expose stack order without reviving historical targets", () => {
+runtimeTest("response observations expose stack order without reviving historical targets", () => {
   const response = demo().response;
   const before = response.stacked_observation;
   const after = response.after_top_observation;
@@ -1237,7 +1247,7 @@ test("response observations expose stack order without reviving historical targe
   }
 });
 
-test("casting mana witnesses expose the caster request and preserve keep/undo outcomes", () => {
+runtimeTest("casting mana witnesses expose the caster request and preserve keep/undo outcomes", () => {
   const report = demo();
   const casting = report.mana_casting;
   assert.equal(casting.mana_observation.observation_version, 16);
@@ -1265,7 +1275,7 @@ test("casting mana witnesses expose the caster request and preserve keep/undo ou
 });
 
 
-test("turn progression and permanent casting expose only permitted public state", () => {
+runtimeTest("turn progression and permanent casting expose only permitted public state", () => {
   const turns = demo().turns;
   assert.equal(turns.status, "turns_permanents_verified");
   assert.deepEqual(turns.turn, { number: 5, step: "precombat_main", lands_played: 1 });
@@ -1285,7 +1295,7 @@ test("turn progression and permanent casting expose only permitted public state"
   assert.equal(turns.state_sha256, JSON.parse(read("d1b3-history-scenario-digests.json")).turns);
 });
 
-test("complete scenario games retain rules outcomes and private combat projections", () => {
+runtimeTest("complete scenario games retain rules outcomes and private combat projections", () => {
   const combat = demo().combat;
   assert.equal(combat.length, 4);
   assert.deepEqual(combat[0].result, { result: "won", winner: 0 });
@@ -1309,7 +1319,7 @@ test("complete scenario games retain rules outcomes and private combat projectio
   assertScenarioDigests("combat", combat);
 });
 
-test("Commander witnesses preserve tax, actual return destinations and private projections", () => {
+runtimeTest("Commander witnesses preserve tax, actual return destinations and private projections", () => {
   const runs = demo().commander;
   assert.deepEqual(runs.map((r: any) => r.policy), [
     "tax_keep", "tax_undo", "hand_recast", "grave_return", "grave_decline", "exile_return", "exile_decline",
@@ -1345,7 +1355,7 @@ test("Commander witnesses preserve tax, actual return destinations and private p
   }
 });
 
-test("Commander damage and library witnesses expose actual results without hidden-library handles", () => {
+runtimeTest("Commander damage and library witnesses expose actual results without hidden-library handles", () => {
   const runs = demo().damage_library;
   assertScenarioDigests("damage_library", runs);
   assert.deepEqual(runs.map((r: any) => r.policy), [
