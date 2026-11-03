@@ -465,3 +465,17 @@ logs/manifests are retained under `d1b3-history2/sdk/`; the SDK's own `generated
 directory was removed afterward as requested. The final `summary.json` binds
 these counts, probes, original-byte proof and batch results. Earlier calibration
 failures/interrupted attempts remain separate and are excluded from final passes.
+
+
+### D2c-a typed trigger evidence and retained-byte charge
+
+D2c-a replaces movement/token optional fields and object-only trigger subjects
+with typed movement/token/step witnesses. The retained trace payload therefore
+changes even for old object triggers. Actual serialized bytes still determine
+charge, equally across all trace modes; no capacity ceiling or guard changed.
+The [D2c-a report](game-engine-cards-as-data-d2c-a.md) records the source/rules/
+representation review and the exact 173-snapshot comparison. Reversing only the
+witness encoding and its doubled event-size charge delta reproduces all prior
+D1b-3 hashes. Only then were 37 current state references regenerated. Original
+D1b-3 bytes and failed full-gate output remain retained; historical D1b-2 fixtures
+and the earlier measurement evidence above are untouched.

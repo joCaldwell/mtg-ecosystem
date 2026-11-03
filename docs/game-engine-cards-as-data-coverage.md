@@ -246,3 +246,50 @@ The largest remaining first boundaries are `trigger:phase` (1,133),
 `trigger:deals-damage` (526). These are first-failure counts, rather than counts
 of cards that one capability alone would admit. Broader phase/cast/draw trigger
 and card-flow work remains the next capability track.
+
+
+## D2c-a: beginning-of-step triggers
+
+The [D2c-a report](game-engine-cards-as-data-d2c-a.md) describes the exact IR v21
+subset, typed event witnesses, source audit, rejected forms and verification.
+The final compiler result is **1,923 / 32,116 legal records (5.98767%)**:
+**19 additions, zero losses**, and **0.05916 percentage points** over D2b's 1,904.
+Legal statuses are 1,923 lowered/validated, 27,711 Unsupported, 2,482 unparsed,
+and zero Invalid. All 38,721 archive records are classified in the TSV.
+
+The capability composes upkeep/draw/end steps with controller/any-player/opponent
+turn predicates and existing mandatory programs. It does not admit broader phase
+forms, intervening conditions, optional effects, event-player recipients or
+multi-player draw. A source-backed runtime witness exposed Master of the Feast's
+unsupported each-opponent draw; its whole card now rejects before admission.
+The initial 1,924 result and that failed runtime attempt remain preserved rather
+than being treated as final coverage.
+
+Two final full CLI runs produce byte-identical JSON and TSV, also identical to
+the post-guard measurement. Raw results are retained under
+`generated/cards-as-data-coverage/d2c-a/`. The baseline TSV is copied from the
+retained D2b `resumed-final` output. These are compiler metrics, not deck admission
+or a claim that all nineteen cards were played in legal profile batches.
+
+Top fifteen remaining first-failure reasons:
+
+| Reason | Legal records |
+| --- | ---: |
+| `status:unparsed` | 2,481 |
+| `effect:gain-abilities` | 953 |
+| `trigger:attacks` | 919 |
+| `trigger:cast` | 817 |
+| `trigger:deals-damage` | 526 |
+| `static:conditional` | 482 |
+| `static.scope:unsupported_modifier_scope` | 461 |
+| `effects.steps:unsupported_activated_operator_controller_or_cardinality` | 418 |
+| `static:enters-with-counters` | 350 |
+| `mana:choice` | 346 |
+| `effect:reveal` | 341 |
+| `multi_face_layout:transform` | 341 |
+| `abilities[*].effect.condition` | 329 |
+| `abilities[*].effects[*].steps[*]:data_did_not_match_any_variant_of_untagged_enum_sourcecounterrecipient` | 328 |
+| `effect:tap` | 317 |
+
+Recognizing phase ASTs exposes later unsupported operations and conditions.
+These are first-failure counts, not independent predicted capability gains.

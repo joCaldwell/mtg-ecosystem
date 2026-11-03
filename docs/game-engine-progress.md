@@ -4242,3 +4242,47 @@ annotations +0. Source binding is required by two entry-tapped admissions. Two
 full coverage runs and the fully enabled measurement stage agree byte for byte.
 These are compiler/functionality measurements; current-build search performance
 has not been remeasured. D2c begins the remaining generic trigger/card-flow work.
+
+
+## D2c-a — beginning-step capability (2026-11-03)
+
+Implementation/fixture freeze: `cabfb4399ea2d6e476b484e9f504885edd8cdd80`.
+See [the D2c-a report](game-engine-cards-as-data-d2c-a.md) for the exact scope,
+source records, witnesses, identities, complete failed-attempt qualifications and
+retained evidence. Parent independent review remains pending; no PR or merge.
+
+- IR21 `StepBeginningTriggerV1` composes upkeep/draw/end with controller/any-player/
+  opponent predicates. Actual `TurnTransitioned` occurrences collect before entry
+  actions; normal draw/commander replacement precedes stabilization/APNAP placement.
+- Typed moved/token/step evidence propagates through pending triggers, stack and
+  trusted events. Snapshots/bundles advance to 19/20; public versions remain
+  16/16/15. Source/controller freeze, departures and atomic capacity faults remain.
+- Fifteen native release witnesses cover the source-backed cast, timing/order,
+  draw/life/deck-out, APNAP, trace/budget/restore, absence/departure, forgery and
+  capacity boundaries. Eleven complete archived definitions and two source
+  negatives remain small reviewed fixtures. All nineteen new legal admissions
+  were checked against whole source text/AST; batch use is not claimed for them.
+- Full `npm run check:engine`: **959 Rust passed, zero failed, 18 existing
+  diagnostics ignored; 57 Node passed, zero failed**. **114 focused release
+  checks**, production builds, **47 SDK tests** plus strict TypeScript/33 response
+  variants passed. SDK generated output was retained then removed.
+- Two exact coverage outputs are byte-identical: **1,923/32,116 (5.98767%)**,
+  **19 additions and zero losses** from D2b; zero legal Invalid records.
+- All twelve unchanged batches: **216/216 winners**, zero draws/faults/truncations,
+  internal independent replay and **216/216 explicit CLI replays**. All workload
+  manifest fields except the necessary build identity equal retained D2b reports.
+- The first full run failed one stale digest assertion (958 passed / 1 failed /
+  18 ignored, before Node). An independent canonical-byte comparison reproduces
+  **173/173** old state hashes by reversing only typed witness encoding and exact
+  retained-byte charge. **37** references changed (22 trigger, 5 effect, 10 choice);
+  equality checks remain. Failed logs and original baseline are preserved.
+- A broad witness exposed Master of the Feast's unsupported each-opponent draw.
+  Complete source/IR validation now rejects it; the runtime guard stays. Initial
+  twenty-card coverage is not final. Optional effects/payments, event-player and
+  source-status checks, other trigger families and library selections are open.
+
+Native source closure: **547 verified files**, archived with retained simulator
+and server copies. Engine identity `82fa2fbc7789cb12d5d5feb3562fbe61b757c58b3a831a2d8ee20e5ccf562483`;
+server identity `81c73397da525d9bd4c08ae0eac1e2503340d6d8a60ed1c4e55ff7f02cb4e9ad`.
+Evidence: `/home/josh/.t3/worktrees/mtg-ecosystem/t3-d85b51a3/generated/final-engine-verification/d2c-a/`.
+Raw timings are functional evidence; quiet P7/search performance was not renewed.

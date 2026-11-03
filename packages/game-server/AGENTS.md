@@ -36,6 +36,14 @@ Fourteen focused host guards cover npm 12 cache opt-in and the repository-relati
 SDK/native-fixture layout. Keep the required catalog fixture pinned when moving
 the SDK tests. Final proof locators are in `docs/game-engine-server.md`.
 
+D2c-a's production server/simulator builds and SDK verification passed against
+engine snapshot/bundle formats 19/20: 47 SDK tests, strict TypeScript and 33
+response variants. `StepBeginningTriggerV1` remains unreviewed for hosting and
+search; no hosted profile was added. Public projection/context/sidecar versions
+remain 16/16/15. The exact current identities and functional verification are in
+`docs/game-engine-cards-as-data-d2c-a.md`; historical P8 performance figures above
+retain their original build qualification.
+
 Rust links the deterministic core directly. Rust DTOs and embedded core public
 projection/decision types are the external protocol authority. Generate Draft7
 schemas with explicit inbound/outbound contracts; generate TypeScript from those
