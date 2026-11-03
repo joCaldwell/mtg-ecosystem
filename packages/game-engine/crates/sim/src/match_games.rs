@@ -15,6 +15,8 @@ mod ordinary_diagnostic;
 #[cfg(test)]
 mod replay_reuse_tests;
 #[cfg(test)]
+mod suite_receipt_probe;
+#[cfg(test)]
 mod suite_receipt_tests;
 
 // Evidence belongs outside native crate sources regardless of Cargo's test cwd.
