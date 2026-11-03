@@ -59,6 +59,10 @@ pub struct CastOccurrence {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerEventWitness {
+    CreatureAttacked {
+        attacker: Box<ObjectBefore>,
+        defender_player_id: PlayerId,
+    },
     SpellCast {
         cast: Box<CastOccurrence>,
     },
@@ -83,6 +87,7 @@ impl TriggerEventWitness {
                 m.previous
             }),
             Self::TokenEntered { object } => Some(*object),
+            Self::CreatureAttacked { attacker, .. } => Some(attacker.object),
             Self::StepBegan { .. } | Self::SpellCast { .. } => None,
         }
     }
@@ -129,6 +134,29 @@ fn caster_matches(relation: CasterRelation, caster: PlayerId, controller: Player
         CasterRelation::Opponent => caster != controller,
     }
 }
+fn attack_matches(
+    predicate: &AttackSubject,
+    source: ObjectId,
+    controller: PlayerId,
+    attacker: &ObjectBefore,
+) -> bool {
+    if !attacker.characteristics.has_type(CardKind::Creature) {
+        return false;
+    }
+    match predicate {
+        AttackSubject::Source {} => attacker.object == source,
+        AttackSubject::Filter {
+            controller: relation,
+            types,
+        } => {
+            (match relation {
+                AttackerRelation::AnyPlayer => true,
+                AttackerRelation::Controller => attacker.controller == controller,
+                AttackerRelation::Opponent => attacker.controller != controller,
+            }) && types.matches(&attacker.characteristics)
+        }
+    }
+}
 fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
     match outcome {
         EventOutcome::Moved { movement }
@@ -156,6 +184,22 @@ impl Game {
     ) -> Result<(), String> {
         for occurrence in occurrences {
             let witnesses = match &occurrence.actual {
+                // CR 508.1f-m/508.2a-b/508.3a/508.4, 603.2c/g: only
+                // the completed, validated declaration is an attack event.
+                // Each member shares the real batch occurrence but freezes its
+                // own exact attacker/defender. Taps, combat flags and entry
+                // attacking never fabricate occurrences. Capture pre-event
+                // attacker facts, not mutable later combat membership.
+                // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+                EventOutcome::AttackersDeclared { attacks } => attacks
+                    .iter()
+                    .map(|(attacker, defender)| {
+                        Ok(TriggerEventWitness::CreatureAttacked {
+                            attacker: Box::new(before.object_before(*attacker)?),
+                            defender_player_id: *defender,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, String>>()?,
                 EventOutcome::TokensCreated { objects, .. } => objects
                     .iter()
                     .map(|object| TriggerEventWitness::TokenEntered { object: *object })
@@ -181,7 +225,11 @@ impl Game {
             for witness in witnesses {
                 if witness.dies()
                     || witness.enters()
-                    || matches!(witness, TriggerEventWitness::StepBegan { .. })
+                    || matches!(
+                        witness,
+                        TriggerEventWitness::StepBegan { .. }
+                            | TriggerEventWitness::CreatureAttacked { .. }
+                    )
                 {
                     self.collect_trigger_witness(
                         Some(before),
@@ -248,6 +296,12 @@ impl Game {
                 .enumerate()
             {
                 let matches = match &definition.condition {
+                    TriggerCondition::CreatureAttacked {
+                        attacker: predicate,
+                    } => {
+                        matches!(&witness, TriggerEventWitness::CreatureAttacked { attacker, .. }
+                            if attack_matches(predicate, object.id, object.controller, attacker))
+                    }
                     TriggerCondition::SpellCast { caster, spell } => {
                         matches!(&witness, TriggerEventWitness::SpellCast {cast} if caster_matches(*caster, cast.caster, object.controller) && spell.matches(&cast.spell.characteristics))
                     }
@@ -780,6 +834,31 @@ impl Game {
     ) -> Result<(), String> {
         let condition = &self.definition(source.card)?.triggered[ability as usize].condition;
         let valid = match witness {
+            TriggerEventWitness::CreatureAttacked {
+                attacker,
+                defender_player_id,
+            } => {
+                self.validate_characteristic_identity(attacker.object, &attacker.characteristics)?;
+                attacker.zone == Zone::Battlefield
+                    && !attacker.tapped
+                    && (attacker.attack_ready || attacker.keywords.contains(&KeywordAbility::Haste))
+                    && !attacker.keywords.contains(&KeywordAbility::Defender)
+                    && attacker.controller.0 < 4
+                    && attacker.default_controller.0 < 4
+                    && defender_player_id.0 < 4
+                    && *defender_player_id != attacker.controller
+                    && self
+                        .state
+                        .cards
+                        .get(&attacker.object.card)
+                        .is_some_and(|c| c.owner == attacker.owner)
+                    && matches!(condition, TriggerCondition::CreatureAttacked { attacker: predicate }
+                        if attack_matches(predicate, source, controller, attacker))
+                    && death_controller.is_none()
+                // Deliberately no current combat/player-liveness requirement:
+                // CR 113.7a/800.4 preserve a surviving controller's invocation.
+                // Accepted-input replay proves the actual declaration/facts.
+            }
             TriggerEventWitness::SpellCast { cast } => {
                 self.validate_characteristic_identity(
                     cast.spell.object,
@@ -824,9 +903,9 @@ impl Game {
                     && m.successor.card == m.previous.card
                     && m.previous.incarnation.checked_add(1) == Some(m.successor.incarnation)
                     && (match condition {
-                        TriggerCondition::StepBegan { .. } | TriggerCondition::SpellCast { .. } => {
-                            false
-                        }
+                        TriggerCondition::StepBegan { .. }
+                        | TriggerCondition::SpellCast { .. }
+                        | TriggerCondition::CreatureAttacked { .. } => false,
                         TriggerCondition::SelfDies | TriggerCondition::SelfAuraToGraveyard => {
                             witness.dies() && m.previous == source
                         }
@@ -871,6 +950,67 @@ impl Game {
             _ => false,
         }
     }
+    pub(super) fn validate_trigger_entry(
+        &self,
+        entry: &StackInstance,
+    ) -> Result<Option<TriggerId>, String> {
+        let StackKind::Triggered {
+            ability,
+            source_handles,
+            trigger_id,
+            event,
+            witness,
+            match_condition,
+        } = &entry.kind
+        else {
+            return Ok(None);
+        };
+        self.validate_trigger_source(
+            entry.source,
+            *ability,
+            entry.controller,
+            entry
+                .source_facts
+                .as_ref()
+                .ok_or("snapshot missing triggered source facts")?,
+            source_handles,
+        )?;
+        self.validate_match_condition(
+            entry.source,
+            *ability,
+            entry.controller,
+            match_condition.as_ref(),
+        )?;
+        self.validate_trigger_witness(
+            entry.source,
+            *ability,
+            entry.controller,
+            entry.death_controller,
+            witness,
+        )?;
+        if trigger_id.0 >= self.state.next_trigger_id
+            || !self.valid_trigger_occurrence(event, witness)
+            || entry.cast_from != Zone::Battlefield
+            || (!entry.targets.is_empty()
+                && self.program_for(entry)?.targets.first().is_none_or(|t| {
+                    !matches!(
+                        t.domain,
+                        TargetDomain::BattlefieldPermanent
+                            | TargetDomain::BattlefieldCreature
+                            | TargetDomain::OwnGraveyardCreatureCard
+                    )
+                }))
+            || !entry.stack_targets.is_empty()
+            || entry.total_cost
+                != (ManaCost {
+                    generic: Quantity::zero(),
+                    colored: vec![],
+                })
+        {
+            return Err("snapshot triggered invocation invariant".into());
+        }
+        Ok(Some(*trigger_id))
+    }
     pub(super) fn validate_trigger_state(&self) -> Result<(), String> {
         if self.state.pending_triggers.len() + self.state.stack.len() > self.stack_limit() {
             return Err("snapshot trigger/stack resource bound".into());
@@ -906,61 +1046,10 @@ impl Game {
             )?;
         }
         for entry in &self.state.stack {
-            let StackKind::Triggered {
-                ability,
-                source_handles,
-                trigger_id,
-                event,
-                witness,
-                match_condition,
-            } = &entry.kind
-            else {
-                continue;
-            };
-            self.validate_trigger_source(
-                entry.source,
-                *ability,
-                entry.controller,
-                entry
-                    .source_facts
-                    .as_ref()
-                    .ok_or("snapshot missing triggered source facts")?,
-                source_handles,
-            )?;
-            self.validate_match_condition(
-                entry.source,
-                *ability,
-                entry.controller,
-                match_condition.as_ref(),
-            )?;
-            self.validate_trigger_witness(
-                entry.source,
-                *ability,
-                entry.controller,
-                entry.death_controller,
-                witness,
-            )?;
-            if trigger_id.0 >= self.state.next_trigger_id
-                || !ids.insert(*trigger_id)
-                || !self.valid_trigger_occurrence(event, witness)
-                || entry.cast_from != Zone::Battlefield
-                || (!entry.targets.is_empty()
-                    && self.program_for(entry)?.targets.first().is_none_or(|t| {
-                        !matches!(
-                            t.domain,
-                            TargetDomain::BattlefieldPermanent
-                                | TargetDomain::BattlefieldCreature
-                                | TargetDomain::OwnGraveyardCreatureCard
-                        )
-                    }))
-                || !entry.stack_targets.is_empty()
-                || entry.total_cost
-                    != (ManaCost {
-                        generic: Quantity::zero(),
-                        colored: vec![],
-                    })
+            if let Some(id) = self.validate_trigger_entry(entry)?
+                && !ids.insert(id)
             {
-                return Err("snapshot triggered invocation invariant".into());
+                return Err("snapshot duplicate trigger identity".into());
             }
         }
         if let Frame::TriggerOrder { placement } | Frame::TriggerTargets { placement, .. } =

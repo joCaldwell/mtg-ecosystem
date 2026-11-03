@@ -72,14 +72,14 @@ fn d2cb_archive_programs_and_exact_minimum_capability_schema_closure() {
                 assert!(bad.validate().is_err());
             }
         }
-        for version in [21, 22, 23, 24] {
+        for version in [21, 22, 23, 24, 25] {
             let c = Catalog {
                 schema_version: version,
                 rules_edition: RULES_EDITION.into(),
                 rules_sha256: RULES_SHA256.into(),
                 definitions: vec![d.clone()],
             };
-            assert_eq!(c.validate().is_ok(), matches!(version, 22 | 23));
+            assert_eq!(c.validate().is_ok(), matches!(version, 22..=24));
         }
     }
 }

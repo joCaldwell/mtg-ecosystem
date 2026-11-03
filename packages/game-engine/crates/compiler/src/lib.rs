@@ -229,9 +229,12 @@ struct SourceComparison {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "trigger", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceTrigger {
+    Attacks {
+        what: SourceAttacker,
+    },
     Cast {
         who: PlayerSelector,
-        what: SourceSpellFilter,
+        what: SourceTypeFilter,
     },
     Phase {
         phase: String,
@@ -256,24 +259,25 @@ enum SourceTrigger {
 // packages/oracle-parser/src/ast.ts ObjectFilter; CR 205.2b, 601.2i.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct SourceSpellFilter {
+struct SourceTypeFilter {
     cls: Option<String>,
     types: Option<Vec<String>>,
     #[serde(rename = "nonTypes")]
     non_types: Option<Vec<String>>,
     #[serde(rename = "allOf")]
-    all_of: Option<Vec<SourceSpellFilter>>,
+    all_of: Option<Vec<SourceTypeFilter>>,
     #[serde(rename = "anyOf")]
-    any_of: Option<Vec<SourceSpellFilter>>,
+    any_of: Option<Vec<SourceTypeFilter>>,
 }
-fn lower_spell_predicate(
-    f: &SourceSpellFilter,
+fn lower_type_predicate(
+    f: &SourceTypeFilter,
+    class: Option<&str>,
     root: bool,
     depth: usize,
-) -> Result<SpellPredicate, Failure> {
+) -> Result<TypePredicate, Failure> {
     if depth > 8
-        || (root && f.cls.as_deref() != Some("spell"))
-        || f.cls.as_deref().is_some_and(|s| s != "spell")
+        || (root && f.cls.as_deref() != class)
+        || (f.cls.is_some() && f.cls.as_deref() != class)
     {
         return Err(unsupported("trigger.what", "unsupported spell class/depth"));
     }
@@ -295,9 +299,9 @@ fn lower_spell_predicate(
             for t in values {
                 let kind = kind(t)?;
                 terms.push(if negative {
-                    SpellPredicate::NotType { kind }
+                    TypePredicate::NotType { kind }
                 } else {
-                    SpellPredicate::Type { kind }
+                    TypePredicate::Type { kind }
                 });
             }
         }
@@ -309,22 +313,84 @@ fn lower_spell_predicate(
             }
             let children = children
                 .iter()
-                .map(|c| lower_spell_predicate(c, false, depth + 1))
+                .map(|c| lower_type_predicate(c, class, false, depth + 1))
                 .collect::<Result<Vec<_>, _>>()?;
             terms.push(if disjunction {
-                SpellPredicate::AnyOf { terms: children }
+                TypePredicate::AnyOf { terms: children }
             } else {
-                SpellPredicate::All { terms: children }
+                TypePredicate::All { terms: children }
             });
         }
     }
     let p = match terms.len() {
-        0 => SpellPredicate::Any {},
+        0 => TypePredicate::Any {},
         1 => terms.remove(0),
-        _ => SpellPredicate::All { terms },
+        _ => TypePredicate::All { terms },
     };
     p.validate().map_err(|e| unsupported("trigger.what", &e))?;
     Ok(p)
+}
+// Separate attack subject mirror: no death-only fields, status, ownership,
+// grouping or qualifiers can silently disappear. A filter's arrays are AND.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "ref", rename_all = "kebab-case", deny_unknown_fields)]
+enum SourceAttacker {
+    This {
+        noun: String,
+    },
+    Filter {
+        filter: SourceAttackerFilter,
+        count: Count,
+    },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceAttackerFilter {
+    types: Option<Vec<String>>,
+    #[serde(rename = "nonTypes")]
+    non_types: Option<Vec<String>>,
+    #[serde(rename = "allOf")]
+    all_of: Option<Vec<SourceTypeFilter>>,
+    #[serde(rename = "anyOf")]
+    any_of: Option<Vec<SourceTypeFilter>>,
+    control: Option<String>,
+}
+fn lower_attack_subject(what: &SourceAttacker) -> Result<AttackSubject, Failure> {
+    match what {
+        SourceAttacker::This { noun } if noun == "creature" => Ok(AttackSubject::Source {}),
+        SourceAttacker::Filter { filter, count } if fixed_one(count) => {
+            let controller = match filter.control.as_deref() {
+                None => AttackerRelation::AnyPlayer,
+                Some("you") => AttackerRelation::Controller,
+                Some("opponent") => AttackerRelation::Opponent,
+                _ => {
+                    return Err(unsupported(
+                        "trigger.what.filter.control",
+                        "unsupported attacker controller",
+                    ));
+                }
+            };
+            Ok(AttackSubject::Filter {
+                controller,
+                types: lower_type_predicate(
+                    &SourceTypeFilter {
+                        cls: None,
+                        types: filter.types.clone(),
+                        non_types: filter.non_types.clone(),
+                        all_of: filter.all_of.clone(),
+                        any_of: filter.any_of.clone(),
+                    },
+                    None,
+                    true,
+                    0,
+                )?,
+            })
+        }
+        _ => Err(unsupported(
+            "trigger.what",
+            "unsupported complete attacker subject/cardinality",
+        )),
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "ref", rename_all = "kebab-case", deny_unknown_fields)]
@@ -2786,6 +2852,19 @@ fn lower_trigger(
         _ => None,
     };
     let condition=match trigger {
+        SourceTrigger::Attacks { what } => {
+            let attacker = lower_attack_subject(what)?;
+            // CR 201.5/508.3a: the event's "it" is the attacker, while the
+            // executable damage source is this invocation's source. Equality
+            // is proved only for the exact self-attacker pattern.
+            if !matches!(attacker, AttackSubject::Source {})
+                && effects.iter().flat_map(|s| &s.steps).any(|s|
+                    matches!(s, Step::Damage { source: DamageSource::It {}, .. }))
+            {
+                return Err(unsupported("abilities.effects.source", "event-attacker damage source is unsupported"));
+            }
+            TriggerCondition::CreatureAttacked { attacker }
+        },
         SourceTrigger::Cast { who, what } => {
             if who.selection_id.is_some() || who.of.is_some() { return Err(unsupported("trigger.who", "unsupported caster qualifier")); }
             let caster = match who.player.as_str() {
@@ -2794,7 +2873,7 @@ fn lower_trigger(
                 "an-opponent" => CasterRelation::Opponent,
                 _ => return Err(unsupported("trigger.who", "unsupported caster relation")),
             };
-            TriggerCondition::SpellCast { caster, spell: lower_spell_predicate(what, true, 0)? }
+            TriggerCondition::SpellCast { caster, spell: lower_type_predicate(what, Some("spell"), true, 0)? }
         },
         SourceTrigger::Phase { phase, whose } => {
             let step = match phase.as_str() {
@@ -3225,10 +3304,10 @@ mod tests {
                 "kind:future-ability",
             ),
             (
-                // Cast is now a structured supported family; attacks remains
+                // Cast/attacks are structured supported families; damage remains
                 // an unknown trigger discriminator for this mirror diagnostic.
-                r#"[{"kind":"triggered","trigger":{"trigger":"attacks"},"effects":[]}]"#,
-                "trigger:attacks",
+                r#"[{"kind":"triggered","trigger":{"trigger":"deals-damage"},"effects":[]}]"#,
+                "trigger:deals-damage",
             ),
             (
                 r#"[{"kind":"spell","effects":[{"steps":[{"effect":"gain-abilities"}]}]}]"#,
@@ -5055,7 +5134,7 @@ mod tests {
             );
         }
         let mut future = c;
-        future.schema_version = 24;
+        future.schema_version = 25;
         assert!(future.validate().is_err());
     }
     #[test]
@@ -5421,7 +5500,7 @@ mod tests {
             assert!(Catalog::read(&bad).is_err());
         }
         let mut bad = c;
-        bad.schema_version = 24;
+        bad.schema_version = 25;
         assert!(bad.validate().is_err());
     }
 
@@ -5685,7 +5764,7 @@ mod tests {
             }
         }
         let mut bad = catalog.clone();
-        bad.schema_version = 24;
+        bad.schema_version = 25;
         assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
         for change in [
             (|d: &mut Definition| {
@@ -5996,7 +6075,7 @@ mod tests {
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
         let catalog = embedded_catalog("stack").unwrap();
-        for version in [3, 4, 5, 24] {
+        for version in [3, 4, 5, 25] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -6201,7 +6280,7 @@ mod tests {
         let c = embedded_catalog("base").unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":3", "\"schema_version\":24"),
+            raw.replace("\"schema_version\":3", "\"schema_version\":25"),
             raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
             raw.replace("\"target_slot\":0", "\"target_slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
@@ -6733,7 +6812,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = embedded_catalog("action").unwrap();
-        for version in [3, 4, 24] {
+        for version in [3, 4, 25] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -6860,7 +6939,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":24"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":25"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",
@@ -7116,3 +7195,6 @@ mod d2cb_tests;
 
 #[cfg(test)]
 mod d2cc_tests;
+
+#[cfg(test)]
+mod d2cd_tests;

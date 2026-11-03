@@ -1,0 +1,1484 @@
+{
+  "definitions": [
+    {
+      "capabilities": [
+        "attack_trigger_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "life_loss_v1",
+        "triggered_ability_v1",
+        "sacrifice_v1"
+      ],
+      "characteristics": {
+        "basic": false,
+        "color_identity": [
+          "B"
+        ],
+        "colors": [
+          "B"
+        ],
+        "kind": "creature",
+        "legendary": false,
+        "mana_cost": {
+          "colored": [
+            "B"
+          ],
+          "generic": "3"
+        },
+        "power": "2",
+        "subtypes": [
+          "Zombie",
+          "Horror"
+        ],
+        "toughness": "2"
+      },
+      "intrinsic_zone": null,
+      "name": "Infectious Horror",
+      "oracle_id": "0931206b-eed2-40d0-9496-5ecefc7f8f90",
+      "provenance": {
+        "abilities_json": "[{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"attacks\",\"what\":{\"ref\":\"this\",\"noun\":\"creature\"}},\"effects\":[{\"steps\":[{\"effect\":\"lose-life\",\"who\":{\"player\":\"each-opponent\"},\"amount\":{\"amount\":\"fixed\",\"value\":2}}]}]}]",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "ast_sha256": "162da586ba564e36ab039fead1467fa8c6b860dfcdeb58fd84ab68d7ecb3d7a3",
+        "binding_sha256": "d7e6a965699a318c7769d0018ec8a6860476fb5954b45331691fd9232bb203bb",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "printing_id": "d17aaa92-10ca-4f70-b45e-5a51e9192efb",
+        "source_index": 1406,
+        "source_json": "{\"object\":\"card\",\"id\":\"d17aaa92-10ca-4f70-b45e-5a51e9192efb\",\"oracle_id\":\"0931206b-eed2-40d0-9496-5ecefc7f8f90\",\"multiverse_ids\":[447237],\"mtgo_id\":68363,\"arena_id\":67882,\"tcgplayer_id\":169304,\"cardmarket_id\":360296,\"name\":\"Infectious Horror\",\"lang\":\"en\",\"released_at\":\"2018-07-13\",\"uri\":\"https://api.scryfall.com/cards/d17aaa92-10ca-4f70-b45e-5a51e9192efb\",\"scryfall_uri\":\"https://scryfall.com/card/m19/101/infectious-horror?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T09:22:49Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/d/1/d17aaa92-10ca-4f70-b45e-5a51e9192efb.jpg?1783934569\",\"normal\":\"https://cards.scryfall.io/normal/front/d/1/d17aaa92-10ca-4f70-b45e-5a51e9192efb.jpg?1783934569\",\"large\":\"https://cards.scryfall.io/large/front/d/1/d17aaa92-10ca-4f70-b45e-5a51e9192efb.jpg?1783934569\",\"png\":\"https://cards.scryfall.io/png/front/d/1/d17aaa92-10ca-4f70-b45e-5a51e9192efb.png?1783934569\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/d/1/d17aaa92-10ca-4f70-b45e-5a51e9192efb.jpg?1783934569\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/d/1/d17aaa92-10ca-4f70-b45e-5a51e9192efb.jpg?1783934569\",\"thumb\":\"https://cards.scryfall.io/thumb/front/d/1/d17aaa92-10ca-4f70-b45e-5a51e9192efb.webp?1783934569\",\"grid\":\"https://cards.scryfall.io/grid/front/d/1/d17aaa92-10ca-4f70-b45e-5a51e9192efb.webp?1783934569\",\"display\":\"https://cards.scryfall.io/display/front/d/1/d17aaa92-10ca-4f70-b45e-5a51e9192efb.webp?1783934569\",\"art\":\"https://cards.scryfall.io/art/front/d/1/d17aaa92-10ca-4f70-b45e-5a51e9192efb.webp?1783934569\",\"crop\":\"https://cards.scryfall.io/crop/front/d/1/d17aaa92-10ca-4f70-b45e-5a51e9192efb.webp?1783934569\"},\"mana_cost\":\"{3}{B}\",\"cmc\":4,\"type_line\":\"Creature — Zombie Horror\",\"oracle_text\":\"Whenever this creature attacks, each opponent loses 2 life.\",\"power\":\"2\",\"toughness\":\"2\",\"colors\":[\"B\"],\"color_identity\":[\"B\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"legal\",\"tlr\":\"not_legal\"},\"games\":[\"arena\",\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"2f5f2509-56db-414d-9a7e-6e312ec3760c\",\"set\":\"m19\",\"set_name\":\"Core Set 2019\",\"set_type\":\"core\",\"set_uri\":\"https://api.scryfall.com/sets/2f5f2509-56db-414d-9a7e-6e312ec3760c\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Am19&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/m19?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/d17aaa92-10ca-4f70-b45e-5a51e9192efb/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A0931206b-eed2-40d0-9496-5ecefc7f8f90&unique=prints\",\"collector_number\":\"101\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"Not once in the history of Grixis has anyone died of old age.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Pete Venters\",\"artist_ids\":[\"d54c4a1a-c0c5-4834-84db-125d341f3ad8\"],\"illustration_id\":\"f9de193f-b8c2-4b90-ae45-40ea2b7bf989\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":19912,\"prices\":{\"usd\":\"0.25\",\"usd_foil\":\"0.45\",\"usd_etched\":null,\"eur\":\"0.09\",\"eur_foil\":\"0.15\",\"tix\":\"0.05\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=447237&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DInfectious%2BHorror\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DInfectious%2BHorror\",\"edhrec\":\"https://edhrec.com/route/?cc=Infectious+Horror\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F169304%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=360296&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/68363?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "source_sha256": "900c20878f64a5b6d1f3e37c6e27f1b94c9e45207d535557bc257bfcdbed93a2"
+      },
+      "spell": {
+        "functioning_zone": "stack",
+        "instructions": [],
+        "resolution": "permanent",
+        "targets": [],
+        "timing": "main_phase"
+      },
+      "triggered": [
+        {
+          "condition": {
+            "creature_attacked": {
+              "attacker": {
+                "subject": "source"
+              }
+            }
+          },
+          "functioning_zone": "battlefield",
+          "program": {
+            "functioning_zone": "stack",
+            "instructions": [
+              {
+                "amount": "2",
+                "op": "lose_life",
+                "recipient": "each_opponent",
+                "source_block": 0
+              }
+            ],
+            "resolution": "instructions",
+            "targets": [],
+            "timing": "instant"
+          }
+        }
+      ]
+    },
+    {
+      "capabilities": [
+        "attack_trigger_v1",
+        "cast_enchantment_v1",
+        "normal_layout_v1",
+        "life_gain_v1",
+        "triggered_ability_v1"
+      ],
+      "characteristics": {
+        "basic": false,
+        "color_identity": [
+          "W"
+        ],
+        "colors": [
+          "W"
+        ],
+        "kind": "enchantment",
+        "legendary": false,
+        "mana_cost": {
+          "colored": [
+            "W",
+            "W"
+          ],
+          "generic": "3"
+        },
+        "power": null,
+        "subtypes": [],
+        "toughness": null
+      },
+      "intrinsic_zone": null,
+      "name": "Righteous Cause",
+      "oracle_id": "218f835b-4195-4ee8-a4ef-e5ba58fa5374",
+      "provenance": {
+        "abilities_json": "[{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"attacks\",\"what\":{\"ref\":\"filter\",\"filter\":{\"types\":[\"creature\"]},\"count\":{\"amount\":\"fixed\",\"value\":1}}},\"effects\":[{\"steps\":[{\"effect\":\"gain-life\",\"who\":{\"player\":\"you\"},\"amount\":{\"amount\":\"fixed\",\"value\":1}}]}]}]",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "ast_sha256": "f602cf654960c9901074a1f5c5a2a59bd5aa6ea48969ecddf796186f922f9d94",
+        "binding_sha256": "2a26e77688077cdf6c8dcb2c4ddba20350a715d38d176b04fbe8afbb719be8f1",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "printing_id": "bc632184-b330-42d8-808d-17a94b08c535",
+        "source_index": 5070,
+        "source_json": "{\"object\":\"card\",\"id\":\"bc632184-b330-42d8-808d-17a94b08c535\",\"oracle_id\":\"218f835b-4195-4ee8-a4ef-e5ba58fa5374\",\"multiverse_ids\":[430240],\"tcgplayer_id\":132136,\"cardmarket_id\":297970,\"name\":\"Righteous Cause\",\"lang\":\"en\",\"released_at\":\"2017-06-09\",\"uri\":\"https://api.scryfall.com/cards/bc632184-b330-42d8-808d-17a94b08c535\",\"scryfall_uri\":\"https://scryfall.com/card/cma/21/righteous-cause?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T09:51:43Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/b/c/bc632184-b330-42d8-808d-17a94b08c535.jpg?1783936303\",\"normal\":\"https://cards.scryfall.io/normal/front/b/c/bc632184-b330-42d8-808d-17a94b08c535.jpg?1783936303\",\"large\":\"https://cards.scryfall.io/large/front/b/c/bc632184-b330-42d8-808d-17a94b08c535.jpg?1783936303\",\"png\":\"https://cards.scryfall.io/png/front/b/c/bc632184-b330-42d8-808d-17a94b08c535.png?1783936303\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/b/c/bc632184-b330-42d8-808d-17a94b08c535.jpg?1783936303\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/b/c/bc632184-b330-42d8-808d-17a94b08c535.jpg?1783936303\",\"thumb\":\"https://cards.scryfall.io/thumb/front/b/c/bc632184-b330-42d8-808d-17a94b08c535.webp?1783936303\",\"grid\":\"https://cards.scryfall.io/grid/front/b/c/bc632184-b330-42d8-808d-17a94b08c535.webp?1783936303\",\"display\":\"https://cards.scryfall.io/display/front/b/c/bc632184-b330-42d8-808d-17a94b08c535.webp?1783936303\",\"art\":\"https://cards.scryfall.io/art/front/b/c/bc632184-b330-42d8-808d-17a94b08c535.webp?1783936303\",\"crop\":\"https://cards.scryfall.io/crop/front/b/c/bc632184-b330-42d8-808d-17a94b08c535.webp?1783936303\"},\"mana_cost\":\"{3}{W}{W}\",\"cmc\":5,\"type_line\":\"Enchantment\",\"oracle_text\":\"Whenever a creature attacks, you gain 1 life.\",\"colors\":[\"W\"],\"color_identity\":[\"W\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"not_legal\",\"timeless\":\"not_legal\",\"gladiator\":\"not_legal\",\"pioneer\":\"not_legal\",\"modern\":\"not_legal\",\"legacy\":\"legal\",\"pauper\":\"not_legal\",\"vintage\":\"legal\",\"penny\":\"not_legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"not_legal\",\"competitivebrawl\":\"not_legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"not_legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"legal\",\"predh\":\"legal\",\"tlr\":\"not_legal\"},\"games\":[\"paper\"],\"reserved\":false,\"game_changer\":false,\"foil\":false,\"nonfoil\":true,\"finishes\":[\"nonfoil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"fd4d8463-0156-4c60-a40e-778762bb90e4\",\"set\":\"cma\",\"set_name\":\"Commander Anthology\",\"set_type\":\"commander\",\"set_uri\":\"https://api.scryfall.com/sets/fd4d8463-0156-4c60-a40e-778762bb90e4\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Acma&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/cma?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/bc632184-b330-42d8-808d-17a94b08c535/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A218f835b-4195-4ee8-a4ef-e5ba58fa5374&unique=prints\",\"collector_number\":\"21\",\"digital\":false,\"rarity\":\"uncommon\",\"flavor_text\":\"\\\"Until the world unites in vengeful fury and Phage is destroyed, I will not stay my hand.\\\"\\n—Akroma, angelic avenger\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Scott M. Fischer\",\"artist_ids\":[\"23b0cf43-3e43-44c6-8329-96446eca5bce\"],\"illustration_id\":\"3cadd82b-d05f-4b59-82cc-986977f57244\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":false,\"story_spotlight\":false,\"edhrec_rank\":12072,\"penny_rank\":16095,\"prices\":{\"usd\":\"0.51\",\"usd_foil\":null,\"usd_etched\":null,\"eur\":\"0.29\",\"eur_foil\":null,\"tix\":null},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=430240&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DRighteous%2BCause\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DRighteous%2BCause\",\"edhrec\":\"https://edhrec.com/route/?cc=Righteous+Cause\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F132136%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=297970&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards?affiliate_id=scryfall&data%5Bsearch%5D=Righteous+Cause&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "source_sha256": "dc20ad6c1fba3571b9be7750998c25683ed91875865cfb8d456eabb395341c90"
+      },
+      "spell": {
+        "functioning_zone": "stack",
+        "instructions": [],
+        "resolution": "permanent",
+        "targets": [],
+        "timing": "main_phase"
+      },
+      "triggered": [
+        {
+          "condition": {
+            "creature_attacked": {
+              "attacker": {
+                "controller": "any_player",
+                "subject": "filter",
+                "types": {
+                  "kind": "creature",
+                  "predicate": "type"
+                }
+              }
+            }
+          },
+          "functioning_zone": "battlefield",
+          "program": {
+            "functioning_zone": "stack",
+            "instructions": [
+              {
+                "amount": "1",
+                "op": "gain_life",
+                "recipient": "controller",
+                "source_block": 0
+              }
+            ],
+            "resolution": "instructions",
+            "targets": [],
+            "timing": "instant"
+          }
+        }
+      ]
+    },
+    {
+      "capabilities": [
+        "attack_trigger_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "life_loss_v1",
+        "triggered_ability_v1",
+        "sacrifice_v1"
+      ],
+      "characteristics": {
+        "basic": false,
+        "color_identity": [
+          "B"
+        ],
+        "colors": [
+          "B"
+        ],
+        "kind": "creature",
+        "legendary": false,
+        "mana_cost": {
+          "colored": [
+            "B"
+          ],
+          "generic": "0"
+        },
+        "power": "1",
+        "subtypes": [
+          "Vampire",
+          "Soldier"
+        ],
+        "toughness": "2"
+      },
+      "intrinsic_zone": null,
+      "name": "Vicious Conquistador",
+      "oracle_id": "26b077df-7a05-459a-b5ff-bf27767bb519",
+      "provenance": {
+        "abilities_json": "[{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"attacks\",\"what\":{\"ref\":\"this\",\"noun\":\"creature\"}},\"effects\":[{\"steps\":[{\"effect\":\"lose-life\",\"who\":{\"player\":\"each-opponent\"},\"amount\":{\"amount\":\"fixed\",\"value\":1}}]}]}]",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "ast_sha256": "072c4ff81093cb56fda69209d2545fe801ae48e24a7d21e1f3928ab0396319c6",
+        "binding_sha256": "41c177a8f5359df1278585a7c7e22e1b3679c81bef3443eac0e007255365614b",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "printing_id": "2a4b6ced-e8d3-47e9-bd27-3e0cb644afe4",
+        "source_index": 5813,
+        "source_json": "{\"object\":\"card\",\"id\":\"2a4b6ced-e8d3-47e9-bd27-3e0cb644afe4\",\"oracle_id\":\"26b077df-7a05-459a-b5ff-bf27767bb519\",\"multiverse_ids\":[435282],\"mtgo_id\":65272,\"mtgo_foil_id\":65273,\"arena_id\":66221,\"tcgplayer_id\":145607,\"cardmarket_id\":301674,\"name\":\"Vicious Conquistador\",\"lang\":\"en\",\"released_at\":\"2017-09-29\",\"uri\":\"https://api.scryfall.com/cards/2a4b6ced-e8d3-47e9-bd27-3e0cb644afe4\",\"scryfall_uri\":\"https://scryfall.com/card/xln/128/vicious-conquistador?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T09:42:32Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/2/a/2a4b6ced-e8d3-47e9-bd27-3e0cb644afe4.jpg?1783935752\",\"normal\":\"https://cards.scryfall.io/normal/front/2/a/2a4b6ced-e8d3-47e9-bd27-3e0cb644afe4.jpg?1783935752\",\"large\":\"https://cards.scryfall.io/large/front/2/a/2a4b6ced-e8d3-47e9-bd27-3e0cb644afe4.jpg?1783935752\",\"png\":\"https://cards.scryfall.io/png/front/2/a/2a4b6ced-e8d3-47e9-bd27-3e0cb644afe4.png?1783935752\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/2/a/2a4b6ced-e8d3-47e9-bd27-3e0cb644afe4.jpg?1783935752\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/2/a/2a4b6ced-e8d3-47e9-bd27-3e0cb644afe4.jpg?1783935752\",\"thumb\":\"https://cards.scryfall.io/thumb/front/2/a/2a4b6ced-e8d3-47e9-bd27-3e0cb644afe4.webp?1783935752\",\"grid\":\"https://cards.scryfall.io/grid/front/2/a/2a4b6ced-e8d3-47e9-bd27-3e0cb644afe4.webp?1783935752\",\"display\":\"https://cards.scryfall.io/display/front/2/a/2a4b6ced-e8d3-47e9-bd27-3e0cb644afe4.webp?1783935752\",\"art\":\"https://cards.scryfall.io/art/front/2/a/2a4b6ced-e8d3-47e9-bd27-3e0cb644afe4.webp?1783935752\",\"crop\":\"https://cards.scryfall.io/crop/front/2/a/2a4b6ced-e8d3-47e9-bd27-3e0cb644afe4.webp?1783935752\"},\"mana_cost\":\"{B}\",\"cmc\":1,\"type_line\":\"Creature — Vampire Soldier\",\"oracle_text\":\"Whenever this creature attacks, each opponent loses 1 life.\",\"power\":\"1\",\"toughness\":\"2\",\"colors\":[\"B\"],\"color_identity\":[\"B\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"not_legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"not_legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"legal\"},\"games\":[\"arena\",\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":false,\"variation\":false,\"set_id\":\"fe0dad85-54bc-4151-9200-d68da84dd0f2\",\"set\":\"xln\",\"set_name\":\"Ixalan\",\"set_type\":\"expansion\",\"set_uri\":\"https://api.scryfall.com/sets/fe0dad85-54bc-4151-9200-d68da84dd0f2\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Axln&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/xln?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/2a4b6ced-e8d3-47e9-bd27-3e0cb644afe4/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A26b077df-7a05-459a-b5ff-bf27767bb519&unique=prints\",\"collector_number\":\"128\",\"digital\":false,\"rarity\":\"uncommon\",\"flavor_text\":\"\\\"He is ambitious. Tireless. And utterly ruthless. Ideal for the frontier.\\\"\\n—Viceroy Elia Sotonores, report to the queen\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Kieran Yanner\",\"artist_ids\":[\"aa7e89ed-d294-4633-9057-ce04dacfcfa4\"],\"illustration_id\":\"723f05a2-91e6-4826-aa0b-3b0224d243c0\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":9088,\"penny_rank\":3051,\"prices\":{\"usd\":\"0.31\",\"usd_foil\":\"1.29\",\"usd_etched\":null,\"eur\":\"0.23\",\"eur_foil\":\"1.37\",\"tix\":\"0.03\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=435282&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DVicious%2BConquistador\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DVicious%2BConquistador\",\"edhrec\":\"https://edhrec.com/route/?cc=Vicious+Conquistador\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F145607%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=301674&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/65272?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "source_sha256": "43a0a378d36bdee7609632f8314b534fe564a48eadb3ef4fd884a86dfb614042"
+      },
+      "spell": {
+        "functioning_zone": "stack",
+        "instructions": [],
+        "resolution": "permanent",
+        "targets": [],
+        "timing": "main_phase"
+      },
+      "triggered": [
+        {
+          "condition": {
+            "creature_attacked": {
+              "attacker": {
+                "subject": "source"
+              }
+            }
+          },
+          "functioning_zone": "battlefield",
+          "program": {
+            "functioning_zone": "stack",
+            "instructions": [
+              {
+                "amount": "1",
+                "op": "lose_life",
+                "recipient": "each_opponent",
+                "source_block": 0
+              }
+            ],
+            "resolution": "instructions",
+            "targets": [],
+            "timing": "instant"
+          }
+        }
+      ]
+    },
+    {
+      "capabilities": [
+        "attack_trigger_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "controller_draw_v1",
+        "triggered_ability_v1",
+        "flying_v1",
+        "haste_v1",
+        "menace_v1"
+      ],
+      "characteristics": {
+        "basic": false,
+        "color_identity": [
+          "B",
+          "G",
+          "R",
+          "U",
+          "W"
+        ],
+        "colors": [
+          "B",
+          "G",
+          "R",
+          "U",
+          "W"
+        ],
+        "kind": "creature",
+        "legendary": false,
+        "mana_cost": {
+          "colored": [
+            "W",
+            "U",
+            "B",
+            "R",
+            "G"
+          ],
+          "generic": "1"
+        },
+        "power": "5",
+        "subtypes": [
+          "Dragon"
+        ],
+        "toughness": "5"
+      },
+      "intrinsic_zone": null,
+      "keywords": [
+        "flying",
+        "menace",
+        "haste"
+      ],
+      "name": "Two-Headed Hellkite",
+      "oracle_id": "27596982-f4ab-488f-a974-5b0404438504",
+      "provenance": {
+        "abilities_json": "[{\"kind\":\"keywords\",\"keywords\":[{\"keyword\":\"flying\"},{\"keyword\":\"menace\"},{\"keyword\":\"haste\"}]},{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"attacks\",\"what\":{\"ref\":\"this\",\"noun\":\"creature\"}},\"effects\":[{\"steps\":[{\"effect\":\"draw\",\"who\":{\"player\":\"you\"},\"amount\":{\"amount\":\"fixed\",\"value\":2}}]}]}]",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "ast_sha256": "7e888ffdc8295351511910a8caf351ddf71ef289e674ec921ed0f49b80122c7b",
+        "binding_sha256": "68f0e5860970849d7e3d6cef3f4476b4bcfeb571691638a340b87b46840f42e5",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "printing_id": "8d5cf3a1-2228-4143-b07d-de082380b5e7",
+        "source_index": 5902,
+        "source_json": "{\"object\":\"card\",\"id\":\"8d5cf3a1-2228-4143-b07d-de082380b5e7\",\"oracle_id\":\"27596982-f4ab-488f-a974-5b0404438504\",\"multiverse_ids\":[580162],\"mtgo_id\":103066,\"tcgplayer_id\":282896,\"cardmarket_id\":671749,\"name\":\"Two-Headed Hellkite\",\"lang\":\"en\",\"released_at\":\"2022-09-09\",\"uri\":\"https://api.scryfall.com/cards/8d5cf3a1-2228-4143-b07d-de082380b5e7\",\"scryfall_uri\":\"https://scryfall.com/card/dmc/14/two-headed-hellkite?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T05:44:34Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/8/d/8d5cf3a1-2228-4143-b07d-de082380b5e7.jpg?1783921474\",\"normal\":\"https://cards.scryfall.io/normal/front/8/d/8d5cf3a1-2228-4143-b07d-de082380b5e7.jpg?1783921474\",\"large\":\"https://cards.scryfall.io/large/front/8/d/8d5cf3a1-2228-4143-b07d-de082380b5e7.jpg?1783921474\",\"png\":\"https://cards.scryfall.io/png/front/8/d/8d5cf3a1-2228-4143-b07d-de082380b5e7.png?1783921474\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/8/d/8d5cf3a1-2228-4143-b07d-de082380b5e7.jpg?1783921474\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/8/d/8d5cf3a1-2228-4143-b07d-de082380b5e7.jpg?1783921474\",\"thumb\":\"https://cards.scryfall.io/thumb/front/8/d/8d5cf3a1-2228-4143-b07d-de082380b5e7.webp?1783921474\",\"grid\":\"https://cards.scryfall.io/grid/front/8/d/8d5cf3a1-2228-4143-b07d-de082380b5e7.webp?1783921474\",\"display\":\"https://cards.scryfall.io/display/front/8/d/8d5cf3a1-2228-4143-b07d-de082380b5e7.webp?1783921474\",\"art\":\"https://cards.scryfall.io/art/front/8/d/8d5cf3a1-2228-4143-b07d-de082380b5e7.webp?1783921474\",\"crop\":\"https://cards.scryfall.io/crop/front/8/d/8d5cf3a1-2228-4143-b07d-de082380b5e7.webp?1783921474\"},\"mana_cost\":\"{1}{W}{U}{B}{R}{G}\",\"cmc\":6,\"type_line\":\"Creature — Dragon\",\"oracle_text\":\"Flying, menace, haste\\nWhenever this creature attacks, draw two cards.\",\"power\":\"5\",\"toughness\":\"5\",\"colors\":[\"B\",\"G\",\"R\",\"U\",\"W\"],\"color_identity\":[\"B\",\"G\",\"R\",\"U\",\"W\"],\"keywords\":[\"Flying\",\"Haste\",\"Menace\"],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"not_legal\",\"timeless\":\"not_legal\",\"gladiator\":\"not_legal\",\"pioneer\":\"not_legal\",\"modern\":\"not_legal\",\"legacy\":\"legal\",\"pauper\":\"not_legal\",\"vintage\":\"legal\",\"penny\":\"not_legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"not_legal\",\"competitivebrawl\":\"not_legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"not_legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"not_legal\"},\"games\":[\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":false,\"nonfoil\":true,\"finishes\":[\"nonfoil\"],\"oversized\":false,\"promo\":false,\"reprint\":false,\"variation\":false,\"set_id\":\"78076b27-f888-4723-b27c-44074accd261\",\"set\":\"dmc\",\"set_name\":\"Dominaria United Commander\",\"set_type\":\"commander\",\"set_uri\":\"https://api.scryfall.com/sets/78076b27-f888-4723-b27c-44074accd261\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Admc&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/dmc?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/8d5cf3a1-2228-4143-b07d-de082380b5e7/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A27596982-f4ab-488f-a974-5b0404438504&unique=prints\",\"collector_number\":\"14\",\"digital\":false,\"rarity\":\"rare\",\"flavor_text\":\"Eons ago, the ur-dragon roared. Its descendants still carry the echo across the Multiverse.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Fajareka Setiawan\",\"artist_ids\":[\"0cc534e0-be18-4cb1-8521-50fabd0dac6f\"],\"illustration_id\":\"b7b29bc1-d81b-432c-820b-391cf08e334c\",\"border_color\":\"black\",\"frame\":\"2015\",\"security_stamp\":\"oval\",\"full_art\":false,\"textless\":false,\"booster\":false,\"story_spotlight\":false,\"edhrec_rank\":4828,\"preview\":{\"source\":\"The Command Zone\",\"source_uri\":\"https://www.youtube.com/watch?v=DliVsku3kJE\",\"previewed_at\":\"2022-08-19\"},\"prices\":{\"usd\":\"6.81\",\"usd_foil\":null,\"usd_etched\":null,\"eur\":\"9.21\",\"eur_foil\":null,\"tix\":\"2.43\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=580162&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DTwo-Headed%2BHellkite\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DTwo-Headed%2BHellkite\",\"edhrec\":\"https://edhrec.com/route/?cc=Two-Headed+Hellkite\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F282896%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=671749&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/103066?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "source_sha256": "350a2bdab64677f3714c8b1e85bbc9e7782c646fc9685fc2cd331bf6bde9f993"
+      },
+      "spell": {
+        "functioning_zone": "stack",
+        "instructions": [],
+        "resolution": "permanent",
+        "targets": [],
+        "timing": "main_phase"
+      },
+      "triggered": [
+        {
+          "condition": {
+            "creature_attacked": {
+              "attacker": {
+                "subject": "source"
+              }
+            }
+          },
+          "functioning_zone": "battlefield",
+          "program": {
+            "functioning_zone": "stack",
+            "instructions": [
+              {
+                "count": "1",
+                "op": "draw_cards",
+                "source_block": 1
+              },
+              {
+                "count": "1",
+                "op": "draw_cards",
+                "source_block": 1
+              }
+            ],
+            "resolution": "instructions",
+            "targets": [],
+            "timing": "instant"
+          }
+        }
+      ]
+    },
+    {
+      "capabilities": [
+        "attack_trigger_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "any_damage_target_v1",
+        "triggered_ability_v1",
+        "sacrifice_v1"
+      ],
+      "characteristics": {
+        "basic": false,
+        "color_identity": [
+          "G",
+          "R"
+        ],
+        "colors": [
+          "G",
+          "R"
+        ],
+        "kind": "creature",
+        "legendary": false,
+        "mana_cost": {
+          "colored": [
+            "R",
+            "G"
+          ],
+          "generic": "2"
+        },
+        "power": "4",
+        "subtypes": [
+          "Dinosaur"
+        ],
+        "toughness": "4"
+      },
+      "intrinsic_zone": null,
+      "name": "Raging Regisaur",
+      "oracle_id": "3d563149-7d4e-43e5-b701-28e3212051ec",
+      "provenance": {
+        "abilities_json": "[{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"attacks\",\"what\":{\"ref\":\"this\",\"noun\":\"creature\"}},\"effects\":[{\"steps\":[{\"effect\":\"damage\",\"source\":{\"ref\":\"it\"},\"amount\":{\"amount\":\"fixed\",\"value\":1},\"to\":{\"to\":\"any-target\",\"selectionId\":\"line:0:11\"}}]}]}]",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "ast_sha256": "0dec9c742eb87fb353378924f6e9a4e11f2a1cf36fd4af024fcb67ef61ccdaf9",
+        "binding_sha256": "9e6582a644c3e96d511007c0b97ced0dd8d4a7b8eb8e2bdc7b61817dc1c6b4a1",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "printing_id": "35e68007-ac45-40a4-91f3-4a1edf00bd0e",
+        "source_index": 9237,
+        "source_json": "{\"object\":\"card\",\"id\":\"35e68007-ac45-40a4-91f3-4a1edf00bd0e\",\"oracle_id\":\"3d563149-7d4e-43e5-b701-28e3212051ec\",\"multiverse_ids\":[640578],\"mtgo_id\":118964,\"tcgplayer_id\":525872,\"cardmarket_id\":743634,\"name\":\"Raging Regisaur\",\"lang\":\"en\",\"released_at\":\"2023-11-17\",\"uri\":\"https://api.scryfall.com/cards/35e68007-ac45-40a4-91f3-4a1edf00bd0e\",\"scryfall_uri\":\"https://scryfall.com/card/lcc/282/raging-regisaur?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T03:37:27Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/3/5/35e68007-ac45-40a4-91f3-4a1edf00bd0e.jpg?1783913847\",\"normal\":\"https://cards.scryfall.io/normal/front/3/5/35e68007-ac45-40a4-91f3-4a1edf00bd0e.jpg?1783913847\",\"large\":\"https://cards.scryfall.io/large/front/3/5/35e68007-ac45-40a4-91f3-4a1edf00bd0e.jpg?1783913847\",\"png\":\"https://cards.scryfall.io/png/front/3/5/35e68007-ac45-40a4-91f3-4a1edf00bd0e.png?1783913847\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/3/5/35e68007-ac45-40a4-91f3-4a1edf00bd0e.jpg?1783913847\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/3/5/35e68007-ac45-40a4-91f3-4a1edf00bd0e.jpg?1783913847\",\"thumb\":\"https://cards.scryfall.io/thumb/front/3/5/35e68007-ac45-40a4-91f3-4a1edf00bd0e.webp?1783913847\",\"grid\":\"https://cards.scryfall.io/grid/front/3/5/35e68007-ac45-40a4-91f3-4a1edf00bd0e.webp?1783913847\",\"display\":\"https://cards.scryfall.io/display/front/3/5/35e68007-ac45-40a4-91f3-4a1edf00bd0e.webp?1783913847\",\"art\":\"https://cards.scryfall.io/art/front/3/5/35e68007-ac45-40a4-91f3-4a1edf00bd0e.webp?1783913847\",\"crop\":\"https://cards.scryfall.io/crop/front/3/5/35e68007-ac45-40a4-91f3-4a1edf00bd0e.webp?1783913847\"},\"mana_cost\":\"{2}{R}{G}\",\"cmc\":4,\"type_line\":\"Creature — Dinosaur\",\"oracle_text\":\"Whenever this creature attacks, it deals 1 damage to any target.\",\"power\":\"4\",\"toughness\":\"4\",\"colors\":[\"G\",\"R\"],\"color_identity\":[\"G\",\"R\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"not_legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"not_legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"not_legal\"},\"games\":[\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":false,\"nonfoil\":true,\"finishes\":[\"nonfoil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"d253edc3-5bc7-4cf1-9446-a8540dedffa5\",\"set\":\"lcc\",\"set_name\":\"The Lost Caverns of Ixalan Commander\",\"set_type\":\"commander\",\"set_uri\":\"https://api.scryfall.com/sets/d253edc3-5bc7-4cf1-9446-a8540dedffa5\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Alcc&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/lcc?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/35e68007-ac45-40a4-91f3-4a1edf00bd0e/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A3d563149-7d4e-43e5-b701-28e3212051ec&unique=prints\",\"collector_number\":\"282\",\"digital\":false,\"rarity\":\"uncommon\",\"flavor_text\":\"Its breath is a gale. Its roar is a volcano. Its anger tears soul from flesh.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Bayard Wu\",\"artist_ids\":[\"b089963c-610a-4d50-9206-d64b7caedef1\"],\"illustration_id\":\"10bf9de3-ee71-4d07-91ad-9a9e8859b18d\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":false,\"story_spotlight\":false,\"edhrec_rank\":9179,\"penny_rank\":13711,\"prices\":{\"usd\":\"0.31\",\"usd_foil\":null,\"usd_etched\":null,\"eur\":\"0.16\",\"eur_foil\":null,\"tix\":\"0.13\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=640578&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DRaging%2BRegisaur\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DRaging%2BRegisaur\",\"edhrec\":\"https://edhrec.com/route/?cc=Raging+Regisaur\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F525872%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=743634&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/118964?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "source_sha256": "6378a8dbe35f7b6347794458be87b729cc1ce6d0f9926ac06d43a5a5657da14e"
+      },
+      "spell": {
+        "functioning_zone": "stack",
+        "instructions": [],
+        "resolution": "permanent",
+        "targets": [],
+        "timing": "main_phase"
+      },
+      "triggered": [
+        {
+          "condition": {
+            "creature_attacked": {
+              "attacker": {
+                "subject": "source"
+              }
+            }
+          },
+          "functioning_zone": "battlefield",
+          "program": {
+            "functioning_zone": "stack",
+            "instructions": [
+              {
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                },
+                "op": "sacrifice_damage",
+                "optional": false,
+                "recipient": null,
+                "source_block": 0,
+                "target_slot": 0
+              }
+            ],
+            "resolution": "instructions",
+            "targets": [
+              {
+                "chooser": "controller",
+                "domain": "any_damage_target",
+                "selection_id": "line:0:11",
+                "slot": 0,
+                "stage": "announcement"
+              }
+            ],
+            "timing": "instant"
+          }
+        }
+      ]
+    },
+    {
+      "capabilities": [
+        "attack_trigger_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "life_gain_v1",
+        "triggered_ability_v1",
+        "flying_v1",
+        "sacrifice_v1"
+      ],
+      "characteristics": {
+        "basic": false,
+        "color_identity": [
+          "B"
+        ],
+        "colors": [
+          "B"
+        ],
+        "kind": "creature",
+        "legendary": false,
+        "mana_cost": {
+          "colored": [
+            "B"
+          ],
+          "generic": "2"
+        },
+        "power": "1",
+        "subtypes": [
+          "Siren",
+          "Bard"
+        ],
+        "toughness": "4"
+      },
+      "intrinsic_zone": null,
+      "keywords": [
+        "flying"
+      ],
+      "name": "Screeching Soulbreaker",
+      "oracle_id": "47e33aa1-2f54-471c-a484-de13bcd2dceb",
+      "provenance": {
+        "abilities_json": "[{\"kind\":\"keywords\",\"keywords\":[{\"keyword\":\"flying\"}]},{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"attacks\",\"what\":{\"ref\":\"this\",\"noun\":\"creature\"}},\"effects\":[{\"steps\":[{\"effect\":\"damage\",\"source\":{\"ref\":\"it\"},\"amount\":{\"amount\":\"fixed\",\"value\":1},\"to\":{\"to\":\"player\",\"ref\":{\"player\":\"each-opponent\"}}},{\"effect\":\"gain-life\",\"who\":{\"player\":\"you\"},\"amount\":{\"amount\":\"fixed\",\"value\":1}}]}]}]",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "ast_sha256": "34ffa6f0f6493ab066a741586dca17a4f76b4760c37203233bd4f9cf859d2d67",
+        "binding_sha256": "defe13605a94be8ea98f07d01bf86718f51112377a15628b55417a6b11cfb52b",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "printing_id": "738667a1-c184-43ea-829f-49fbb69b6fc0",
+        "source_index": 10786,
+        "source_json": "{\"object\":\"card\",\"id\":\"738667a1-c184-43ea-829f-49fbb69b6fc0\",\"oracle_id\":\"47e33aa1-2f54-471c-a484-de13bcd2dceb\",\"multiverse_ids\":[],\"resource_id\":\"63225CCFD5CB9CBCF0FE7858E104E9E10FAB95A145393A4C638B6E9FF51E400F\",\"mtgo_id\":155836,\"tcgplayer_id\":716964,\"cardmarket_id\":909239,\"name\":\"Screeching Soulbreaker\",\"lang\":\"en\",\"released_at\":\"2026-10-02\",\"uri\":\"https://api.scryfall.com/cards/738667a1-c184-43ea-829f-49fbb69b6fc0\",\"scryfall_uri\":\"https://scryfall.com/card/fra/65/screeching-soulbreaker?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-09-14T11:39:20Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/7/3/738667a1-c184-43ea-829f-49fbb69b6fc0.jpg?1789385960\",\"normal\":\"https://cards.scryfall.io/normal/front/7/3/738667a1-c184-43ea-829f-49fbb69b6fc0.jpg?1789385960\",\"large\":\"https://cards.scryfall.io/large/front/7/3/738667a1-c184-43ea-829f-49fbb69b6fc0.jpg?1789385960\",\"png\":\"https://cards.scryfall.io/png/front/7/3/738667a1-c184-43ea-829f-49fbb69b6fc0.png?1789385960\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/7/3/738667a1-c184-43ea-829f-49fbb69b6fc0.jpg?1789385960\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/7/3/738667a1-c184-43ea-829f-49fbb69b6fc0.jpg?1789385960\",\"thumb\":\"https://cards.scryfall.io/thumb/front/7/3/738667a1-c184-43ea-829f-49fbb69b6fc0.webp?1789385960\",\"grid\":\"https://cards.scryfall.io/grid/front/7/3/738667a1-c184-43ea-829f-49fbb69b6fc0.webp?1789385960\",\"display\":\"https://cards.scryfall.io/display/front/7/3/738667a1-c184-43ea-829f-49fbb69b6fc0.webp?1789385960\",\"art\":\"https://cards.scryfall.io/art/front/7/3/738667a1-c184-43ea-829f-49fbb69b6fc0.webp?1789385960\",\"crop\":\"https://cards.scryfall.io/crop/front/7/3/738667a1-c184-43ea-829f-49fbb69b6fc0.webp?1789385960\"},\"mana_cost\":\"{2}{B}\",\"cmc\":3,\"type_line\":\"Creature — Siren Bard\",\"oracle_text\":\"Flying\\nWhenever this creature attacks, it deals 1 damage to each opponent and you gain 1 life.\",\"power\":\"1\",\"toughness\":\"4\",\"colors\":[\"B\"],\"color_identity\":[\"B\"],\"keywords\":[\"Flying\"],\"legalities\":{\"standard\":\"legal\",\"future\":\"legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"mtgo\",\"arena\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":false,\"variation\":false,\"set_id\":\"6595985e-39cf-4ca3-b43d-dd3e64749fdc\",\"set\":\"fra\",\"set_name\":\"Reality Fracture\",\"set_type\":\"expansion\",\"set_uri\":\"https://api.scryfall.com/sets/6595985e-39cf-4ca3-b43d-dd3e64749fdc\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Afra&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/fra?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/738667a1-c184-43ea-829f-49fbb69b6fc0/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A47e33aa1-2f54-471c-a484-de13bcd2dceb&unique=prints\",\"collector_number\":\"65\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"She weaves brutal insults into hypnotizing melodies, enthralling her victims to stay and listen.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Pavel Kolomeyets\",\"artist_ids\":[\"13435e52-d47a-4143-adfa-2ae0a6858292\"],\"illustration_id\":\"7f8233e1-f579-4e0a-9ead-f8e7bc04bc83\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":false,\"story_spotlight\":false,\"edhrec_rank\":24733,\"prices\":{\"usd\":\"0.17\",\"usd_foil\":\"0.31\",\"usd_etched\":null,\"eur\":\"0.08\",\"eur_foil\":\"0.09\",\"tix\":\"0.02\"},\"related_uris\":{\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DScreeching%2BSoulbreaker\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DScreeching%2BSoulbreaker\",\"edhrec\":\"https://edhrec.com/route/?cc=Screeching+Soulbreaker\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F716964%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=909239&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/155836?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "source_sha256": "82828af9811c76bb4ad46ed252aab46b91169267409a325e678d2ed5893094b3"
+      },
+      "spell": {
+        "functioning_zone": "stack",
+        "instructions": [],
+        "resolution": "permanent",
+        "targets": [],
+        "timing": "main_phase"
+      },
+      "triggered": [
+        {
+          "condition": {
+            "creature_attacked": {
+              "attacker": {
+                "subject": "source"
+              }
+            }
+          },
+          "functioning_zone": "battlefield",
+          "program": {
+            "functioning_zone": "stack",
+            "instructions": [
+              {
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                },
+                "op": "sacrifice_damage",
+                "optional": false,
+                "recipient": "each_opponent",
+                "source_block": 1,
+                "target_slot": null
+              },
+              {
+                "amount": "1",
+                "op": "gain_life",
+                "recipient": "controller",
+                "source_block": 1
+              }
+            ],
+            "resolution": "instructions",
+            "targets": [],
+            "timing": "instant"
+          }
+        }
+      ]
+    },
+    {
+      "capabilities": [
+        "attack_trigger_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "controller_draw_v1",
+        "life_loss_v1",
+        "triggered_ability_v1"
+      ],
+      "characteristics": {
+        "basic": false,
+        "color_identity": [
+          "B"
+        ],
+        "colors": [
+          "B"
+        ],
+        "kind": "creature",
+        "legendary": false,
+        "mana_cost": {
+          "colored": [
+            "B"
+          ],
+          "generic": "2"
+        },
+        "power": "2",
+        "subtypes": [
+          "Human",
+          "Rogue"
+        ],
+        "toughness": "2"
+      },
+      "intrinsic_zone": null,
+      "name": "Audacious Thief",
+      "oracle_id": "5905c55a-f1d1-4021-a9af-f85b02ae21f3",
+      "provenance": {
+        "abilities_json": "[{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"attacks\",\"what\":{\"ref\":\"this\",\"noun\":\"creature\"}},\"effects\":[{\"steps\":[{\"effect\":\"draw\",\"who\":{\"player\":\"you\"},\"amount\":{\"amount\":\"fixed\",\"value\":1}},{\"effect\":\"lose-life\",\"who\":{\"player\":\"you\"},\"amount\":{\"amount\":\"fixed\",\"value\":1}}]}]}]",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "ast_sha256": "5b350da44fde1a3a066aa4b8db65a6638702da087556a07b9a41da5bc0c761bc",
+        "binding_sha256": "969e9954a7cc459177196079a1bba50969a97d0120b1cd6a48ba0c024c0f564d",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "printing_id": "e1ff5e66-4718-43c3-8a58-1a0a8e788f83",
+        "source_index": 13373,
+        "source_json": "{\"object\":\"card\",\"id\":\"e1ff5e66-4718-43c3-8a58-1a0a8e788f83\",\"oracle_id\":\"5905c55a-f1d1-4021-a9af-f85b02ae21f3\",\"multiverse_ids\":[466838],\"mtgo_id\":73067,\"arena_id\":69869,\"tcgplayer_id\":192778,\"cardmarket_id\":379245,\"name\":\"Audacious Thief\",\"lang\":\"en\",\"released_at\":\"2019-07-12\",\"uri\":\"https://api.scryfall.com/cards/e1ff5e66-4718-43c3-8a58-1a0a8e788f83\",\"scryfall_uri\":\"https://scryfall.com/card/m20/84/audacious-thief?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T08:56:40Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/e/1/e1ff5e66-4718-43c3-8a58-1a0a8e788f83.jpg?1783933000\",\"normal\":\"https://cards.scryfall.io/normal/front/e/1/e1ff5e66-4718-43c3-8a58-1a0a8e788f83.jpg?1783933000\",\"large\":\"https://cards.scryfall.io/large/front/e/1/e1ff5e66-4718-43c3-8a58-1a0a8e788f83.jpg?1783933000\",\"png\":\"https://cards.scryfall.io/png/front/e/1/e1ff5e66-4718-43c3-8a58-1a0a8e788f83.png?1783933000\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/e/1/e1ff5e66-4718-43c3-8a58-1a0a8e788f83.jpg?1783933000\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/e/1/e1ff5e66-4718-43c3-8a58-1a0a8e788f83.jpg?1783933000\",\"thumb\":\"https://cards.scryfall.io/thumb/front/e/1/e1ff5e66-4718-43c3-8a58-1a0a8e788f83.webp?1783933000\",\"grid\":\"https://cards.scryfall.io/grid/front/e/1/e1ff5e66-4718-43c3-8a58-1a0a8e788f83.webp?1783933000\",\"display\":\"https://cards.scryfall.io/display/front/e/1/e1ff5e66-4718-43c3-8a58-1a0a8e788f83.webp?1783933000\",\"art\":\"https://cards.scryfall.io/art/front/e/1/e1ff5e66-4718-43c3-8a58-1a0a8e788f83.webp?1783933000\",\"crop\":\"https://cards.scryfall.io/crop/front/e/1/e1ff5e66-4718-43c3-8a58-1a0a8e788f83.webp?1783933000\"},\"mana_cost\":\"{2}{B}\",\"cmc\":3,\"type_line\":\"Creature — Human Rogue\",\"oracle_text\":\"Whenever this creature attacks, you draw a card and you lose 1 life.\",\"power\":\"2\",\"toughness\":\"2\",\"colors\":[\"B\"],\"color_identity\":[\"B\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"legal\"},\"games\":[\"arena\",\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":false,\"variation\":false,\"set_id\":\"4a787360-9767-4f44-80b1-2405dc5e39c7\",\"set\":\"m20\",\"set_name\":\"Core Set 2020\",\"set_type\":\"core\",\"set_uri\":\"https://api.scryfall.com/sets/4a787360-9767-4f44-80b1-2405dc5e39c7\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Am20&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/m20?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/e1ff5e66-4718-43c3-8a58-1a0a8e788f83/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A5905c55a-f1d1-4021-a9af-f85b02ae21f3&unique=prints\",\"collector_number\":\"84\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"\\\"Skill, imagination, smarts: none of it matters unless you have the nerve to use it.\\\"\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Dmitry Burmak\",\"artist_ids\":[\"9872f5c0-274a-48ce-a9ad-6f0d5654e29c\"],\"illustration_id\":\"166e0d3f-6993-40d7-b3d9-a7b4db3c7696\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":9513,\"penny_rank\":14550,\"preview\":{\"source\":\"WinCondition\",\"source_uri\":\"https://www.youtube.com/watch?v=TOclaZqviVk\",\"previewed_at\":\"2019-06-21\"},\"prices\":{\"usd\":\"0.21\",\"usd_foil\":\"0.57\",\"usd_etched\":null,\"eur\":\"0.18\",\"eur_foil\":\"0.53\",\"tix\":\"0.03\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=466838&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DAudacious%2BThief\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DAudacious%2BThief\",\"edhrec\":\"https://edhrec.com/route/?cc=Audacious+Thief\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F192778%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=379245&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/73067?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "source_sha256": "b006089753897e26c895be4293b94020b110825928366c56a41940da80ef6be0"
+      },
+      "spell": {
+        "functioning_zone": "stack",
+        "instructions": [],
+        "resolution": "permanent",
+        "targets": [],
+        "timing": "main_phase"
+      },
+      "triggered": [
+        {
+          "condition": {
+            "creature_attacked": {
+              "attacker": {
+                "subject": "source"
+              }
+            }
+          },
+          "functioning_zone": "battlefield",
+          "program": {
+            "functioning_zone": "stack",
+            "instructions": [
+              {
+                "count": "1",
+                "op": "draw_cards",
+                "source_block": 0
+              },
+              {
+                "amount": "1",
+                "op": "lose_life",
+                "recipient": "controller",
+                "source_block": 0
+              }
+            ],
+            "resolution": "instructions",
+            "targets": [],
+            "timing": "instant"
+          }
+        }
+      ]
+    },
+    {
+      "capabilities": [
+        "attack_trigger_v1",
+        "temporary_power_toughness_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "creature_target_v1",
+        "triggered_ability_v1"
+      ],
+      "characteristics": {
+        "basic": false,
+        "color_identity": [
+          "W"
+        ],
+        "colors": [
+          "W"
+        ],
+        "kind": "creature",
+        "legendary": false,
+        "mana_cost": {
+          "colored": [
+            "W"
+          ],
+          "generic": "4"
+        },
+        "power": "3",
+        "subtypes": [
+          "Kithkin",
+          "Soldier"
+        ],
+        "toughness": "3"
+      },
+      "intrinsic_zone": null,
+      "name": "Burrenton Shield-Bearers",
+      "oracle_id": "8d038c81-b43f-4721-abda-5dacfc194ed3",
+      "provenance": {
+        "abilities_json": "[{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"attacks\",\"what\":{\"ref\":\"this\",\"noun\":\"creature\"}},\"effects\":[{\"steps\":[{\"effect\":\"pump\",\"what\":{\"ref\":\"target\",\"filter\":{\"types\":[\"creature\"]},\"count\":{\"amount\":\"fixed\",\"value\":1},\"selectionId\":\"line:0:5\"},\"power\":{\"sign\":1,\"amount\":{\"amount\":\"fixed\",\"value\":0}},\"toughness\":{\"sign\":1,\"amount\":{\"amount\":\"fixed\",\"value\":3}},\"duration\":{\"duration\":\"end-of-turn\"}}]}]}]",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "ast_sha256": "cf5ebe9f2aa73e2096dba62454c6f73fa808976f65451ff849c72798c32ef08e",
+        "binding_sha256": "45bc938fa51c750612990e7a56b98571dd8e439bac0b410870fa05dc6baff86a",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "printing_id": "1afc1033-0004-43c1-9341-c5ed0b0048f2",
+        "source_index": 21255,
+        "source_json": "{\"object\":\"card\",\"id\":\"1afc1033-0004-43c1-9341-c5ed0b0048f2\",\"oracle_id\":\"8d038c81-b43f-4721-abda-5dacfc194ed3\",\"multiverse_ids\":[152668],\"mtgo_id\":29054,\"mtgo_foil_id\":29055,\"tcgplayer_id\":17959,\"cardmarket_id\":18833,\"name\":\"Burrenton Shield-Bearers\",\"lang\":\"en\",\"released_at\":\"2008-02-01\",\"uri\":\"https://api.scryfall.com/cards/1afc1033-0004-43c1-9341-c5ed0b0048f2\",\"scryfall_uri\":\"https://scryfall.com/card/mor/4/burrenton-shield-bearers?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T11:40:08Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/1/a/1afc1033-0004-43c1-9341-c5ed0b0048f2.jpg?1783942808\",\"normal\":\"https://cards.scryfall.io/normal/front/1/a/1afc1033-0004-43c1-9341-c5ed0b0048f2.jpg?1783942808\",\"large\":\"https://cards.scryfall.io/large/front/1/a/1afc1033-0004-43c1-9341-c5ed0b0048f2.jpg?1783942808\",\"png\":\"https://cards.scryfall.io/png/front/1/a/1afc1033-0004-43c1-9341-c5ed0b0048f2.png?1783942808\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/1/a/1afc1033-0004-43c1-9341-c5ed0b0048f2.jpg?1783942808\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/1/a/1afc1033-0004-43c1-9341-c5ed0b0048f2.jpg?1783942808\",\"thumb\":\"https://cards.scryfall.io/thumb/front/1/a/1afc1033-0004-43c1-9341-c5ed0b0048f2.webp?1783942808\",\"grid\":\"https://cards.scryfall.io/grid/front/1/a/1afc1033-0004-43c1-9341-c5ed0b0048f2.webp?1783942808\",\"display\":\"https://cards.scryfall.io/display/front/1/a/1afc1033-0004-43c1-9341-c5ed0b0048f2.webp?1783942808\",\"art\":\"https://cards.scryfall.io/art/front/1/a/1afc1033-0004-43c1-9341-c5ed0b0048f2.webp?1783942808\",\"crop\":\"https://cards.scryfall.io/crop/front/1/a/1afc1033-0004-43c1-9341-c5ed0b0048f2.webp?1783942808\"},\"mana_cost\":\"{4}{W}\",\"cmc\":5,\"type_line\":\"Creature — Kithkin Soldier\",\"oracle_text\":\"Whenever this creature attacks, target creature gets +0/+3 until end of turn.\",\"power\":\"3\",\"toughness\":\"3\",\"colors\":[\"W\"],\"color_identity\":[\"W\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"not_legal\",\"timeless\":\"not_legal\",\"gladiator\":\"not_legal\",\"pioneer\":\"not_legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"not_legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"not_legal\",\"competitivebrawl\":\"not_legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"legal\",\"tlr\":\"not_legal\"},\"games\":[\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":false,\"variation\":false,\"set_id\":\"c41550df-7b41-41a3-85ab-8612eb2f168f\",\"set\":\"mor\",\"set_name\":\"Morningtide\",\"set_type\":\"expansion\",\"set_uri\":\"https://api.scryfall.com/sets/c41550df-7b41-41a3-85ab-8612eb2f168f\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Amor&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/mor?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/1afc1033-0004-43c1-9341-c5ed0b0048f2/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A8d038c81-b43f-4721-abda-5dacfc194ed3&unique=prints\",\"collector_number\":\"4\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"Soul and bones, kithkin are woven into their clans. They fight fiercely and without self-interest.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Daren Bader\",\"artist_ids\":[\"7da1a585-c875-45e4-b322-5da9e8e1f651\"],\"illustration_id\":\"49c101c5-0be4-41e9-be2e-e0ded6be0f91\",\"border_color\":\"black\",\"frame\":\"2003\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":30342,\"prices\":{\"usd\":\"0.21\",\"usd_foil\":\"0.20\",\"usd_etched\":null,\"eur\":\"0.06\",\"eur_foil\":\"0.16\",\"tix\":\"0.04\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=152668&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DBurrenton%2BShield-Bearers\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DBurrenton%2BShield-Bearers\",\"edhrec\":\"https://edhrec.com/route/?cc=Burrenton+Shield-Bearers\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F17959%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=18833&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/29054?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "source_sha256": "e1b55ad7c524cd6756de85d6d02b4bae243027ea25cb59191c42557361d6a867"
+      },
+      "spell": {
+        "functioning_zone": "stack",
+        "instructions": [],
+        "resolution": "permanent",
+        "targets": [],
+        "timing": "main_phase"
+      },
+      "triggered": [
+        {
+          "condition": {
+            "creature_attacked": {
+              "attacker": {
+                "subject": "source"
+              }
+            }
+          },
+          "functioning_zone": "battlefield",
+          "program": {
+            "functioning_zone": "stack",
+            "instructions": [
+              {
+                "duration": "until_end_of_turn",
+                "op": "modify_power_toughness",
+                "power": "0",
+                "source_block": 0,
+                "target_slot": 0,
+                "toughness": "3"
+              }
+            ],
+            "resolution": "instructions",
+            "targets": [
+              {
+                "chooser": "controller",
+                "domain": "battlefield_creature",
+                "selection_id": "line:0:5",
+                "slot": 0,
+                "stage": "announcement"
+              }
+            ],
+            "timing": "instant"
+          }
+        }
+      ]
+    },
+    {
+      "capabilities": [
+        "attack_trigger_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "commander_identity_v1",
+        "cast_creature_v1",
+        "triggered_ability_v1",
+        "board_wipes_v1"
+      ],
+      "characteristics": {
+        "basic": false,
+        "color_identity": [
+          "R"
+        ],
+        "colors": [
+          "R"
+        ],
+        "kind": "creature",
+        "legendary": true,
+        "mana_cost": {
+          "colored": [
+            "R"
+          ],
+          "generic": "2"
+        },
+        "power": "2",
+        "subtypes": [
+          "Human",
+          "Noble",
+          "Ally"
+        ],
+        "toughness": "2"
+      },
+      "intrinsic_zone": null,
+      "name": "Iroh, Firebending Instructor",
+      "oracle_id": "8e03797d-dd61-439f-b4ce-996cd71bdcf5",
+      "provenance": {
+        "abilities_json": "[{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"attacks\",\"what\":{\"ref\":\"self\"}},\"effects\":[{\"steps\":[{\"effect\":\"pump\",\"what\":{\"ref\":\"each\",\"filter\":{\"status\":[\"attacking\"],\"types\":[\"creature\"]}},\"power\":{\"sign\":1,\"amount\":{\"amount\":\"fixed\",\"value\":1}},\"toughness\":{\"sign\":1,\"amount\":{\"amount\":\"fixed\",\"value\":1}},\"duration\":{\"duration\":\"end-of-turn\"}}]}]}]",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "ast_sha256": "2929e53673b489aa76acc2e2ae9415a57f1661789ada7b618cf2c3bdff57c9fc",
+        "binding_sha256": "24905ca65b825f59f75b9de7126824f207ff5bb2e5cd31d96f0bdae2d208ec5c",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "printing_id": "1ee4bc92-1101-4652-be27-65450abebf00",
+        "source_index": 21406,
+        "source_json": "{\"object\":\"card\",\"id\":\"1ee4bc92-1101-4652-be27-65450abebf00\",\"oracle_id\":\"8e03797d-dd61-439f-b4ce-996cd71bdcf5\",\"multiverse_ids\":[],\"resource_id\":\"E20CE774D5406F753CEA5ED57C9597E15AF5E22F835CE8A353A2743A7F34CDA5\",\"mtgo_id\":145512,\"arena_id\":98202,\"tcgplayer_id\":649346,\"cardmarket_id\":855819,\"name\":\"Iroh, Firebending Instructor\",\"lang\":\"en\",\"released_at\":\"2025-11-21\",\"uri\":\"https://api.scryfall.com/cards/1ee4bc92-1101-4652-be27-65450abebf00\",\"scryfall_uri\":\"https://scryfall.com/card/tle/240/iroh-firebending-instructor?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T01:06:16Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/1/e/1ee4bc92-1101-4652-be27-65450abebf00.jpg?1783904776\",\"normal\":\"https://cards.scryfall.io/normal/front/1/e/1ee4bc92-1101-4652-be27-65450abebf00.jpg?1783904776\",\"large\":\"https://cards.scryfall.io/large/front/1/e/1ee4bc92-1101-4652-be27-65450abebf00.jpg?1783904776\",\"png\":\"https://cards.scryfall.io/png/front/1/e/1ee4bc92-1101-4652-be27-65450abebf00.png?1783904776\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/1/e/1ee4bc92-1101-4652-be27-65450abebf00.jpg?1783904776\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/1/e/1ee4bc92-1101-4652-be27-65450abebf00.jpg?1783904776\",\"thumb\":\"https://cards.scryfall.io/thumb/front/1/e/1ee4bc92-1101-4652-be27-65450abebf00.webp?1783904776\",\"grid\":\"https://cards.scryfall.io/grid/front/1/e/1ee4bc92-1101-4652-be27-65450abebf00.webp?1783904776\",\"display\":\"https://cards.scryfall.io/display/front/1/e/1ee4bc92-1101-4652-be27-65450abebf00.webp?1783904776\",\"art\":\"https://cards.scryfall.io/art/front/1/e/1ee4bc92-1101-4652-be27-65450abebf00.webp?1783904776\",\"crop\":\"https://cards.scryfall.io/crop/front/1/e/1ee4bc92-1101-4652-be27-65450abebf00.webp?1783904776\"},\"mana_cost\":\"{2}{R}\",\"cmc\":3,\"type_line\":\"Legendary Creature — Human Noble Ally\",\"oracle_text\":\"Whenever Iroh attacks, attacking creatures get +1/+1 until end of turn.\",\"power\":\"2\",\"toughness\":\"2\",\"colors\":[\"R\"],\"color_identity\":[\"R\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"not_legal\",\"modern\":\"not_legal\",\"legacy\":\"legal\",\"pauper\":\"not_legal\",\"vintage\":\"legal\",\"penny\":\"not_legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"not_legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"arena\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":false,\"finishes\":[\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":false,\"variation\":false,\"set_id\":\"a75e6ceb-d62c-4063-8e96-f269e3a0b025\",\"set\":\"tle\",\"set_name\":\"Avatar: The Last Airbender Eternal\",\"set_type\":\"eternal\",\"set_uri\":\"https://api.scryfall.com/sets/a75e6ceb-d62c-4063-8e96-f269e3a0b025\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Atle&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/tle?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/1ee4bc92-1101-4652-be27-65450abebf00/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A8e03797d-dd61-439f-b4ce-996cd71bdcf5&unique=prints\",\"collector_number\":\"240\",\"digital\":false,\"rarity\":\"uncommon\",\"watermark\":\"firenation\",\"flavor_text\":\"\\\"Pride is not the opposite of shame, but its source. True humility is the only antidote to shame.\\\"\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Eilene Cherie\",\"artist_ids\":[\"9f1739c4-f188-4c36-b95d-c66f0047b434\"],\"illustration_id\":\"9980317f-b940-4a7f-916f-e43d51c93019\",\"border_color\":\"black\",\"frame\":\"2015\",\"frame_effects\":[\"legendary\"],\"full_art\":false,\"textless\":false,\"booster\":false,\"story_spotlight\":false,\"promo_types\":[\"universesbeyond\"],\"edhrec_rank\":16165,\"preview\":{\"source\":\"IGN\",\"source_uri\":\"https://www.ign.com/articles/avatar-the-last-airbender-magic-the-gathering-beginner-box-card-reveal-spoilers\",\"previewed_at\":\"2025-08-14\"},\"prices\":{\"usd\":null,\"usd_foil\":\"1.48\",\"usd_etched\":null,\"eur\":null,\"eur_foil\":\"0.49\",\"tix\":\"0.04\"},\"related_uris\":{\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DIroh%252C%2BFirebending%2BInstructor\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DIroh%252C%2BFirebending%2BInstructor\",\"edhrec\":\"https://edhrec.com/route/?cc=Iroh%2C+Firebending+Instructor\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F649346%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=855819&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/145512?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "source_sha256": "c8d5d2286447b92540965fa54cb11e2f656f96c1f5613c25fc02cc7dfb487a8d"
+      },
+      "spell": {
+        "functioning_zone": "stack",
+        "instructions": [],
+        "resolution": "permanent",
+        "targets": [],
+        "timing": "main_phase"
+      },
+      "triggered": [
+        {
+          "condition": {
+            "creature_attacked": {
+              "attacker": {
+                "subject": "source"
+              }
+            }
+          },
+          "functioning_zone": "battlefield",
+          "program": {
+            "functioning_zone": "stack",
+            "instructions": [
+              {
+                "op": "pump_set",
+                "power": "1",
+                "set": "attacking_creatures",
+                "source_block": 0,
+                "toughness": "1"
+              }
+            ],
+            "resolution": "instructions",
+            "targets": [],
+            "timing": "instant"
+          }
+        }
+      ]
+    },
+    {
+      "capabilities": [
+        "attack_trigger_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "controller_draw_v1",
+        "life_loss_v1",
+        "triggered_ability_v1"
+      ],
+      "characteristics": {
+        "basic": false,
+        "color_identity": [
+          "B"
+        ],
+        "colors": [
+          "B"
+        ],
+        "kind": "creature",
+        "legendary": false,
+        "mana_cost": {
+          "colored": [
+            "B"
+          ],
+          "generic": "2"
+        },
+        "power": "2",
+        "subtypes": [
+          "Elf",
+          "Warlock"
+        ],
+        "toughness": "1"
+      },
+      "intrinsic_zone": null,
+      "name": "Moonglove Extractor",
+      "oracle_id": "980affa7-6308-4acd-af64-f804e574a89b",
+      "provenance": {
+        "abilities_json": "[{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"attacks\",\"what\":{\"ref\":\"this\",\"noun\":\"creature\"}},\"effects\":[{\"steps\":[{\"effect\":\"draw\",\"who\":{\"player\":\"you\"},\"amount\":{\"amount\":\"fixed\",\"value\":1}},{\"effect\":\"lose-life\",\"who\":{\"player\":\"you\"},\"amount\":{\"amount\":\"fixed\",\"value\":1}}]}]}]",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "ast_sha256": "5b350da44fde1a3a066aa4b8db65a6638702da087556a07b9a41da5bc0c761bc",
+        "binding_sha256": "ce8c58e50462dc6c970d120ab0f5671aaaa6d7bf658445c2ffbfc81c252f2d6d",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "printing_id": "8383e0ab-81b4-4a6b-b87b-dd9180dca1c2",
+        "source_index": 22912,
+        "source_json": "{\"object\":\"card\",\"id\":\"8383e0ab-81b4-4a6b-b87b-dd9180dca1c2\",\"oracle_id\":\"980affa7-6308-4acd-af64-f804e574a89b\",\"multiverse_ids\":[],\"resource_id\":\"8811C6E43D301634932A7F7CF915D8F8EFCB94E7CCA0711050736BCCB25491CA\",\"mtgo_id\":146607,\"arena_id\":98429,\"tcgplayer_id\":670985,\"cardmarket_id\":864587,\"name\":\"Moonglove Extractor\",\"lang\":\"en\",\"released_at\":\"2026-01-23\",\"uri\":\"https://api.scryfall.com/cards/8383e0ab-81b4-4a6b-b87b-dd9180dca1c2\",\"scryfall_uri\":\"https://scryfall.com/card/ecl/109/moonglove-extractor?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T01:01:03Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/8/3/8383e0ab-81b4-4a6b-b87b-dd9180dca1c2.jpg?1783904463\",\"normal\":\"https://cards.scryfall.io/normal/front/8/3/8383e0ab-81b4-4a6b-b87b-dd9180dca1c2.jpg?1783904463\",\"large\":\"https://cards.scryfall.io/large/front/8/3/8383e0ab-81b4-4a6b-b87b-dd9180dca1c2.jpg?1783904463\",\"png\":\"https://cards.scryfall.io/png/front/8/3/8383e0ab-81b4-4a6b-b87b-dd9180dca1c2.png?1783904463\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/8/3/8383e0ab-81b4-4a6b-b87b-dd9180dca1c2.jpg?1783904463\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/8/3/8383e0ab-81b4-4a6b-b87b-dd9180dca1c2.jpg?1783904463\",\"thumb\":\"https://cards.scryfall.io/thumb/front/8/3/8383e0ab-81b4-4a6b-b87b-dd9180dca1c2.webp?1783904463\",\"grid\":\"https://cards.scryfall.io/grid/front/8/3/8383e0ab-81b4-4a6b-b87b-dd9180dca1c2.webp?1783904463\",\"display\":\"https://cards.scryfall.io/display/front/8/3/8383e0ab-81b4-4a6b-b87b-dd9180dca1c2.webp?1783904463\",\"art\":\"https://cards.scryfall.io/art/front/8/3/8383e0ab-81b4-4a6b-b87b-dd9180dca1c2.webp?1783904463\",\"crop\":\"https://cards.scryfall.io/crop/front/8/3/8383e0ab-81b4-4a6b-b87b-dd9180dca1c2.webp?1783904463\"},\"mana_cost\":\"{2}{B}\",\"cmc\":3,\"type_line\":\"Creature — Elf Warlock\",\"oracle_text\":\"Whenever this creature attacks, you draw a card and lose 1 life.\",\"power\":\"2\",\"toughness\":\"1\",\"colors\":[\"B\"],\"color_identity\":[\"B\"],\"keywords\":[],\"legalities\":{\"standard\":\"legal\",\"future\":\"legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"arena\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":false,\"variation\":false,\"set_id\":\"5d293ad8-a749-4725-bd5c-c4e1db828bd0\",\"set\":\"ecl\",\"set_name\":\"Lorwyn Eclipsed\",\"set_type\":\"expansion\",\"set_uri\":\"https://api.scryfall.com/sets/5d293ad8-a749-4725-bd5c-c4e1db828bd0\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Aecl&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/ecl?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/8383e0ab-81b4-4a6b-b87b-dd9180dca1c2/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A980affa7-6308-4acd-af64-f804e574a89b&unique=prints\",\"collector_number\":\"109\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"Concentrating moonglove flowers into deadly moonglow poison is a revered but fleeting position for Lorwyn elves.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Milivoj Ćeran\",\"artist_ids\":[\"1eced451-4da5-42bc-b49d-70c41246581f\"],\"illustration_id\":\"ad36b55f-0b12-436d-b5d9-09b5541962ef\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":14292,\"prices\":{\"usd\":\"0.10\",\"usd_foil\":\"0.18\",\"usd_etched\":null,\"eur\":\"0.10\",\"eur_foil\":\"0.09\",\"tix\":\"0.03\"},\"related_uris\":{\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DMoonglove%2BExtractor\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DMoonglove%2BExtractor\",\"edhrec\":\"https://edhrec.com/route/?cc=Moonglove+Extractor\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F670985%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=864587&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/146607?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "source_sha256": "d1daa00658e27fce249560019d277a526016f3f8739a0a9e062b92a0285bfc1f"
+      },
+      "spell": {
+        "functioning_zone": "stack",
+        "instructions": [],
+        "resolution": "permanent",
+        "targets": [],
+        "timing": "main_phase"
+      },
+      "triggered": [
+        {
+          "condition": {
+            "creature_attacked": {
+              "attacker": {
+                "subject": "source"
+              }
+            }
+          },
+          "functioning_zone": "battlefield",
+          "program": {
+            "functioning_zone": "stack",
+            "instructions": [
+              {
+                "count": "1",
+                "op": "draw_cards",
+                "source_block": 0
+              },
+              {
+                "amount": "1",
+                "op": "lose_life",
+                "recipient": "controller",
+                "source_block": 0
+              }
+            ],
+            "resolution": "instructions",
+            "targets": [],
+            "timing": "instant"
+          }
+        }
+      ]
+    },
+    {
+      "capabilities": [
+        "attack_trigger_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "commander_identity_v1",
+        "cast_creature_v1",
+        "triggered_ability_v1",
+        "board_wipes_v1"
+      ],
+      "characteristics": {
+        "basic": false,
+        "color_identity": [
+          "W"
+        ],
+        "colors": [
+          "W"
+        ],
+        "kind": "creature",
+        "legendary": true,
+        "mana_cost": {
+          "colored": [
+            "W",
+            "W"
+          ],
+          "generic": "1"
+        },
+        "power": "2",
+        "subtypes": [
+          "Human",
+          "Nomad"
+        ],
+        "toughness": "2"
+      },
+      "intrinsic_zone": null,
+      "name": "Pianna, Nomad Captain",
+      "oracle_id": "9cd8f7f6-0b69-466a-8f4c-d864ff682457",
+      "provenance": {
+        "abilities_json": "[{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"attacks\",\"what\":{\"ref\":\"self\"}},\"effects\":[{\"steps\":[{\"effect\":\"pump\",\"what\":{\"ref\":\"each\",\"filter\":{\"status\":[\"attacking\"],\"types\":[\"creature\"]}},\"power\":{\"sign\":1,\"amount\":{\"amount\":\"fixed\",\"value\":1}},\"toughness\":{\"sign\":1,\"amount\":{\"amount\":\"fixed\",\"value\":1}},\"duration\":{\"duration\":\"end-of-turn\"}}]}]}]",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "ast_sha256": "2929e53673b489aa76acc2e2ae9415a57f1661789ada7b618cf2c3bdff57c9fc",
+        "binding_sha256": "cb55028309e36d053f0996b394514080e89cea87a1d0f68dc9c09a4fd2e24c12",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "printing_id": "90ebb129-aa8d-4107-8e74-0b04525d76e0",
+        "source_index": 23642,
+        "source_json": "{\"object\":\"card\",\"id\":\"90ebb129-aa8d-4107-8e74-0b04525d76e0\",\"oracle_id\":\"9cd8f7f6-0b69-466a-8f4c-d864ff682457\",\"multiverse_ids\":[622658],\"mtgo_id\":115199,\"tcgplayer_id\":503605,\"cardmarket_id\":721908,\"name\":\"Pianna, Nomad Captain\",\"lang\":\"en\",\"released_at\":\"2023-08-04\",\"uri\":\"https://api.scryfall.com/cards/90ebb129-aa8d-4107-8e74-0b04525d76e0\",\"scryfall_uri\":\"https://scryfall.com/card/cmm/50/pianna-nomad-captain?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T04:08:34Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/9/0/90ebb129-aa8d-4107-8e74-0b04525d76e0.jpg?1783915714\",\"normal\":\"https://cards.scryfall.io/normal/front/9/0/90ebb129-aa8d-4107-8e74-0b04525d76e0.jpg?1783915714\",\"large\":\"https://cards.scryfall.io/large/front/9/0/90ebb129-aa8d-4107-8e74-0b04525d76e0.jpg?1783915714\",\"png\":\"https://cards.scryfall.io/png/front/9/0/90ebb129-aa8d-4107-8e74-0b04525d76e0.png?1783915714\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/9/0/90ebb129-aa8d-4107-8e74-0b04525d76e0.jpg?1783915714\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/9/0/90ebb129-aa8d-4107-8e74-0b04525d76e0.jpg?1783915714\",\"thumb\":\"https://cards.scryfall.io/thumb/front/9/0/90ebb129-aa8d-4107-8e74-0b04525d76e0.webp?1783915714\",\"grid\":\"https://cards.scryfall.io/grid/front/9/0/90ebb129-aa8d-4107-8e74-0b04525d76e0.webp?1783915714\",\"display\":\"https://cards.scryfall.io/display/front/9/0/90ebb129-aa8d-4107-8e74-0b04525d76e0.webp?1783915714\",\"art\":\"https://cards.scryfall.io/art/front/9/0/90ebb129-aa8d-4107-8e74-0b04525d76e0.webp?1783915714\",\"crop\":\"https://cards.scryfall.io/crop/front/9/0/90ebb129-aa8d-4107-8e74-0b04525d76e0.webp?1783915714\"},\"mana_cost\":\"{1}{W}{W}\",\"cmc\":3,\"type_line\":\"Legendary Creature — Human Nomad\",\"oracle_text\":\"Whenever Pianna attacks, attacking creatures get +1/+1 until end of turn.\",\"power\":\"2\",\"toughness\":\"2\",\"colors\":[\"W\"],\"color_identity\":[\"W\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"not_legal\",\"timeless\":\"not_legal\",\"gladiator\":\"not_legal\",\"pioneer\":\"not_legal\",\"modern\":\"not_legal\",\"legacy\":\"legal\",\"pauper\":\"not_legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"not_legal\",\"competitivebrawl\":\"not_legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"not_legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"legal\",\"predh\":\"legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"cd05036f-2698-43e6-a48e-5c8d82f0a551\",\"set\":\"cmm\",\"set_name\":\"Commander Masters\",\"set_type\":\"masters\",\"set_uri\":\"https://api.scryfall.com/sets/cd05036f-2698-43e6-a48e-5c8d82f0a551\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Acmm&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/cmm?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/90ebb129-aa8d-4107-8e74-0b04525d76e0/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A9cd8f7f6-0b69-466a-8f4c-d864ff682457&unique=prints\",\"collector_number\":\"50\",\"digital\":false,\"rarity\":\"uncommon\",\"flavor_text\":\"Some find inspiration in their swords. Others find it in their leaders.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"D. Alexander Gregory\",\"artist_ids\":[\"38433e15-f0f5-4223-a985-2d13c4aa0922\"],\"illustration_id\":\"866c43fe-691f-4b6e-8d7e-44d7f7a25920\",\"border_color\":\"black\",\"frame\":\"2015\",\"frame_effects\":[\"legendary\"],\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":22089,\"penny_rank\":7608,\"prices\":{\"usd\":\"0.19\",\"usd_foil\":\"0.22\",\"usd_etched\":null,\"eur\":\"0.12\",\"eur_foil\":\"0.19\",\"tix\":\"0.04\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=622658&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DPianna%252C%2BNomad%2BCaptain\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DPianna%252C%2BNomad%2BCaptain\",\"edhrec\":\"https://edhrec.com/route/?cc=Pianna%2C+Nomad+Captain\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F503605%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=721908&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/115199?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "source_sha256": "52addc43cc049cb91c9acb96076f38c4f158f7e2cb6fb334fa311a438d668035"
+      },
+      "spell": {
+        "functioning_zone": "stack",
+        "instructions": [],
+        "resolution": "permanent",
+        "targets": [],
+        "timing": "main_phase"
+      },
+      "triggered": [
+        {
+          "condition": {
+            "creature_attacked": {
+              "attacker": {
+                "subject": "source"
+              }
+            }
+          },
+          "functioning_zone": "battlefield",
+          "program": {
+            "functioning_zone": "stack",
+            "instructions": [
+              {
+                "op": "pump_set",
+                "power": "1",
+                "set": "attacking_creatures",
+                "source_block": 0,
+                "toughness": "1"
+              }
+            ],
+            "resolution": "instructions",
+            "targets": [],
+            "timing": "instant"
+          }
+        }
+      ]
+    },
+    {
+      "capabilities": [
+        "attack_trigger_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "life_gain_v1",
+        "life_loss_v1",
+        "triggered_ability_v1",
+        "sacrifice_v1"
+      ],
+      "characteristics": {
+        "basic": false,
+        "color_identity": [
+          "B"
+        ],
+        "colors": [
+          "B"
+        ],
+        "kind": "creature",
+        "legendary": false,
+        "mana_cost": {
+          "colored": [
+            "B"
+          ],
+          "generic": "1"
+        },
+        "power": "1",
+        "subtypes": [
+          "Vampire",
+          "Warlock"
+        ],
+        "toughness": "3"
+      },
+      "intrinsic_zone": null,
+      "name": "Sanguine Syphoner",
+      "oracle_id": "b81a748b-f7a6-4ec4-8b18-40a1819745f6",
+      "provenance": {
+        "abilities_json": "[{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"attacks\",\"what\":{\"ref\":\"this\",\"noun\":\"creature\"}},\"effects\":[{\"steps\":[{\"effect\":\"lose-life\",\"who\":{\"player\":\"each-opponent\"},\"amount\":{\"amount\":\"fixed\",\"value\":1}},{\"effect\":\"gain-life\",\"who\":{\"player\":\"you\"},\"amount\":{\"amount\":\"fixed\",\"value\":1}}]}]}]",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "ast_sha256": "5adc462d717dde455ced422358232707ab1a3bfc5bd12ec0fef25dffff7f0f80",
+        "binding_sha256": "16b030beb69528f55b44e18a148b50b4ff103edd8b2fdc1d06edd26d33a86d3a",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "printing_id": "b1daf5bb-c8e9-4e79-a532-ca92a9a885cd",
+        "source_index": 27703,
+        "source_json": "{\"object\":\"card\",\"id\":\"b1daf5bb-c8e9-4e79-a532-ca92a9a885cd\",\"oracle_id\":\"b81a748b-f7a6-4ec4-8b18-40a1819745f6\",\"multiverse_ids\":[679145],\"resource_id\":\"7C9131A6101A670FF5D51CB2B1C2BA34AA0004218F3979295D1BE8708C7188BB\",\"mtgo_id\":133704,\"arena_id\":93781,\"tcgplayer_id\":591666,\"cardmarket_id\":797319,\"name\":\"Sanguine Syphoner\",\"lang\":\"en\",\"released_at\":\"2024-11-15\",\"uri\":\"https://api.scryfall.com/cards/b1daf5bb-c8e9-4e79-a532-ca92a9a885cd\",\"scryfall_uri\":\"https://scryfall.com/card/fdn/68/sanguine-syphoner?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T02:18:29Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/b/1/b1daf5bb-c8e9-4e79-a532-ca92a9a885cd.jpg?1783909109\",\"normal\":\"https://cards.scryfall.io/normal/front/b/1/b1daf5bb-c8e9-4e79-a532-ca92a9a885cd.jpg?1783909109\",\"large\":\"https://cards.scryfall.io/large/front/b/1/b1daf5bb-c8e9-4e79-a532-ca92a9a885cd.jpg?1783909109\",\"png\":\"https://cards.scryfall.io/png/front/b/1/b1daf5bb-c8e9-4e79-a532-ca92a9a885cd.png?1783909109\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/b/1/b1daf5bb-c8e9-4e79-a532-ca92a9a885cd.jpg?1783909109\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/b/1/b1daf5bb-c8e9-4e79-a532-ca92a9a885cd.jpg?1783909109\",\"thumb\":\"https://cards.scryfall.io/thumb/front/b/1/b1daf5bb-c8e9-4e79-a532-ca92a9a885cd.webp?1783909109\",\"grid\":\"https://cards.scryfall.io/grid/front/b/1/b1daf5bb-c8e9-4e79-a532-ca92a9a885cd.webp?1783909109\",\"display\":\"https://cards.scryfall.io/display/front/b/1/b1daf5bb-c8e9-4e79-a532-ca92a9a885cd.webp?1783909109\",\"art\":\"https://cards.scryfall.io/art/front/b/1/b1daf5bb-c8e9-4e79-a532-ca92a9a885cd.webp?1783909109\",\"crop\":\"https://cards.scryfall.io/crop/front/b/1/b1daf5bb-c8e9-4e79-a532-ca92a9a885cd.webp?1783909109\"},\"mana_cost\":\"{1}{B}\",\"cmc\":2,\"type_line\":\"Creature — Vampire Warlock\",\"oracle_text\":\"Whenever this creature attacks, each opponent loses 1 life and you gain 1 life.\",\"power\":\"1\",\"toughness\":\"3\",\"colors\":[\"B\"],\"color_identity\":[\"B\"],\"keywords\":[],\"legalities\":{\"standard\":\"legal\",\"future\":\"legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"not_legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"arena\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":false,\"variation\":false,\"set_id\":\"a7ecb771-d1b6-4dec-8cf5-8d45179f21e0\",\"set\":\"fdn\",\"set_name\":\"Foundations\",\"set_type\":\"core\",\"set_uri\":\"https://api.scryfall.com/sets/a7ecb771-d1b6-4dec-8cf5-8d45179f21e0\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Afdn&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/fdn?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/b1daf5bb-c8e9-4e79-a532-ca92a9a885cd/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3Ab81a748b-f7a6-4ec4-8b18-40a1819745f6&unique=prints\",\"collector_number\":\"68\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"As life returned to the bogs of Bala Ged, the vampires returned to feed upon it.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Irina Nordsol\",\"artist_ids\":[\"1e4cb52d-476e-4c68-ac87-2e620aede6d4\"],\"illustration_id\":\"637573e2-6b21-4152-9013-bfe7fc9d1685\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":6508,\"penny_rank\":13736,\"prices\":{\"usd\":\"0.30\",\"usd_foil\":\"0.24\",\"usd_etched\":null,\"eur\":\"0.14\",\"eur_foil\":\"0.13\",\"tix\":\"0.03\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=679145&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DSanguine%2BSyphoner\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DSanguine%2BSyphoner\",\"edhrec\":\"https://edhrec.com/route/?cc=Sanguine+Syphoner\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F591666%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=797319&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/133704?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "source_sha256": "c954e4187fb2b7964965a2ea6099a17026f0db63913d46a52b2e1c478c903809"
+      },
+      "spell": {
+        "functioning_zone": "stack",
+        "instructions": [],
+        "resolution": "permanent",
+        "targets": [],
+        "timing": "main_phase"
+      },
+      "triggered": [
+        {
+          "condition": {
+            "creature_attacked": {
+              "attacker": {
+                "subject": "source"
+              }
+            }
+          },
+          "functioning_zone": "battlefield",
+          "program": {
+            "functioning_zone": "stack",
+            "instructions": [
+              {
+                "amount": "1",
+                "op": "lose_life",
+                "recipient": "each_opponent",
+                "source_block": 0
+              },
+              {
+                "amount": "1",
+                "op": "gain_life",
+                "recipient": "controller",
+                "source_block": 0
+              }
+            ],
+            "resolution": "instructions",
+            "targets": [],
+            "timing": "instant"
+          }
+        }
+      ]
+    },
+    {
+      "capabilities": [
+        "attack_trigger_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "commander_identity_v1",
+        "cast_creature_v1",
+        "life_gain_v1",
+        "triggered_ability_v1",
+        "sacrifice_v1"
+      ],
+      "characteristics": {
+        "basic": false,
+        "color_identity": [
+          "B"
+        ],
+        "colors": [
+          "B"
+        ],
+        "kind": "creature",
+        "legendary": true,
+        "mana_cost": {
+          "colored": [
+            "B"
+          ],
+          "generic": "1"
+        },
+        "power": "1",
+        "subtypes": [
+          "Human",
+          "Villain"
+        ],
+        "toughness": "3"
+      },
+      "intrinsic_zone": null,
+      "name": "Boomerang, Blade Flinger",
+      "oracle_id": "bbd84035-3efd-4301-9778-913898efd57a",
+      "provenance": {
+        "abilities_json": "[{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"attacks\",\"what\":{\"ref\":\"self\"}},\"effects\":[{\"steps\":[{\"effect\":\"damage\",\"source\":{\"ref\":\"it\"},\"amount\":{\"amount\":\"fixed\",\"value\":1},\"to\":{\"to\":\"player\",\"ref\":{\"player\":\"each-opponent\"}}},{\"effect\":\"gain-life\",\"who\":{\"player\":\"you\"},\"amount\":{\"amount\":\"fixed\",\"value\":1}}]}]}]",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "ast_sha256": "ea75e921dcd01b55fb3578367b1d37fa0631697033c4f62257707445d8e8d750",
+        "binding_sha256": "d2b2df90a36447216dbec66072101c45d0bca35f8dce76cc9b53aa7b31f45a42",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "printing_id": "6b9f9d5d-a1b6-4e3a-8b65-69eba94ee990",
+        "source_index": 28256,
+        "source_json": "{\"object\":\"card\",\"id\":\"6b9f9d5d-a1b6-4e3a-8b65-69eba94ee990\",\"oracle_id\":\"bbd84035-3efd-4301-9778-913898efd57a\",\"multiverse_ids\":[],\"resource_id\":\"9E9ACB612424D74670394568EBAFAFB191971AAF3C230A3AE1F7275E1C6B435B\",\"mtgo_id\":151093,\"arena_id\":105551,\"tcgplayer_id\":697238,\"cardmarket_id\":892016,\"name\":\"Boomerang, Blade Flinger\",\"lang\":\"en\",\"released_at\":\"2026-06-26\",\"uri\":\"https://api.scryfall.com/cards/6b9f9d5d-a1b6-4e3a-8b65-69eba94ee990\",\"scryfall_uri\":\"https://scryfall.com/card/msc/534/boomerang-blade-flinger?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T00:38:22Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/6/b/6b9f9d5d-a1b6-4e3a-8b65-69eba94ee990.jpg?1783903102\",\"normal\":\"https://cards.scryfall.io/normal/front/6/b/6b9f9d5d-a1b6-4e3a-8b65-69eba94ee990.jpg?1783903102\",\"large\":\"https://cards.scryfall.io/large/front/6/b/6b9f9d5d-a1b6-4e3a-8b65-69eba94ee990.jpg?1783903102\",\"png\":\"https://cards.scryfall.io/png/front/6/b/6b9f9d5d-a1b6-4e3a-8b65-69eba94ee990.png?1783903102\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/6/b/6b9f9d5d-a1b6-4e3a-8b65-69eba94ee990.jpg?1783903102\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/6/b/6b9f9d5d-a1b6-4e3a-8b65-69eba94ee990.jpg?1783903102\",\"thumb\":\"https://cards.scryfall.io/thumb/front/6/b/6b9f9d5d-a1b6-4e3a-8b65-69eba94ee990.webp?1783903102\",\"grid\":\"https://cards.scryfall.io/grid/front/6/b/6b9f9d5d-a1b6-4e3a-8b65-69eba94ee990.webp?1783903102\",\"display\":\"https://cards.scryfall.io/display/front/6/b/6b9f9d5d-a1b6-4e3a-8b65-69eba94ee990.webp?1783903102\",\"art\":\"https://cards.scryfall.io/art/front/6/b/6b9f9d5d-a1b6-4e3a-8b65-69eba94ee990.webp?1783903102\",\"crop\":\"https://cards.scryfall.io/crop/front/6/b/6b9f9d5d-a1b6-4e3a-8b65-69eba94ee990.webp?1783903102\"},\"mana_cost\":\"{1}{B}\",\"cmc\":2,\"type_line\":\"Legendary Creature — Human Villain\",\"oracle_text\":\"Whenever Boomerang attacks, he deals 1 damage to each opponent and you gain 1 life.\",\"power\":\"1\",\"toughness\":\"3\",\"colors\":[\"B\"],\"color_identity\":[\"B\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"not_legal\",\"modern\":\"not_legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"not_legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"mtgo\",\"arena\"],\"reserved\":false,\"game_changer\":false,\"foil\":false,\"nonfoil\":true,\"finishes\":[\"nonfoil\"],\"oversized\":false,\"promo\":false,\"reprint\":false,\"variation\":false,\"set_id\":\"9d739461-c5ac-43a1-af41-3d5a585b5c8d\",\"set\":\"msc\",\"set_name\":\"Marvel Super Heroes Commander\",\"set_type\":\"commander\",\"set_uri\":\"https://api.scryfall.com/sets/9d739461-c5ac-43a1-af41-3d5a585b5c8d\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Amsc&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/msc?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/6b9f9d5d-a1b6-4e3a-8b65-69eba94ee990/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3Abbd84035-3efd-4301-9778-913898efd57a&unique=prints\",\"collector_number\":\"534\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"\\\"I wouldn't want to catch these. They're sharp, you know?\\\"\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Leroy Steinmann\",\"artist_ids\":[\"e770721b-7b32-45b3-8839-72f4b36464f6\"],\"illustration_id\":\"af8e5f63-0425-47de-b10d-499733b93f05\",\"border_color\":\"black\",\"frame\":\"2015\",\"frame_effects\":[\"legendary\"],\"full_art\":false,\"textless\":false,\"booster\":false,\"story_spotlight\":false,\"promo_types\":[\"universesbeyond\"],\"edhrec_rank\":23241,\"prices\":{\"usd\":\"0.23\",\"usd_foil\":null,\"usd_etched\":null,\"eur\":\"0.18\",\"eur_foil\":null,\"tix\":\"0.34\"},\"related_uris\":{\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DBoomerang%252C%2BBlade%2BFlinger\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DBoomerang%252C%2BBlade%2BFlinger\",\"edhrec\":\"https://edhrec.com/route/?cc=Boomerang%2C+Blade+Flinger\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F697238%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=892016&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/151093?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "source_sha256": "e052d948c294e421e9f79e43228a11ad1b39cc2646deaec5dfe0e1910b0efa80"
+      },
+      "spell": {
+        "functioning_zone": "stack",
+        "instructions": [],
+        "resolution": "permanent",
+        "targets": [],
+        "timing": "main_phase"
+      },
+      "triggered": [
+        {
+          "condition": {
+            "creature_attacked": {
+              "attacker": {
+                "subject": "source"
+              }
+            }
+          },
+          "functioning_zone": "battlefield",
+          "program": {
+            "functioning_zone": "stack",
+            "instructions": [
+              {
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                },
+                "op": "sacrifice_damage",
+                "optional": false,
+                "recipient": "each_opponent",
+                "source_block": 0,
+                "target_slot": null
+              },
+              {
+                "amount": "1",
+                "op": "gain_life",
+                "recipient": "controller",
+                "source_block": 0
+              }
+            ],
+            "resolution": "instructions",
+            "targets": [],
+            "timing": "instant"
+          }
+        }
+      ]
+    },
+    {
+      "capabilities": [
+        "attack_trigger_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "life_gain_v1",
+        "triggered_ability_v1",
+        "flying_v1"
+      ],
+      "characteristics": {
+        "basic": false,
+        "color_identity": [
+          "W"
+        ],
+        "colors": [
+          "W"
+        ],
+        "kind": "creature",
+        "legendary": false,
+        "mana_cost": {
+          "colored": [
+            "W",
+            "W"
+          ],
+          "generic": "3"
+        },
+        "power": "4",
+        "subtypes": [
+          "Angel"
+        ],
+        "toughness": "3"
+      },
+      "intrinsic_zone": null,
+      "keywords": [
+        "flying"
+      ],
+      "name": "Herald of Faith",
+      "oracle_id": "cb97da84-1d13-4795-b68a-2bf111a50067",
+      "provenance": {
+        "abilities_json": "[{\"kind\":\"keywords\",\"keywords\":[{\"keyword\":\"flying\"}]},{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"attacks\",\"what\":{\"ref\":\"this\",\"noun\":\"creature\"}},\"effects\":[{\"steps\":[{\"effect\":\"gain-life\",\"who\":{\"player\":\"you\"},\"amount\":{\"amount\":\"fixed\",\"value\":2}}]}]}]",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "ast_sha256": "2c111cded3f362460ce834ef45558b33acc302724fc10154f6e6eefededb14e0",
+        "binding_sha256": "329770bf4353e65747e15a3a179bc03e00f35b23a026333a93906fcb86cbfe49",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "printing_id": "2e1705da-dc35-4bcb-82d4-b77712e79af3",
+        "source_index": 30693,
+        "source_json": "{\"object\":\"card\",\"id\":\"2e1705da-dc35-4bcb-82d4-b77712e79af3\",\"oracle_id\":\"cb97da84-1d13-4795-b68a-2bf111a50067\",\"multiverse_ids\":[],\"resource_id\":\"8C4DC311872005D8B88FA4600282B6B768930867AF27BFF9A49CB0C273DDDE6E\",\"tcgplayer_id\":695519,\"cardmarket_id\":904187,\"name\":\"Herald of Faith\",\"lang\":\"en\",\"released_at\":\"2026-04-24\",\"uri\":\"https://api.scryfall.com/cards/2e1705da-dc35-4bcb-82d4-b77712e79af3\",\"scryfall_uri\":\"https://scryfall.com/card/fdn/735/herald-of-faith?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-08-24T09:18:49Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/2/e/2e1705da-dc35-4bcb-82d4-b77712e79af3.jpg?1787563129\",\"normal\":\"https://cards.scryfall.io/normal/front/2/e/2e1705da-dc35-4bcb-82d4-b77712e79af3.jpg?1787563129\",\"large\":\"https://cards.scryfall.io/large/front/2/e/2e1705da-dc35-4bcb-82d4-b77712e79af3.jpg?1787563129\",\"png\":\"https://cards.scryfall.io/png/front/2/e/2e1705da-dc35-4bcb-82d4-b77712e79af3.png?1787563129\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/2/e/2e1705da-dc35-4bcb-82d4-b77712e79af3.jpg?1787563129\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/2/e/2e1705da-dc35-4bcb-82d4-b77712e79af3.jpg?1787563129\",\"thumb\":\"https://cards.scryfall.io/thumb/front/2/e/2e1705da-dc35-4bcb-82d4-b77712e79af3.webp?1787563129\",\"grid\":\"https://cards.scryfall.io/grid/front/2/e/2e1705da-dc35-4bcb-82d4-b77712e79af3.webp?1787563129\",\"display\":\"https://cards.scryfall.io/display/front/2/e/2e1705da-dc35-4bcb-82d4-b77712e79af3.webp?1787563129\",\"art\":\"https://cards.scryfall.io/art/front/2/e/2e1705da-dc35-4bcb-82d4-b77712e79af3.webp?1787563129\",\"crop\":\"https://cards.scryfall.io/crop/front/2/e/2e1705da-dc35-4bcb-82d4-b77712e79af3.webp?1787563129\"},\"mana_cost\":\"{3}{W}{W}\",\"cmc\":5,\"type_line\":\"Creature — Angel\",\"oracle_text\":\"Flying\\nWhenever this creature attacks, you gain 2 life.\",\"power\":\"4\",\"toughness\":\"3\",\"colors\":[\"W\"],\"color_identity\":[\"W\"],\"keywords\":[\"Flying\"],\"legalities\":{\"standard\":\"legal\",\"future\":\"legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"not_legal\",\"vintage\":\"legal\",\"penny\":\"not_legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"legal\",\"paupercommander\":\"not_legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"not_legal\"},\"games\":[\"paper\",\"arena\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":false,\"nonfoil\":true,\"finishes\":[\"nonfoil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"a7ecb771-d1b6-4dec-8cf5-8d45179f21e0\",\"set\":\"fdn\",\"set_name\":\"Foundations\",\"set_type\":\"core\",\"set_uri\":\"https://api.scryfall.com/sets/a7ecb771-d1b6-4dec-8cf5-8d45179f21e0\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Afdn&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/fdn?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/2e1705da-dc35-4bcb-82d4-b77712e79af3/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3Acb97da84-1d13-4795-b68a-2bf111a50067&unique=prints\",\"collector_number\":\"735\",\"digital\":false,\"rarity\":\"uncommon\",\"flavor_text\":\"The clerics prayed for salvation. The soldiers prayed for victory. Both prayers were answered.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Tommy Arnold\",\"artist_ids\":[\"1130bcd0-c8b1-48be-85d7-3ddb2abc6b1a\"],\"illustration_id\":\"db30f661-980f-4b5b-9eeb-511b1c9f11eb\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":false,\"story_spotlight\":false,\"promo_types\":[\"setextension\"],\"edhrec_rank\":17683,\"prices\":{\"usd\":\"0.25\",\"usd_foil\":null,\"usd_etched\":null,\"eur\":null,\"eur_foil\":null,\"tix\":null},\"related_uris\":{\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DHerald%2Bof%2BFaith\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DHerald%2Bof%2BFaith\",\"edhrec\":\"https://edhrec.com/route/?cc=Herald+of+Faith\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F695519%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=904187&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards?affiliate_id=scryfall&data%5Bsearch%5D=Herald+of+Faith&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "source_sha256": "b892863c7622b627448a55666d3b44be7d7691e4950eec977fc8144f3bf84325"
+      },
+      "spell": {
+        "functioning_zone": "stack",
+        "instructions": [],
+        "resolution": "permanent",
+        "targets": [],
+        "timing": "main_phase"
+      },
+      "triggered": [
+        {
+          "condition": {
+            "creature_attacked": {
+              "attacker": {
+                "subject": "source"
+              }
+            }
+          },
+          "functioning_zone": "battlefield",
+          "program": {
+            "functioning_zone": "stack",
+            "instructions": [
+              {
+                "amount": "2",
+                "op": "gain_life",
+                "recipient": "controller",
+                "source_block": 1
+              }
+            ],
+            "resolution": "instructions",
+            "targets": [],
+            "timing": "instant"
+          }
+        }
+      ]
+    },
+    {
+      "capabilities": [
+        "attack_trigger_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "life_gain_v1",
+        "triggered_ability_v1",
+        "trample_v1"
+      ],
+      "characteristics": {
+        "basic": false,
+        "color_identity": [
+          "G"
+        ],
+        "colors": [
+          "G"
+        ],
+        "kind": "creature",
+        "legendary": false,
+        "mana_cost": {
+          "colored": [
+            "G"
+          ],
+          "generic": "2"
+        },
+        "power": "4",
+        "subtypes": [
+          "Badger",
+          "Pest"
+        ],
+        "toughness": "2"
+      },
+      "intrinsic_zone": null,
+      "keywords": [
+        "trample"
+      ],
+      "name": "Shopkeeper's Bane",
+      "oracle_id": "e7572317-6bec-4fb0-81ac-76aec04f14ad",
+      "provenance": {
+        "abilities_json": "[{\"kind\":\"keywords\",\"keywords\":[{\"keyword\":\"trample\"}]},{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"attacks\",\"what\":{\"ref\":\"this\",\"noun\":\"creature\"}},\"effects\":[{\"steps\":[{\"effect\":\"gain-life\",\"who\":{\"player\":\"you\"},\"amount\":{\"amount\":\"fixed\",\"value\":2}}]}]}]",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "ast_sha256": "a1b59217a81817c0bf35ae5e73b0c9348d469abc682db1c77cc4d19aee62e96b",
+        "binding_sha256": "4c5506f96fd3d32087d3f49c3fbb3072615daf21c250140c62d9bdd3ec33c750",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "printing_id": "97f7fbb9-228c-4a74-975b-38d3b6cecb32",
+        "source_index": 34894,
+        "source_json": "{\"object\":\"card\",\"id\":\"97f7fbb9-228c-4a74-975b-38d3b6cecb32\",\"oracle_id\":\"e7572317-6bec-4fb0-81ac-76aec04f14ad\",\"multiverse_ids\":[],\"resource_id\":\"6D520114BFFEC1F1568C75EBFEB621516BB94AA98CA381981581F2AE1E9D28DF\",\"mtgo_id\":149817,\"arena_id\":102618,\"tcgplayer_id\":689514,\"cardmarket_id\":883048,\"name\":\"Shopkeeper's Bane\",\"lang\":\"en\",\"released_at\":\"2026-04-24\",\"uri\":\"https://api.scryfall.com/cards/97f7fbb9-228c-4a74-975b-38d3b6cecb32\",\"scryfall_uri\":\"https://scryfall.com/card/sos/159/shopkeepers-bane?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T00:47:36Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/9/7/97f7fbb9-228c-4a74-975b-38d3b6cecb32.jpg?1783903656\",\"normal\":\"https://cards.scryfall.io/normal/front/9/7/97f7fbb9-228c-4a74-975b-38d3b6cecb32.jpg?1783903656\",\"large\":\"https://cards.scryfall.io/large/front/9/7/97f7fbb9-228c-4a74-975b-38d3b6cecb32.jpg?1783903656\",\"png\":\"https://cards.scryfall.io/png/front/9/7/97f7fbb9-228c-4a74-975b-38d3b6cecb32.png?1783903656\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/9/7/97f7fbb9-228c-4a74-975b-38d3b6cecb32.jpg?1783903656\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/9/7/97f7fbb9-228c-4a74-975b-38d3b6cecb32.jpg?1783903656\",\"thumb\":\"https://cards.scryfall.io/thumb/front/9/7/97f7fbb9-228c-4a74-975b-38d3b6cecb32.webp?1783903656\",\"grid\":\"https://cards.scryfall.io/grid/front/9/7/97f7fbb9-228c-4a74-975b-38d3b6cecb32.webp?1783903656\",\"display\":\"https://cards.scryfall.io/display/front/9/7/97f7fbb9-228c-4a74-975b-38d3b6cecb32.webp?1783903656\",\"art\":\"https://cards.scryfall.io/art/front/9/7/97f7fbb9-228c-4a74-975b-38d3b6cecb32.webp?1783903656\",\"crop\":\"https://cards.scryfall.io/crop/front/9/7/97f7fbb9-228c-4a74-975b-38d3b6cecb32.webp?1783903656\"},\"mana_cost\":\"{2}{G}\",\"cmc\":3,\"type_line\":\"Creature — Badger Pest\",\"oracle_text\":\"Trample\\nWhenever this creature attacks, you gain 2 life.\",\"power\":\"4\",\"toughness\":\"2\",\"colors\":[\"G\"],\"color_identity\":[\"G\"],\"keywords\":[\"Trample\"],\"legalities\":{\"standard\":\"legal\",\"future\":\"legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"not_legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"mtgo\",\"arena\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":false,\"variation\":false,\"set_id\":\"e487c9ce-5e76-4756-bcd0-e4b7db5c38a3\",\"set\":\"sos\",\"set_name\":\"Secrets of Strixhaven\",\"set_type\":\"expansion\",\"set_uri\":\"https://api.scryfall.com/sets/e487c9ce-5e76-4756-bcd0-e4b7db5c38a3\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Asos&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/sos?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/97f7fbb9-228c-4a74-975b-38d3b6cecb32/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3Ae7572317-6bec-4fb0-81ac-76aec04f14ad&unique=prints\",\"collector_number\":\"159\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"\\\"Pests really live up to their name!\\\"\\n—Annia, disgruntled Ribtruss Town merchant\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Filipe Pagliuso\",\"artist_ids\":[\"64c537b4-a864-4051-9a24-fbdd22cb40b4\"],\"illustration_id\":\"3f8e2de9-2609-4587-a1be-667e6495ccfe\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":false,\"story_spotlight\":false,\"edhrec_rank\":11808,\"prices\":{\"usd\":\"0.14\",\"usd_foil\":\"0.25\",\"usd_etched\":null,\"eur\":\"0.12\",\"eur_foil\":\"0.11\",\"tix\":\"0.03\"},\"related_uris\":{\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DShopkeeper%2527s%2BBane\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DShopkeeper%2527s%2BBane\",\"edhrec\":\"https://edhrec.com/route/?cc=Shopkeeper%27s+Bane\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F689514%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=883048&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/149817?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "source_sha256": "74176887c3259b880d6876e0371f263bc6b57b423a9651e73402f5d67a7fc46b"
+      },
+      "spell": {
+        "functioning_zone": "stack",
+        "instructions": [],
+        "resolution": "permanent",
+        "targets": [],
+        "timing": "main_phase"
+      },
+      "triggered": [
+        {
+          "condition": {
+            "creature_attacked": {
+              "attacker": {
+                "subject": "source"
+              }
+            }
+          },
+          "functioning_zone": "battlefield",
+          "program": {
+            "functioning_zone": "stack",
+            "instructions": [
+              {
+                "amount": "2",
+                "op": "gain_life",
+                "recipient": "controller",
+                "source_block": 1
+              }
+            ],
+            "resolution": "instructions",
+            "targets": [],
+            "timing": "instant"
+          }
+        }
+      ]
+    },
+    {
+      "capabilities": [
+        "attack_trigger_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "controller_draw_v1",
+        "triggered_ability_v1"
+      ],
+      "characteristics": {
+        "basic": false,
+        "color_identity": [
+          "U"
+        ],
+        "colors": [
+          "U"
+        ],
+        "kind": "creature",
+        "legendary": false,
+        "mana_cost": {
+          "colored": [
+            "U"
+          ],
+          "generic": "2"
+        },
+        "power": "1",
+        "subtypes": [
+          "Merfolk",
+          "Rogue"
+        ],
+        "toughness": "2"
+      },
+      "intrinsic_zone": null,
+      "name": "Library Larcenist",
+      "oracle_id": "eb0e6f63-2861-4392-ac0e-64380fbbd8ae",
+      "provenance": {
+        "abilities_json": "[{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"attacks\",\"what\":{\"ref\":\"this\",\"noun\":\"creature\"}},\"effects\":[{\"steps\":[{\"effect\":\"draw\",\"who\":{\"player\":\"you\"},\"amount\":{\"amount\":\"fixed\",\"value\":1}}]}]}]",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "ast_sha256": "ec32eedbed4aaf5946e2c838dfee04c2bc48b3aa963d74623c4096c0cf664855",
+        "binding_sha256": "b6179535847b22e6e0b35d65efc7028b0c3c8365a45cb758c8cd51383d08d39c",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "printing_id": "cb33529b-80bd-4f52-94cc-d8371c53ad75",
+        "source_index": 35514,
+        "source_json": "{\"object\":\"card\",\"id\":\"cb33529b-80bd-4f52-94cc-d8371c53ad75\",\"oracle_id\":\"eb0e6f63-2861-4392-ac0e-64380fbbd8ae\",\"multiverse_ids\":[485378],\"mtgo_id\":81337,\"arena_id\":71837,\"tcgplayer_id\":215687,\"cardmarket_id\":470919,\"name\":\"Library Larcenist\",\"lang\":\"en\",\"released_at\":\"2020-07-03\",\"uri\":\"https://api.scryfall.com/cards/cb33529b-80bd-4f52-94cc-d8371c53ad75\",\"scryfall_uri\":\"https://scryfall.com/card/m21/55/library-larcenist?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T08:18:45Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/c/b/cb33529b-80bd-4f52-94cc-d8371c53ad75.jpg?1783930725\",\"normal\":\"https://cards.scryfall.io/normal/front/c/b/cb33529b-80bd-4f52-94cc-d8371c53ad75.jpg?1783930725\",\"large\":\"https://cards.scryfall.io/large/front/c/b/cb33529b-80bd-4f52-94cc-d8371c53ad75.jpg?1783930725\",\"png\":\"https://cards.scryfall.io/png/front/c/b/cb33529b-80bd-4f52-94cc-d8371c53ad75.png?1783930725\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/c/b/cb33529b-80bd-4f52-94cc-d8371c53ad75.jpg?1783930725\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/c/b/cb33529b-80bd-4f52-94cc-d8371c53ad75.jpg?1783930725\",\"thumb\":\"https://cards.scryfall.io/thumb/front/c/b/cb33529b-80bd-4f52-94cc-d8371c53ad75.webp?1783930725\",\"grid\":\"https://cards.scryfall.io/grid/front/c/b/cb33529b-80bd-4f52-94cc-d8371c53ad75.webp?1783930725\",\"display\":\"https://cards.scryfall.io/display/front/c/b/cb33529b-80bd-4f52-94cc-d8371c53ad75.webp?1783930725\",\"art\":\"https://cards.scryfall.io/art/front/c/b/cb33529b-80bd-4f52-94cc-d8371c53ad75.webp?1783930725\",\"crop\":\"https://cards.scryfall.io/crop/front/c/b/cb33529b-80bd-4f52-94cc-d8371c53ad75.webp?1783930725\"},\"mana_cost\":\"{2}{U}\",\"cmc\":3,\"type_line\":\"Creature — Merfolk Rogue\",\"oracle_text\":\"Whenever this creature attacks, draw a card.\",\"power\":\"1\",\"toughness\":\"2\",\"colors\":[\"U\"],\"color_identity\":[\"U\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"not_legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"legal\"},\"games\":[\"arena\",\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":false,\"variation\":false,\"set_id\":\"bc94aba1-7376-4e02-a12d-3a2efb66ab0f\",\"set\":\"m21\",\"set_name\":\"Core Set 2021\",\"set_type\":\"core\",\"set_uri\":\"https://api.scryfall.com/sets/bc94aba1-7376-4e02-a12d-3a2efb66ab0f\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Am21&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/m21?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/cb33529b-80bd-4f52-94cc-d8371c53ad75/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3Aeb0e6f63-2861-4392-ac0e-64380fbbd8ae&unique=prints\",\"collector_number\":\"55\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"\\\"I specialize in missing manuscripts, pilfered poetry, and lifted letters.\\\"\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Mila Pesic\",\"artist_ids\":[\"81c5ec23-220b-4efa-b7df-9e49dd371e8d\"],\"illustration_id\":\"dca070b4-6de6-4e51-86cf-32dd1013f1de\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":17357,\"preview\":{\"source\":\"Gaby Spartz\",\"source_uri\":\"https://www.youtube.com/watch?v=ttORPDfY3iw\",\"previewed_at\":\"2020-06-12\"},\"prices\":{\"usd\":\"0.21\",\"usd_foil\":\"0.31\",\"usd_etched\":null,\"eur\":\"0.12\",\"eur_foil\":\"0.21\",\"tix\":\"0.03\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=485378&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DLibrary%2BLarcenist\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DLibrary%2BLarcenist\",\"edhrec\":\"https://edhrec.com/route/?cc=Library+Larcenist\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F215687%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=470919&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/81337?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "source_sha256": "0a47d397c13658cf6d563d633b8c5177287cde1df19c42d35f8444efad25a6cf"
+      },
+      "spell": {
+        "functioning_zone": "stack",
+        "instructions": [],
+        "resolution": "permanent",
+        "targets": [],
+        "timing": "main_phase"
+      },
+      "triggered": [
+        {
+          "condition": {
+            "creature_attacked": {
+              "attacker": {
+                "subject": "source"
+              }
+            }
+          },
+          "functioning_zone": "battlefield",
+          "program": {
+            "functioning_zone": "stack",
+            "instructions": [
+              {
+                "count": "1",
+                "op": "draw_cards",
+                "source_block": 0
+              }
+            ],
+            "resolution": "instructions",
+            "targets": [],
+            "timing": "instant"
+          }
+        }
+      ]
+    },
+    {
+      "capabilities": [
+        "attack_trigger_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "life_loss_v1",
+        "triggered_ability_v1",
+        "sacrifice_v1"
+      ],
+      "characteristics": {
+        "basic": false,
+        "color_identity": [
+          "B"
+        ],
+        "colors": [
+          "B"
+        ],
+        "kind": "creature",
+        "legendary": false,
+        "mana_cost": {
+          "colored": [
+            "B"
+          ],
+          "generic": "0"
+        },
+        "power": "1",
+        "subtypes": [
+          "Vampire",
+          "Rogue"
+        ],
+        "toughness": "1"
+      },
+      "intrinsic_zone": null,
+      "name": "Pulse Tracker",
+      "oracle_id": "f916f689-a314-4952-8107-41c4c2f2e811",
+      "provenance": {
+        "abilities_json": "[{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"attacks\",\"what\":{\"ref\":\"this\",\"noun\":\"creature\"}},\"effects\":[{\"steps\":[{\"effect\":\"lose-life\",\"who\":{\"player\":\"each-opponent\"},\"amount\":{\"amount\":\"fixed\",\"value\":1}}]}]}]",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "ast_sha256": "072c4ff81093cb56fda69209d2545fe801ae48e24a7d21e1f3928ab0396319c6",
+        "binding_sha256": "c5cfc1a51428cdd3275de25a90e458bbf7ea1ed2115cbb505ad19a124031f033",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "printing_id": "7bc1441e-7d75-4a74-8733-19077dfa69b2",
+        "source_index": 37665,
+        "source_json": "{\"object\":\"card\",\"id\":\"7bc1441e-7d75-4a74-8733-19077dfa69b2\",\"oracle_id\":\"f916f689-a314-4952-8107-41c4c2f2e811\",\"multiverse_ids\":[],\"resource_id\":\"ADC852E5845F08EA935CC6F38A42C87108553318D43144428A4C25CA6252BC24\",\"tcgplayer_id\":695539,\"cardmarket_id\":904207,\"name\":\"Pulse Tracker\",\"lang\":\"en\",\"released_at\":\"2026-04-24\",\"uri\":\"https://api.scryfall.com/cards/7bc1441e-7d75-4a74-8733-19077dfa69b2\",\"scryfall_uri\":\"https://scryfall.com/card/fdn/755/pulse-tracker?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-08-24T09:13:55Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/7/b/7bc1441e-7d75-4a74-8733-19077dfa69b2.jpg?1787562835\",\"normal\":\"https://cards.scryfall.io/normal/front/7/b/7bc1441e-7d75-4a74-8733-19077dfa69b2.jpg?1787562835\",\"large\":\"https://cards.scryfall.io/large/front/7/b/7bc1441e-7d75-4a74-8733-19077dfa69b2.jpg?1787562835\",\"png\":\"https://cards.scryfall.io/png/front/7/b/7bc1441e-7d75-4a74-8733-19077dfa69b2.png?1787562835\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/7/b/7bc1441e-7d75-4a74-8733-19077dfa69b2.jpg?1787562835\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/7/b/7bc1441e-7d75-4a74-8733-19077dfa69b2.jpg?1787562835\",\"thumb\":\"https://cards.scryfall.io/thumb/front/7/b/7bc1441e-7d75-4a74-8733-19077dfa69b2.webp?1787562835\",\"grid\":\"https://cards.scryfall.io/grid/front/7/b/7bc1441e-7d75-4a74-8733-19077dfa69b2.webp?1787562835\",\"display\":\"https://cards.scryfall.io/display/front/7/b/7bc1441e-7d75-4a74-8733-19077dfa69b2.webp?1787562835\",\"art\":\"https://cards.scryfall.io/art/front/7/b/7bc1441e-7d75-4a74-8733-19077dfa69b2.webp?1787562835\",\"crop\":\"https://cards.scryfall.io/crop/front/7/b/7bc1441e-7d75-4a74-8733-19077dfa69b2.webp?1787562835\"},\"mana_cost\":\"{B}\",\"cmc\":1,\"type_line\":\"Creature — Vampire Rogue\",\"oracle_text\":\"Whenever this creature attacks, each opponent loses 1 life.\",\"power\":\"1\",\"toughness\":\"1\",\"colors\":[\"B\"],\"color_identity\":[\"B\"],\"keywords\":[],\"legalities\":{\"standard\":\"legal\",\"future\":\"legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"not_legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"arena\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":false,\"nonfoil\":true,\"finishes\":[\"nonfoil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"a7ecb771-d1b6-4dec-8cf5-8d45179f21e0\",\"set\":\"fdn\",\"set_name\":\"Foundations\",\"set_type\":\"core\",\"set_uri\":\"https://api.scryfall.com/sets/a7ecb771-d1b6-4dec-8cf5-8d45179f21e0\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Afdn&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/fdn?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/7bc1441e-7d75-4a74-8733-19077dfa69b2/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3Af916f689-a314-4952-8107-41c4c2f2e811&unique=prints\",\"collector_number\":\"755\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"\\\"You can't think your way out of this, Jace. Thought implies life, and life requires a pulse—music to a hunter's ears.\\\"\\n—Vraska\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Andrew Robinson\",\"artist_ids\":[\"cb577db7-7f47-4f78-8682-6eaef8a77bd1\"],\"illustration_id\":\"3ee03316-ddfe-4c31-abfb-d8402699f3d9\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":false,\"story_spotlight\":false,\"promo_types\":[\"setextension\"],\"edhrec_rank\":9928,\"penny_rank\":5513,\"prices\":{\"usd\":\"0.44\",\"usd_foil\":null,\"usd_etched\":null,\"eur\":null,\"eur_foil\":null,\"tix\":null},\"related_uris\":{\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DPulse%2BTracker\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DPulse%2BTracker\",\"edhrec\":\"https://edhrec.com/route/?cc=Pulse+Tracker\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F695539%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=904207&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards?affiliate_id=scryfall&data%5Bsearch%5D=Pulse+Tracker&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "source_sha256": "f127d241b1cc1e7c630b43de79e1f27e85a94a4105acba65166ecdfa97d3eadb"
+      },
+      "spell": {
+        "functioning_zone": "stack",
+        "instructions": [],
+        "resolution": "permanent",
+        "targets": [],
+        "timing": "main_phase"
+      },
+      "triggered": [
+        {
+          "condition": {
+            "creature_attacked": {
+              "attacker": {
+                "subject": "source"
+              }
+            }
+          },
+          "functioning_zone": "battlefield",
+          "program": {
+            "functioning_zone": "stack",
+            "instructions": [
+              {
+                "amount": "1",
+                "op": "lose_life",
+                "recipient": "each_opponent",
+                "source_block": 0
+              }
+            ],
+            "resolution": "instructions",
+            "targets": [],
+            "timing": "instant"
+          }
+        }
+      ]
+    }
+  ],
+  "rules_edition": "2026-09-25",
+  "rules_sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca",
+  "schema_version": 24
+}

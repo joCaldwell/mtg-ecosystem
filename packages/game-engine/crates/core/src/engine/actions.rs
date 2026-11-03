@@ -795,6 +795,7 @@ impl Game {
         }
     }
     pub(super) fn validate_resolving(&self, frame: &Resolving) -> Result<(), String> {
+        self.validate_trigger_entry(&frame.spell)?;
         self.validate_mode_binding(&frame.spell)?;
         self.validate_condition_cache(frame)?;
         self.validate_target_facts(frame)?;

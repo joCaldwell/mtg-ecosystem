@@ -234,6 +234,8 @@ mod damage_life;
 mod damage_life_tests;
 pub use damage_life::{NoncombatDamageOccurrence, TargetEntity};
 #[cfg(test)]
+mod attack_trigger_tests;
+#[cfg(test)]
 mod cast_trigger_tests;
 #[cfg(test)]
 mod step_trigger_tests;
