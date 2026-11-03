@@ -174,7 +174,7 @@ hash or semantic assertion was weakened to obtain a pass.
 
 No `npm run check:engine`, full workspace suite, full demonstration, all-profile
 batches/replays, SDK acceptance or end-to-end acceptance was run here. Independent
-final source review and the parent-owned combined gate remain pending.
+final source review passed; the parent-owned combined gate remains pending.
 
 Ignored evidence roots in this assigned worktree:
 
