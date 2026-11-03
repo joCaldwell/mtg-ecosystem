@@ -32,9 +32,26 @@ test("command measurement retains nonzero exit, CPU, scoped RSS and exact identi
   assert.ok(report.usage.system_seconds >= 0);
   assert.ok(report.usage.peak_rss_bytes > 0);
   assert.equal(report.usage.peak_rss_scope, "linux_wait4_largest_single_process_not_process_group_peak");
-  assert.equal(report.executable.path, fs.realpathSync(process.execPath));
+  assert.equal(report.executable.path, process.execPath);
+  assert.equal(report.executable.resolved_path, fs.realpathSync(process.execPath));
   assert.match(report.executable.sha256, /^[0-9a-f]{64}$/);
   assert.equal(report.measurement_drivers.length, 3);
+});
+
+test("measurement preserves a proxy's invoked name and uses the command environment PATH", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "mtg-engine-proxy-test-"));
+  const proxy = path.join(directory, "cargo");
+  const records: any[] = [];
+  try {
+    fs.symlinkSync(process.execPath, proxy);
+    const result = await measuredCommand("proxy", "cargo", ["-e", "process.exit(require('node:path').basename(process.argv0)==='cargo'?0:19)"], {
+      cwd: directory, env: { ...process.env, PATH: `${directory}${path.delimiter}${process.env.PATH}` }, record: value => records.push(value),
+    });
+    assert.equal(result.code, 0);
+    assert.equal(records[0].executable.path, proxy);
+    assert.equal(records[0].executable.resolved_path, fs.realpathSync(process.execPath));
+    assert.equal(records[0].command, proxy);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 
 test("advisory lock remains owned across commands and releases on failure", async () => {
@@ -89,7 +106,9 @@ test("cancellation while waiting for a lock never starts protected work", async 
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "mtg-engine-lock-cancel-"));
   const filename = path.join(directory, "cargo.lock");
   const ready = path.join(directory, "ready");
-  const holder = spawn("flock", ["--exclusive", filename, process.execPath, "-e", `require('node:fs').writeFileSync(${JSON.stringify(ready)},'ready'); setInterval(()=>{},1000)`], { detached: true, stdio: "ignore" });
+  // Stay in the gate's cancellation group, and exec the fixture in-place so
+  // normal cleanup has exactly one process to terminate (no orphan interval).
+  const holder = spawn("flock", ["--exclusive", "--no-fork", filename, process.execPath, "-e", `require('node:fs').writeFileSync(${JSON.stringify(ready)},'ready'); setInterval(()=>{},1000)`], { stdio: "ignore" });
   let signal: NodeJS.Timeout | undefined;
   let entered = false;
   const records: any[] = [];
@@ -99,6 +118,8 @@ test("cancellation while waiting for a lock never starts protected work", async 
       assert.ok(Date.now() < deadline, "lock holder should start");
       await new Promise(resolve => setTimeout(resolve, 10));
     }
+    const group = (pid: number) => fs.readFileSync(`/proc/${pid}/stat`, "utf8").split(")").at(-1)!.trim().split(/\s+/)[2];
+    assert.equal(group(holder.pid!), group(process.pid));
     signal = setTimeout(() => process.emit("SIGTERM"), 100);
     await assert.rejects(withAdvisoryLock(filename, { cwd: directory, record: value => records.push(value) }, async () => { entered = true; }), /Lock acquisition interrupted/);
     assert.equal(entered, false);
@@ -106,7 +127,7 @@ test("cancellation while waiting for a lock never starts protected work", async 
     assert.equal(records[0].signal, "SIGTERM");
   } finally {
     clearTimeout(signal);
-    if (holder.pid) process.kill(-holder.pid, "SIGTERM");
+    holder.kill("SIGTERM");
     await new Promise(resolve => holder.once("close", resolve));
     fs.rmSync(directory, { recursive: true, force: true });
   }

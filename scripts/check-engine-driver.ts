@@ -26,13 +26,17 @@ export function sourceIdentity(root: string) {
   return { git_head: git("rev-parse", "HEAD").trim(), git_tree: git("rev-parse", "HEAD^{tree}").trim(), worktree_inventory_sha256: digest(JSON.stringify(inventory)), files: names.length };
 }
 
-function executableIdentity(command: string) {
-  const candidates = command.includes(path.sep) ? [path.resolve(command)] : (process.env.PATH ?? "").split(path.delimiter).map(directory => path.join(directory, command));
+function executableIdentity(command: string, options: { cwd: string; env?: NodeJS.ProcessEnv }) {
+  const candidates = command.includes(path.sep)
+    ? [path.resolve(options.cwd, command)]
+    : ((options.env ?? process.env).PATH ?? "").split(path.delimiter).map(directory => path.resolve(options.cwd, directory, command));
   for (const candidate of candidates) {
     try {
       fs.accessSync(candidate, fs.constants.X_OK);
       const filename = fs.realpathSync(candidate);
-      return { path: filename, sha256: digest(fs.readFileSync(filename)) };
+      // Multicall proxies (including rustup's cargo symlink) select behavior
+      // using the invoked basename. Hash the target without invoking its name.
+      return { path: candidate, resolved_path: filename, sha256: digest(fs.readFileSync(filename)) };
     } catch { /* Try the next PATH entry. */ }
   }
   throw new Error(`Executable not found: ${command}`);
@@ -89,8 +93,8 @@ export const engineCheckPhases = [
 ] as const;
 
 export async function measuredCommand(label: string, command: string, args: string[], options: MeasurementOptions) {
-  const identity = executableIdentity(command);
-  const python = executableIdentity("python3");
+  const identity = executableIdentity(command, options);
+  const python = executableIdentity("python3", options);
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "mtg-engine-time-"));
   const output = path.join(directory, "usage.json");
   const started = performance.now();
