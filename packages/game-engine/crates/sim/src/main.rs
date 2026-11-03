@@ -936,6 +936,9 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
     ];
     trace_games.extend(combat_games.iter());
     let (mut trace_runs, trace_report) = trace_runs(&catalog, &trace_games)?;
+    // Trace evidence and reports own their data; release completed family games.
+    drop(trace_games);
+    drop(combat_games);
     let commander_catalog =
         mtg_compiler::catalog::embedded_catalog("commander").map_err(|e| e.to_string())?;
     let (commander, commander_games, commander_report) =
@@ -944,6 +947,8 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
     let (commander_traces, commander_trace_report) =
         crate::trace_runs(&commander_catalog, &commander_refs)?;
     trace_runs.extend(commander_traces);
+    drop(commander_refs);
+    drop(commander_games);
     let damage_catalog =
         mtg_compiler::catalog::embedded_catalog("damage").map_err(|e| e.to_string())?;
     let library_catalog =
@@ -967,6 +972,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
                 .cloned(),
         );
     }
+    drop(lifecycle_games);
     let action_catalog =
         mtg_compiler::catalog::embedded_catalog("action").map_err(|e| e.to_string())?;
     let (actions_payments, action_games, action_report) =
@@ -974,12 +980,16 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
     let action_refs = action_games.iter().collect::<Vec<_>>();
     let (action_traces, action_trace_report) = crate::trace_runs(&action_catalog, &action_refs)?;
     trace_runs.extend(action_traces);
+    drop(action_refs);
+    drop(action_games);
     let stack_catalog =
         mtg_compiler::catalog::embedded_catalog("stack").map_err(|e| e.to_string())?;
     let (stack_costs, stack_games, stack_report) = stack_costs_games::suite(&stack_catalog, false)?;
     let stack_refs = stack_games.iter().collect::<Vec<_>>();
     let (stack_traces, stack_trace_report) = crate::trace_runs(&stack_catalog, &stack_refs)?;
     trace_runs.extend(stack_traces);
+    drop(stack_refs);
+    drop(stack_games);
     let damage_life_catalog =
         mtg_compiler::catalog::embedded_catalog("damage-life").map_err(|e| e.to_string())?;
     let (damage_life, damage_life_games, damage_life_report) =
@@ -988,6 +998,8 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
     let (damage_life_traces, damage_life_trace_report) =
         crate::trace_runs(&damage_life_catalog, &damage_life_refs)?;
     trace_runs.extend(damage_life_traces);
+    drop(damage_life_refs);
+    drop(damage_life_games);
     let trigger_catalog =
         mtg_compiler::catalog::embedded_catalog("trigger").map_err(|e| e.to_string())?;
     let (triggers, trigger_games, trigger_report) = triggers_games::suite(&trigger_catalog, false)?;
@@ -995,18 +1007,24 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
     let (trigger_traces, trigger_trace_report) =
         crate::trace_runs(&trigger_catalog, &trigger_refs)?;
     trace_runs.extend(trigger_traces);
+    drop(trigger_refs);
+    drop(trigger_games);
     let effect_catalog =
         mtg_compiler::catalog::embedded_catalog("effects").map_err(|e| e.to_string())?;
     let (effects, effect_games, effect_report) = effects_games::suite(&effect_catalog, false)?;
     let effect_refs = effect_games.iter().collect::<Vec<_>>();
     let (effect_traces, effect_trace_report) = crate::trace_runs(&effect_catalog, &effect_refs)?;
     trace_runs.extend(effect_traces);
+    drop(effect_refs);
+    drop(effect_games);
     let choice_catalog =
         mtg_compiler::catalog::embedded_catalog("choices").map_err(|e| e.to_string())?;
     let (choices, choice_games, choice_report) = choices_games::suite(&choice_catalog, false)?;
     let choice_refs = choice_games.iter().collect::<Vec<_>>();
     let (choice_traces, choice_trace_report) = crate::trace_runs(&choice_catalog, &choice_refs)?;
     trace_runs.extend(choice_traces);
+    drop(choice_refs);
+    drop(choice_games);
     let match_catalog =
         mtg_compiler::catalog::embedded_catalog("match").map_err(|e| e.to_string())?;
     let (matches, match_report) = match_games::suite(&match_catalog)?;
@@ -1837,14 +1855,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some("demo") if args.len() == 1 || (args.len() == 3 && args[1] == "--bundle") => {
             let (bundle, report) = demo()?;
-            verify_bundle(&canonical(&bundle)?)?;
+            let bytes = canonical(&bundle)?;
+            drop(bundle);
+            verify_bundle(&bytes)?;
             if args.len() == 3 {
                 fs::create_dir_all(&args[2])?;
-                let bytes = canonical(&bundle)?;
                 let path = Path::new(&args[2]).join(format!("{}.json", sha256(bytes.as_bytes())));
-                fs::write(&path, bytes)?;
+                fs::write(&path, &bytes)?;
                 eprintln!("replay bundle: {}", path.display());
             }
+            drop(bytes);
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
         Some("verify-bundle") if args.len() == 2 => {
