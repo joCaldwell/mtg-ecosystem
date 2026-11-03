@@ -100,6 +100,7 @@ export function commanderDevelopmentPolicy(
     case 'blockers': return { response: 'blockers', blocks: [] };
     case 'commander_return': return { response: 'commander_return', to_command: true };
     case 'discard': return { response: 'discard', objects: firstHandles(request.candidates, request.count) };
+    case 'legend_rule': return fail();
     default: return fail();
   }
 }

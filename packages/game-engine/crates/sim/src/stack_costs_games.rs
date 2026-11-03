@@ -257,6 +257,9 @@ impl Strategy {
         let v = &o.view;
         let r = o.decision.as_ref().ok_or("missing stack/cost decision")?;
         Ok(match r {
+            PlayerRequest::LegendRule { candidates, .. } => PlayerResponse::LegendRule {
+                keep: candidates.last().ok_or("empty legend choices")?.clone(),
+            },
             PlayerRequest::AnnounceX { .. } => {
                 return Err("X request unsupported by this completion policy".into());
             }

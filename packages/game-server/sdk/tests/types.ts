@@ -26,6 +26,7 @@ const rawReceipt: PlayerResponse = { response: 'raw_receipt', receipt: {} };
 // enum addition deliberately makes this compile check fail until reviewed.
 export function exhaustive(response: PlayerResponse): string {
   switch (response.response) {
+    case 'legend_rule': return response.keep;
     case 'announce_x': return response.value;
     case 'mulligan': return String(response.take);
     case 'bottom_opening': return response.objects.join(',');

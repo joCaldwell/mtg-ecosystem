@@ -105,6 +105,7 @@ impl Strategy<'_> {
         let v = &o.view;
         let request = o.decision.as_ref().ok_or("missing match request")?;
         Ok(match request {
+            PlayerRequest::LegendRule { candidates, .. } => self.legend_choice(candidates)?,
             PlayerRequest::AnnounceX { .. } => PlayerResponse::AnnounceX {
                 value: self
                     .top_program(v)

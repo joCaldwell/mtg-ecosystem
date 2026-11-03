@@ -10,7 +10,9 @@ fn catalog() -> Catalog {
     .unwrap()
 }
 fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
-    let c = catalog();
+    prepared_in(catalog(), rows)
+}
+fn prepared_in(c: Catalog, rows: &[(&str, u8, bool)]) -> Prepared {
     let mut cards = rows
         .iter()
         .enumerate()
@@ -1339,5 +1341,519 @@ fn artifact_creature_cast_is_both_an_artifact_spell_and_a_creature_permanent() {
             !attackers(g).contains(&object(g, 0)),
             "a newly cast artifact creature is summoning sick"
         );
+    });
+}
+
+#[test]
+fn legend_rule_controller_keeps_each_permanent_type_through_public_choices_and_replay() {
+    // CR 704.5j applies to every legendary permanent, independently of owner.
+    for kind in [
+        CardKind::Creature,
+        CardKind::Artifact,
+        CardKind::Enchantment,
+        CardKind::Land,
+    ] {
+        let name = catalog()
+            .definitions
+            .iter()
+            .find(|d| {
+                d.characteristics.kind == kind
+                    && d.characteristics
+                        .subtypes
+                        .iter()
+                        .all(|s| s != "Aura" && s != "Equipment")
+            })
+            .unwrap()
+            .name
+            .clone();
+        for trace in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+            let mut p = prepared(&[(&name, 0, false), (&name, 0, false), (&name, 1, false)]);
+            let d = Arc::make_mut(&mut p.catalog)
+                .definitions
+                .iter_mut()
+                .find(|d| d.name == name)
+                .unwrap();
+            d.characteristics.legendary = true;
+            d.capabilities = d.requirements();
+            d.validate().unwrap();
+            p.catalog_digest = digest(p.catalog.as_ref()).unwrap();
+            let mut g = Game::with_trace(p.clone(), trace);
+            answer(&mut g, Response::Pass);
+            let (first, keep, opponent) = (object(&g, 0), object(&g, 1), object(&g, 2));
+            let Advance::AwaitingDecision(Request::LegendRule {
+                player, candidates, ..
+            }) = g.advance(Budget::unlimited())
+            else {
+                panic!("legend choice")
+            };
+            assert_eq!(player, PlayerId(0));
+            assert_eq!(candidates, [first, keep]);
+            assert!(
+                g.respond(PlayerId(1), g.state.revision, Response::LegendRule { keep })
+                    .is_err()
+            );
+            assert!(
+                g.respond(
+                    player,
+                    g.state.revision,
+                    Response::LegendRule { keep: opponent }
+                )
+                .is_err()
+            );
+            let QueryResult::Complete(QueryValue::Observation(observation)) =
+                g.observe(player, Budget::unlimited())
+            else {
+                panic!("observation")
+            };
+            let Some(PlayerRequest::LegendRule {
+                token, candidates, ..
+            }) = observation.decision
+            else {
+                panic!("public legend choice")
+            };
+            check(&g);
+            let response = PlayerResponse::LegendRule {
+                keep: candidates[1].clone(),
+            };
+            let QueryResult::Complete(QueryValue::Validated(receipt)) =
+                g.check_player_response(player, token, response, Budget::unlimited())
+            else {
+                panic!("validated choice")
+            };
+            g.submit(receipt).unwrap();
+            assert!(matches!(
+                g.advance(Budget::unlimited()),
+                Advance::AwaitingDecision(_)
+            ));
+            assert_eq!(g.zone(keep), Some(Zone::Battlefield));
+            assert_eq!(g.zone(opponent), Some(Zone::Battlefield));
+            assert!(g.current(first).is_err());
+            assert_eq!(
+                g.state.objects[&first.card].zone,
+                Zone::Graveyard { owner: PlayerId(0) }
+            );
+            let replay = Game::replay(p.clone(), &g.replay_journal()).unwrap();
+            assert_eq!(replay.state_digest().unwrap(), g.state_digest().unwrap());
+            let restored = Game::restore(p, &g.snapshot().unwrap()).unwrap();
+            assert_eq!(restored.state_digest().unwrap(), g.state_digest().unwrap());
+        }
+    }
+}
+
+#[test]
+fn legend_wave_finishes_before_fresh_commander_graveyard_return_choices() {
+    // CR 704.5j / 903.9a: first put every unkept legend into its owner's
+    // graveyard simultaneously, then offer the commanders' new incarnations.
+    let mut p = prepared(&[
+        ("Isamaru, Hound of Konda", 0, false),
+        ("Isamaru, Hound of Konda", 0, false),
+        ("Isamaru, Hound of Konda", 1, false),
+        ("Isamaru, Hound of Konda", 1, false),
+    ]);
+    p.config.commanders = vec![CardId(0), CardId(2)];
+    p.profile_digest = digest(&p.config).unwrap();
+    traces(p, |g| {
+        answer(g, Response::Pass);
+        let first = object(g, 0);
+        let second = object(g, 2);
+        answer(g, Response::LegendRule { keep: object(g, 1) });
+        assert!(matches!(
+            request(g),
+            Request::LegendRule {
+                player: PlayerId(1),
+                ..
+            }
+        ));
+        assert_eq!(g.zone(first), Some(Zone::Battlefield));
+        assert_eq!(g.zone(second), Some(Zone::Battlefield));
+        answer(g, Response::LegendRule { keep: object(g, 3) });
+        let r = request(g);
+        for (old, owner) in [(first, PlayerId(0)), (second, PlayerId(1))] {
+            assert!(g.current(old).is_err());
+            assert_eq!(g.state.objects[&old.card].zone, Zone::Graveyard { owner });
+        }
+        assert!(
+            matches!(r, Request::CommanderReturn { player: PlayerId(0), object, .. } if object == self::object(g, 0))
+        );
+        check(g);
+        answer(g, Response::CommanderReturn { to_command: true });
+        assert!(
+            matches!(request(g), Request::CommanderReturn { player: PlayerId(1), object, .. } if object == self::object(g, 2))
+        );
+        check(g);
+        answer(g, Response::CommanderReturn { to_command: false });
+        request(g);
+        assert_eq!(
+            g.state.objects[&first.card].zone,
+            Zone::Command { owner: PlayerId(0) }
+        );
+        assert_eq!(
+            g.state.objects[&second.card].zone,
+            Zone::Graveyard { owner: PlayerId(1) }
+        );
+        assert_eq!(g.zone(object(g, 1)), Some(Zone::Battlefield));
+        assert_eq!(g.zone(object(g, 3)), Some(Zone::Battlefield));
+    });
+}
+
+#[test]
+fn artifact_land_survives_nonland_wipe_and_is_removed_by_artifact_removal() {
+    let mut p = prepared(&[("Forest", 0, false)]);
+    let d = Arc::make_mut(&mut p.catalog)
+        .definitions
+        .iter_mut()
+        .find(|d| d.oracle_id == FOREST)
+        .unwrap();
+    d.characteristics.additional_types = vec![CardKind::Artifact];
+    d.capabilities = d.requirements();
+    assert!(!d.capabilities.contains(&Capability::CastArtifactV1));
+    d.validate().unwrap();
+    p.catalog_digest = digest(p.catalog.as_ref()).unwrap();
+    let mut g = Game::new(p);
+    let land = object(&g, 0);
+    assert!(
+        !g.objects_in_set(&ObjectSet::NonlandPermanents, PlayerId(0))
+            .contains(&land)
+    );
+    // The actual nonland wipe operator freezes this set before moving anything.
+    for object in g.objects_in_set(&ObjectSet::NonlandPermanents, PlayerId(0)) {
+        g.commit(
+            ProposedEvent::DestroyPermanent { object },
+            BatchCause::StateBased,
+        )
+        .unwrap();
+    }
+    assert_eq!(g.zone(land), Some(Zone::Battlefield));
+    let target = TargetSpec {
+        slot: 0,
+        selection_id: "artifact".into(),
+        chooser: Chooser::Controller,
+        stage: EvaluationStage::Announcement,
+        domain: TargetDomain::BattlefieldPermanent,
+        filter: Some(PermanentFilter {
+            types: vec![CardKind::Artifact],
+            non_types: vec![],
+            non_colors: vec![],
+            opponent: false,
+        }),
+    };
+    assert!(g.permanent_target_legal(land, PlayerId(1), &target));
+    g.commit(
+        ProposedEvent::DestroyPermanent { object: land },
+        BatchCause::StateBased,
+    )
+    .unwrap();
+    assert_eq!(
+        g.state.objects[&land.card].zone,
+        Zone::Graveyard { owner: PlayerId(0) }
+    );
+}
+
+#[test]
+fn legend_rule_choices_are_apnap_and_share_the_lethal_damage_wave() {
+    let mut p = prepared(&[
+        ("Grizzly Bears", 0, false),
+        ("Grizzly Bears", 0, false),
+        ("Grizzly Bears", 1, false),
+        ("Grizzly Bears", 1, false),
+    ]);
+    let d = Arc::make_mut(&mut p.catalog)
+        .definitions
+        .iter_mut()
+        .find(|d| d.oracle_id == BEARS)
+        .unwrap();
+    d.characteristics.legendary = true;
+    d.capabilities = d.requirements();
+    p.catalog_digest = digest(p.catalog.as_ref()).unwrap();
+    let mut g = Game::new(p);
+    let (a, b, c, d) = (object(&g, 0), object(&g, 1), object(&g, 2), object(&g, 3));
+    // A kept legend can still die from another simultaneous SBA (704.3).
+    g.state.objects.get_mut(&a.card).unwrap().marked_damage = Quantity::from(2);
+    answer(&mut g, Response::Pass);
+    let Advance::AwaitingDecision(r) = g.advance(Budget::unlimited()) else {
+        panic!("legend")
+    };
+    assert_eq!(r.player(), PlayerId(0));
+    g.respond(
+        r.player(),
+        r.decision_id(),
+        Response::LegendRule { keep: a },
+    )
+    .unwrap();
+    let Advance::AwaitingDecision(r) = g.advance(Budget::unlimited()) else {
+        panic!("second legend")
+    };
+    assert!(matches!(&r, Request::LegendRule{previous_choices,..} if previous_choices == &[a]));
+    assert_eq!(r.player(), PlayerId(1));
+    assert!(
+        [a, b, c, d]
+            .iter()
+            .all(|o| g.zone(*o) == Some(Zone::Battlefield))
+    );
+    g.respond(
+        r.player(),
+        r.decision_id(),
+        Response::LegendRule { keep: d },
+    )
+    .unwrap();
+    g.advance(Budget::unlimited());
+    assert_eq!(g.zone(d), Some(Zone::Battlefield));
+    assert!([a, b, c].iter().all(|o| g.current(*o).is_err()));
+    assert!(g.trace().records.iter().any(|r| matches!(&r.record,
+        EvidenceRecord::Batch {batch} if batch.cause == BatchCause::StateBased
+        && batch.before.objects.iter().filter(|o|[a,b,c].contains(&o.object)).count()==3)));
+}
+
+#[test]
+fn flash_casts_permanent_spells_on_opponents_turns_and_in_response_with_paired_rejections() {
+    // CR 702.8a: use exactly the instant timing window, keeping normal payment
+    // and stack resolution. Test all supported nonland permanent execution kinds.
+    for kind in [
+        CardKind::Creature,
+        CardKind::Artifact,
+        CardKind::Enchantment,
+    ] {
+        let name = catalog()
+            .definitions
+            .iter()
+            .find(|d| {
+                d.characteristics.kind == kind
+                    && d.triggered.is_empty()
+                    && d.characteristics
+                        .subtypes
+                        .iter()
+                        .all(|s| s != "Aura" && s != "Equipment")
+            })
+            .unwrap()
+            .name
+            .clone();
+        let mut p = prepared(&[(&name, 0, true), (&name, 1, true)]);
+        Arc::make_mut(&mut p.catalog).schema_version = 20;
+        p.config.initial.turn_step = TurnStep::PrecombatMain;
+        let d = Arc::make_mut(&mut p.catalog)
+            .definitions
+            .iter_mut()
+            .find(|d| d.name == name)
+            .unwrap();
+        d.characteristics.mana_cost = ManaCost {
+            generic: Quantity::zero(),
+            colored: vec![],
+        };
+        let mut ordinary = p.clone();
+        let d = Arc::make_mut(&mut p.catalog)
+            .definitions
+            .iter_mut()
+            .find(|d| d.name == name)
+            .unwrap();
+        d.keywords.push(KeywordAbility::Flash);
+        d.spell.as_mut().unwrap().timing = SpellTiming::Instant;
+        d.capabilities = d.requirements();
+        d.validate().unwrap();
+        p.catalog_digest = digest(p.catalog.as_ref()).unwrap();
+        ordinary.catalog_digest = digest(ordinary.catalog.as_ref()).unwrap();
+        for response_window in [false, true] {
+            let mut g = Game::new(ordinary.clone());
+            if response_window {
+                announce(&mut g, 0, vec![]);
+            }
+            priority_for(&mut g, 1);
+            let r = request(&mut g);
+            let before = g.state_digest().unwrap();
+            assert!(
+                g.respond(
+                    PlayerId(1),
+                    r.decision_id(),
+                    Response::Cast { card: CardId(1) }
+                )
+                .is_err()
+            );
+            assert_eq!(g.state_digest().unwrap(), before);
+            traces(p.clone(), |g| {
+                if response_window {
+                    announce(g, 0, vec![]);
+                }
+                priority_for(g, 1);
+                assert_eq!(g.state.active, Some(PlayerId(0)));
+                announce(g, 1, vec![]);
+                assert_eq!(g.state.stack.len(), if response_window { 2 } else { 1 });
+                resolve(g, vec![]);
+                assert_eq!(g.state.objects[&CardId(1)].zone, Zone::Battlefield);
+            });
+        }
+    }
+}
+
+#[test]
+fn enters_tapped_replaces_land_and_nonland_entry_before_any_priority_window() {
+    let mut p = prepared(&[("Forest", 0, true), ("Grizzly Bears", 0, true)]);
+    Arc::make_mut(&mut p.catalog).schema_version = 20;
+    for d in Arc::make_mut(&mut p.catalog)
+        .definitions
+        .iter_mut()
+        .filter(|d| [FOREST, BEARS].contains(&d.oracle_id.as_str()))
+    {
+        d.static_abilities.push(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::EntersTapped,
+        });
+        if d.characteristics.kind == CardKind::Creature {
+            d.characteristics.mana_cost = ManaCost {
+                generic: Quantity::zero(),
+                colored: vec![],
+            };
+        }
+        d.capabilities = d.requirements();
+        d.validate().unwrap();
+    }
+    p.catalog_digest = digest(p.catalog.as_ref()).unwrap();
+    traces(p, |g| {
+        reach(g, TurnStep::PrecombatMain);
+        answer(g, Response::PlayLand { card: CardId(0) });
+        request(g);
+        let land = object(g, 0);
+        assert!(g.current(land).unwrap().tapped);
+        let r = request(g);
+        assert!(
+            g.respond(
+                r.player(),
+                r.decision_id(),
+                Response::ActivateMana { object: land }
+            )
+            .is_err()
+        );
+        cast(g, 1, vec![]);
+        assert!(g.current(object(g, 1)).unwrap().tapped);
+        // Entry itself is the only event; there is no subsequent Tap outcome.
+        assert!(!g.events().iter().any(|e| matches!(
+            e,
+            Event::Committed {
+                actual: EventOutcome::Tapped { .. },
+                ..
+            }
+        )));
+    });
+}
+
+fn d2b_source_catalog() -> Catalog {
+    let mut c = catalog();
+    c.schema_version = 20;
+    c.definitions.extend(
+        Catalog::read(include_str!(
+            "../../../../tests/fixtures/cards-data-d2b/expected-ir.json"
+        ))
+        .unwrap()
+        .definitions,
+    );
+    c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    c.validate().unwrap();
+    c
+}
+
+#[test]
+fn archived_flash_sources_pay_and_resolve_in_response_on_an_opponents_turn() {
+    let mut rows = vec![("Ambush Viper", 1, true), ("Daring Thunder-Thief", 1, true)];
+    rows.extend(vec![("Forest", 1, false); 2]);
+    rows.extend(vec![("Island", 1, false); 4]);
+    traces(prepared_in(d2b_source_catalog(), &rows), |g| {
+        reach(g, TurnStep::PrecombatMain);
+        priority_for(g, 1);
+        announce(g, 0, vec![]);
+        announce(g, 1, vec![]);
+        assert_eq!(g.state.active, Some(PlayerId(0)));
+        assert_eq!(g.state.stack.len(), 2);
+        resolve(g, vec![]);
+        assert!(!g.current(object(g, 0)).unwrap().tapped);
+        assert!(g.current(object(g, 1)).unwrap().tapped);
+        assert!(
+            g.current_keywords(object(g, 0))
+                .contains(&KeywordAbility::Deathtouch)
+        );
+    });
+}
+
+#[test]
+fn archived_bound_self_names_and_artifact_entry_replacements_execute_generically() {
+    let mut rows = vec![
+        ("Timeless Lotus", 0, true),
+        ("Moss Diamond", 0, true),
+        ("Winter Soldier, Bucky Barnes", 0, true),
+    ];
+    rows.extend(vec![("Forest", 0, false); 7]);
+    rows.push(("Plains", 0, false));
+    traces(prepared_in(d2b_source_catalog(), &rows), |g| {
+        for id in 0..3 {
+            cast(g, id, vec![]);
+            let object = object(g, id);
+            assert!(g.current(object).unwrap().tapped);
+            let r = request(g);
+            assert!(
+                g.respond(
+                    r.player(),
+                    r.decision_id(),
+                    Response::ActivateMana { object }
+                )
+                .is_err()
+            );
+        }
+    });
+}
+
+#[test]
+fn legend_rule_uses_controller_choices_owner_graveyards_and_revalidates_departures() {
+    let mut p = prepared(&[
+        ("Grizzly Bears", 0, false),
+        ("Grizzly Bears", 0, false),
+        ("Grizzly Bears", 1, false),
+        ("Grizzly Bears", 1, false),
+    ]);
+    let d = Arc::make_mut(&mut p.catalog)
+        .definitions
+        .iter_mut()
+        .find(|d| d.oracle_id == BEARS)
+        .unwrap();
+    d.characteristics.legendary = true;
+    d.capabilities = d.requirements();
+    p.catalog_digest = digest(p.catalog.as_ref()).unwrap();
+    // Borrowed legend: controller chooses, but the other card's owner receives it.
+    let mut borrowed = p.clone();
+    borrowed.config.cards[1].owner = PlayerId(2);
+    borrowed.profile_digest = digest(&borrowed.config).unwrap();
+    traces(borrowed, |g| {
+        answer(g, Response::Pass);
+        answer(g, Response::LegendRule { keep: object(g, 0) });
+        answer(g, Response::LegendRule { keep: object(g, 2) });
+        request(g);
+        assert_eq!(
+            g.state.objects[&CardId(1)].zone,
+            Zone::Graveyard { owner: PlayerId(2) }
+        );
+    });
+    traces(p, |g| {
+        answer(g, Response::Pass);
+        answer(g, Response::LegendRule { keep: object(g, 0) });
+        let r = request(g);
+        assert_eq!(r.player(), PlayerId(1));
+        let stale_id = r.decision_id();
+        g.concede(PlayerId(0)).unwrap();
+        let r = request(g);
+        assert!(
+            matches!(&r,Request::LegendRule{player:PlayerId(1),previous_choices,..} if previous_choices.is_empty())
+        );
+        assert!(
+            g.respond(
+                PlayerId(1),
+                stale_id,
+                Response::LegendRule { keep: object(g, 2) }
+            )
+            .is_err()
+        );
+        answer(g, Response::LegendRule { keep: object(g, 3) });
+        request(g);
+        assert!(!g.state.objects.contains_key(&CardId(0)));
+        assert_eq!(
+            g.state.objects[&CardId(2)].zone,
+            Zone::Graveyard { owner: PlayerId(1) }
+        );
+        assert_eq!(g.zone(object(g, 3)), Some(Zone::Battlefield));
     });
 }

@@ -1,0 +1,325 @@
+{
+  "schema_version": 20,
+  "rules_edition": "2026-09-25",
+  "rules_sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca",
+  "definitions": [
+    {
+      "oracle_id": "02500f21-6e15-423e-93ff-891e09fe9904",
+      "name": "Moss Diamond",
+      "characteristics": {
+        "kind": "artifact",
+        "subtypes": [],
+        "basic": false,
+        "legendary": false,
+        "mana_cost": {
+          "generic": "2",
+          "colored": []
+        },
+        "colors": [],
+        "color_identity": [
+          "G"
+        ],
+        "power": null,
+        "toughness": null
+      },
+      "intrinsic_zone": null,
+      "spell": {
+        "timing": "main_phase",
+        "resolution": "permanent",
+        "functioning_zone": "stack",
+        "targets": [],
+        "instructions": []
+      },
+      "mana_abilities": [
+        {
+          "costs": {
+            "tap": true,
+            "sacrifice": false
+          },
+          "production": {
+            "mana": "fixed",
+            "symbols": [
+              "G"
+            ]
+          },
+          "source_block": 1
+        }
+      ],
+      "static_abilities": [
+        {
+          "functioning_zone": "battlefield",
+          "effect": "enters_tapped"
+        }
+      ],
+      "capabilities": [
+        "enters_tapped_v1",
+        "cast_artifact_v1",
+        "permanent_mana_v1",
+        "normal_layout_v1"
+      ],
+      "provenance": {
+        "printing_id": "96fcae3a-d58c-4832-8280-3f65b5dfd853",
+        "source_index": 384,
+        "source_sha256": "aa6cdd24e4d90c0c72c7365b715706d93575ec3f610eb3add4f0469dafeea613",
+        "ast_sha256": "d40e02dfaa83981f0d23588e64b5c0ff792f78275b183bcaf8da91d9edf060a1",
+        "binding_sha256": "a5dcdb91675371c178cf38aa92ddae21af41d6bdf3e462c112d6949ee31631bb",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "source_json": "{\"object\":\"card\",\"id\":\"96fcae3a-d58c-4832-8280-3f65b5dfd853\",\"oracle_id\":\"02500f21-6e15-423e-93ff-891e09fe9904\",\"multiverse_ids\":[563210],\"tcgplayer_id\":272574,\"cardmarket_id\":658522,\"name\":\"Moss Diamond\",\"lang\":\"en\",\"released_at\":\"2022-06-10\",\"uri\":\"https://api.scryfall.com/cards/96fcae3a-d58c-4832-8280-3f65b5dfd853\",\"scryfall_uri\":\"https://scryfall.com/card/clb/327/moss-diamond?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T06:04:31Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/9/6/96fcae3a-d58c-4832-8280-3f65b5dfd853.jpg?1783922671\",\"normal\":\"https://cards.scryfall.io/normal/front/9/6/96fcae3a-d58c-4832-8280-3f65b5dfd853.jpg?1783922671\",\"large\":\"https://cards.scryfall.io/large/front/9/6/96fcae3a-d58c-4832-8280-3f65b5dfd853.jpg?1783922671\",\"png\":\"https://cards.scryfall.io/png/front/9/6/96fcae3a-d58c-4832-8280-3f65b5dfd853.png?1783922671\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/9/6/96fcae3a-d58c-4832-8280-3f65b5dfd853.jpg?1783922671\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/9/6/96fcae3a-d58c-4832-8280-3f65b5dfd853.jpg?1783922671\",\"thumb\":\"https://cards.scryfall.io/thumb/front/9/6/96fcae3a-d58c-4832-8280-3f65b5dfd853.webp?1783922671\",\"grid\":\"https://cards.scryfall.io/grid/front/9/6/96fcae3a-d58c-4832-8280-3f65b5dfd853.webp?1783922671\",\"display\":\"https://cards.scryfall.io/display/front/9/6/96fcae3a-d58c-4832-8280-3f65b5dfd853.webp?1783922671\",\"art\":\"https://cards.scryfall.io/art/front/9/6/96fcae3a-d58c-4832-8280-3f65b5dfd853.webp?1783922671\",\"crop\":\"https://cards.scryfall.io/crop/front/9/6/96fcae3a-d58c-4832-8280-3f65b5dfd853.webp?1783922671\"},\"mana_cost\":\"{2}\",\"cmc\":2,\"type_line\":\"Artifact\",\"oracle_text\":\"This artifact enters tapped.\\n{T}: Add {G}.\",\"colors\":[],\"color_identity\":[\"G\"],\"keywords\":[],\"produced_mana\":[\"G\"],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"not_legal\",\"timeless\":\"not_legal\",\"gladiator\":\"not_legal\",\"pioneer\":\"not_legal\",\"modern\":\"not_legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"not_legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"not_legal\",\"competitivebrawl\":\"not_legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"legal\",\"predh\":\"legal\",\"tlr\":\"legal\"},\"games\":[\"paper\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"5e4c3fe8-fd57-4b20-ad56-c03790a16cea\",\"set\":\"clb\",\"set_name\":\"Commander Legends: Battle for Baldur's Gate\",\"set_type\":\"draft_innovation\",\"set_uri\":\"https://api.scryfall.com/sets/5e4c3fe8-fd57-4b20-ad56-c03790a16cea\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Aclb&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/clb?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/96fcae3a-d58c-4832-8280-3f65b5dfd853/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A02500f21-6e15-423e-93ff-891e09fe9904&unique=prints\",\"collector_number\":\"327\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"Every facet a promise of Chauntea's bounty.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Gaboleps\",\"artist_ids\":[\"0c37cdfe-5651-4ae6-a3c8-e7153509f970\"],\"illustration_id\":\"d900a418-549a-4d72-9d14-869b61ae88d3\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":4408,\"penny_rank\":12074,\"prices\":{\"usd\":\"0.24\",\"usd_foil\":\"0.33\",\"usd_etched\":null,\"eur\":\"0.14\",\"eur_foil\":\"0.21\",\"tix\":null},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=563210&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DMoss%2BDiamond\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DMoss%2BDiamond\",\"edhrec\":\"https://edhrec.com/route/?cc=Moss+Diamond\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F272574%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=658522&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards?affiliate_id=scryfall&data%5Bsearch%5D=Moss+Diamond&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "abilities_json": "[{\"kind\":\"static\",\"effect\":{\"static\":\"enters-tapped\",\"what\":{\"ref\":\"this\",\"noun\":\"artifact\"}}},{\"kind\":\"activated\",\"costs\":[{\"cost\":\"tap-self\"}],\"effects\":[{\"steps\":[{\"effect\":\"add-mana\",\"who\":{\"player\":\"you\"},\"mana\":{\"mana\":\"fixed\",\"symbols\":[\"G\"]}}]}]}]"
+      }
+    },
+    {
+      "oracle_id": "0f5401c2-0189-4a07-8e7b-a765ccd7c954",
+      "name": "Daring Thunder-Thief",
+      "characteristics": {
+        "kind": "creature",
+        "subtypes": [
+          "Turtle",
+          "Rogue"
+        ],
+        "basic": false,
+        "legendary": false,
+        "mana_cost": {
+          "generic": "3",
+          "colored": [
+            "U"
+          ]
+        },
+        "colors": [
+          "U"
+        ],
+        "color_identity": [
+          "U"
+        ],
+        "power": "4",
+        "toughness": "4"
+      },
+      "intrinsic_zone": null,
+      "spell": {
+        "timing": "instant",
+        "resolution": "permanent",
+        "functioning_zone": "stack",
+        "targets": [],
+        "instructions": []
+      },
+      "static_abilities": [
+        {
+          "functioning_zone": "battlefield",
+          "effect": "enters_tapped"
+        }
+      ],
+      "keywords": [
+        "flash"
+      ],
+      "capabilities": [
+        "enters_tapped_v1",
+        "flash_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1"
+      ],
+      "provenance": {
+        "printing_id": "b41a2bf7-248c-4f8b-92ec-3010d276cb59",
+        "source_index": 2301,
+        "source_sha256": "98ef8de0671b99d3ab37197887495e4223f6e7ae47dc0a11abe711341bc6bc8d",
+        "ast_sha256": "0cb62629391e413f5a6ac16cc9fa66b073d58c888d24fc1cf9620f63c5d8b2b5",
+        "binding_sha256": "7373985fd145197f6cf621600e681efc35f9a7b658142703b44947ffc2670a03",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "source_json": "{\"object\":\"card\",\"id\":\"b41a2bf7-248c-4f8b-92ec-3010d276cb59\",\"oracle_id\":\"0f5401c2-0189-4a07-8e7b-a765ccd7c954\",\"multiverse_ids\":[654982],\"mtgo_id\":123993,\"arena_id\":90387,\"tcgplayer_id\":544658,\"cardmarket_id\":763997,\"name\":\"Daring Thunder-Thief\",\"lang\":\"en\",\"released_at\":\"2024-04-19\",\"uri\":\"https://api.scryfall.com/cards/b41a2bf7-248c-4f8b-92ec-3010d276cb59\",\"scryfall_uri\":\"https://scryfall.com/card/otj/41/daring-thunder-thief?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T03:04:08Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/b/4/b41a2bf7-248c-4f8b-92ec-3010d276cb59.jpg?1783911848\",\"normal\":\"https://cards.scryfall.io/normal/front/b/4/b41a2bf7-248c-4f8b-92ec-3010d276cb59.jpg?1783911848\",\"large\":\"https://cards.scryfall.io/large/front/b/4/b41a2bf7-248c-4f8b-92ec-3010d276cb59.jpg?1783911848\",\"png\":\"https://cards.scryfall.io/png/front/b/4/b41a2bf7-248c-4f8b-92ec-3010d276cb59.png?1783911848\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/b/4/b41a2bf7-248c-4f8b-92ec-3010d276cb59.jpg?1783911848\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/b/4/b41a2bf7-248c-4f8b-92ec-3010d276cb59.jpg?1783911848\",\"thumb\":\"https://cards.scryfall.io/thumb/front/b/4/b41a2bf7-248c-4f8b-92ec-3010d276cb59.webp?1783911848\",\"grid\":\"https://cards.scryfall.io/grid/front/b/4/b41a2bf7-248c-4f8b-92ec-3010d276cb59.webp?1783911848\",\"display\":\"https://cards.scryfall.io/display/front/b/4/b41a2bf7-248c-4f8b-92ec-3010d276cb59.webp?1783911848\",\"art\":\"https://cards.scryfall.io/art/front/b/4/b41a2bf7-248c-4f8b-92ec-3010d276cb59.webp?1783911848\",\"crop\":\"https://cards.scryfall.io/crop/front/b/4/b41a2bf7-248c-4f8b-92ec-3010d276cb59.webp?1783911848\"},\"mana_cost\":\"{3}{U}\",\"cmc\":4,\"type_line\":\"Creature — Turtle Rogue\",\"oracle_text\":\"Flash\\nThis creature enters tapped.\",\"power\":\"4\",\"toughness\":\"4\",\"colors\":[\"U\"],\"color_identity\":[\"U\"],\"keywords\":[\"Flash\"],\"legalities\":{\"standard\":\"legal\",\"future\":\"legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"not_legal\"},\"games\":[\"paper\",\"mtgo\",\"arena\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":false,\"variation\":false,\"set_id\":\"55a85ebe-644e-4bef-8be8-5290408be3d1\",\"set\":\"otj\",\"set_name\":\"Outlaws of Thunder Junction\",\"set_type\":\"expansion\",\"set_uri\":\"https://api.scryfall.com/sets/55a85ebe-644e-4bef-8be8-5290408be3d1\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Aotj&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/otj?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/b41a2bf7-248c-4f8b-92ec-3010d276cb59/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A0f5401c2-0189-4a07-8e7b-a765ccd7c954&unique=prints\",\"collector_number\":\"41\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"It's amazing how many sticky situations you can get out of simply by being ten times faster than anyone expects.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Inkognit\",\"artist_ids\":[\"0ebd73e7-55c9-49d6-bf99-241f10801f89\"],\"illustration_id\":\"cdea68c3-bf80-42a7-bd84-cd541dd29749\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":24754,\"prices\":{\"usd\":\"0.13\",\"usd_foil\":\"0.06\",\"usd_etched\":null,\"eur\":\"0.02\",\"eur_foil\":\"0.02\",\"tix\":\"0.03\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=654982&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DDaring%2BThunder-Thief\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DDaring%2BThunder-Thief\",\"edhrec\":\"https://edhrec.com/route/?cc=Daring+Thunder-Thief\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F544658%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=763997&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/123993?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "abilities_json": "[{\"kind\":\"keywords\",\"keywords\":[{\"keyword\":\"flash\"}]},{\"kind\":\"static\",\"effect\":{\"static\":\"enters-tapped\",\"what\":{\"ref\":\"this\",\"noun\":\"creature\"}}}]"
+      }
+    },
+    {
+      "oracle_id": "874bbeb2-aa15-41e8-afad-122ab9b555fd",
+      "name": "Winter Soldier, Bucky Barnes",
+      "characteristics": {
+        "kind": "creature",
+        "subtypes": [
+          "Human",
+          "Soldier",
+          "Hero"
+        ],
+        "basic": false,
+        "legendary": true,
+        "mana_cost": {
+          "generic": "0",
+          "colored": [
+            "W"
+          ]
+        },
+        "colors": [
+          "W"
+        ],
+        "color_identity": [
+          "W"
+        ],
+        "power": "2",
+        "toughness": "2"
+      },
+      "intrinsic_zone": null,
+      "spell": {
+        "timing": "main_phase",
+        "resolution": "permanent",
+        "functioning_zone": "stack",
+        "targets": [],
+        "instructions": []
+      },
+      "static_abilities": [
+        {
+          "functioning_zone": "battlefield",
+          "effect": "enters_tapped"
+        }
+      ],
+      "capabilities": [
+        "enters_tapped_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "commander_identity_v1",
+        "cast_creature_v1"
+      ],
+      "provenance": {
+        "printing_id": "539be75b-3c86-449c-adaa-68a7af612ea5",
+        "source_index": 20393,
+        "source_sha256": "328cdb814603538537b0c16ab9b6ad43a4dc59a67f7d9962a465739ad5d0d39e",
+        "ast_sha256": "7f2834b95e70138d5553fab915a8b746876f1f21f029ce338270f5d67ebf163b",
+        "binding_sha256": "bde86b79bfd9dbfa98204faf354aeb2fd0c5786a1c686eb2065fe767498fbddc",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "source_json": "{\"object\":\"card\",\"id\":\"539be75b-3c86-449c-adaa-68a7af612ea5\",\"oracle_id\":\"874bbeb2-aa15-41e8-afad-122ab9b555fd\",\"multiverse_ids\":[],\"resource_id\":\"8727D9D5807910920909BF2CF0A90660CB9EAF3AA23D83D4BA28959441094053\",\"mtgo_id\":151079,\"tcgplayer_id\":697179,\"cardmarket_id\":892357,\"name\":\"Winter Soldier, Bucky Barnes\",\"lang\":\"en\",\"released_at\":\"2026-06-26\",\"uri\":\"https://api.scryfall.com/cards/539be75b-3c86-449c-adaa-68a7af612ea5\",\"scryfall_uri\":\"https://scryfall.com/card/msc/845/winter-soldier-bucky-barnes?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T00:36:35Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/5/3/539be75b-3c86-449c-adaa-68a7af612ea5.jpg?1783902995\",\"normal\":\"https://cards.scryfall.io/normal/front/5/3/539be75b-3c86-449c-adaa-68a7af612ea5.jpg?1783902995\",\"large\":\"https://cards.scryfall.io/large/front/5/3/539be75b-3c86-449c-adaa-68a7af612ea5.jpg?1783902995\",\"png\":\"https://cards.scryfall.io/png/front/5/3/539be75b-3c86-449c-adaa-68a7af612ea5.png?1783902995\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/5/3/539be75b-3c86-449c-adaa-68a7af612ea5.jpg?1783902995\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/5/3/539be75b-3c86-449c-adaa-68a7af612ea5.jpg?1783902995\",\"thumb\":\"https://cards.scryfall.io/thumb/front/5/3/539be75b-3c86-449c-adaa-68a7af612ea5.webp?1783902995\",\"grid\":\"https://cards.scryfall.io/grid/front/5/3/539be75b-3c86-449c-adaa-68a7af612ea5.webp?1783902995\",\"display\":\"https://cards.scryfall.io/display/front/5/3/539be75b-3c86-449c-adaa-68a7af612ea5.webp?1783902995\",\"art\":\"https://cards.scryfall.io/art/front/5/3/539be75b-3c86-449c-adaa-68a7af612ea5.webp?1783902995\",\"crop\":\"https://cards.scryfall.io/crop/front/5/3/539be75b-3c86-449c-adaa-68a7af612ea5.webp?1783902995\"},\"mana_cost\":\"{W}\",\"cmc\":1,\"type_line\":\"Legendary Creature — Human Soldier Hero\",\"oracle_text\":\"Winter Soldier enters tapped.\",\"power\":\"2\",\"toughness\":\"2\",\"colors\":[\"W\"],\"color_identity\":[\"W\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"not_legal\",\"modern\":\"not_legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"not_legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"mtgo\",\"arena\"],\"reserved\":false,\"game_changer\":false,\"foil\":false,\"nonfoil\":true,\"finishes\":[\"nonfoil\"],\"oversized\":false,\"promo\":false,\"reprint\":false,\"variation\":false,\"set_id\":\"9d739461-c5ac-43a1-af41-3d5a585b5c8d\",\"set\":\"msc\",\"set_name\":\"Marvel Super Heroes Commander\",\"set_type\":\"commander\",\"set_uri\":\"https://api.scryfall.com/sets/9d739461-c5ac-43a1-af41-3d5a585b5c8d\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Amsc&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/msc?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/539be75b-3c86-449c-adaa-68a7af612ea5/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A874bbeb2-aa15-41e8-afad-122ab9b555fd&unique=prints\",\"collector_number\":\"845\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"\\\"Hey Steve, sorry for giving you the cold shoulder all those years I was a brainwashed killing machine.\\\"\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Mark Spears\",\"artist_ids\":[\"8e0aa382-f52f-4159-8caf-ec9919ecdece\"],\"illustration_id\":\"113d891c-e810-43bf-b740-9dba582a1fa0\",\"border_color\":\"black\",\"frame\":\"2015\",\"frame_effects\":[\"legendary\"],\"full_art\":false,\"textless\":false,\"booster\":false,\"story_spotlight\":false,\"promo_types\":[\"universesbeyond\"],\"edhrec_rank\":27367,\"prices\":{\"usd\":\"0.23\",\"usd_foil\":null,\"usd_etched\":null,\"eur\":\"0.31\",\"eur_foil\":null,\"tix\":\"1.43\"},\"related_uris\":{\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DWinter%2BSoldier%252C%2BBucky%2BBarnes\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DWinter%2BSoldier%252C%2BBucky%2BBarnes\",\"edhrec\":\"https://edhrec.com/route/?cc=Winter+Soldier%2C+Bucky+Barnes\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F697179%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=892357&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/151079?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "abilities_json": "[{\"kind\":\"static\",\"effect\":{\"static\":\"enters-tapped\",\"what\":{\"ref\":\"self\"}}}]"
+      }
+    },
+    {
+      "oracle_id": "8957f7c2-040c-4048-9f21-efa7c97682b7",
+      "name": "Ambush Viper",
+      "characteristics": {
+        "kind": "creature",
+        "subtypes": [
+          "Snake"
+        ],
+        "basic": false,
+        "legendary": false,
+        "mana_cost": {
+          "generic": "1",
+          "colored": [
+            "G"
+          ]
+        },
+        "colors": [
+          "G"
+        ],
+        "color_identity": [
+          "G"
+        ],
+        "power": "2",
+        "toughness": "1"
+      },
+      "intrinsic_zone": null,
+      "spell": {
+        "timing": "instant",
+        "resolution": "permanent",
+        "functioning_zone": "stack",
+        "targets": [],
+        "instructions": []
+      },
+      "keywords": [
+        "flash",
+        "deathtouch"
+      ],
+      "capabilities": [
+        "flash_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "deathtouch_v1"
+      ],
+      "provenance": {
+        "printing_id": "37f9be6b-ae6e-4708-9749-83bebd351102",
+        "source_index": 20702,
+        "source_sha256": "12299c256d03b52a0ef763300414f22db83b5a0afb0aa524ce6d7a8ab5553725",
+        "ast_sha256": "f34fed038b6197e0f9e304b7b570207f9e81e0483fd46422a219ef715e74675f",
+        "binding_sha256": "731dce753d31f17163ac07c6763aa0a47bdf983910ecd3dc02673684389c151a",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "source_json": "{\"object\":\"card\",\"id\":\"37f9be6b-ae6e-4708-9749-83bebd351102\",\"oracle_id\":\"8957f7c2-040c-4048-9f21-efa7c97682b7\",\"multiverse_ids\":[686027],\"mtgo_id\":135784,\"tcgplayer_id\":609793,\"cardmarket_id\":805813,\"name\":\"Ambush Viper\",\"lang\":\"en\",\"released_at\":\"2025-01-24\",\"uri\":\"https://api.scryfall.com/cards/37f9be6b-ae6e-4708-9749-83bebd351102\",\"scryfall_uri\":\"https://scryfall.com/card/inr/186/ambush-viper?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T02:01:43Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/3/7/37f9be6b-ae6e-4708-9749-83bebd351102.jpg?1783908103\",\"normal\":\"https://cards.scryfall.io/normal/front/3/7/37f9be6b-ae6e-4708-9749-83bebd351102.jpg?1783908103\",\"large\":\"https://cards.scryfall.io/large/front/3/7/37f9be6b-ae6e-4708-9749-83bebd351102.jpg?1783908103\",\"png\":\"https://cards.scryfall.io/png/front/3/7/37f9be6b-ae6e-4708-9749-83bebd351102.png?1783908103\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/3/7/37f9be6b-ae6e-4708-9749-83bebd351102.jpg?1783908103\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/3/7/37f9be6b-ae6e-4708-9749-83bebd351102.jpg?1783908103\",\"thumb\":\"https://cards.scryfall.io/thumb/front/3/7/37f9be6b-ae6e-4708-9749-83bebd351102.webp?1783908103\",\"grid\":\"https://cards.scryfall.io/grid/front/3/7/37f9be6b-ae6e-4708-9749-83bebd351102.webp?1783908103\",\"display\":\"https://cards.scryfall.io/display/front/3/7/37f9be6b-ae6e-4708-9749-83bebd351102.webp?1783908103\",\"art\":\"https://cards.scryfall.io/art/front/3/7/37f9be6b-ae6e-4708-9749-83bebd351102.webp?1783908103\",\"crop\":\"https://cards.scryfall.io/crop/front/3/7/37f9be6b-ae6e-4708-9749-83bebd351102.webp?1783908103\"},\"mana_cost\":\"{1}{G}\",\"cmc\":2,\"type_line\":\"Creature — Snake\",\"oracle_text\":\"Flash\\nDeathtouch\",\"power\":\"2\",\"toughness\":\"1\",\"colors\":[\"G\"],\"color_identity\":[\"G\"],\"keywords\":[\"Flash\",\"Deathtouch\"],\"all_parts\":[{\"object\":\"related_card\",\"id\":\"37f9be6b-ae6e-4708-9749-83bebd351102\",\"component\":\"combo_piece\",\"name\":\"Ambush Viper\",\"type_line\":\"Creature — Snake\",\"uri\":\"https://api.scryfall.com/cards/37f9be6b-ae6e-4708-9749-83bebd351102\"},{\"object\":\"related_card\",\"id\":\"59c1e4e5-da4b-418a-833a-f96c10abdf6c\",\"component\":\"combo_piece\",\"name\":\"Jessie Zane, Fangbringer\",\"type_line\":\"Legendary Creature — Human Assassin\",\"uri\":\"https://api.scryfall.com/cards/59c1e4e5-da4b-418a-833a-f96c10abdf6c\"}],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"not_legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"b9618c8c-9f31-4b42-9798-2991893c27bf\",\"set\":\"inr\",\"set_name\":\"Innistrad Remastered\",\"set_type\":\"masters\",\"set_uri\":\"https://api.scryfall.com/sets/b9618c8c-9f31-4b42-9798-2991893c27bf\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Ainr&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/inr?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/37f9be6b-ae6e-4708-9749-83bebd351102/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A8957f7c2-040c-4048-9f21-efa7c97682b7&unique=prints\",\"collector_number\":\"186\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"\\\"Living creatures seldom impress me. But I like this one.\\\"\\n—Uta Falkenrath\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Alan Pollack\",\"artist_ids\":[\"70c20ea3-5ad6-4082-a337-6e994ae5828e\"],\"illustration_id\":\"cfc6dacd-e9eb-4756-a404-8c120aa5f0a6\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":4842,\"penny_rank\":7375,\"prices\":{\"usd\":\"0.21\",\"usd_foil\":\"0.33\",\"usd_etched\":null,\"eur\":\"0.12\",\"eur_foil\":\"0.15\",\"tix\":\"0.05\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=686027&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DAmbush%2BViper\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DAmbush%2BViper\",\"edhrec\":\"https://edhrec.com/route/?cc=Ambush+Viper\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F609793%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=805813&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/135784?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "abilities_json": "[{\"kind\":\"keywords\",\"keywords\":[{\"keyword\":\"flash\"}]},{\"kind\":\"keywords\",\"keywords\":[{\"keyword\":\"deathtouch\"}]}]"
+      }
+    },
+    {
+      "oracle_id": "fec77e0a-433e-4d32-9260-e26a37f6ad23",
+      "name": "Timeless Lotus",
+      "characteristics": {
+        "kind": "artifact",
+        "subtypes": [],
+        "basic": false,
+        "legendary": true,
+        "mana_cost": {
+          "generic": "5",
+          "colored": []
+        },
+        "colors": [],
+        "color_identity": [
+          "B",
+          "G",
+          "R",
+          "U",
+          "W"
+        ],
+        "power": null,
+        "toughness": null
+      },
+      "intrinsic_zone": null,
+      "spell": {
+        "timing": "main_phase",
+        "resolution": "permanent",
+        "functioning_zone": "stack",
+        "targets": [],
+        "instructions": []
+      },
+      "mana_abilities": [
+        {
+          "costs": {
+            "tap": true,
+            "sacrifice": false
+          },
+          "production": {
+            "mana": "fixed",
+            "symbols": [
+              "W",
+              "U",
+              "B",
+              "R",
+              "G"
+            ]
+          },
+          "source_block": 1
+        }
+      ],
+      "static_abilities": [
+        {
+          "functioning_zone": "battlefield",
+          "effect": "enters_tapped"
+        }
+      ],
+      "capabilities": [
+        "enters_tapped_v1",
+        "cast_artifact_v1",
+        "permanent_mana_v1",
+        "normal_layout_v1"
+      ],
+      "provenance": {
+        "printing_id": "0fbbab5f-657a-4e6a-8bdd-69f11547fe25",
+        "source_index": 38532,
+        "source_sha256": "f005a3471a9640a1e79e67a5979dc45cb521e7b2fc4b8cae1d89e49502a99f24",
+        "ast_sha256": "274d8d2de23d3f2f1bd6648c92268f824158c1665c4a950da04519923f1c3722",
+        "binding_sha256": "afef788123e0289b32103ae245a5fee2fd705ef235de2903a942fffbed29a6fc",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "source_json": "{\"object\":\"card\",\"id\":\"0fbbab5f-657a-4e6a-8bdd-69f11547fe25\",\"oracle_id\":\"fec77e0a-433e-4d32-9260-e26a37f6ad23\",\"multiverse_ids\":[],\"resource_id\":\"F5187FF9856935FD3D04C7DAC444920833120B6EF74D3751E0F09220C128DC2C\",\"mtgo_id\":146221,\"tcgplayer_id\":671294,\"cardmarket_id\":865075,\"name\":\"Timeless Lotus\",\"lang\":\"en\",\"released_at\":\"2026-01-23\",\"uri\":\"https://api.scryfall.com/cards/0fbbab5f-657a-4e6a-8bdd-69f11547fe25\",\"scryfall_uri\":\"https://scryfall.com/card/ecc/143/timeless-lotus?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T01:02:09Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/0/f/0fbbab5f-657a-4e6a-8bdd-69f11547fe25.jpg?1783904529\",\"normal\":\"https://cards.scryfall.io/normal/front/0/f/0fbbab5f-657a-4e6a-8bdd-69f11547fe25.jpg?1783904529\",\"large\":\"https://cards.scryfall.io/large/front/0/f/0fbbab5f-657a-4e6a-8bdd-69f11547fe25.jpg?1783904529\",\"png\":\"https://cards.scryfall.io/png/front/0/f/0fbbab5f-657a-4e6a-8bdd-69f11547fe25.png?1783904529\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/0/f/0fbbab5f-657a-4e6a-8bdd-69f11547fe25.jpg?1783904529\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/0/f/0fbbab5f-657a-4e6a-8bdd-69f11547fe25.jpg?1783904529\",\"thumb\":\"https://cards.scryfall.io/thumb/front/0/f/0fbbab5f-657a-4e6a-8bdd-69f11547fe25.webp?1783904529\",\"grid\":\"https://cards.scryfall.io/grid/front/0/f/0fbbab5f-657a-4e6a-8bdd-69f11547fe25.webp?1783904529\",\"display\":\"https://cards.scryfall.io/display/front/0/f/0fbbab5f-657a-4e6a-8bdd-69f11547fe25.webp?1783904529\",\"art\":\"https://cards.scryfall.io/art/front/0/f/0fbbab5f-657a-4e6a-8bdd-69f11547fe25.webp?1783904529\",\"crop\":\"https://cards.scryfall.io/crop/front/0/f/0fbbab5f-657a-4e6a-8bdd-69f11547fe25.webp?1783904529\"},\"mana_cost\":\"{5}\",\"cmc\":5,\"type_line\":\"Legendary Artifact\",\"oracle_text\":\"Timeless Lotus enters tapped.\\n{T}: Add {W}{U}{B}{R}{G}.\",\"colors\":[],\"color_identity\":[\"B\",\"G\",\"R\",\"U\",\"W\"],\"keywords\":[],\"produced_mana\":[\"B\",\"G\",\"R\",\"U\",\"W\"],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"not_legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"not_legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"not_legal\"},\"games\":[\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":false,\"nonfoil\":true,\"finishes\":[\"nonfoil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"805b5a0c-f8bb-4555-86ea-eb9ec36a011a\",\"set\":\"ecc\",\"set_name\":\"Lorwyn Eclipsed Commander\",\"set_type\":\"commander\",\"set_uri\":\"https://api.scryfall.com/sets/805b5a0c-f8bb-4555-86ea-eb9ec36a011a\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Aecc&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/ecc?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/0fbbab5f-657a-4e6a-8bdd-69f11547fe25/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3Afec77e0a-433e-4d32-9260-e26a37f6ad23&unique=prints\",\"collector_number\":\"143\",\"digital\":false,\"rarity\":\"mythic\",\"flavor_text\":\"Urza exploited nature to power his war machines; in time, nature exploited his war machines to renew itself.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Lindsey Look\",\"artist_ids\":[\"95bc132d-37aa-4063-8ed8-04d489e826cd\"],\"illustration_id\":\"cbed4a6b-59a5-4b45-8a5b-3169257f5f79\",\"border_color\":\"black\",\"frame\":\"2015\",\"frame_effects\":[\"legendary\"],\"security_stamp\":\"oval\",\"full_art\":false,\"textless\":false,\"booster\":false,\"story_spotlight\":false,\"edhrec_rank\":2120,\"prices\":{\"usd\":\"3.46\",\"usd_foil\":null,\"usd_etched\":null,\"eur\":\"2.27\",\"eur_foil\":null,\"tix\":\"0.17\"},\"related_uris\":{\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DTimeless%2BLotus\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DTimeless%2BLotus\",\"edhrec\":\"https://edhrec.com/route/?cc=Timeless+Lotus\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F671294%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=865075&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/146221?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "abilities_json": "[{\"kind\":\"static\",\"effect\":{\"static\":\"enters-tapped\",\"what\":{\"ref\":\"self\"}}},{\"kind\":\"activated\",\"costs\":[{\"cost\":\"tap-self\"}],\"effects\":[{\"steps\":[{\"effect\":\"add-mana\",\"who\":{\"player\":\"you\"},\"mana\":{\"mana\":\"fixed\",\"symbols\":[\"W\",\"U\",\"B\",\"R\",\"G\"]}}]}]}]"
+      }
+    }
+  ]
+}

@@ -15,6 +15,7 @@ const json = value => new Response(JSON.stringify(value), { headers: { 'content-
 const client = fetch => new GameClient({ baseURL: 'https://engine.example', matchId: 'a'.repeat(32), capability, fetch });
 
 const responses = [
+  { response: 'legend_rule', keep: 'legend-handle' },
   { response: 'mulligan', take: false }, { response: 'bottom_opening', objects: ['h'] },
   { response: 'damage_allocation', allocations: [['d', '3']] }, { response: 'modes', mode: 0 },
   { response: 'damage_effect', effect: 'e', damage: 'd' }, { response: 'order_triggers', order: ['t'] },
@@ -30,7 +31,7 @@ const responses = [
 ];
 
 test('Rust schemas cover every response variant and reject whole nested source shapes', () => {
-  assert.equal(responses.length, 24);
+  assert.equal(responses.length, 25);
   for (const response of responses) {
     const input = envelope(response); const before = JSON.stringify(input);
     assert.deepEqual(command(input), input);

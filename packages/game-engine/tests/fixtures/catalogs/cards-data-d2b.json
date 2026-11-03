@@ -1,0 +1,14 @@
+{
+  "expected_digest": "cards-data-d2b.sha256",
+  "expected_ir": "../cards-data-d2b/expected-ir.json",
+  "output_order": "struct",
+  "provenance": "../cards-data-d2b/provenance.json",
+  "records": [
+    "../cards-data-d2b/02500f21-6e15-423e-93ff-891e09fe9904.json",
+    "../cards-data-d2b/0f5401c2-0189-4a07-8e7b-a765ccd7c954.json",
+    "../cards-data-d2b/874bbeb2-aa15-41e8-afad-122ab9b555fd.json",
+    "../cards-data-d2b/8957f7c2-040c-4048-9f21-efa7c97682b7.json",
+    "../cards-data-d2b/fec77e0a-433e-4d32-9260-e26a37f6ad23.json"
+  ],
+  "schema_version": 20
+}

@@ -405,6 +405,12 @@ impl Game {
             self.record_event(Event::ControlEffectEnded { effect_id: id })?;
         }
         self.refresh_controllers(player)?;
+        // A departure can remove a legend or change a controller while choices
+        // are pending. Recompute the entire SBA wave; no stale keep survives.
+        if let Frame::LegendRule { resume, .. } = self.state.frame.clone() {
+            self.state.pending = None;
+            self.state.frame = *resume;
+        }
         let lost_stack = self
             .state
             .stack

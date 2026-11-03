@@ -77,8 +77,8 @@ The end state of D1 is that adding an already-lowerable card is data-only.
 
 ### D1c: simulator
 
-The D1c implementation (`ad5b9e9`) and verification are complete; independent
-review is pending. See [D1c verification](game-engine-cards-as-data-d1c.md). The
+The D1c implementation (`ad5b9e9`), follow-up review and verification are complete,
+merged through `6966fbe`. See [D1c verification](game-engine-cards-as-data-d1c.md). The
 batch CLI and completion layouts were already data-driven at the D1b-3 base. D1c replaces
 all five card-specific policy modules with one IR-driven chooser and one generic
 instruction-site, trigger, keyword and card-use summary. No core rules or profile
@@ -116,11 +116,18 @@ fixed reference scenarios; they use the same generic batch and strategy code.
   TypeScript and all 32 response variants. SDK generated output was copied to
   ignored evidence and removed from the SDK.
 
-Implementation review and merge remain separate from these verification items.
+The D1c follow-up report records the review fixes and their verification.
 
 ## D2 — Generic IR and compositional compiler
 
 The end state of D2 is that coverage grows by capability.
+
+D2a and D2b measurements, source audits and current verification are recorded in
+[the coverage report](game-engine-cards-as-data-coverage.md) and
+[the D2b report](game-engine-cards-as-data-d2b.md). D2b adds common legend choices,
+bound source references, flash and source entry tapped; it reaches 1,904 legal
+records (5.92851%) with zero losses from the D2a baseline. The remaining generic
+IR and trigger-family work below is still open.
 
 - **Generalise the IR.**
   - Replace `ObjectSet` with permanent filters plus relations.

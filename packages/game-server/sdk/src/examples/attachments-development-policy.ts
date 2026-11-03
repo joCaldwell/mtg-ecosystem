@@ -212,6 +212,7 @@ export function attachmentsDevelopmentPolicy(): (observation: Observation, viewe
       // Later-profile requests are unreachable with this pinned attachments catalog.
       case 'announce_x':
       case 'sacrifice_cost':
+      case 'legend_rule': return fail();
       case 'forced_sacrifice': return fail();
       case 'optional_effect': return fail();
       case 'commander_return': return { response: 'commander_return', to_command: true };

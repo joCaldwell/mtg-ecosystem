@@ -1825,6 +1825,15 @@ impl Game {
                         .or_default()
                         .push(object.card);
                 }
+                // CR 614.1c/614.12: this source replacement modifies entry,
+                // rather than tapping the permanent in a subsequent event.
+                // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+                let enters_tapped = *destination == Zone::Battlefield
+                    && self
+                        .definition(object.card)?
+                        .static_abilities
+                        .iter()
+                        .any(|a| a.effect == StaticEffect::EntersTapped);
                 self.state.objects.insert(
                     object.card,
                     Object {
@@ -1837,7 +1846,7 @@ impl Game {
                         controller,
                         default_controller: controller,
                         zone: *destination,
-                        tapped: false,
+                        tapped: enters_tapped,
                     },
                 );
                 EventOutcome::Moved {

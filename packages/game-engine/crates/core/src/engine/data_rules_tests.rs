@@ -206,3 +206,41 @@ fn dated_policy_selection_binds_the_selected_file_and_its_metadata() {
     assert!(selected.banned_commander_card(id).is_none());
     assert_ne!(selected.policy_digest(), p.policy_digest());
 }
+
+#[test]
+fn flash_and_enters_tapped_are_not_implicitly_hosted_or_search_reviewed() {
+    let profile = match_profile("commander-foundations-v1").unwrap();
+    for enters_tapped in [false, true] {
+        let mut catalog = profile.catalog().clone();
+        catalog.schema_version = 20;
+        let d = catalog
+            .definitions
+            .iter_mut()
+            .find(|d| d.characteristics.kind == CardKind::Creature)
+            .unwrap();
+        let capability = if enters_tapped {
+            d.static_abilities.push(StaticAbility {
+                functioning_zone: FunctioningZone::Battlefield,
+                effect: StaticEffect::EntersTapped,
+            });
+            Capability::EntersTappedV1
+        } else {
+            d.keywords.push(KeywordAbility::Flash);
+            d.spell.as_mut().unwrap().timing = SpellTiming::Instant;
+            Capability::FlashV1
+        };
+        d.capabilities = d.requirements();
+        catalog.validate().unwrap();
+        for (search, hosted, feature) in [
+            (true, false, Feature::Search),
+            (false, true, Feature::Hosting),
+        ] {
+            let mut probe = profile.clone();
+            probe.search = search;
+            probe.hosted = hosted;
+            assert!(
+                matches!(probe.validate_requested_features(&catalog), Err(ProfileError::UnreviewedCapabilities {feature:f,capabilities}) if f==feature && capabilities.contains(&capability))
+            );
+        }
+    }
+}

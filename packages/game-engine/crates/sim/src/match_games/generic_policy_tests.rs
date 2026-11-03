@@ -1010,3 +1010,54 @@ fn defensive_modal_cards_and_tap_sources_are_reserved_for_reactive_priority() {
         }
     );
 }
+
+#[test]
+fn generic_policy_develops_flash_at_opponents_end_and_chooses_legends() {
+    let mut c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+    let mut v = wipe_tests::view(&c);
+    let viewer = v.viewer;
+    let d = c
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Grizzly Bears")
+        .unwrap();
+    d.keywords.push(mtg_contracts::KeywordAbility::Flash);
+    d.spell.as_mut().unwrap().timing = mtg_contracts::SpellTiming::Instant;
+    d.characteristics.mana_cost = ManaCost {
+        generic: 0.into(),
+        colored: vec![],
+    };
+    d.capabilities = d.requirements();
+    d.validate().unwrap();
+    v.active = Some(PlayerId((viewer.0 + 1) % 4));
+    v.turn.step = TurnStep::End;
+    v.objects = vec![wipe_tests::card(
+        &c,
+        "Grizzly Bears",
+        viewer.0,
+        Zone::Hand { owner: viewer },
+    )];
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        PlayerResponse::Cast {
+            card: ObjectHandle("Grizzly Bears".into())
+        }
+    );
+    c.definitions
+        .iter_mut()
+        .find(|d| d.name == "Grizzly Bears")
+        .unwrap()
+        .keywords
+        .clear();
+    assert_eq!(
+        strategy(&c).priority(&observation(v)).unwrap(),
+        PlayerResponse::Pass
+    );
+    let candidates = vec![ObjectHandle("one".into()), ObjectHandle("two".into())];
+    assert_eq!(
+        strategy(&c).legend_choice(&candidates).unwrap(),
+        PlayerResponse::LegendRule {
+            keep: candidates[1].clone()
+        }
+    );
+}

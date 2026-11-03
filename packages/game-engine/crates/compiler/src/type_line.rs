@@ -56,6 +56,14 @@ pub(super) fn parse(line: &str) -> Result<ParsedTypes, Failure> {
     if supertypes.contains("Basic") && kind != CardKind::Land {
         return Err(invalid("source.type_line", "basic requires land"));
     }
+    for subtype in tail.split_whitespace() {
+        if unsupported_rules_subtype(subtype) {
+            return Err(unsupported(
+                "source.type_line.subtypes",
+                format!("subtype:{}", subtype.to_lowercase()),
+            ));
+        }
+    }
     types.remove(&kind);
     Ok(ParsedTypes {
         kind,

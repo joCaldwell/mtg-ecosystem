@@ -4213,3 +4213,32 @@ completion layout metadata are complete here. D2 still owns compositional IR
 and lowering, literal/template restrictions, broader type-line/layout coverage,
 corpus coverage reporting and expanded capability witnesses. No admission
 selector or code registration was required by the demonstrated new profile.
+
+
+## D2b — common legend choices and compositional source capabilities (2026-11-03)
+
+The [D2b report](game-engine-cards-as-data-d2b.md) records source freeze `3eb4da9`,
+independent feature/fix reviews, a 24-card source audit and exact evidence paths.
+The saved branch was resumed after the user-requested pause; unavailable old
+logs were not treated as current verification.
+
+Implemented common APNAP legend choices, subsequent fresh-incarnation Commander
+returns, exact archive-bound source references, intrinsic flash, unconditional
+source entry tapped, typed annotation labels, explicit rule-bearing subtype
+boundaries and location-correct diagnostics. Artifact lands retain land play
+without acquiring artifact-casting permission. New capabilities remain excluded
+from reviewed hosting/search sets.
+
+Fresh verification passed 940 Rust tests (18 existing diagnostics ignored),
+56 Node checks, 95 release compiler/contracts tests, 10 distinct release core
+witnesses, production server/simulator builds and SDK verification (47 tests,
+strict TypeScript, 33 response variants). All 12 profiles finished 216/216 games
+with winners, zero draws/faults/truncations, and 216/216 explicit CLI replays.
+The native compiled-source closure and retained executable copies were verified.
+
+Coverage is 1,904/32,116 legal records (5.92851%), with 76 additions and zero
+baseline losses: source binding +0, flash +54, source entry tapped +22, broader
+annotations +0. Source binding is required by two entry-tapped admissions. Two
+full coverage runs and the fully enabled measurement stage agree byte for byte.
+These are compiler/functionality measurements; current-build search performance
+has not been remeasured. D2c begins the remaining generic trigger/card-flow work.
