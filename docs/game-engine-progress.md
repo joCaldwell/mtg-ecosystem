@@ -4293,7 +4293,9 @@ Raw timings are functional evidence; quiet P7/search performance was not renewed
 
 Source freeze: `02f0d4df92343be43241065b916cbcfe7cfd2cc9`. See [the D2c-b report](game-engine-cards-as-data-d2c-b.md)
 for exact source/rules witnesses, retained identities, failures and evidence.
-Parent independent review follows this completed implementation report.
+Parent independent semantic/source review approved the increment; a separate
+parent audit verified the sealed 604 files, compiled 554 files, unchanged baselines
+and all 216 exact replay outputs before integration.
 
 - IR v22 adds generic mandatory event-player draw/life recipients and typed
   tapped/untapped intervening conditions on supported step triggers. Controller

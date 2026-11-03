@@ -3,7 +3,7 @@
 D2c-b starts at reviewed merged D2c-a
 `45de0b52891404439a844b5350e9669363150a6e`. This is a finite capability increment;
 it adds no match profile, hosted capability or search capability. Parent independent
-review follows this implementation report.
+review approved this implementation with no blocking findings.
 
 ## Supported representation
 
@@ -229,7 +229,7 @@ The settled implementation freeze is `02f0d4df92343be43241065b916cbcfe7cfd2cc9`.
 3. `02f0d4df92343be43241065b916cbcfe7cfd2cc9` — strict nested status fields, direct unbound spell/activation binder negatives, and extended Seizan/Mine commander/source-departure proof.
 
 The final documentation commit records only verified results. Independent parent
-review of this increment is still pending.
+semantic/source review and the separate parent evidence audit passed before integration.
 
 The first full gate is preserved at its original freeze: 976 Rust tests passed,
 18 existing diagnostics were ignored, and Node passed 57/failed 1. The new nested
@@ -264,3 +264,25 @@ The original D2c-a evidence and failed logs were read without modification.
 An auxiliary source-audit summary helper initially indexed an omitted empty
 `keywords` vector; that preparation failure is retained separately, and neither
 source extraction nor compiled IR was changed to correct it.
+
+## Parent integration review
+
+Independent read-only review approved `68eb360` against `45de0b5`, covering actor
+binding/continuations, current and departure-refreshed source LKI, typed checks,
+restoration and capability/schema closure. All six complete archive records and
+provenance were independently matched. No correctness blocker was found.
+
+The parent independently verified the 604-file, 3,909,588,728-byte seal, all 554
+compiled inputs and archive members, tested/retained binaries, all 73 unchanged
+baseline files against Git, repeated coverage bytes, and every exact profile/state
+hash in all 216 successful explicit replays. All twelve workload manifests and
+all recorded semantic game fields match D2c-a. The sealed evidence was read
+without modification; parent audit records are under the primary checkout's
+`generated/final-engine-verification/resumed-20261103/`.
+
+Nonblocking follow-up test opportunities are recorded there: tap then untap after
+collection; actor departure while a commander replacement is suspended and
+replacement decline; and a coherent cached-resolution forgery. These do not
+change the reviewed supported semantics. Subsequent implementation work will use
+focused checks before source review, with one full gate on the final reviewed
+freeze, following the user's verification-time instruction.
