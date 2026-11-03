@@ -161,6 +161,8 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+    EventPlayerRecipientV1,
+    SourceStatusConditionV1,
     StepBeginningTriggerV1,
     EntersTappedV1,
     FlashV1,
@@ -335,9 +337,13 @@ pub enum TargetAttribute {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum LifeRecipient {
+    /// Frozen optional actor supplied by the trigger event; never the turn owner.
+    EventPlayer,
     EachOpponent,
     Controller,
-    Target { target_slot: u32 },
+    Target {
+        target_slot: u32,
+    },
 }
 /// CR 111.3–4: precisely defined creature tokens, never copied card definitions.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -775,6 +781,19 @@ impl TriggerCondition {
 #[serde(rename_all = "snake_case")]
 pub enum InterveningCondition {
     ControllerHandEmpty,
+    SourceStatus { status: TapStatus },
+}
+/// CR 110.5: only battlefield permanents have tapped/untapped status.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TapStatus {
+    Tapped,
+    Untapped,
+}
+impl TapStatus {
+    pub fn matches(self, tapped: bool) -> bool {
+        tapped == matches!(self, Self::Tapped)
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -994,6 +1013,12 @@ impl Definition {
             if ability.intervening_if.is_some() {
                 set.insert(Capability::InterveningIfV1);
             }
+            if matches!(
+                ability.intervening_if,
+                Some(InterveningCondition::SourceStatus { .. })
+            ) {
+                set.insert(Capability::SourceStatusConditionV1);
+            }
             add_program_requirements(&mut set, &ability.program);
         }
         for keyword in &self.keywords {
@@ -1033,6 +1058,19 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        fn event_player(p: &SpellProgram) -> bool {
+            p.instructions.iter().any(Instruction::uses_event_player)
+                || p.modes.iter().any(|m| event_player(&m.program))
+        }
+        if self.spell.as_ref().is_some_and(event_player)
+            || self.activated.iter().any(|a| event_player(&a.program))
+            || self.triggered.iter().any(|a| {
+                event_player(&a.program)
+                    && !matches!(a.condition, TriggerCondition::StepBegan { .. })
+            })
+        {
+            return Err("event-player recipient requires a bound step trigger".into());
+        }
         fn new_ops(p: &SpellProgram) -> bool {
             p.instructions.iter().any(|i| {
                 matches!(
@@ -1387,7 +1425,12 @@ impl Definition {
                 || p.instructions.is_empty()
                 || !p.modes.is_empty()
                 || (ability.intervening_if.is_some()
-                    && ability.condition != TriggerCondition::SelfDies)
+                    && ability.condition != TriggerCondition::SelfDies
+                    && !matches!(ability.condition, TriggerCondition::StepBegan { .. }))
+                || (matches!(
+                    ability.intervening_if,
+                    Some(InterveningCondition::SourceStatus { .. })
+                ) && !matches!(ability.condition, TriggerCondition::StepBegan { .. }))
                 || p.targets.iter().any(|target| {
                     !matches!(
                         target.domain,
@@ -1740,9 +1783,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 ..
             } => {
                 if target_slot.is_some() == recipient.is_some()
-                    || recipient
-                        .as_ref()
-                        .is_some_and(|r| matches!(r, LifeRecipient::Target { .. }))
+                    || recipient.as_ref().is_some_and(|r| {
+                        matches!(r, LifeRecipient::Target { .. } | LifeRecipient::EventPlayer)
+                    })
                     || (*optional && target_slot.is_none())
                 {
                     return Err("invalid sacrifice damage recipient".into());
@@ -1918,7 +1961,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     return Err("life quantity must be positive".into());
                 }
                 match recipient {
-                    LifeRecipient::Controller | LifeRecipient::EachOpponent => None,
+                    LifeRecipient::Controller
+                    | LifeRecipient::EachOpponent
+                    | LifeRecipient::EventPlayer => None,
                     LifeRecipient::Target { target_slot } => {
                         Some((*target_slot, TargetDomain::AnyPlayer))
                     }
@@ -1962,6 +2007,23 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     }
     Ok(())
 }
+impl Instruction {
+    pub fn uses_event_player(&self) -> bool {
+        matches!(
+            self,
+            Self::DrawCards {
+                recipient: Some(LifeRecipient::EventPlayer),
+                ..
+            } | Self::GainLife {
+                recipient: LifeRecipient::EventPlayer,
+                ..
+            } | Self::LoseLife {
+                recipient: LifeRecipient::EventPlayer,
+                ..
+            }
+        )
+    }
+}
 fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgram) {
     if program.additional_sacrifice.is_some()
         || program.instructions.iter().any(|i| {
@@ -2002,6 +2064,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         });
     }
     for instruction in &program.instructions {
+        if instruction.uses_event_player() {
+            set.insert(Capability::EventPlayerRecipientV1);
+        }
         if let Instruction::CreateCreatureTokens { token, .. } = instruction
             && token
                 .keywords
@@ -2071,7 +2136,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 21))]
+    #[schemars(range(min = 3, max = 22))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -2079,7 +2144,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3..=21)
+        if !matches!(self.schema_version, 3..=22)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -2087,6 +2152,19 @@ impl Catalog {
         }
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
+            if self.schema_version < 22
+                && d.capabilities.iter().any(|c| {
+                    matches!(
+                        c,
+                        Capability::EventPlayerRecipientV1 | Capability::SourceStatusConditionV1
+                    )
+                })
+            {
+                return Err(
+                    "IR v22 is required for event-player recipients and source-status conditions"
+                        .into(),
+                );
+            }
             if self.schema_version < 21
                 && d.capabilities.contains(&Capability::StepBeginningTriggerV1)
             {
@@ -2469,6 +2547,19 @@ pub fn catalog_schema() -> serde_json::Value {
                 "triggered":{"items":{"properties":{"condition":{"type":"string"}}}}
             }}}}}
         }));
+    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"properties":{"schema_version":{"maximum":21}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "capabilities":{"items":{"not":{"enum":[Capability::EventPlayerRecipientV1,Capability::SourceStatusConditionV1]}}},
+            "triggered":{"items":{"properties":{"intervening_if":{"type":["string","null"]},"program":{"$ref":"#/$defs/PreEventPlayerProgram"}}}},
+            "spell":{"$ref":"#/$defs/PreEventPlayerProgram"},
+            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerProgram"}}}}
+        }}}}}
+    }));
+    schema["$defs"]["PreEventPlayerProgram"] = serde_json::json!({"properties":{
+        "instructions":{"items":{"properties":{"recipient":{"not":{"const":"event_player"}}}}},
+        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerProgram"}}}}
+    }});
     schema["$defs"]["PreWipesProgram"] = serde_json::json!({"properties":{
         "instructions":{"items":{"properties":{"op":{"not":{"enum":["move_set","pump_set","damage_set","gain_life_destroyed","exile_damaged_this_turn","each_player_sacrifice","lose_life_death_controller"]}}}}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreWipesProgram"}}}}
@@ -2743,6 +2834,7 @@ mod tests {
             (19, &[SacrificeV1]),
             (20, &[BoardWipesV1, FlashV1, EntersTappedV1]),
             (21, &[StepBeginningTriggerV1]),
+            (22, &[EventPlayerRecipientV1, SourceStatusConditionV1]),
         ];
         // Enumerate the public vocabulary, so a new capability cannot silently
         // escape this contract. Check real, fully valid definitions rather than
