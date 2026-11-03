@@ -31,6 +31,8 @@ mod search_policy;
 mod search_roots;
 mod search_sampler;
 mod stack_costs_games;
+#[cfg(test)]
+mod trace_reuse_tests;
 mod triggers_games;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -150,27 +152,29 @@ fn trace_runs(
     let mut evidence = vec![];
     let mut reports = vec![];
     for reference in runs {
+        let reference_digest = reference.state_digest()?;
         for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
             let prepared = Prepared::admit(catalog.clone(), reference.config().clone())?;
             let game =
                 Game::replay_with_trace(prepared.clone(), &reference.replay_journal(), mode)?;
-            if game.state_digest()? != reference.state_digest()?
+            let (snapshot, digest) = game.snapshot_with_digest()?;
+            if digest != reference_digest
                 || (mode != TraceMode::Off
                     && game.trace().verification != reference.trace().verification)
             {
                 return Err("trace modes changed semantic state or verification".into());
             }
-            let restored = Game::restore(prepared, &game.snapshot()?)?;
+            let restored = Game::restore(prepared, &snapshot)?;
             if restored.trace() != game.trace() {
                 return Err("trace-mode restore differs".into());
             }
-            reports.push(serde_json::json!({"profile":reference.config().profile,"mode":mode,"state_sha256":game.state_digest()?,"verification":game.trace().verification,
-                "snapshot_bytes":game.snapshot()?.len(),"retained_records":game.trace().records.len()}));
+            reports.push(serde_json::json!({"profile":reference.config().profile,"mode":mode,"state_sha256":digest,"verification":game.trace().verification,
+                "snapshot_bytes":snapshot.len(),"retained_records":game.trace().records.len()}));
             evidence.push(TraceRun {
                 config: reference.config().clone(),
                 journal: reference.replay_journal(),
                 mode,
-                final_snapshot: game.snapshot()?,
+                final_snapshot: snapshot,
             });
         }
     }
