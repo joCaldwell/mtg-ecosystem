@@ -47,6 +47,20 @@ See the package manuals for the exact build and evidence boundaries.
 
 ---
 
+The D2c-a cards-as-data increment adds generic beginning-step triggers at IR v21,
+with typed replayable event witnesses and trusted snapshot/bundle versions 19/20.
+It remains outside hosting/search reviewed capability sets. Verification passed
+959 Rust tests (18 existing diagnostics ignored), 57 Node checks, 114 focused
+release checks, 47 SDK tests/strict TypeScript, and all 216 unchanged profile games
+and explicit replays. Compiler coverage is 1,923/32,116 legal records (5.98767%),
+nineteen additions and zero losses from D2b. See
+[the D2c-a report](docs/game-engine-cards-as-data-d2c-a.md) for exact scope,
+representation proof, source/executable identities and preserved failures.
+Independent parent review and the separate retained-evidence/representation audit
+passed; no new quiet P7 claim is made.
+
+---
+
 ## 🌌 The project: Project Multiverse
 
 An initiative to digitize Magic: The Gathering into a modular, layered,

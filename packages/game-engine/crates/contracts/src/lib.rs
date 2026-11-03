@@ -161,6 +161,7 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+    StepBeginningTriggerV1,
     EntersTappedV1,
     FlashV1,
     CastArtifactV1,
@@ -726,8 +727,12 @@ pub struct ActivatedAbility {
 /// Dies inspects the battlefield immediately before the actual graveyard move
 /// (CR 603.10/700.4), including a source that dies simultaneously.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerCondition {
+    StepBegan {
+        step: BeginningStep,
+        turn_relation: TurnRelation,
+    },
     OpponentCreatureDies,
     SelfEntersBattlefield,
     /// Excludes the exact source incarnation, never every copy of its card.
@@ -736,6 +741,35 @@ pub enum TriggerCondition {
     AnyCreatureDies,
     SelfDies,
     SelfAuraToGraveyard,
+}
+/// Exact step predicates; phases, delayed and conditional boundaries are excluded.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BeginningStep {
+    Upkeep,
+    Draw,
+    End,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnRelation {
+    Controller,
+    AnyPlayer,
+    Opponent,
+}
+impl TriggerCondition {
+    /// Stable reporting vocabulary, independent of the serde representation.
+    pub fn reporting_key(self) -> &'static str {
+        match self {
+            Self::StepBegan { .. } => "step_began",
+            Self::OpponentCreatureDies => "opponent_creature_dies",
+            Self::SelfEntersBattlefield => "self_enters_battlefield",
+            Self::OtherCreatureEntersBattlefield => "other_creature_enters_battlefield",
+            Self::AnyCreatureDies => "any_creature_dies",
+            Self::SelfDies => "self_dies",
+            Self::SelfAuraToGraveyard => "self_aura_to_graveyard",
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -947,6 +981,7 @@ impl Definition {
             }
             set.insert(Capability::TriggeredAbilityV1);
             set.insert(match ability.condition {
+                TriggerCondition::StepBegan { .. } => Capability::StepBeginningTriggerV1,
                 TriggerCondition::OpponentCreatureDies => Capability::BoardWipesV1,
                 TriggerCondition::SelfEntersBattlefield => Capability::SelfEntersBattlefieldV1,
                 TriggerCondition::OtherCreatureEntersBattlefield => {
@@ -1013,9 +1048,12 @@ impl Definition {
             new_ops(&a.program)
                 && a.condition != TriggerCondition::SelfEntersBattlefield
                 && a.condition != TriggerCondition::SelfDies
+                && !matches!(a.condition, TriggerCondition::StepBegan { .. })
                 && a.death_filter.is_none()
         }) {
-            return Err("tokens/counters require spells or self-enters triggers".into());
+            return Err(
+                "tokens/counters require a supported spell, activation or event trigger".into(),
+            );
         }
         // A spell's own source is the spell on the stack, never a creature; a
         // "this creature" counter recipient exists only in self-enters triggers.
@@ -1277,11 +1315,12 @@ impl Definition {
             validate_instruction_program(p)?;
         }
         if !self.triggered.is_empty()
-            && c.kind != CardKind::Creature
-            && !aura
-            && !(sacrifice && c.kind == CardKind::Enchantment)
+            && !matches!(
+                c.kind,
+                CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
+            )
         {
-            return Err("trigger programs require supported creature characteristics".into());
+            return Err("trigger programs require a supported permanent source".into());
         }
         for ability in &self.triggered {
             if let Some(f) = &ability.death_filter
@@ -1316,14 +1355,32 @@ impl Definition {
                 .iter()
                 .any(|i| matches!(i, Instruction::DestroyPermanent { .. }))
                 && ability.condition != TriggerCondition::SelfEntersBattlefield
+                && !matches!(ability.condition, TriggerCondition::StepBegan { .. })
             {
-                return Err("targeted removal triggers require self-enters".into());
+                return Err("targeted removal requires a supported entry or step trigger".into());
+            }
+            if matches!(ability.condition, TriggerCondition::StepBegan { .. })
+                && p.instructions.iter().any(|i| {
+                    matches!(
+                        i,
+                        Instruction::DestroyPermanent { optional: true, .. }
+                            | Instruction::ReturnOwnGraveyardCreatureToHand { optional: true, .. }
+                            | Instruction::SacrificeDamage { optional: true, .. }
+                            | Instruction::LoseLifeDeathController { .. }
+                    )
+                })
+            {
+                return Err(
+                    "step triggers require mandatory programs without death-event recipients"
+                        .into(),
+                );
             }
             if ability.condition == TriggerCondition::SelfAuraToGraveyard {
                 return Err("Aura trigger requires Aura".into());
             }
 
             if ability.functioning_zone != FunctioningZone::Battlefield
+                || p.additional_sacrifice.is_some()
                 || p.functioning_zone != FunctioningZone::Stack
                 || p.timing != SpellTiming::Instant
                 || p.resolution != SpellResolution::Instructions
@@ -1874,6 +1931,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     return Err("unsupported draw cardinality".into());
                 }
                 match recipient {
+                    Some(LifeRecipient::EachOpponent) => {
+                        return Err("unsupported each-opponent draw".into());
+                    }
                     Some(LifeRecipient::Target { target_slot }) => {
                         Some((*target_slot, TargetDomain::AnyPlayer))
                     }
@@ -2011,7 +2071,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 20))]
+    #[schemars(range(min = 3, max = 21))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -2019,7 +2079,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3..=20)
+        if !matches!(self.schema_version, 3..=21)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -2027,6 +2087,11 @@ impl Catalog {
         }
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
+            if self.schema_version < 21
+                && d.capabilities.contains(&Capability::StepBeginningTriggerV1)
+            {
+                return Err("IR v21 is required for beginning-of-step triggers".into());
+            }
             d.validate()?;
             if self.schema_version < 20 && d.capabilities.contains(&Capability::EntersTappedV1) {
                 return Err("IR v20 is required for entry replacements".into());
@@ -2394,6 +2459,16 @@ pub fn catalog_schema() -> serde_json::Value {
             "capabilities":{"items":{"not":{"enum":[Capability::TrampleV1,Capability::FirstStrikeV1,Capability::DoubleStrikeV1,Capability::MenaceV1]}}}
         }}}}}
     }]);
+    schema["allOf"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "if":{"properties":{"schema_version":{"maximum":20}}},
+            "then":{"properties":{"definitions":{"items":{"properties":{
+                "capabilities":{"items":{"not":{"const":Capability::StepBeginningTriggerV1}}},
+                "triggered":{"items":{"properties":{"condition":{"type":"string"}}}}
+            }}}}}
+        }));
     schema["$defs"]["PreWipesProgram"] = serde_json::json!({"properties":{
         "instructions":{"items":{"properties":{"op":{"not":{"enum":["move_set","pump_set","damage_set","gain_life_destroyed","exile_damaged_this_turn","each_player_sacrifice","lose_life_death_controller"]}}}}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreWipesProgram"}}}}
@@ -2667,6 +2742,7 @@ mod tests {
             (18, &[PermanentRemovalV1]),
             (19, &[SacrificeV1]),
             (20, &[BoardWipesV1, FlashV1, EntersTappedV1]),
+            (21, &[StepBeginningTriggerV1]),
         ];
         // Enumerate the public vocabulary, so a new capability cannot silently
         // escape this contract. Check real, fully valid definitions rather than

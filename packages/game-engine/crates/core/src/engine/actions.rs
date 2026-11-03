@@ -12,7 +12,7 @@ pub(super) enum StackKind {
         source_handles: Vec<ObjectHandle>,
         trigger_id: TriggerId,
         event: OccurrenceId,
-        subject: ObjectId,
+        witness: TriggerEventWitness,
     },
     Activated {
         ability: u32,

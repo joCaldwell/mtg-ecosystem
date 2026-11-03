@@ -234,10 +234,12 @@ mod damage_life;
 mod damage_life_tests;
 pub use damage_life::{NoncombatDamageOccurrence, TargetEntity};
 #[cfg(test)]
+mod step_trigger_tests;
+#[cfg(test)]
 mod trigger_tests;
 mod triggers;
-pub use triggers::TriggerId;
 use triggers::{PendingTrigger, TriggerPlacement};
+pub use triggers::{TriggerEventWitness, TriggerId};
 mod history;
 pub use history::History;
 mod recovery;
@@ -1749,7 +1751,7 @@ pub enum Event {
         player: PlayerId,
         ability: u32,
         occurrence: OccurrenceId,
-        subject: ObjectId,
+        witness: TriggerEventWitness,
         source_facts: Box<ObjectBefore>,
     },
     TriggersOrdered {
@@ -3009,7 +3011,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 18,
+            snapshot_version: 19,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3051,7 +3053,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 18
+        if s.snapshot_version != 19
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

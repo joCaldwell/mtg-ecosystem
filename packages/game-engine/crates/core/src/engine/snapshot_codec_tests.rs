@@ -5,7 +5,7 @@ use std::io;
 
 fn reference<'a>(game: &'a Game, digest: &'a str) -> SnapshotRef<'a> {
     SnapshotRef {
-        snapshot_version: 18,
+        snapshot_version: 19,
         build_id: BUILD_ID,
         catalog_digest: &game.prepared.catalog_digest,
         profile_digest: &game.prepared.profile_digest,
@@ -266,7 +266,7 @@ fn snapshot_codec_unchanged_reader_rejects_full_rehashed_shape_and_state_forgeri
     assert!(
         Game::restore_from_reader(historical(), &mut std::io::Cursor::new(raw.as_bytes())).is_err()
     );
-    let duplicate = exact(&game).replacen("{", "{\"snapshot_version\":18,", 1);
+    let duplicate = exact(&game).replacen("{", "{\"snapshot_version\":19,", 1);
     assert!(Game::restore(historical(), &duplicate).is_err());
     assert!(
         Game::restore_from_reader(

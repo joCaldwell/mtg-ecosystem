@@ -103,7 +103,7 @@ test("Rust lowering matches reviewed IR and its generated JSON Schema", () => {
   assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   for (const mutate of [
     (c: any) => { c.unknownSemanticField = true; },
-    (c: any) => { c.schema_version=21; },
+    (c: any) => { c.schema_version=22; },
     (c: any) => { c.schema_version = 2; },
     (c: any) => { delete c.definitions.find((d: any) => d.spell).spell.timing; },
     (c: any) => { delete c.definitions.find((d: any) => d.spell).spell.resolution; },
@@ -191,7 +191,7 @@ test("library and damage catalogs retain exact source semantics and explicit IR 
   for (const catalog of [previous, library, damage]) assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   for (const mutate of [
     (c: any) => { c.schema_version = 3; },
-    (c: any) => { c.schema_version=21; },
+    (c: any) => { c.schema_version=22; },
     (c: any) => { c.definitions.find((d: any) => d.characteristics.kind === "sorcery").spell.instructions[0].op = "put_on_bottom_owner_library"; },
     (c: any) => { c.definitions.find((d: any) => d.characteristics.kind === "sorcery").spell.instructions[0].position = "top"; },
   ]) {
@@ -241,7 +241,7 @@ test("action catalog preserves complete activated costs, opponent choice and sch
   for (const mutate of [
     (c: any) => { c.schema_version = 3; },
     (c: any) => { c.schema_version = 4; },
-    (c: any) => { c.schema_version=21; },
+    (c: any) => { c.schema_version=22; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].cost = "tap_source"; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].program.instructions[0].count = "01"; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].program.instructions[1].optional = true; },
@@ -295,7 +295,7 @@ test("stack catalog preserves complete counter domains and distinct tap and mana
     (c: any) => { c.schema_version = 3; },
     (c: any) => { c.schema_version = 4; },
     (c: any) => { c.schema_version = 5; },
-    (c: any) => { c.schema_version=21; },
+    (c: any) => { c.schema_version=22; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Stifle").spell.targets[0].domain = "stack_activated_ability"; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Counterspell").spell.instructions[0].destination = "graveyard"; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Azure Mage").activated[0].cost.mana.cost.extra = true; },
@@ -362,7 +362,7 @@ test("damage and life catalog preserves complete sources and explicit IR7 target
     }
   }
   for (const mutate of [
-    (c: any) => {c.schema_version=21;},
+    (c: any) => {c.schema_version=22;},
     (c: any) => {c.definitions.find((d: any) => d.name==="Lightning Bolt").spell.targets[0].domain="creature_or_player";},
     (c: any) => {c.definitions.find((d: any) => d.name==="Soul Feast").spell.instructions[0].recipient={opponent:{target_slot:0}};},
     (c: any) => {c.definitions.find((d: any) => d.name==="Sacred Nectar").spell.instructions[0].recipient={controller:{extra:true}};},
@@ -431,7 +431,7 @@ test("trigger catalog binds mandatory self and other events without trusting arc
     assert.equal(validate(bad),false,`${name} IR${version}`);
   }
   for (const mutate of [
-    (c: any) => {c.schema_version=21;},
+    (c: any) => {c.schema_version=22;},
     (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].optional=true;},
     (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].cost="tap_source";},
     (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].condition="other_creature_dies";},
@@ -504,7 +504,7 @@ test("effects catalog preserves signed modifiers and complete prevention/replace
     assert.equal(validate(bad),false,`stripped ${name} IR${version}`);
   }
   for (const mutate of [
-    (c: any)=>{c.schema_version=21;},
+    (c: any)=>{c.schema_version=22;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Giant Growth").spell.instructions[0].power="-0";},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Disfigure").spell.instructions[0].toughness=-2;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Fog").spell.instructions[0].duration="this_turn";},
@@ -553,7 +553,7 @@ test("choices catalog preserves separate occurrences, complete modal programs an
     bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,`stripped ${name} IR${version}`);
   }
   for(const mutate of [
-    (c: any)=>{c.schema_version=21;},
+    (c: any)=>{c.schema_version=22;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Healing Salve").spell.modes[0].hidden=true;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Healing Salve").spell.modes.pop();},
     (c: any)=>{const p=c.definitions.find((d: any)=>d.name==="Healing Salve").spell;p.instructions=[{op:"draw_cards",count:"1",source_block:0}];},
@@ -575,7 +575,7 @@ test("match catalog binds sole defender and the current finite Commander policy"
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   for(const file of ["expected-ir.json","expected-commander-ir.json","expected-damage-ir.json","expected-library-ir.json","expected-action-ir.json","expected-stack-ir.json","expected-damage-life-ir.json","expected-trigger-ir.json","expected-effects-ir.json","expected-choices-ir.json","expected-match-ir.json"])assert.equal(validate(JSON.parse(read(file))),true,file+JSON.stringify(validate.errors));
   for(let version=3;version<=10;version++){const bad=structuredClone(catalog);bad.schema_version=version;bad.definitions=[structuredClone(wall)];assert.equal(validate(bad),false);bad.definitions[0].capabilities=[];assert.equal(validate(bad),false);}
-  for(const mutate of [(c:any)=>{c.schema_version=21;},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=["reach"];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{keyword:"defender"}];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{defender:null}];}]){const bad=structuredClone(catalog);mutate(bad);assert.equal(validate(bad),false);}
+  for(const mutate of [(c:any)=>{c.schema_version=22;},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=["reach"];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{keyword:"defender"}];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{defender:null}];}]){const bad=structuredClone(catalog);mutate(bad);assert.equal(validate(bad),false);}
   const policy=selectedPolicies(catalog)[0];assert.equal(policy.policy_version,1);assert.ok(policy.retrieved_date);assert.equal(policy.html_sha256.length,64);assert.ok(policy.named_bans.length > 0);
   assert.equal(policy.offensive_policy.html_sha256.length,64);assert.ok(policy.offensive_policy.records.length > 0);assert.equal(policy.categories.lutri,"companion_only");
   const banned=new Set<string>();
@@ -591,6 +591,20 @@ test("match catalog binds sole defender and the current finite Commander policy"
 
 // Full historical reports remain immutable. Current runs retain independent
 // replay checks and pin compact current semantic digests per witness.
+// Trusted movement/token evidence retains the exact incarnation. Beginning
+// steps have no object subject; these historical assertions require an object.
+function triggerSubject(event: any) {
+  assert.equal(event.subject, undefined);
+  const witness = event.witness;
+  assert.ok(witness);
+  if (witness.event === "moved") {
+    const move = witness.movement;
+    return move.destination.zone === "battlefield" ? move.successor : move.previous;
+  }
+  assert.equal(witness.event, "token_entered");
+  return witness.object;
+}
+
 function assertScenarioDigests(family: string, reports: any[]) {
   assert.deepEqual(reports.map(r => r.state_sha256), JSON.parse(read("d1b3-history-scenario-digests.json"))[family]);
 }
@@ -684,7 +698,7 @@ test("choice witnesses retain independent targets, selected modes and twice-chec
     assert.deepEqual(checks.map((e: any)=>e.stage.stage),wanted.map((_,i)=>i===0?"match":"resolution_start"));
     for(const e of checks){assert.equal(e.controller,0);assert.equal(e.check.controller,0);assert.equal(e.check.condition,"controller_hand_empty");}
     const collected=events(r,"trigger_collected").filter((e: any)=>e.source.card===2);assert.equal(collected.length,name==="bouncer_nonempty"?0:1);
-    for(const e of collected){assert.deepEqual(e.source,e.subject);assert.deepEqual(e.source,e.source_facts.object);assert.equal(e.source_facts.marked_damage,"3");assert.equal(e.source_facts.zone.zone,"battlefield");assert.equal(e.player,0);}
+    for(const e of collected){assert.deepEqual(e.source,triggerSubject(e));assert.deepEqual(e.source,e.source_facts.object);assert.equal(e.source_facts.marked_damage,"3");assert.equal(e.source_facts.zone.zone,"battlefield");assert.equal(e.player,0);}
     if(collected.length&&!["bouncer_stifled","bouncer_controller_leaves","bouncer_no_targets"].includes(name)){
       const placed=events(r,"trigger_placed").find((e: any)=>e.trigger_id===collected[0].trigger_id);const completed=events(r,"triggered_ability_completed").find((e: any)=>e.stack_id===placed.stack_id);
       assert.equal(completed.resolved,!["bouncer_draw_false","bouncer_target_gone"].includes(name));
@@ -745,7 +759,7 @@ test("effects witnesses retain signed characteristics, actual damage and affecte
     assert.deepEqual(death[0].movement.previous,{card:0,incarnation:0});
     assert.equal(death[0].movement.destination.zone,"graveyard");
     assert.equal(finalView(r).objects.find((o: any)=>o.oracle_id==="cfb756dd-6fe1-430a-8f04-8b10cac62a86").zone.zone,zone);
-    assert.deepEqual(events(r,"trigger_collected").map((e: any)=>e.subject),Array(4).fill({card:0,incarnation:0}));
+    assert.deepEqual(events(r,"trigger_collected").map((e: any)=>triggerSubject(e)),Array(4).fill({card:0,incarnation:0}));
     assert.deepEqual(lives(r),["41","41","41","37"]);
   }
   const lethal=actuals(by.amplified_death,"state_based_moved");
@@ -915,7 +929,7 @@ test("ordinary trigger witnesses retain APNAP order, countered programs and hist
     const placed = new Map(events(r,"trigger_placed").map((e: any) => [e.stack_id,collected.get(e.trigger_id)]));
     return events(r,"triggered_ability_completed").map((e: any) => {
       const trigger = placed.get(e.stack_id) as any;
-      return [trigger.source.card,trigger.subject.card];
+      return [trigger.source.card,triggerSubject(trigger).card];
     });
   };
   for (const r of reports) {
@@ -928,8 +942,8 @@ test("ordinary trigger witnesses retain APNAP order, countered programs and hist
       assert.deepEqual(e.source_facts.object,e.source);
       assert.deepEqual(e.source_facts.zone,{zone:"battlefield"});
       assert.equal(e.source_facts.controller,e.player);
-      if ([3,4,17,29].includes(e.source.card)) assert.deepEqual(e.subject,{card:4,incarnation:2});
-      else assert.equal(e.subject.incarnation,0);
+      if ([3,4,17,29].includes(e.source.card)) assert.deepEqual(triggerSubject(e),{card:4,incarnation:2});
+      else assert.equal(triggerSubject(e).incarnation,0);
     }
     for (const kind of ["life_lost","life_gained"]) for (const a of actuals(r,kind)) {
       assert.equal(a.amount,"1");
@@ -951,7 +965,7 @@ test("ordinary trigger witnesses retain APNAP order, countered programs and hist
     const r=by[name];const c=events(r,"trigger_collected");
     for (const card of [1,2]) {
       assert.equal(c.filter((e: any) => e.source.card===card).length,2);
-      assert.equal(c.filter((e: any) => e.subject.card===card).length,5);
+      assert.equal(c.filter((e: any) => triggerSubject(e).card===card).length,5);
     }
     assert.deepEqual(events(r,"trigger_placed").map((e: any) => e.player),[0,0,0,0,1,1,2,2,3,3]);
     assert.deepEqual(events(r,"triggered_ability_completed").map((e: any) => e.stack_id),events(r,"trigger_placed").map((e: any) => e.stack_id).reverse());
@@ -1625,3 +1639,24 @@ function assertPoolReview(catalog: any) {
     }
   }
 }
+
+
+test("D2c step triggers require IR21 and typed predicates", () => {
+  const catalog = loadCatalog("cards-data-d2c");
+  const validate = new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
+  assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
+  assert.equal(catalog.definitions.length, 11);
+  for (const d of catalog.definitions) {
+    const old = {...catalog, schema_version:20, definitions:[d]};
+    assert.equal(validate(old), false, d.name);
+    for (const mutate of [
+      (a:any)=>{a.condition.step_began.step="cleanup";},
+      (a:any)=>{a.condition.step_began.turn_relation="that_player";},
+      (a:any)=>{a.condition.step_began.unknown=true;},
+      (a:any)=>{a.functioning_zone="graveyard";},
+    ]) {
+      const bad=structuredClone(catalog); mutate(bad.definitions[0].triggered[0]);
+      assert.equal(validate(bad),false);
+    }
+  }
+});

@@ -223,6 +223,10 @@ struct SourceComparison {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "trigger", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceTrigger {
+    Phase {
+        phase: String,
+        whose: serde_json::Value,
+    },
     PutIntoGraveyard {
         what: TriggerObject,
         from: String,
@@ -2648,6 +2652,21 @@ fn lower_trigger(
         _ => None,
     };
     let condition=match trigger {
+        SourceTrigger::Phase { phase, whose } => {
+            let step = match phase.as_str() {
+                "upkeep" => BeginningStep::Upkeep,
+                "draw-step" => BeginningStep::Draw,
+                "end-step" => BeginningStep::End,
+                _ => return Err(unsupported("abilities.trigger.phase", "unsupported beginning step")),
+            };
+            let turn_relation = match whose.as_str() {
+                Some("your") => TurnRelation::Controller,
+                Some("each-player") => TurnRelation::AnyPlayer,
+                Some("each-opponent") => TurnRelation::Opponent,
+                _ => return Err(unsupported("abilities.trigger.whose", "unsupported turn relation")),
+            };
+            TriggerCondition::StepBegan { step, turn_relation }
+        },
         SourceTrigger::Dies { what: TriggerObject::Filter { filter, count } } if fixed_one(count) && filter.types == ["creature"] && filter.control.as_deref() == Some("opponent") && !filter.other && !filter.non_token && filter.non_subtypes.is_empty() => TriggerCondition::OpponentCreatureDies,
         _ if death_filter.is_some() => TriggerCondition::AnyCreatureDies,
         SourceTrigger::Enters { what: TriggerObject::This { noun } } if noun == "enchantment" => TriggerCondition::SelfEntersBattlefield,
@@ -3023,8 +3042,8 @@ mod tests {
                 "kind:future-ability",
             ),
             (
-                r#"[{"kind":"triggered","trigger":{"trigger":"phase"},"effects":[]}]"#,
-                "trigger:phase",
+                r#"[{"kind":"triggered","trigger":{"trigger":"cast"},"effects":[]}]"#,
+                "trigger:cast",
             ),
             (
                 r#"[{"kind":"spell","effects":[{"steps":[{"effect":"gain-abilities"}]}]}]"#,
@@ -4851,7 +4870,7 @@ mod tests {
             );
         }
         let mut future = c;
-        future.schema_version = 21;
+        future.schema_version = 22;
         assert!(future.validate().is_err());
     }
     #[test]
@@ -5217,7 +5236,7 @@ mod tests {
             assert!(Catalog::read(&bad).is_err());
         }
         let mut bad = c;
-        bad.schema_version = 21;
+        bad.schema_version = 22;
         assert!(bad.validate().is_err());
     }
 
@@ -5481,7 +5500,7 @@ mod tests {
             }
         }
         let mut bad = catalog.clone();
-        bad.schema_version = 21;
+        bad.schema_version = 22;
         assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
         for change in [
             (|d: &mut Definition| {
@@ -5792,7 +5811,7 @@ mod tests {
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
         let catalog = embedded_catalog("stack").unwrap();
-        for version in [3, 4, 5, 21] {
+        for version in [3, 4, 5, 22] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -5997,7 +6016,7 @@ mod tests {
         let c = embedded_catalog("base").unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":3", "\"schema_version\":21"),
+            raw.replace("\"schema_version\":3", "\"schema_version\":22"),
             raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
             raw.replace("\"target_slot\":0", "\"target_slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
@@ -6529,7 +6548,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = embedded_catalog("action").unwrap();
-        for version in [3, 4, 21] {
+        for version in [3, 4, 22] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -6656,7 +6675,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":21"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":22"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",
@@ -6903,3 +6922,6 @@ mod tests {
 
 #[cfg(test)]
 mod d2b_tests;
+
+#[cfg(test)]
+mod d2c_tests;

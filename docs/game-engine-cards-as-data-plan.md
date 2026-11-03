@@ -126,8 +126,15 @@ D2a and D2b measurements, source audits and current verification are recorded in
 [the coverage report](game-engine-cards-as-data-coverage.md) and
 [the D2b report](game-engine-cards-as-data-d2b.md). D2b adds common legend choices,
 bound source references, flash and source entry tapped; it reaches 1,904 legal
-records (5.92851%) with zero losses from the D2a baseline. The remaining generic
-IR and trigger-family work below is still open.
+records (5.92851%) with zero losses from the D2a baseline. D2c-a adds a generic
+beginning-step capability at IR v21, reaching **1,923 / 32,116 (5.98767%)**,
+nineteen additions and zero losses from D2b. Its upkeep/draw/end predicates and
+controller/any-player/opponent relations use typed occurrence evidence and the
+existing mandatory effect programs. Hosting/search review sets exclude it.
+See [D2c-a](game-engine-cards-as-data-d2c-a.md) for scope, source witnesses and the
+173-snapshot representation proof. Broader phase forms, event-player recipients,
+source-status conditions, cast/attack/damage triggers and other P6.11 operations
+remain open; optional payment and library selection were not added.
 
 - **Generalise the IR.**
   - Replace `ObjectSet` with permanent filters plus relations.

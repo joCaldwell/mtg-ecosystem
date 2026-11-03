@@ -24,6 +24,21 @@ rejections. See `docs/game-engine-cards-as-data-d2b.md` for witnesses, reviews,
 verification and the 1,904/32,116 compiler coverage measurement.
 
 
+D2c-a adds `StepBeginningTriggerV1` at IR v21: independent upkeep/draw/end and
+controller/any-player/opponent predicates, actual transition occurrence evidence,
+entry actions before APNAP placement, and typed movement/token/step witnesses.
+Trusted snapshot/bundle versions are now 19/20; public projection/context/sidecar
+remain 16/16/15. Intervening conditions on step triggers, optional effects, event-player recipients
+and unsupported functioning zones still reject whole cards. Hosting/search review
+sets exclude the capability. See `docs/game-engine-cards-as-data-d2c-a.md`.
+The settled check passed 959 Rust tests (18 existing diagnostics ignored), 57 Node
+checks, 114 focused release checks, and 47 SDK tests with strict TypeScript.
+Coverage is 1,923/32,116 (5.98767%), nineteen additions and zero losses from D2b.
+All twelve unchanged profile batches and explicit replays passed 216/216 with
+winners, zero faults/truncations. The report records the 173-snapshot proof for
+37 representation-driven baseline changes, retained identities, failed attempts
+and evidence paths. These are functional checks, not a new quiet P7 claim.
+
 Rust owns contracts, offline compilation, deterministic core, and the scenario
 CLI. Read `docs/game-engine-first-scenario.md` for frozen inputs and restrictions.
 The current follow-up contracts are `docs/game-engine-p2-slice.md` and
