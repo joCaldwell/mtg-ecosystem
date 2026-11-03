@@ -280,7 +280,7 @@ fn d2c_collect_once_before_entry_restore_every_frame_and_apnap_ordering() {
         } = event
         {
             assert!(witness.subject().is_none());
-            assert!(g.trace.records.iter().any(|r| matches!(&r.record, EvidenceRecord::Batch { batch } if batch.occurrences.iter().any(|o| o.id == *occurrence && matches!(o.actual, EventOutcome::TurnTransitioned { .. })))));
+            assert!(g.trace.records.iter().any(|r| matches!(&r.record, EvidenceRecord::Batch { batch } if batch.occurrences.iter().any(|o| TriggerOccurrenceId::Batch(o.id.clone()) == *occurrence && matches!(o.actual, EventOutcome::TurnTransitioned { .. })))));
         }
     }
 }

@@ -928,6 +928,9 @@ fn assert_outcome(run: &Run, policy: Policy) -> Result<(), String> {
                 {
                     return Err("trigger source facts or unique source/subject pair differs".into());
                 }
+                let mtg_core::TriggerOccurrenceId::Batch(occurrence) = occurrence else {
+                    return Err("movement witness bound to a nonbatch occurrence".into());
+                };
                 let actual = g
                     .trace()
                     .records

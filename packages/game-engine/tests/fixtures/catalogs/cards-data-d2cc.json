@@ -1,0 +1,17 @@
+{
+  "schema_version": 23,
+  "output_order": "struct",
+  "provenance": "../cards-data-d2cc/provenance.json",
+  "records": [
+    "../cards-data-d2cc/0adcf8d2-6eb9-4679-8ad5-f28e2f4aba39.json",
+    "../cards-data-d2cc/0fc64fd6-f057-4056-9dca-47accb7ff036.json",
+    "../cards-data-d2cc/2e9289d6-dbc6-456d-88cf-d1f534e731d6.json",
+    "../cards-data-d2cc/3b9b5b22-5a7d-4e37-a870-ca0f0efa4f36.json",
+    "../cards-data-d2cc/0629747e-8dd8-4150-95ee-9d860264ccb0.json",
+    "../cards-data-d2cc/0a6f45e9-5c7a-4e2c-bf8a-fc5fe0ae0793.json",
+    "../cards-data-d2cc/4987c458-604a-4727-b360-170616e91e67.json",
+    "../cards-data-d2cc/b3f2265b-dd65-4b74-8b74-35ee0b147617.json"
+  ],
+  "expected_ir": "../cards-data-d2cc/expected-ir.json",
+  "expected_digest": "cards-data-d2cc.sha256"
+}

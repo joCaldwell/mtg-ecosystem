@@ -685,7 +685,10 @@ fn simultaneous_dying_observers_each_capture_each_occurrence_once_before_any_obs
             }
         );
         assert!([CardId(1), CardId(2)].contains(&subject));
-        batches.insert(event.batch);
+        let TriggerOccurrenceId::Batch(event_id) = event else {
+            panic!("movement trigger needs a batch occurrence")
+        };
+        batches.insert(event_id.batch);
         occurrences.insert(serde_json::to_string(event).unwrap());
     }
     assert_eq!(batches.len(), 1);

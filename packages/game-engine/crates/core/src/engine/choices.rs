@@ -93,7 +93,7 @@ impl InterveningCheck {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 pub enum InterveningStage {
-    Match { occurrence: OccurrenceId },
+    Match { occurrence: TriggerOccurrenceId },
     ResolutionStart { stack_id: StackId },
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

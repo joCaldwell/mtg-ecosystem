@@ -112,12 +112,13 @@ fn simultaneous_deaths_share_lookback_observers_including_both_dying_artists() {
                         occurrence: id,
                         witness: subject,
                         ..
-                    } if *id == occurrence.id => Some(subject.subject().unwrap()),
+                    } if *id == TriggerOccurrenceId::Batch(occurrence.id.clone()) =>
+                        Some(subject.subject().unwrap()),
                     _ => None,
                 })
                 .all(|subject| subject == movement.previous)
         );
-        assert_eq!(g.events().iter().filter(|event| matches!(event, Event::TriggerCollected { occurrence: id, .. } if *id == occurrence.id)).count(), 5);
+        assert_eq!(g.events().iter().filter(|event| matches!(event, Event::TriggerCollected { occurrence: id, .. } if *id == TriggerOccurrenceId::Batch(occurrence.id.clone()))).count(), 5);
     }
     g.validate_trigger_state().unwrap();
     // Ordered deaths use their respective before-event views: the first

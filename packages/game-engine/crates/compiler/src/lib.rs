@@ -229,6 +229,10 @@ struct SourceComparison {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "trigger", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceTrigger {
+    Cast {
+        who: PlayerSelector,
+        what: SourceSpellFilter,
+    },
     Phase {
         phase: String,
         whose: serde_json::Value,
@@ -247,6 +251,80 @@ enum SourceTrigger {
     AnyOf {
         events: Vec<SourceTrigger>,
     },
+}
+// ObjectFilter semantics: fields/arrays conjunctive, explicit anyOf disjunctive.
+// packages/oracle-parser/src/ast.ts ObjectFilter; CR 205.2b, 601.2i.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceSpellFilter {
+    cls: Option<String>,
+    types: Option<Vec<String>>,
+    #[serde(rename = "nonTypes")]
+    non_types: Option<Vec<String>>,
+    #[serde(rename = "allOf")]
+    all_of: Option<Vec<SourceSpellFilter>>,
+    #[serde(rename = "anyOf")]
+    any_of: Option<Vec<SourceSpellFilter>>,
+}
+fn lower_spell_predicate(
+    f: &SourceSpellFilter,
+    root: bool,
+    depth: usize,
+) -> Result<SpellPredicate, Failure> {
+    if depth > 8
+        || (root && f.cls.as_deref() != Some("spell"))
+        || f.cls.as_deref().is_some_and(|s| s != "spell")
+    {
+        return Err(unsupported("trigger.what", "unsupported spell class/depth"));
+    }
+    let kind = |s: &str| match s {
+        "creature" => Ok(CardKind::Creature),
+        "artifact" => Ok(CardKind::Artifact),
+        "enchantment" => Ok(CardKind::Enchantment),
+        "instant" => Ok(CardKind::Instant),
+        "sorcery" => Ok(CardKind::Sorcery),
+        "land" => Ok(CardKind::Land),
+        _ => Err(unsupported("trigger.what.types", "unsupported spell type")),
+    };
+    let mut terms = vec![];
+    for (values, negative) in [(&f.types, false), (&f.non_types, true)] {
+        if let Some(values) = values {
+            if values.is_empty() {
+                return Err(unsupported("trigger.what", "empty type predicate"));
+            }
+            for t in values {
+                let kind = kind(t)?;
+                terms.push(if negative {
+                    SpellPredicate::NotType { kind }
+                } else {
+                    SpellPredicate::Type { kind }
+                });
+            }
+        }
+    }
+    for (children, disjunction) in [(&f.all_of, false), (&f.any_of, true)] {
+        if let Some(children) = children {
+            if children.is_empty() {
+                return Err(unsupported("trigger.what", "empty boolean predicate"));
+            }
+            let children = children
+                .iter()
+                .map(|c| lower_spell_predicate(c, false, depth + 1))
+                .collect::<Result<Vec<_>, _>>()?;
+            terms.push(if disjunction {
+                SpellPredicate::AnyOf { terms: children }
+            } else {
+                SpellPredicate::All { terms: children }
+            });
+        }
+    }
+    let p = match terms.len() {
+        0 => SpellPredicate::Any {},
+        1 => terms.remove(0),
+        _ => SpellPredicate::All { terms },
+    };
+    p.validate().map_err(|e| unsupported("trigger.what", &e))?;
+    Ok(p)
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "ref", rename_all = "kebab-case", deny_unknown_fields)]
@@ -1187,7 +1265,7 @@ fn bind_target(
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PlayerBinding {
     Unbound,
-    StepEvent,
+    EventPlayer,
     DeathController,
 }
 fn append_spell_effects(
@@ -1562,7 +1640,7 @@ fn append_spell_effects(
                         program,
                         slots,
                         who,
-                        player_binding == PlayerBinding::StepEvent,
+                        player_binding == PlayerBinding::EventPlayer,
                     )?,
                     amount: fixed_positive(
                         &serde_json::from_value(amount.clone())
@@ -1575,7 +1653,7 @@ fn append_spell_effects(
                         program,
                         slots,
                         who,
-                        player_binding == PlayerBinding::StepEvent,
+                        player_binding == PlayerBinding::EventPlayer,
                     )?,
                     amount: fixed_positive(
                         &serde_json::from_value(amount.clone())
@@ -1588,7 +1666,7 @@ fn append_spell_effects(
                         program,
                         slots,
                         who,
-                        player_binding == PlayerBinding::StepEvent,
+                        player_binding == PlayerBinding::EventPlayer,
                     )? {
                         LifeRecipient::Controller => None,
                         r => Some(r),
@@ -2708,6 +2786,16 @@ fn lower_trigger(
         _ => None,
     };
     let condition=match trigger {
+        SourceTrigger::Cast { who, what } => {
+            if who.selection_id.is_some() || who.of.is_some() { return Err(unsupported("trigger.who", "unsupported caster qualifier")); }
+            let caster = match who.player.as_str() {
+                "you" => CasterRelation::Controller,
+                "a-player" => CasterRelation::AnyPlayer,
+                "an-opponent" => CasterRelation::Opponent,
+                _ => return Err(unsupported("trigger.who", "unsupported caster relation")),
+            };
+            TriggerCondition::SpellCast { caster, spell: lower_spell_predicate(what, true, 0)? }
+        },
         SourceTrigger::Phase { phase, whose } => {
             let step = match phase.as_str() {
                 "upkeep" => BeginningStep::Upkeep,
@@ -2748,8 +2836,11 @@ fn lower_trigger(
         effects,
         block,
         &mut BTreeMap::new(),
-        if matches!(condition, TriggerCondition::StepBegan { .. }) {
-            PlayerBinding::StepEvent
+        if matches!(
+            condition,
+            TriggerCondition::StepBegan { .. } | TriggerCondition::SpellCast { .. }
+        ) {
+            PlayerBinding::EventPlayer
         } else if condition == TriggerCondition::OpponentCreatureDies {
             PlayerBinding::DeathController
         } else {
@@ -3134,8 +3225,10 @@ mod tests {
                 "kind:future-ability",
             ),
             (
-                r#"[{"kind":"triggered","trigger":{"trigger":"cast"},"effects":[]}]"#,
-                "trigger:cast",
+                // Cast is now a structured supported family; attacks remains
+                // an unknown trigger discriminator for this mirror diagnostic.
+                r#"[{"kind":"triggered","trigger":{"trigger":"attacks"},"effects":[]}]"#,
+                "trigger:attacks",
             ),
             (
                 r#"[{"kind":"spell","effects":[{"steps":[{"effect":"gain-abilities"}]}]}]"#,
@@ -4962,7 +5055,7 @@ mod tests {
             );
         }
         let mut future = c;
-        future.schema_version = 23;
+        future.schema_version = 24;
         assert!(future.validate().is_err());
     }
     #[test]
@@ -5328,7 +5421,7 @@ mod tests {
             assert!(Catalog::read(&bad).is_err());
         }
         let mut bad = c;
-        bad.schema_version = 23;
+        bad.schema_version = 24;
         assert!(bad.validate().is_err());
     }
 
@@ -5592,7 +5685,7 @@ mod tests {
             }
         }
         let mut bad = catalog.clone();
-        bad.schema_version = 23;
+        bad.schema_version = 24;
         assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
         for change in [
             (|d: &mut Definition| {
@@ -5903,7 +5996,7 @@ mod tests {
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
         let catalog = embedded_catalog("stack").unwrap();
-        for version in [3, 4, 5, 23] {
+        for version in [3, 4, 5, 24] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -6108,7 +6201,7 @@ mod tests {
         let c = embedded_catalog("base").unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":3", "\"schema_version\":23"),
+            raw.replace("\"schema_version\":3", "\"schema_version\":24"),
             raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
             raw.replace("\"target_slot\":0", "\"target_slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
@@ -6640,7 +6733,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = embedded_catalog("action").unwrap();
-        for version in [3, 4, 23] {
+        for version in [3, 4, 24] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -6767,7 +6860,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":23"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":24"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",
@@ -7020,3 +7113,6 @@ mod d2c_tests;
 
 #[cfg(test)]
 mod d2cb_tests;
+
+#[cfg(test)]
+mod d2cc_tests;
