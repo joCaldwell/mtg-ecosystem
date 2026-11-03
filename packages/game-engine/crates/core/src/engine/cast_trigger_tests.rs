@@ -875,16 +875,17 @@ fn d2cc_cast_collection_id_and_retained_history_faults_rollback_payment() {
 }
 #[test]
 fn d2cc_stack_capacity_fault_at_cast_collection_preserves_payment_and_tax() {
-    let mut g = Game::with_trace(
-        prepared(
-            &[
-                (STUDENT, 0, 0, Zone::Battlefield),
-                (MINE, 0, 0, Zone::Hand { owner: PlayerId(0) }),
-            ],
-            TurnStep::PrecombatMain,
-        ),
-        TraceMode::Off,
+    let mut p = prepared(
+        &[
+            (STUDENT, 0, 0, Zone::Battlefield),
+            (YARGLE, 0, 0, Zone::Command { owner: PlayerId(0) }),
+        ],
+        TurnStep::PrecombatMain,
     );
+    p.config.commanders.push(CardId(1));
+    p.profile_digest = digest(&p.config).unwrap();
+    synthetic_relation(&mut p, CasterRelation::Controller, SpellPredicate::Any {});
+    let mut g = Game::with_trace(p, TraceMode::Off);
     answer(&mut g, Response::Cast { card: CardId(1) });
     fund(&mut g);
     pass_until(&mut g, |g| !g.state.pending_triggers.is_empty());
@@ -892,8 +893,26 @@ fn d2cc_stack_capacity_fault_at_cast_collection_preserves_payment_and_tax() {
     // Private synthetic saturation of the common mechanical bound; the source
     // program and successful payment path are the same as reachable casts.
     let mut fresh = Game::with_trace(g.prepared.as_ref().clone(), TraceMode::Off);
+    // Synthetic prior completed command cast makes the unchanged tax nonzero.
+    fresh
+        .state
+        .commanders
+        .record_cast(CardId(1), PlayerId(0), Zone::Command { owner: PlayerId(0) })
+        .unwrap();
+    assert_eq!(
+        fresh
+            .commander_ledger()
+            .tax(CardId(1), PlayerId(0))
+            .unwrap(),
+        Quantity::from(2)
+    );
     answer(&mut fresh, Response::Cast { card: CardId(1) });
     fund(&mut fresh);
+    assert_eq!(fresh.top().unwrap().total_cost.generic, Quantity::from(5));
+    assert_eq!(
+        fresh.top().unwrap().cast_from,
+        Zone::Command { owner: PlayerId(0) }
+    );
     fresh
         .state
         .pending_triggers
@@ -904,6 +923,7 @@ fn d2cc_stack_capacity_fault_at_cast_collection_preserves_payment_and_tax() {
     let trace = fresh.trace.clone();
     let journal = fresh.replay_journal();
     let charges = fresh.state.retained_auxiliary_charge;
+    let commanders = fresh.state.commanders.clone();
     assert!(matches!(fresh.advance(Budget::new(1)), Advance::Fault(_)));
     assert!(
         matches!(fresh.typed_fault(),Some(RuleFault::StackCapacityExceeded {requested,..}) if *requested==capacities::STACK_LIMIT+1)
@@ -915,6 +935,14 @@ fn d2cc_stack_capacity_fault_at_cast_collection_preserves_payment_and_tax() {
     assert_eq!(fresh.trace, trace);
     assert_eq!(fresh.replay_journal(), journal);
     assert_eq!(fresh.state.retained_auxiliary_charge, charges);
+    assert_eq!(fresh.state.commanders, commanders);
+    assert_eq!(
+        fresh
+            .commander_ledger()
+            .tax(CardId(1), PlayerId(0))
+            .unwrap(),
+        Quantity::from(2)
+    );
 }
 #[test]
 fn d2cc_capability_excluded_from_hosting_and_search() {
