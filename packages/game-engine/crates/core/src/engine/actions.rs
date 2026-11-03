@@ -11,7 +11,7 @@ pub(super) enum StackKind {
         ability: u32,
         source_handles: Vec<ObjectHandle>,
         trigger_id: TriggerId,
-        event: OccurrenceId,
+        event: TriggerOccurrenceId,
         witness: TriggerEventWitness,
     },
     Activated {
@@ -23,7 +23,9 @@ impl StackKind {
     pub(super) fn event_player(&self) -> Result<Option<PlayerId>, String> {
         match self {
             Self::Triggered {
-                witness: witness @ TriggerEventWitness::StepBegan { .. },
+                witness:
+                    witness @ (TriggerEventWitness::StepBegan { .. }
+                    | TriggerEventWitness::SpellCast { .. }),
                 ..
             } => Ok(witness.event_player()),
             _ => Err("unbound event-player recipient".into()),

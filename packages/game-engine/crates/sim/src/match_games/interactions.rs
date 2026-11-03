@@ -409,7 +409,7 @@ mod step_tests {
         );
         for d in &c.definitions {
             assert!(
-                serde_json::to_value(d.triggered[0].condition)
+                serde_json::to_value(&d.triggered[0].condition)
                     .unwrap()
                     .is_object()
             );

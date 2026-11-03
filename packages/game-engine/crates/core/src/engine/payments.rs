@@ -152,6 +152,7 @@ impl Game {
             self.record_event(Event::SpellCast {
                 stack_id: cast.stack_id,
             })?;
+            self.collect_cast_triggers(&stack)?;
             self.state.commanders.record_cast(
                 stack.source.card,
                 stack.controller,

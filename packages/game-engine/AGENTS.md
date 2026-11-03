@@ -491,3 +491,13 @@ Creature damage accumulates until cleanup; lethal damage uses the ordinary SBA
 destruction and Commander-return paths. Trigger scheduling and damage prevention remain unsupported in those historical
 damage/life profiles; the later trigger/effects profiles enable their reviewed
 finite families.
+
+
+D2c-c ordinary cast triggers are an **implementation candidate; independent source
+review and final combined acceptance remain pending**. IR23 separates caster
+relations from compositional spell-type predicates, collects only after successful
+complete casting/payment, and retains frozen typed cast witnesses. Snapshot/bundle
+stay 19/20; old catalog/history references are unchanged. Hosting/search exclude
+the new capability. Implementer checks are focused only; the parent owns final
+acceptance. See `docs/game-engine-cards-as-data-d2c-c.md` for exact scope, source
+witnesses, coverage and retained development evidence.

@@ -234,12 +234,16 @@ mod damage_life;
 mod damage_life_tests;
 pub use damage_life::{NoncombatDamageOccurrence, TargetEntity};
 #[cfg(test)]
+mod cast_trigger_tests;
+#[cfg(test)]
 mod step_trigger_tests;
 #[cfg(test)]
 mod trigger_tests;
 mod triggers;
+pub use triggers::{
+    CastOccurrence, CastOccurrenceId, TriggerEventWitness, TriggerId, TriggerOccurrenceId,
+};
 use triggers::{PendingTrigger, TriggerPlacement};
-pub use triggers::{TriggerEventWitness, TriggerId};
 mod history;
 pub use history::History;
 mod recovery;
@@ -1750,7 +1754,7 @@ pub enum Event {
         source: ObjectId,
         player: PlayerId,
         ability: u32,
-        occurrence: OccurrenceId,
+        occurrence: TriggerOccurrenceId,
         witness: TriggerEventWitness,
         source_facts: Box<ObjectBefore>,
     },

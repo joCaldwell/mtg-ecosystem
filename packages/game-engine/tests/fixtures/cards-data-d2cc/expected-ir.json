@@ -1,0 +1,737 @@
+{
+  "schema_version": 23,
+  "rules_edition": "2026-09-25",
+  "rules_sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca",
+  "definitions": [
+    {
+      "oracle_id": "0629747e-8dd8-4150-95ee-9d860264ccb0",
+      "name": "Generous Visitor",
+      "characteristics": {
+        "kind": "creature",
+        "subtypes": [
+          "Spirit"
+        ],
+        "basic": false,
+        "legendary": false,
+        "mana_cost": {
+          "generic": "0",
+          "colored": [
+            "G"
+          ]
+        },
+        "colors": [
+          "G"
+        ],
+        "color_identity": [
+          "G"
+        ],
+        "power": "1",
+        "toughness": "1"
+      },
+      "intrinsic_zone": null,
+      "spell": {
+        "timing": "main_phase",
+        "resolution": "permanent",
+        "functioning_zone": "stack",
+        "targets": [],
+        "instructions": []
+      },
+      "triggered": [
+        {
+          "functioning_zone": "battlefield",
+          "condition": {
+            "spell_cast": {
+              "caster": "controller",
+              "spell": {
+                "predicate": "type",
+                "kind": "enchantment"
+              }
+            }
+          },
+          "program": {
+            "timing": "instant",
+            "resolution": "instructions",
+            "functioning_zone": "stack",
+            "targets": [
+              {
+                "slot": 0,
+                "selection_id": "line:0:16",
+                "chooser": "controller",
+                "stage": "announcement",
+                "domain": "battlefield_creature"
+              }
+            ],
+            "instructions": [
+              {
+                "op": "put_plus_one_counters",
+                "on": {
+                  "recipient": "target",
+                  "target_slot": 0
+                },
+                "amount": "1",
+                "source_block": 0
+              }
+            ]
+          }
+        }
+      ],
+      "capabilities": [
+        "cast_trigger_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "creature_target_v1",
+        "triggered_ability_v1",
+        "plus_one_counters_v1"
+      ],
+      "provenance": {
+        "printing_id": "d1066ccd-a932-4d05-98da-11ae4675364e",
+        "source_index": 967,
+        "source_sha256": "2e50c83c64e1ed9c6bca0d241f59b6df035b2868bf3bbfd2462ffee3de62ad1a",
+        "ast_sha256": "65b30bfd98a32c9a092b27396673d3f331a873a28166d8c10fd7d623125ba684",
+        "binding_sha256": "f927c350c7b880a5ef4c3b5a433a9a3921e17faa9a9c4ed83cc64c9b9ae2f3df",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "source_json": "{\"object\":\"card\",\"id\":\"d1066ccd-a932-4d05-98da-11ae4675364e\",\"oracle_id\":\"0629747e-8dd8-4150-95ee-9d860264ccb0\",\"multiverse_ids\":[548493],\"mtgo_id\":97310,\"arena_id\":79620,\"tcgplayer_id\":262205,\"cardmarket_id\":607336,\"name\":\"Generous Visitor\",\"lang\":\"en\",\"released_at\":\"2022-02-18\",\"uri\":\"https://api.scryfall.com/cards/d1066ccd-a932-4d05-98da-11ae4675364e\",\"scryfall_uri\":\"https://scryfall.com/card/neo/185/generous-visitor?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T06:24:09Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/d/1/d1066ccd-a932-4d05-98da-11ae4675364e.jpg?1783923849\",\"normal\":\"https://cards.scryfall.io/normal/front/d/1/d1066ccd-a932-4d05-98da-11ae4675364e.jpg?1783923849\",\"large\":\"https://cards.scryfall.io/large/front/d/1/d1066ccd-a932-4d05-98da-11ae4675364e.jpg?1783923849\",\"png\":\"https://cards.scryfall.io/png/front/d/1/d1066ccd-a932-4d05-98da-11ae4675364e.png?1783923849\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/d/1/d1066ccd-a932-4d05-98da-11ae4675364e.jpg?1783923849\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/d/1/d1066ccd-a932-4d05-98da-11ae4675364e.jpg?1783923849\",\"thumb\":\"https://cards.scryfall.io/thumb/front/d/1/d1066ccd-a932-4d05-98da-11ae4675364e.webp?1783923849\",\"grid\":\"https://cards.scryfall.io/grid/front/d/1/d1066ccd-a932-4d05-98da-11ae4675364e.webp?1783923849\",\"display\":\"https://cards.scryfall.io/display/front/d/1/d1066ccd-a932-4d05-98da-11ae4675364e.webp?1783923849\",\"art\":\"https://cards.scryfall.io/art/front/d/1/d1066ccd-a932-4d05-98da-11ae4675364e.webp?1783923849\",\"crop\":\"https://cards.scryfall.io/crop/front/d/1/d1066ccd-a932-4d05-98da-11ae4675364e.webp?1783923849\"},\"mana_cost\":\"{G}\",\"cmc\":1,\"type_line\":\"Creature — Spirit\",\"oracle_text\":\"Whenever you cast an enchantment spell, put a +1/+1 counter on target creature.\",\"power\":\"1\",\"toughness\":\"1\",\"colors\":[\"G\"],\"color_identity\":[\"G\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"not_legal\",\"vintage\":\"legal\",\"penny\":\"not_legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"not_legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"mtgo\",\"arena\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":false,\"variation\":false,\"set_id\":\"59a2059f-5482-433f-8761-eb2e17859b71\",\"set\":\"neo\",\"set_name\":\"Kamigawa: Neon Dynasty\",\"set_type\":\"expansion\",\"set_uri\":\"https://api.scryfall.com/sets/59a2059f-5482-433f-8761-eb2e17859b71\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Aneo&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/neo?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/d1066ccd-a932-4d05-98da-11ae4675364e/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A0629747e-8dd8-4150-95ee-9d860264ccb0&unique=prints\",\"collector_number\":\"185\",\"digital\":false,\"rarity\":\"uncommon\",\"flavor_text\":\"It is said that one must modestly refuse a gift three times before accepting it to show humility before the kami.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Iris Compiet\",\"artist_ids\":[\"aa807c8c-d07f-4f09-90d3-b2cbf5b86dbf\"],\"illustration_id\":\"b92a583b-edce-4c67-851a-912229dd7e10\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":11342,\"penny_rank\":3713,\"preview\":{\"source\":\"Emma Fyffe\",\"source_uri\":\"https://twitter.com/EmmaFyffe/status/1487972765516791812\",\"previewed_at\":\"2022-01-30\"},\"prices\":{\"usd\":\"0.31\",\"usd_foil\":\"0.35\",\"usd_etched\":null,\"eur\":\"0.09\",\"eur_foil\":\"0.22\",\"tix\":\"0.03\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=548493&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DGenerous%2BVisitor\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DGenerous%2BVisitor\",\"edhrec\":\"https://edhrec.com/route/?cc=Generous+Visitor\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F262205%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=607336&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/97310?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "abilities_json": "[{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"cast\",\"who\":{\"player\":\"you\"},\"what\":{\"types\":[\"enchantment\"],\"cls\":\"spell\"}},\"effects\":[{\"steps\":[{\"effect\":\"put-counters\",\"on\":{\"ref\":\"target\",\"filter\":{\"types\":[\"creature\"]},\"count\":{\"amount\":\"fixed\",\"value\":1},\"selectionId\":\"line:0:16\"},\"counter\":{\"type\":\"+1/+1\"},\"count\":{\"amount\":\"fixed\",\"value\":1}}]}]}]"
+      }
+    },
+    {
+      "oracle_id": "0a6f45e9-5c7a-4e2c-bf8a-fc5fe0ae0793",
+      "name": "Pyre Hound",
+      "characteristics": {
+        "kind": "creature",
+        "subtypes": [
+          "Elemental",
+          "Dog"
+        ],
+        "basic": false,
+        "legendary": false,
+        "mana_cost": {
+          "generic": "3",
+          "colored": [
+            "R"
+          ]
+        },
+        "colors": [
+          "R"
+        ],
+        "color_identity": [
+          "R"
+        ],
+        "power": "2",
+        "toughness": "3"
+      },
+      "intrinsic_zone": null,
+      "spell": {
+        "timing": "main_phase",
+        "resolution": "permanent",
+        "functioning_zone": "stack",
+        "targets": [],
+        "instructions": []
+      },
+      "triggered": [
+        {
+          "functioning_zone": "battlefield",
+          "condition": {
+            "spell_cast": {
+              "caster": "controller",
+              "spell": {
+                "predicate": "all",
+                "terms": [
+                  {
+                    "predicate": "any_of",
+                    "terms": [
+                      {
+                        "predicate": "type",
+                        "kind": "instant"
+                      },
+                      {
+                        "predicate": "type",
+                        "kind": "sorcery"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "program": {
+            "timing": "instant",
+            "resolution": "instructions",
+            "functioning_zone": "stack",
+            "targets": [],
+            "instructions": [
+              {
+                "op": "put_plus_one_counters",
+                "on": {
+                  "recipient": "source"
+                },
+                "amount": "1",
+                "source_block": 1
+              }
+            ]
+          }
+        }
+      ],
+      "keywords": [
+        "trample"
+      ],
+      "capabilities": [
+        "cast_trigger_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "triggered_ability_v1",
+        "trample_v1",
+        "plus_one_counters_v1"
+      ],
+      "provenance": {
+        "printing_id": "cd970484-49b3-442a-806a-cabc56526ee1",
+        "source_index": 1589,
+        "source_sha256": "2d4383d5f082b0f5e76b1887e569447948d1778576b9c7fbb8d735f42bc1f821",
+        "ast_sha256": "a701a68578db068c33338840bae7bccafae5f8cb2ce538b5ecd678f816dada60",
+        "binding_sha256": "04b3b0a4bc3e294f93e256faea68edbc3a107a5533e4d54935ecd60fcbedad13",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "source_json": "{\"object\":\"card\",\"id\":\"cd970484-49b3-442a-806a-cabc56526ee1\",\"oracle_id\":\"0a6f45e9-5c7a-4e2c-bf8a-fc5fe0ae0793\",\"multiverse_ids\":[442134],\"mtgo_id\":67204,\"mtgo_foil_id\":67205,\"tcgplayer_id\":161782,\"cardmarket_id\":319526,\"name\":\"Pyre Hound\",\"lang\":\"en\",\"released_at\":\"2018-03-16\",\"uri\":\"https://api.scryfall.com/cards/cd970484-49b3-442a-806a-cabc56526ee1\",\"scryfall_uri\":\"https://scryfall.com/card/a25/145/pyre-hound?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T09:32:23Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/c/d/cd970484-49b3-442a-806a-cabc56526ee1.jpg?1783935143\",\"normal\":\"https://cards.scryfall.io/normal/front/c/d/cd970484-49b3-442a-806a-cabc56526ee1.jpg?1783935143\",\"large\":\"https://cards.scryfall.io/large/front/c/d/cd970484-49b3-442a-806a-cabc56526ee1.jpg?1783935143\",\"png\":\"https://cards.scryfall.io/png/front/c/d/cd970484-49b3-442a-806a-cabc56526ee1.png?1783935143\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/c/d/cd970484-49b3-442a-806a-cabc56526ee1.jpg?1783935143\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/c/d/cd970484-49b3-442a-806a-cabc56526ee1.jpg?1783935143\",\"thumb\":\"https://cards.scryfall.io/thumb/front/c/d/cd970484-49b3-442a-806a-cabc56526ee1.webp?1783935143\",\"grid\":\"https://cards.scryfall.io/grid/front/c/d/cd970484-49b3-442a-806a-cabc56526ee1.webp?1783935143\",\"display\":\"https://cards.scryfall.io/display/front/c/d/cd970484-49b3-442a-806a-cabc56526ee1.webp?1783935143\",\"art\":\"https://cards.scryfall.io/art/front/c/d/cd970484-49b3-442a-806a-cabc56526ee1.webp?1783935143\",\"crop\":\"https://cards.scryfall.io/crop/front/c/d/cd970484-49b3-442a-806a-cabc56526ee1.webp?1783935143\"},\"mana_cost\":\"{3}{R}\",\"cmc\":4,\"type_line\":\"Creature — Elemental Dog\",\"oracle_text\":\"Trample\\nWhenever you cast an instant or sorcery spell, put a +1/+1 counter on this creature.\",\"power\":\"2\",\"toughness\":\"3\",\"colors\":[\"R\"],\"color_identity\":[\"R\"],\"keywords\":[\"Trample\"],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"not_legal\"},\"games\":[\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"41ee6e2f-69b3-4c53-8a8e-960f5e974cfc\",\"set\":\"a25\",\"set_name\":\"Masters 25\",\"set_type\":\"masters\",\"set_uri\":\"https://api.scryfall.com/sets/41ee6e2f-69b3-4c53-8a8e-960f5e974cfc\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Aa25&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/a25?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/cd970484-49b3-442a-806a-cabc56526ee1/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A0a6f45e9-5c7a-4e2c-bf8a-fc5fe0ae0793&unique=prints\",\"collector_number\":\"145\",\"digital\":false,\"rarity\":\"common\",\"watermark\":\"set\",\"flavor_text\":\"Its growl is the crackling and popping of a wildfire untamed.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Jama Jurabaev\",\"artist_ids\":[\"dd6ac36b-bdb4-48d5-9fae-1b017437669d\"],\"illustration_id\":\"20c04768-efd8-4ede-83bf-9bd075719ec5\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":19302,\"penny_rank\":11782,\"prices\":{\"usd\":\"0.24\",\"usd_foil\":\"0.17\",\"usd_etched\":null,\"eur\":\"0.08\",\"eur_foil\":\"0.25\",\"tix\":\"0.06\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=442134&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DPyre%2BHound\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DPyre%2BHound\",\"edhrec\":\"https://edhrec.com/route/?cc=Pyre+Hound\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F161782%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=319526&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/67204?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "abilities_json": "[{\"kind\":\"keywords\",\"keywords\":[{\"keyword\":\"trample\"}]},{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"cast\",\"who\":{\"player\":\"you\"},\"what\":{\"allOf\":[{\"anyOf\":[{\"types\":[\"instant\"]},{\"types\":[\"sorcery\"]}]}],\"cls\":\"spell\"}},\"effects\":[{\"steps\":[{\"effect\":\"put-counters\",\"on\":{\"ref\":\"this\",\"noun\":\"creature\"},\"counter\":{\"type\":\"+1/+1\"},\"count\":{\"amount\":\"fixed\",\"value\":1}}]}]}]"
+      }
+    },
+    {
+      "oracle_id": "0adcf8d2-6eb9-4679-8ad5-f28e2f4aba39",
+      "name": "Student of Ojutai",
+      "characteristics": {
+        "kind": "creature",
+        "subtypes": [
+          "Human",
+          "Monk"
+        ],
+        "basic": false,
+        "legendary": false,
+        "mana_cost": {
+          "generic": "3",
+          "colored": [
+            "W"
+          ]
+        },
+        "colors": [
+          "W"
+        ],
+        "color_identity": [
+          "W"
+        ],
+        "power": "2",
+        "toughness": "4"
+      },
+      "intrinsic_zone": null,
+      "spell": {
+        "timing": "main_phase",
+        "resolution": "permanent",
+        "functioning_zone": "stack",
+        "targets": [],
+        "instructions": []
+      },
+      "triggered": [
+        {
+          "functioning_zone": "battlefield",
+          "condition": {
+            "spell_cast": {
+              "caster": "controller",
+              "spell": {
+                "predicate": "not_type",
+                "kind": "creature"
+              }
+            }
+          },
+          "program": {
+            "timing": "instant",
+            "resolution": "instructions",
+            "functioning_zone": "stack",
+            "targets": [],
+            "instructions": [
+              {
+                "op": "gain_life",
+                "recipient": "controller",
+                "amount": "2",
+                "source_block": 0
+              }
+            ]
+          }
+        }
+      ],
+      "capabilities": [
+        "cast_trigger_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "life_gain_v1",
+        "triggered_ability_v1"
+      ],
+      "provenance": {
+        "printing_id": "df49884b-9e12-488c-8381-ec543349b97b",
+        "source_index": 1655,
+        "source_sha256": "b6f37a827f5fda5495aa9e69407b594505b3b772d213335407a8a67cfebccade",
+        "ast_sha256": "67fe83f721f44df27c77a0b38efdf8c57f4522b85fec81bb19d6cb903af2779d",
+        "binding_sha256": "02c1be60d6088ce469f9d8d46554ce9ca3206c49e1a3d7938c5391004efd8c51",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "source_json": "{\"object\":\"card\",\"id\":\"df49884b-9e12-488c-8381-ec543349b97b\",\"oracle_id\":\"0adcf8d2-6eb9-4679-8ad5-f28e2f4aba39\",\"multiverse_ids\":[438599],\"mtgo_id\":65945,\"mtgo_foil_id\":65946,\"tcgplayer_id\":145388,\"cardmarket_id\":301426,\"name\":\"Student of Ojutai\",\"lang\":\"en\",\"released_at\":\"2017-11-17\",\"uri\":\"https://api.scryfall.com/cards/df49884b-9e12-488c-8381-ec543349b97b\",\"scryfall_uri\":\"https://scryfall.com/card/ima/33/student-of-ojutai?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T09:39:13Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/d/f/df49884b-9e12-488c-8381-ec543349b97b.jpg?1783935553\",\"normal\":\"https://cards.scryfall.io/normal/front/d/f/df49884b-9e12-488c-8381-ec543349b97b.jpg?1783935553\",\"large\":\"https://cards.scryfall.io/large/front/d/f/df49884b-9e12-488c-8381-ec543349b97b.jpg?1783935553\",\"png\":\"https://cards.scryfall.io/png/front/d/f/df49884b-9e12-488c-8381-ec543349b97b.png?1783935553\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/d/f/df49884b-9e12-488c-8381-ec543349b97b.jpg?1783935553\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/d/f/df49884b-9e12-488c-8381-ec543349b97b.jpg?1783935553\",\"thumb\":\"https://cards.scryfall.io/thumb/front/d/f/df49884b-9e12-488c-8381-ec543349b97b.webp?1783935553\",\"grid\":\"https://cards.scryfall.io/grid/front/d/f/df49884b-9e12-488c-8381-ec543349b97b.webp?1783935553\",\"display\":\"https://cards.scryfall.io/display/front/d/f/df49884b-9e12-488c-8381-ec543349b97b.webp?1783935553\",\"art\":\"https://cards.scryfall.io/art/front/d/f/df49884b-9e12-488c-8381-ec543349b97b.webp?1783935553\",\"crop\":\"https://cards.scryfall.io/crop/front/d/f/df49884b-9e12-488c-8381-ec543349b97b.webp?1783935553\"},\"mana_cost\":\"{3}{W}\",\"cmc\":4,\"type_line\":\"Creature — Human Monk\",\"oracle_text\":\"Whenever you cast a noncreature spell, you gain 2 life.\",\"power\":\"2\",\"toughness\":\"4\",\"colors\":[\"W\"],\"color_identity\":[\"W\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"not_legal\",\"timeless\":\"not_legal\",\"gladiator\":\"not_legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"not_legal\",\"competitivebrawl\":\"not_legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"not_legal\"},\"games\":[\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"741bcd30-7709-4133-8919-f4b46483bed7\",\"set\":\"ima\",\"set_name\":\"Iconic Masters\",\"set_type\":\"masters\",\"set_uri\":\"https://api.scryfall.com/sets/741bcd30-7709-4133-8919-f4b46483bed7\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Aima&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/ima?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/df49884b-9e12-488c-8381-ec543349b97b/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A0adcf8d2-6eb9-4679-8ad5-f28e2f4aba39&unique=prints\",\"collector_number\":\"33\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"\\\"Human enlightenment is a firefly that sparks in the night. Dragon enlightenment is a beacon that disperses all darkness.\\\"\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Jason A. Engle\",\"artist_ids\":[\"02e2b5de-4341-464c-8fdb-a1adbf873bc0\"],\"illustration_id\":\"ef8b7519-e905-4423-b0b3-ee76e3817989\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":17928,\"prices\":{\"usd\":\"0.28\",\"usd_foil\":\"0.10\",\"usd_etched\":null,\"eur\":\"0.06\",\"eur_foil\":\"0.16\",\"tix\":\"0.06\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=438599&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DStudent%2Bof%2BOjutai\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DStudent%2Bof%2BOjutai\",\"edhrec\":\"https://edhrec.com/route/?cc=Student+of+Ojutai\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F145388%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=301426&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/65945?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "abilities_json": "[{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"cast\",\"who\":{\"player\":\"you\"},\"what\":{\"nonTypes\":[\"creature\"],\"cls\":\"spell\"}},\"effects\":[{\"steps\":[{\"effect\":\"gain-life\",\"who\":{\"player\":\"you\"},\"amount\":{\"amount\":\"fixed\",\"value\":2}}]}]}]"
+      }
+    },
+    {
+      "oracle_id": "0fc64fd6-f057-4056-9dca-47accb7ff036",
+      "name": "Sythis, Harvest's Hand",
+      "characteristics": {
+        "kind": "creature",
+        "additional_types": [
+          "enchantment"
+        ],
+        "subtypes": [
+          "Nymph"
+        ],
+        "basic": false,
+        "legendary": true,
+        "mana_cost": {
+          "generic": "0",
+          "colored": [
+            "G",
+            "W"
+          ]
+        },
+        "colors": [
+          "G",
+          "W"
+        ],
+        "color_identity": [
+          "G",
+          "W"
+        ],
+        "power": "1",
+        "toughness": "2"
+      },
+      "intrinsic_zone": null,
+      "spell": {
+        "timing": "main_phase",
+        "resolution": "permanent",
+        "functioning_zone": "stack",
+        "targets": [],
+        "instructions": []
+      },
+      "triggered": [
+        {
+          "functioning_zone": "battlefield",
+          "condition": {
+            "spell_cast": {
+              "caster": "controller",
+              "spell": {
+                "predicate": "type",
+                "kind": "enchantment"
+              }
+            }
+          },
+          "program": {
+            "timing": "instant",
+            "resolution": "instructions",
+            "functioning_zone": "stack",
+            "targets": [],
+            "instructions": [
+              {
+                "op": "gain_life",
+                "recipient": "controller",
+                "amount": "1",
+                "source_block": 0
+              },
+              {
+                "op": "draw_cards",
+                "count": "1",
+                "source_block": 0
+              }
+            ]
+          }
+        }
+      ],
+      "capabilities": [
+        "cast_trigger_v1",
+        "cast_enchantment_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "commander_identity_v1",
+        "cast_creature_v1",
+        "controller_draw_v1",
+        "life_gain_v1",
+        "triggered_ability_v1"
+      ],
+      "provenance": {
+        "printing_id": "89511ab5-8ea6-4f07-a80b-c1ec7e89924e",
+        "source_index": 2379,
+        "source_sha256": "e45b15d57e02d1ce51d0fe88d8b8ce5f47262e19fa985c2e1d77ee82b5ace2c3",
+        "ast_sha256": "59570a17f66d5a935ef91c782f7e652fa5d4d67364989ebbe757aa1c012f8f02",
+        "binding_sha256": "4d51b728519bd28d24c341efab90d812f838111d8ac5d5b4cb90bfd47ea842a9",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "source_json": "{\"object\":\"card\",\"id\":\"89511ab5-8ea6-4f07-a80b-c1ec7e89924e\",\"oracle_id\":\"0fc64fd6-f057-4056-9dca-47accb7ff036\",\"multiverse_ids\":[625343],\"mtgo_id\":114217,\"tcgplayer_id\":506046,\"cardmarket_id\":723067,\"name\":\"Sythis, Harvest's Hand\",\"lang\":\"en\",\"released_at\":\"2023-08-04\",\"uri\":\"https://api.scryfall.com/cards/89511ab5-8ea6-4f07-a80b-c1ec7e89924e\",\"scryfall_uri\":\"https://scryfall.com/card/cmm/938/sythis-harvests-hand?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T04:03:31Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/8/9/89511ab5-8ea6-4f07-a80b-c1ec7e89924e.jpg?1783915411\",\"normal\":\"https://cards.scryfall.io/normal/front/8/9/89511ab5-8ea6-4f07-a80b-c1ec7e89924e.jpg?1783915411\",\"large\":\"https://cards.scryfall.io/large/front/8/9/89511ab5-8ea6-4f07-a80b-c1ec7e89924e.jpg?1783915411\",\"png\":\"https://cards.scryfall.io/png/front/8/9/89511ab5-8ea6-4f07-a80b-c1ec7e89924e.png?1783915411\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/8/9/89511ab5-8ea6-4f07-a80b-c1ec7e89924e.jpg?1783915411\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/8/9/89511ab5-8ea6-4f07-a80b-c1ec7e89924e.jpg?1783915411\",\"thumb\":\"https://cards.scryfall.io/thumb/front/8/9/89511ab5-8ea6-4f07-a80b-c1ec7e89924e.webp?1783915411\",\"grid\":\"https://cards.scryfall.io/grid/front/8/9/89511ab5-8ea6-4f07-a80b-c1ec7e89924e.webp?1783915411\",\"display\":\"https://cards.scryfall.io/display/front/8/9/89511ab5-8ea6-4f07-a80b-c1ec7e89924e.webp?1783915411\",\"art\":\"https://cards.scryfall.io/art/front/8/9/89511ab5-8ea6-4f07-a80b-c1ec7e89924e.webp?1783915411\",\"crop\":\"https://cards.scryfall.io/crop/front/8/9/89511ab5-8ea6-4f07-a80b-c1ec7e89924e.webp?1783915411\"},\"mana_cost\":\"{G}{W}\",\"cmc\":2,\"type_line\":\"Legendary Enchantment Creature — Nymph\",\"oracle_text\":\"Whenever you cast an enchantment spell, you gain 1 life and draw a card.\",\"power\":\"1\",\"toughness\":\"2\",\"colors\":[\"G\",\"W\"],\"color_identity\":[\"G\",\"W\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"not_legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"not_legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"not_legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":false,\"nonfoil\":true,\"finishes\":[\"nonfoil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"cd05036f-2698-43e6-a48e-5c8d82f0a551\",\"set\":\"cmm\",\"set_name\":\"Commander Masters\",\"set_type\":\"masters\",\"set_uri\":\"https://api.scryfall.com/sets/cd05036f-2698-43e6-a48e-5c8d82f0a551\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Acmm&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/cmm?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/89511ab5-8ea6-4f07-a80b-c1ec7e89924e/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A0fc64fd6-f057-4056-9dca-47accb7ff036&unique=prints\",\"collector_number\":\"938\",\"digital\":false,\"rarity\":\"rare\",\"flavor_text\":\"\\\"Through every verdant field, every bough that hangs heavy with fruit, Karametra shows her love.\\\"\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Ryan Yee\",\"artist_ids\":[\"8955dca7-3e37-42b4-83a9-167c78a2178f\"],\"illustration_id\":\"e08f1d88-4de3-41a0-9cb4-07fc47ec3f2c\",\"border_color\":\"black\",\"frame\":\"2015\",\"frame_effects\":[\"legendary\",\"enchantment\"],\"security_stamp\":\"oval\",\"full_art\":false,\"textless\":false,\"booster\":false,\"story_spotlight\":false,\"edhrec_rank\":1015,\"penny_rank\":636,\"prices\":{\"usd\":\"3.95\",\"usd_foil\":null,\"usd_etched\":null,\"eur\":\"3.07\",\"eur_foil\":null,\"tix\":\"0.83\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=625343&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DSythis%252C%2BHarvest%2527s%2BHand\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DSythis%252C%2BHarvest%2527s%2BHand\",\"edhrec\":\"https://edhrec.com/route/?cc=Sythis%2C+Harvest%27s+Hand\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F506046%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=723067&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/114217?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "abilities_json": "[{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"cast\",\"who\":{\"player\":\"you\"},\"what\":{\"types\":[\"enchantment\"],\"cls\":\"spell\"}},\"effects\":[{\"steps\":[{\"effect\":\"gain-life\",\"who\":{\"player\":\"you\"},\"amount\":{\"amount\":\"fixed\",\"value\":1}},{\"effect\":\"draw\",\"who\":{\"player\":\"you\"},\"amount\":{\"amount\":\"fixed\",\"value\":1}}]}]}]"
+      }
+    },
+    {
+      "oracle_id": "2e9289d6-dbc6-456d-88cf-d1f534e731d6",
+      "name": "Firebrand Archer",
+      "characteristics": {
+        "kind": "creature",
+        "subtypes": [
+          "Human",
+          "Archer"
+        ],
+        "basic": false,
+        "legendary": false,
+        "mana_cost": {
+          "generic": "1",
+          "colored": [
+            "R"
+          ]
+        },
+        "colors": [
+          "R"
+        ],
+        "color_identity": [
+          "R"
+        ],
+        "power": "2",
+        "toughness": "1"
+      },
+      "intrinsic_zone": null,
+      "spell": {
+        "timing": "main_phase",
+        "resolution": "permanent",
+        "functioning_zone": "stack",
+        "targets": [],
+        "instructions": []
+      },
+      "triggered": [
+        {
+          "functioning_zone": "battlefield",
+          "condition": {
+            "spell_cast": {
+              "caster": "controller",
+              "spell": {
+                "predicate": "not_type",
+                "kind": "creature"
+              }
+            }
+          },
+          "program": {
+            "timing": "instant",
+            "resolution": "instructions",
+            "functioning_zone": "stack",
+            "targets": [],
+            "instructions": [
+              {
+                "op": "sacrifice_damage",
+                "target_slot": null,
+                "recipient": "each_opponent",
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                },
+                "optional": false,
+                "source_block": 0
+              }
+            ]
+          }
+        }
+      ],
+      "capabilities": [
+        "cast_trigger_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "triggered_ability_v1",
+        "sacrifice_v1"
+      ],
+      "provenance": {
+        "printing_id": "fe0312f1-4c98-4b7f-8a34-0059ea80edef",
+        "source_index": 6911,
+        "source_sha256": "24244f4425af38705db892a4f6ef8d3eec14097277142f00770d0f15244f67d6",
+        "ast_sha256": "b775c21a3a0c9e7714a700f830b808fb6dc582078cef4a73f174b3b9475fc898",
+        "binding_sha256": "0b57d9a5a92347dbd6776108951f0a1a5ff08ccc3ecb7b242e08d560023e65d2",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "source_json": "{\"object\":\"card\",\"id\":\"fe0312f1-4c98-4b7f-8a34-0059ea80edef\",\"oracle_id\":\"2e9289d6-dbc6-456d-88cf-d1f534e731d6\",\"multiverse_ids\":[679938],\"resource_id\":\"AFDDE4B925E245BC2E2DC94F607D6A20F2D61FFD73BEE5B2B9F289F5B4BEB003\",\"mtgo_id\":133418,\"arena_id\":93909,\"tcgplayer_id\":591775,\"cardmarket_id\":797357,\"name\":\"Firebrand Archer\",\"lang\":\"en\",\"released_at\":\"2024-11-15\",\"uri\":\"https://api.scryfall.com/cards/fe0312f1-4c98-4b7f-8a34-0059ea80edef\",\"scryfall_uri\":\"https://scryfall.com/card/fdn/196/firebrand-archer?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T02:17:47Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/f/e/fe0312f1-4c98-4b7f-8a34-0059ea80edef.jpg?1783909067\",\"normal\":\"https://cards.scryfall.io/normal/front/f/e/fe0312f1-4c98-4b7f-8a34-0059ea80edef.jpg?1783909067\",\"large\":\"https://cards.scryfall.io/large/front/f/e/fe0312f1-4c98-4b7f-8a34-0059ea80edef.jpg?1783909067\",\"png\":\"https://cards.scryfall.io/png/front/f/e/fe0312f1-4c98-4b7f-8a34-0059ea80edef.png?1783909067\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/f/e/fe0312f1-4c98-4b7f-8a34-0059ea80edef.jpg?1783909067\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/f/e/fe0312f1-4c98-4b7f-8a34-0059ea80edef.jpg?1783909067\",\"thumb\":\"https://cards.scryfall.io/thumb/front/f/e/fe0312f1-4c98-4b7f-8a34-0059ea80edef.webp?1783909067\",\"grid\":\"https://cards.scryfall.io/grid/front/f/e/fe0312f1-4c98-4b7f-8a34-0059ea80edef.webp?1783909067\",\"display\":\"https://cards.scryfall.io/display/front/f/e/fe0312f1-4c98-4b7f-8a34-0059ea80edef.webp?1783909067\",\"art\":\"https://cards.scryfall.io/art/front/f/e/fe0312f1-4c98-4b7f-8a34-0059ea80edef.webp?1783909067\",\"crop\":\"https://cards.scryfall.io/crop/front/f/e/fe0312f1-4c98-4b7f-8a34-0059ea80edef.webp?1783909067\"},\"mana_cost\":\"{1}{R}\",\"cmc\":2,\"type_line\":\"Creature — Human Archer\",\"oracle_text\":\"Whenever you cast a noncreature spell, this creature deals 1 damage to each opponent.\",\"power\":\"2\",\"toughness\":\"1\",\"colors\":[\"R\"],\"color_identity\":[\"R\"],\"keywords\":[],\"legalities\":{\"standard\":\"legal\",\"future\":\"legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"not_legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"arena\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"a7ecb771-d1b6-4dec-8cf5-8d45179f21e0\",\"set\":\"fdn\",\"set_name\":\"Foundations\",\"set_type\":\"core\",\"set_uri\":\"https://api.scryfall.com/sets/a7ecb771-d1b6-4dec-8cf5-8d45179f21e0\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Afdn&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/fdn?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/fe0312f1-4c98-4b7f-8a34-0059ea80edef/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A2e9289d6-dbc6-456d-88cf-d1f534e731d6&unique=prints\",\"collector_number\":\"196\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"A word of vengeance, and her arrows awaken in flame.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"John Stanko\",\"artist_ids\":[\"b0f038a0-73b5-4806-918e-9cd11b5f92e1\"],\"illustration_id\":\"8eeb6aad-fc70-4a1d-9314-eb36711d72e9\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":1128,\"penny_rank\":2155,\"prices\":{\"usd\":\"0.29\",\"usd_foil\":\"0.36\",\"usd_etched\":null,\"eur\":\"0.14\",\"eur_foil\":\"0.23\",\"tix\":\"0.03\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=679938&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DFirebrand%2BArcher\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DFirebrand%2BArcher\",\"edhrec\":\"https://edhrec.com/route/?cc=Firebrand+Archer\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F591775%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=797357&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/133418?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "abilities_json": "[{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"cast\",\"who\":{\"player\":\"you\"},\"what\":{\"nonTypes\":[\"creature\"],\"cls\":\"spell\"}},\"effects\":[{\"steps\":[{\"effect\":\"damage\",\"source\":{\"ref\":\"this\",\"noun\":\"creature\"},\"amount\":{\"amount\":\"fixed\",\"value\":1},\"to\":{\"to\":\"player\",\"ref\":{\"player\":\"each-opponent\"}}}]}]}]"
+      }
+    },
+    {
+      "oracle_id": "3b9b5b22-5a7d-4e37-a870-ca0f0efa4f36",
+      "name": "Sigil of the Empty Throne",
+      "characteristics": {
+        "kind": "enchantment",
+        "subtypes": [],
+        "basic": false,
+        "legendary": false,
+        "mana_cost": {
+          "generic": "3",
+          "colored": [
+            "W",
+            "W"
+          ]
+        },
+        "colors": [
+          "W"
+        ],
+        "color_identity": [
+          "W"
+        ],
+        "power": null,
+        "toughness": null
+      },
+      "intrinsic_zone": null,
+      "spell": {
+        "timing": "main_phase",
+        "resolution": "permanent",
+        "functioning_zone": "stack",
+        "targets": [],
+        "instructions": []
+      },
+      "triggered": [
+        {
+          "functioning_zone": "battlefield",
+          "condition": {
+            "spell_cast": {
+              "caster": "controller",
+              "spell": {
+                "predicate": "type",
+                "kind": "enchantment"
+              }
+            }
+          },
+          "program": {
+            "timing": "instant",
+            "resolution": "instructions",
+            "functioning_zone": "stack",
+            "targets": [],
+            "instructions": [
+              {
+                "op": "create_creature_tokens",
+                "count": 1,
+                "token": {
+                  "colors": [
+                    "W"
+                  ],
+                  "subtypes": [
+                    "Angel"
+                  ],
+                  "power": "4",
+                  "toughness": "4",
+                  "keywords": [
+                    "flying"
+                  ]
+                },
+                "source_block": 0
+              }
+            ]
+          }
+        }
+      ],
+      "capabilities": [
+        "cast_trigger_v1",
+        "cast_enchantment_v1",
+        "normal_layout_v1",
+        "triggered_ability_v1",
+        "creature_tokens_v1"
+      ],
+      "provenance": {
+        "printing_id": "6875be24-1515-488f-a899-929c8e480dfd",
+        "source_index": 8943,
+        "source_sha256": "0aaf36db20ddaf9c4a39d491ce78608d2234b87abd8ee766adbfc1852eaf8c0d",
+        "ast_sha256": "5024c9d3acfa67fa871e0a67c1aa62285a2bc4ea9acc2919b2bd92616161cf18",
+        "binding_sha256": "37bfcbde983fb392ada86e8fbd1613a4d8b20a6b6fb8a8e2822e9c29d9ac2dbb",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "source_json": "{\"object\":\"card\",\"id\":\"6875be24-1515-488f-a899-929c8e480dfd\",\"oracle_id\":\"3b9b5b22-5a7d-4e37-a870-ca0f0efa4f36\",\"multiverse_ids\":[675976],\"mtgo_id\":130829,\"tcgplayer_id\":578982,\"cardmarket_id\":788601,\"name\":\"Sigil of the Empty Throne\",\"lang\":\"en\",\"released_at\":\"2024-09-27\",\"uri\":\"https://api.scryfall.com/cards/6875be24-1515-488f-a899-929c8e480dfd\",\"scryfall_uri\":\"https://scryfall.com/card/dsc/103/sigil-of-the-empty-throne?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T02:27:13Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/6/8/6875be24-1515-488f-a899-929c8e480dfd.jpg?1783909633\",\"normal\":\"https://cards.scryfall.io/normal/front/6/8/6875be24-1515-488f-a899-929c8e480dfd.jpg?1783909633\",\"large\":\"https://cards.scryfall.io/large/front/6/8/6875be24-1515-488f-a899-929c8e480dfd.jpg?1783909633\",\"png\":\"https://cards.scryfall.io/png/front/6/8/6875be24-1515-488f-a899-929c8e480dfd.png?1783909633\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/6/8/6875be24-1515-488f-a899-929c8e480dfd.jpg?1783909633\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/6/8/6875be24-1515-488f-a899-929c8e480dfd.jpg?1783909633\",\"thumb\":\"https://cards.scryfall.io/thumb/front/6/8/6875be24-1515-488f-a899-929c8e480dfd.webp?1783909633\",\"grid\":\"https://cards.scryfall.io/grid/front/6/8/6875be24-1515-488f-a899-929c8e480dfd.webp?1783909633\",\"display\":\"https://cards.scryfall.io/display/front/6/8/6875be24-1515-488f-a899-929c8e480dfd.webp?1783909633\",\"art\":\"https://cards.scryfall.io/art/front/6/8/6875be24-1515-488f-a899-929c8e480dfd.webp?1783909633\",\"crop\":\"https://cards.scryfall.io/crop/front/6/8/6875be24-1515-488f-a899-929c8e480dfd.webp?1783909633\"},\"mana_cost\":\"{3}{W}{W}\",\"cmc\":5,\"type_line\":\"Enchantment\",\"oracle_text\":\"Whenever you cast an enchantment spell, create a 4/4 white Angel creature token with flying.\",\"colors\":[\"W\"],\"color_identity\":[\"W\"],\"keywords\":[],\"all_parts\":[{\"object\":\"related_card\",\"id\":\"6875be24-1515-488f-a899-929c8e480dfd\",\"component\":\"combo_piece\",\"name\":\"Sigil of the Empty Throne\",\"type_line\":\"Enchantment\",\"uri\":\"https://api.scryfall.com/cards/6875be24-1515-488f-a899-929c8e480dfd\"},{\"object\":\"related_card\",\"id\":\"bb6d0a6a-3007-47fc-a42c-3db311c9c41f\",\"component\":\"token\",\"name\":\"Angel\",\"type_line\":\"Token Creature — Angel\",\"uri\":\"https://api.scryfall.com/cards/bb6d0a6a-3007-47fc-a42c-3db311c9c41f\"}],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"not_legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"not_legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"legal\",\"tlr\":\"not_legal\"},\"games\":[\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":false,\"nonfoil\":true,\"finishes\":[\"nonfoil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"4c822528-83c3-42c7-8708-dd1d37166819\",\"set\":\"dsc\",\"set_name\":\"Duskmourn: House of Horror Commander\",\"set_type\":\"commander\",\"set_uri\":\"https://api.scryfall.com/sets/4c822528-83c3-42c7-8708-dd1d37166819\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Adsc&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/dsc?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/6875be24-1515-488f-a899-929c8e480dfd/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A3b9b5b22-5a7d-4e37-a870-ca0f0efa4f36&unique=prints\",\"collector_number\":\"103\",\"digital\":false,\"rarity\":\"rare\",\"flavor_text\":\"When Asha left Bant, she ensured that the world would have protection and order in her absence.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Cyril Van Der Haegen\",\"artist_ids\":[\"90edbd2e-9462-4394-b0b4-02885b4e56b3\"],\"illustration_id\":\"89244b2d-e063-4859-8c44-8e5d319aa56c\",\"border_color\":\"black\",\"frame\":\"2015\",\"security_stamp\":\"oval\",\"full_art\":false,\"textless\":false,\"booster\":false,\"story_spotlight\":false,\"edhrec_rank\":1425,\"penny_rank\":2699,\"prices\":{\"usd\":\"0.44\",\"usd_foil\":null,\"usd_etched\":null,\"eur\":\"1.02\",\"eur_foil\":null,\"tix\":\"0.02\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=675976&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DSigil%2Bof%2Bthe%2BEmpty%2BThrone\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DSigil%2Bof%2Bthe%2BEmpty%2BThrone\",\"edhrec\":\"https://edhrec.com/route/?cc=Sigil+of+the+Empty+Throne\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F578982%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=788601&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/130829?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "abilities_json": "[{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"cast\",\"who\":{\"player\":\"you\"},\"what\":{\"types\":[\"enchantment\"],\"cls\":\"spell\"}},\"effects\":[{\"steps\":[{\"effect\":\"create-token\",\"count\":{\"amount\":\"fixed\",\"value\":1},\"token\":{\"colors\":[\"white\"],\"supertypes\":[],\"types\":[\"creature\"],\"subtypes\":[\"Angel\"],\"keywords\":[{\"keyword\":\"flying\"}],\"power\":{\"amount\":\"fixed\",\"value\":4},\"toughness\":{\"amount\":\"fixed\",\"value\":4}}}]}]}]"
+      }
+    },
+    {
+      "oracle_id": "4987c458-604a-4727-b360-170616e91e67",
+      "name": "Kambal, Consul of Allocation",
+      "characteristics": {
+        "kind": "creature",
+        "subtypes": [
+          "Human",
+          "Advisor"
+        ],
+        "basic": false,
+        "legendary": true,
+        "mana_cost": {
+          "generic": "1",
+          "colored": [
+            "W",
+            "B"
+          ]
+        },
+        "colors": [
+          "B",
+          "W"
+        ],
+        "color_identity": [
+          "B",
+          "W"
+        ],
+        "power": "2",
+        "toughness": "3"
+      },
+      "intrinsic_zone": null,
+      "spell": {
+        "timing": "main_phase",
+        "resolution": "permanent",
+        "functioning_zone": "stack",
+        "targets": [],
+        "instructions": []
+      },
+      "triggered": [
+        {
+          "functioning_zone": "battlefield",
+          "condition": {
+            "spell_cast": {
+              "caster": "opponent",
+              "spell": {
+                "predicate": "not_type",
+                "kind": "creature"
+              }
+            }
+          },
+          "program": {
+            "timing": "instant",
+            "resolution": "instructions",
+            "functioning_zone": "stack",
+            "targets": [],
+            "instructions": [
+              {
+                "op": "lose_life",
+                "recipient": "event_player",
+                "amount": "2",
+                "source_block": 0
+              },
+              {
+                "op": "gain_life",
+                "recipient": "controller",
+                "amount": "2",
+                "source_block": 0
+              }
+            ]
+          }
+        }
+      ],
+      "capabilities": [
+        "cast_trigger_v1",
+        "event_player_recipient_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "commander_identity_v1",
+        "cast_creature_v1",
+        "life_gain_v1",
+        "life_loss_v1",
+        "triggered_ability_v1"
+      ],
+      "provenance": {
+        "printing_id": "b3e47d49-e5b5-487b-a1ec-373dbf89b2ec",
+        "source_index": 11046,
+        "source_sha256": "2dca716b06586b2d101c70f7e7fe0f30fece3a5cbfe7812f0031d714b2a85f14",
+        "ast_sha256": "2ae8553c65d8c9b32ab38e866a130ce3cda39b9fa1d13e76848e254e129e7043",
+        "binding_sha256": "fca1b0efcb61725a5c06503fcb14c37903c2e0ab3693f262d8f94031ce74da78",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "source_json": "{\"object\":\"card\",\"id\":\"b3e47d49-e5b5-487b-a1ec-373dbf89b2ec\",\"oracle_id\":\"4987c458-604a-4727-b360-170616e91e67\",\"multiverse_ids\":[571570],\"mtgo_id\":101958,\"tcgplayer_id\":276902,\"cardmarket_id\":665178,\"name\":\"Kambal, Consul of Allocation\",\"lang\":\"en\",\"released_at\":\"2022-07-08\",\"uri\":\"https://api.scryfall.com/cards/b3e47d49-e5b5-487b-a1ec-373dbf89b2ec\",\"scryfall_uri\":\"https://scryfall.com/card/2x2/237/kambal-consul-of-allocation?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T05:50:24Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/b/3/b3e47d49-e5b5-487b-a1ec-373dbf89b2ec.jpg?1783921824\",\"normal\":\"https://cards.scryfall.io/normal/front/b/3/b3e47d49-e5b5-487b-a1ec-373dbf89b2ec.jpg?1783921824\",\"large\":\"https://cards.scryfall.io/large/front/b/3/b3e47d49-e5b5-487b-a1ec-373dbf89b2ec.jpg?1783921824\",\"png\":\"https://cards.scryfall.io/png/front/b/3/b3e47d49-e5b5-487b-a1ec-373dbf89b2ec.png?1783921824\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/b/3/b3e47d49-e5b5-487b-a1ec-373dbf89b2ec.jpg?1783921824\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/b/3/b3e47d49-e5b5-487b-a1ec-373dbf89b2ec.jpg?1783921824\",\"thumb\":\"https://cards.scryfall.io/thumb/front/b/3/b3e47d49-e5b5-487b-a1ec-373dbf89b2ec.webp?1783921824\",\"grid\":\"https://cards.scryfall.io/grid/front/b/3/b3e47d49-e5b5-487b-a1ec-373dbf89b2ec.webp?1783921824\",\"display\":\"https://cards.scryfall.io/display/front/b/3/b3e47d49-e5b5-487b-a1ec-373dbf89b2ec.webp?1783921824\",\"art\":\"https://cards.scryfall.io/art/front/b/3/b3e47d49-e5b5-487b-a1ec-373dbf89b2ec.webp?1783921824\",\"crop\":\"https://cards.scryfall.io/crop/front/b/3/b3e47d49-e5b5-487b-a1ec-373dbf89b2ec.webp?1783921824\"},\"mana_cost\":\"{1}{W}{B}\",\"cmc\":3,\"type_line\":\"Legendary Creature — Human Advisor\",\"oracle_text\":\"Whenever an opponent casts a noncreature spell, that player loses 2 life and you gain 2 life.\",\"power\":\"2\",\"toughness\":\"3\",\"colors\":[\"B\",\"W\"],\"color_identity\":[\"B\",\"W\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"not_legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"not_legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"5a645837-b050-449f-ac90-1e7ccbf45031\",\"set\":\"2x2\",\"set_name\":\"Double Masters 2022\",\"set_type\":\"masters\",\"set_uri\":\"https://api.scryfall.com/sets/5a645837-b050-449f-ac90-1e7ccbf45031\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3A2x2&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/2x2?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/b3e47d49-e5b5-487b-a1ec-373dbf89b2ec/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A4987c458-604a-4727-b360-170616e91e67&unique=prints\",\"collector_number\":\"237\",\"digital\":false,\"rarity\":\"rare\",\"flavor_text\":\"He has \\\"friends\\\" in places both high and low, and all seem to owe him favors.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Vincent Proce\",\"artist_ids\":[\"d82b1138-76d3-49f7-9d8c-bc2e2d3e0b0a\"],\"illustration_id\":\"c28d21be-a9e2-4115-b941-93b306dfd5b2\",\"border_color\":\"black\",\"frame\":\"2015\",\"frame_effects\":[\"legendary\"],\"security_stamp\":\"oval\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":1288,\"penny_rank\":1098,\"preview\":{\"source\":\"Jumbo Commander\",\"source_uri\":\"https://www.youtube.com/watch?v=75eu5H38wT8\",\"previewed_at\":\"2022-06-22\"},\"prices\":{\"usd\":\"9.96\",\"usd_foil\":\"9.00\",\"usd_etched\":null,\"eur\":\"5.52\",\"eur_foil\":\"8.71\",\"tix\":\"0.02\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=571570&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DKambal%252C%2BConsul%2Bof%2BAllocation\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DKambal%252C%2BConsul%2Bof%2BAllocation\",\"edhrec\":\"https://edhrec.com/route/?cc=Kambal%2C+Consul+of+Allocation\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F276902%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=665178&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/101958?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "abilities_json": "[{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"cast\",\"who\":{\"player\":\"an-opponent\"},\"what\":{\"nonTypes\":[\"creature\"],\"cls\":\"spell\"}},\"effects\":[{\"steps\":[{\"effect\":\"lose-life\",\"who\":{\"player\":\"that-player\"},\"amount\":{\"amount\":\"fixed\",\"value\":2}},{\"effect\":\"gain-life\",\"who\":{\"player\":\"you\"},\"amount\":{\"amount\":\"fixed\",\"value\":2}}]}]}]"
+      }
+    },
+    {
+      "oracle_id": "b3f2265b-dd65-4b74-8b74-35ee0b147617",
+      "name": "Managorger Hydra",
+      "characteristics": {
+        "kind": "creature",
+        "subtypes": [
+          "Hydra"
+        ],
+        "basic": false,
+        "legendary": false,
+        "mana_cost": {
+          "generic": "2",
+          "colored": [
+            "G"
+          ]
+        },
+        "colors": [
+          "G"
+        ],
+        "color_identity": [
+          "G"
+        ],
+        "power": "1",
+        "toughness": "1"
+      },
+      "intrinsic_zone": null,
+      "spell": {
+        "timing": "main_phase",
+        "resolution": "permanent",
+        "functioning_zone": "stack",
+        "targets": [],
+        "instructions": []
+      },
+      "triggered": [
+        {
+          "functioning_zone": "battlefield",
+          "condition": {
+            "spell_cast": {
+              "caster": "any_player",
+              "spell": {
+                "predicate": "any"
+              }
+            }
+          },
+          "program": {
+            "timing": "instant",
+            "resolution": "instructions",
+            "functioning_zone": "stack",
+            "targets": [],
+            "instructions": [
+              {
+                "op": "put_plus_one_counters",
+                "on": {
+                  "recipient": "source"
+                },
+                "amount": "1",
+                "source_block": 1
+              }
+            ]
+          }
+        }
+      ],
+      "keywords": [
+        "trample"
+      ],
+      "capabilities": [
+        "cast_trigger_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "triggered_ability_v1",
+        "trample_v1",
+        "plus_one_counters_v1"
+      ],
+      "provenance": {
+        "printing_id": "e9c124d7-b4b1-43cf-9830-1244053cc056",
+        "source_index": 27102,
+        "source_sha256": "5909a06dddac845c4cab3ddd35ec1a31dee24e6693889d739ff8daa812ab9e0b",
+        "ast_sha256": "f155cc9cef8f90bb973509f4f56b0b423340d9ffd66ad0322486f70908533d8d",
+        "binding_sha256": "e9466a7414b33538b0a1189ecdc70967ad7f039f2ed083a3cf911c5b1076dc73",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "source_json": "{\"object\":\"card\",\"id\":\"e9c124d7-b4b1-43cf-9830-1244053cc056\",\"oracle_id\":\"b3f2265b-dd65-4b74-8b74-35ee0b147617\",\"multiverse_ids\":[612555],\"mtgo_id\":111070,\"tcgplayer_id\":491776,\"cardmarket_id\":705838,\"name\":\"Managorger Hydra\",\"lang\":\"en\",\"released_at\":\"2023-04-21\",\"uri\":\"https://api.scryfall.com/cards/e9c124d7-b4b1-43cf-9830-1244053cc056\",\"scryfall_uri\":\"https://scryfall.com/card/moc/307/managorger-hydra?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T04:32:17Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/e/9/e9c124d7-b4b1-43cf-9830-1244053cc056.jpg?1783917137\",\"normal\":\"https://cards.scryfall.io/normal/front/e/9/e9c124d7-b4b1-43cf-9830-1244053cc056.jpg?1783917137\",\"large\":\"https://cards.scryfall.io/large/front/e/9/e9c124d7-b4b1-43cf-9830-1244053cc056.jpg?1783917137\",\"png\":\"https://cards.scryfall.io/png/front/e/9/e9c124d7-b4b1-43cf-9830-1244053cc056.png?1783917137\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/e/9/e9c124d7-b4b1-43cf-9830-1244053cc056.jpg?1783917137\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/e/9/e9c124d7-b4b1-43cf-9830-1244053cc056.jpg?1783917137\",\"thumb\":\"https://cards.scryfall.io/thumb/front/e/9/e9c124d7-b4b1-43cf-9830-1244053cc056.webp?1783917137\",\"grid\":\"https://cards.scryfall.io/grid/front/e/9/e9c124d7-b4b1-43cf-9830-1244053cc056.webp?1783917137\",\"display\":\"https://cards.scryfall.io/display/front/e/9/e9c124d7-b4b1-43cf-9830-1244053cc056.webp?1783917137\",\"art\":\"https://cards.scryfall.io/art/front/e/9/e9c124d7-b4b1-43cf-9830-1244053cc056.webp?1783917137\",\"crop\":\"https://cards.scryfall.io/crop/front/e/9/e9c124d7-b4b1-43cf-9830-1244053cc056.webp?1783917137\"},\"mana_cost\":\"{2}{G}\",\"cmc\":3,\"type_line\":\"Creature — Hydra\",\"oracle_text\":\"Trample\\nWhenever a player casts a spell, put a +1/+1 counter on this creature.\",\"power\":\"1\",\"toughness\":\"1\",\"colors\":[\"G\"],\"color_identity\":[\"G\"],\"keywords\":[\"Trample\"],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"not_legal\",\"timeless\":\"not_legal\",\"gladiator\":\"not_legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"not_legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"not_legal\",\"competitivebrawl\":\"not_legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"not_legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"not_legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":false,\"nonfoil\":true,\"finishes\":[\"nonfoil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"6bba5de9-5afb-42af-a7eb-24ac854bf671\",\"set\":\"moc\",\"set_name\":\"March of the Machine Commander\",\"set_type\":\"commander\",\"set_uri\":\"https://api.scryfall.com/sets/6bba5de9-5afb-42af-a7eb-24ac854bf671\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Amoc&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/moc?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/e9c124d7-b4b1-43cf-9830-1244053cc056/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3Ab3f2265b-dd65-4b74-8b74-35ee0b147617&unique=prints\",\"collector_number\":\"307\",\"digital\":false,\"rarity\":\"rare\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Lucas Graciano\",\"artist_ids\":[\"ce98f39c-7cdd-47e6-a520-6c50443bb4c2\"],\"illustration_id\":\"779ced5a-aff1-4c93-978f-8bfa29c0e264\",\"border_color\":\"black\",\"frame\":\"2015\",\"security_stamp\":\"oval\",\"full_art\":false,\"textless\":false,\"booster\":false,\"story_spotlight\":false,\"edhrec_rank\":1017,\"penny_rank\":5562,\"prices\":{\"usd\":\"1.53\",\"usd_foil\":null,\"usd_etched\":null,\"eur\":\"1.08\",\"eur_foil\":null,\"tix\":\"0.40\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=612555&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DManagorger%2BHydra\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DManagorger%2BHydra\",\"edhrec\":\"https://edhrec.com/route/?cc=Managorger+Hydra\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F491776%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=705838&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/111070?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "abilities_json": "[{\"kind\":\"keywords\",\"keywords\":[{\"keyword\":\"trample\"}]},{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"cast\",\"who\":{\"player\":\"a-player\"},\"what\":{\"cls\":\"spell\"}},\"effects\":[{\"steps\":[{\"effect\":\"put-counters\",\"on\":{\"ref\":\"this\",\"noun\":\"creature\"},\"counter\":{\"type\":\"+1/+1\"},\"count\":{\"amount\":\"fixed\",\"value\":1}}]}]}]"
+      }
+    }
+  ]
+}

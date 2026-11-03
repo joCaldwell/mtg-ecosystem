@@ -161,6 +161,7 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+    CastTriggerV1,
     EventPlayerRecipientV1,
     SourceStatusConditionV1,
     StepBeginningTriggerV1,
@@ -732,9 +733,13 @@ pub struct ActivatedAbility {
 /// resulting battlefield, including the entering source itself (CR 603.6a).
 /// Dies inspects the battlefield immediately before the actual graveyard move
 /// (CR 603.10/700.4), including a source that dies simultaneously.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerCondition {
+    SpellCast {
+        caster: CasterRelation,
+        spell: SpellPredicate,
+    },
     StepBegan {
         step: BeginningStep,
         turn_relation: TurnRelation,
@@ -747,6 +752,66 @@ pub enum TriggerCondition {
     AnyCreatureDies,
     SelfDies,
     SelfAuraToGraveyard,
+}
+/// CR 603.3a: caster relation is independent of the source's controller/owner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CasterRelation {
+    Controller,
+    AnyPlayer,
+    Opponent,
+}
+/// Source ObjectFilter fields are conjunctive; explicit anyOf retains OR.
+/// Only full card-type membership is supported, never execution-kind equality.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "predicate", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SpellPredicate {
+    // An empty struct also enforces serde unknown-field rejection here.
+    Any {},
+    Type {
+        kind: CardKind,
+    },
+    NotType {
+        kind: CardKind,
+    },
+    All {
+        #[schemars(length(min = 1, max = 32))]
+        terms: Vec<SpellPredicate>,
+    },
+    AnyOf {
+        #[schemars(length(min = 1, max = 32))]
+        terms: Vec<SpellPredicate>,
+    },
+}
+impl SpellPredicate {
+    pub fn matches(&self, c: &Characteristics) -> bool {
+        match self {
+            Self::Any {} => true,
+            Self::Type { kind } => c.has_type(*kind),
+            Self::NotType { kind } => !c.has_type(*kind),
+            Self::All { terms } => terms.iter().all(|t| t.matches(c)),
+            Self::AnyOf { terms } => terms.iter().any(|t| t.matches(c)),
+        }
+    }
+    pub fn validate(&self) -> Result<(), String> {
+        fn visit(p: &SpellPredicate, depth: usize, remaining: &mut usize) -> bool {
+            if depth > 8 || *remaining == 0 {
+                return false;
+            }
+            *remaining -= 1;
+            match p {
+                SpellPredicate::All { terms } | SpellPredicate::AnyOf { terms } => {
+                    !terms.is_empty() && terms.iter().all(|t| visit(t, depth + 1, remaining))
+                }
+                _ => true,
+            }
+        }
+        if visit(self, 0, &mut 32) {
+            Ok(())
+        } else {
+            Err("spell predicate structural bound".into())
+        }
+    }
 }
 /// Exact step predicates; phases, delayed and conditional boundaries are excluded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -765,9 +830,10 @@ pub enum TurnRelation {
 }
 impl TriggerCondition {
     /// Stable reporting vocabulary, independent of the serde representation.
-    pub fn reporting_key(self) -> &'static str {
+    pub fn reporting_key(&self) -> &'static str {
         match self {
             Self::StepBegan { .. } => "step_began",
+            Self::SpellCast { .. } => "spell_cast",
             Self::OpponentCreatureDies => "opponent_creature_dies",
             Self::SelfEntersBattlefield => "self_enters_battlefield",
             Self::OtherCreatureEntersBattlefield => "other_creature_enters_battlefield",
@@ -1001,6 +1067,7 @@ impl Definition {
             set.insert(Capability::TriggeredAbilityV1);
             set.insert(match ability.condition {
                 TriggerCondition::StepBegan { .. } => Capability::StepBeginningTriggerV1,
+                TriggerCondition::SpellCast { .. } => Capability::CastTriggerV1,
                 TriggerCondition::OpponentCreatureDies => Capability::BoardWipesV1,
                 TriggerCondition::SelfEntersBattlefield => Capability::SelfEntersBattlefieldV1,
                 TriggerCondition::OtherCreatureEntersBattlefield => {
@@ -1066,10 +1133,15 @@ impl Definition {
             || self.activated.iter().any(|a| event_player(&a.program))
             || self.triggered.iter().any(|a| {
                 event_player(&a.program)
-                    && !matches!(a.condition, TriggerCondition::StepBegan { .. })
+                    && !matches!(
+                        a.condition,
+                        TriggerCondition::StepBegan { .. } | TriggerCondition::SpellCast { .. }
+                    )
             })
         {
-            return Err("event-player recipient requires a bound step trigger".into());
+            return Err(
+                "event-player recipient requires a bound step trigger or cast trigger".into(),
+            );
         }
         fn new_ops(p: &SpellProgram) -> bool {
             p.instructions.iter().any(|i| {
@@ -1086,7 +1158,10 @@ impl Definition {
             new_ops(&a.program)
                 && a.condition != TriggerCondition::SelfEntersBattlefield
                 && a.condition != TriggerCondition::SelfDies
-                && !matches!(a.condition, TriggerCondition::StepBegan { .. })
+                && !matches!(
+                    a.condition,
+                    TriggerCondition::StepBegan { .. } | TriggerCondition::SpellCast { .. }
+                )
                 && a.death_filter.is_none()
         }) {
             return Err(
@@ -1361,6 +1436,9 @@ impl Definition {
             return Err("trigger programs require a supported permanent source".into());
         }
         for ability in &self.triggered {
+            if let TriggerCondition::SpellCast { spell, .. } = &ability.condition {
+                spell.validate()?;
+            }
             if let Some(f) = &ability.death_filter
                 && (ability.condition != TriggerCondition::AnyCreatureDies
                     || !f.controlled
@@ -1393,23 +1471,27 @@ impl Definition {
                 .iter()
                 .any(|i| matches!(i, Instruction::DestroyPermanent { .. }))
                 && ability.condition != TriggerCondition::SelfEntersBattlefield
-                && !matches!(ability.condition, TriggerCondition::StepBegan { .. })
+                && !matches!(
+                    ability.condition,
+                    TriggerCondition::StepBegan { .. } | TriggerCondition::SpellCast { .. }
+                )
             {
                 return Err("targeted removal requires a supported entry or step trigger".into());
             }
-            if matches!(ability.condition, TriggerCondition::StepBegan { .. })
-                && p.instructions.iter().any(|i| {
-                    matches!(
-                        i,
-                        Instruction::DestroyPermanent { optional: true, .. }
-                            | Instruction::ReturnOwnGraveyardCreatureToHand { optional: true, .. }
-                            | Instruction::SacrificeDamage { optional: true, .. }
-                            | Instruction::LoseLifeDeathController { .. }
-                    )
-                })
-            {
+            if matches!(
+                ability.condition,
+                TriggerCondition::StepBegan { .. } | TriggerCondition::SpellCast { .. }
+            ) && p.instructions.iter().any(|i| {
+                matches!(
+                    i,
+                    Instruction::DestroyPermanent { optional: true, .. }
+                        | Instruction::ReturnOwnGraveyardCreatureToHand { optional: true, .. }
+                        | Instruction::SacrificeDamage { optional: true, .. }
+                        | Instruction::LoseLifeDeathController { .. }
+                )
+            }) {
                 return Err(
-                    "step triggers require mandatory programs without death-event recipients"
+                    "step/cast triggers require mandatory programs without death-event recipients"
                         .into(),
                 );
             }
@@ -2136,7 +2218,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 22))]
+    #[schemars(range(min = 3, max = 23))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -2144,7 +2226,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3..=22)
+        if !matches!(self.schema_version, 3..=23)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -2152,6 +2234,9 @@ impl Catalog {
         }
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
+            if self.schema_version < 23 && d.capabilities.contains(&Capability::CastTriggerV1) {
+                return Err("IR v23 is required for ordinary cast triggers".into());
+            }
             if self.schema_version < 22
                 && d.capabilities.iter().any(|c| {
                     matches!(
@@ -2556,6 +2641,13 @@ pub fn catalog_schema() -> serde_json::Value {
             "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerProgram"}}}}
         }}}}}
     }));
+    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"properties":{"schema_version":{"maximum":22}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "capabilities":{"items":{"not":{"const":Capability::CastTriggerV1}}},
+            "triggered":{"items":{"properties":{"condition":{"not":{"type":"object","required":["spell_cast"]}}}}}
+        }}}}}
+    }));
     schema["$defs"]["PreEventPlayerProgram"] = serde_json::json!({"properties":{
         "instructions":{"items":{"properties":{"recipient":{"not":{"const":"event_player"}}}}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerProgram"}}}}
@@ -2835,6 +2927,7 @@ mod tests {
             (20, &[BoardWipesV1, FlashV1, EntersTappedV1]),
             (21, &[StepBeginningTriggerV1]),
             (22, &[EventPlayerRecipientV1, SourceStatusConditionV1]),
+            (23, &[CastTriggerV1]),
         ];
         // Enumerate the public vocabulary, so a new capability cannot silently
         // escape this contract. Check real, fully valid definitions rather than
