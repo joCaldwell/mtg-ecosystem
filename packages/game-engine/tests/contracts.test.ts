@@ -591,6 +591,20 @@ test("match catalog binds sole defender and the current finite Commander policy"
 
 // Full historical reports remain immutable. Current runs retain independent
 // replay checks and pin compact current semantic digests per witness.
+// Trusted movement/token evidence retains the exact incarnation. Beginning
+// steps have no object subject; these historical assertions require an object.
+function triggerSubject(event: any) {
+  assert.equal(event.subject, undefined);
+  const witness = event.witness;
+  assert.ok(witness);
+  if (witness.event === "moved") {
+    const move = witness.movement;
+    return move.destination.zone === "battlefield" ? move.successor : move.previous;
+  }
+  assert.equal(witness.event, "token_entered");
+  return witness.object;
+}
+
 function assertScenarioDigests(family: string, reports: any[]) {
   assert.deepEqual(reports.map(r => r.state_sha256), JSON.parse(read("d1b3-history-scenario-digests.json"))[family]);
 }
@@ -684,7 +698,7 @@ test("choice witnesses retain independent targets, selected modes and twice-chec
     assert.deepEqual(checks.map((e: any)=>e.stage.stage),wanted.map((_,i)=>i===0?"match":"resolution_start"));
     for(const e of checks){assert.equal(e.controller,0);assert.equal(e.check.controller,0);assert.equal(e.check.condition,"controller_hand_empty");}
     const collected=events(r,"trigger_collected").filter((e: any)=>e.source.card===2);assert.equal(collected.length,name==="bouncer_nonempty"?0:1);
-    for(const e of collected){assert.deepEqual(e.source,e.subject);assert.deepEqual(e.source,e.source_facts.object);assert.equal(e.source_facts.marked_damage,"3");assert.equal(e.source_facts.zone.zone,"battlefield");assert.equal(e.player,0);}
+    for(const e of collected){assert.deepEqual(e.source,triggerSubject(e));assert.deepEqual(e.source,e.source_facts.object);assert.equal(e.source_facts.marked_damage,"3");assert.equal(e.source_facts.zone.zone,"battlefield");assert.equal(e.player,0);}
     if(collected.length&&!["bouncer_stifled","bouncer_controller_leaves","bouncer_no_targets"].includes(name)){
       const placed=events(r,"trigger_placed").find((e: any)=>e.trigger_id===collected[0].trigger_id);const completed=events(r,"triggered_ability_completed").find((e: any)=>e.stack_id===placed.stack_id);
       assert.equal(completed.resolved,!["bouncer_draw_false","bouncer_target_gone"].includes(name));
@@ -745,7 +759,7 @@ test("effects witnesses retain signed characteristics, actual damage and affecte
     assert.deepEqual(death[0].movement.previous,{card:0,incarnation:0});
     assert.equal(death[0].movement.destination.zone,"graveyard");
     assert.equal(finalView(r).objects.find((o: any)=>o.oracle_id==="cfb756dd-6fe1-430a-8f04-8b10cac62a86").zone.zone,zone);
-    assert.deepEqual(events(r,"trigger_collected").map((e: any)=>e.subject),Array(4).fill({card:0,incarnation:0}));
+    assert.deepEqual(events(r,"trigger_collected").map((e: any)=>triggerSubject(e)),Array(4).fill({card:0,incarnation:0}));
     assert.deepEqual(lives(r),["41","41","41","37"]);
   }
   const lethal=actuals(by.amplified_death,"state_based_moved");
@@ -915,7 +929,7 @@ test("ordinary trigger witnesses retain APNAP order, countered programs and hist
     const placed = new Map(events(r,"trigger_placed").map((e: any) => [e.stack_id,collected.get(e.trigger_id)]));
     return events(r,"triggered_ability_completed").map((e: any) => {
       const trigger = placed.get(e.stack_id) as any;
-      return [trigger.source.card,trigger.subject.card];
+      return [trigger.source.card,triggerSubject(trigger).card];
     });
   };
   for (const r of reports) {
@@ -928,8 +942,8 @@ test("ordinary trigger witnesses retain APNAP order, countered programs and hist
       assert.deepEqual(e.source_facts.object,e.source);
       assert.deepEqual(e.source_facts.zone,{zone:"battlefield"});
       assert.equal(e.source_facts.controller,e.player);
-      if ([3,4,17,29].includes(e.source.card)) assert.deepEqual(e.subject,{card:4,incarnation:2});
-      else assert.equal(e.subject.incarnation,0);
+      if ([3,4,17,29].includes(e.source.card)) assert.deepEqual(triggerSubject(e),{card:4,incarnation:2});
+      else assert.equal(triggerSubject(e).incarnation,0);
     }
     for (const kind of ["life_lost","life_gained"]) for (const a of actuals(r,kind)) {
       assert.equal(a.amount,"1");
@@ -951,7 +965,7 @@ test("ordinary trigger witnesses retain APNAP order, countered programs and hist
     const r=by[name];const c=events(r,"trigger_collected");
     for (const card of [1,2]) {
       assert.equal(c.filter((e: any) => e.source.card===card).length,2);
-      assert.equal(c.filter((e: any) => e.subject.card===card).length,5);
+      assert.equal(c.filter((e: any) => triggerSubject(e).card===card).length,5);
     }
     assert.deepEqual(events(r,"trigger_placed").map((e: any) => e.player),[0,0,0,0,1,1,2,2,3,3]);
     assert.deepEqual(events(r,"triggered_ability_completed").map((e: any) => e.stack_id),events(r,"trigger_placed").map((e: any) => e.stack_id).reverse());
