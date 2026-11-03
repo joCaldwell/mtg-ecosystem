@@ -14,6 +14,8 @@ mod mana_policy;
 mod ordinary_diagnostic;
 #[cfg(test)]
 mod replay_reuse_tests;
+#[cfg(test)]
+mod suite_receipt_tests;
 
 // Evidence belongs outside native crate sources regardless of Cargo's test cwd.
 fn artifact_root() -> std::path::PathBuf {
@@ -828,6 +830,28 @@ pub(super) fn batch(
     profile_name: &str,
     directory: &Path,
 ) -> Result<serde_json::Value, String> {
+    batch_impl(catalog, profile_name, directory).map(|(report, _)| report)
+}
+
+// Small process-local receipts, never serialized into evidence or a bundle.
+// Only batch_impl issues these after independent replay and interaction scanning;
+// no Game, snapshot or accepted-input journal is retained here.
+struct VerifiedBatchEntry {
+    index: usize,
+    evidence_sha256: String,
+    loss_facts: Vec<(PlayerId, mtg_core::PlayerLossReason)>,
+}
+struct VerifiedBatch {
+    catalog_sha256: String,
+    profile: String,
+    entries: Vec<VerifiedBatchEntry>,
+}
+
+fn batch_impl(
+    catalog: &Catalog,
+    profile_name: &str,
+    directory: &Path,
+) -> Result<(serde_json::Value, VerifiedBatch), String> {
     let catalog_sha256 = mtg_contracts::digest(catalog)?;
     let profile_spec = mtg_core::match_profile(profile_name).ok_or("unknown batch profile")?;
     if profile_spec.catalog_sha256 != catalog_sha256
@@ -847,6 +871,7 @@ pub(super) fn batch(
     fs::write(directory.join("manifest.json"), canonical(&manifest)?).map_err(|e| e.to_string())?;
     let mut reports = vec![];
     let mut failures = vec![];
+    let mut entries = vec![];
     for index in 0..18u32 {
         let mut config = MatchConfig::for_profile(
             profile,
@@ -876,11 +901,16 @@ pub(super) fn batch(
             }
         };
         // Persist the journal even if completion or independent replay fails.
+        let evidence_text = canonical(&e)?;
         fs::write(
             directory.join(format!("game-{index:02}.json")),
-            canonical(&e)?,
+            &evidence_text,
         )
         .map_err(|e| e.to_string())?;
+        // Hash exactly the bytes passed to the successful write. Release the
+        // large serialization before constructing the independent detailed Game.
+        let evidence_sha256 = sha256(evidence_text.as_bytes());
+        drop(evidence_text);
         let replay =
             verify_suite_entry(index as usize, &e).and_then(|()| verify_replay_game(catalog, &e));
         if !matches!(e.outcome.as_str(), "finished" | "draw") || replay.is_err() {
@@ -895,6 +925,13 @@ pub(super) fn batch(
             // nonterminal evidence; a failed proof cannot supply this fast path.
             Err(_) => interactions::game(catalog, &e)?,
         };
+        if let Ok(verified) = replay {
+            entries.push(VerifiedBatchEntry {
+                index: index as usize,
+                evidence_sha256,
+                loss_facts: verified.loss_facts,
+            });
+        }
         reports.push(report);
     }
     let interaction_summary = interactions::summarize(catalog, &reports)?;
@@ -906,7 +943,15 @@ pub(super) fn batch(
             directory.display()
         ));
     }
-    Ok(report)
+    // A failed run cannot return any receipts, including its successful prefix.
+    Ok((
+        report,
+        VerifiedBatch {
+            catalog_sha256,
+            profile: profile.into(),
+            entries,
+        },
+    ))
 }
 
 pub(super) fn suite(catalog: &Catalog) -> Result<(Vec<Evidence>, serde_json::Value), String> {
@@ -916,17 +961,63 @@ pub(super) fn suite(catalog: &Catalog) -> Result<(Vec<Evidence>, serde_json::Val
         .map(|i| parent.join(format!("capture-{}-{i}", std::process::id())))
         .find(|p| !p.exists())
         .ok_or("no fresh batch directory")?;
-    let report = batch(catalog, "commander-foundations-v1", &directory)?;
-    let evidence = (0..18)
-        .map(|i| {
-            fs::read_to_string(directory.join(format!("game-{i:02}.json")))
-                .map_err(|e| e.to_string())
-                .and_then(|text| strict_read(&text))
-        })
-        .collect::<Result<Vec<Evidence>, String>>()?;
-    verify_suite(catalog, &evidence)?;
+    let profile = "commander-foundations-v1";
+    let (report, verified) = batch_impl(catalog, profile, &directory)?;
+    let evidence = read_verified_suite(catalog, profile, &directory, &verified)?;
     Ok((evidence, report))
 }
+
+// Reuse only this process's fully verified batch. Saved bytes are still read and
+// strict-decoded, then bound to their original catalog, profile and ordered slot.
+// Standalone verify_suite below deliberately has no receipt path: bundle replay
+// must independently prove every checkpoint, accepted input and terminal fact.
+fn read_verified_suite(
+    catalog: &Catalog,
+    profile: &str,
+    directory: &Path,
+    verified: &VerifiedBatch,
+) -> Result<Vec<Evidence>, String> {
+    if verified.entries.len() != 18 {
+        return Err("fixed completion batch must contain18 games".into());
+    }
+    if verified.catalog_sha256 != mtg_contracts::digest(catalog)? || verified.profile != profile {
+        return Err("fixed completion batch receipt catalog/profile mismatch".into());
+    }
+    // As before, finish all file reads/strict decoding before checking entries.
+    // Keep only a small digest beside each Evidence already needed by the bundle.
+    let saved = (0..18)
+        .map(|index| {
+            let text = fs::read_to_string(directory.join(format!("game-{index:02}.json")))
+                .map_err(|e| e.to_string())?;
+            let e: Evidence = strict_read(&text)?;
+            Ok((e, sha256(text.as_bytes())))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let mut evidence = Vec::with_capacity(18);
+    let mut reasons = vec![];
+    for (index, ((e, evidence_sha256), receipt)) in
+        saved.into_iter().zip(&verified.entries).enumerate()
+    {
+        verify_suite_entry(index, &e)?;
+        if receipt.index != index
+            || e.config.profile != verified.profile
+            || evidence_sha256 != receipt.evidence_sha256
+        {
+            return Err("fixed completion batch receipt index/profile/bytes mismatch".into());
+        }
+        reasons.extend(receipt.loss_facts.iter().map(|(_, reason)| *reason));
+        evidence.push(e);
+    }
+    if !reasons.contains(&mtg_core::PlayerLossReason::CommanderDamage)
+        || !reasons.contains(&mtg_core::PlayerLossReason::Life)
+    {
+        return Err(
+            "fixed completion evidence lacks Commander-damage or ordinary-life loss witness".into(),
+        );
+    }
+    Ok(evidence)
+}
+
 pub(super) fn verify_suite(catalog: &Catalog, evidence: &[Evidence]) -> Result<(), String> {
     if evidence.len() != 18 {
         return Err("fixed completion batch must contain18 games".into());
