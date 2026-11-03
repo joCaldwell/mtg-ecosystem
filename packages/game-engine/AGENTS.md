@@ -493,8 +493,8 @@ damage/life profiles; the later trigger/effects profiles enable their reviewed
 finite families.
 
 
-D2c-c ordinary cast triggers are an **implementation candidate; independent source
-review and final combined acceptance remain pending**. IR23 separates caster
+D2c-c ordinary cast triggers are a **source-reviewed implementation candidate;
+final combined acceptance remains pending**. IR23 separates caster
 relations from compositional spell-type predicates, collects only after successful
 complete casting/payment, and retains frozen typed cast witnesses. Snapshot/bundle
 stay 19/20; old catalog/history references are unchanged. Hosting/search exclude

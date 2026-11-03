@@ -75,3 +75,9 @@ acceptance owner, as documented in
 thread will repeat profile/implement/review/measure cycles. Its independent
 subtasks can run concurrently; their expensive final verification must not be
 duplicated. No measured optimization gain is claimed by this baseline audit.
+
+The first reviewed optimization freeze subsequently passed one designated full
+acceptance and independent parent artifact/output audit. Its qualified observed
+phase times and immutable identities are recorded in
+[the optimization result](game-engine-verification-optimization-20261103.md).
+Later mechanics and receipt candidates remain separate acceptance work.
