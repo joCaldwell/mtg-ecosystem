@@ -2,9 +2,27 @@
 
 Implementation starts at `9d279986c7fcc10f6d179a165968e71f751ba95f`.
 Source freeze: `795dd722075b3edebb1d4d1bb87e1778e1274777`. The subsequent report commit changes Markdown only.
-**Independent source review and the final combined acceptance gate are pending.**
+**Independent source review passed; final combined acceptance is pending.**
 Only focused implementation checks and whole-corpus compiler/source audits are
 claimed here. The parent owns integration and final acceptance after review.
+
+Independent review approved exact head `b13414e288c8a7bf45719a8cd56c639cb0ad75d8`
+and tree `127a6187e934308526fcb428530ac86ccbf7ff67`, with no blocking semantic
+findings. It independently checked all 39 source records/provenance, 571 native
+manifest inputs, 118 evidence artifacts and 76 unchanged baseline files.
+Source integration at `aeb5447` preserves the separately reviewed verification
+optimizations; the active optimization-only acceptance freeze remains separate.
+
+The reviewer identified a nonblocking test gap: the stack-capacity fault case
+named tax preservation but used a hand-cast noncommander. Parent test-only commit
+`bd06b28` uses a command-zone cast with synthetic prior command-cast history and
+asserts preservation of the complete ledger and nonzero tax. Its one exact
+focused test passed after discovery selected exactly one test, with core,
+contracts, compiler and Cargo inputs byte-identical to the integrated branch.
+This repeats an existing test and does not increase the reported test inventory.
+Parent evidence is retained under
+`generated/final-engine-verification/resumed-20261103/tax-fault-focused/` in the
+primary worktree. No new full acceptance result is claimed for D2c-c.
 
 ## Supported semantics
 
