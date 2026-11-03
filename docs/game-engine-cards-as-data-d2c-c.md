@@ -24,6 +24,11 @@ Parent evidence is retained under
 `generated/final-engine-verification/resumed-20261103/tax-fault-focused/` in the
 primary worktree. No new full acceptance result is claimed for D2c-c.
 
+Reviewed byte-bound suite receipts are source-integrated at `f5a234e`; see
+`game-engine-verification-suite-receipts.md`. Parent combined source closure
+checks matched 43 affected paths to the reviewed commits and the focused-tested
+tax fixture. The next single designated gate covers this combined candidate.
+
 ## Supported semantics
 
 IR23 adds `CastTriggerV1` and `TriggerCondition::SpellCast`. Caster relations are
