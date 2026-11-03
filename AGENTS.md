@@ -56,7 +56,8 @@ and explicit replays. Compiler coverage is 1,923/32,116 legal records (5.98767%)
 nineteen additions and zero losses from D2b. See
 [the D2c-a report](docs/game-engine-cards-as-data-d2c-a.md) for exact scope,
 representation proof, source/executable identities and preserved failures.
-Independent parent review remains pending; no new quiet P7 claim is made.
+Independent parent review and the separate retained-evidence/representation audit
+passed; no new quiet P7 claim is made.
 
 ---
 

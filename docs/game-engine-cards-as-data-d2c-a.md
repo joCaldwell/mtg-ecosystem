@@ -2,8 +2,9 @@
 
 D2c-a follows merged D2b `c691800a59ef4f2763c3f21909e2fa5b534a5f0b`.
 It adds a capability, not a card-shaped instruction or a new legal match profile.
-Independent review remains the parent's next step; the implementation agent did
-not delegate, create a PR or merge this work.
+Parent independent semantic review approved this implementation with no blocking
+findings. The parent separately audited retained evidence and reconstructed the
+historical representation proof before integration.
 
 ## Exact supported subset
 
@@ -153,8 +154,8 @@ Markdown only. Implementation commits are:
    assertions updated to typed evidence; equality and incarnation checks remain.
 
 This IR v21 implements only D2c-a's subset. The historical P6.11 proposal's wider
-v21 card-flow vocabulary is not thereby admitted. Parent independent review is
-still pending; no implementation sub-agents, PR or merge were used.
+v21 card-flow vocabulary is not thereby admitted. Independent review verified
+all nineteen additions against their complete pinned source facts and ASTs.
 
 | Verification | Result |
 | --- | --- |
@@ -271,3 +272,27 @@ unsupported multi-player draw. Local signed-commit setup waited on interactive
 1Password signing and was stopped; the task commits use per-command unsigned
 commits without changing signing configuration. None of these preparation issues
 is counted as a passing engine verification.
+
+## Parent integration review
+
+Independent read-only semantic review approved `8a87c3f` against `c691800` with
+no blocking findings. It checked transition/entry ordering, APNAP and absent
+active-player predicates, witness identity and replay validation, departures,
+program/capability closure and every new whole-card source. The parent separately
+verified all 547 compiled files and archived source members, tested/retained
+binary hashes, twelve unchanged workload manifests and the exact profile/state
+hash in all 216 successful explicit replay outputs.
+
+A separate parent reader verified the retained 3,090,499,241-byte bundle's hash,
+every current final snapshot hash, and all 173 old hashes from the Git base.
+Only typed movement/token witness encoding and its exact duplicate event-payload
+charge were reversed; exactly 37 current hashes differ. The independently
+produced result is retained as `parent-representation-audit.json`. No production
+source or expected result was edited during this parent audit.
+
+The reviewer suggested two nonblocking follow-up test opportunities: direct
+untargeted self-damage/source-counter departure and reentry, and draw/end
+inactive-player boundaries with multiple controllers. These are carried into the
+next related trigger-capability increment. Current review records are retained
+as `parent-review.json`. No current-build quiet search-performance result is
+claimed.

@@ -4249,7 +4249,8 @@ has not been remeasured. D2c begins the remaining generic trigger/card-flow work
 Implementation/fixture freeze: `cabfb4399ea2d6e476b484e9f504885edd8cdd80`.
 See [the D2c-a report](game-engine-cards-as-data-d2c-a.md) for the exact scope,
 source records, witnesses, identities, complete failed-attempt qualifications and
-retained evidence. Parent independent review remains pending; no PR or merge.
+retained evidence. Parent independent semantic review and the separate
+547-file/216-replay/173-snapshot evidence audit passed before integration.
 
 - IR21 `StepBeginningTriggerV1` composes upkeep/draw/end with controller/any-player/
   opponent predicates. Actual `TurnTransitioned` occurrences collect before entry
