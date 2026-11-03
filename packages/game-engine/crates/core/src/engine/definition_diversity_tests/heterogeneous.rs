@@ -540,14 +540,14 @@ pub(super) fn row(enabled: bool, empty_hand: bool, rep: usize, collect: bool) ->
         .filter_map(|e| match e {
             Event::TriggerCollected {
                 source,
-                subject,
+                witness: subject,
                 ability,
                 ..
             } => {
                 assert_eq!(*ability, 0);
                 Some((
                     game.definition(source.card).unwrap().oracle_id.clone(),
-                    subject.card,
+                    subject.subject().unwrap().card,
                 ))
             }
             _ => None,

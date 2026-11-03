@@ -845,9 +845,9 @@ fn assert_outcome(run: &Run, policy: Policy) -> Result<(), String> {
                     trigger_id,
                     source,
                     player,
-                    subject,
+                    witness: subject,
                     ..
-                } => Some((*trigger_id, *source, *player, *subject)),
+                } => Some((*trigger_id, *source, *player, subject.subject().unwrap())),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -916,7 +916,7 @@ fn assert_outcome(run: &Run, policy: Policy) -> Result<(), String> {
                 player,
                 ability,
                 occurrence,
-                subject,
+                witness: subject,
                 source_facts,
             } = event
             {
@@ -924,7 +924,7 @@ fn assert_outcome(run: &Run, policy: Policy) -> Result<(), String> {
                     || source_facts.controller != *player
                     || source_facts.zone != Zone::Battlefield
                     || *ability != 0
-                    || !pairs.insert((source.card, subject.card))
+                    || !pairs.insert((source.card, subject.subject().unwrap().card))
                 {
                     return Err("trigger source facts or unique source/subject pair differs".into());
                 }
@@ -953,7 +953,7 @@ fn assert_outcome(run: &Run, policy: Policy) -> Result<(), String> {
                 } else {
                     movement.previous
                 };
-                if expected != *subject
+                if expected != subject.subject().unwrap()
                     || (policy.etb() && movement.destination != Zone::Battlefield)
                     || (!policy.etb()
                         && (movement.from != Zone::Battlefield

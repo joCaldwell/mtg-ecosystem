@@ -103,7 +103,7 @@ test("Rust lowering matches reviewed IR and its generated JSON Schema", () => {
   assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   for (const mutate of [
     (c: any) => { c.unknownSemanticField = true; },
-    (c: any) => { c.schema_version=21; },
+    (c: any) => { c.schema_version=22; },
     (c: any) => { c.schema_version = 2; },
     (c: any) => { delete c.definitions.find((d: any) => d.spell).spell.timing; },
     (c: any) => { delete c.definitions.find((d: any) => d.spell).spell.resolution; },
@@ -191,7 +191,7 @@ test("library and damage catalogs retain exact source semantics and explicit IR 
   for (const catalog of [previous, library, damage]) assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   for (const mutate of [
     (c: any) => { c.schema_version = 3; },
-    (c: any) => { c.schema_version=21; },
+    (c: any) => { c.schema_version=22; },
     (c: any) => { c.definitions.find((d: any) => d.characteristics.kind === "sorcery").spell.instructions[0].op = "put_on_bottom_owner_library"; },
     (c: any) => { c.definitions.find((d: any) => d.characteristics.kind === "sorcery").spell.instructions[0].position = "top"; },
   ]) {
@@ -241,7 +241,7 @@ test("action catalog preserves complete activated costs, opponent choice and sch
   for (const mutate of [
     (c: any) => { c.schema_version = 3; },
     (c: any) => { c.schema_version = 4; },
-    (c: any) => { c.schema_version=21; },
+    (c: any) => { c.schema_version=22; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].cost = "tap_source"; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].program.instructions[0].count = "01"; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].program.instructions[1].optional = true; },
@@ -295,7 +295,7 @@ test("stack catalog preserves complete counter domains and distinct tap and mana
     (c: any) => { c.schema_version = 3; },
     (c: any) => { c.schema_version = 4; },
     (c: any) => { c.schema_version = 5; },
-    (c: any) => { c.schema_version=21; },
+    (c: any) => { c.schema_version=22; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Stifle").spell.targets[0].domain = "stack_activated_ability"; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Counterspell").spell.instructions[0].destination = "graveyard"; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Azure Mage").activated[0].cost.mana.cost.extra = true; },
@@ -362,7 +362,7 @@ test("damage and life catalog preserves complete sources and explicit IR7 target
     }
   }
   for (const mutate of [
-    (c: any) => {c.schema_version=21;},
+    (c: any) => {c.schema_version=22;},
     (c: any) => {c.definitions.find((d: any) => d.name==="Lightning Bolt").spell.targets[0].domain="creature_or_player";},
     (c: any) => {c.definitions.find((d: any) => d.name==="Soul Feast").spell.instructions[0].recipient={opponent:{target_slot:0}};},
     (c: any) => {c.definitions.find((d: any) => d.name==="Sacred Nectar").spell.instructions[0].recipient={controller:{extra:true}};},
@@ -431,7 +431,7 @@ test("trigger catalog binds mandatory self and other events without trusting arc
     assert.equal(validate(bad),false,`${name} IR${version}`);
   }
   for (const mutate of [
-    (c: any) => {c.schema_version=21;},
+    (c: any) => {c.schema_version=22;},
     (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].optional=true;},
     (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].cost="tap_source";},
     (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].condition="other_creature_dies";},
@@ -504,7 +504,7 @@ test("effects catalog preserves signed modifiers and complete prevention/replace
     assert.equal(validate(bad),false,`stripped ${name} IR${version}`);
   }
   for (const mutate of [
-    (c: any)=>{c.schema_version=21;},
+    (c: any)=>{c.schema_version=22;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Giant Growth").spell.instructions[0].power="-0";},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Disfigure").spell.instructions[0].toughness=-2;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Fog").spell.instructions[0].duration="this_turn";},
@@ -553,7 +553,7 @@ test("choices catalog preserves separate occurrences, complete modal programs an
     bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,`stripped ${name} IR${version}`);
   }
   for(const mutate of [
-    (c: any)=>{c.schema_version=21;},
+    (c: any)=>{c.schema_version=22;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Healing Salve").spell.modes[0].hidden=true;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Healing Salve").spell.modes.pop();},
     (c: any)=>{const p=c.definitions.find((d: any)=>d.name==="Healing Salve").spell;p.instructions=[{op:"draw_cards",count:"1",source_block:0}];},
@@ -575,7 +575,7 @@ test("match catalog binds sole defender and the current finite Commander policy"
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   for(const file of ["expected-ir.json","expected-commander-ir.json","expected-damage-ir.json","expected-library-ir.json","expected-action-ir.json","expected-stack-ir.json","expected-damage-life-ir.json","expected-trigger-ir.json","expected-effects-ir.json","expected-choices-ir.json","expected-match-ir.json"])assert.equal(validate(JSON.parse(read(file))),true,file+JSON.stringify(validate.errors));
   for(let version=3;version<=10;version++){const bad=structuredClone(catalog);bad.schema_version=version;bad.definitions=[structuredClone(wall)];assert.equal(validate(bad),false);bad.definitions[0].capabilities=[];assert.equal(validate(bad),false);}
-  for(const mutate of [(c:any)=>{c.schema_version=21;},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=["reach"];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{keyword:"defender"}];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{defender:null}];}]){const bad=structuredClone(catalog);mutate(bad);assert.equal(validate(bad),false);}
+  for(const mutate of [(c:any)=>{c.schema_version=22;},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=["reach"];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{keyword:"defender"}];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{defender:null}];}]){const bad=structuredClone(catalog);mutate(bad);assert.equal(validate(bad),false);}
   const policy=selectedPolicies(catalog)[0];assert.equal(policy.policy_version,1);assert.ok(policy.retrieved_date);assert.equal(policy.html_sha256.length,64);assert.ok(policy.named_bans.length > 0);
   assert.equal(policy.offensive_policy.html_sha256.length,64);assert.ok(policy.offensive_policy.records.length > 0);assert.equal(policy.categories.lutri,"companion_only");
   const banned=new Set<string>();
@@ -1625,3 +1625,24 @@ function assertPoolReview(catalog: any) {
     }
   }
 }
+
+
+test("D2c step triggers require IR21 and typed predicates", () => {
+  const catalog = loadCatalog("cards-data-d2c");
+  const validate = new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
+  assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
+  assert.equal(catalog.definitions.length, 11);
+  for (const d of catalog.definitions) {
+    const old = {...catalog, schema_version:20, definitions:[d]};
+    assert.equal(validate(old), false, d.name);
+    for (const mutate of [
+      (a:any)=>{a.condition.step_began.step="cleanup";},
+      (a:any)=>{a.condition.step_began.turn_relation="that_player";},
+      (a:any)=>{a.condition.step_began.unknown=true;},
+      (a:any)=>{a.functioning_zone="graveyard";},
+    ]) {
+      const bad=structuredClone(catalog); mutate(bad.definitions[0].triggered[0]);
+      assert.equal(validate(bad),false);
+    }
+  }
+});

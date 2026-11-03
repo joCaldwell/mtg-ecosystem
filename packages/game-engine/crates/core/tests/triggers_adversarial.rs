@@ -656,10 +656,15 @@ fn simultaneous_dying_observers_each_capture_each_occurrence_once_before_any_obs
             Event::TriggerCollected {
                 source,
                 player,
-                subject,
+                witness: subject,
                 occurrence,
                 ..
-            } => Some((source.card, *player, subject.card, occurrence)),
+            } => Some((
+                source.card,
+                *player,
+                subject.subject().unwrap().card,
+                occurrence,
+            )),
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -758,7 +763,9 @@ fn etb_pending_source_handles_are_public_and_controller_departure_does_not_turn_
     );
     let entered = game.object_id(CardId(4)).unwrap();
     assert!(game.events().iter().all(|event| match event {
-        Event::TriggerCollected { subject, .. } => *subject == entered,
+        Event::TriggerCollected {
+            witness: subject, ..
+        } => subject.subject().unwrap() == entered,
         _ => true,
     }));
     submit(

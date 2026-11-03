@@ -143,14 +143,7 @@ pub(super) fn game(catalog: &Catalog, evidence: &Evidence) -> Result<serde_json:
                 } => {
                     let d = lookup(source.card).ok_or("triggered card")?;
                     let a = &d.triggered[*ability as usize];
-                    bump(
-                        &mut out.triggers,
-                        serde_json::to_value(a.condition)
-                            .map_err(|e| e.to_string())?
-                            .as_str()
-                            .ok_or("trigger tag")?,
-                        "collected",
-                    );
+                    bump(&mut out.triggers, a.condition.reporting_key(), "collected");
                     pending.insert(
                         *trigger_id,
                         Invocation {
@@ -175,10 +168,7 @@ pub(super) fn game(catalog: &Catalog, evidence: &Evidence) -> Result<serde_json:
                         .map_err(|e| e.to_string())?;
                     bump(
                         &mut out.triggers,
-                        serde_json::to_value(i.definition.triggered[ability].condition)
-                            .map_err(|e| e.to_string())?
-                            .as_str()
-                            .ok_or("trigger tag")?,
+                        i.definition.triggered[ability].condition.reporting_key(),
                         "placed",
                     );
                     i.chosen(&mut out)?;
@@ -198,10 +188,7 @@ pub(super) fn game(catalog: &Catalog, evidence: &Evidence) -> Result<serde_json:
                         .map_err(|e| e.to_string())?;
                     bump(
                         &mut out.triggers,
-                        serde_json::to_value(i.definition.triggered[ability].condition)
-                            .map_err(|e| e.to_string())?
-                            .as_str()
-                            .ok_or("trigger tag")?,
+                        i.definition.triggered[ability].condition.reporting_key(),
                         "resolved",
                     );
                 }
@@ -337,13 +324,7 @@ pub(super) fn summarize(
         for t in &d.triggered {
             total
                 .triggers
-                .entry(
-                    serde_json::to_value(t.condition)
-                        .map_err(|e| e.to_string())?
-                        .as_str()
-                        .ok_or("trigger tag")?
-                        .into(),
-                )
+                .entry(t.condition.reporting_key().into())
                 .or_default();
         }
         for k in &d.keywords {
@@ -400,5 +381,29 @@ mod tests {
                 .get("committed")
                 .is_none()
         );
+    }
+}
+
+#[cfg(test)]
+mod step_tests {
+    use super::*;
+    #[test]
+    fn d2c_summary_uses_stable_keys_for_data_bearing_trigger_conditions() {
+        let c = Catalog::read(include_str!(
+            "../../../../tests/fixtures/cards-data-d2c/expected-ir.json"
+        ))
+        .unwrap();
+        let report = summarize(&c, &[]).unwrap();
+        assert_eq!(
+            report["counts"]["triggers"],
+            serde_json::json!({"step_began":{}})
+        );
+        for d in &c.definitions {
+            assert!(
+                serde_json::to_value(d.triggered[0].condition)
+                    .unwrap()
+                    .is_object()
+            );
+        }
     }
 }

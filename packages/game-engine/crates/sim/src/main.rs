@@ -122,7 +122,7 @@ struct BundleMetadata {
 fn read_bundle_metadata(reader: impl Read) -> Result<BundleMetadata, String> {
     let metadata: BundleMetadata =
         serde_json::from_reader(reader).map_err(|error| error.to_string())?;
-    if metadata.bundle_version != 19 {
+    if metadata.bundle_version != 20 {
         return Err("unsupported metadata bundle version".into());
     }
     Ok(metadata)
@@ -1078,7 +1078,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
             .collect(),
         matches,
         draw_failure,
-        bundle_version: 19,
+        bundle_version: 20,
         build_id: BUILD_ID.into(),
         catalog,
         config: prepared.config().clone(),
@@ -1308,7 +1308,7 @@ fn verify_native_source_bytes(
 
 fn verify_bundle(json: &str) -> Result<String, String> {
     let b: Bundle = strict_read(json)?;
-    if b.bundle_version != 19 || b.build_id != BUILD_ID {
+    if b.bundle_version != 20 || b.build_id != BUILD_ID {
         return Err("unsupported bundle version/build".into());
     }
     if b.archive_manifest != fixtures::MANIFEST {
@@ -1865,7 +1865,7 @@ mod tests {
     #[test]
     fn metadata_reader_skips_unknown_nested_strings_and_requires_typed_closure() {
         let metadata = serde_json::json!({
-            "bundle_version":19,"build_id":"historical-build",
+            "bundle_version":20,"build_id":"historical-build",
             "source_files":[{"path":"Cargo.toml","sha256":"source-digest","contents":"[workspace]\n"}],
             "rustflags":"","opt_level":"3","debug":"false","debug_assertions":"false",
             "target":"x86_64-unknown-linux-gnu","catalog":mtg_compiler::catalog::embedded_catalog("base").unwrap(),
@@ -2169,14 +2169,14 @@ mod tests {
         assert_eq!(report["matches"]["games"].as_array().unwrap().len(), 18);
         let final_snapshot: serde_json::Value =
             serde_json::from_str(&bundle.final_snapshot).unwrap();
-        assert_eq!(final_snapshot["snapshot_version"], 18);
+        assert_eq!(final_snapshot["snapshot_version"], 19);
         let json = canonical(&bundle).unwrap();
         assert_eq!(
             verify_bundle(&json).unwrap(),
             report["state_sha256"].as_str().unwrap()
         );
         assert!(
-            verify_bundle(&json.replace("\"bundle_version\":19", "\"bundle_version\":20")).is_err()
+            verify_bundle(&json.replace("\"bundle_version\":20", "\"bundle_version\":21")).is_err()
         );
         // Mutating unconsumed metadata preserves lowering/admission class; only
         // exact source-byte binding can reject an unadmitted source mutation.

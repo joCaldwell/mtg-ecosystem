@@ -683,14 +683,14 @@ fn trigger_row(timed: bool, quantum: u64) -> serde_json::Value {
                 .filter_map(|e| {
                     if let Event::TriggerCollected {
                         source,
-                        subject,
+                        witness: subject,
                         source_facts,
                         ..
                     } = e
                     {
                         assert_eq!(source_facts.object, *source);
                         assert_eq!(source_facts.zone, Zone::Battlefield);
-                        Some((source.card, subject.card))
+                        Some((source.card, subject.subject().unwrap().card))
                     } else {
                         None
                     }
@@ -856,14 +856,14 @@ fn trigger_row(timed: bool, quantum: u64) -> serde_json::Value {
         .filter_map(|e| {
             if let Event::TriggerCollected {
                 source,
-                subject,
+                witness: subject,
                 source_facts,
                 ..
             } = e
             {
-                assert_eq!(subject.incarnation, 1);
+                assert_eq!(subject.subject().unwrap().incarnation, 1);
                 assert_eq!(source_facts.zone, Zone::Battlefield);
-                Some((source.card, subject.card))
+                Some((source.card, subject.subject().unwrap().card))
             } else {
                 None
             }

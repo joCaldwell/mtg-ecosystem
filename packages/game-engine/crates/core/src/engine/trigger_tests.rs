@@ -110,12 +110,12 @@ fn simultaneous_deaths_share_lookback_observers_including_both_dying_artists() {
                 .filter_map(|event| match event {
                     Event::TriggerCollected {
                         occurrence: id,
-                        subject,
+                        witness: subject,
                         ..
-                    } if *id == occurrence.id => Some(subject),
+                    } if *id == occurrence.id => Some(subject.subject().unwrap()),
                     _ => None,
                 })
-                .all(|subject| *subject == movement.previous)
+                .all(|subject| subject == movement.previous)
         );
         assert_eq!(g.events().iter().filter(|event| matches!(event, Event::TriggerCollected { occurrence: id, .. } if *id == occurrence.id)).count(), 5);
     }
@@ -140,10 +140,12 @@ fn enters_use_resulting_battlefield_and_other_excludes_exact_source() {
         g.events()
             .iter()
             .filter_map(|event| match event {
-                Event::TriggerCollected { subject, .. } => Some(subject),
+                Event::TriggerCollected {
+                    witness: subject, ..
+                } => Some(subject.subject().unwrap()),
                 _ => None,
             })
-            .all(|subject| *subject == successor)
+            .all(|subject| subject == successor)
     );
     let sources: BTreeSet<_> = g
         .state
@@ -250,8 +252,8 @@ fn natural_pending_trigger_snapshots_reject_rehashed_provenance_forgeries() {
         |t| t["source_handles"] = serde_json::json!([]),
         |t| t["event"]["batch"] = serde_json::json!(999),
         |t| t["event"]["path"] = serde_json::json!([99]),
-        |t| t["movement"]["previous"]["incarnation"] = serde_json::json!(99),
-        |t| t["movement"]["destination"] = serde_json::json!({"zone":"exile"}),
+        |t| t["witness"]["movement"]["previous"]["incarnation"] = serde_json::json!(99),
+        |t| t["witness"]["movement"]["destination"] = serde_json::json!({"zone":"exile"}),
     ];
     for mutate in mutations {
         let mut value = serde_json::to_value(&g.state).unwrap();
