@@ -44,6 +44,14 @@ remain 16/16/15. The exact current identities and functional verification are in
 `docs/game-engine-cards-as-data-d2c-a.md`; historical P8 performance figures above
 retain their original build qualification.
 
+D2c-b production server/simulator builds and SDK verification passed against
+IR v22 with unchanged snapshot/bundle 19/20 and public 16/16/15: 47 SDK tests,
+strict TypeScript and 33 response variants. `EventPlayerRecipientV1` and
+`SourceStatusConditionV1` remain outside reviewed hosting/search capability sets;
+no hosted profile was added. See `docs/game-engine-cards-as-data-d2c-b.md` for the
+exact engine/server identities and source closure. This is functional evidence,
+not a new quiet performance claim; parent independent review remains pending.
+
 Rust links the deterministic core directly. Rust DTOs and embedded core public
 projection/decision types are the external protocol authority. Generate Draft7
 schemas with explicit inbound/outbound contracts; generate TypeScript from those
