@@ -172,7 +172,7 @@ acceptance. See `docs/game-engine-cards-as-data-d2c-c.md` for exact scope, sourc
 witnesses, coverage and retained development evidence.
 
 D2c-d ordinary **per-creature declared-attack** triggers are a separate
-implementation candidate for independent source review and future acceptance.
+source-reviewed implementation candidate awaiting pinned checks and acceptance.
 IR24 adds exact-source/compositional attacker predicates and frozen typed
 attacker/defender witnesses using the real declaration batch occurrence. Existing
 snapshot/bundle/public versions and old catalog/history references are unchanged;

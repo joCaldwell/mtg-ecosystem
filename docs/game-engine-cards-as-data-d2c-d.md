@@ -1,7 +1,7 @@
 # D2c-d: ordinary per-creature declared-attack triggers
 
-Implementation starts at `b3c7449`. This is a separate future implementation
-candidate for independent **source review**. D2c-c and the receipt optimization
+Implementation starts at `b3c7449`. Independent **source review passed** for this
+separate future implementation candidate. D2c-c and the receipt optimization
 remain outside this worktree's verification ownership; no combined acceptance
 result is claimed here. No parser, other-checkout or optimizer-owned production
 file is changed.
@@ -9,6 +9,17 @@ file is changed.
 Source freeze: `c6893aaf6e67d5a52b99154705c385222edb19e3`; tree
 `a535e97c56e5319570fd393417bcaea59cc1644c`. The subsequent report commit changes Markdown only.
 The parent owns source review and the eventual combined full gate.
+
+Independent read-only review approved handoff `39e010d` and source `c6893aa`
+with no blocking findings. It matched all 17 complete admissions, all 23 fixture
+record hashes, 79 prior references, 604 inventoried native source inputs and 69
+evidence artifacts. Parent source integration `1668215` matches all 46 reviewed
+paths and preserves receipt code; the shared Node contract conflict resolved to
+the exact reviewed D2c-d blob, including the corrected `trigger` selector.
+The active `a7f5571` acceptance worktree remains unchanged and excludes D2c-d.
+Pinned Rust 1.99.0 focused checks, fresh executable/source closure, repeated
+coverage and eventual full acceptance remain pending. The earlier 1.99.1 results
+and source-only identity reconstruction retain their qualifications below.
 
 ## Semantics and finite scope
 
