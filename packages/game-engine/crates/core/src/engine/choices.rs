@@ -23,13 +23,72 @@ pub(super) const CHOICE_EXTRA: [(&str, &str); 3] = [
         definition_digest!("MTG_DEFINITION_choices_82076865-7917-4d3b-8fe8-c21bfcd64d29"),
     ),
 ];
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceInformation {
+    Current,
+    LastKnown,
+}
+/// Evidence of the information actually read, never a fabricated hand count.
+/// The hand-empty variant retains its existing serialized field shape.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct InterveningCheck {
-    pub condition: InterveningCondition,
-    pub controller: PlayerId,
-    pub hand_count: u32,
-    pub passed: bool,
+#[serde(tag = "condition", rename_all = "snake_case", deny_unknown_fields)]
+pub enum InterveningCheck {
+    ControllerHandEmpty {
+        controller: PlayerId,
+        hand_count: u32,
+        passed: bool,
+    },
+    SourceStatus {
+        controller: PlayerId,
+        source: ObjectId,
+        status: TapStatus,
+        tapped: bool,
+        information: SourceInformation,
+        passed: bool,
+    },
+}
+impl InterveningCheck {
+    pub fn passed(&self) -> bool {
+        match self {
+            Self::ControllerHandEmpty { passed, .. } | Self::SourceStatus { passed, .. } => *passed,
+        }
+    }
+    fn validates(
+        &self,
+        condition: &InterveningCondition,
+        controller: PlayerId,
+        source: ObjectId,
+        hand_limit: u32,
+    ) -> bool {
+        match (condition, self) {
+            (
+                InterveningCondition::ControllerHandEmpty,
+                Self::ControllerHandEmpty {
+                    controller: c,
+                    hand_count,
+                    passed,
+                },
+            ) => *c == controller && *hand_count <= hand_limit && *passed == (*hand_count == 0),
+            (
+                InterveningCondition::SourceStatus { status },
+                Self::SourceStatus {
+                    controller: c,
+                    source: s,
+                    status: expected,
+                    tapped,
+                    passed,
+                    ..
+                },
+            ) => {
+                *c == controller
+                    && *s == source
+                    && *expected == *status
+                    && *passed == status.matches(*tapped)
+            }
+            _ => false,
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
@@ -242,30 +301,55 @@ impl Game {
         };
         Ok(())
     }
+    // CR603.4 checks twice; CR608.2h/113.7a use current expected-zone
+    // information or the last battlefield incarnation (CR400.7,110.5d).
+    // The existing per-invocation ObjectBefore is refreshed at departure by
+    // retain_source_lki, including taps AFTER collection. Its lifetime is
+    // bounded by outstanding stack/pending entries, independent of tracing.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(super) fn check_intervening(
         &self,
         condition: &InterveningCondition,
         controller: PlayerId,
+        source: ObjectId,
+        last_known: &ObjectBefore,
     ) -> Result<InterveningCheck, String> {
         if !self.is_live(controller) {
             return Err("intervening condition requested after controller departure".into());
         }
-        let hand_count = u32::try_from(
-            self.state
-                .objects
-                .values()
-                .filter(|o| o.zone == Zone::Hand { owner: controller })
-                .count(),
-        )
-        .map_err(|_| "hand count limit")?;
-        let passed = match condition {
-            InterveningCondition::ControllerHandEmpty => hand_count == 0,
-        };
-        Ok(InterveningCheck {
-            condition: *condition,
-            controller,
-            hand_count,
-            passed,
+        Ok(match condition {
+            InterveningCondition::ControllerHandEmpty => {
+                let hand_count = u32::try_from(
+                    self.state
+                        .objects
+                        .values()
+                        .filter(|o| o.zone == Zone::Hand { owner: controller })
+                        .count(),
+                )
+                .map_err(|_| "hand count limit")?;
+                InterveningCheck::ControllerHandEmpty {
+                    controller,
+                    hand_count,
+                    passed: hand_count == 0,
+                }
+            }
+            InterveningCondition::SourceStatus { status } => {
+                let (tapped, information) = match self.current(source) {
+                    Ok(o) if o.zone == Zone::Battlefield => (o.tapped, SourceInformation::Current),
+                    _ if last_known.object == source && last_known.zone == Zone::Battlefield => {
+                        (last_known.tapped, SourceInformation::LastKnown)
+                    }
+                    _ => return Err("missing last-known battlefield source status".into()),
+                };
+                InterveningCheck::SourceStatus {
+                    controller,
+                    source,
+                    status: *status,
+                    tapped,
+                    information,
+                    passed: status.matches(tapped),
+                }
+            }
         })
     }
     pub(super) fn check_resolution_condition(
@@ -284,7 +368,15 @@ impl Game {
         else {
             return Ok(None);
         };
-        let check = self.check_intervening(&condition, stack.controller)?;
+        let check = self.check_intervening(
+            &condition,
+            stack.controller,
+            stack.source,
+            stack
+                .source_facts
+                .as_ref()
+                .ok_or("missing trigger source facts")?,
+        )?;
         self.record_event(Event::TriggerConditionChecked {
             source: stack.source,
             controller: stack.controller,
@@ -363,10 +455,12 @@ impl Game {
         match (expected, &frame.condition_check) {
             (None, None) => Ok(()),
             (Some(condition), Some(check))
-                if condition == &check.condition
-                    && check.controller == frame.spell.controller
-                    && check.hand_count <= self.prepared.config.owned_limit() as u32
-                    && check.passed == (check.hand_count == 0) =>
+                if check.validates(
+                    condition,
+                    frame.spell.controller,
+                    frame.spell.source,
+                    self.prepared.config.owned_limit() as u32,
+                ) =>
             {
                 Ok(())
             }
@@ -392,10 +486,19 @@ impl Game {
         match (expected, check) {
             (None, None) => Ok(()),
             (Some(condition), Some(check))
-                if check.condition == *condition
-                    && check.controller == controller
-                    && check.hand_count == 0
-                    && check.passed =>
+                if check.validates(
+                    condition,
+                    controller,
+                    source,
+                    self.prepared.config.owned_limit() as u32,
+                ) && check.passed()
+                    && !matches!(
+                        check,
+                        InterveningCheck::SourceStatus {
+                            information: SourceInformation::LastKnown,
+                            ..
+                        }
+                    ) =>
             {
                 Ok(())
             }

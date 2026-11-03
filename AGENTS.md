@@ -61,6 +61,21 @@ passed; no new quiet P7 claim is made.
 
 ---
 
+D2c-b adds frozen event-player recipients for mandatory draw/life programs and
+source-status intervening conditions at IR v22. Status reads the exact source's
+current battlefield information or departure-refreshed LKI, independent of traces
+and bounded by existing live continuations. Snapshot/bundle remain 19/20 and public
+versions 16/16/15; all old catalog bytes and 173 historical state hashes are unchanged.
+Verification passed **976 Rust tests (18 existing diagnostics ignored), 58 Node,
+131 focused release checks, 47 SDK tests/strict TypeScript**, and all **216 games
+and 216 explicit replays** across twelve unchanged profiles. Coverage is
+**1,929/32,116 (6.00635%)**, six additions and zero losses from D2c-a. New
+capabilities stay outside reviewed hosting/search sets; Master of the Feast's
+multiplayer-draw rejection and runtime guard remain. Parent independent review is
+pending. See [the D2c-b report](docs/game-engine-cards-as-data-d2c-b.md) for source witnesses, identities and retained evidence.
+
+---
+
 ## 🌌 The project: Project Multiverse
 
 An initiative to digitize Magic: The Gathering into a modular, layered,

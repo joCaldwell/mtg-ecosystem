@@ -1,0 +1,12 @@
+{
+  "schema_version": 22,
+  "output_order": "struct",
+  "provenance": "../cards-data-d2c/provenance.json",
+  "records": [
+    "../cards-data-d2c/d26b27db-a567-4631-b4b6-7294222fbdd1.json",
+    "../cards-data-d2c/04d0d20f-720e-4cb6-a3ad-ea2b57bb7efa.json",
+    "../cards-data-d2c/dd520d83-297a-487f-b8f3-4997bbc056e0.json"
+  ],
+  "expected_ir": "../cards-data-d2c/expected-d2c-b-ir.json",
+  "expected_digest": "cards-data-d2c-b.sha256"
+}

@@ -422,6 +422,15 @@ impl Game {
                     LifeRecipient::EachOpponent => {
                         return self.sacrifice_life(frame, amount, source_block, gain);
                     }
+                    LifeRecipient::EventPlayer => {
+                        let Some(actor) = frame.spell.kind.event_player()? else {
+                            return self.finish_instruction(
+                                frame,
+                                InstructionOutcome::Life { actual: None },
+                            );
+                        };
+                        actor
+                    }
                     LifeRecipient::Controller => frame.spell.controller,
                     LifeRecipient::Target { target_slot } => {
                         if !frame

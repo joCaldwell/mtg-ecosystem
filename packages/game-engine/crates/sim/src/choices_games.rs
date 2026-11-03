@@ -1108,9 +1108,7 @@ fn assert_outcome(run: &Run, policy: Policy) -> Result<(), String> {
             checks.iter().zip(expected_checks)
         {
             if *controller != PlayerId(0)
-                || check.controller != PlayerId(0)
-                || check.hand_count != hand
-                || check.passed != passed
+                || !matches!(check, mtg_core::InterveningCheck::ControllerHandEmpty { controller: PlayerId(0), hand_count, passed: p } if *hand_count == hand && *p == passed)
                 || matches!(stage, mtg_core::InterveningStage::Match { .. }) != first
             {
                 return Err(

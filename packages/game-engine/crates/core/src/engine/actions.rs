@@ -20,6 +20,15 @@ pub(super) enum StackKind {
     },
 }
 impl StackKind {
+    pub(super) fn event_player(&self) -> Result<Option<PlayerId>, String> {
+        match self {
+            Self::Triggered {
+                witness: witness @ TriggerEventWitness::StepBegan { .. },
+                ..
+            } => Ok(witness.event_player()),
+            _ => Err("unbound event-player recipient".into()),
+        }
+    }
     pub(super) fn is_spell(&self) -> bool {
         matches!(self, Self::Spell)
     }
@@ -606,6 +615,15 @@ impl Game {
                 let player = match recipient {
                     Some(LifeRecipient::EachOpponent) => {
                         return Err("unsupported each-opponent draw".into());
+                    }
+                    Some(LifeRecipient::EventPlayer) => {
+                        let Some(actor) = frame.spell.kind.event_player()? else {
+                            return self.finish_instruction(
+                                frame,
+                                InstructionOutcome::Effect { actual: None },
+                            );
+                        };
+                        actor
                     }
                     None | Some(LifeRecipient::Controller) => player,
                     Some(LifeRecipient::Target { target_slot }) => {

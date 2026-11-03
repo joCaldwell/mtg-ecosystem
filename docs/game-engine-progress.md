@@ -4287,3 +4287,45 @@ and server copies. Engine identity `82fa2fbc7789cb12d5d5feb3562fbe61b757c58b3a83
 server identity `81c73397da525d9bd4c08ae0eac1e2503340d6d8a60ed1c4e55ff7f02cb4e9ad`.
 Evidence: `/home/josh/.t3/worktrees/mtg-ecosystem/t3-d85b51a3/generated/final-engine-verification/d2c-a/`.
 Raw timings are functional evidence; quiet P7/search performance was not renewed.
+
+
+## D2c-b — frozen event players and source-status conditions (2026-11-03)
+
+Source freeze: `02f0d4df92343be43241065b916cbcfe7cfd2cc9`. See [the D2c-b report](game-engine-cards-as-data-d2c-b.md)
+for exact source/rules witnesses, retained identities, failures and evidence.
+Parent independent semantic/source review approved the increment; a separate
+parent audit verified the sealed 604 files, compiled 554 files, unchanged baselines
+and all 216 exact replay outputs before integration.
+
+- IR v22 adds generic mandatory event-player draw/life recipients and typed
+  tapped/untapped intervening conditions on supported step triggers. Controller
+  hand-empty composes with step triggers while preserving old semantics.
+- Source status uses current expected-zone information or departure-refreshed
+  original-incarnation LKI under CR 603.4/608.2h/113.7a. Existing bounded live
+  continuation facts supply it in all trace modes; no permanent LKI archive.
+- Source/controller/owner/turn-owner identities remain separate. Missing or
+  departed actors are skipped without redirecting their instructions. Commander
+  draw continuations, atomic faults, restore/replay and absent-active-player steps
+  are verified. Both D2c-a follow-up regression opportunities are covered.
+- Full gate: **976 Rust passed / 18 existing diagnostics ignored; 58 Node passed**.
+  **131 focused release checks**, production builds and **47 SDK tests/strict TS/
+  33 response variants** passed. SDK generated output was retained and removed.
+- **1,929/32,116 legal records (6.00635%)**, six additions and zero losses from
+  D2c-a. All six complete source programs/ASTs and exact tool-generated IR are
+  retained; two final coverage runs and preflight are byte-identical.
+- All **216/216 games won** and **216/216 explicit CLI replays passed**, zero
+  draws/faults/truncations. All twelve workload manifests except build identity
+  and all 216 final state hashes equal D2c-a.
+- Existing persisted shapes are unchanged: snapshot/bundle 19/20, public 16/16/15.
+  All 73 old catalog/expected/digest/history files and 173 historic state hashes
+  remain equal; no baseline was regenerated. New capabilities remain excluded
+  from hosting/search reviewed sets; Master of the Feast still rejects.
+- The first full gate passed 976 Rust tests but failed one new Node strict-field
+  negative (57 passed/1 failed). The missing nested unknown-field guard was fixed;
+  the separately preserved settled full rerun passed. No assertion was weakened.
+
+Native closure: **554 verified files**, retained tested binaries and executed
+introspection. Engine `ff48d2ce466d315950a998c350a485be8507b58a04c9035de1d51928eb1dafc2`;
+server `3d5e28e17321cd32574026d550772962ac0d8680a174546c16710d5bd1dcf2da`. Evidence:
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/d2c-b-02f0d4df9234-20261103/`.
+No new quiet P7/search performance claim is made.

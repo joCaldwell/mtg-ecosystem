@@ -15,7 +15,12 @@ fn catalog() -> Catalog {
         "../../../../tests/fixtures/cards-data-d2c/expected-ir.json"
     ))
     .unwrap();
-    c.schema_version = 21;
+    let next = Catalog::read(include_str!(
+        "../../../../tests/fixtures/cards-data-d2c/expected-d2c-b-ir.json"
+    ))
+    .unwrap();
+    c.definitions.extend(next.definitions);
+    c.schema_version = 22;
     c.definitions.extend(add.definitions);
     c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     c.validate().unwrap();
@@ -620,8 +625,13 @@ fn d2c_step_trigger_composes_tokens_and_targeted_programs_on_ordinary_artifact()
 #[test]
 fn d2c_stack_capacity_fault_rolls_back_transition_and_typed_collection() {
     let mut g = Game::new(prepared(
-        &[(FORCE, 0, 0, Zone::Battlefield)],
-        TurnStep::Untap,
+        &[(
+            "d26b27db-a567-4631-b4b6-7294222fbdd1",
+            0,
+            0,
+            Zone::Battlefield,
+        )],
+        TurnStep::Upkeep,
     ));
     g.state.frame = Frame::Transition;
     g.transition_turn_step().unwrap();
@@ -629,7 +639,7 @@ fn d2c_stack_capacity_fault_rolls_back_transition_and_typed_collection() {
     g.state.pending_triggers.resize(capacities::STACK_LIMIT, t);
     // Re-run a valid supported boundary with the full pending collection. The
     // private domain setup isolates the shared capacity guard, not reachability.
-    g.state.turn.step = TurnStep::Untap;
+    g.state.turn.step = TurnStep::Upkeep;
     g.state.frame = Frame::Transition;
     g.state.players[0].mana.insert(Color::B, 2.into());
     let state_hash = digest(&g.state).unwrap();
@@ -756,3 +766,6 @@ fn d2c_draw_collection_precedes_normal_draw_and_placement_follows_it() {
     assert_eq!(g.state.next_trigger_id, 1);
     recover(&g);
 }
+
+#[path = "event_player_tests.rs"]
+mod event_player_tests;

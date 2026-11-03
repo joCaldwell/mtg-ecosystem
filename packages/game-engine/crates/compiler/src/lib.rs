@@ -209,10 +209,16 @@ struct ModeOption {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct SourceCondition {
-    condition: String,
-    who: PlayerSelector,
-    comparison: SourceComparison,
+#[serde(tag = "condition", rename_all = "kebab-case")]
+enum SourceCondition {
+    CardsInHand {
+        who: PlayerSelector,
+        comparison: SourceComparison,
+    },
+    Status {
+        what: TriggerObject,
+        status: TapStatus,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1110,7 +1116,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 // Separate source blocks introduce independent occurrences (CR115.3).
                 // Reusing a selection ID across blocks must not alias targets.
                 slots.clear();
-                append_spell_effects(&mut program, effects, block, &mut slots)?;
+                append_spell_effects(
+                    &mut program,
+                    effects,
+                    block,
+                    &mut slots,
+                    PlayerBinding::Unbound,
+                )?;
             }
             definition.spell = Some(program);
         }
@@ -1172,11 +1184,18 @@ fn bind_target(
     slots.insert(id.into(), slot);
     Ok(slot)
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PlayerBinding {
+    Unbound,
+    StepEvent,
+    DeathController,
+}
 fn append_spell_effects(
     program: &mut SpellProgram,
     effects: &[Sentence],
     block: usize,
     slots: &mut BTreeMap<String, u32>,
+    player_binding: PlayerBinding,
 ) -> Result<(), Failure> {
     if let [Sentence { steps, .. }] = effects
         && let [Step::Modal { count, options }] = steps.as_slice()
@@ -1202,7 +1221,13 @@ fn append_spell_effects(
                 instructions: vec![],
                 modes: vec![],
             };
-            append_spell_effects(&mut child, &option.effects, block, &mut BTreeMap::new())?;
+            append_spell_effects(
+                &mut child,
+                &option.effects,
+                block,
+                &mut BTreeMap::new(),
+                player_binding,
+            )?;
             if !child.modes.is_empty() {
                 return Err(unsupported("effects.modal", "nested modes unsupported"));
             }
@@ -1288,7 +1313,17 @@ fn append_spell_effects(
             return Err(invalid("effects.steps", "empty instruction group"));
         }
         for step in &sentence.steps {
-            if let Some(i) = lower_wipes_step(step, counted, source_block)? {
+            if player_binding == PlayerBinding::Unbound
+                && matches!(step, Step::LoseLife { who, .. } if who.player == "that-player")
+            {
+                return Err(unsupported("trigger", "unbound death controller"));
+            }
+            if let Some(i) = lower_wipes_step(
+                step,
+                counted,
+                source_block,
+                player_binding == PlayerBinding::DeathController,
+            )? {
                 program.instructions.push(i);
                 continue;
             }
@@ -1523,7 +1558,12 @@ fn append_spell_effects(
                     }
                 }
                 Step::GainLife { who, amount, .. } => Instruction::GainLife {
-                    recipient: life_recipient(program, slots, who)?,
+                    recipient: life_recipient(
+                        program,
+                        slots,
+                        who,
+                        player_binding == PlayerBinding::StepEvent,
+                    )?,
                     amount: fixed_positive(
                         &serde_json::from_value(amount.clone())
                             .map_err(|_| unsupported("amount", "unsupported fixed amount"))?,
@@ -1531,7 +1571,12 @@ fn append_spell_effects(
                     source_block,
                 },
                 Step::LoseLife { who, amount } => Instruction::LoseLife {
-                    recipient: life_recipient(program, slots, who)?,
+                    recipient: life_recipient(
+                        program,
+                        slots,
+                        who,
+                        player_binding == PlayerBinding::StepEvent,
+                    )?,
                     amount: fixed_positive(
                         &serde_json::from_value(amount.clone())
                             .map_err(|_| unsupported("amount", "unsupported fixed amount"))?,
@@ -1539,7 +1584,12 @@ fn append_spell_effects(
                     source_block,
                 },
                 Step::Draw { who, amount } => {
-                    let recipient = match life_recipient(program, slots, who)? {
+                    let recipient = match life_recipient(
+                        program,
+                        slots,
+                        who,
+                        player_binding == PlayerBinding::StepEvent,
+                    )? {
                         LifeRecipient::Controller => None,
                         r => Some(r),
                     };
@@ -1719,6 +1769,7 @@ fn lower_wipes_step(
     step: &Step,
     counted: bool,
     source_block: u32,
+    death_controller: bool,
 ) -> Result<Option<Instruction>, Failure> {
     use serde_json::json;
     Ok(Some(match step {
@@ -1830,7 +1881,10 @@ fn lower_wipes_step(
             for_each: Some(_), ..
         } => return Err(unsupported("forEach", "unsupported event result")),
         Step::LoseLife { who, amount }
-            if who.player == "that-player" && who.selection_id.is_none() && who.of.is_none() =>
+            if death_controller
+                && who.player == "that-player"
+                && who.selection_id.is_none()
+                && who.of.is_none() =>
         {
             Instruction::LoseLifeDeathController {
                 amount: fixed_positive_value(amount)?,
@@ -2529,12 +2583,14 @@ fn life_recipient(
     program: &mut SpellProgram,
     slots: &mut BTreeMap<String, u32>,
     who: &PlayerSelector,
+    event_player: bool,
 ) -> Result<LifeRecipient, Failure> {
     if who.of.is_some() {
         return Err(unsupported("who", "unexpected object reference"));
     }
     match (who.player.as_str(), who.selection_id.as_deref()) {
         ("you", None) => Ok(LifeRecipient::Controller),
+        ("that-player", None) if event_player => Ok(LifeRecipient::EventPlayer),
         ("each-opponent", None) => Ok(LifeRecipient::EachOpponent),
         ("target-player", Some(id)) => Ok(LifeRecipient::Target {
             target_slot: bind_target(program, slots, id, TargetDomain::AnyPlayer)?,
@@ -2687,19 +2743,43 @@ fn lower_trigger(
         instructions: vec![],
         modes: vec![],
     };
-    append_spell_effects(&mut program, effects, block, &mut BTreeMap::new())?;
+    append_spell_effects(
+        &mut program,
+        effects,
+        block,
+        &mut BTreeMap::new(),
+        if matches!(condition, TriggerCondition::StepBegan { .. }) {
+            PlayerBinding::StepEvent
+        } else if condition == TriggerCondition::OpponentCreatureDies {
+            PlayerBinding::DeathController
+        } else {
+            PlayerBinding::Unbound
+        },
+    )?;
     let intervening_if = match intervening {
         None => None,
-        Some(c)
-            if condition == TriggerCondition::SelfDies
-                && c.condition == "cards-in-hand"
-                && c.who.player == "you"
-                && c.who.selection_id.is_none()
-                && c.comparison.op == "eq"
-                && c.comparison.value.amount == "fixed"
-                && c.comparison.value.value == 0 =>
+        Some(SourceCondition::CardsInHand { who, comparison })
+            if (condition == TriggerCondition::SelfDies
+                || matches!(condition, TriggerCondition::StepBegan { .. }))
+                && who.player == "you"
+                && who.selection_id.is_none()
+                && who.of.is_none()
+                && comparison.op == "eq"
+                && comparison.value.amount == "fixed"
+                && comparison.value.value == 0 =>
         {
             Some(InterveningCondition::ControllerHandEmpty)
+        }
+        Some(SourceCondition::Status {
+            what: TriggerObject::This { noun },
+            status,
+        }) if matches!(condition, TriggerCondition::StepBegan { .. })
+            && matches!(
+                noun.as_str(),
+                "artifact" | "creature" | "enchantment" | "permanent"
+            ) =>
+        {
+            Some(InterveningCondition::SourceStatus { status: *status })
         }
         _ => {
             return Err(unsupported(
@@ -2918,7 +2998,13 @@ fn lower_activation(
                 )
             }))
     {
-        append_spell_effects(&mut program, effects, block, &mut BTreeMap::new())?;
+        append_spell_effects(
+            &mut program,
+            effects,
+            block,
+            &mut BTreeMap::new(),
+            PlayerBinding::Unbound,
+        )?;
         return Ok(ActivatedAbility {
             functioning_zone: FunctioningZone::Battlefield,
             cost,
@@ -2926,7 +3012,13 @@ fn lower_activation(
         });
     }
     if kind == CardKind::Creature && matches!(cost, ActivationCost::Composite { .. }) {
-        append_spell_effects(&mut program, effects, block, &mut BTreeMap::new())?;
+        append_spell_effects(
+            &mut program,
+            effects,
+            block,
+            &mut BTreeMap::new(),
+            PlayerBinding::Unbound,
+        )?;
         if !matches!(
             program.instructions.as_slice(),
             [Instruction::DestroyPermanent {
@@ -4870,7 +4962,7 @@ mod tests {
             );
         }
         let mut future = c;
-        future.schema_version = 22;
+        future.schema_version = 23;
         assert!(future.validate().is_err());
     }
     #[test]
@@ -5236,7 +5328,7 @@ mod tests {
             assert!(Catalog::read(&bad).is_err());
         }
         let mut bad = c;
-        bad.schema_version = 22;
+        bad.schema_version = 23;
         assert!(bad.validate().is_err());
     }
 
@@ -5500,7 +5592,7 @@ mod tests {
             }
         }
         let mut bad = catalog.clone();
-        bad.schema_version = 22;
+        bad.schema_version = 23;
         assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
         for change in [
             (|d: &mut Definition| {
@@ -5811,7 +5903,7 @@ mod tests {
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
         let catalog = embedded_catalog("stack").unwrap();
-        for version in [3, 4, 5, 22] {
+        for version in [3, 4, 5, 23] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -6016,7 +6108,7 @@ mod tests {
         let c = embedded_catalog("base").unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":3", "\"schema_version\":22"),
+            raw.replace("\"schema_version\":3", "\"schema_version\":23"),
             raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
             raw.replace("\"target_slot\":0", "\"target_slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
@@ -6548,7 +6640,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = embedded_catalog("action").unwrap();
-        for version in [3, 4, 22] {
+        for version in [3, 4, 23] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -6675,7 +6767,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":22"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":23"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",
@@ -6925,3 +7017,6 @@ mod d2b_tests;
 
 #[cfg(test)]
 mod d2c_tests;
+
+#[cfg(test)]
+mod d2cb_tests;

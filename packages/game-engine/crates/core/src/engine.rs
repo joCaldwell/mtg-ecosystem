@@ -2823,7 +2823,7 @@ impl Game {
                 if frame
                     .condition_check
                     .as_ref()
-                    .is_some_and(|check| !check.passed)
+                    .is_some_and(|check| !check.passed())
                     || (!frame.legal_targets.is_empty() && !frame.legal_targets.iter().any(|l| *l))
                 {
                     self.finish_spell(&stack, false)?;

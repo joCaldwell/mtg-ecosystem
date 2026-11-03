@@ -293,3 +293,46 @@ Top fifteen remaining first-failure reasons:
 
 Recognizing phase ASTs exposes later unsupported operations and conditions.
 These are first-failure counts, not independent predicted capability gains.
+
+
+## D2c-b: frozen event players and source status
+
+[The D2c-b report](game-engine-cards-as-data-d2c-b.md) records the IR v22 scope,
+rule-backed current/LKI semantics, complete source audits and verification.
+The final result is **1,929/32,116 legal records (6.00635%)**, **six additions and
+zero losses** from D2c-a's 1,923. The increase is **0.01868 percentage points**.
+Legal statuses: 1,929 lowered/validated, 27,705 Unsupported, 2,482 unparsed,
+zero Invalid. The TSV classifies all 38,721 source records.
+
+The six additions are Dictate of Kruphix, Font of Mythos, Howling Mine, Kami of
+the Crescent Moon, Nim Abomination, and Seizan, Perverter of Truth. Source status
+and event-player recipients are independent capabilities; Howling Mine composes
+both. Existing flash and ordered single-player draw/life execution are reused.
+Optional groups/payments, multiplayer draw, other trigger families and library
+selection remain excluded. Master of the Feast still rejects as a whole card.
+
+Two final CLI JSON/TSV outputs are byte-identical, also equal to the frozen-source
+preflight. Exact legal-ID additions/losses, complete archived source/AST audits
+and extracted/validated IR for all six are retained at
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/d2c-b-02f0d4df9234-20261103/coverage/` and the adjacent source-audit artifacts.
+These are compiler counts; the twelve unchanged batches do not play new cards.
+
+Top fifteen remaining first reasons (not independent admission predictions):
+
+| Reason | Legal records |
+| --- | ---: |
+| `status:unparsed` | 2,481 |
+| `effect:gain-abilities` | 953 |
+| `trigger:attacks` | 919 |
+| `trigger:cast` | 817 |
+| `trigger:deals-damage` | 526 |
+| `static:conditional` | 483 |
+| `static.scope:unsupported_modifier_scope` | 461 |
+| `effects.steps:unsupported_activated_operator_controller_or_cardinality` | 418 |
+| `static:enters-with-counters` | 350 |
+| `mana:choice` | 346 |
+| `effect:reveal` | 342 |
+| `multi_face_layout:transform` | 341 |
+| `abilities[*].effects[*].steps[*]:data_did_not_match_any_variant_of_untagged_enum_sourcecounterrecipient` | 331 |
+| `abilities[*].effect.condition` | 329 |
+| `effect:tap` | 317 |

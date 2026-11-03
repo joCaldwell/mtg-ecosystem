@@ -69,9 +69,6 @@ fn d2c_complete_sources_minimum_version_and_capability_closure() {
 fn d2c_whole_cards_reject_conditions_optionality_unknown_relations_and_zones() {
     for raw in [
         changed(|a| a["condition"] = serde_json::json!({"condition":"unknown"})),
-        changed(
-            |a| a["condition"] = serde_json::json!({"condition":"cards-in-hand", "who":{"player":"you"},"comparison":{"op":"eq","value":{"amount":"fixed","value":0}}}),
-        ),
         changed(|a| a["trigger"]["whose"] = "that-player".into()),
         changed(|a| {
             a["trigger"]["whose"] = serde_json::json!({"player":"controller","of":{"ref":"enchanted","noun":"creature"}})
@@ -83,9 +80,6 @@ fn d2c_whole_cards_reject_conditions_optionality_unknown_relations_and_zones() {
         changed(|a| a["trigger"]["from"] = "graveyard".into()),
         changed(|a| a["functioningZone"] = "graveyard".into()),
         changed(|a| a["effects"][0]["steps"][0]["optional"] = true.into()),
-        changed(|a| {
-            a["effects"][0]["steps"][0]["who"] = serde_json::json!({"player":"that-player"})
-        }),
         changed(|a| a["effects"][0]["steps"][0]["effect"] = "pay-cost".into()),
     ] {
         assert!(
@@ -99,7 +93,7 @@ fn d2c_whole_cards_reject_conditions_optionality_unknown_relations_and_zones() {
     );
     assert!(matches!(
         compile(MANIFEST, mine),
-        CompileResult::Unsupported { .. }
+        CompileResult::Lowered { .. }
     ));
     let mut bad = catalog().definitions.remove(0);
     bad.triggered[0].functioning_zone = FunctioningZone::Stack;

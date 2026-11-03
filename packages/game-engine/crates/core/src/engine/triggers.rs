@@ -60,6 +60,12 @@ impl TriggerEventWitness {
             Self::StepBegan { .. } => None,
         }
     }
+    pub(super) fn event_player(&self) -> Option<PlayerId> {
+        match self {
+            Self::StepBegan { active, .. } => *active,
+            _ => None,
+        }
+    }
     fn dies(&self) -> bool {
         matches!(self, Self::Moved { movement: m } if m.from == Zone::Battlefield && matches!(m.destination, Zone::Graveyard { .. }))
     }
@@ -235,7 +241,12 @@ impl Game {
                                     .intervening_if
                                     .as_ref()
                                     .map(|condition| {
-                                        observers.check_intervening(condition, object.controller)
+                                        observers.check_intervening(
+                                            condition,
+                                            object.controller,
+                                            object.id,
+                                            &observers.object_before(object.id)?,
+                                        )
                                     })
                                     .transpose()?,
                             ));
@@ -253,7 +264,7 @@ impl Game {
                             },
                             check: check.clone(),
                         })?;
-                        if !check.passed {
+                        if !check.passed() {
                             continue;
                         }
                     }
