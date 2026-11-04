@@ -163,6 +163,7 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 pub enum Capability {
     CastTriggerV1,
     AttackTriggerV1,
+    DamageTriggerV1,
     EventPlayerRecipientV1,
     SourceStatusConditionV1,
     StepBeginningTriggerV1,
@@ -737,6 +738,11 @@ pub struct ActivatedAbility {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerCondition {
+    DamageDealt {
+        source: DamageTriggerSource,
+        kind: TriggerDamageKind,
+        recipient: DamageTriggerRecipient,
+    },
     CreatureAttacked {
         attacker: AttackSubject,
     },
@@ -756,6 +762,24 @@ pub enum TriggerCondition {
     AnyCreatureDies,
     SelfDies,
     SelfAuraToGraveyard,
+}
+/// CR 120.2/120.7/603.2c: independent occurrence dimensions. This finite
+/// capability admits only this invocation's exact source dealing combat damage
+/// to a player. It supplies no event-player or event-quantity program binding.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "subject", rename_all = "snake_case", deny_unknown_fields)]
+pub enum DamageTriggerSource {
+    Source {},
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TriggerDamageKind {
+    Combat,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DamageTriggerRecipient {
+    Player,
 }
 /// Ordinary per-creature declaration predicates (CR 508.3a/603.2c).
 /// Controller relation and full type membership are independent of ownership.
@@ -856,6 +880,7 @@ impl TriggerCondition {
         match self {
             Self::StepBegan { .. } => "step_began",
             Self::CreatureAttacked { .. } => "creature_attacked",
+            Self::DamageDealt { .. } => "damage_dealt",
             Self::SpellCast { .. } => "spell_cast",
             Self::OpponentCreatureDies => "opponent_creature_dies",
             Self::SelfEntersBattlefield => "self_enters_battlefield",
@@ -1092,6 +1117,7 @@ impl Definition {
                 TriggerCondition::StepBegan { .. } => Capability::StepBeginningTriggerV1,
                 TriggerCondition::SpellCast { .. } => Capability::CastTriggerV1,
                 TriggerCondition::CreatureAttacked { .. } => Capability::AttackTriggerV1,
+                TriggerCondition::DamageDealt { .. } => Capability::DamageTriggerV1,
                 TriggerCondition::OpponentCreatureDies => Capability::BoardWipesV1,
                 TriggerCondition::SelfEntersBattlefield => Capability::SelfEntersBattlefieldV1,
                 TriggerCondition::OtherCreatureEntersBattlefield => {
@@ -1186,7 +1212,11 @@ impl Definition {
                     a.condition,
                     TriggerCondition::StepBegan { .. } | TriggerCondition::SpellCast { .. }
                 )
-                && !matches!(a.condition, TriggerCondition::CreatureAttacked { .. })
+                && !matches!(
+                    a.condition,
+                    TriggerCondition::CreatureAttacked { .. }
+                        | TriggerCondition::DamageDealt { .. }
+                )
                 && a.death_filter.is_none()
         }) {
             return Err(
@@ -1461,6 +1491,11 @@ impl Definition {
             return Err("trigger programs require a supported permanent source".into());
         }
         for ability in &self.triggered {
+            if matches!(ability.condition, TriggerCondition::DamageDealt { .. })
+                && !c.has_type(CardKind::Creature)
+            {
+                return Err("self damage trigger requires a creature source".into());
+            }
             if let TriggerCondition::CreatureAttacked { attacker } = &ability.condition {
                 match attacker {
                     AttackSubject::Source {} if !c.has_type(CardKind::Creature) => {
@@ -1510,6 +1545,7 @@ impl Definition {
                     TriggerCondition::StepBegan { .. }
                         | TriggerCondition::SpellCast { .. }
                         | TriggerCondition::CreatureAttacked { .. }
+                        | TriggerCondition::DamageDealt { .. }
                 )
             {
                 return Err("targeted removal requires a supported entry or step trigger".into());
@@ -1519,6 +1555,7 @@ impl Definition {
                 TriggerCondition::StepBegan { .. }
                     | TriggerCondition::SpellCast { .. }
                     | TriggerCondition::CreatureAttacked { .. }
+                    | TriggerCondition::DamageDealt { .. }
             ) && p.instructions.iter().any(|i| {
                 matches!(
                     i,
@@ -1529,7 +1566,7 @@ impl Definition {
                 )
             }) {
                 return Err(
-                    "step/cast/attack triggers require mandatory programs without death-event recipients"
+                    "step/cast/attack/damage triggers require mandatory programs without death-event recipients"
                         .into(),
                 );
             }
@@ -2256,7 +2293,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 24))]
+    #[schemars(range(min = 3, max = 25))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -2264,7 +2301,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3..=24)
+        if !matches!(self.schema_version, 3..=25)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -2272,6 +2309,9 @@ impl Catalog {
         }
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
+            if self.schema_version < 25 && d.capabilities.contains(&Capability::DamageTriggerV1) {
+                return Err("IR v25 is required for ordinary source combat-damage triggers".into());
+            }
             if self.schema_version < 24 && d.capabilities.contains(&Capability::AttackTriggerV1) {
                 return Err("IR v24 is required for ordinary attack triggers".into());
             }
@@ -2696,6 +2736,13 @@ pub fn catalog_schema() -> serde_json::Value {
             "triggered":{"items":{"properties":{"condition":{"not":{"type":"object","required":["creature_attacked"]}}}}}
         }}}}}
     }));
+    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"properties":{"schema_version":{"maximum":24}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "capabilities":{"items":{"not":{"const":Capability::DamageTriggerV1}}},
+            "triggered":{"items":{"properties":{"condition":{"not":{"type":"object","required":["damage_dealt"]}}}}}
+        }}}}}
+    }));
     schema["$defs"]["PreEventPlayerProgram"] = serde_json::json!({"properties":{
         "instructions":{"items":{"properties":{"recipient":{"not":{"const":"event_player"}}}}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerProgram"}}}}
@@ -2977,10 +3024,11 @@ mod tests {
             (22, &[EventPlayerRecipientV1, SourceStatusConditionV1]),
             (23, &[CastTriggerV1]),
             (24, &[AttackTriggerV1]),
+            (25, &[DamageTriggerV1]),
         ];
         // Enumerate the public vocabulary, so a new capability cannot silently
-        // escape this contract. Check real, fully valid definitions rather than
-        // inventing capability-only records that fail independent shape checks.
+        // escape this contract. Check full program-bearing definitions rather
+        // than capability-only records that fail independent shape checks.
         let schema = serde_json::to_value(schemars::schema_for!(Capability)).unwrap();
         let vocabulary: BTreeSet<Capability> =
             serde_json::from_value::<Vec<Capability>>(schema["enum"].clone())
@@ -2994,7 +3042,7 @@ mod tests {
         assert_eq!(covered, vocabulary);
         let root =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/catalogs");
-        let definitions = std::fs::read_dir(&root)
+        let mut definitions = std::fs::read_dir(&root)
             .unwrap()
             .filter_map(|entry| {
                 let path = entry.unwrap().path();
@@ -3012,6 +3060,29 @@ mod tests {
                 catalog.definitions
             })
             .collect::<Vec<_>>();
+        // Synthetic contract-shape witness only. Complete D2c-e source lowering
+        // is checked in compiler/core tests, without fabricated expected IR.
+        let mut damage = definitions
+            .iter()
+            .find(|d| {
+                d.triggered.iter().any(|a| {
+                    matches!(
+                        a.condition,
+                        TriggerCondition::CreatureAttacked {
+                            attacker: AttackSubject::Source {}
+                        }
+                    )
+                })
+            })
+            .unwrap()
+            .clone();
+        damage.triggered[0].condition = TriggerCondition::DamageDealt {
+            source: DamageTriggerSource::Source {},
+            kind: TriggerDamageKind::Combat,
+            recipient: DamageTriggerRecipient::Player,
+        };
+        damage.capabilities = damage.requirements();
+        definitions.push(damage);
         for &(version, caps) in groups {
             for cap in caps {
                 let witnesses = definitions

@@ -56,14 +56,19 @@ fn d2cd_archive_programs_and_explicit_whole_card_negatives() {
         let mut bad = d.clone();
         bad.capabilities.remove(&Capability::AttackTriggerV1);
         assert!(bad.validate().is_err());
-        for version in [23, 24, 25] {
+        for version in [23, 24, 25, 26] {
             let c = Catalog {
                 schema_version: version,
                 rules_edition: RULES_EDITION.into(),
                 rules_sha256: RULES_SHA256.into(),
                 definitions: vec![d.clone()],
             };
-            assert_eq!(c.validate().is_ok(), version == 24, "{} v{version}", d.name);
+            assert_eq!(
+                c.validate().is_ok(),
+                matches!(version, 24 | 25),
+                "{} v{version}",
+                d.name
+            );
         }
     }
     // draw two is already a sequence of singleton draws, not a runtime count2.

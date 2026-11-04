@@ -51,7 +51,7 @@ fn d2cc_archived_whole_programs_min_ir_capability_closure() {
         let mut bad = d.clone();
         bad.capabilities.remove(&Capability::CastTriggerV1);
         assert!(bad.validate().is_err());
-        for version in [22, 23, 24, 25] {
+        for version in [22, 23, 24, 25, 26] {
             let c = Catalog {
                 schema_version: version,
                 rules_edition: RULES_EDITION.into(),
@@ -60,7 +60,7 @@ fn d2cc_archived_whole_programs_min_ir_capability_closure() {
             };
             assert_eq!(
                 c.validate().is_ok(),
-                matches!(version, 23 | 24),
+                matches!(version, 23..=25),
                 "{} v{version}",
                 d.name
             );

@@ -59,6 +59,14 @@ pub struct CastOccurrence {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerEventWitness {
+    /// Immutable damage-time facts, independent of departure-refreshed source
+    /// LKI. None identifies the genuine legacy CombatDamage leaf; Some names
+    /// the original frozen transaction, never the current combat state.
+    DamageDealt {
+        kind: DamageKind,
+        transaction: Option<DamageTransactionId>,
+        damage: Box<ActualDamage>,
+    },
     CreatureAttacked {
         attacker: Box<ObjectBefore>,
         defender_player_id: PlayerId,
@@ -88,6 +96,7 @@ impl TriggerEventWitness {
             }),
             Self::TokenEntered { object } => Some(*object),
             Self::CreatureAttacked { attacker, .. } => Some(attacker.object),
+            Self::DamageDealt { damage, .. } => Some(damage.source.object),
             Self::StepBegan { .. } | Self::SpellCast { .. } => None,
         }
     }
@@ -184,6 +193,73 @@ impl Game {
     ) -> Result<(), String> {
         for occurrence in occurrences {
             let witnesses = match &occurrence.actual {
+                // CR 120.4b/120.8, 510.2, 603.2c/g, 615.6: match actual
+                // positive members against their frozen pre-commit transaction.
+                // Aggregate life results are not damage occurrences. The combat
+                // source/player uniqueness invariant is enforced at preparation,
+                // restore validation and the legacy leaf before any writes.
+                // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+                EventOutcome::DamageCommitted {
+                    transaction,
+                    actual,
+                    ..
+                } => {
+                    let tx = before.damage_transaction()?;
+                    if tx.id != *transaction {
+                        return Err("damage trigger transaction identity invariant".into());
+                    }
+                    let mut ids = BTreeSet::new();
+                    let mut witnesses = vec![];
+                    for d in actual {
+                        let entry = tx
+                            .entries
+                            .get(d.id.0 as usize)
+                            .filter(|e| e.id == d.id)
+                            .ok_or("damage trigger missing actual member")?;
+                        if !ids.insert(d.id)
+                            || d.amount <= Quantity::zero()
+                            || entry.source != d.source
+                            || entry.controller != d.controller
+                            || entry.recipient != d.recipient
+                            || entry.amount != d.amount
+                        {
+                            return Err("damage trigger actual member invariant".into());
+                        }
+                        if tx.kind == DamageKind::Combat
+                            && matches!(d.recipient, DamageRecipient::Player { .. })
+                        {
+                            witnesses.push(TriggerEventWitness::DamageDealt {
+                                kind: tx.kind,
+                                transaction: Some(tx.id),
+                                damage: Box::new(d.clone()),
+                            });
+                        }
+                    }
+                    witnesses
+                }
+                // A genuine legacy CombatDamage leaf has no transaction ID.
+                // Its typed vector supplies source, recipient and amount; freeze
+                // pre-event source facts, never infer from its life-total result.
+                EventOutcome::DamageDealt { damage, .. } => damage
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, d)| matches!(d.recipient, DamageRecipient::Player { .. }))
+                    .map(|(i, d)| {
+                        Ok(TriggerEventWitness::DamageDealt {
+                            kind: DamageKind::Combat,
+                            transaction: None,
+                            damage: Box::new(ActualDamage {
+                                id: DamageId(
+                                    u32::try_from(i).map_err(|_| "damage member identity limit")?,
+                                ),
+                                source: before.object_before(d.source)?,
+                                controller: d.controller,
+                                recipient: d.recipient.clone(),
+                                amount: d.amount.clone(),
+                            }),
+                        })
+                    })
+                    .collect::<Result<Vec<_>, String>>()?,
                 // CR 508.1f-m/508.2a-b/508.3a/508.4, 603.2c/g: only
                 // the completed, validated declaration is an attack event.
                 // Each member shares the real batch occurrence but freezes its
@@ -229,6 +305,7 @@ impl Game {
                         witness,
                         TriggerEventWitness::StepBegan { .. }
                             | TriggerEventWitness::CreatureAttacked { .. }
+                            | TriggerEventWitness::DamageDealt { .. }
                     )
                 {
                     self.collect_trigger_witness(
@@ -296,6 +373,14 @@ impl Game {
                 .enumerate()
             {
                 let matches = match &definition.condition {
+                    TriggerCondition::DamageDealt {
+                        source: DamageTriggerSource::Source {},
+                        kind: TriggerDamageKind::Combat,
+                        recipient: DamageTriggerRecipient::Player,
+                    } => matches!(&witness, TriggerEventWitness::DamageDealt {
+                        kind: DamageKind::Combat, damage, ..
+                    } if damage.source.object == object.id && damage.amount > Quantity::zero()
+                        && matches!(damage.recipient, DamageRecipient::Player { .. })),
                     TriggerCondition::CreatureAttacked {
                         attacker: predicate,
                     } => {
@@ -834,6 +919,44 @@ impl Game {
     ) -> Result<(), String> {
         let condition = &self.definition(source.card)?.triggered[ability as usize].condition;
         let valid = match witness {
+            TriggerEventWitness::DamageDealt {
+                kind,
+                transaction,
+                damage,
+            } => {
+                let fact = &damage.source;
+                self.validate_characteristic_identity(fact.object, &fact.characteristics)?;
+                *kind == DamageKind::Combat
+                    && transaction.is_none_or(|id| id.0 < self.state.next_damage_transaction_id)
+                    && (damage.id.0 as usize) < self.damage_limit()
+                    && damage.amount > Quantity::zero()
+                    && fact.object == source
+                    && fact.zone == Zone::Battlefield
+                    && fact.characteristics.has_type(CardKind::Creature)
+                    && fact.controller == damage.controller
+                    && damage.controller.0 < 4
+                    && controller.0 < 4
+                    && fact.default_controller.0 < 4
+                    && self
+                        .state
+                        .cards
+                        .get(&source.card)
+                        .is_some_and(|c| c.owner == fact.owner)
+                    && matches!(damage.recipient, DamageRecipient::Player { player } if player.0 < 4)
+                    && matches!(
+                        condition,
+                        TriggerCondition::DamageDealt {
+                            source: DamageTriggerSource::Source {},
+                            kind: TriggerDamageKind::Combat,
+                            recipient: DamageTriggerRecipient::Player,
+                        }
+                    )
+                    && death_controller.is_none()
+                // No live source/recipient or current combat requirement. CR
+                // 113.7a/800.4 preserve a surviving controller's invocation.
+                // Accepted-input replay proves actual member/kind/final amount,
+                // including coherent rehashed lies that satisfy these guards.
+            }
             TriggerEventWitness::CreatureAttacked {
                 attacker,
                 defender_player_id,
@@ -905,7 +1028,8 @@ impl Game {
                     && (match condition {
                         TriggerCondition::StepBegan { .. }
                         | TriggerCondition::SpellCast { .. }
-                        | TriggerCondition::CreatureAttacked { .. } => false,
+                        | TriggerCondition::CreatureAttacked { .. }
+                        | TriggerCondition::DamageDealt { .. } => false,
                         TriggerCondition::SelfDies | TriggerCondition::SelfAuraToGraveyard => {
                             witness.dies() && m.previous == source
                         }

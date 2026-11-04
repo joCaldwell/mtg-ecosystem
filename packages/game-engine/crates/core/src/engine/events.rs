@@ -1868,6 +1868,15 @@ impl Game {
     // common pre-state. One typed aggregate owns overlapping recipient writes.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     fn apply_damage(&mut self, damage: &[DamageOccurrence]) -> Result<EventOutcome, String> {
+        // This legacy typed leaf means combat damage. Preserve the same
+        // per-source/player occurrence invariant as transactional combat.
+        if damage.len() > self.damage_limit() {
+            return Err(self.capacity_error(RuleFault::DamageCapacityExceeded {
+                capacity: self.damage_limit(),
+                requested: damage.len(),
+            }));
+        }
+        Self::validate_combat_player_members(damage.iter().map(|d| (d.source, &d.recipient)))?;
         let mut totals: BTreeMap<(u8, u32), Quantity> = BTreeMap::new();
         let mut commander_totals: BTreeMap<(CardId, PlayerId), Quantity> = BTreeMap::new();
         for d in damage {

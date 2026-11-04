@@ -642,6 +642,7 @@ dependencies = [
 name = "mtg-core"
 version = "0.1.0"
 dependencies = [
+ "mtg-compiler",
  "mtg-contracts",
  "rand_chacha",
  "rand_core",

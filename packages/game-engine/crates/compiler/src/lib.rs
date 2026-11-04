@@ -229,6 +229,11 @@ struct SourceComparison {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "trigger", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceTrigger {
+    DealsDamage {
+        what: SourceDamageObject,
+        combat: Option<bool>,
+        to: serde_json::Value,
+    },
     Attacks {
         what: SourceAttacker,
     },
@@ -254,6 +259,14 @@ enum SourceTrigger {
     AnyOf {
         events: Vec<SourceTrigger>,
     },
+}
+// Keep filtered/event-pronoun sources outside this finite mirror. Named
+// source references are archive-bound and canonicalized to "this" by the
+// existing self_reference pass before this mirror is decoded.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "ref", rename_all = "kebab-case", deny_unknown_fields)]
+enum SourceDamageObject {
+    This { noun: String },
 }
 // ObjectFilter semantics: fields/arrays conjunctive, explicit anyOf disjunctive.
 // packages/oracle-parser/src/ast.ts ObjectFilter; CR 205.2b, 601.2i.
@@ -2852,6 +2865,11 @@ fn lower_trigger(
         _ => None,
     };
     let condition=match trigger {
+        SourceTrigger::DealsDamage { what, combat: Some(true), to }
+            if *to == serde_json::json!("any") && matches!(what, SourceDamageObject::This { noun } if noun == "creature") => {
+            TriggerCondition::DamageDealt { source: DamageTriggerSource::Source {},
+                kind: TriggerDamageKind::Combat, recipient: DamageTriggerRecipient::Player }
+        },
         SourceTrigger::Attacks { what } => {
             let attacker = lower_attack_subject(what)?;
             // CR 201.5/508.3a: the event's "it" is the attacker, while the
@@ -3304,10 +3322,9 @@ mod tests {
                 "kind:future-ability",
             ),
             (
-                // Cast/attacks are structured supported families; damage remains
-                // an unknown trigger discriminator for this mirror diagnostic.
-                r#"[{"kind":"triggered","trigger":{"trigger":"deals-damage"},"effects":[]}]"#,
-                "trigger:deals-damage",
+                // Combat damage is supported; this broader player event is not.
+                r#"[{"kind":"triggered","trigger":{"trigger":"player-dealt-damage"},"effects":[]}]"#,
+                "trigger:player-dealt-damage",
             ),
             (
                 r#"[{"kind":"spell","effects":[{"steps":[{"effect":"gain-abilities"}]}]}]"#,
@@ -5134,7 +5151,7 @@ mod tests {
             );
         }
         let mut future = c;
-        future.schema_version = 25;
+        future.schema_version = 26;
         assert!(future.validate().is_err());
     }
     #[test]
@@ -5500,7 +5517,7 @@ mod tests {
             assert!(Catalog::read(&bad).is_err());
         }
         let mut bad = c;
-        bad.schema_version = 25;
+        bad.schema_version = 26;
         assert!(bad.validate().is_err());
     }
 
@@ -5764,7 +5781,7 @@ mod tests {
             }
         }
         let mut bad = catalog.clone();
-        bad.schema_version = 25;
+        bad.schema_version = 26;
         assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
         for change in [
             (|d: &mut Definition| {
@@ -6280,7 +6297,7 @@ mod tests {
         let c = embedded_catalog("base").unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":3", "\"schema_version\":25"),
+            raw.replace("\"schema_version\":3", "\"schema_version\":26"),
             raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
             raw.replace("\"target_slot\":0", "\"target_slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
@@ -6939,7 +6956,7 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":25"),
+            raw.replace("\"schema_version\":4", "\"schema_version\":26"),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",
@@ -7198,3 +7215,6 @@ mod d2cc_tests;
 
 #[cfg(test)]
 mod d2cd_tests;
+
+#[cfg(test)]
+mod d2ce_tests;

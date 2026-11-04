@@ -382,10 +382,28 @@ impl Game {
             },
         )
     }
+    pub(super) fn validate_combat_player_members<'a>(
+        members: impl Iterator<Item = (ObjectId, &'a DamageRecipient)>,
+    ) -> Result<(), String> {
+        let mut pairs = BTreeSet::new();
+        for (source, recipient) in members {
+            if let DamageRecipient::Player { player } = recipient
+                && !pairs.insert((source, *player))
+            {
+                return Err("duplicate combat source/player occurrence".into());
+            }
+        }
+        Ok(())
+    }
     pub(super) fn prepare_combat_damage(
         &mut self,
         damage: Vec<DamageOccurrence>,
     ) -> Result<(), String> {
+        // CR 510.1b-c/510.2/603.2c: one player edge per source incarnation
+        // in this combat damage step. Arbitrary vector splitting must not mint
+        // extra occurrences. First/double strike use separate transactions.
+        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+        Self::validate_combat_player_members(damage.iter().map(|d| (d.source, &d.recipient)))?;
         let entries = damage
             .into_iter()
             .enumerate()
@@ -1781,6 +1799,11 @@ impl Game {
             || tx.id.0 >= self.state.next_damage_transaction_id
         {
             return Err("damage transaction resource/identity invariant".into());
+        }
+        if tx.kind == DamageKind::Combat {
+            Self::validate_combat_player_members(
+                tx.entries.iter().map(|d| (d.source.object, &d.recipient)),
+            )?;
         }
         let mut powers: BTreeMap<ObjectId, Quantity> = BTreeMap::new();
         for (i, d) in tx.entries.iter().enumerate() {
