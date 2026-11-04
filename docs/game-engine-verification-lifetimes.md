@@ -1,0 +1,17 @@
+# Demo ownership and Bundle serialization lifetimes
+
+Source-reviewed production e9c43de53519db2deeb558fb2cfc89c4e868326d is staged at 394301de011432bede865f2631da668811bedb22, combined with IR24 D2c-d. Full acceptance is pending. The diagnostic harness is not integrated.
+
+Completed scenario Game vectors are dropped after their reports and trace evidence own the necessary data. The CLI serializes its immutable Bundle once, drops its typed owner before the unchanged independent verify_bundle call, and reuses the exact canonical string for optional hash-named output. All existing trace/replay/source-negative checks remain required.
+
+The independent production and instrumentation reviews, pinned compilation, one default trace and allocator control, Clippy/formatting, and representative combat4/commander7 family probes are retained in the focused evidence. All 367,650,143 canonical family bytes match without normalization; 7,492,530 allocator-request bytes were released earlier. The single instrumented shared-host pair establishes no material wall-time improvement.
+
+A separate bounded NON-P7 retain/release pair used an existing unchanged 3,090,499,241-byte Bundle20 input with SHA256 2b7ff7cc6f06f213084a62a347d115cbc20bcf7c5ad572cdc9a1460c5d66750c. Complete canonical, saved and cross-mode bytes, hash-derived names, roundtrip and directory/write error witnesses passed. This is structural ownership/serialization evidence; the full combined gate must establish current-build independent semantic verification. The v2 policy retained 22GiB whole-cgroup memory, 24GiB address space, zero swap, 128 tasks and 120s CPU/wall limits with group-safe cancellation. All limits were observed before and after native exec; no resource/deadline events occurred and both groups were empty after cleanup.
+
+Observed direct-native peak RSS was 17,440,858,112 bytes retaining the Bundle and 14,772,011,008 bytes releasing it. These are largest individual-process high-water values, not simultaneous group RSS. Charged cgroup peaks include page cache/kernel. Retain/release wall times were 36.57246s/42.84001s on a shared host; no wall-time speedup, quiet P7 result or concurrency budget is claimed. Earlier release reduced requested-byte overlap and observed peaks in this one component pair.
+
+Preserved failures: an older real P8 input failed current typed decode for missing initial; release mode did not run. The first bounded Bundle20 setup deferred before native exec because a strict /proc regex rejected the limit representation; the vanished native line was not retained, so the exact cause remains qualified. The parent made a separately pinned evidence-only exact-token parser fix, retained raw pre/post-exec limits, and authorized the still-unrun native pair under unchanged caps. No native failure was retried or baseline rewritten.
+
+Read-only focused proof: /home/josh/.local/share/mtg-ecosystem/engine-evidence/demo-lifetime-febe92e-focused-20261104T0122Z (65 files / 1,181,869,016 bytes), manifest 2924b1819042f62f396ba19fad46af114cb8e2b6bdbb976dec261d25362d3b51.
+
+Read-only Bundle20 v2 proof: /home/josh/.local/share/mtg-ecosystem/engine-evidence/demo-lifetime-febe92e-bundle20-v2-20261104 (56 files / 12,362,207,031 bytes), manifest 53059ef9df98e38c4b9cbff7ac989af7b2eb266320a4525ecd70b693e43416fc.
