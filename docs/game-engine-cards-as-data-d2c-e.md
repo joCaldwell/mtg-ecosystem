@@ -1,16 +1,63 @@
-# D2c-e: source-only exact-source combat damage trigger candidate
+# D2c-e: exact-source combat damage trigger candidate
 
-**Source-only, uncompiled, unexecuted and not accepted.** Independent source
-review and all runtime verification belong to parent coordination. This is a
-separate IR25 candidate; it must not be represented as part of the upcoming
-IR24/lifetime acceptance freeze. No compiler coverage gain is claimed.
+**Focused validation passed; final parent source review and combined acceptance
+remain pending.** Validated source freeze `3ecbda316dfca44f973253fbb164652c76ceb14c` / tree `4e13ff9ba13f53758ff715a9a375106b10051332` is an
+older-f8-based candidate without the later e9/lifetime changes. It is not current
+main or combined acceptance. The source-only/unexecuted wording in the historical
+sections below records the initial handoff, before this focused follow-up.
+
+Focused result: exactly **3 compiler + 20 core new tests in both debug and
+release**, plus minimum-capability witnesses (1 each), **17 compiler, 138 core,
+60 adversarial and 1 regular dense capacity regression** in debug. All selected
+executions have zero ignored tests and exact nonzero discovered selectors.
+Normal/test configurations, warnings-denied affected-crate all-targets Clippy and
+fmt passed. Cheap Node preflight passed **27/27**, with the new case and separate
+helper using all seven actual source-lowered definitions; all **27 existing
+catalog positives** remain checked. No full engine/demo/workspace/profile/SDK/
+216-game/explicit-profile-replay/P7 gate or offline rebuild ran.
+
+Fresh compiler coverage is **1,992/32,116 (6.20251588%), +7/-0**, zero legal-invalid,
+with byte-identical final/repeat output. Every actual legal addition is one of
+the seven complete source/runtime witnesses listed below. The complete source,
+all abilities/AST/bindings, IR and raw/source/AST/binding hashes were audited for
+each; all nine original negatives remain Unsupported. All **406 old fixture
+files**, including **79 named references and 173 historical hashes**, are byte-
+identical to accepted `394301d` evidence (seal `d2f62df82ff48ace935f5c2aa66b4c62cb1d430ebbfdb86bfb37f8602c0d37a0`). This is source equality, not a historical workload rerun.
+
+Corrections `7990b51`, `6a4f8e8` and `3ecbda3` repair one private accessor, the stale
+coverage IR label, two unreachable test fixtures and the synthetic Node fixture.
+The original failed typecheck/build, 18/20 core run and 26/27 Node preflight are
+retained, along with setup/audit failures. No runtime algorithm, semantic rejection,
+resource ceiling, budget assertion or expected IR is weakened. The original
+independent source approval does not transfer to these changed bytes.
+The resolving-forgery structural assertion and actual legacy 2,048/2,049 typed
+capacity/atomic case pass; the existing dense typed capacity expectation passes.
+Private direct-event fixtures remain distinct from accepted-input replay proofs.
+
+External read-only evidence after completion:
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/d2ce-focused-269cd818-20261104`. `report.md`, `phase-summary.json`, exact
+`*.selectors.json`, `source-closure-proof.json`, `original-16-dispositions.json`,
+`coverage-delta.json`, native/full source archives and `evidence-seal.json` retain
+complete counts, failures, provenance, binaries and timing/host/lock scope.
+Release CLI SHA256 `9bd91098eddfffd477b455868aa09fdb52ecd483d3ee31708891f16055305afb`,
+37,164,064 bytes; native build ID `4f948f6cff57a714f1dc21469bdbf2d2a39fcd0e1646d92e766b12a6d5ca5f90` binds
+627 native files. Actual pinned compiler build metadata,
+18 binaries and 83 toolchain file identities are retained.
+Recorded measured phases including failures total 1348.894063s wall,
+2047.341962s user, 31.439723s system; separate lock wait
+150.343580s. Maximum single-process RSS 4,026,847,232 bytes is
+not process-group peak. Cargo jobs 2, libtest serial, shared Cargo lock; no
+measured-concurrency or quiet-performance claim. Completion records explicitly
+confirm owned Cargo/native process and lock release and the clean committed tree.
+
+## Historical source-only handoff
 
 Assigned parent: `f8d737c027faee3b7e2b24a7d3485aeb7197f34e`, tree
 `bf4d542e9309056cc573d536234e415aee9d5903`.
 Initial source commit: `d7f4011bfe355855c8f5a49bf0010862e588b445`, tree
 `92bf866635655e76f066b94adca8112971192222`.
 The initial handoff commit changed this report only. The parent follow-up below
-changes two source files and remains uncompiled and unexecuted.
+changed two source files and was uncompiled and unexecuted at that handoff.
 
 ## Scope and decisions
 
