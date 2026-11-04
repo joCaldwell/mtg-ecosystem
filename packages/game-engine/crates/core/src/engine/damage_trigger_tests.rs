@@ -314,7 +314,10 @@ fn d2ce_seven_complete_sources_ir_to_runtime_all_traces() {
                     player: PlayerId(1)
                 }
             );
-            assert_eq!(d.amount, g.power(object(&g, 0)).unwrap());
+            assert_eq!(
+                Some(d.amount.clone()),
+                g.characteristics(object(&g, 0)).unwrap().power
+            );
             recover(&g);
             placed(&mut g);
             recover(&g);

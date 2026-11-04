@@ -186,7 +186,7 @@ pub fn coverage(archive: &Path, out: &Path) -> Result<CoverageSummary, CoverageE
         archive_sha256: hash,
         archive_manifest_sha256: accepted.manifest_sha256.clone(),
         parser_revision: accepted.parser_revision.clone(),
-        ir_version: 24,
+        ir_version: 25,
         total: 0,
         commander_legal: 0,
         lowered_validated: 0,
