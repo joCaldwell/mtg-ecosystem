@@ -399,6 +399,14 @@ impl Game {
         &mut self,
         damage: Vec<DamageOccurrence>,
     ) -> Result<(), String> {
+        // Keep the existing typed capacity fault ahead of semantic validation,
+        // including oversized vectors that also contain duplicate player edges.
+        if damage.len() > self.damage_limit() {
+            return Err(self.capacity_error(RuleFault::DamageCapacityExceeded {
+                capacity: self.damage_limit(),
+                requested: damage.len(),
+            }));
+        }
         // CR 510.1b-c/510.2/603.2c: one player edge per source incarnation
         // in this combat damage step. Arbitrary vector splitting must not mint
         // extra occurrences. First/double strike use separate transactions.

@@ -683,6 +683,9 @@ fn d2ce_pending_placed_resolving_recovery_and_coherent_forgery() {
                         let mut structural = g.fork();
                         structural.state = decoded.state;
                         structural.validate_trigger_state().unwrap();
+                        if let Frame::Resolve { frame } = &structural.state.frame {
+                            structural.validate_resolving(frame).unwrap();
+                        }
                     }
                     assert!(
                         Game::restore(g.prepared.as_ref().clone(), &forged.to_string()).is_err(),
@@ -877,6 +880,75 @@ fn d2ce_legacy_actual_members_any_player_and_combat_duplicate_atomic_rejection()
         // Preparation fails before consuming a transaction ID or clearing choices.
         assert!(g.prepare_combat_damage(vec![a.clone(), a]).is_err());
         assert_eq!(g.state, state);
+    }
+}
+#[test]
+fn d2ce_legacy_damage_capacity_boundary_typed_fault_and_atomic_preservation() {
+    for mode in modes() {
+        let mut g = Game::with_trace(
+            prepared(&[
+                (FOX, 2, 0, Zone::Battlefield),
+                (FOX, 1, 1, Zone::Battlefield),
+            ]),
+            mode,
+        );
+        let capacity = g.damage_limit();
+        let target = object(&g, 1);
+        let mut edge = member(&g, 0, 1, 1);
+        edge.recipient = DamageRecipient::Creature { object: target };
+        // The legacy leaf permits repeated creature edges. These form a valid
+        // at-limit input without violating combat source/player uniqueness.
+        // Direct fixture commits do not run later SBAs or claim input replay.
+        let outcome = g
+            .commit(
+                ProposedEvent::CombatDamage {
+                    damage: vec![edge.clone(); capacity],
+                },
+                BatchCause::Fixture,
+            )
+            .unwrap();
+        assert!(
+            matches!(outcome, EventOutcome::DamageDealt { damage, .. } if damage.len() == capacity)
+        );
+        assert_eq!(
+            g.current(target).unwrap().marked_damage,
+            (capacity as i64).into()
+        );
+        assert!(g.state.pending_triggers.is_empty());
+        assert!(g.typed_fault().is_none());
+        for legacy in [true, false] {
+            let mut overflow = g.fork();
+            let mut before = overflow.state.clone();
+            let trace = overflow.trace.clone();
+            let journal = overflow.replay_journal();
+            let error = if legacy {
+                overflow
+                    .commit(
+                        ProposedEvent::CombatDamage {
+                            damage: vec![edge.clone(); capacity + 1],
+                        },
+                        BatchCause::Fixture,
+                    )
+                    .unwrap_err()
+            } else {
+                // Preserve the existing capacity fault even when an oversized
+                // preparation also contains duplicate player edges.
+                let player_edge = member(&overflow, 0, 1, 1);
+                overflow
+                    .prepare_combat_damage(vec![player_edge; capacity + 1])
+                    .unwrap_err()
+            };
+            assert_eq!(error, "damage capacity exceeded");
+            let expected = RuleFault::DamageCapacityExceeded {
+                capacity,
+                requested: capacity + 1,
+            };
+            assert_eq!(overflow.typed_fault(), Some(&expected));
+            before.typed_fault = Some(expected);
+            assert_eq!(overflow.state, before);
+            assert_eq!(overflow.trace, trace);
+            assert_eq!(overflow.replay_journal(), journal);
+        }
     }
 }
 #[test]
