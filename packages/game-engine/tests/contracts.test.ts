@@ -4,6 +4,8 @@ import { assertAttackTriggerSchema } from "./attack-trigger-contracts.ts";
 import { assertCastTriggerSchema } from "./cast-trigger-contracts.ts";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { captureJsonOutput } from "../../../scripts/capture-json-output.ts";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -1703,13 +1705,25 @@ test("D2c-d per-creature attack predicates require IR24 with strict subjects and
 
 test("IR25 exact-source combat damage dimensions and minimum schema are strict", () => {
   const legacy=loadCatalog("trigger");
-  // Explicit synthetic shape witness. Source-to-IR positives use all seven
-  // exact complete rows in Rust; no compiler output is fabricated on disk.
-  const d=structuredClone(legacy.definitions.find((d:any)=>d.triggered.length===1&&d.triggered[0].condition==="self_enters_battlefield"));
-  assert.ok(d);
-  d.triggered[0].condition={damage_dealt:{source:{subject:"source"},kind:"combat",recipient:"player"}};
-  d.capabilities=d.capabilities.filter((c:string)=>c!=="self_enters_battlefield_v1");
-  d.capabilities.push("damage_trigger_v1");
-  const candidate={...structuredClone(legacy),schema_version:25,definitions:[d]};
-  assertDamageTriggerSchema(run("schema"),candidate,[legacy,loadCatalog("cards-data-d2cd"),loadCatalog("cards-data-d2cc")]);
+  const source=fileURLToPath(new URL("fixtures/cards-data-d2ce/",import.meta.url));
+  const provenance=JSON.parse(fs.readFileSync(path.join(source,"provenance.json"),"utf8"));
+  const positiveLines=new Set([4538,9081,12306,14941,19442,21636,28189]);
+  const records=provenance.records.filter((r:any)=>positiveLines.has(r.archive_line)).map((r:any)=>path.join(source,r.file));
+  assert.equal(records.length,7);
+  const temporary=fs.mkdtempSync(path.join(os.tmpdir(),"mtg-d2ce-schema-"));
+  let passed=false;
+  try {
+    const manifest=path.join(temporary,"catalog.json");
+    fs.writeFileSync(manifest,JSON.stringify({schema_version:25,output_order:"sorted",provenance:path.join(source,"provenance.json"),records,expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
+    // Only the current compiler writes IR. Every definition lowers a complete
+    // pinned source row through the ordinary origin/provenance validation.
+    const report=run("catalog","build",manifest,"--write");
+    assert.equal(report.definitions,7);
+    const candidate=JSON.parse(fs.readFileSync(report.expected_ir,"utf8"));
+    assertDamageTriggerSchema(run("schema"),candidate,[legacy,loadCatalog("cards-data-d2cd"),loadCatalog("cards-data-d2cc")]);
+    passed=true;
+  } finally {
+    // Preserve generated inputs/outputs when an assertion fails.
+    if(passed) fs.rmSync(temporary,{recursive:true,force:true});
+  }
 });
