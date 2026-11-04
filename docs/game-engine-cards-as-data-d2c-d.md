@@ -16,10 +16,10 @@ record hashes, 79 prior references, 604 inventoried native source inputs and 69
 evidence artifacts. Parent source integration `1668215` matches all 46 reviewed
 paths and preserves receipt code; the shared Node contract conflict resolved to
 the exact reviewed D2c-d blob, including the corrected `trigger` selector.
-The active `a7f5571` acceptance worktree remains unchanged and excludes D2c-d.
-Pinned Rust 1.99.0 focused checks, fresh executable/source closure, repeated
-coverage and eventual full acceptance remain pending. The earlier 1.99.1 results
-and source-only identity reconstruction retain their qualifications below.
+The accepted `a7f5571` freeze excludes D2c-d. Pinned Rust 1.99.0 focused checks,
+fresh executable/source closure and repeated coverage subsequently passed as
+recorded below. Full acceptance remains pending. Earlier 1.99.1 results and
+source-only reconstruction retain their original qualifications.
 
 ## Semantics and finite scope
 
@@ -124,9 +124,50 @@ to the base, including the D2c-c catalog. No old golden is regenerated. Final
 runtime equality with the 173 historical references remains a parent acceptance
 check, not a source-only or focused-check claim.
 
-## Verification and retained attempts
+## Pinned focused completion
 
-There are passing results for **102 distinct focused Rust test cases**:
+The unchanged reviewed `39e010d` source passed all **102 distinct focused Rust
+cases under Rust/Cargo 1.99.0**, including all **18 attack cases in one green
+run**, Clippy 0.1.99 with warnings denied across all targets of the four affected
+crates, and formatting. Actual cheap Node entry checks passed **26/26**, with
+27 catalog positives and strict shape/minimum/future-version negatives. Normal
+runtime Node/demo and full acceptance were not run in this focused task.
+
+Fresh native introspection matches **604 source inputs**, including **173 engine
+build inputs**, their committed Git blobs and retained archive members. Effective
+debug/test and release build metadata records Rust 1.99.0; test optimization 2,
+debug assertions and overflow checks remain enabled. New executable pins are
+separate from the preserved earlier 1.99.1 binaries. The fresh release simulator
+build identity is `032cbba4a087ebe5622fe29a543916755132d9ec145131caaf6b14c95571e844`;
+executable SHA256 is `19aa47dae97a7166789e73f28581c04a2b35bc2a92cb72251b69af57619045b5`.
+
+Fresh final/repeat/preflight coverage JSON and TSV compare byte-for-byte: exactly
+**1,985/32,116, 17 additions and zero losses**. All 79 prior references remain
+unchanged. The parent independently audited all 549 retained artifacts
+(2,700,381,346 bytes), reconstructed build identities, checked native archive and
+binary pins, verified all 23 source records against the complete hashed archive,
+matched all 17 definition provenance bindings and recomputed the exact legal-ID
+delta. Its initial audit log parser assumed TAP; the corrected read-only parser
+handles Node's actual reporter. No engine tests were repeated for that parser fix.
+
+Read-only focused proof:
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/d2cd-focused-rust1990-39e010d-20261104T010100Z/`
+
+SHA256 inventory: `666bd612c40fb8b5ee723d5df80fb1e86773a90404a214352ee654887664033a`.
+Seal SHA256: `2ab158425b5581d24e38498b802d99f4740b68fc6a46d91c673af79748723f49`.
+Current native archive SHA256: `192b0deb03f3b7bab3ec990bb8e12473d8df264374ab2dda4dbc63b7c1d6020f`.
+Parent audit is retained at
+`generated/final-engine-verification/resumed-20261103/d2c-d-pinned-parent-audit.json`.
+Harness-only failures and the version-only probe preceding lock acquisition are
+preserved; all builds, tests and heavy commands were serialized. This is focused
+validation and a permission/SHA256 seal, not full acceptance, an immutable-bit
+seal, an offline rebuild or a P7 result.
+
+## Earlier development verification and retained attempts
+
+The earlier Rust 1.99.1 development records contain **102 distinct passing cases**
+with the qualifications below; the pinned completion above establishes the new
+current-source focused pass:
 
 | Command (all Cargo execution under the shared `cargo.lock`) | Passing cases |
 | --- | ---: |
@@ -160,8 +201,8 @@ tracked package and lockfiles are unchanged.
 
 Warnings-denied all-target Clippy stopped on `manual_range_patterns` in the
 D2c-b minimum-version test's `22 | 23 | 24`. The equivalent `22..=24` is committed.
-**Clippy rerun, fresh native CLI build/introspection and final repeated coverage
-remain deferred** at the parent's explicit a7 gate priority request. The queued
+At that original handoff, Clippy rerun, fresh native CLI build/introspection and
+final repeated coverage were deferred at the parent's a7 gate priority request. The queued
 native build never started. PID 276400 had exited at this failure by the time the
 priority message was processed; Cargo ownership was released, with no child
 killed or orphaned. No later Cargo/runtime/heavy command was started.
@@ -181,8 +222,8 @@ not represented as a current-source native build.
 The compiler-only preflight coverage and complete admission/byte audits passed.
 The coverage classifications were made by the prebuilt development CLI; the
 compiler production change from that build is formatting only. A repeat from a
-fresh current-source CLI is deferred, so no final/repeated coverage equality
-claim is made. Every positive and negative fixture separately passed the focused
+fresh current-source CLI was deferred then; that earlier result alone made no
+final/repeated equality claim. Every positive and negative fixture passed the focused
 compiler tests, and all committed catalogs passed exact freshness checks.
 
 Retained failures also include the initial extraction metadata's newline hash
