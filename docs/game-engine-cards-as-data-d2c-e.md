@@ -7,10 +7,10 @@ IR24/lifetime acceptance freeze. No compiler coverage gain is claimed.
 
 Assigned parent: `f8d737c027faee3b7e2b24a7d3485aeb7197f34e`, tree
 `bf4d542e9309056cc573d536234e415aee9d5903`.
-Source commit: `d7f4011bfe355855c8f5a49bf0010862e588b445`, tree
+Initial source commit: `d7f4011bfe355855c8f5a49bf0010862e588b445`, tree
 `92bf866635655e76f066b94adca8112971192222`.
-The subsequent handoff commit changes this report only; its exact head/tree are
-reported separately in the implementation handoff.
+The initial handoff commit changed this report only. The parent follow-up below
+changes two source files and remains uncompiled and unexecuted.
 
 ## Scope and decisions
 
@@ -284,3 +284,36 @@ packages/game-engine/tests/fixtures/cards-data-d2ce/provenance.json
 ```
 
 The subsequent documentation-only commit adds `docs/game-engine-cards-as-data-d2c-e.md`.
+
+
+## Parent source-review follow-up
+
+Independent source-only review approved initial handoff `1699eb4b` / tree
+`9a04fa3fc5a42a518f43d3db8357c9fbdce3e572`, with two P3 test-strength gaps and
+no blocking source or dependency-cycle findings. It independently verified all
+sixteen complete source rows and archive/rules pins. This approval applies to
+that exact initial freeze and establishes no compile, runtime or coverage pass.
+
+Parent follow-up source commit `841227a8b4d7a59ecf50f347251486812764a055`, tree
+`4bbc0c0aa0fd31ba688a0971590ad4019facfa59`, adds explicit resolving-frame
+validation to the coherently forged snapshots before accepted-input restore must
+reject them. A new twentieth core case exercises a valid legacy vector at the
+shared damage limit, the over-limit typed `DamageCapacityExceeded` fault, and
+complete state/trace/journal preservation except the expected typed fault.
+
+Parent source inspection also found that the new duplicate-player guard in
+`prepare_combat_damage` preceded the existing capacity guard in `begin_damage`.
+An existing dense witness supplies an oversized duplicate player vector and
+expects the typed damage-capacity fault. The follow-up restores capacity-fault
+priority with an early count check before duplicate validation and adds that
+oversized/duplicate preparation to the new atomic boundary case. This is a static
+regression finding and source correction, not an observed test failure or pass.
+Production legacy damage behavior and all resource ceilings remain unchanged.
+
+Only the two affected Rust files changed in that follow-up. Direct pinned
+rustfmt and diff checks passed; no Cargo, compile, lints or runtime checks ran.
+The new assertions, including the original three compiler and now twenty core
+cases, still need parent-coordinated focused validation after the active
+`394301d` verifier releases exclusive execution. No IR25 code is integrated into
+that freeze. The independent initial review is retained by the parent; its
+approval is not silently transferred to these subsequent bytes.
