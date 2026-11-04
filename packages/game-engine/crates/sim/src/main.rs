@@ -1368,7 +1368,9 @@ fn verify_bundle(json: &str) -> Result<String, String> {
         "verifying {} retained trace-mode executions",
         b.trace_runs.len()
     );
-    let mut reference_cache: Option<Game> = None;
+    // Bind the digest to its exact group reference and initialize it only after
+    // the mode checks and expected digest succeed below.
+    let mut reference_cache: Option<(Game, Option<String>)> = None;
     for (index, run) in b.trace_runs.iter().enumerate() {
         let required_mode = [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed][index % 3];
         let (required_config, required_journal, reference_snapshot) = match index / 3 {
@@ -1491,16 +1493,23 @@ fn verify_bundle(json: &str) -> Result<String, String> {
         let p = Prepared::admit(catalog.clone(), run.config.clone())?;
         let expected = Game::restore(p.clone(), &run.final_snapshot)?;
         if index % 3 == 0 {
-            reference_cache = Some(Game::restore(p.clone(), reference_snapshot)?);
+            reference_cache = Some((Game::restore(p.clone(), reference_snapshot)?, None));
         }
-        let reference = reference_cache
-            .as_ref()
+        let (reference, reference_digest) = reference_cache
+            .as_mut()
             .ok_or("missing verified trace reference")?;
+        let reference = &*reference;
         let replay = Game::replay_with_trace(p, &run.journal, run.mode)?;
         if reference.trace().mode != TraceMode::Detailed
             || expected.trace().mode != run.mode
-            || expected.state_digest()? != reference.state_digest()?
-            || expected.state_digest()? != replay.state_digest()?
+            || {
+                let expected_digest = expected.state_digest()?;
+                let reference_digest = match reference_digest {
+                    Some(digest) => digest,
+                    slot @ None => slot.insert(reference.state_digest()?),
+                };
+                expected_digest != *reference_digest || expected_digest != replay.state_digest()?
+            }
             || expected.trace() != replay.trace()
             || (run.mode != TraceMode::Off
                 && expected.trace().verification != reference.trace().verification)
