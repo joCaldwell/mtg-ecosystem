@@ -338,10 +338,10 @@ Top fifteen remaining first reasons (not independent admission predictions):
 | `effect:tap` | 317 |
 
 
-## D2c-c candidate: ordinary cast triggers
+## D2c-c: verified ordinary cast triggers
 
-**Source review and final combined acceptance are pending.** The focused
-compiler/source audit measures **1,968/32,116 (6.12779%)**, **39 additions and zero
+**Source review, combined acceptance at `a7f5571` and parent evidence audit passed.**
+Fresh pinned compiler coverage measures **1,968/32,116 (6.12779%)**, **39 additions and zero
 losses** from the exact D2c-b legal lowered-ID set. Increase: **0.12143 percentage
 points**. All 38,721 archive rows are classified; legal statuses are 1,968
 lowered/validated, 27,666 unsupported, 2,482 unparsed and zero invalid.

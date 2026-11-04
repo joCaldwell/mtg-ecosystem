@@ -3,7 +3,10 @@
 Production commit `797224584ba7da7ce7bf035cb3414c26f0fb32b6` and test-only probe
 commit `0cd1f91cbfb994ca1221d0ba9a046857f41c276c` passed independent source review,
 focused checks and parent artifact/output audit. They are source-integrated with
-D2c-c; final combined acceptance is pending.
+D2c-c; combined acceptance passed at frozen `a7f5571`, followed by independent
+parent artifact/output audit. See [the accepted D2c-c report](game-engine-cards-as-data-d2c-c.md)
+for complete counts and immutable build/evidence identities. D2c-d and lifetime
+changes are not included in that pass.
 
 The batch issues private receipts only after complete independent replay,
 successful interaction scanning and report persistence. Each receipt binds the
@@ -43,7 +46,7 @@ corrected driver required completed focused phases and exact source identity.
 No Rust source/workload or expected result changed for that correction.
 
 Parent source integration `f5a234e` matches both reviewed receipt files and the
-separate D2c-c/optimizer sources at every affected path. The combined acceptance
-owner must collect fresh compiled identities, execute required checks and compare
-all old profile/history evidence. Earlier focused or optimization-only passes
-are not passes for that new combined executable.
+separate D2c-c/optimizer sources at every affected path. The combined `a7f5571`
+owner collected fresh compiled identities and passed all required checks and old
+profile/history comparisons. Earlier focused and optimization-only records keep
+their own scope; the new pass is established by its independently audited proof.

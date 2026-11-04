@@ -2,16 +2,17 @@
 
 Implementation starts at `9d279986c7fcc10f6d179a165968e71f751ba95f`.
 Source freeze: `795dd722075b3edebb1d4d1bb87e1778e1274777`. The subsequent report commit changes Markdown only.
-**Independent source review passed; final combined acceptance is pending.**
-Only focused implementation checks and whole-corpus compiler/source audits are
-claimed here. The parent owns integration and final acceptance after review.
+**Independent source review and combined acceptance passed at `a7f5571`.**
+That frozen IR23 build includes the reviewed suite receipts. Later D2c-d and
+lifetime candidates remain outside this result. Earlier focused records below
+retain their original source and tool qualifications.
 
 Independent review approved exact head `b13414e288c8a7bf45719a8cd56c639cb0ad75d8`
 and tree `127a6187e934308526fcb428530ac86ccbf7ff67`, with no blocking semantic
 findings. It independently checked all 39 source records/provenance, 571 native
 manifest inputs, 118 evidence artifacts and 76 unchanged baseline files.
 Source integration at `aeb5447` preserves the separately reviewed verification
-optimizations; the active optimization-only acceptance freeze remains separate.
+optimizations; the earlier optimization-only acceptance remains separately scoped.
 
 The reviewer identified a nonblocking test gap: the stack-capacity fault case
 named tax preservation but used a hand-cast noncommander. Parent test-only commit
@@ -22,12 +23,66 @@ contracts, compiler and Cargo inputs byte-identical to the integrated branch.
 This repeats an existing test and does not increase the reported test inventory.
 Parent evidence is retained under
 `generated/final-engine-verification/resumed-20261103/tax-fault-focused/` in the
-primary worktree. No new full acceptance result is claimed for D2c-c.
+primary worktree. This focused proof preceded the final combined acceptance below.
 
 Reviewed byte-bound suite receipts are source-integrated at `f5a234e`; see
 `game-engine-verification-suite-receipts.md`. Parent combined source closure
 checks matched 43 affected paths to the reviewed commits and the focused-tested
-tax fixture. The next single designated gate covers this combined candidate.
+tax fixture. One designated gate covered the corrected combined `a7f5571` freeze.
+
+## Accepted combined verification
+
+Commit `a7f557146923c9c46f49caae31257999fd730e6a`, tree
+`3622eebdf2995cf4e104546c68d8e607f6bcba3d`, passed **1,019 Rust tests / 21 ignored,
+66 normal Node checks plus 25 repeated cheap cases, 174 focused release checks,
+47 SDK tests with strict TypeScript and 33 response variants**. Production
+simulator/server builds passed. All twelve unchanged profiles produced **216
+winners and 216 explicit retained-CLI replays**, zero faults or truncations.
+
+Complete reports/interactions/sites and every game object equal authenticated
+`8eb303f8` evidence after only 456 named timing/build fields and 48 exact leading
+checkpoint build IDs are excepted. Every remaining checkpoint byte is equal.
+All 76 prior reference files and 173 historical state hashes remain unchanged.
+Fresh coverage is exactly **1,968/32,116, 39 additions and zero losses**; JSON/TSV
+matches the reviewed final classification. All 39 whole records and IR provenance
+were independently matched to the pinned archive.
+
+The parent independently hashed all **1,458 sealed artifacts / 3,925,951,038
+bytes**, checked **1,359 Git archive files and 575 compiled native inputs**,
+reconstructed both build identities, compared all 216 complete reports/games and
+replay outputs, and checked source, baseline and legal-ID bindings. The 29
+discovery/runtime test executables were also independently hashed against their
+pinned bytes. No acceptance phase was repeated for this read-only audit.
+
+Immutable evidence:
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/d2c-c-receipts-a7f5571-20261104T002913Z/`
+
+| Artifact | SHA256 / identity |
+| --- | --- |
+| Evidence seal | `b672c71f2d8f4a777517614299186907ae810062deda4d316bd174a421b3e8c7` |
+| Engine build | `2e93b5f79fea078b3655c5578840900728e6a3475f8db7a6ff3d5907bde95539` |
+| Server build | `13fa40c2a8de702db2163f1176537ed388887f68b6cb9a523f667574b76e9238` |
+| Simulator executable | `b42f4546bb7d028cce5a92e05482a791eb06e8727441d74a91615227eb869d61` |
+| Server executable | `65d3d052bb8f408662f88e65ff4cdc68367adbe69bc8092bec5029ccdfca2295` |
+| Native archive | `60c011946f1fea14722caacecbe29c390703fdc0bcc38e030fdb748a16e12d26` |
+| Full Git archive | `b0a13dc9d93044be2cc94c72db10b736e1de48437b8f1d325c8835e7494215e3` |
+
+Parent proof/script are retained under
+`generated/final-engine-verification/resumed-20261103/a7-combined-parent-audit.json`
+and `audit-a7-combined.py` in the primary worktree. The earlier `f8de64b` run
+failed cheap preflight (24/25) on a missing `triggers` catalog selector, before
+Rust runtime/demo. One literal correction selected the existing `trigger`
+catalog; its actual selected test and all 25 cheap checks passed before the new
+gate. Failed proof remains immutable under seal
+`4bccd6105f694858b435b0bbdc5bfbc9a8bb580f7baf21c4aebcdd1948df0d1f`.
+A setup-only driver path error and a read-only receipt-seal shape correction are
+also preserved; neither reran runtime acceptance. No failed phase became a pass.
+
+The successful run took 4,301.294 seconds, including 97.237 seconds of separately
+recorded Cargo waiting; its two-worker matrix took 2,018.535 seconds. These are
+shared-host observations, not controlled gains or a quiet P7 claim. Recorded RSS
+is a largest-single-process high-water, not a process-group peak. No fresh
+offline rebuild is claimed.
 
 ## Supported semantics
 
@@ -179,7 +234,8 @@ hash or semantic assertion was weakened to obtain a pass.
 
 No `npm run check:engine`, full workspace suite, full demonstration, all-profile
 batches/replays, SDK acceptance or end-to-end acceptance was run here. Independent
-final source review passed; the parent-owned combined gate remains pending.
+final source review and the separately owned combined gate passed as recorded
+above; this implementation worktree did not run duplicate acceptance.
 
 Ignored evidence roots in this assigned worktree:
 

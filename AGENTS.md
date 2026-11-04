@@ -162,8 +162,9 @@ Project-wide docs in [docs/](docs/), relevant regardless of package:
     are all ignored.
 
 
-D2c-c ordinary cast triggers are a **source-reviewed implementation candidate;
-final combined acceptance remains pending**. IR23 separates caster
+D2c-c ordinary cast triggers passed **combined acceptance at frozen `a7f5571`**
+and independent parent evidence audit. Later D2c-d/lifetime changes are excluded.
+IR23 separates caster
 relations from compositional spell-type predicates, collects only after successful
 complete casting/payment, and retains frozen typed cast witnesses. Snapshot/bundle
 stay 19/20; old catalog/history references are unchanged. Hosting/search exclude
