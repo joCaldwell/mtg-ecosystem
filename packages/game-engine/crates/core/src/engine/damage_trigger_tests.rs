@@ -1028,17 +1028,20 @@ fn d2ce_departure_before_commit_does_not_observe_absent_source() {
 }
 #[test]
 fn d2ce_commit_faults_roll_back_life_commander_ids_pending_trace_journal_and_charges() {
+    let commander = named("Isamaru, Hound of Konda");
     for mode in modes() {
         for fault in ["trigger_id", "history", "stack", "batch_id"] {
             let mut p = prepared(&[
                 (FOX, 0, 0, Zone::Battlefield),
                 (FOX, 0, 0, Zone::Battlefield),
+                (&commander, 0, 0, Zone::Battlefield),
             ]);
-            // Physical designation is an explicitly synthetic private ledger witness.
-            p.config.commanders.push(CardId(0));
+            // Private scenario witness: designate an actually eligible source,
+            // so this transaction includes real physical Commander damage.
+            p.config.commanders.push(CardId(2));
             p.profile_digest = digest(&p.config).unwrap();
             let mut g = Game::with_trace(p, mode);
-            declare(&mut g, &[(0, 1), (1, 1)]);
+            declare(&mut g, &[(0, 1), (1, 1), (2, 1)]);
             damage_boundary(&mut g);
             if fault == "trigger_id" {
                 g.state.next_trigger_id = u64::MAX;
@@ -1100,24 +1103,18 @@ fn d2ce_hosting_search_remain_excluded_and_reporting_key_stable() {
 }
 #[test]
 fn d2ce_multi_source_finite_shield_allocation_restore_and_no_recollection() {
-    let healer = named("Samite Healer");
+    let salve = named("Healing Salve");
     for mode in modes() {
         let mut g = Game::with_trace(
             prepared(&[
                 (FOX, 0, 0, Zone::Battlefield),
-                (THIEF, 0, 0, Zone::Battlefield),
-                (&healer, 0, 0, Zone::Battlefield),
+                (FOX, 0, 0, Zone::Battlefield),
+                (&salve, 0, 0, Zone::Hand { owner: PlayerId(0) }),
             ]),
             mode,
         );
-        let source = object(&g, 2);
-        answer(
-            &mut g,
-            Response::ActivateAbility {
-                object: source,
-                ability: 0,
-            },
-        );
+        answer(&mut g, Response::Cast { card: CardId(2) });
+        answer(&mut g, Response::Modes { mode: 1 });
         answer(
             &mut g,
             Response::EntityTargets {
@@ -1126,6 +1123,7 @@ fn d2ce_multi_source_finite_shield_allocation_restore_and_no_recollection() {
                 }],
             },
         );
+        fund(&mut g);
         placed(&mut g);
         resolve(&mut g);
         declare(&mut g, &[(0, 1), (1, 1)]);
@@ -1147,12 +1145,21 @@ fn d2ce_multi_source_finite_shield_allocation_restore_and_no_recollection() {
                         },
                     );
                 }
-                Advance::AwaitingDecision(Request::DamageAllocation { candidates, .. }) => {
+                Advance::AwaitingDecision(Request::DamageAllocation {
+                    candidates,
+                    remaining,
+                    required,
+                    ..
+                }) => {
+                    assert_eq!(remaining, 3.into());
+                    assert_eq!(required, 3.into());
+                    assert_eq!(candidates.len(), 2);
                     allocation_seen = true;
                     recover(&g);
-                    // Fully prevent the Thief's one damage, preserving the
-                    // distinct Fox's two damage and exactly one invocation.
-                    let thief = g
+                    // The real Salve has three points: prevent the second Fox's
+                    // two damage and one from the first, leaving one actual
+                    // damage member and exactly one invocation.
+                    let prevented_source = g
                         .damage_transaction()
                         .unwrap()
                         .entries
@@ -1165,10 +1172,10 @@ fn d2ce_multi_source_finite_shield_allocation_restore_and_no_recollection() {
                         .map(|c| {
                             (
                                 c.damage,
-                                if c.damage == thief {
-                                    1.into()
+                                if c.damage == prevented_source {
+                                    2.into()
                                 } else {
-                                    0.into()
+                                    1.into()
                                 },
                             )
                         })
@@ -1182,6 +1189,8 @@ fn d2ce_multi_source_finite_shield_allocation_restore_and_no_recollection() {
         assert!(allocation_seen);
         assert_eq!(g.state.pending_triggers.len(), 1);
         assert_eq!(actual(&g).source.object.card, CardId(0));
+        assert_eq!(actual(&g).amount, 1.into());
+        assert_eq!(g.state.players[1].life, 39.into());
         recover(&g);
         placed(&mut g);
         recover(&g);
