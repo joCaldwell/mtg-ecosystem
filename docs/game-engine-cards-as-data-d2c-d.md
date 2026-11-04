@@ -1,25 +1,55 @@
 # D2c-d: ordinary per-creature declared-attack triggers
 
-Implementation starts at `b3c7449`. Independent **source review passed** for this
-separate future implementation candidate. D2c-c and the receipt optimization
-remain outside this worktree's verification ownership; no combined acceptance
-result is claimed here. No parser, other-checkout or optimizer-owned production
-file is changed.
+**Combined acceptance and independent parent audit passed at `394301d`.**
+IR24 attack triggers and the source-reviewed demo/Bundle lifetime optimization
+share one designated full gate. IR25 damage triggers and the subsequent digest
+reuse candidate are excluded. Snapshot/bundle remain 19/20; public versions remain
+16/16/15; hosting/search review sets remain unchanged.
 
-Source freeze: `c6893aaf6e67d5a52b99154705c385222edb19e3`; tree
-`a535e97c56e5319570fd393417bcaea59cc1644c`. The subsequent report commit changes Markdown only.
-The parent owns source review and the eventual combined full gate.
+Original mechanics source `c6893aaf6e67d5a52b99154705c385222edb19e3` and handoff
+`39e010da1792b182552f2525443759faaf6c5f73` passed independent source review.
+Parent integration preserves all reviewed code/fixture bytes; the combined
+freeze is `394301de011432bede865f2631da668811bedb22`, tree
+`89d819f925153a075fdde7aa868454dce9532aa3`.
 
-Independent read-only review approved handoff `39e010d` and source `c6893aa`
-with no blocking findings. It matched all 17 complete admissions, all 23 fixture
-record hashes, 79 prior references, 604 inventoried native source inputs and 69
-evidence artifacts. Parent source integration `1668215` matches all 46 reviewed
-paths and preserves receipt code; the shared Node contract conflict resolved to
-the exact reviewed D2c-d blob, including the corrected `trigger` selector.
-The accepted `a7f5571` freeze excludes D2c-d. Pinned Rust 1.99.0 focused checks,
-fresh executable/source closure and repeated coverage subsequently passed as
-recorded below. Full acceptance remains pending. Earlier 1.99.1 results and
-source-only reconstruction retain their original qualifications.
+The current pinned gate passed **1,040 Rust / 21 ignored, 67 normal Node plus
+26 mandatory cheap checks, 195 release checks / 2 ignored, 47 SDK tests, strict
+TypeScript and 33 response variants**. The complete demo retained all **540 trace
+executions** and independent bundle/recovery/source-negative checks. All twelve
+unchanged profiles produced **216 winners and 216 explicit replays**, zero
+faults/truncations. Complete objects, reports, interactions and sites equal
+accepted a7 after exactly 456 named timing/build fields and 48 exact leading
+checkpoint build IDs. All **79 reference files and 173 historical hashes** are
+unchanged. Coverage is **1,985/32,116 (6.18072%), +17/-0**, with all 23 complete
+source fixtures and 17 source/AST/binding/IR admissions independently checked.
+
+Parent audited all **2,045 retained files / 10,915,505,624 bytes**, 1,392 Git
+archive members, **606 native / 175 engine inputs**, reconstructed engine/server
+identities, and all 29 debug discovery/runtime executable pins. The input-count
+difference from focused604/173 is the two unchanged a7 receipt modules.
+
+Read-only combined proof:
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/d2cd-lifetime-394301d-20261104T030216Z/`
+
+Seal SHA256 `d2f62df82ff48ace935f5c2aa66b4c62cb1d430ebbfdb86bfb37f8602c0d37a0`.
+Engine `e4be16dfa3116de9c19cdec23c6e7a0ccde66088e39bc3962e9466650388d8d0`;
+server `831a5cbdf38c9968a1476740f5bef6160fc1b61871a19afd525693b4758d490f`.
+Simulator SHA256 `ad0cafef450091a327bd19a8966c01f611f2a25a2cce343b7761177a23ce2e75`;
+server SHA256 `e795a6497313cf652c1136bfcb5d3550ce3531153a555268fd2fb0adf561d2fe`.
+Native archive `47f85bdc06d587af27e45e27f5b2e8336d70ccb074d0f91673c64e15cd481508`;
+Git archive `823d4146e8e49a2d25c81981c5be67c8cdcc480c7f7948f86575cf5eb52aed17`.
+
+Four evidence-only setup/reader failures remain preserved. The original driver
+stopped at its read-only comparison audit; corrected final audit and retention
+steps exited0 on unchanged source and passed runtime artifacts. No engine
+runtime, game, replay or successful full gate was rerun. Parent reader attempts
+also remain: a reference-pin key assumption and an assertion expecting the
+original failed wrapper status to be overwritten. The resumed independent audit
+preserves that status and authenticates its completed prefix. Parent result:
+`generated/final-engine-verification/resumed-20261103/394-combined-parent-audit.json`.
+These are shared-host functional checks, not a new quiet P7 result, phase-overlap
+budget, group-memory peak or fresh offline rebuild. Earlier1.99.1 development
+and source-only evidence below retain their original qualifications.
 
 ## Semantics and finite scope
 

@@ -172,8 +172,11 @@ the new capability. Implementer checks are focused only; the parent owns final
 acceptance. See `docs/game-engine-cards-as-data-d2c-c.md` for exact scope, source
 witnesses, coverage and retained development evidence.
 
-D2c-d ordinary **per-creature declared-attack** triggers are a separate
-source-reviewed candidate with pinned focused checks passed; full acceptance is pending.
+D2c-d ordinary **per-creature declared-attack** triggers passed combined
+acceptance and independent parent audit at `394301d`, together with the reviewed
+demo/Bundle lifetime optimization. Coverage is **1,985/32,116, +17/-0**.
+The gate passed 1,040 Rust/21 ignored,67 normal Node+26 cheap,195 release and47 SDK;
+all216 games/216 explicit replays passed. Later IR25/digest reuse is excluded.
 IR24 adds exact-source/compositional attacker predicates and frozen typed
 attacker/defender witnesses using the real declaration batch occurrence. Existing
 snapshot/bundle/public versions and old catalog/history references are unchanged;

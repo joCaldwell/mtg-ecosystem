@@ -4329,3 +4329,21 @@ introspection. Engine `ff48d2ce466d315950a998c350a485be8507b58a04c9035de1d51928e
 server `3d5e28e17321cd32574026d550772962ac0d8680a174546c16710d5bd1dcf2da`. Evidence:
 `/home/josh/.local/share/mtg-ecosystem/engine-evidence/d2c-b-02f0d4df9234-20261103/`.
 No new quiet P7/search performance claim is made.
+
+
+## D2c-d and demo ownership lifetimes — accepted frozen394301d
+
+One designated full gate and independent parent audit passed for IR24 declared
+attack triggers plus reviewed e9 temporary-owner/Bundle serialization reuse.
+**1,040 Rust/21 ignored,67 normal Node+26 mandatory cheap,195 release/2 ignored,47 SDK,
+strictTS/33variants**, all540 trace executions and216 winners/216 explicit replays
+passed. Complete deterministic objects/reports match accepted a7 with only exact
+named timing/build exceptions. All 79references/173 history hashes are unchanged.
+Coverage is **1,985/32,116,+17/-0**. The parent independently hashed 2,045 sealed
+files (10,915,505,624 bytes), checked1,392 Git/606 native inputs, reconstructed both
+native build IDs and verified 29 debug executable pins. Four verifier evidence-only
+failures and two parent reader assumptions remain preserved; no runtime was
+repeated. See [D2c-d](game-engine-cards-as-data-d2c-d.md) and
+[lifetimes](game-engine-verification-lifetimes.md) for scope, proof and identities.
+IR25 damage triggers and f9 digest reuse remain separate focused-work candidates;
+no P7, overlap-budget or offline-rebuild result is implied.

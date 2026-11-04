@@ -1,6 +1,6 @@
 # Demo ownership and Bundle serialization lifetimes
 
-Source-reviewed production e9c43de53519db2deeb558fb2cfc89c4e868326d is staged at 394301de011432bede865f2631da668811bedb22, combined with IR24 D2c-d. Full acceptance is pending. The diagnostic harness is not integrated.
+Source-reviewed production e9c43de53519db2deeb558fb2cfc89c4e868326d passed combined acceptance and independent parent audit at 394301de011432bede865f2631da668811bedb22 with IR24 D2c-d. The diagnostic harness is not integrated.
 
 Completed scenario Game vectors are dropped after their reports and trace evidence own the necessary data. The CLI serializes its immutable Bundle once, drops its typed owner before the unchanged independent verify_bundle call, and reuses the exact canonical string for optional hash-named output. All existing trace/replay/source-negative checks remain required.
 
@@ -15,3 +15,5 @@ Preserved failures: an older real P8 input failed current typed decode for missi
 Read-only focused proof: /home/josh/.local/share/mtg-ecosystem/engine-evidence/demo-lifetime-febe92e-focused-20261104T0122Z (65 files / 1,181,869,016 bytes), manifest 2924b1819042f62f396ba19fad46af114cb8e2b6bdbb976dec261d25362d3b51.
 
 Read-only Bundle20 v2 proof: /home/josh/.local/share/mtg-ecosystem/engine-evidence/demo-lifetime-febe92e-bundle20-v2-20261104 (56 files / 12,362,207,031 bytes), manifest 53059ef9df98e38c4b9cbff7ac989af7b2eb266320a4525ecd70b693e43416fc.
+
+Combined gate: 1,040 Rust/21 ignored,67 normal Node+26 mandatory cheap,195 release/2 ignored,47 SDK/strictTS/33variants; all540 trace executions and216 games+216 explicit replays passed. All 79references/173 history hashes remain unchanged. [D2c-d report](game-engine-cards-as-data-d2c-d.md) records the exact combined identities, read-only seal, preserved reader failures and parent audit. Later IR25/digest reuse changes are excluded. Documentation edits do not require another full gate.

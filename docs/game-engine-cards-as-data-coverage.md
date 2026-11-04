@@ -364,3 +364,16 @@ comparison and all archive classifications are under
 `generated/cards-as-data-coverage/d2c-c/`. These are compiler metrics, not a claim
 that the new cards played in unchanged legal profile batches. No full gate was
 authorized for this implementing agent.
+
+
+## D2c-d accepted declared-attack increment
+
+Frozen `394301d` passed combined acceptance and independent parent artifact,
+source and complete-output audit. Coverage is **1,985/32,116 (6.18072%)**, exactly
+**17 additions and zero losses** from accepted a7. Final/repeat records and summary
+are byte-identical to reviewed D2c-d; all 23 exactsource fixtures and 17 complete
+source/AST/binding/IR admissions were checked against the pinned archive. All 79
+prior reference files and 173 history hashes remain unchanged. See [the D2c-d
+report](game-engine-cards-as-data-d2c-d.md) for exact identities and retained
+proof. These are compiler metrics; the new cards were not added to the unchanged
+216-game acceptance workload. IR25 and subsequent optimizer candidates are excluded.
