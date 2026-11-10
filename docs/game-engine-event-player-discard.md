@@ -1,6 +1,6 @@
 # Discard by a frozen damage recipient
 
-IR28 adds `EventPlayerDiscardV1` and an optional `DiscardRecipient` field on
+IR28 adds `EventPlayerDiscardV1` and an optional recipient field on
 `DiscardCards`. An omitted recipient retains the historical controller behavior
 and serialization. `Controller` is explicit controller behavior; `EventPlayer`
 means the player from a damage trigger's frozen actual damage witness. Only

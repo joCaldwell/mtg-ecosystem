@@ -242,6 +242,8 @@ mod damage_trigger_tests;
 #[cfg(test)]
 mod event_player_discard_tests;
 #[cfg(test)]
+mod event_player_sacrifice_tests;
+#[cfg(test)]
 mod opponent_damage_trigger_tests;
 #[cfg(test)]
 mod optional_draw_tests;

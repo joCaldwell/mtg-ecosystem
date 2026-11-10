@@ -14,6 +14,9 @@ const COMMANDO: &str = include_str!(
 const CUTPURSE: &str = include_str!(
     "../../../tests/fixtures/cards-data-d2ce/56c1a548-c80c-432b-bf92-d4ef6117b298.json"
 );
+const DEMON: &str = include_str!(
+    "../../../tests/fixtures/cards-data-d2ce/2e55fc03-779c-4a71-beb7-aa0ade738c24.json"
+);
 fn rows() -> Vec<(serde_json::Value, String)> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/cards-data-d2ce");
@@ -63,11 +66,14 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
         // shroud plus combat/player trigger with a resolution-time optional draw.
         // IR28 admits Dimir Cutpurse (line 13027): the damaged player discards
         // one card, followed by the invocation controller's mandatory draw.
+        // IR29 admits Demon of Loathing (line 6875): the damaged player chooses
+        // and sacrifices one controlled creature; flying/trample are retained.
         let otter = row["archive_line"] == 14102;
         let commando = row["archive_line"] == 10885;
         let cutpurse = row["archive_line"] == 13027;
+        let demon = row["archive_line"] == 6875;
         if ![
-            4538, 9081, 10885, 12306, 13027, 14102, 14941, 19442, 21636, 28189,
+            4538, 6875, 9081, 10885, 12306, 13027, 14102, 14941, 19442, 21636, 28189,
         ]
         .contains(&row["archive_line"].as_u64().unwrap())
         {
@@ -117,7 +123,9 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
             };
             assert_eq!(
                 c.validate().is_ok(),
-                ((if cutpurse {
+                ((if demon {
+                    29
+                } else if cutpurse {
                     28
                 } else if commando {
                     27
@@ -132,7 +140,7 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
             );
         }
     }
-    assert_eq!(admitted, 10);
+    assert_eq!(admitted, 11);
 }
 #[test]
 fn d2ce_rejects_partial_kind_source_recipient_optional_quantity_and_condition_shapes() {
@@ -460,7 +468,7 @@ fn event_player_discard_exact_cutpurse_source_provenance_and_binding() {
         a.program.instructions,
         [
             Instruction::DiscardCards {
-                recipient: Some(DiscardRecipient::EventPlayer),
+                recipient: Some(ActionRecipient::EventPlayer),
                 count: Quantity::from(1),
                 source_block: 0
             },
@@ -545,7 +553,7 @@ fn event_player_discard_rejects_unbound_qualified_and_unreviewed_programs() {
     }];
     damage_life.capabilities = damage_life.requirements();
     assert!(damage_life.validate().is_err());
-    for recipient in [None, Some(DiscardRecipient::Controller)] {
+    for recipient in [None, Some(ActionRecipient::Controller)] {
         let mut controller = lower(CUTPURSE);
         if let Instruction::DiscardCards { recipient: r, .. } =
             &mut controller.triggered[0].program.instructions[0]
@@ -556,6 +564,121 @@ fn event_player_discard_rejects_unbound_qualified_and_unreviewed_programs() {
         assert!(
             controller.validate().is_err(),
             "controller discard trigger is not admitted"
+        );
+    }
+}
+
+#[test]
+fn event_player_sacrifice_exact_demon_source_provenance_and_binding() {
+    let d = lower(DEMON);
+    let source: serde_json::Value = serde_json::from_str(DEMON).unwrap();
+    assert_eq!(d.name, "Demon of Loathing");
+    assert_eq!(
+        d.keywords,
+        [KeywordAbility::Flying, KeywordAbility::Trample]
+    );
+    assert_eq!(
+        source["source"]["oracle_text"],
+        "Flying, trample\nWhenever this creature deals combat damage to a player, that player sacrifices a creature of their choice."
+    );
+    assert_eq!(
+        source["faces"][0]["result"]["abilities"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(d.triggered.len(), 1);
+    let a = &d.triggered[0];
+    assert_eq!(
+        a.condition,
+        TriggerCondition::DamageDealt {
+            source: DamageTriggerSource::Source {},
+            kind: TriggerDamageKind::Combat,
+            recipient: DamageTriggerRecipient::Player,
+        }
+    );
+    assert_eq!(
+        a.program.instructions,
+        [Instruction::SacrificeCreature {
+            recipient: ActionRecipient::EventPlayer,
+            source_block: 1,
+        }]
+    );
+    assert!(a.program.targets.is_empty());
+    assert!(a.program.modes.is_empty());
+    assert!(a.intervening_if.is_none());
+    assert_eq!(d.provenance.source_sha256, source["sourceSha256"]);
+    assert_eq!(d.provenance.ast_sha256, source["astSha256"]);
+    assert_eq!(d.provenance.binding_sha256, source["bindingSha256"]);
+    assert!(d.capabilities.contains(&Capability::EventPlayerSacrificeV1));
+    assert!(!d.capabilities.contains(&Capability::EventPlayerDiscardV1));
+    assert!(!d.capabilities.contains(&Capability::EventPlayerRecipientV1));
+    let mut missing = d.clone();
+    missing
+        .capabilities
+        .remove(&Capability::EventPlayerSacrificeV1);
+    assert!(missing.validate().is_err());
+    let mut controller = d;
+    controller.triggered[0].program.instructions = vec![Instruction::SacrificeCreature {
+        recipient: ActionRecipient::Controller,
+        source_block: 1,
+    }];
+    controller.capabilities = controller.requirements();
+    assert!(
+        controller.validate().is_err(),
+        "controller sacrifice is not admitted"
+    );
+}
+
+#[test]
+fn event_player_sacrifice_rejects_qualified_choosers_cardinality_and_unbound_sources() {
+    type Mutation = fn(&mut serde_json::Value);
+    for mutate in [
+        (|a: &mut serde_json::Value| a["trigger"]["combat"] = false.into()) as Mutation,
+        |a| {
+            a["trigger"].as_object_mut().unwrap().remove("combat");
+        },
+        |a| a["trigger"]["what"] = serde_json::json!({"ref":"it"}),
+        |a| a["trigger"]["what"] = serde_json::json!({"ref":"this","noun":"permanent"}),
+        |a| a["trigger"] = serde_json::json!({"trigger":"phase","phase":"upkeep","whose":"your"}),
+        |a| {
+            a["trigger"] =
+                serde_json::json!({"trigger":"cast","who":{"player":"you"},"what":{"cls":"spell"}})
+        },
+        |a| {
+            a["trigger"] =
+                serde_json::json!({"trigger":"enters","what":{"ref":"this","noun":"creature"}})
+        },
+        |a| a["effects"][0]["steps"][0]["chosenBy"] = serde_json::json!({"player":"you"}),
+        |a| a["effects"][0]["steps"][0]["who"] = serde_json::json!({"player":"you"}),
+        |a| {
+            for actor in ["who", "chosenBy"] {
+                a["effects"][0]["steps"][0][actor]["of"] = serde_json::json!({"ref":"it"});
+            }
+        },
+        |a| {
+            for actor in ["who", "chosenBy"] {
+                a["effects"][0]["steps"][0][actor]["selectionId"] = "qualified".into();
+            }
+        },
+        |a| a["effects"][0]["steps"][0]["what"]["count"]["value"] = 0.into(),
+        |a| a["effects"][0]["steps"][0]["what"]["count"]["value"] = 2.into(),
+        |a| {
+            a["effects"][0]["steps"][0]["what"]["filter"] =
+                serde_json::json!({"types":["artifact"]})
+        },
+        |a| a["effects"][0]["steps"][0]["optional"] = true.into(),
+    ] {
+        let raw = tests::changed_source(DEMON, |r| {
+            let result = &mut r["faces"][0]["result"];
+            mutate(&mut result["abilities"][1]);
+            result["lines"][1]["ability"] = result["abilities"][1].clone();
+        });
+        assert!(
+            matches!(compile(MANIFEST, &raw), CompileResult::Unsupported { .. }),
+            "{:?}",
+            compile(MANIFEST, &raw)
         );
     }
 }

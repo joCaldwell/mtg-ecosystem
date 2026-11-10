@@ -1761,7 +1761,7 @@ fn append_spell_effects(
                             == ObjectFilter::Class(CardFilter { cls: "card".into() }) =>
                 {
                     Instruction::DiscardCards {
-                        recipient: Some(DiscardRecipient::EventPlayer),
+                        recipient: Some(ActionRecipient::EventPlayer),
                         count: Quantity::from(1),
                         source_block,
                     }
@@ -1878,6 +1878,27 @@ fn append_spell_effects(
                         .map_err(|_| unsupported("effects.move", "unsupported target"))?;
                     Instruction::PutOnTopOwnerLibrary {
                         target_slot: bind_creature_target(program, slots, &t)?,
+                        source_block,
+                    }
+                }
+                Step::Sacrifice {
+                    who,
+                    what,
+                    chosen_by,
+                } if player_binding == PlayerBinding::DamageRecipient
+                    && who.player == "that-player"
+                    && who.selection_id.is_none()
+                    && who.of.is_none()
+                    && who == chosen_by
+                    && what.reference == "filter"
+                    && fixed_one(&what.count)
+                    && what.filter
+                        == ObjectFilter::Types(Filter {
+                            types: vec!["creature".into()],
+                        }) =>
+                {
+                    Instruction::SacrificeCreature {
+                        recipient: ActionRecipient::EventPlayer,
                         source_block,
                     }
                 }

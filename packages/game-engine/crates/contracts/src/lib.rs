@@ -25,7 +25,7 @@ pub use strict_io::strict_read_seekable;
 
 /// Latest IR accepted by validation/schema and emitted by full-corpus coverage.
 /// Historical capability minimums and fixture versions remain literal evidence.
-pub const CURRENT_IR_VERSION: u32 = 28;
+pub const CURRENT_IR_VERSION: u32 = 29;
 pub const MIN_IR_VERSION: u32 = 3;
 
 pub const RULES_EDITION: &str = "2026-09-25";
@@ -172,6 +172,7 @@ pub enum Capability {
     SourceDamageTriggerV2,
     OptionalControllerDrawV1,
     EventPlayerDiscardV1,
+    EventPlayerSacrificeV1,
     EventPlayerRecipientV1,
     SourceStatusConditionV1,
     StepBeginningTriggerV1,
@@ -356,22 +357,22 @@ pub enum LifeRecipient {
         target_slot: u32,
     },
 }
-/// Discard uses a separate binding domain from draw/life recipients. The event
+/// Resolution actions use a separate binding domain from draw/life. The event
 /// player is the frozen damaged player of a source-damage trigger (CR 603.2c).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum DiscardRecipient {
+pub enum ActionRecipient {
     Controller,
     EventPlayer,
 }
-impl<'de> Deserialize<'de> for DiscardRecipient {
+impl<'de> Deserialize<'de> for ActionRecipient {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         // Match the schema's string vocabulary; serde's externally tagged
         // unit-object alternative is not an executable recipient encoding.
         match String::deserialize(deserializer)?.as_str() {
             "controller" => Ok(Self::Controller),
             "event_player" => Ok(Self::EventPlayer),
-            _ => Err(serde::de::Error::custom("unsupported discard recipient")),
+            _ => Err(serde::de::Error::custom("unsupported action recipient")),
         }
     }
 }
@@ -557,6 +558,11 @@ pub enum Instruction {
         target_slot: u32,
         source_block: u32,
     },
+    /// One creature chosen by the frozen damage recipient (CR 701.21a).
+    SacrificeCreature {
+        recipient: ActionRecipient,
+        source_block: u32,
+    },
     DrawCards {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         recipient: Option<LifeRecipient>,
@@ -570,7 +576,7 @@ pub enum Instruction {
     },
     DiscardCards {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        recipient: Option<DiscardRecipient>,
+        recipient: Option<ActionRecipient>,
         count: Quantity,
         source_block: u32,
     },
@@ -1217,25 +1223,28 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
-        fn event_discard(p: &SpellProgram) -> bool {
+        fn damage_recipient_action(p: &SpellProgram) -> bool {
             p.instructions.iter().any(|i| {
                 matches!(
                     i,
                     Instruction::DiscardCards {
-                        recipient: Some(DiscardRecipient::EventPlayer),
+                        recipient: Some(ActionRecipient::EventPlayer),
                         ..
-                    }
+                    } | Instruction::SacrificeCreature { .. }
                 )
-            }) || p.modes.iter().any(|m| event_discard(&m.program))
+            }) || p.modes.iter().any(|m| damage_recipient_action(&m.program))
         }
-        if self.spell.as_ref().is_some_and(event_discard)
-            || self.activated.iter().any(|a| event_discard(&a.program))
+        if self.spell.as_ref().is_some_and(damage_recipient_action)
+            || self
+                .activated
+                .iter()
+                .any(|a| damage_recipient_action(&a.program))
             || self.triggered.iter().any(|a| {
-                event_discard(&a.program)
+                damage_recipient_action(&a.program)
                     && !matches!(a.condition, TriggerCondition::DamageDealt { .. })
             })
         {
-            return Err("event-player discard requires a bound damage trigger".into());
+            return Err("event-player discard/sacrifice requires a bound damage trigger".into());
         }
         fn event_player(p: &SpellProgram) -> bool {
             p.instructions.iter().any(Instruction::uses_event_player)
@@ -1677,9 +1686,10 @@ impl Definition {
                             | Instruction::DrawCards { .. }
                             | Instruction::OptionalDrawCards { .. }
                             | Instruction::DiscardCards {
-                                recipient: Some(DiscardRecipient::EventPlayer),
+                                recipient: Some(ActionRecipient::EventPlayer),
                                 ..
                             }
+                            | Instruction::SacrificeCreature { .. }
                             | Instruction::ModifyPowerToughness { .. }
                             | Instruction::GainLife { .. }
                             | Instruction::LoseLife { .. }
@@ -2151,6 +2161,12 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             | Instruction::PutOnTopOwnerLibrary { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::BattlefieldCreature))
             }
+            Instruction::SacrificeCreature { recipient, .. } => {
+                if *recipient != ActionRecipient::EventPlayer {
+                    return Err("controller sacrifice is outside supported action semantics".into());
+                }
+                None
+            }
             Instruction::TargetPlayerSacrificeCreature { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::OpponentPlayer))
             }
@@ -2342,10 +2358,11 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::TargetPlayerSacrificeCreature { .. } => {
                 Capability::TargetPlayerSacrificeCreatureV1
             }
+            Instruction::SacrificeCreature { .. } => Capability::EventPlayerSacrificeV1,
             Instruction::DrawCards { .. } => Capability::ControllerDrawV1,
             Instruction::OptionalDrawCards { .. } => Capability::OptionalControllerDrawV1,
             Instruction::DiscardCards {
-                recipient: Some(DiscardRecipient::EventPlayer),
+                recipient: Some(ActionRecipient::EventPlayer),
                 ..
             } => Capability::EventPlayerDiscardV1,
             Instruction::DiscardCards { .. } => Capability::ControllerDiscardV1,
@@ -2398,6 +2415,13 @@ impl Catalog {
         }
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
+            if self.schema_version < 29
+                && (d.capabilities.contains(&Capability::EventPlayerSacrificeV1)
+                    || d.requirements()
+                        .contains(&Capability::EventPlayerSacrificeV1))
+            {
+                return Err("IR v29 is required for event-player sacrifice".into());
+            }
             if self.schema_version < 28
                 && (d.capabilities.contains(&Capability::EventPlayerDiscardV1)
                     || d.requirements().contains(&Capability::EventPlayerDiscardV1))
@@ -2896,6 +2920,32 @@ pub fn catalog_schema() -> serde_json::Value {
             "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerDiscardProgram"}}}}
         }}}}}
     }));
+    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"properties":{"schema_version":{"maximum":28}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "capabilities":{"items":{"not":{"const":Capability::EventPlayerSacrificeV1}}},
+            "spell":{"$ref":"#/$defs/PreEventPlayerSacrificeProgram"},
+            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerSacrificeProgram"}}}},
+            "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerSacrificeProgram"}}}}
+        }}}}}
+    }));
+    schema["$defs"]["PreEventPlayerSacrificeProgram"] = serde_json::json!({"properties":{
+        "instructions":{"items":{"properties":{"op":{"not":{"const":"sacrifice_creature"}}}}},
+        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerSacrificeProgram"}}}}
+    }});
+    // ActionRecipient is shared with controller discards, but this new opcode
+    // admits only the frozen damage recipient. Keep schema and Rust aligned.
+    schema["$defs"]["Instruction"]
+        .as_object_mut()
+        .unwrap()
+        .entry("allOf")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "if":{"properties":{"op":{"const":"sacrifice_creature"}},"required":["op"]},
+            "then":{"properties":{"recipient":{"const":"event_player"}}}
+        }));
     schema["$defs"]["PreEventPlayerDiscardProgram"] = serde_json::json!({"properties":{
         "instructions":{"items":{
             "if":{"properties":{"op":{"const":"discard_cards"}}},
@@ -3247,6 +3297,7 @@ mod tests {
             (26, &[SourceDamageTriggerV2]),
             (27, &[OptionalControllerDrawV1]),
             (28, &[EventPlayerDiscardV1]),
+            (29, &[EventPlayerSacrificeV1]),
         ];
         // Enumerate the public vocabulary, so a new capability cannot silently
         // escape this contract. Check full program-bearing definitions rather
@@ -3314,12 +3365,20 @@ mod tests {
         let mut discard = damage.clone();
         discard.triggered[0].program.targets.clear();
         discard.triggered[0].program.instructions = vec![Instruction::DiscardCards {
-            recipient: Some(DiscardRecipient::EventPlayer),
+            recipient: Some(ActionRecipient::EventPlayer),
             count: Quantity::from(1),
             source_block: 0,
         }];
         discard.capabilities = discard.requirements();
         definitions.push(discard);
+        let mut sacrifice = damage.clone();
+        sacrifice.triggered[0].program.targets.clear();
+        sacrifice.triggered[0].program.instructions = vec![Instruction::SacrificeCreature {
+            recipient: ActionRecipient::EventPlayer,
+            source_block: 0,
+        }];
+        sacrifice.capabilities = sacrifice.requirements();
+        definitions.push(sacrifice);
         // Each newly admitted dimension independently requires IR26, even when
         // paired with the original value of the other dimension.
         for (kind, recipient) in [
@@ -3432,7 +3491,7 @@ mod tests {
             serde_json::json!({"controller":null}),
             serde_json::json!("target_player"),
         ] {
-            assert!(serde_json::from_value::<DiscardRecipient>(recipient).is_err());
+            assert!(serde_json::from_value::<ActionRecipient>(recipient).is_err());
         }
 
         let original: Catalog = serde_json::from_str(include_str!(
@@ -3457,7 +3516,7 @@ mod tests {
         ability.program.targets.clear();
         ability.program.modes.clear();
         ability.program.instructions = vec![Instruction::DiscardCards {
-            recipient: Some(DiscardRecipient::EventPlayer),
+            recipient: Some(ActionRecipient::EventPlayer),
             count: Quantity::from(1),
             source_block: 0,
         }];
@@ -3554,6 +3613,131 @@ mod tests {
             .remove(&Capability::EventPlayerDiscardV1);
         c.definitions = vec![nested];
         assert!(c.validate().unwrap_err().contains("IR v28"));
+    }
+    #[test]
+    fn event_player_sacrifice_requires_bound_damage_and_rejects_old_nested_opcodes() {
+        let original: Catalog = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/expected-trigger-ir.json"
+        ))
+        .unwrap();
+        let mut bound = original
+            .definitions
+            .iter()
+            .find(|d| d.characteristics.kind == CardKind::Creature && !d.triggered.is_empty())
+            .unwrap()
+            .clone();
+        bound.triggered.truncate(1);
+        let a = &mut bound.triggered[0];
+        a.condition = TriggerCondition::DamageDealt {
+            source: DamageTriggerSource::Source {},
+            kind: TriggerDamageKind::Combat,
+            recipient: DamageTriggerRecipient::Player,
+        };
+        a.intervening_if = None;
+        a.death_filter = None;
+        a.program.targets.clear();
+        a.program.modes.clear();
+        a.program.instructions = vec![Instruction::SacrificeCreature {
+            recipient: ActionRecipient::EventPlayer,
+            source_block: 0,
+        }];
+        bound.capabilities = bound.requirements();
+        bound.validate().unwrap();
+        assert!(
+            bound
+                .capabilities
+                .contains(&Capability::EventPlayerSacrificeV1)
+        );
+        assert!(
+            !bound
+                .capabilities
+                .contains(&Capability::EventPlayerDiscardV1)
+        );
+        assert!(
+            !bound
+                .capabilities
+                .contains(&Capability::EventPlayerRecipientV1)
+        );
+        for condition in [
+            TriggerCondition::SelfEntersBattlefield,
+            TriggerCondition::StepBegan {
+                step: BeginningStep::Upkeep,
+                turn_relation: TurnRelation::Controller,
+            },
+            TriggerCondition::SpellCast {
+                caster: CasterRelation::Controller,
+                spell: TypePredicate::Any {},
+            },
+        ] {
+            let mut unbound = bound.clone();
+            unbound.triggered[0].condition = condition;
+            unbound.capabilities = unbound.requirements();
+            assert!(
+                unbound
+                    .validate()
+                    .unwrap_err()
+                    .contains("bound damage trigger")
+            );
+        }
+        let mut spell = bound.clone();
+        spell.spell.as_mut().unwrap().instructions =
+            spell.triggered[0].program.instructions.clone();
+        spell.capabilities = spell.requirements();
+        assert!(
+            spell
+                .validate()
+                .unwrap_err()
+                .contains("bound damage trigger")
+        );
+        let actions: Catalog = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/expected-action-ir.json"
+        ))
+        .unwrap();
+        let mut activation = actions
+            .definitions
+            .into_iter()
+            .find(|d| !d.activated.is_empty())
+            .unwrap();
+        activation.activated[0].program.instructions =
+            bound.triggered[0].program.instructions.clone();
+        activation.capabilities = activation.requirements();
+        assert!(
+            activation
+                .validate()
+                .unwrap_err()
+                .contains("bound damage trigger")
+        );
+        let mut c = Catalog {
+            schema_version: 29,
+            rules_edition: RULES_EDITION.into(),
+            rules_sha256: RULES_SHA256.into(),
+            definitions: vec![bound.clone()],
+        };
+        c.validate().unwrap();
+        c.schema_version = 28;
+        assert!(c.validate().unwrap_err().contains("IR v29"));
+        c.definitions[0]
+            .capabilities
+            .remove(&Capability::EventPlayerSacrificeV1);
+        assert!(c.validate().unwrap_err().contains("IR v29"));
+        let mut nested = bound;
+        let child = nested.triggered[0].program.clone();
+        nested.spell.as_mut().unwrap().modes = vec![SpellMode { program: child }];
+        nested.triggered.clear();
+        nested.capabilities = nested.requirements();
+        nested
+            .capabilities
+            .remove(&Capability::EventPlayerSacrificeV1);
+        c.definitions = vec![nested];
+        assert!(c.validate().unwrap_err().contains("IR v29"));
+        assert_eq!(
+            serde_json::from_str::<ActionRecipient>("\"controller\"").unwrap(),
+            ActionRecipient::Controller
+        );
+        assert_eq!(
+            serde_json::from_str::<ActionRecipient>("\"event_player\"").unwrap(),
+            ActionRecipient::EventPlayer
+        );
     }
     #[test]
     fn incremental_sha256_matches_reference_across_byte_fragment_boundaries() {

@@ -168,28 +168,28 @@ impl Game {
             .map(|o| o.id)
             .collect()
     }
-    // CR 603.3a/608.2c/701.9a-b: the damaged player is frozen by the
+    // CR 603.3a/608.2c/701.9a-b/701.21a: the damaged player is frozen by the
     // actual trigger occurrence. The invocation's controller remains "you";
     // neither source control changes nor departures rebind either player.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn discard_player(
+    pub(super) fn resolution_player(
         &self,
         frame: &Resolving,
-        recipient: Option<&DiscardRecipient>,
+        recipient: Option<&ActionRecipient>,
     ) -> Result<PlayerId, String> {
         match recipient {
-            None | Some(DiscardRecipient::Controller) => Ok(frame.spell.controller),
-            Some(DiscardRecipient::EventPlayer) => match &frame.spell.kind {
+            None | Some(ActionRecipient::Controller) => Ok(frame.spell.controller),
+            Some(ActionRecipient::EventPlayer) => match &frame.spell.kind {
                 StackKind::Triggered {
                     witness: TriggerEventWitness::DamageDealt { damage, .. },
                     ..
                 } => match damage.recipient {
                     DamageRecipient::Player { player } => Ok(player),
                     DamageRecipient::Creature { .. } => {
-                        Err("discard event requires a player damage recipient".into())
+                        Err("action event requires a player damage recipient".into())
                     }
                 },
-                _ => Err("unbound damage-recipient discard".into()),
+                _ => Err("unbound damage-recipient action".into()),
             },
         }
     }
@@ -619,6 +619,33 @@ impl Game {
             op @ (Instruction::DealDamage { .. }
             | Instruction::GainLife { .. }
             | Instruction::LoseLife { .. }) => self.execute_damage_life_instruction(frame, op),
+            Instruction::SacrificeCreature {
+                recipient,
+                source_block,
+            } => {
+                if recipient != ActionRecipient::EventPlayer {
+                    return Err("unsupported controller sacrifice instruction".into());
+                }
+                let actor = self.resolution_player(&frame, Some(&recipient))?;
+                if !self.is_live(actor) || self.controlled_creatures(actor).is_empty() {
+                    self.finish_instruction(
+                        frame,
+                        InstructionOutcome::Sacrificed {
+                            player: actor,
+                            movement: None,
+                        },
+                    )
+                } else {
+                    self.state.rules.frame = Frame::ResolutionChoice {
+                        frame,
+                        choice: ResolutionChoice::Sacrifice {
+                            player: actor,
+                            source_block,
+                        },
+                    };
+                    Ok(())
+                }
+            }
             Instruction::TargetPlayerSacrificeCreature {
                 target_slot,
                 source_block,
@@ -716,7 +743,7 @@ impl Game {
                 count,
                 source_block,
             } => {
-                let player = self.discard_player(&frame, recipient.as_ref())?;
+                let player = self.resolution_player(&frame, recipient.as_ref())?;
                 if count != Quantity::from(1) {
                     return Err("unsupported discard count".into());
                 }
@@ -953,6 +980,22 @@ impl Game {
                         player,
                         source_block,
                     },
+                    Instruction::SacrificeCreature {
+                        recipient,
+                        source_block: expected,
+                    },
+                ) => {
+                    *recipient == ActionRecipient::EventPlayer
+                        && source_block == expected
+                        && self
+                            .resolution_player(frame, Some(recipient))
+                            .is_ok_and(|actor| actor == *player)
+                }
+                (
+                    ResolutionChoice::Sacrifice {
+                        player,
+                        source_block,
+                    },
                     Instruction::TargetPlayerSacrificeCreature {
                         target_slot,
                         source_block: expected,
@@ -973,7 +1016,7 @@ impl Game {
                         source_block: expected_block,
                     },
                 ) => {
-                    self.discard_player(frame, recipient.as_ref())
+                    self.resolution_player(frame, recipient.as_ref())
                         .is_ok_and(|actor| actor == *player)
                         && *count == 1
                         && *expected == Quantity::from(1)

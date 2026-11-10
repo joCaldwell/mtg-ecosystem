@@ -1143,9 +1143,10 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
         {
             for i in instructions(p) {
                 match i {
-                    // The frozen staples catalog predates optional draws;
-                    // keep the new opcode outside this historical proof.
+                    // The frozen staples catalog predates optional draws and
+                    // event-player sacrifice; exclude both from this proof.
                     Instruction::OptionalDrawCards { .. }
+                    | Instruction::SacrificeCreature { .. }
                     | Instruction::MoveSet { .. }
                     | Instruction::PumpSet { .. }
                     | Instruction::DamageSet { .. }
