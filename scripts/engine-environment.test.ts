@@ -138,3 +138,23 @@ test("unavailable rustup toolchain does not block source-only commands", t => {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), "source-only works");
 });
+
+test("doctor JSON includes a versioned failure envelope for bad arguments and configuration", t => {
+  const directory = fixture(t);
+  const script = path.join(directory, "scripts/engine-doctor.ts");
+  fs.writeFileSync(path.join(directory, "rust-toolchain.toml"), "invalid-config-secret-must-not-leak");
+  for (const [args, status, code] of [
+    [["--json", "--typo"], 2, "invalid_arguments"],
+    [["--json"], 1, "configuration_unreadable"],
+  ] as const) {
+    const result = spawnSync(process.execPath, [script, ...args], { encoding: "utf8" });
+    assert.equal(result.status, status);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.format_version, 1);
+    assert.equal(report.healthy, false);
+    assert.deepEqual(report.checks, []);
+    assert.equal(report.error.code, code);
+    assert.equal(result.stderr, "");
+    assert.ok(!result.stdout.includes("invalid-config-secret-must-not-leak"));
+  }
+});

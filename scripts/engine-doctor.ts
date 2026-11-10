@@ -100,18 +100,22 @@ export function inspectEngine(options: Options): Check[] {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
+  const json = args.includes("--json");
+  const failure = (code: string, message: string, exitCode: number) => {
+    if (json) console.log(JSON.stringify({ format_version: 1, healthy: false, checks: [], error: { code, message } }, null, 2));
+    else console.error(message);
+    process.exitCode = exitCode;
+  };
   if (args.some(arg => !["--preflight", "--json"].includes(arg))) {
-    console.error("Usage: node scripts/engine-doctor.ts [--preflight] [--json]");
-    process.exitCode = 2;
+    failure("invalid_arguments", "Usage: node scripts/engine-doctor.ts [--preflight] [--json]", 2);
   } else {
     try {
       const checks = inspectEngine({ root: fileURLToPath(new URL("../", import.meta.url)), preflight: args.includes("--preflight") });
-      if (args.includes("--json")) console.log(JSON.stringify({ checks, healthy: !checks.some(check => check.status === "fail") }, null, 2));
+      if (json) console.log(JSON.stringify({ format_version: 1, checks, healthy: !checks.some(check => check.status === "fail") }, null, 2));
       else for (const check of checks) console.log(`${check.status.toUpperCase()} ${check.name}: ${check.detail}${check.fix ? `\n  ${check.fix}` : ""}`);
       process.exitCode = checks.some(check => check.status === "fail") ? 1 : 0;
     } catch {
-      console.error("FAIL doctor could not read repository configuration. Check .node-version, rust-toolchain.toml and package-lock.json; child output and environment were withheld.");
-      process.exitCode = 1;
+      failure("configuration_unreadable", "Doctor could not read repository configuration. Check .node-version, rust-toolchain.toml and package-lock.json; child output and environment were withheld.", 1);
     }
   }
 }

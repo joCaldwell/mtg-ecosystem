@@ -1,5 +1,11 @@
 # Project Multiverse: agent entry point
 
+All future development is performed by AI agents. Optimize tools and instructions
+for autonomous, reproducible execution and explicit agent handoffs. Josh supplies
+product direction and decisions that require his input; routine implementation,
+verification and coordination are agent responsibilities. For engine work follow
+the [agent workflow](docs/game-engine-agent-workflow.md).
+
 The packages are independent and have different tools and constraints. Establish
 the target before work: a named package, path or unambiguous subject is enough.
 If it is unclear, ask before doing anything. Read the target package's `AGENTS.md`

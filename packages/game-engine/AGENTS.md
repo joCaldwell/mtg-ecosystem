@@ -7,13 +7,19 @@ Server and parser edits also require their own package manuals.
 
 ## Start and verify
 
+Development is agent-only. Follow the
+[agent execution and handoff protocol](../../docs/game-engine-agent-workflow.md).
+Inspect the actual checkout and existing environment before changing either.
 Run from repository root:
 
 ```sh
-sh scripts/engine-bootstrap.sh
-sh scripts/engine-env.sh npm run check:engine:source
-sh scripts/engine-env.sh npm run check:engine -- --plan
+git status --short --branch
+sh scripts/engine-env.sh node scripts/engine-doctor.ts --json
+sh scripts/engine-env.sh node scripts/check-engine.ts --plan
 ```
+
+Bootstrap only a fresh/missing/broken dependency installation; a healthy checkout
+does not need npm ci on every task. Then choose checks for the actual change.
 
 [Bootstrap/doctor/environment instructions](../../docs/game-engine-development.md)
 cover exact existing toolchains and minimal locked dependencies. No automatic

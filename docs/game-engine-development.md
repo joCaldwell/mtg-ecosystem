@@ -4,6 +4,11 @@ Start at [the current engine map](game-engine-current.md). This workflow favors
 focused verification with explicit omissions; historical release gates are not
 mandatory after each edit. Run commands below from the repository root.
 
+All development is performed by AI agents. Start with the
+[agent workflow](game-engine-agent-workflow.md); the fresh-worktree bootstrap
+below is conditional setup, not a mandatory step for every task. Prefer direct
+script entry points when consuming machine output, avoiding npm's display text.
+
 ## Fresh worktree
 
 ```sh
@@ -17,6 +22,14 @@ change Git refs, or install a toolchain. This is a minimal engine install, not a
 deck-builder or server SDK install. `npm run engine:bootstrap` is equivalent when
 npm is already usable. `npm run engine:doctor` rechecks the environment; failures
 return 1, advisory warnings return 0. Add `-- --json` for structured diagnostics.
+
+For machine consumption use
+`sh scripts/engine-env.sh node scripts/engine-doctor.ts --json` directly.
+JSON output has `format_version: 1`, `healthy` and `checks`; argument/configuration
+failures also return an `error.code` and safe message. Exit 0 means healthy
+(possibly advisory warnings), 1 means unhealthy, and 2 means invalid arguments.
+If the shell/tool launcher itself fails, stdout may be empty: use exit status
+and stderr to diagnose that boundary instead of assuming a doctor response exists.
 
 The installer uses `npm ci` with both workspaces and `--include-workspace-root`,
 `--include=dev`, `--ignore-scripts`, `--no-audit`, and `--no-fund`. It may download

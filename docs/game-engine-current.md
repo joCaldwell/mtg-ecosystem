@@ -56,6 +56,7 @@ rebuild, full-profile or combined-acceptance claim follows from a focused check.
 
 ## Start and navigate
 
+- [Agent workflow](game-engine-agent-workflow.md): task entry, autonomous execution, machine output and verifiable handoffs.
 - [Development commands](game-engine-development.md): bootstrap, doctor, environment and focused checks.
 - [Verification workflow](game-engine-verification-workflow.md): exact coverage omissions, lock ownership and checkpoint cadence.
 - [Runtime invariants](game-engine-invariants.md): read the sections affected by a rules, state, privacy or recovery edit.
