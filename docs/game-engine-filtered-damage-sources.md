@@ -44,3 +44,19 @@ CR 109.2/109.5 define the permanent domain and controller; 205.2b preserves
 combined type membership; 120.7 identifies the damage source; 603.2c/603.3a/603.10
 govern occurrence, control and observers; 615.6 excludes prevented damage.
 Official source: <https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt>.
+
+Focused validation at source checkpoint `7c75107` passed formatting, workspace
+all-target compilation, 111 compiler tests, 19 contracts tests and 48 selected
+core tests (32 damage-trigger, six recipient-discard, six recipient-sacrifice
+and four profile tests). The 33 executable schema/catalog tests passed, including
+current-parser agreement for both exact source records and the unchanged IR29
+match catalog. Selected tests executed with no skips. The damage tests include
+transactional combat, replay, separate observer/damager ownership, private choices
+and coherent forged-witness rejection.
+
+Raw logs and source pins are retained under
+`~/.local/share/mtg-ecosystem/engine-verification/correctness-loop-20261110/`
+as `filtered-damage-focused-01.log`, `filtered-damage-schema-01.log` and
+`filtered-damage-extract-01.log`. Full runtime suites, a new complete-match
+capture, hosting/search, release/profile matrices and retention rebuilds were
+not run. The prior match evidence retains its original source identity.
