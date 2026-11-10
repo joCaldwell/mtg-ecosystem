@@ -5151,7 +5151,7 @@ mod tests {
             );
         }
         let mut future = c;
-        future.schema_version = 26;
+        future.schema_version = mtg_contracts::CURRENT_IR_VERSION + 1;
         assert!(future.validate().is_err());
     }
     #[test]
@@ -5517,7 +5517,7 @@ mod tests {
             assert!(Catalog::read(&bad).is_err());
         }
         let mut bad = c;
-        bad.schema_version = 26;
+        bad.schema_version = mtg_contracts::CURRENT_IR_VERSION + 1;
         assert!(bad.validate().is_err());
     }
 
@@ -5781,7 +5781,7 @@ mod tests {
             }
         }
         let mut bad = catalog.clone();
-        bad.schema_version = 26;
+        bad.schema_version = mtg_contracts::CURRENT_IR_VERSION + 1;
         assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
         for change in [
             (|d: &mut Definition| {
@@ -6092,7 +6092,7 @@ mod tests {
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
         let catalog = embedded_catalog("stack").unwrap();
-        for version in [3, 4, 5, 26] {
+        for version in [3, 4, 5, mtg_contracts::CURRENT_IR_VERSION + 1] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -6297,7 +6297,13 @@ mod tests {
         let c = embedded_catalog("base").unwrap();
         let raw = canonical(&c).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":3", "\"schema_version\":26"),
+            raw.replace(
+                "\"schema_version\":3",
+                &format!(
+                    "\"schema_version\":{}",
+                    mtg_contracts::CURRENT_IR_VERSION + 1
+                ),
+            ),
             raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
             raw.replace("\"target_slot\":0", "\"target_slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
@@ -6829,7 +6835,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = embedded_catalog("action").unwrap();
-        for version in [3, 4, 26] {
+        for version in [3, 4, mtg_contracts::CURRENT_IR_VERSION + 1] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -6956,7 +6962,13 @@ mod tests {
         assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
-            raw.replace("\"schema_version\":4", "\"schema_version\":26"),
+            raw.replace(
+                "\"schema_version\":4",
+                &format!(
+                    "\"schema_version\":{}",
+                    mtg_contracts::CURRENT_IR_VERSION + 1
+                ),
+            ),
             raw.replace(
                 "\"op\":\"put_on_top_owner_library\"",
                 "\"op\":\"put_on_bottom_owner_library\"",

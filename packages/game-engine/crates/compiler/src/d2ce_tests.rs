@@ -75,14 +75,19 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
         let mut bad = d.clone();
         bad.capabilities.remove(&Capability::DamageTriggerV1);
         assert!(bad.validate().is_err());
-        for version in [24, 25, 26] {
+        for version in 24..=mtg_contracts::CURRENT_IR_VERSION + 1 {
             let c = Catalog {
                 schema_version: version,
                 rules_edition: RULES_EDITION.into(),
                 rules_sha256: RULES_SHA256.into(),
                 definitions: vec![d.clone()],
             };
-            assert_eq!(c.validate().is_ok(), version == 25, "{} v{version}", d.name);
+            assert_eq!(
+                c.validate().is_ok(),
+                (25..=mtg_contracts::CURRENT_IR_VERSION).contains(&version),
+                "{} v{version}",
+                d.name
+            );
         }
     }
     assert_eq!(admitted, 7);

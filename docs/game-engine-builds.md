@@ -96,3 +96,12 @@ those timings are affected by source/tool fingerprint changes and are not a
 claimed cold-build speedup. Raw logs/measurements are ignored under
 `generated/platform-build-measurements/` in the implementation worktree.
 No release build, gameplay matrix or retention rebuild is implied by these checks.
+
+Final focused validation also passed 97 compiler and 12 contracts library tests
+(26.480 s including 26.19 s compilation; test bodies 0.26/0.02 s), seven Python
+helper tests, the structural guard, formatting and whitespace checks. A final
+core/compiler check after the selected-policy discovery refinement passed in
+7.969 s; warm no-op was 0.0333 s, README edit/restoration 0.0317/0.0313 s, and
+addition/removal of an unused policy file 0.0310/0.0305 s, with no crate rebuilds.
+These checks omit core/server/simulator runtime tests, SDK, release, full corpus
+coverage and retention. No previous failed evidence was relabeled as passed.

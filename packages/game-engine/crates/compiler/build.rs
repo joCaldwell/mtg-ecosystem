@@ -47,7 +47,11 @@ fn json(root: &Path, name: &Path) -> Option<serde_json::Value> {
 }
 fn main() {
     let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../tests/fixtures");
-    println!("cargo:rerun-if-changed={}", root.display());
+    // Directory watches recurse: only the manifest directory is discoverable.
+    // Source records/archives are watched individually below, including missing
+    // paths so repairing an input retriggers the build.
+    // https://doc.rust-lang.org/cargo/reference/build-scripts.html#rerun-if-changed
+    println!("cargo:rerun-if-changed={}", root.join("catalogs").display());
     let mut files: BTreeSet<PathBuf> = [
         "accepted-archives.json",
         "record-groups.json",
@@ -133,6 +137,7 @@ fn main() {
     // Embed source inputs only. Expected IR, policy copies and other evidence
     // remain on disk; they are not needed for lowering or runtime diagnostics.
     for name in files {
+        println!("cargo:rerun-if-changed={}", root.join(&name).display());
         if let Ok(raw) = fs::read_to_string(root.join(&name)) {
             generated += &format!("({:?}, {raw:?}),\n", name.to_str().unwrap());
         }

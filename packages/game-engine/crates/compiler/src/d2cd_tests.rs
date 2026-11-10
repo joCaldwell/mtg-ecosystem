@@ -56,7 +56,7 @@ fn d2cd_archive_programs_and_explicit_whole_card_negatives() {
         let mut bad = d.clone();
         bad.capabilities.remove(&Capability::AttackTriggerV1);
         assert!(bad.validate().is_err());
-        for version in [23, 24, 25, 26] {
+        for version in 23..=mtg_contracts::CURRENT_IR_VERSION + 1 {
             let c = Catalog {
                 schema_version: version,
                 rules_edition: RULES_EDITION.into(),
@@ -65,7 +65,7 @@ fn d2cd_archive_programs_and_explicit_whole_card_negatives() {
             };
             assert_eq!(
                 c.validate().is_ok(),
-                matches!(version, 24 | 25),
+                (24..=mtg_contracts::CURRENT_IR_VERSION).contains(&version),
                 "{} v{version}",
                 d.name
             );

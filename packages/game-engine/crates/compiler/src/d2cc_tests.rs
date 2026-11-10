@@ -51,7 +51,7 @@ fn d2cc_archived_whole_programs_min_ir_capability_closure() {
         let mut bad = d.clone();
         bad.capabilities.remove(&Capability::CastTriggerV1);
         assert!(bad.validate().is_err());
-        for version in [22, 23, 24, 25, 26] {
+        for version in 22..=mtg_contracts::CURRENT_IR_VERSION + 1 {
             let c = Catalog {
                 schema_version: version,
                 rules_edition: RULES_EDITION.into(),
@@ -60,7 +60,7 @@ fn d2cc_archived_whole_programs_min_ir_capability_closure() {
             };
             assert_eq!(
                 c.validate().is_ok(),
-                matches!(version, 23..=25),
+                (23..=mtg_contracts::CURRENT_IR_VERSION).contains(&version),
                 "{} v{version}",
                 d.name
             );

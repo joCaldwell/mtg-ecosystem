@@ -23,6 +23,11 @@ pub use archives::*;
 mod strict_io;
 pub use strict_io::strict_read_seekable;
 
+/// Latest IR accepted by validation/schema and emitted by full-corpus coverage.
+/// Historical capability minimums and fixture versions remain literal evidence.
+pub const CURRENT_IR_VERSION: u32 = 25;
+pub const MIN_IR_VERSION: u32 = 3;
+
 pub const RULES_EDITION: &str = "2026-09-25";
 pub const RULES_SHA256: &str = "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca";
 pub const SCENARIO_PROFILE: &str = "land-return-departure-scenario-v2";
@@ -2293,7 +2298,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = 3, max = 25))]
+    #[schemars(range(min = MIN_IR_VERSION, max = CURRENT_IR_VERSION))]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -2301,7 +2306,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 3..=25)
+        if !(MIN_IR_VERSION..=CURRENT_IR_VERSION).contains(&self.schema_version)
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -2918,6 +2923,58 @@ impl<'de> Deserialize<'de> for UniqueJson {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn build_identity_covers_all_engine_source_but_not_fixture_or_host_data() {
+        for path in [
+            "Cargo.lock",
+            "Cargo.toml",
+            "rust-toolchain.toml",
+            "packages/game-engine/crates/sim/src/new_module.rs",
+            "packages/game-engine/crates/core/build.rs",
+            "packages/game-engine/crates/compiler/Cargo.toml",
+        ] {
+            assert!(engine_build_input(path), "{path}");
+        }
+        for path in [
+            "packages/game-engine/tests/fixtures/catalogs/base.json",
+            "packages/game-server/src/main.rs",
+            "packages/game-engine/crates/core/generated/export.rs",
+            "packages/game-engine/crates/core/README.md",
+        ] {
+            assert!(!engine_build_input(path), "{path}");
+        }
+    }
+
+    #[test]
+    fn current_ir_authority_matches_schema_and_validation() {
+        let schema = catalog_schema();
+        assert_eq!(
+            schema["properties"]["schema_version"]["minimum"],
+            MIN_IR_VERSION
+        );
+        assert_eq!(
+            schema["properties"]["schema_version"]["maximum"],
+            CURRENT_IR_VERSION
+        );
+        for version in [
+            MIN_IR_VERSION - 1,
+            MIN_IR_VERSION,
+            CURRENT_IR_VERSION,
+            CURRENT_IR_VERSION + 1,
+        ] {
+            let catalog = Catalog {
+                schema_version: version,
+                rules_edition: RULES_EDITION.into(),
+                rules_sha256: RULES_SHA256.into(),
+                definitions: vec![],
+            };
+            assert_eq!(
+                catalog.validate().is_ok(),
+                (MIN_IR_VERSION..=CURRENT_IR_VERSION).contains(&version)
+            );
+        }
+    }
+
     #[test]
     fn every_capability_has_a_minimum_ir_version_witness() {
         use Capability::*;

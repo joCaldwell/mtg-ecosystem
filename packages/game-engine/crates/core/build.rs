@@ -29,6 +29,17 @@ fn collect(path: &Path, out: &mut Vec<PathBuf>) {
         }
     }
 }
+// Record every data read, including missing inputs that diagnostics tolerate.
+// Cargo recursively watches directories, so avoid watching the fixture root.
+// https://doc.rust-lang.org/cargo/reference/build-scripts.html#rerun-if-changed
+fn read(path: impl AsRef<Path>) -> std::io::Result<Vec<u8>> {
+    println!("cargo:rerun-if-changed={}", path.as_ref().display());
+    fs::read(path)
+}
+fn read_to_string(path: impl AsRef<Path>) -> std::io::Result<String> {
+    println!("cargo:rerun-if-changed={}", path.as_ref().display());
+    fs::read_to_string(path)
+}
 fn main() {
     let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../../..");
     // Catalog digests/counts and scenario definition pins derive from reviewed
@@ -50,7 +61,7 @@ fn main() {
         }
         // Source diagnostics belong to the runtime catalog loader. A malformed
         // manifest/output must never prevent building the diagnostic CLI.
-        let Some(manifest) = fs::read(&path)
+        let Some(manifest) = read(&path)
             .ok()
             .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
         else {
@@ -59,7 +70,7 @@ fn main() {
         let Some(expected) = manifest["expected_ir"].as_str() else {
             continue;
         };
-        let Some(catalog) = fs::read(data.join(expected))
+        let Some(catalog) = read(data.join(expected))
             .ok()
             .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
         else {
@@ -91,22 +102,10 @@ fn main() {
     // Profile files select catalogs, decks and admission policy. Generated code
     // contains data only and is excluded from the engine code identity.
     let fixtures = data.parent().unwrap();
-    let mut banned_files = std::collections::BTreeMap::new();
-    for entry in fs::read_dir(fixtures).unwrap() {
-        let path = entry.unwrap().path();
-        if path
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .starts_with("commander-banned-")
-            && path.extension().is_some_and(|e| e == "json")
-        {
-            banned_files.insert(
-                fs::canonicalize(&path).unwrap(),
-                fs::read_to_string(path).unwrap(),
-            );
-        }
-    }
+    println!(
+        "cargo:rerun-if-changed={}",
+        fixtures.join("profiles").display()
+    );
     let mut names = std::collections::BTreeSet::new();
     let mut paths = fs::read_dir(fixtures.join("profiles"))
         .unwrap()
@@ -114,11 +113,39 @@ fn main() {
         .filter(|p| p.extension().is_some_and(|x| x == "json"))
         .collect::<Vec<_>>();
     paths.sort();
+    // A new policy enters through a profile, whose directory is watched. Do
+    // not discover unused policy files at the fixture root: that would require
+    // recursively watching every unrelated fixture and make warm/cold output
+    // disagree after adding an unused policy file.
+    let mut banned_files = std::collections::BTreeMap::new();
+    for path in &paths {
+        let raw = read_to_string(path).unwrap();
+        let profile: profile_data::MatchProfile = mtg_contracts::strict_read(&raw)
+            .unwrap_or_else(|e| panic!("invalid profile {}: {e}", path.display()));
+        let selected = path
+            .parent()
+            .unwrap()
+            .join(&profile.commander_policy.banned_list);
+        let canonical = fs::canonicalize(&selected).unwrap();
+        assert!(
+            canonical.parent() == Some(fs::canonicalize(fixtures).unwrap().as_path())
+                && canonical
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("commander-banned-")
+                && canonical.extension().is_some_and(|e| e == "json"),
+            "profile {} selects a file outside the banned-list data: {}",
+            path.display(),
+            selected.display()
+        );
+        banned_files.insert(canonical, read_to_string(selected).unwrap());
+    }
     let mut generated = String::from(
         "pub static MATCH_PROFILES: std::sync::LazyLock<Vec<MatchProfile>> = std::sync::LazyLock::new(|| { let mut profiles = vec![\n",
     );
     for path in paths {
-        let raw = fs::read_to_string(&path).unwrap();
+        let raw = read_to_string(&path).unwrap();
         let profile: profile_data::MatchProfile = mtg_contracts::strict_read(&raw)
             .unwrap_or_else(|e| panic!("invalid profile {}: {e}", path.display()));
         assert!(
@@ -129,8 +156,8 @@ fn main() {
         );
         let manifest_path = path.parent().unwrap().join(&profile.catalog_manifest);
         let manifest: serde_json::Value =
-            serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
-        let catalog_raw = fs::read_to_string(
+            serde_json::from_slice(&read(&manifest_path).unwrap()).unwrap();
+        let catalog_raw = read_to_string(
             manifest_path
                 .parent()
                 .unwrap()
@@ -145,7 +172,7 @@ fn main() {
         let catalog_hash = format!("{:x}", Sha256::digest(serde_json::to_vec(&ir).unwrap()));
         assert_eq!(
             catalog_hash,
-            fs::read_to_string(
+            read_to_string(
                 manifest_path
                     .parent()
                     .unwrap()
@@ -174,7 +201,7 @@ fn main() {
         // Derive the old pool review from each authentic archive source record.
         for record in manifest["records"].as_array().unwrap() {
             let card: serde_json::Value = serde_json::from_slice(
-                &fs::read(
+                &read(
                     manifest_path
                         .parent()
                         .unwrap()
@@ -268,7 +295,8 @@ fn main() {
     );
     println!(
         "cargo:rerun-if-changed={}",
-        root.join("packages/game-engine/tests/fixtures").display()
+        root.join("packages/game-engine/tests/fixtures/catalogs")
+            .display()
     );
     files.retain(|p| {
         mtg_contracts::engine_build_input(&p.strip_prefix(&root).unwrap().to_string_lossy())
@@ -283,10 +311,9 @@ fn main() {
     });
     let mut hash = Sha256::new();
     for p in files {
-        println!("cargo:rerun-if-changed={}", p.display());
         hash.update(p.strip_prefix(&root).unwrap().to_string_lossy().as_bytes());
         hash.update([0]);
-        hash.update(fs::read(&p).expect("build input"));
+        hash.update(read(&p).expect("build input"));
         hash.update([0]);
     }
     let rustc = Command::new(env::var("RUSTC").unwrap())
