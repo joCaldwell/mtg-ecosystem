@@ -1143,7 +1143,10 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
         {
             for i in instructions(p) {
                 match i {
-                    Instruction::MoveSet { .. }
+                    // The frozen staples catalog predates optional draws;
+                    // keep the new opcode outside this historical proof.
+                    Instruction::OptionalDrawCards { .. }
+                    | Instruction::MoveSet { .. }
                     | Instruction::PumpSet { .. }
                     | Instruction::DamageSet { .. }
                     | Instruction::GainLifeDestroyed { .. }

@@ -511,7 +511,21 @@ impl Game {
                             .get(player)
                             .and_then(|cards| cards.first())
                             != Some(&object.card)
-                        || !matches!(self.program_for(&frame.spell)?.instructions.get(frame.cursor as usize), Some(Instruction::DrawCards {count,source_block:b,..}) if *count==Quantity::from(1) && b==source_block)
+                        || !match self
+                            .program_for(&frame.spell)?
+                            .instructions
+                            .get(frame.cursor as usize)
+                        {
+                            Some(Instruction::DrawCards {
+                                count,
+                                source_block: b,
+                                ..
+                            }) => *count == Quantity::from(1) && b == source_block,
+                            Some(Instruction::OptionalDrawCards { source_block: b }) => {
+                                b == source_block
+                            }
+                            _ => false,
+                        }
                     {
                         return Err(
                             "snapshot commander resolution draw continuation invariant".into()

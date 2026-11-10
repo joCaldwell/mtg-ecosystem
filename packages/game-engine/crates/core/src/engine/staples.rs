@@ -40,7 +40,8 @@ impl Game {
             Some(Instruction::DrawCards {
                 recipient: None | Some(LifeRecipient::Controller),
                 ..
-            }) => Ok(frame.spell.controller),
+            })
+            | Some(Instruction::OptionalDrawCards { .. }) => Ok(frame.spell.controller),
             _ => Err("not draw instruction".into()),
         }
     }
@@ -302,7 +303,8 @@ impl Game {
         let player = match choice {
             ResolutionChoice::Search { player, .. }
             | ResolutionChoice::Shuffle { player, .. }
-            | ResolutionChoice::OptionalRecursion { player, .. } => player,
+            | ResolutionChoice::OptionalRecursion { player, .. }
+            | ResolutionChoice::OptionalDraw { player, .. } => player,
             _ => return Err("not staples choice".into()),
         };
         if !self.is_live(player) {
@@ -382,6 +384,21 @@ impl Game {
                 };
                 Ok(())
             }
+            ResolutionChoice::OptionalDraw { source_block, .. } => {
+                let input = self
+                    .state
+                    .rules
+                    .pending
+                    .take()
+                    .ok_or("missing optional draw input")?;
+                self.validate_actions_response(input.player, &input.response)
+                    .ok_or("wrong optional draw response")??;
+                if matches!(input.response, Response::OptionalEffect { perform: true }) {
+                    self.draw_one(frame, player, source_block)
+                } else {
+                    self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
+                }
+            }
             ResolutionChoice::OptionalRecursion {
                 target,
                 source_block,
@@ -460,6 +477,15 @@ impl Game {
         instruction: &Instruction,
     ) -> bool {
         match (choice, instruction) {
+            (
+                ResolutionChoice::OptionalDraw {
+                    player,
+                    source_block,
+                },
+                Instruction::OptionalDrawCards {
+                    source_block: expected,
+                },
+            ) => *player == frame.spell.controller && source_block == expected,
             (
                 ResolutionChoice::OptionalEffect {
                     player,

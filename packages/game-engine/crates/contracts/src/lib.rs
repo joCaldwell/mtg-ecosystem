@@ -25,7 +25,7 @@ pub use strict_io::strict_read_seekable;
 
 /// Latest IR accepted by validation/schema and emitted by full-corpus coverage.
 /// Historical capability minimums and fixture versions remain literal evidence.
-pub const CURRENT_IR_VERSION: u32 = 26;
+pub const CURRENT_IR_VERSION: u32 = 27;
 pub const MIN_IR_VERSION: u32 = 3;
 
 pub const RULES_EDITION: &str = "2026-09-25";
@@ -170,6 +170,7 @@ pub enum Capability {
     AttackTriggerV1,
     DamageTriggerV1,
     SourceDamageTriggerV2,
+    OptionalControllerDrawV1,
     EventPlayerRecipientV1,
     SourceStatusConditionV1,
     StepBeginningTriggerV1,
@@ -540,6 +541,11 @@ pub enum Instruction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         recipient: Option<LifeRecipient>,
         count: Quantity,
+        source_block: u32,
+    },
+    /// CR 603.5/608.2d: the controller chooses at resolution whether to draw
+    /// one card, including when their library is empty.
+    OptionalDrawCards {
         source_block: u32,
     },
     DiscardCards {
@@ -1466,8 +1472,11 @@ impl Definition {
                 }) {
                     false
                 } else if p.targets.is_empty() {
-                    p.instructions.iter().any(|instruction| !matches!(instruction,
-                        Instruction::DrawCards {count,..}|Instruction::DiscardCards {count,..} if *count==Quantity::from(1)))
+                    p.instructions.iter().any(|instruction| {
+                        !matches!(instruction, Instruction::OptionalDrawCards { .. })
+                            && !matches!(instruction,
+                                Instruction::DrawCards {count,..}|Instruction::DiscardCards {count,..} if *count==Quantity::from(1))
+                    })
                 } else if matches!(ability.cost, ActivationCost::Composite { .. })
                     && matches!(
                         p.instructions.as_slice(),
@@ -1624,6 +1633,7 @@ impl Definition {
                             | Instruction::CreateCreatureTokens { .. }
                             | Instruction::PutPlusOneCounters { .. }
                             | Instruction::DrawCards { .. }
+                            | Instruction::OptionalDrawCards { .. }
                             | Instruction::ModifyPowerToughness { .. }
                             | Instruction::GainLife { .. }
                             | Instruction::LoseLife { .. }
@@ -1896,7 +1906,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         let binding = match instruction {
             Instruction::MoveSet { .. }
             | Instruction::PumpSet { .. }
-            | Instruction::EachPlayerSacrifice { .. } => None,
+            | Instruction::EachPlayerSacrifice { .. }
+            | Instruction::OptionalDrawCards { .. } => None,
             Instruction::DamageSet {
                 sets,
                 each_player,
@@ -2286,6 +2297,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 Capability::TargetPlayerSacrificeCreatureV1
             }
             Instruction::DrawCards { .. } => Capability::ControllerDrawV1,
+            Instruction::OptionalDrawCards { .. } => Capability::OptionalControllerDrawV1,
             Instruction::DiscardCards { .. } => Capability::ControllerDiscardV1,
             Instruction::CounterStackObject { .. } => Capability::CounterStackObjectV1,
             Instruction::DealDamage { .. } => Capability::NoncombatDamageV1,
@@ -2336,6 +2348,17 @@ impl Catalog {
         }
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
+            // requirements() derives from instructions recursively through every
+            // program/mode, independently of the supplied capability labels.
+            if self.schema_version < 27
+                && (d
+                    .capabilities
+                    .contains(&Capability::OptionalControllerDrawV1)
+                    || d.requirements()
+                        .contains(&Capability::OptionalControllerDrawV1))
+            {
+                return Err("IR v27 is required for optional controller draws".into());
+            }
             if self.schema_version < 26
                 && (d.capabilities.contains(&Capability::SourceDamageTriggerV2)
                     || d.triggered.iter().any(|a| {
@@ -2799,6 +2822,19 @@ pub fn catalog_schema() -> serde_json::Value {
             }}}}}
         }}}}}
     }));
+    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"properties":{"schema_version":{"maximum":26}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "capabilities":{"items":{"not":{"const":Capability::OptionalControllerDrawV1}}},
+            "spell":{"$ref":"#/$defs/PreOptionalDrawProgram"},
+            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreOptionalDrawProgram"}}}},
+            "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreOptionalDrawProgram"}}}}
+        }}}}}
+    }));
+    schema["$defs"]["PreOptionalDrawProgram"] = serde_json::json!({"properties":{
+        "instructions":{"items":{"properties":{"op":{"not":{"const":"optional_draw_cards"}}}}},
+        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreOptionalDrawProgram"}}}}
+    }});
     schema["$defs"]["PreEventPlayerProgram"] = serde_json::json!({"properties":{
         "instructions":{"items":{"properties":{"recipient":{"not":{"const":"event_player"}}}}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerProgram"}}}}
@@ -3137,6 +3173,7 @@ mod tests {
             (24, &[AttackTriggerV1]),
             (25, &[DamageTriggerV1]),
             (26, &[SourceDamageTriggerV2]),
+            (27, &[OptionalControllerDrawV1]),
         ];
         // Enumerate the public vocabulary, so a new capability cannot silently
         // escape this contract. Check full program-bearing definitions rather
@@ -3195,6 +3232,12 @@ mod tests {
         };
         damage.capabilities = damage.requirements();
         definitions.push(damage.clone());
+        let mut optional = damage.clone();
+        optional.triggered[0].program.targets.clear();
+        optional.triggered[0].program.instructions =
+            vec![Instruction::OptionalDrawCards { source_block: 0 }];
+        optional.capabilities = optional.requirements();
+        definitions.push(optional);
         // Each newly admitted dimension independently requires IR26, even when
         // paired with the original value of the other dimension.
         for (kind, recipient) in [
@@ -3244,6 +3287,49 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+    #[test]
+    fn optional_draw_minimum_version_checks_nested_instructions_without_labels() {
+        let catalog: Catalog = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/expected-choices-ir.json"
+        ))
+        .unwrap();
+        let mut modal = catalog
+            .definitions
+            .iter()
+            .find(|d| d.spell.as_ref().is_some_and(|p| !p.modes.is_empty()))
+            .unwrap()
+            .clone();
+        let child = &mut modal.spell.as_mut().unwrap().modes[0].program;
+        child.targets.clear();
+        child.instructions = vec![Instruction::OptionalDrawCards { source_block: 0 }];
+        modal.capabilities = modal.requirements();
+        assert!(
+            modal
+                .capabilities
+                .contains(&Capability::OptionalControllerDrawV1)
+        );
+        let mut standalone = modal.clone();
+        let p = standalone.spell.as_mut().unwrap();
+        p.modes.clear();
+        p.targets.clear();
+        p.instructions = vec![Instruction::OptionalDrawCards { source_block: 0 }];
+        standalone.capabilities = standalone.requirements();
+        for d in [standalone, modal] {
+            let mut c = Catalog {
+                schema_version: 27,
+                rules_edition: RULES_EDITION.into(),
+                rules_sha256: RULES_SHA256.into(),
+                definitions: vec![d],
+            };
+            c.validate().unwrap();
+            c.schema_version = 26;
+            assert!(c.validate().unwrap_err().contains("IR v27"));
+            c.definitions[0]
+                .capabilities
+                .remove(&Capability::OptionalControllerDrawV1);
+            assert!(c.validate().unwrap_err().contains("IR v27"));
         }
     }
     #[test]

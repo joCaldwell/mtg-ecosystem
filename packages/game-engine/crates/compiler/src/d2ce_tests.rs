@@ -8,6 +8,9 @@ const FOX: &str = include_str!(
 const OTTER: &str = include_str!(
     "../../../tests/fixtures/cards-data-d2ce/5dee663f-9e2e-4503-8086-fc51664fdf29.json"
 );
+const COMMANDO: &str = include_str!(
+    "../../../tests/fixtures/cards-data-d2ce/48936751-429b-4c40-88f5-72acde6278cc.json"
+);
 fn rows() -> Vec<(serde_json::Value, String)> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/cards-data-d2ce");
@@ -53,8 +56,11 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
         // no combat restriction, exactly an opponent, and one mandatory draw.
         // This changes its former unsupported disposition for reviewed semantics;
         // the original seven IR25 witnesses retain their original requirements.
+        // IR27 additionally admits Neurok Commando (line 10885): its complete
+        // shroud plus combat/player trigger with a resolution-time optional draw.
         let otter = row["archive_line"] == 14102;
-        if ![4538, 9081, 12306, 14102, 14941, 19442, 21636, 28189]
+        let commando = row["archive_line"] == 10885;
+        if ![4538, 9081, 10885, 12306, 14102, 14941, 19442, 21636, 28189]
             .contains(&row["archive_line"].as_u64().unwrap())
         {
             assert!(
@@ -103,14 +109,20 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
             };
             assert_eq!(
                 c.validate().is_ok(),
-                ((if otter { 26 } else { 25 })..=mtg_contracts::CURRENT_IR_VERSION)
+                ((if commando {
+                    27
+                } else if otter {
+                    26
+                } else {
+                    25
+                })..=mtg_contracts::CURRENT_IR_VERSION)
                     .contains(&version),
                 "{} v{version}",
                 d.name
             );
         }
     }
-    assert_eq!(admitted, 8);
+    assert_eq!(admitted, 9);
 }
 #[test]
 fn d2ce_rejects_partial_kind_source_recipient_optional_quantity_and_condition_shapes() {
@@ -153,7 +165,10 @@ fn d2ce_rejects_partial_kind_source_recipient_optional_quantity_and_condition_sh
         mutations.push(changed(|a| a["trigger"][k] = v));
     }
     mutations.push(changed(|a| {
-        a["effects"][0]["steps"][0]["optional"] = true.into()
+        // Controller optional draw is supported at IR27; optional draw of two
+        // cards remains outside the complete supported instruction shape.
+        a["effects"][0]["steps"][0]["optional"] = true.into();
+        a["effects"][0]["steps"][0]["amount"]["value"] = 2.into();
     }));
     mutations.push(changed(|a| {
         a["effects"][0]["steps"][0]["amount"] = serde_json::json!({"amount":"that-much"})
@@ -287,7 +302,10 @@ fn source_damage_v2_rejects_unreviewed_source_kind_recipient_and_program_shapes(
         |a| a["trigger"]["what"] = serde_json::json!({"ref":"this","noun":"permanent"}),
         |a| a["trigger"]["what"] = serde_json::json!({"ref":"filter","filter":{"types":["creature"]},"count":{"amount":"fixed","value":1}}),
         |a| a["trigger"]["grouping"] = "one-or-more".into(),
-        |a| a["effects"][0]["steps"][0]["optional"] = true.into(),
+        |a| {
+            a["effects"][0]["steps"][0]["optional"] = true.into();
+            a["effects"][0]["steps"][0]["amount"]["value"] = 2.into();
+        },
         |a| a["effects"][0]["steps"][0]["amount"] = serde_json::json!({"amount":"that-much"}),
         |a| a["effects"][0]["steps"][0]["who"] = serde_json::json!({"player":"that-player"}),
         |a| a["condition"] = serde_json::json!({"condition":"status","what":{"ref":"this","noun":"creature"},"status":"tapped"}),
@@ -296,6 +314,110 @@ fn source_damage_v2_rejects_unreviewed_source_kind_recipient_and_program_shapes(
             mutate(&mut r["faces"][0]["result"]["abilities"][0]);
             r["faces"][0]["result"]["lines"][0]["ability"] =
                 r["faces"][0]["result"]["abilities"][0].clone();
+        });
+        assert!(
+            matches!(compile(MANIFEST, &raw), CompileResult::Unsupported { .. }),
+            "{:?}",
+            compile(MANIFEST, &raw)
+        );
+    }
+}
+
+#[test]
+fn optional_draw_exact_commando_source_and_provenance() {
+    let d = lower(COMMANDO);
+    let source: serde_json::Value = serde_json::from_str(COMMANDO).unwrap();
+    assert_eq!(d.name, "Neurok Commando");
+    assert_eq!(d.keywords, [KeywordAbility::Shroud]);
+    assert_eq!(
+        source["faces"][0]["result"]["abilities"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(d.triggered.len(), 1);
+    let a = &d.triggered[0];
+    assert_eq!(
+        a.condition,
+        TriggerCondition::DamageDealt {
+            source: DamageTriggerSource::Source {},
+            kind: TriggerDamageKind::Combat,
+            recipient: DamageTriggerRecipient::Player,
+        }
+    );
+    assert_eq!(
+        a.program.instructions,
+        [Instruction::OptionalDrawCards { source_block: 1 }]
+    );
+    assert!(a.program.targets.is_empty());
+    assert!(a.program.modes.is_empty());
+    assert!(a.intervening_if.is_none());
+    assert!(
+        d.capabilities
+            .contains(&Capability::OptionalControllerDrawV1)
+    );
+    assert!(d.capabilities.contains(&Capability::DamageTriggerV1));
+    assert_eq!(d.provenance.source_sha256, source["sourceSha256"]);
+    assert_eq!(d.provenance.ast_sha256, source["astSha256"]);
+    assert_eq!(d.provenance.binding_sha256, source["bindingSha256"]);
+    let mut missing = d.clone();
+    missing
+        .capabilities
+        .remove(&Capability::OptionalControllerDrawV1);
+    assert!(missing.validate().is_err());
+
+    // Missing/false retains the existing mandatory one-card instruction, with
+    // every source block and trigger dimension otherwise unchanged.
+    for optional in [None, Some(false)] {
+        let raw = tests::changed_source(COMMANDO, |r| {
+            let result = &mut r["faces"][0]["result"];
+            let step = &mut result["abilities"][1]["effects"][0]["steps"][0];
+            if let Some(value) = optional {
+                step["optional"] = value.into();
+            } else {
+                step.as_object_mut().unwrap().remove("optional");
+            }
+            result["lines"][1]["ability"] = result["abilities"][1].clone();
+        });
+        let mandatory = lower(&raw);
+        assert_eq!(
+            mandatory.triggered[0].program.instructions,
+            [Instruction::DrawCards {
+                recipient: None,
+                count: Quantity::from(1),
+                source_block: 1
+            }]
+        );
+        assert!(
+            !mandatory
+                .capabilities
+                .contains(&Capability::OptionalControllerDrawV1)
+        );
+    }
+}
+
+#[test]
+fn optional_draw_rejects_other_recipients_quantities_and_malformed_options() {
+    type Mutation = fn(&mut serde_json::Value);
+    for mutate in [
+        (|s: &mut serde_json::Value| s["amount"]["value"] = 0.into()) as Mutation,
+        |s| s["amount"]["value"] = 2.into(),
+        |s| s["amount"] = serde_json::json!({"amount":"that-much"}),
+        |s| s["who"] = serde_json::json!({"player":"target-player","selectionId":"target"}),
+        |s| s["who"] = serde_json::json!({"player":"that-player"}),
+        |s| s["who"] = serde_json::json!({"player":"each-opponent"}),
+        |s| s["who"] = serde_json::json!({"player":"you","of":{"ref":"it"}}),
+        |s| s["who"] = serde_json::json!({"player":"you","selectionId":"qualified"}),
+        |s| s["optional"] = serde_json::Value::Null,
+        |s| s["optional"] = "true".into(),
+        |s| s["optional"] = serde_json::json!({"may":true}),
+        |s| s["unknown"] = true.into(),
+    ] {
+        let raw = tests::changed_source(COMMANDO, |r| {
+            let result = &mut r["faces"][0]["result"];
+            mutate(&mut result["abilities"][1]["effects"][0]["steps"][0]);
+            result["lines"][1]["ability"] = result["abilities"][1].clone();
         });
         assert!(
             matches!(compile(MANIFEST, &raw), CompileResult::Unsupported { .. }),

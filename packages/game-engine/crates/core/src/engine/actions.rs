@@ -53,6 +53,10 @@ pub(super) enum ResolutionChoice {
         target: ObjectId,
         source_block: u32,
     },
+    OptionalDraw {
+        player: PlayerId,
+        source_block: u32,
+    },
     OptionalRecursion {
         player: PlayerId,
         target: ObjectId,
@@ -243,7 +247,10 @@ impl Game {
                 maximum: *maximum,
                 candidates: self.search_lands(*player),
             }),
-            ResolutionChoice::OptionalEffect { player, .. } if self.is_live(*player) => {
+            ResolutionChoice::OptionalEffect { player, .. }
+            | ResolutionChoice::OptionalDraw { player, .. }
+                if self.is_live(*player) =>
+            {
                 Some(Request::OptionalEffect {
                     decision_id,
                     player: *player,
@@ -284,6 +291,9 @@ impl Game {
             Frame::ResolutionChoice {
                 choice:
                     ResolutionChoice::OptionalEffect {
+                        player: chooser, ..
+                    }
+                    | ResolutionChoice::OptionalDraw {
                         player: chooser, ..
                     },
                 ..
@@ -415,6 +425,7 @@ impl Game {
                         | ResolutionChoice::Search { .. }
                         | ResolutionChoice::Shuffle { .. }
                         | ResolutionChoice::OptionalRecursion { .. }
+                        | ResolutionChoice::OptionalDraw { .. }
                 ) {
                     return self.staples_choice_step(frame, choice);
                 }
@@ -423,7 +434,8 @@ impl Game {
                         ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
                         | ResolutionChoice::Shuffle { .. }
-                        | ResolutionChoice::OptionalRecursion { .. } => unreachable!(),
+                        | ResolutionChoice::OptionalRecursion { .. }
+                        | ResolutionChoice::OptionalDraw { .. } => unreachable!(),
                         ResolutionChoice::Sacrifice { player, .. } => {
                             InstructionOutcome::Sacrificed {
                                 player,
@@ -450,7 +462,8 @@ impl Game {
                     ResolutionChoice::OptionalEffect { .. }
                     | ResolutionChoice::Search { .. }
                     | ResolutionChoice::Shuffle { .. }
-                    | ResolutionChoice::OptionalRecursion { .. } => unreachable!(),
+                    | ResolutionChoice::OptionalRecursion { .. }
+                    | ResolutionChoice::OptionalDraw { .. } => unreachable!(),
                     ResolutionChoice::Sacrifice { source_block, .. }
                     | ResolutionChoice::Discard { source_block, .. } => source_block,
                 };
@@ -652,75 +665,26 @@ impl Game {
                             .ok_or("missing draw player target")?
                     }
                 };
+                self.draw_one(frame, player, source_block)
+            }
+            // CR 603.5/608.2d: offer the option only during resolution, even
+            // when the library is empty. Accepting performs the ordinary draw.
+            // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+            Instruction::OptionalDrawCards { source_block } => {
                 if !self.is_live(player) {
                     return self.finish_instruction(
                         frame,
                         InstructionOutcome::PlayerActionSkipped { player },
                     );
                 }
-                if let Some(card) = self
-                    .state
-                    .rules
-                    .libraries
-                    .get(&player)
-                    .and_then(|cards| cards.first())
-                    .copied()
-                {
-                    let object = self
-                        .object_id(card)
-                        .ok_or("missing instruction draw source")?;
-                    if self.state.rules.commanders.history(card).is_some() {
-                        self.state.rules.frame = Frame::CommanderReturn {
-                            object,
-                            destination: Zone::Hand { owner: player },
-                            continuation: Box::new(CommanderContinuation::ResolutionDraw {
-                                frame,
-                                player,
-                                source_block,
-                            }),
-                        };
-                        Ok(())
-                    } else {
-                        let movement = self.move_object_for(
-                            object,
-                            Zone::Hand { owner: player },
-                            BatchCause::Instruction {
-                                stack_id: frame.spell.id,
-                                player,
-                                source: frame.spell.source,
-                                cursor: frame.cursor,
-                                source_block,
-                            },
-                        )?;
-                        self.finish_instruction(
-                            frame,
-                            InstructionOutcome::Drawn {
-                                player,
-                                movement: Some(movement),
-                                failed: false,
-                            },
-                        )
-                    }
-                } else {
-                    self.commit(
-                        ProposedEvent::FailedDraw { player },
-                        BatchCause::Instruction {
-                            stack_id: frame.spell.id,
-                            player,
-                            source: frame.spell.source,
-                            cursor: frame.cursor,
-                            source_block,
-                        },
-                    )?;
-                    self.finish_instruction(
-                        frame,
-                        InstructionOutcome::Drawn {
-                            player,
-                            movement: None,
-                            failed: true,
-                        },
-                    )
-                }
+                self.state.rules.frame = Frame::ResolutionChoice {
+                    frame,
+                    choice: ResolutionChoice::OptionalDraw {
+                        player,
+                        source_block,
+                    },
+                };
+                Ok(())
             }
             Instruction::DiscardCards {
                 count,
@@ -760,6 +724,83 @@ impl Game {
                 source_block,
             } => self.resolve_counter_instruction(frame, target_slot, source_block),
             _ => Err("unexpected action instruction".into()),
+        }
+    }
+    /// One ordinary draw attempt, shared by mandatory and accepted optional
+    /// draws. The existing Commander continuation owns the remaining attempt;
+    /// recovery must not offer the optional choice again.
+    pub(super) fn draw_one(
+        &mut self,
+        frame: Resolving,
+        player: PlayerId,
+        source_block: u32,
+    ) -> Result<(), String> {
+        if !self.is_live(player) {
+            return self
+                .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
+        }
+        if let Some(card) = self
+            .state
+            .rules
+            .libraries
+            .get(&player)
+            .and_then(|cards| cards.first())
+            .copied()
+        {
+            let object = self
+                .object_id(card)
+                .ok_or("missing instruction draw source")?;
+            if self.state.rules.commanders.history(card).is_some() {
+                self.state.rules.frame = Frame::CommanderReturn {
+                    object,
+                    destination: Zone::Hand { owner: player },
+                    continuation: Box::new(CommanderContinuation::ResolutionDraw {
+                        frame,
+                        player,
+                        source_block,
+                    }),
+                };
+                Ok(())
+            } else {
+                let movement = self.move_object_for(
+                    object,
+                    Zone::Hand { owner: player },
+                    BatchCause::Instruction {
+                        stack_id: frame.spell.id,
+                        player,
+                        source: frame.spell.source,
+                        cursor: frame.cursor,
+                        source_block,
+                    },
+                )?;
+                self.finish_instruction(
+                    frame,
+                    InstructionOutcome::Drawn {
+                        player,
+                        movement: Some(movement),
+                        failed: false,
+                    },
+                )
+            }
+        } else {
+            self.commit(
+                ProposedEvent::FailedDraw { player },
+                BatchCause::Instruction {
+                    stack_id: frame.spell.id,
+                    player,
+                    source: frame.spell.source,
+                    cursor: frame.cursor,
+                    source_block,
+                },
+            )?;
+            self.finish_instruction(
+                frame,
+                InstructionOutcome::Drawn {
+                    player,
+                    movement: None,
+                    failed: true,
+                },
+            )
         }
     }
     pub(super) fn finish_ability(

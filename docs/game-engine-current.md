@@ -46,6 +46,7 @@ independent work there. Historical evidence remains separately qualified:
 | D2c-d + reviewed demo/Bundle lifetimes at `394301d` | Accepted IR24 declared-attack triggers and parent evidence audit; see [D2c-d](game-engine-cards-as-data-d2c-d.md) and [lifetimes](game-engine-verification-lifetimes.md) |
 | Later IR25/D2c-e | Present on the development line, with candidate-focused validation; final parent source review/combined acceptance remain pending in [the D2c-e report](game-engine-cards-as-data-d2c-e.md) |
 | Later IR26 opponent damage triggers | Adds exact-source Thieving Otter support with separate capability/version gates; see [source damage to an opponent](game-engine-opponent-damage-triggers.md). This does not renew combined acceptance or expand hosting/search. |
+| Later IR27 optional controller draws | Adds resolution-time optional single-card draws and exact-source Neurok Commando support; see [optional draws](game-engine-optional-draws.md). Hosting/search admission remains unchanged. |
 | Later digest reuse and November tooling changes | Separate focused-work evidence, not part of the frozen D2c-d gate; see [trace digests](game-engine-verification-trace-digests.md) and [fast checks](game-engine-fast-checks-20261109.md) |
 
 At the platform baseline trusted snapshot/bundle formats were 19/20 and public

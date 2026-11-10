@@ -79,7 +79,12 @@ fn d2c_whole_cards_reject_conditions_optionality_unknown_relations_and_zones() {
         changed(|a| a["trigger"]["during"] = "each-opponent".into()),
         changed(|a| a["trigger"]["from"] = "graveyard".into()),
         changed(|a| a["functioningZone"] = "graveyard".into()),
-        changed(|a| a["effects"][0]["steps"][0]["optional"] = true.into()),
+        changed(|a| {
+            // IR27 admits an optional controller draw of one card, while the
+            // optional draw-two shape remains outside this finite instruction.
+            a["effects"][0]["steps"][0]["optional"] = true.into();
+            a["effects"][0]["steps"][0]["amount"]["value"] = 2.into();
+        }),
         changed(|a| a["effects"][0]["steps"][0]["effect"] = "pay-cost".into()),
     ] {
         assert!(
@@ -88,6 +93,25 @@ fn d2c_whole_cards_reject_conditions_optionality_unknown_relations_and_zones() {
             serde_json::to_string(&compile(MANIFEST, &raw)).unwrap()
         );
     }
+    // This synthetic AST variant exercises the newly supported optional draw,
+    // not a claim that the archived Arena text contains "may". The following
+    // life-loss instruction remains mandatory and in its original position.
+    let optional = changed(|a| a["effects"][0]["steps"][0]["optional"] = true.into());
+    let CompileResult::Lowered { definition } = compile(MANIFEST, &optional) else {
+        panic!("IR27 optional controller draw on the existing step trigger")
+    };
+    assert!(matches!(
+        definition.triggered[0].program.instructions.as_slice(),
+        [
+            Instruction::OptionalDrawCards { source_block: 0 },
+            Instruction::LoseLife { .. },
+        ]
+    ));
+    assert!(
+        definition
+            .capabilities
+            .contains(&Capability::OptionalControllerDrawV1)
+    );
     let mine = include_str!(
         "../../../tests/fixtures/cards-data-d2c/d26b27db-a567-4631-b4b6-7294222fbdd1.json"
     );

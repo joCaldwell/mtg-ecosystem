@@ -524,6 +524,8 @@ enum Step {
     Draw {
         who: PlayerSelector,
         amount: Count,
+        #[serde(default)]
+        optional: bool,
     },
     Discard {
         who: PlayerSelector,
@@ -1747,7 +1749,28 @@ fn append_spell_effects(
                     )?,
                     source_block,
                 },
-                Step::Draw { who, amount } => {
+                Step::Draw {
+                    who,
+                    amount,
+                    optional: true,
+                } => {
+                    if who.player != "you"
+                        || who.selection_id.is_some()
+                        || who.of.is_some()
+                        || !fixed_one(amount)
+                    {
+                        return Err(unsupported(
+                            "effects.draw",
+                            "optional draw requires one card for the unqualified controller",
+                        ));
+                    }
+                    Instruction::OptionalDrawCards { source_block }
+                }
+                Step::Draw {
+                    who,
+                    amount,
+                    optional: false,
+                } => {
                     let recipient = match life_recipient(
                         program,
                         slots,
@@ -3288,13 +3311,22 @@ fn lower_activation(
                         source_block,
                     }
                 }
-                Step::Draw { who, amount } if *who == you && fixed_one(amount) => {
-                    Instruction::DrawCards {
-                        recipient: None,
-                        count: Quantity::from(1),
-                        source_block,
-                    }
+                Step::Draw {
+                    who,
+                    amount,
+                    optional: true,
+                } if *who == you && fixed_one(amount) => {
+                    Instruction::OptionalDrawCards { source_block }
                 }
+                Step::Draw {
+                    who,
+                    amount,
+                    optional: false,
+                } if *who == you && fixed_one(amount) => Instruction::DrawCards {
+                    recipient: None,
+                    count: Quantity::from(1),
+                    source_block,
+                },
                 Step::Discard { who, what }
                     if *who == you
                         && what.reference == "filter"
@@ -5501,9 +5533,11 @@ mod tests {
                 r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["who"]["player"] =
                     "that-player".into()
             }),
-            ("optional instruction", 23, |r| {
+            ("unsupported optional draw-two instruction", 23, |r| {
                 r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["optional"] =
-                    true.into()
+                    true.into();
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["amount"]["value"] =
+                    2.into();
             }),
             ("optional trigger", 23, |r| {
                 r["faces"][0]["result"]["abilities"][0]["optional"] = true.into()
@@ -6867,6 +6901,54 @@ mod tests {
     }
 
     #[test]
+    fn optional_draw_single_card_variants_preserve_existing_entry_and_activation_sequences() {
+        fn program(d: &Definition) -> &SpellProgram {
+            if let Some(a) = d.activated.first() {
+                &a.program
+            } else {
+                &d.triggered[0].program
+            }
+        }
+        // Synthetic optional-one-card AST variants of Elvish Visionary and
+        // Hapless Researcher. CR 603.5/608.2d and the new IR27 instruction admit
+        // this choice; it does not make the following discard conditional.
+        for raw in [
+            fixtures::TRIGGER_RECORDS[23].1,
+            fixtures::ACTION_RECORDS[9].1,
+        ] {
+            let CompileResult::Lowered {
+                definition: original,
+            } = compile(fixtures::MANIFEST, raw)
+            else {
+                panic!("original archived source")
+            };
+            let optional = changed_source(raw, |r| {
+                r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["optional"] =
+                    true.into();
+                r["faces"][0]["result"]["lines"][0]["ability"] =
+                    r["faces"][0]["result"]["abilities"][0].clone();
+            });
+            let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, &optional)
+            else {
+                panic!("IR27 optional controller draw")
+            };
+            assert_eq!(
+                program(&definition).instructions[0],
+                Instruction::OptionalDrawCards { source_block: 0 }
+            );
+            assert_eq!(
+                program(&definition).instructions[1..],
+                program(&original).instructions[1..]
+            );
+            assert!(
+                definition
+                    .capabilities
+                    .contains(&Capability::OptionalControllerDrawV1)
+            );
+        }
+    }
+
+    #[test]
     fn complete_action_lowering_rejects_wrong_costs_choosers_cardinality_and_extra_clauses() {
         type Mutation = fn(&mut serde_json::Value);
         let activation_mutations: Vec<Mutation> = vec![
@@ -6880,7 +6962,12 @@ mod tests {
             },
             |a| a["effects"][0]["steps"][0]["who"]["player"] = "opponent".into(),
             |a| a["effects"][0]["steps"][0]["amount"]["value"] = 2.into(),
-            |a| a["effects"][0]["steps"][0]["optional"] = true.into(),
+            |a| {
+                // Optional controller draw-one is an IR27 instruction; this
+                // optional draw-two remains an unsupported complete shape.
+                a["effects"][0]["steps"][0]["optional"] = true.into();
+                a["effects"][0]["steps"][0]["amount"]["value"] = 2.into();
+            },
             |a| a["effects"][0]["steps"][1]["what"]["filter"]["cls"] = "creature".into(),
             |a| a["effects"][0]["steps"][1]["what"]["count"]["value"] = 2.into(),
             |a| a["effects"][0]["steps"][1]["who"]["selectionId"] = "line:0:0".into(),
