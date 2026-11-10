@@ -67,7 +67,7 @@ fn settle(g: &mut Game) -> Request {
         match g.advance(Budget::new(1)) {
             Advance::AwaitingDecision(r) => return r,
             Advance::Suspended { .. } => (),
-            other => panic!("step witness at {:?}: {other:?}", g.state.frame),
+            other => panic!("step witness at {:?}: {other:?}", g.state.rules.frame),
         }
     }
     panic!("step witness budget")
@@ -100,7 +100,7 @@ fn recover(g: &Game) {
     let replayed = Game::replay_to(
         g.prepared.as_ref().clone(),
         &g.replay_journal(),
-        Some(g.state.rule_steps),
+        Some(g.state.rules.rule_steps),
         g.trace.mode,
     )
     .unwrap();
@@ -110,7 +110,7 @@ fn recover(g: &Game) {
 fn to_step(g: &mut Game, number: u64, step: TurnStep) {
     for _ in 0..500 {
         let _ = settle(g);
-        if g.state.turn.number == number && g.state.turn.step == step {
+        if g.state.rules.turn.number == number && g.state.rules.turn.step == step {
             return;
         }
         passive(g);
@@ -155,22 +155,25 @@ fn d2c_source_cast_then_wrong_and_correct_upkeep_ordered_draw_life_all_traces() 
         answer(&mut g, Response::FinishMana { undo_mana: false });
         g.complete_test_mana();
         resolve(&mut g);
-        assert_eq!(g.state.objects[&CardId(0)].zone, Zone::Battlefield);
-        assert!(g.state.stack.is_empty());
-        assert_eq!(g.state.next_trigger_id, 0);
+        assert_eq!(g.state.rules.objects[&CardId(0)].zone, Zone::Battlefield);
+        assert!(g.state.rules.stack.is_empty());
+        assert_eq!(g.state.rules.next_trigger_id, 0);
         to_step(&mut g, 2, TurnStep::Upkeep);
-        assert_eq!(g.state.next_trigger_id, 0, "wrong controller's upkeep");
+        assert_eq!(
+            g.state.rules.next_trigger_id, 0,
+            "wrong controller's upkeep"
+        );
         to_step(&mut g, 5, TurnStep::Upkeep);
-        assert_eq!(g.state.stack.len(), 1);
-        assert_eq!(g.state.next_trigger_id, 1);
-        let top_card = g.state.libraries[&PlayerId(0)][0];
-        let mut life = g.state.players[0].life.clone();
+        assert_eq!(g.state.rules.stack.len(), 1);
+        assert_eq!(g.state.rules.next_trigger_id, 1);
+        let top_card = g.state.rules.libraries[&PlayerId(0)][0];
+        let mut life = g.state.rules.players[0].life.clone();
         life.subtract(&1.into());
         recover(&g);
         resolve(&mut g);
-        assert_eq!(g.state.players[0].life, life);
+        assert_eq!(g.state.rules.players[0].life, life);
         assert_eq!(
-            g.state.objects[&top_card].zone,
+            g.state.rules.objects[&top_card].zone,
             Zone::Hand { owner: PlayerId(0) }
         );
         if mode == TraceMode::Detailed {
@@ -219,9 +222,9 @@ fn d2c_collect_once_before_entry_restore_every_frame_and_apnap_ordering() {
     let mut entered = false;
     let mut ordered = false;
     for _ in 0..80 {
-        if matches!(g.state.frame, Frame::EnterStep) {
-            assert_eq!(g.state.pending_triggers.len(), 4);
-            assert!(g.state.stack.is_empty());
+        if matches!(g.state.rules.frame, Frame::EnterStep) {
+            assert_eq!(g.state.rules.pending_triggers.len(), 4);
+            assert!(g.state.rules.stack.is_empty());
             entered = true;
         }
         recover(&g);
@@ -240,7 +243,7 @@ fn d2c_collect_once_before_entry_restore_every_frame_and_apnap_ordering() {
                 );
             }
             Advance::AwaitingDecision(Request::Priority { .. })
-                if g.state.turn.step == TurnStep::Upkeep =>
+                if g.state.rules.turn.step == TurnStep::Upkeep =>
             {
                 break;
             }
@@ -248,9 +251,10 @@ fn d2c_collect_once_before_entry_restore_every_frame_and_apnap_ordering() {
         }
     }
     assert!(entered && ordered);
-    assert_eq!(g.state.next_trigger_id, 4);
+    assert_eq!(g.state.rules.next_trigger_id, 4);
     assert_eq!(
         g.state
+            .rules
             .stack
             .iter()
             .map(|s| s.controller)
@@ -259,6 +263,7 @@ fn d2c_collect_once_before_entry_restore_every_frame_and_apnap_ordering() {
     );
     assert_eq!(
         g.state
+            .rules
             .stack
             .iter()
             .take(2)
@@ -270,7 +275,7 @@ fn d2c_collect_once_before_entry_restore_every_frame_and_apnap_ordering() {
     for _ in 0..4 {
         resolve(&mut g);
     }
-    assert_eq!(g.state.next_trigger_id, 4);
+    assert_eq!(g.state.rules.next_trigger_id, 4);
     recover(&g);
     for event in g.events() {
         if let Event::TriggerCollected {
@@ -308,8 +313,8 @@ fn d2c_draw_trigger_waits_for_normal_draw_and_commander_replacement() {
         answer(&mut g, Response::Pass);
     }
     loop {
-        if matches!(g.state.frame, Frame::EnterStep) {
-            assert_eq!(g.state.pending_triggers.len(), 1);
+        if matches!(g.state.rules.frame, Frame::EnterStep) {
+            assert_eq!(g.state.rules.pending_triggers.len(), 1);
             recover(&g);
             break;
         }
@@ -320,20 +325,20 @@ fn d2c_draw_trigger_waits_for_normal_draw_and_commander_replacement() {
     }
     let r = settle(&mut g);
     assert!(matches!(r, Request::CommanderReturn { .. }));
-    assert!(g.state.stack.is_empty());
-    assert_eq!(g.state.pending_triggers.len(), 1);
+    assert!(g.state.rules.stack.is_empty());
+    assert_eq!(g.state.rules.pending_triggers.len(), 1);
     recover(&g);
     answer(&mut g, Response::CommanderReturn { to_command: true });
     placed(&mut g);
     assert_eq!(
-        g.state.objects[&commander].zone,
+        g.state.rules.objects[&commander].zone,
         Zone::Command { owner: PlayerId(0) }
     );
-    assert_eq!(g.state.libraries[&PlayerId(0)].len(), 7);
-    assert_eq!(g.state.stack.len(), 1);
+    assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), 7);
+    assert_eq!(g.state.rules.stack.len(), 1);
     recover(&g);
     resolve(&mut g);
-    assert_eq!(g.state.libraries[&PlayerId(0)].len(), 6);
+    assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), 6);
 }
 #[test]
 fn d2c_empty_library_and_lethal_life_finish_program_before_sbas() {
@@ -349,11 +354,11 @@ fn d2c_empty_library_and_lethal_life_finish_program_before_sbas() {
         p.profile_digest = digest(&p.config).unwrap();
         let mut g = Game::new(p);
         to_step(&mut g, 1, TurnStep::Upkeep);
-        assert_eq!(g.state.stack.len(), 1);
+        assert_eq!(g.state.rules.stack.len(), 1);
         resolve(&mut g);
         assert!(!g.is_live(PlayerId(0)));
         assert_eq!(
-            g.state.players[0].last_known.as_ref().unwrap().life,
+            g.state.rules.players[0].last_known.as_ref().unwrap().life,
             if empty { 39.into() } else { 0.into() }
         );
         recover(&g);
@@ -368,20 +373,20 @@ fn d2c_collected_source_departure_preserves_frozen_controller() {
     for _ in 0..4 {
         answer(&mut g, Response::Pass);
     }
-    while !matches!(g.state.frame, Frame::EnterStep) {
+    while !matches!(g.state.rules.frame, Frame::EnterStep) {
         assert!(matches!(
             g.advance(Budget::new(1)),
             Advance::Suspended { .. }
         ));
     }
-    assert_eq!(g.state.pending_triggers.len(), 1);
+    assert_eq!(g.state.rules.pending_triggers.len(), 1);
     g.concede(PlayerId(1)).unwrap();
     placed(&mut g);
-    assert!(!g.state.objects.contains_key(&CardId(0)));
-    assert_eq!(g.state.stack[0].controller, PlayerId(0));
+    assert!(!g.state.rules.objects.contains_key(&CardId(0)));
+    assert_eq!(g.state.rules.stack[0].controller, PlayerId(0));
     recover(&g);
     resolve(&mut g);
-    assert_eq!(g.state.players[0].life, 39.into());
+    assert_eq!(g.state.rules.players[0].life, 39.into());
     recover(&g);
 }
 #[test]
@@ -393,7 +398,7 @@ fn d2c_controller_departure_discards_collected_trigger() {
     for _ in 0..4 {
         answer(&mut g, Response::Pass);
     }
-    while !matches!(g.state.frame, Frame::EnterStep) {
+    while !matches!(g.state.rules.frame, Frame::EnterStep) {
         assert!(matches!(
             g.advance(Budget::new(1)),
             Advance::Suspended { .. }
@@ -401,7 +406,7 @@ fn d2c_controller_departure_discards_collected_trigger() {
     }
     g.concede(PlayerId(0)).unwrap();
     placed(&mut g);
-    assert!(g.state.pending_triggers.is_empty() && g.state.stack.is_empty());
+    assert!(g.state.rules.pending_triggers.is_empty() && g.state.rules.stack.is_empty());
     recover(&g);
 }
 #[test]
@@ -428,12 +433,12 @@ fn d2c_no_active_player_unqualified_steps_only_and_next_live_priority() {
     let mut g = Game::new(p);
     g.concede(PlayerId(0)).unwrap();
     to_step(&mut g, 1, TurnStep::Upkeep);
-    assert_eq!(g.state.active, None);
-    assert_eq!(g.state.priority, PlayerId(1));
-    assert_eq!(g.state.next_trigger_id, 1);
-    assert_eq!(g.state.stack[0].source.card, CardId(0));
+    assert_eq!(g.state.rules.active, None);
+    assert_eq!(g.state.rules.priority, PlayerId(1));
+    assert_eq!(g.state.rules.next_trigger_id, 1);
+    assert_eq!(g.state.rules.stack[0].source.card, CardId(0));
     resolve(&mut g);
-    assert_eq!(g.state.players[1].life, 43.into());
+    assert_eq!(g.state.rules.players[1].life, 43.into());
     recover(&g);
 }
 #[test]
@@ -445,7 +450,7 @@ fn d2c_rehashed_pending_stack_and_trace_witness_forgeries_reject() {
     for _ in 0..4 {
         answer(&mut g, Response::Pass);
     }
-    while !matches!(g.state.frame, Frame::EnterStep) {
+    while !matches!(g.state.rules.frame, Frame::EnterStep) {
         assert!(matches!(
             g.advance(Budget::new(1)),
             Advance::Suspended { .. }
@@ -502,9 +507,9 @@ fn d2c_failed_transition_rolls_back_turn_mana_handles_and_collection() {
         &[(FORCE, 0, 0, Zone::Battlefield)],
         TurnStep::Untap,
     ));
-    g.state.frame = Frame::Transition;
-    g.state.next_trigger_id = u64::MAX;
-    g.state.players[0].mana.insert(Color::B, 2.into());
+    g.state.rules.frame = Frame::Transition;
+    g.state.rules.next_trigger_id = u64::MAX;
+    g.state.rules.players[0].mana.insert(Color::B, 2.into());
     let token = g.state_token.clone();
     let before = g.fork();
     assert!(g.transition_turn_step().is_err());
@@ -552,14 +557,17 @@ fn d2c_opponent_end_step_and_graveyard_sources_use_independent_predicates() {
     p.catalog_digest = digest(c).unwrap();
     let mut g = Game::new(p);
     to_step(&mut g, 1, TurnStep::End);
-    assert_eq!(g.state.next_trigger_id, 0);
+    assert_eq!(g.state.rules.next_trigger_id, 0);
     to_step(&mut g, 2, TurnStep::Upkeep);
-    assert_eq!(g.state.next_trigger_id, 0, "graveyard source is inactive");
+    assert_eq!(
+        g.state.rules.next_trigger_id, 0,
+        "graveyard source is inactive"
+    );
     to_step(&mut g, 2, TurnStep::End);
-    assert_eq!(g.state.next_trigger_id, 1);
+    assert_eq!(g.state.rules.next_trigger_id, 1);
     recover(&g);
     resolve(&mut g);
-    assert_eq!(g.state.players[0].life, 41.into());
+    assert_eq!(g.state.rules.players[0].life, 41.into());
     recover(&g);
 }
 #[test]
@@ -612,10 +620,10 @@ fn d2c_step_trigger_composes_tokens_and_targeted_programs_on_ordinary_artifact()
         recover(&g);
         resolve(&mut g);
         if name == "Dragon Trainer" {
-            assert_eq!(g.state.tokens.len(), 1);
+            assert_eq!(g.state.rules.tokens.len(), 1);
         } else {
             assert!(matches!(
-                g.state.objects[&CardId(1)].zone,
+                g.state.rules.objects[&CardId(1)].zone,
                 Zone::Graveyard { .. }
             ));
         }
@@ -633,22 +641,25 @@ fn d2c_stack_capacity_fault_rolls_back_transition_and_typed_collection() {
         )],
         TurnStep::Upkeep,
     ));
-    g.state.frame = Frame::Transition;
+    g.state.rules.frame = Frame::Transition;
     g.transition_turn_step().unwrap();
-    let t = g.state.pending_triggers[0].clone();
-    g.state.pending_triggers.resize(capacities::STACK_LIMIT, t);
+    let t = g.state.rules.pending_triggers[0].clone();
+    g.state
+        .rules
+        .pending_triggers
+        .resize(capacities::STACK_LIMIT, t);
     // Re-run a valid supported boundary with the full pending collection. The
     // private domain setup isolates the shared capacity guard, not reachability.
-    g.state.turn.step = TurnStep::Upkeep;
-    g.state.frame = Frame::Transition;
-    g.state.players[0].mana.insert(Color::B, 2.into());
+    g.state.rules.turn.step = TurnStep::Upkeep;
+    g.state.rules.frame = Frame::Transition;
+    g.state.rules.players[0].mana.insert(Color::B, 2.into());
     let state_hash = digest(&g.state).unwrap();
     let trace_hash = digest(&g.trace).unwrap();
     assert!(g.transition_turn_step().is_err());
     assert!(
         matches!(g.typed_fault(),Some(RuleFault::StackCapacityExceeded { requested,.. }) if *requested==capacities::STACK_LIMIT+1)
     );
-    g.state.typed_fault = None;
+    g.state.rules.typed_fault = None;
     assert_eq!(digest(&g.state).unwrap(), state_hash);
     assert_eq!(digest(&g.trace).unwrap(), trace_hash);
 }
@@ -708,21 +719,24 @@ fn d2c_archived_program_families_execute_complete_step_effects() {
         recover(&g);
         resolve(&mut g);
         match name {
-            "Fountain of Renewal" => assert_eq!(g.state.players[0].life, 41.into()),
+            "Fountain of Renewal" => assert_eq!(g.state.rules.players[0].life, 41.into()),
             "Fretwork Colony" => {
-                assert_eq!(g.state.players[0].life, 39.into());
-                assert_eq!(g.state.objects[&CardId(0)].plus_one_counters, 1.into());
+                assert_eq!(g.state.rules.players[0].life, 39.into());
+                assert_eq!(
+                    g.state.rules.objects[&CardId(0)].plus_one_counters,
+                    1.into()
+                );
             }
-            "Verdant Force" => assert_eq!(g.state.tokens.len(), 1),
-            "Magmatic Force" => assert_eq!(g.state.players[1].life, 37.into()),
+            "Verdant Force" => assert_eq!(g.state.rules.tokens.len(), 1),
+            "Magmatic Force" => assert_eq!(g.state.rules.players[1].life, 37.into()),
             "Bloodgift Demon" => {
-                assert_eq!(g.state.players[1].life, 39.into());
-                assert_eq!(g.state.libraries[&PlayerId(1)].len(), 7);
+                assert_eq!(g.state.rules.players[1].life, 39.into());
+                assert_eq!(g.state.rules.libraries[&PlayerId(1)].len(), 7);
             }
             "Dogged Pursuit" => {
-                assert_eq!(g.state.players[0].life, 41.into());
+                assert_eq!(g.state.rules.players[0].life, 41.into());
                 for seat in 1..4 {
-                    assert_eq!(g.state.players[seat].life, 39.into());
+                    assert_eq!(g.state.rules.players[seat].life, 39.into());
                 }
             }
             _ => unreachable!(),
@@ -748,22 +762,22 @@ fn d2c_draw_collection_precedes_normal_draw_and_placement_follows_it() {
     for _ in 0..4 {
         answer(&mut g, Response::Pass);
     }
-    while !matches!(g.state.frame, Frame::EnterStep) {
+    while !matches!(g.state.rules.frame, Frame::EnterStep) {
         assert!(matches!(
             g.advance(Budget::new(1)),
             Advance::Suspended { .. }
         ));
     }
-    assert_eq!(g.state.libraries[&PlayerId(0)].len(), 8);
-    assert_eq!(g.state.pending_triggers.len(), 1);
+    assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), 8);
+    assert_eq!(g.state.rules.pending_triggers.len(), 1);
     recover(&g);
     placed(&mut g);
-    assert_eq!(g.state.libraries[&PlayerId(0)].len(), 7);
-    assert_eq!(g.state.stack.len(), 1);
+    assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), 7);
+    assert_eq!(g.state.rules.stack.len(), 1);
     recover(&g);
     resolve(&mut g);
-    assert_eq!(g.state.libraries[&PlayerId(0)].len(), 6);
-    assert_eq!(g.state.next_trigger_id, 1);
+    assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), 6);
+    assert_eq!(g.state.rules.next_trigger_id, 1);
     recover(&g);
 }
 

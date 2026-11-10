@@ -21,10 +21,11 @@ fn answer(g: &mut Game, response: Response) {
 }
 fn named(g: &Game, name: &str, seat: u8) -> ObjectId {
     g.state
+        .rules
         .objects
         .values()
         .find(|o| {
-            g.state.cards[&o.id.card].owner == PlayerId(seat)
+            g.state.rules.cards[&o.id.card].owner == PlayerId(seat)
                 && g.definition(o.id.card).unwrap().name == name
         })
         .unwrap_or_else(|| panic!("{name} seat {seat}"))
@@ -131,7 +132,7 @@ fn main_for(g: &mut Game, seat: u8) {
         let r = request(g);
         if matches!(r, Request::Priority { .. })
             && r.player() == PlayerId(seat)
-            && g.state.active == Some(PlayerId(seat))
+            && g.state.rules.active == Some(PlayerId(seat))
             && g.turn().step == TurnStep::PrecombatMain
         {
             return;
@@ -155,7 +156,7 @@ fn priority(g: &mut Game, seat: u8) {
 fn settle(g: &mut Game) {
     for _ in 0..2000 {
         let r = request(g);
-        if matches!(r, Request::Priority { .. }) && g.state.stack.is_empty() {
+        if matches!(r, Request::Priority { .. }) && g.state.rules.stack.is_empty() {
             return;
         }
         let a = auto(g, &r);
@@ -217,6 +218,7 @@ fn pay(g: &mut Game, target: Option<TargetEntity>, sacrifice: Option<ObjectId>) 
                 } else {
                     let o = g
                         .state
+                        .rules
                         .objects
                         .values()
                         .find(|o| {
@@ -226,7 +228,7 @@ fn pay(g: &mut Game, target: Option<TargetEntity>, sacrifice: Option<ObjectId>) 
                                     == CardKind::Land
                                 && cost.colored.iter().any(|c| {
                                     g.mana_abilities(o.id).unwrap().contains(c)
-                                        && g.state.players[r.player().0 as usize]
+                                        && g.state.rules.players[r.player().0 as usize]
                                             .mana
                                             .get(c)
                                             .cloned()
@@ -238,7 +240,7 @@ fn pay(g: &mut Game, target: Option<TargetEntity>, sacrifice: Option<ObjectId>) 
                                 })
                         })
                         .or_else(|| {
-                            g.state.objects.values().find(|o| {
+                            g.state.rules.objects.values().find(|o| {
                                 o.controller == r.player()
                                     && g.validate_mana_activation(r.player(), o.id).is_ok()
                                     && g.definition(o.id.card).unwrap().characteristics.kind
@@ -357,9 +359,9 @@ fn cast(g: &mut Game, name: &str, seat: u8, target: Option<TargetEntity>, sac: O
         let cost = g
             .casting_cost(o.card, PlayerId(seat), g.current(o).unwrap().zone)
             .unwrap();
-        let mut funds = g.state.players[seat as usize].mana.clone();
+        let mut funds = g.state.rules.players[seat as usize].mana.clone();
         for land in
-            g.state.objects.values().filter(|o| {
+            g.state.rules.objects.values().filter(|o| {
                 o.controller == PlayerId(seat) && !o.tapped && o.zone == Zone::Battlefield
             })
         {
@@ -413,12 +415,13 @@ fn player(p: u8) -> Option<TargetEntity> {
 }
 fn tokens(g: &Game, seat: u8, subtype: &str) -> Vec<ObjectId> {
     g.state
+        .rules
         .objects
         .values()
         .filter(|o| {
             o.zone == Zone::Battlefield
                 && o.controller == PlayerId(seat)
-                && g.state.tokens.contains_key(&o.id.card)
+                && g.state.rules.tokens.contains_key(&o.id.card)
                 && g.definition(o.id.card)
                     .unwrap()
                     .characteristics
@@ -548,21 +551,22 @@ fn natural(label: &str, rows: &[(&str, u8)], colors: [u8; 4], run: impl Fn(&mut 
     for _ in 0..20000 {
         let r = request(&mut base);
         let ready = wanted.iter().all(|id| {
-            base.state.objects[id].zone
+            base.state.rules.objects[id].zone
                 == Zone::Hand {
-                    owner: base.state.cards[id].owner,
+                    owner: base.state.rules.cards[id].owner,
                 }
         });
         let mana_ready = (0..4).all(|seat| {
             colors[seat] != 1
                 || [FOREST, SWAMP].iter().all(|id| {
                     base.state
+                        .rules
                         .objects
                         .values()
                         .filter(|o| {
                             o.zone == Zone::Battlefield
                                 && o.controller == PlayerId(seat as u8)
-                                && base.state.cards[&o.id.card].oracle_id == *id
+                                && base.state.rules.cards[&o.id.card].oracle_id == *id
                         })
                         .count()
                         >= 3
@@ -571,18 +575,19 @@ fn natural(label: &str, rows: &[(&str, u8)], colors: [u8; 4], run: impl Fn(&mut 
         if ready
             && mana_ready
             && base.turn().number >= 33
-            && base.state.active == Some(PlayerId(0))
+            && base.state.rules.active == Some(PlayerId(0))
             && base.turn().step == TurnStep::PrecombatMain
             && matches!(r, Request::Priority { .. })
         {
             break;
         }
         let response = if matches!(r, Request::Priority { .. })
-            && base.state.active == Some(r.player())
+            && base.state.rules.active == Some(r.player())
             && base.turn().step == TurnStep::PrecombatMain
-            && base.state.turn.lands_played == 0
+            && base.state.rules.turn.lands_played == 0
         {
             base.state
+                .rules
                 .objects
                 .values()
                 .find(|o| {
@@ -599,7 +604,7 @@ fn natural(label: &str, rows: &[(&str, u8)], colors: [u8; 4], run: impl Fn(&mut 
     assert!(
         wanted
             .iter()
-            .all(|id| matches!(base.state.objects[id].zone, Zone::Hand { .. })),
+            .all(|id| matches!(base.state.rules.objects[id].zone, Zone::Hand { .. })),
         "witness cards drawn"
     );
     let journal = base.replay_journal();
@@ -662,7 +667,7 @@ fn double_strike_in_wipes_profile() {
         let ace = named(g, "Fencing Ace", 0);
         let turn = g.turn().number;
         to_attackers(g, 0, ace, turn);
-        let life = g.state.players[1].life.clone();
+        let life = g.state.rules.players[1].life.clone();
         answer(
             g,
             Response::Attackers {
@@ -688,7 +693,7 @@ fn double_strike_in_wipes_profile() {
         let mut expected = life;
         expected.subtract(&2.into());
         assert_eq!(
-            g.state.players[1].life, expected,
+            g.state.rules.players[1].life, expected,
             "double strike dealt damage once"
         );
         assert!(saw_first_strike_step, "no first-strike damage step");
@@ -778,7 +783,7 @@ fn battlefield(g: &Game, name: &str, seat: u8) -> bool {
     g.current(named(g, name, seat)).unwrap().zone == Zone::Battlefield
 }
 fn life(g: &Game, p: u8) -> Quantity {
-    g.state.players[p as usize].life.clone()
+    g.state.rules.players[p as usize].life.clone()
 }
 fn trigger_count(g: &Game, name: &str) -> usize {
     g.events().iter().filter(|e|matches!(e,Event::TriggerCollected {source,..} if g.definition(source.card).unwrap().name==name)).count()
@@ -905,7 +910,7 @@ fn wipes_planar_cleansing_nonlands_rancor_return() {
             let y = named(g, "Yargle and Multani", 1);
             cast(g, "Rancor", 1, obj(y), None);
             main_for(g, 1);
-            if g.state.turn.lands_played == 0 {
+            if g.state.rules.turn.lands_played == 0 {
                 answer(
                     g,
                     Response::PlayLand {
@@ -916,6 +921,7 @@ fn wipes_planar_cleansing_nonlands_rancor_return() {
             }
             let lands = g
                 .state
+                .rules
                 .objects
                 .values()
                 .filter(|o| {
@@ -926,6 +932,7 @@ fn wipes_planar_cleansing_nonlands_rancor_return() {
             cast(g, "Planar Cleansing", 0, None, None);
             assert_eq!(
                 g.state
+                    .rules
                     .objects
                     .values()
                     .filter(|o| o.zone == Zone::Battlefield)
@@ -1022,7 +1029,7 @@ fn wipes_infest_fixed_set_anthem_and_counter_survive_later_creature_unaffected()
                     .toughness,
                 Some(1.into())
             );
-            assert!(!g.state.effects.is_empty());
+            assert!(!g.state.rules.effects.is_empty());
         },
     );
 }
@@ -1063,7 +1070,7 @@ fn wipes_innocent_blood_includes_caster_apnap_simultaneous() {
                             object: candidates[0],
                         },
                     );
-                } else if matches!(r, Request::Priority { .. }) && g.state.stack.is_empty() {
+                } else if matches!(r, Request::Priority { .. }) && g.state.rules.stack.is_empty() {
                     break;
                 } else {
                     let a = auto(g, &r);
@@ -1246,7 +1253,7 @@ fn wipes_anger_damage_later_bolt_sacrifice_and_cleanup() {
                 assert!(exiles >= 5);
             }
             main_for(g, 1);
-            assert!(g.state.effects.is_empty());
+            assert!(g.state.rules.effects.is_empty());
             let c = named(g, "Caelorna, Coral Tyrant", 2);
             announce(g, "Murder", 1, obj(c), None);
             settle(g);
@@ -1302,7 +1309,7 @@ fn wipes_fallout_counterspell_and_swan_bird() {
             announce(g, "Counterspell", 2, None, None);
             for _ in 0..50 {
                 let r = request(g);
-                if g.state.stack.len() == 1 {
+                if g.state.rules.stack.len() == 1 {
                     break;
                 }
                 let a = auto(g, &r);
@@ -1312,7 +1319,7 @@ fn wipes_fallout_counterspell_and_swan_bird() {
             announce(g, "Swan Song", 2, None, None);
             for _ in 0..50 {
                 let r = request(g);
-                if g.state.stack.len() == 1 {
+                if g.state.rules.stack.len() == 1 {
                     break;
                 }
                 let a = auto(g, &r);
@@ -1420,6 +1427,7 @@ fn wipes_earthquake_x_zero_announcement_restore_mv_flying_and_furnace() {
             check(g);
             let lives = g
                 .state
+                .rules
                 .players
                 .iter()
                 .map(|p| p.life.clone())
@@ -1428,7 +1436,7 @@ fn wipes_earthquake_x_zero_announcement_restore_mv_flying_and_furnace() {
             for (i, old) in lives.iter().enumerate() {
                 let mut expected = old.clone();
                 expected.subtract(&6.into());
-                assert_eq!(g.state.players[i].life, expected);
+                assert_eq!(g.state.rules.players[i].life, expected);
             }
             assert_eq!(
                 g.current(named(g, "Storm Crow", 2)).unwrap().marked_damage,
@@ -1448,6 +1456,7 @@ fn wipes_earthquake_x_zero_announcement_restore_mv_flying_and_furnace() {
             );
             assert!(
                 g.state
+                    .rules
                     .commanders
                     .records
                     .values()
@@ -1498,6 +1507,7 @@ fn wipes_blasphemous_act_reduction_floor_eight_and_twelve_and_unpayable() {
             let goblin = named(g, "Goblin Instigator", 3);
             while g
                 .state
+                .rules
                 .objects
                 .values()
                 .filter(|o| {
@@ -1519,7 +1529,7 @@ fn wipes_blasphemous_act_reduction_floor_eight_and_twelve_and_unpayable() {
                 6.into()
             );
             assert!(
-                g.state.players[3]
+                g.state.rules.players[3]
                     .mana
                     .values()
                     .all(|q| *q == Quantity::zero())
@@ -1527,7 +1537,7 @@ fn wipes_blasphemous_act_reduction_floor_eight_and_twelve_and_unpayable() {
             answer(g, Response::Cast { card: act });
             answer(g, Response::FinishMana { undo_mana: true });
             let _ = request(g);
-            assert!(g.state.stack.is_empty());
+            assert!(g.state.rules.stack.is_empty());
             assert_eq!(
                 g.current(named(g, "Blasphemous Act", 3)).unwrap().zone,
                 Zone::Hand { owner: PlayerId(3) }
@@ -1629,7 +1639,7 @@ fn wipes_evacuation_combat_commander_choices_token_aura_and_equipment() {
                             to_command: player == PlayerId(0),
                         },
                     );
-                } else if matches!(r, Request::Priority { .. }) && g.state.stack.is_empty() {
+                } else if matches!(r, Request::Priority { .. }) && g.state.rules.stack.is_empty() {
                     break;
                 } else {
                     let a = auto(g, &r);
@@ -1637,7 +1647,7 @@ fn wipes_evacuation_combat_commander_choices_token_aura_and_equipment() {
                 }
             }
             assert_eq!(choices, 2);
-            assert!(g.state.combat.is_empty());
+            assert!(g.state.rules.combat.is_empty());
             assert!(tokens(g, 0, "Soldier").is_empty());
             assert!(battlefield(g, "Bonesplitter", 0));
             assert_eq!(
@@ -1707,7 +1717,7 @@ fn wipes_aetherize_only_attackers_and_tranquility_restores_attack() {
             );
             assert!(battlefield(g, "Storm Crow", 2));
             assert!(battlefield(g, "Rorix Bladewing", 3));
-            assert!(g.state.combat.is_empty());
+            assert!(g.state.rules.combat.is_empty());
         },
     );
     natural(
@@ -1770,7 +1780,7 @@ fn wipes_fallout_last_players_lose_simultaneously_draw() {
                     && life(g, 3) == 2.into()
                     && r.player() == PlayerId(3)
                     && matches!(r, Request::Priority { .. })
-                    && g.state.active == Some(PlayerId(3))
+                    && g.state.rules.active == Some(PlayerId(3))
                     && g.turn().step == TurnStep::PrecombatMain
                 {
                     break;
@@ -1845,7 +1855,7 @@ fn wipes_x_has_no_fixed_width_ceiling_and_unpayable_cast_reverses() {
             check(g);
             answer(g, Response::FinishMana { undo_mana: true });
             let _ = request(g);
-            assert!(g.state.stack.is_empty());
+            assert!(g.state.rules.stack.is_empty());
             assert_eq!(
                 g.current(named(g, "Earthquake", 3)).unwrap().zone,
                 Zone::Hand { owner: PlayerId(3) }
@@ -1935,10 +1945,15 @@ fn wurm_simultaneous_death_looks_back() {
             announce(g, "Fumigate", 0, None, None);
             for _ in 0..200 {
                 let r = request(g);
-                if g.state.stack.iter().any(|s| s.death_controller.is_some()) {
+                if g.state
+                    .rules
+                    .stack
+                    .iter()
+                    .any(|s| s.death_controller.is_some())
+                {
                     check(g);
                 }
-                if matches!(r, Request::Priority { .. }) && g.state.stack.is_empty() {
+                if matches!(r, Request::Priority { .. }) && g.state.rules.stack.is_empty() {
                     break;
                 }
                 let a = auto(g, &r);

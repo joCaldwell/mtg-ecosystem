@@ -27,6 +27,7 @@ fn take_round(g: &mut Game, take: bool) {
 }
 fn hand(g: &Game, p: PlayerId) -> Vec<ObjectId> {
     g.state
+        .rules
         .objects
         .values()
         .filter(|o| o.zone == (Zone::Hand { owner: p }))
@@ -78,7 +79,13 @@ fn setup_is_budget_partition_invariant_and_automatic_queries_reveal_nothing() {
         a.observe(PlayerId(0), Budget::unlimited()),
         QueryResult::Rejected(QueryRejection::UnavailableDuringSetup)
     ));
-    assert!(a.state.visibility.iter().all(|k| k.history.is_empty()));
+    assert!(
+        a.state
+            .knowledge
+            .visibility
+            .iter()
+            .all(|k| k.history.is_empty())
+    );
     let req = request(&mut a);
     let mut steps = 0;
     loop {
@@ -93,7 +100,13 @@ fn setup_is_budget_partition_invariant_and_automatic_queries_reveal_nothing() {
                     b.observe(PlayerId(0), Budget::new(1)),
                     QueryResult::Rejected(QueryRejection::UnavailableDuringSetup)
                 ));
-                assert!(b.state.visibility.iter().all(|k| k.history.is_empty()));
+                assert!(
+                    b.state
+                        .knowledge
+                        .visibility
+                        .iter()
+                        .all(|k| k.history.is_empty())
+                );
             }
             x => panic!("{x:?}"),
         }
@@ -104,7 +117,7 @@ fn setup_is_budget_partition_invariant_and_automatic_queries_reveal_nothing() {
     assert_eq!(req.player(), PlayerId(2));
     for seat in 0..4 {
         assert_eq!(hand(&a, PlayerId(seat)).len(), 7);
-        assert_eq!(a.state.libraries[&PlayerId(seat)].len(), 92);
+        assert_eq!(a.state.rules.libraries[&PlayerId(seat)].len(), 92);
     }
     let restored = Game::restore(p, &a.snapshot().unwrap()).unwrap();
     assert_eq!(restored.state, a.state);
@@ -113,13 +126,13 @@ fn setup_is_budget_partition_invariant_and_automatic_queries_reveal_nothing() {
 fn declarations_wait_for_all_free_paid_and_max_mulligans_use_ordered_bottoms() {
     let mut g = Game::new(prepared());
     let first = request(&mut g);
-    let old = g.state.libraries.clone();
-    let random = g.state.match_state.as_ref().unwrap().random.clone();
+    let old = g.state.rules.libraries.clone();
+    let random = g.state.rules.match_state.as_ref().unwrap().random.clone();
     let original = hand(&g, PlayerId(2));
     answer(&mut g, first, Response::Mulligan { take: true });
     let next = request(&mut g);
-    assert_eq!(g.state.libraries, old);
-    assert_eq!(g.state.match_state.as_ref().unwrap().random, random);
+    assert_eq!(g.state.rules.libraries, old);
+    assert_eq!(g.state.rules.match_state.as_ref().unwrap().random, random);
     assert_eq!(hand(&g, PlayerId(2)), original);
     assert_eq!(next.player(), PlayerId(3));
     answer(&mut g, next, Response::Mulligan { take: true });
@@ -168,7 +181,7 @@ fn declarations_wait_for_all_free_paid_and_max_mulligans_use_ordered_bottoms() {
                     },
                 );
                 let _ = g.advance(Budget::new(1));
-                let lib = &g.state.libraries[&player];
+                let lib = &g.state.rules.libraries[&player];
                 assert_eq!(
                     &lib[lib.len() - objects.len()..],
                     objects
@@ -186,10 +199,10 @@ fn declarations_wait_for_all_free_paid_and_max_mulligans_use_ordered_bottoms() {
     }
     let r = request(&mut g);
     assert!(matches!(r, Request::Priority { .. }));
-    assert!(g.state.match_state.as_ref().unwrap().setup.is_none());
+    assert!(g.state.rules.match_state.as_ref().unwrap().setup.is_none());
     for seat in 0..4 {
         assert!(hand(&g, PlayerId(seat)).is_empty());
-        assert_eq!(g.state.libraries[&PlayerId(seat)].len(), 99);
+        assert_eq!(g.state.rules.libraries[&PlayerId(seat)].len(), 99);
     }
 }
 #[test]
@@ -332,19 +345,26 @@ fn large_match_groups_and_multiple_fresh_commanders_remain_atomic() {
     // aggregate atomicity for full100-card departures/untaps.
     let ids = g
         .state
+        .rules
         .objects
         .values()
         .filter(|o| {
-            g.state.cards[&o.id.card].owner == PlayerId(0) && matches!(o.zone, Zone::Library { .. })
+            g.state.rules.cards[&o.id.card].owner == PlayerId(0)
+                && matches!(o.zone, Zone::Library { .. })
         })
         .map(|o| o.id)
         .collect::<Vec<_>>();
     for id in &ids {
-        let o = g.state.objects.get_mut(&id.card).unwrap();
+        let o = g.state.rules.objects.get_mut(&id.card).unwrap();
         o.zone = Zone::Battlefield;
         o.tapped = true;
     }
-    g.state.libraries.get_mut(&PlayerId(0)).unwrap().clear();
+    g.state
+        .rules
+        .libraries
+        .get_mut(&PlayerId(0))
+        .unwrap()
+        .clear();
     let events = ids
         .iter()
         .map(|object| ProposedEvent::Untap { object: *object })
@@ -362,27 +382,27 @@ fn large_match_groups_and_multiple_fresh_commanders_remain_atomic() {
         g.move_object_for(
             id,
             Zone::Graveyard {
-                owner: g.state.cards[&card].owner,
+                owner: g.state.rules.cards[&card].owner,
             },
             BatchCause::Fixture,
         )
         .unwrap();
     }
-    assert_eq!(g.state.commander_returns.len(), 2);
+    assert_eq!(g.state.rules.commander_returns.len(), 2);
     let resume = Frame::Stabilize {
         resume: Box::new(Frame::Priority),
         cleanup: false,
         changed: false,
     };
     assert!(g.offer_commander_sba(resume).unwrap());
-    assert!(g.state.commander_returns.is_empty());
+    assert!(g.state.rules.commander_returns.is_empty());
     let r = request(&mut g);
     assert_eq!(r.player(), PlayerId(2));
     answer(&mut g, r, Response::CommanderReturn { to_command: true });
     let r = request(&mut g);
     assert_eq!(r.player(), PlayerId(0));
     assert!(matches!(
-        g.state.objects[&CardId(200)].zone,
+        g.state.rules.objects[&CardId(200)].zone,
         Zone::Graveyard { .. }
     ));
     let Request::CommanderReturn {
@@ -410,11 +430,11 @@ fn large_match_groups_and_multiple_fresh_commanders_remain_atomic() {
     answer(&mut g, r, Response::CommanderReturn { to_command: true });
     let _ = g.advance(Budget::new(1));
     assert_eq!(
-        g.state.objects[&CardId(0)].zone,
+        g.state.rules.objects[&CardId(0)].zone,
         Zone::Command { owner: PlayerId(0) }
     );
     assert_eq!(
-        g.state.objects[&CardId(200)].zone,
+        g.state.rules.objects[&CardId(200)].zone,
         Zone::Command { owner: PlayerId(2) }
     );
     let batch = g

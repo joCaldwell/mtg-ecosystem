@@ -55,6 +55,7 @@ impl Game {
             .filter(|id| {
                 spec.filter.as_ref().is_none_or(|f| {
                     self.state
+                        .rules
                         .stack
                         .iter()
                         .find(|e| e.id == *id)
@@ -86,6 +87,7 @@ impl Game {
                 let (controller, c) = if t.domain == TargetDomain::StackSpell {
                     let e = self
                         .state
+                        .rules
                         .stack
                         .iter()
                         .find(|e| Some(&e.id) == entry.stack_targets.get(slot))
@@ -111,6 +113,7 @@ impl Game {
                 if t.domain == TargetDomain::StackSpell {
                     let entry = self
                         .state
+                        .rules
                         .stack
                         .iter()
                         .find(|e| Some(&e.id) == entry.stack_targets.get(slot))
@@ -216,7 +219,7 @@ impl Game {
                             InstructionOutcome::PlayerActionSkipped { player },
                         );
                     }
-                    self.state.frame = Frame::ResolutionChoice {
+                    self.state.rules.frame = Frame::ResolutionChoice {
                         choice: ResolutionChoice::OptionalEffect {
                             player: frame.spell.controller,
                             target,
@@ -329,12 +332,13 @@ impl Game {
         block: u32,
     ) -> Result<(), String> {
         if !self.is_live(player) {
-            self.state.pending = None;
+            self.state.rules.pending = None;
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
         let input = self
             .state
+            .rules
             .pending
             .take()
             .ok_or("missing optional effect answer")?;

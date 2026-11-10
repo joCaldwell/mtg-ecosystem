@@ -113,6 +113,7 @@ fn check(g: &Game) {
     assert_eq!(replayed.trace(), g.trace());
     assert!(
         g.state
+            .rules
             .objects
             .values()
             .all(|o| o.zone != Zone::Battlefield || !o.deathtouch_damage)
@@ -157,6 +158,7 @@ fn cast(g: &mut Game, id: u32, targets: Vec<TargetEntity>) {
                 } else {
                     let land = g
                         .state
+                        .rules
                         .objects
                         .values()
                         .find(|o| {
@@ -195,7 +197,7 @@ fn cast(g: &mut Game, id: u32, targets: Vec<TargetEntity>) {
         };
         g.respond(r.player(), r.decision_id(), response).unwrap();
     }
-    while !g.state.stack.is_empty() {
+    while !g.state.rules.stack.is_empty() {
         answer(g, Response::Pass);
         request(g);
     }
@@ -290,13 +292,13 @@ fn trample_excess_lethal_and_public_request() {
             };
             g.submit(receipt).unwrap();
             reach(g, TurnStep::CombatDamage);
-            assert_eq!(g.state.players[1].life, 36.into());
+            assert_eq!(g.state.rules.players[1].life, 36.into());
             assert_eq!(g.current(a).unwrap().marked_damage, 2.into());
             assert!(matches!(
-                g.state.objects[&b.card].zone,
+                g.state.rules.objects[&b.card].zone,
                 Zone::Graveyard { .. }
             ));
-            assert!(g.state.first_strike_participants.is_empty());
+            assert!(g.state.rules.first_strike_participants.is_empty());
         },
     );
 }
@@ -328,9 +330,9 @@ fn trample_deathtouch_private_domain_lethal_one() {
             },
         );
         reach(g, TurnStep::CombatDamage);
-        assert_eq!(g.state.players[1].life, 35.into());
+        assert_eq!(g.state.rules.players[1].life, 35.into());
         assert!(matches!(
-            g.state.objects[&b.card].zone,
+            g.state.rules.objects[&b.card].zone,
             Zone::Graveyard { .. }
         ));
     });
@@ -355,10 +357,10 @@ fn trample_after_blocker_removed() {
                     object: object(g, 1),
                 }],
             );
-            assert!(g.state.combat[0].blocked);
-            assert!(g.state.combat[0].blockers.is_empty());
+            assert!(g.state.rules.combat[0].blocked);
+            assert!(g.state.rules.combat[0].blockers.is_empty());
             reach(g, TurnStep::CombatDamage);
-            assert_eq!(g.state.players[1].life, 34.into());
+            assert_eq!(g.state.rules.players[1].life, 34.into());
         },
     );
 }
@@ -372,7 +374,7 @@ fn first_strike_kills_before_regular_damage_and_restore_between_steps() {
             reach(g, TurnStep::FirstStrikeDamage);
             assert_eq!(g.current(object(g, 0)).unwrap().marked_damage, 0.into());
             assert!(matches!(
-                g.state.objects[&CardId(1)].zone,
+                g.state.rules.objects[&CardId(1)].zone,
                 Zone::Graveyard { .. }
             ));
             check(g);
@@ -381,7 +383,7 @@ fn first_strike_kills_before_regular_damage_and_restore_between_steps() {
             reach(&mut restored, TurnStep::CombatDamage);
             reach(g, TurnStep::CombatDamage);
             assert_eq!(g.state, restored.state);
-            assert_eq!(g.state.players[1].life, 40.into());
+            assert_eq!(g.state.rules.players[1].life, 40.into());
         },
     );
 }
@@ -393,10 +395,10 @@ fn double_strike_and_regular_creature_use_separate_steps() {
         |g| {
             declare(g, &[(0, 1), (1, 1)], &[]);
             reach(g, TurnStep::FirstStrikeDamage);
-            assert_eq!(g.state.players[1].life, 39.into());
+            assert_eq!(g.state.rules.players[1].life, 39.into());
             check(g);
             reach(g, TurnStep::CombatDamage);
-            assert_eq!(g.state.players[1].life, 36.into());
+            assert_eq!(g.state.rules.players[1].life, 36.into());
         },
     );
 }
@@ -424,9 +426,14 @@ fn double_strike_lifelink_and_commander_history_private_fixture() {
             (TurnStep::CombatDamage, 2),
         ] {
             reach(g, step);
-            assert_eq!(g.state.players[0].life, Quantity::from(40 + 2 * n));
+            assert_eq!(g.state.rules.players[0].life, Quantity::from(40 + 2 * n));
             assert_eq!(
-                g.state.commanders.history(CardId(0)).unwrap().combat_damage[&PlayerId(1)],
+                g.state
+                    .rules
+                    .commanders
+                    .history(CardId(0))
+                    .unwrap()
+                    .combat_damage[&PlayerId(1)],
                 Quantity::from(2 * n)
             );
             check(g);
@@ -447,10 +454,10 @@ fn fog_prevents_both_steps() {
             reach(g, TurnStep::DeclareBlockers);
             cast(g, 1, vec![]);
             reach(g, TurnStep::FirstStrikeDamage);
-            assert_eq!(g.state.players[1].life, 40.into());
+            assert_eq!(g.state.rules.players[1].life, 40.into());
             check(g);
             reach(g, TurnStep::CombatDamage);
-            assert_eq!(g.state.players[1].life, 40.into());
+            assert_eq!(g.state.rules.players[1].life, 40.into());
         },
     );
 }
@@ -510,13 +517,13 @@ fn menace_complete_declaration_rejects_one_accepts_two() {
                 },
             );
             reach(g, TurnStep::CombatDamage);
-            assert_eq!(g.state.players[1].life, 40.into());
+            assert_eq!(g.state.rules.players[1].life, 40.into());
             assert!(matches!(
-                g.state.objects[&CardId(0)].zone,
+                g.state.rules.objects[&CardId(0)].zone,
                 Zone::Graveyard { .. }
             ));
             assert!(matches!(
-                g.state.objects[&CardId(1)].zone,
+                g.state.rules.objects[&CardId(1)].zone,
                 Zone::Graveyard { .. }
             ));
             assert_eq!(g.current(object(g, 2)).unwrap().marked_damage, 1.into());
@@ -528,8 +535,8 @@ fn no_extra_step_without_first_or_double_strike() {
     traces(prepared(&[("Grizzly Bears", 0, false)]), |g| {
         declare(g, &[(0, 1)], &[]);
         reach(g, TurnStep::CombatDamage);
-        assert!(g.state.first_strike_participants.is_empty());
-        assert_eq!(g.state.players[1].life, 38.into());
+        assert!(g.state.rules.first_strike_participants.is_empty());
+        assert_eq!(g.state.rules.players[1].life, 38.into());
         reach(g, TurnStep::EndCombat);
     });
 }
@@ -593,7 +600,7 @@ fn blood_artist_sbas_triggers_and_priority_between_steps() {
                     Request::PlayerTargets { .. } => {
                         assert_eq!(g.turn().step, TurnStep::FirstStrikeDamage);
                         assert!(matches!(
-                            g.state.objects[&CardId(1)].zone,
+                            g.state.rules.objects[&CardId(1)].zone,
                             Zone::Graveyard { .. }
                         ));
                         saw_target = true;
@@ -612,19 +619,19 @@ fn blood_artist_sbas_triggers_and_priority_between_steps() {
                 }
             }
             assert!(saw_target);
-            assert_eq!(g.state.stack.len(), 1);
-            assert_eq!(g.state.priority, PlayerId(0));
+            assert_eq!(g.state.rules.stack.len(), 1);
+            assert_eq!(g.state.rules.priority, PlayerId(0));
             check(g);
-            while !g.state.stack.is_empty() {
+            while !g.state.rules.stack.is_empty() {
                 answer(g, Response::Pass);
                 request(g);
             }
             assert_eq!(g.turn().step, TurnStep::FirstStrikeDamage);
-            assert_eq!(g.state.players[0].life, 41.into());
-            assert_eq!(g.state.players[1].life, 39.into());
+            assert_eq!(g.state.rules.players[0].life, 41.into());
+            assert_eq!(g.state.rules.players[1].life, 39.into());
             check(g);
             reach(g, TurnStep::CombatDamage);
-            assert_eq!(g.state.players[1].life, 37.into());
+            assert_eq!(g.state.rules.players[1].life, 37.into());
         },
     );
 }
@@ -638,7 +645,7 @@ fn removal_between_steps_and_first_strike_blocker() {
             reach(g, TurnStep::FirstStrikeDamage);
             check(g);
             assert!(matches!(
-                g.state.objects[&CardId(0)].zone,
+                g.state.rules.objects[&CardId(0)].zone,
                 Zone::Graveyard { .. }
             ));
             reach(g, TurnStep::CombatDamage);
@@ -664,7 +671,7 @@ fn removal_between_steps_and_first_strike_blocker() {
             );
             check(g);
             reach(g, TurnStep::CombatDamage);
-            assert_eq!(g.state.players[1].life, 39.into());
+            assert_eq!(g.state.rules.players[1].life, 39.into());
         },
     );
 }
@@ -679,8 +686,8 @@ fn trample_marked_damage_and_other_step_assignments_private_domain() {
     ]);
     let mut g = Game::new(p);
     let (a, b, c) = (object(&g, 0), object(&g, 1), object(&g, 2));
-    g.state.turn.step = TurnStep::CombatDamage;
-    g.state.combat = vec![
+    g.state.rules.turn.step = TurnStep::CombatDamage;
+    g.state.rules.combat = vec![
         Attacker {
             attacker: a,
             defender: PlayerId(1),
@@ -694,10 +701,15 @@ fn trample_marked_damage_and_other_step_assignments_private_domain() {
             blockers: vec![b],
         },
     ];
-    g.state.objects.get_mut(&b.card).unwrap().marked_damage = 1.into();
+    g.state
+        .rules
+        .objects
+        .get_mut(&b.card)
+        .unwrap()
+        .marked_damage = 1.into();
     // Ox toughness4 - marked1 - other Bears assignment2 = lethal1.
     assert_eq!(g.lethal_requirement(a, b).unwrap(), 1.into());
-    g.state.frame = Frame::DamageChoice { source: a };
+    g.state.rules.frame = Frame::DamageChoice { source: a };
     assert!(
         g.validate_combat_response(
             PlayerId(0),
@@ -758,15 +770,15 @@ fn first_strike_blocker_of_departed_attacker_still_starts_first_step() {
             reach(g, TurnStep::FirstStrikeDamage);
             check(g);
             assert!(matches!(
-                g.state.objects[&CardId(0)].zone,
+                g.state.rules.objects[&CardId(0)].zone,
                 Zone::Graveyard { .. }
             ));
-            assert_eq!(g.state.players[1].life, 40.into());
+            assert_eq!(g.state.rules.players[1].life, 40.into());
             reach(g, TurnStep::CombatDamage);
-            assert_eq!(g.state.players[1].life, 38.into());
+            assert_eq!(g.state.rules.players[1].life, 38.into());
             assert_eq!(g.current(object(g, 2)).unwrap().marked_damage, 0.into());
             reach(g, TurnStep::PostcombatMain);
-            assert!(g.state.orphan_first_strike_blockers.is_empty());
+            assert!(g.state.rules.orphan_first_strike_blockers.is_empty());
         },
     );
 }

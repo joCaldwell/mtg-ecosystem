@@ -47,11 +47,12 @@ impl Game {
 
     pub(super) fn graveyard_creatures(&self, player: PlayerId) -> Vec<ObjectId> {
         self.state
+            .rules
             .objects
             .values()
             .filter(|o| {
                 o.zone == (Zone::Graveyard { owner: player })
-                    && !self.state.tokens.contains_key(&o.id.card)
+                    && !self.state.rules.tokens.contains_key(&o.id.card)
                     && self
                         .definition(o.id.card)
                         .is_ok_and(|d| d.characteristics.kind == CardKind::Creature)
@@ -75,19 +76,22 @@ impl Game {
                 self.graveyard_creatures(entry.controller).contains(&object)
             }
             Some(TargetDomain::ControlledBattlefieldCreature) => {
-                self.target_legal(object)
+                self.is_battlefield_creature(object)
                     && self.targetable_by(object, entry.controller)
                     && self
                         .current(object)
                         .is_ok_and(|o| o.controller == entry.controller && o.id != entry.source)
             }
-            _ => self.target_legal(object) && self.targetable_by(object, entry.controller),
+            _ => {
+                self.is_battlefield_creature(object) && self.targetable_by(object, entry.controller)
+            }
         }
     }
     pub(super) fn search_lands(&self, player: PlayerId) -> Vec<ObjectId> {
         // CardId order is physical order, never library order (CR 401.2).
         let mut cards = self
             .state
+            .rules
             .objects
             .values()
             .filter(|o| {
@@ -106,7 +110,7 @@ impl Game {
         player: PlayerId,
         object: ObjectId,
     ) -> Result<ObjectHandle, String> {
-        if !matches!(self.state.frame, Frame::ResolutionChoice { choice: ResolutionChoice::Search { player: p, .. }, .. } if p == player)
+        if !matches!(self.state.rules.frame, Frame::ResolutionChoice { choice: ResolutionChoice::Search { player: p, .. }, .. } if p == player)
         {
             return Err("no private land search".into());
         }
@@ -161,7 +165,7 @@ impl Game {
             } => {
                 let target = frame.spell.targets[target_slot as usize];
                 if frame.legal_targets.get(target_slot as usize) == Some(&true)
-                    && self.target_legal(target)
+                    && self.is_battlefield_creature(target)
                 {
                     self.commit(
                         ProposedEvent::DestroyCreature { object: target },
@@ -186,7 +190,7 @@ impl Game {
                         .finish_instruction(frame, InstructionOutcome::IllegalTarget { target });
                 }
                 if optional && self.is_live(frame.spell.controller) {
-                    self.state.frame = Frame::ResolutionChoice {
+                    self.state.rules.frame = Frame::ResolutionChoice {
                         choice: ResolutionChoice::OptionalRecursion {
                             player: frame.spell.controller,
                             target,
@@ -207,7 +211,7 @@ impl Game {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
-                self.state.frame = Frame::ResolutionChoice {
+                self.state.rules.frame = Frame::ResolutionChoice {
                     choice: ResolutionChoice::Search {
                         player: frame.spell.controller,
                         maximum,
@@ -230,11 +234,11 @@ impl Game {
             return self
                 .finish_instruction(frame, InstructionOutcome::ObjectNoLongerPresent { target });
         }
-        let owner = self.state.cards[&target.card].owner;
+        let owner = self.state.rules.cards[&target.card].owner;
         // CR903.9b offers the owner the hand-move replacement from ANY zone.
         // Declining leaves an ordinary hand card (still the physical Commander).
-        if self.state.commanders.history(target.card).is_some() {
-            self.state.frame = Frame::CommanderReturn {
+        if self.state.rules.commanders.history(target.card).is_some() {
+            self.state.rules.frame = Frame::CommanderReturn {
                 object: target,
                 destination: Zone::Hand { owner },
                 continuation: Box::new(CommanderContinuation::SpellMove {
@@ -256,7 +260,7 @@ impl Game {
         player: PlayerId,
         response: &Response,
     ) -> Option<Result<(), String>> {
-        let Frame::ResolutionChoice { choice, .. } = &self.state.frame else {
+        let Frame::ResolutionChoice { choice, .. } = &self.state.rules.frame else {
             return None;
         };
         match (choice, response) {
@@ -302,7 +306,7 @@ impl Game {
             _ => return Err("not staples choice".into()),
         };
         if !self.is_live(player) {
-            self.state.pending = None;
+            self.state.rules.pending = None;
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
@@ -327,7 +331,7 @@ impl Game {
                 let EventOutcome::LibraryShuffledWord { selected, .. } = actual else {
                     return Err("missing shuffle result".into());
                 };
-                self.state.frame = Frame::ResolutionChoice {
+                self.state.rules.frame = Frame::ResolutionChoice {
                     frame,
                     choice: ResolutionChoice::Shuffle {
                         player,
@@ -338,7 +342,12 @@ impl Game {
                 Ok(())
             }
             ResolutionChoice::Search { source_block, .. } => {
-                let input = self.state.pending.take().ok_or("missing search input")?;
+                let input = self
+                    .state
+                    .rules
+                    .pending
+                    .take()
+                    .ok_or("missing search input")?;
                 self.validate_staples_response(input.player, &input.response)
                     .ok_or("wrong search response")??;
                 let Response::SearchLands { mut objects } = input.response else {
@@ -359,10 +368,11 @@ impl Game {
                 }
                 let index = self
                     .state
+                    .rules
                     .libraries
                     .get(&player)
                     .map_or(0, |l| l.len().saturating_sub(1)) as u32;
-                self.state.frame = Frame::ResolutionChoice {
+                self.state.rules.frame = Frame::ResolutionChoice {
                     frame,
                     choice: ResolutionChoice::Shuffle {
                         player,
@@ -379,6 +389,7 @@ impl Game {
             } => {
                 let input = self
                     .state
+                    .rules
                     .pending
                     .take()
                     .ok_or("missing optional recursion input")?;
@@ -401,12 +412,13 @@ impl Game {
         player: PlayerId,
         index: u32,
     ) -> Result<EventOutcome, String> {
-        if !matches!(self.state.frame, Frame::ResolutionChoice { choice: ResolutionChoice::Shuffle { player: p,index: i,.. },.. } if p == player && i==index)
+        if !matches!(self.state.rules.frame, Frame::ResolutionChoice { choice: ResolutionChoice::Shuffle { player: p,index: i,.. },.. } if p == player && i==index)
         {
             return Err("shuffle continuation invariant".into());
         }
         let library = self
             .state
+            .rules
             .libraries
             .get_mut(&player)
             .ok_or("missing search library")?;
@@ -421,6 +433,7 @@ impl Game {
         }
         let random = &mut self
             .state
+            .rules
             .match_state
             .as_mut()
             .ok_or("missing trusted match randomness")?
@@ -488,7 +501,13 @@ impl Game {
                 *player == frame.spell.controller
                     && source_block == b
                     && (*index as usize)
-                        < self.state.libraries.get(player).map_or(1, Vec::len).max(1)
+                        < self
+                            .state
+                            .rules
+                            .libraries
+                            .get(player)
+                            .map_or(1, Vec::len)
+                            .max(1)
             }
             (
                 ResolutionChoice::OptionalRecursion {

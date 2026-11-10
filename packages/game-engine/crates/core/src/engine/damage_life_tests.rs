@@ -86,7 +86,7 @@ fn detached_pinger() -> Game {
         answer(&mut g, Response::Pass);
     }
     settle(&mut g);
-    assert_eq!(g.state.stack.len(), 1);
+    assert_eq!(g.state.rules.stack.len(), 1);
     assert!(g.current(source).is_err());
     assert_eq!(
         g.current(g.object_id(CardId(0)).unwrap()).unwrap().zone,
@@ -123,7 +123,7 @@ fn damage_event_captures_consumed_source_and_actual_creature_marks() {
     assert_eq!(result.previous, Quantity::zero());
     assert_eq!(result.current, 1.into());
     assert_eq!(g.current(target).unwrap().marked_damage, 1.into());
-    assert_eq!(g.state.players[1].life, 40.into());
+    assert_eq!(g.state.rules.players[1].life, 40.into());
 }
 
 #[test]
@@ -131,7 +131,7 @@ fn commander_noncombat_damage_and_life_changes_never_write_combat_history() {
     // Private domain fixture: the damage kernel supports any physical source,
     // including a designated commander, without making combat-damage claims.
     let mut g = game();
-    let ledger = g.state.commanders.clone();
+    let ledger = g.state.rules.commanders.clone();
     let proposed = hit(
         &g,
         14,
@@ -167,7 +167,7 @@ fn commander_noncombat_damage_and_life_changes_never_write_combat_history() {
     assert!(
         matches!(receipt.result(&[2]),Some(EventOutcome::LifeGained {previous,current,..}) if *previous==33.into() && *current==37.into())
     );
-    assert_eq!(g.state.commanders, ledger);
+    assert_eq!(g.state.rules.commanders, ledger);
     assert!(receipt.before.commander_damage.is_empty());
 }
 
@@ -201,7 +201,7 @@ fn ordered_life_events_measure_zero_then_recover_before_state_based_actions() {
     assert!(
         matches!(receipt.result(&[1]),Some(EventOutcome::LifeGained {previous,current,..}) if *previous==Quantity::zero() && *current==4.into())
     );
-    assert_eq!(g.state.players[0].life, 4.into());
+    assert_eq!(g.state.rules.players[0].life, 4.into());
     assert!(g.is_live(PlayerId(0)));
 }
 
@@ -232,7 +232,7 @@ fn independent_damage_and_life_occurrences_compose_but_shared_writes_reject() {
         .unwrap();
     assert_eq!(receipt.occurrences.len(), 2);
     assert_eq!(g.current(creature).unwrap().marked_damage, 1.into());
-    assert_eq!(g.state.players[1].life, 44.into());
+    assert_eq!(g.state.rules.players[1].life, 44.into());
     for group in [
         EventGroup::Simultaneous {
             occurrences: vec![damage.clone(), damage],
@@ -407,7 +407,7 @@ fn ordered_event_failure_rolls_back_prior_life_move_source_and_trace_writes() {
 fn detached_paid_damage_uses_exact_last_known_facts_and_rejects_rehashed_forgery() {
     let initial = detached_pinger();
     recover(&initial);
-    let fact = initial.state.stack[0].source_facts.clone().unwrap();
+    let fact = initial.state.rules.stack[0].source_facts.clone().unwrap();
     assert!(fact.tapped);
     assert_eq!(fact.zone, Zone::Battlefield);
     assert_eq!(fact.object.incarnation, 0);
@@ -440,7 +440,7 @@ fn detached_paid_damage_uses_exact_last_known_facts_and_rejects_rehashed_forgery
         assert_eq!(g.state, initial.state);
         assert_eq!(g.trace, initial.trace);
         let mut saved: Snapshot = strict_read(&initial.snapshot().unwrap()).unwrap();
-        let source = saved.state.stack[0].source_facts.as_mut().unwrap();
+        let source = saved.state.rules.stack[0].source_facts.as_mut().unwrap();
         match mutation {
             0 => source.tapped = false,
             1 => source.marked_damage = 9.into(),
@@ -475,7 +475,7 @@ fn detached_paid_damage_uses_exact_last_known_facts_and_rejects_rehashed_forgery
         .unwrap();
     assert_eq!(damage.len(), 1);
     assert_eq!(damage[0].source, fact);
-    assert_eq!(g.state.players[1].life, 39.into());
+    assert_eq!(g.state.rules.players[1].life, 39.into());
     recover(&g);
 }
 

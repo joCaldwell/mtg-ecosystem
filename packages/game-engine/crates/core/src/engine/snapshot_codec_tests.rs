@@ -113,7 +113,11 @@ fn snapshot_codec_payment_pending_and_each_rule_boundary_restore_and_replay_all_
 #[test]
 fn snapshot_codec_arbitrary_metadata_escaping_null_trace_and_every_original_history_byte() {
     let mut game = Game::with_trace(historical(), TraceMode::Off);
-    let mut view = game.state.visibility[0].history.last().unwrap().to_public();
+    let mut view = game.state.knowledge.visibility[0]
+        .history
+        .last()
+        .unwrap()
+        .to_public();
     // Deliberately untrusted serialization domain, not an admitted/reachable
     // position. Preserve Unicode, controls, signed decimal strings and map keys.
     view.objects[0].oracle_id = "quote\" slash\\ newline\n snowman☃ astral🧪".into();
@@ -132,7 +136,9 @@ fn snapshot_codec_arbitrary_metadata_escaping_null_trace_and_every_original_hist
         },
     });
     for _ in 0..70 {
-        game.state.visibility[0].history.push_public(view.clone());
+        game.state.knowledge.visibility[0]
+            .history
+            .push_public(view.clone());
     }
     let digest = game.state_digest().unwrap();
     let mut snapshot = reference(&game, &digest);
@@ -148,7 +154,7 @@ fn snapshot_codec_arbitrary_metadata_escaping_null_trace_and_every_original_hist
             .as_array()
             .unwrap()
             .len(),
-        game.state.visibility[0].history.len()
+        game.state.knowledge.visibility[0].history.len()
     );
 }
 
@@ -259,7 +265,13 @@ fn snapshot_codec_unchanged_reader_rejects_full_rehashed_shape_and_state_forgeri
         );
     }
     let mut forged: Snapshot = strict_read(&canonical(&value).unwrap()).unwrap();
-    forged.state.cards.get_mut(&CardId(0)).unwrap().oracle_id = "unknown".into();
+    forged
+        .state
+        .rules
+        .cards
+        .get_mut(&CardId(0))
+        .unwrap()
+        .oracle_id = "unknown".into();
     forged.state_sha256 = digest(&forged.state).unwrap();
     let raw = canonical(&forged).unwrap();
     assert!(Game::restore(historical(), &raw).is_err());

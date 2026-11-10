@@ -101,6 +101,7 @@ impl Game {
             }
             Some(TargetDomain::BattlefieldPermanent) => self
                 .state
+                .rules
                 .objects
                 .values()
                 .any(|o| self.permanent_target_legal(o.id, player, &program.targets[0])),
@@ -110,8 +111,8 @@ impl Game {
             Some(
                 domain @ (TargetDomain::BattlefieldCreature
                 | TargetDomain::ControlledBattlefieldCreature),
-            ) => self.state.objects.values().any(|o| {
-                self.target_legal(o.id)
+            ) => self.state.rules.objects.values().any(|o| {
+                self.is_battlefield_creature(o.id)
                     && self.targetable_by(o.id, player)
                     && (domain != TargetDomain::ControlledBattlefieldCreature
                         || o.controller == player)
@@ -156,14 +157,16 @@ impl Game {
     }
     pub(super) fn controlled_creatures(&self, player: PlayerId) -> Vec<ObjectId> {
         self.state
+            .rules
             .objects
             .values()
-            .filter(|o| o.controller == player && self.target_legal(o.id))
+            .filter(|o| o.controller == player && self.is_battlefield_creature(o.id))
             .map(|o| o.id)
             .collect()
     }
     fn action_hand(&self, player: PlayerId) -> Vec<ObjectId> {
         self.state
+            .rules
             .objects
             .values()
             .filter(|o| o.zone == (Zone::Hand { owner: player }))
@@ -227,10 +230,10 @@ impl Game {
         self.announce_ability(player, decision_id, object, ability)
     }
     pub(super) fn actions_request(&self) -> Result<Option<Request>, String> {
-        let Frame::ResolutionChoice { choice, .. } = &self.state.frame else {
+        let Frame::ResolutionChoice { choice, .. } = &self.state.rules.frame else {
             return Ok(None);
         };
-        let decision_id = self.state.revision;
+        let decision_id = self.state.rules.revision;
         Ok(match choice {
             ResolutionChoice::Search {
                 player, maximum, ..
@@ -286,7 +289,7 @@ impl Game {
                 ..
             },
             Response::OptionalEffect { .. },
-        ) = (&self.state.frame, response)
+        ) = (&self.state.rules.frame, response)
         {
             return Some(if *chooser == player && self.is_live(player) {
                 Ok(())
@@ -300,7 +303,7 @@ impl Game {
         if let Some(result) = self.validate_trigger_response(player, response) {
             return Some(result);
         }
-        match (&self.state.frame, response) {
+        match (&self.state.rules.frame, response) {
             (
                 Frame::EntityTargets { .. } | Frame::TriggerTargets { .. },
                 Response::EntityTargets { entities },
@@ -309,7 +312,7 @@ impl Game {
                 Some(self.validate_stack_targets(player, entries))
             }
             (Frame::Priority, Response::ActivateAbility { object, ability })
-                if self.state.priority == player =>
+                if self.state.rules.priority == player =>
             {
                 Some(self.validate_activation(player, *object, *ability))
             }
@@ -376,20 +379,26 @@ impl Game {
         }
     }
     pub(super) fn actions_step(&mut self) -> Result<(), String> {
-        match self.state.frame.clone() {
+        match self.state.rules.frame.clone() {
             Frame::EntityTargets { cast } => self.bind_entity_targets(cast)?,
             Frame::StackTargets { cast } => self.bind_stack_targets(cast)?,
             Frame::PlayerTargets { cast } => {
-                let input = self.state.pending.take().ok_or("missing player targets")?;
+                let input = self
+                    .state
+                    .rules
+                    .pending
+                    .take()
+                    .ok_or("missing player targets")?;
                 let Response::PlayerTargets { players } = input.response else {
                     return Err("player target response invariant".into());
                 };
                 self.state
+                    .rules
                     .stack
                     .last_mut()
                     .ok_or("missing player-target stack entry")?
                     .player_targets = players;
-                self.state.frame = Frame::Mana { cast };
+                self.state.rules.frame = Frame::Mana { cast };
             }
             Frame::ResolutionChoice { frame, choice } => {
                 if let ResolutionChoice::OptionalEffect {
@@ -426,12 +435,13 @@ impl Game {
                             movements: vec![],
                         },
                     };
-                    self.state.pending = None;
+                    self.state.rules.pending = None;
                     self.finish_instruction(frame, outcome)?;
                     return Ok(());
                 };
                 let input = self
                     .state
+                    .rules
                     .pending
                     .take()
                     .ok_or("missing resolution choice")?;
@@ -504,7 +514,7 @@ impl Game {
     ) -> Result<(), String> {
         let Frame::ResolutionChoice {
             choice: current, ..
-        } = &self.state.frame
+        } = &self.state.rules.frame
         else {
             return Err("missing resolution choice frame".into());
         };
@@ -524,7 +534,7 @@ impl Game {
             .cursor
             .checked_add(1)
             .ok_or("instruction cursor resource limit")?;
-        self.state.frame = Frame::Resolve { frame };
+        self.state.rules.frame = Frame::Resolve { frame };
         Ok(())
     }
     pub(super) fn execute_action_instruction(
@@ -596,7 +606,7 @@ impl Game {
                         },
                     )
                 } else {
-                    self.state.frame = Frame::ResolutionChoice {
+                    self.state.rules.frame = Frame::ResolutionChoice {
                         frame,
                         choice: ResolutionChoice::Sacrifice {
                             player: target,
@@ -650,6 +660,7 @@ impl Game {
                 }
                 if let Some(card) = self
                     .state
+                    .rules
                     .libraries
                     .get(&player)
                     .and_then(|cards| cards.first())
@@ -658,8 +669,8 @@ impl Game {
                     let object = self
                         .object_id(card)
                         .ok_or("missing instruction draw source")?;
-                    if self.state.commanders.history(card).is_some() {
-                        self.state.frame = Frame::CommanderReturn {
+                    if self.state.rules.commanders.history(card).is_some() {
+                        self.state.rules.frame = Frame::CommanderReturn {
                             object,
                             destination: Zone::Hand { owner: player },
                             continuation: Box::new(CommanderContinuation::ResolutionDraw {
@@ -733,7 +744,7 @@ impl Game {
                         },
                     )
                 } else {
-                    self.state.frame = Frame::ResolutionChoice {
+                    self.state.rules.frame = Frame::ResolutionChoice {
                         frame,
                         choice: ResolutionChoice::Discard {
                             player,
@@ -758,13 +769,19 @@ impl Game {
     ) -> Result<(), String> {
         if self
             .state
+            .rules
             .stack
             .last()
             .is_some_and(|top| top.id == entry.id)
         {
-            self.state.stack.pop();
+            self.state.rules.stack.pop();
         } else if self.is_live(entry.controller)
-            || self.state.stack.iter().any(|item| item.id == entry.id)
+            || self
+                .state
+                .rules
+                .stack
+                .iter()
+                .any(|item| item.id == entry.id)
         {
             return Err("ability completion binding invariant".into());
         }
@@ -776,17 +793,19 @@ impl Game {
         } else {
             self.record_event(Event::AbilityCompleted { stack_id: entry.id })?;
         }
-        self.state.frame = Frame::Priority;
-        self.state.priority = self
+        self.state.rules.frame = Frame::Priority;
+        self.state.rules.priority = self
             .state
+            .rules
             .active
-            .or_else(|| self.next_live(self.state.turn_owner))
+            .or_else(|| self.next_live(self.state.rules.turn_owner))
             .ok_or("no live player after ability")?;
         self.stabilize()
     }
     pub(super) fn invocation_lives(&self, entry: &StackInstance) -> bool {
         if entry.kind.is_spell() {
             self.state
+                .rules
                 .cards
                 .get(&entry.source.card)
                 .is_some_and(|card| self.is_live(card.owner))
@@ -804,7 +823,7 @@ impl Game {
         let program = self.program_for(entry)?;
         self.validate_damage_bindings(entry)?;
         if entry.id != frame.stack_id
-            || entry.id.0 >= self.state.next_stack_id
+            || entry.id.0 >= self.state.rules.next_stack_id
             || self.bound_target_count(entry) != program.targets.len()
             || entry.paid.as_ref() != Some(&entry.total_cost)
             || frame.cursor as usize > program.instructions.len()
@@ -813,7 +832,13 @@ impl Game {
         {
             return Err("snapshot resolving invocation invariant".into());
         }
-        if self.state.stack.iter().any(|item| item.id == entry.id) {
+        if self
+            .state
+            .rules
+            .stack
+            .iter()
+            .any(|item| item.id == entry.id)
+        {
             if self.top()? != entry {
                 return Err("snapshot resolving top binding".into());
             }
@@ -824,21 +849,21 @@ impl Game {
     }
     pub(super) fn revalidate_actions_departure(&mut self) -> Result<(), String> {
         if matches!(
-            self.state.frame,
+            self.state.rules.frame,
             Frame::ResolutionChoice { .. }
                 | Frame::ForcedSacrifice { .. }
                 | Frame::OptionalDamage { .. }
                 | Frame::SacrificeCost { .. }
-        ) && self.state.pending.as_ref().is_some_and(|input| {
+        ) && self.state.rules.pending.as_ref().is_some_and(|input| {
             self.validate_response(input.player, &input.response)
                 .is_err()
         }) {
-            self.state.pending = None;
+            self.state.rules.pending = None;
         }
         Ok(())
     }
     pub(super) fn validate_actions_state(&self) -> Result<(), String> {
-        for entry in &self.state.stack {
+        for entry in &self.state.rules.stack {
             let StackKind::Activated {
                 ability,
                 source_handles,
@@ -848,7 +873,7 @@ impl Game {
             };
             self.validate_activated_entry(entry, *ability, source_handles)?;
         }
-        if let Frame::ResolutionChoice { frame, choice } = &self.state.frame {
+        if let Frame::ResolutionChoice { frame, choice } = &self.state.rules.frame {
             let instruction = self
                 .program_for(&frame.spell)?
                 .instructions

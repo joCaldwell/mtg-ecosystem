@@ -756,7 +756,7 @@ fn bottom_query_recovery_receipts_and_handles_remain_executor_and_state_scoped()
     let saved = g.save_work(&work).unwrap();
     assert_eq!(
         serde_json::from_str::<Value>(&saved).unwrap()["work_version"],
-        15
+        16
     );
     let mut restored = Game::restore(p.clone(), &before).unwrap();
     let work = restored.restore_work(&saved).unwrap();

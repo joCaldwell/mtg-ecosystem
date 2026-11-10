@@ -2305,6 +2305,19 @@ pub struct Catalog {
     pub definitions: Vec<Definition>,
 }
 impl Catalog {
+    /// Look up a definition in a validated, canonically ordered catalog.
+    ///
+    /// `read` and `validate` establish unique, increasing Oracle identities.
+    /// Callers that mutate the public definition table must validate it again
+    /// before lookup. The sorted table is its own index: lookup allocates no
+    /// cache and retains no references that can become stale after replacement.
+    pub fn definition_by_oracle_id(&self, oracle_id: &str) -> Option<&Definition> {
+        self.definitions
+            .binary_search_by(|definition| definition.oracle_id.as_str().cmp(oracle_id))
+            .ok()
+            .map(|index| &self.definitions[index])
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if !(MIN_IR_VERSION..=CURRENT_IR_VERSION).contains(&self.schema_version)
             || self.rules_edition != RULES_EDITION
@@ -2919,6 +2932,9 @@ impl<'de> Deserialize<'de> for UniqueJson {
         d.deserialize_any(Visitor)
     }
 }
+
+#[cfg(test)]
+mod catalog_lookup_tests;
 
 #[cfg(test)]
 mod tests {

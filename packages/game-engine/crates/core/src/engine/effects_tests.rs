@@ -25,7 +25,7 @@ fn origin(g: &mut Game, source: u32) -> EffectOrigin {
     }
 }
 fn seed(g: &mut Game, source: u32, kind: ResolvedEffectKind) -> EffectId {
-    let id = EffectId(g.state.next_effect_id);
+    let id = EffectId(g.state.rules.next_effect_id);
     let origin = origin(g, source);
     let target_handles = match &kind {
         ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
@@ -37,12 +37,12 @@ fn seed(g: &mut Game, source: u32, kind: ResolvedEffectKind) -> EffectId {
         } => g.capture_trigger_source_handles(*object).unwrap(),
         _ => vec![],
     };
-    g.state.next_effect_id += 1;
-    g.state.effects.push(ResolvedEffect {
+    g.state.rules.next_effect_id += 1;
+    g.state.rules.effects.push(ResolvedEffect {
         target_handles,
         id,
         origin,
-        expires_in_cleanup_of_turn: g.state.turn.number,
+        expires_in_cleanup_of_turn: g.state.rules.turn.number,
         kind,
     });
     id
@@ -135,7 +135,12 @@ fn signed_modifiers_are_additive_fixed_incarnation_and_cleanup_is_atomic() {
             toughness: 3.into(),
         },
     );
-    g.state.objects.get_mut(&CardId(3)).unwrap().marked_damage = 3.into();
+    g.state
+        .rules
+        .objects
+        .get_mut(&CardId(3))
+        .unwrap()
+        .marked_damage = 3.into();
     let before = g.state.clone();
     let batch = g
         .commit_batch(
@@ -151,7 +156,7 @@ fn signed_modifiers_are_additive_fixed_incarnation_and_cleanup_is_atomic() {
     );
     assert_eq!(g.characteristics(pinger).unwrap().toughness, Some(1.into()));
     assert_eq!(g.current(pinger).unwrap().marked_damage, 0.into());
-    assert!(before.objects.contains_key(&CardId(3)));
+    assert!(before.rules.objects.contains_key(&CardId(3)));
     assert!(g.current(pinger).is_ok());
     // A modifier never follows the physical card to a successor incarnation.
     seed(
@@ -216,7 +221,7 @@ fn applied_prefix_and_finite_shared_allocation_are_not_vector_order() {
     assert_eq!(candidates.len(), 4);
     let shield_key = EffectKey::Resolved { id: shield };
     apply(&mut g, shield_key.clone(), DamageId(1));
-    assert_eq!(g.state.players[1].life, 40.into());
+    assert_eq!(g.state.rules.players[1].life, 40.into());
     assert_eq!(g.damage_transaction().unwrap().entries[0].amount, 2.into());
     assert_eq!(g.damage_transaction().unwrap().entries[1].amount, 1.into());
     let before = g.state.clone();
@@ -249,7 +254,12 @@ fn applied_prefix_and_finite_shared_allocation_are_not_vector_order() {
         matches!(outcome,EventOutcome::DamageCommitted{actual,results,..} if actual.iter().map(|d|d.amount.to_string()).collect::<Vec<_>>()==["4","2"]&&results[0].current==34.into())
     );
     assert_eq!(
-        g.state.commanders.history(CardId(0)).unwrap().combat_damage[&PlayerId(1)],
+        g.state
+            .rules
+            .commanders
+            .history(CardId(0))
+            .unwrap()
+            .combat_damage[&PlayerId(1)],
         4.into()
     );
 }
@@ -278,7 +288,7 @@ fn forged_damage_ledger_and_late_failure_leave_every_write_unchanged() {
     let baseline = g.state.clone();
     for mutation in 0..7 {
         g.state = baseline.clone();
-        let Frame::DamageEffects { transaction: tx } = &mut g.state.frame else {
+        let Frame::DamageEffects { transaction: tx } = &mut g.state.rules.frame else {
             panic!()
         };
         match mutation {
@@ -380,12 +390,12 @@ fn fog_and_shield_orders_preserve_distinct_budgets_and_no_actual_zero_damage() {
         matches!(out,EventOutcome::DamageCommitted{actual,commander_damage,..} if actual.is_empty()&&commander_damage.is_empty())
     );
     assert!(
-        matches!(&g.state.effects.iter().find(|e|e.id==shield).unwrap().kind,ResolvedEffectKind::PreventNextDamage{remaining,..} if *remaining==1.into())
+        matches!(&g.state.rules.effects.iter().find(|e|e.id==shield).unwrap().kind,ResolvedEffectKind::PreventNextDamage{remaining,..} if *remaining==1.into())
     );
     apply(&mut other, EffectKey::Resolved { id: shield }, DamageId(0));
     apply(&mut other, EffectKey::Resolved { id: fog }, DamageId(0));
     assert!(
-        matches!(&other.state.effects.iter().find(|e|e.id==shield).unwrap().kind,ResolvedEffectKind::PreventNextDamage{remaining,..} if *remaining==0.into())
+        matches!(&other.state.rules.effects.iter().find(|e|e.id==shield).unwrap().kind,ResolvedEffectKind::PreventNextDamage{remaining,..} if *remaining==0.into())
     );
     // Life loss is not damage and bypasses every damage modifier/prevention.
     g.commit(
@@ -396,13 +406,13 @@ fn fog_and_shield_orders_preserve_distinct_budgets_and_no_actual_zero_damage() {
         BatchCause::Fixture,
     )
     .unwrap();
-    assert_eq!(g.state.players[1].life, 36.into());
+    assert_eq!(g.state.rules.players[1].life, 36.into());
 }
 #[test]
 fn repeated_cleanup_expires_effects_created_in_cleanup_priority_exception() {
     let mut g = game(ScenarioConfig::effects());
-    g.state.turn.step = TurnStep::Cleanup;
-    g.state.cleanup_repeat = true;
+    g.state.rules.turn.step = TurnStep::Cleanup;
+    g.state.rules.cleanup_repeat = true;
     let pinger = object(&g, 3);
     seed(
         &mut g,
@@ -413,20 +423,25 @@ fn repeated_cleanup_expires_effects_created_in_cleanup_priority_exception() {
             toughness: 3.into(),
         },
     );
-    g.state.objects.get_mut(&CardId(3)).unwrap().marked_damage = 3.into();
+    g.state
+        .rules
+        .objects
+        .get_mut(&CardId(3))
+        .unwrap()
+        .marked_damage = 3.into();
     // Domain fixture: the exact tables cannot naturally reach cleanup priority,
     // but 514.3a requires another cleanup after effects created in that window.
-    g.state.frame = Frame::CleanupClear;
+    g.state.rules.frame = Frame::CleanupClear;
     g.combat_step().unwrap();
-    assert!(g.state.effects.is_empty());
+    assert!(g.state.rules.effects.is_empty());
     assert_eq!(g.current(pinger).unwrap().marked_damage, 0.into());
     for _ in 0..20 {
-        if !matches!(g.state.frame, Frame::Stabilize { .. }) {
+        if !matches!(g.state.rules.frame, Frame::Stabilize { .. }) {
             break;
         }
         g.combat_step().unwrap();
     }
     assert!(g.current(pinger).is_ok());
     assert_eq!(g.characteristics(pinger).unwrap().toughness, Some(1.into()));
-    assert_eq!(g.state.turn.number, 1);
+    assert_eq!(g.state.rules.turn.number, 1);
 }

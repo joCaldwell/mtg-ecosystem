@@ -1,5 +1,7 @@
 //! Frozen pre-optimization query algorithm: copied before Work caches existed.
-//! Kept as an independent exact unit/cursor/serialization oracle.
+//! The query body remains an independent exact unit/cursor/serialization oracle.
+//! Sidecar v16 deliberately adds one initialization unit before that body; this
+//! is a new work schedule, not a claim that old total work counts are unchanged.
 use super::*;
 impl Game {
     fn reference_observation_unit(
@@ -20,8 +22,8 @@ impl Game {
                 self.visible_player(PlayerId(cursor as u8))
                     .map_err(|_| QueryRejection::Invariant)?,
             );
-        } else if cursor < 4 + self.state.objects.len() {
-            if let Some(object) = self.state.objects.values().nth(cursor - 4)
+        } else if cursor < 4 + self.state.rules.objects.len() {
+            if let Some(object) = self.state.rules.objects.values().nth(cursor - 4)
                 && let Some(visible) = self
                     .visible_object(viewer, object)
                     .map_err(|_| QueryRejection::Invariant)?
@@ -32,12 +34,12 @@ impl Game {
                     candidates.push(visible.handle.clone());
                 }
                 if let Some(PlayerRequest::Targets { candidates, .. }) = &mut b.decision
-                    && self.target_legal(object.id)
+                    && self.is_battlefield_creature(object.id)
                 {
                     candidates.push(visible.handle.clone());
                 }
                 if let Some(PlayerRequest::EntityTargets { candidates, .. }) = &mut b.decision
-                    && self.target_legal(object.id)
+                    && self.is_battlefield_creature(object.id)
                 {
                     candidates.push(PlayerTargetEntity::Object {
                         object: visible.handle.clone(),
@@ -50,16 +52,16 @@ impl Game {
                 }
                 b.view.objects.push(visible);
             }
-        } else if cursor < 4 + self.state.objects.len() + self.state.stack.len() {
+        } else if cursor < 4 + self.state.rules.objects.len() + self.state.rules.stack.len() {
             b.view.stack.push(
-                self.visible_stack(viewer, cursor - 4 - self.state.objects.len())
+                self.visible_stack(viewer, cursor - 4 - self.state.rules.objects.len())
                     .map_err(|_| QueryRejection::Invariant)?,
             );
         }
         if let Some(PlayerRequest::OrderTriggers { candidates, .. }) = &mut b.decision {
             let offset = 4
-                + self.state.objects.len()
-                + self.state.stack.len()
+                + self.state.rules.objects.len()
+                + self.state.rules.stack.len()
                 + self.live_effect_keys().len();
             if cursor >= offset
                 && let Some(id) = self.trigger_order_ids().get(cursor - offset)
@@ -71,7 +73,7 @@ impl Game {
             }
         }
         b.cursor = b.cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-        let base = 4 + self.state.objects.len() + self.state.stack.len();
+        let base = 4 + self.state.rules.objects.len() + self.state.rules.stack.len();
         let effect_count = self.live_effect_keys().len();
         if cursor >= base && cursor < base + effect_count {
             b.view.effects.push(
@@ -146,7 +148,9 @@ impl Game {
             } else {
                 0
             };
-        if b.cursor as usize >= 4 + self.state.objects.len() + self.state.stack.len() + extra {
+        if b.cursor as usize
+            >= 4 + self.state.rules.objects.len() + self.state.rules.stack.len() + extra
+        {
             b.view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
             return Ok(Some(Observation {
                 observation_version: 16,
@@ -160,6 +164,10 @@ impl Game {
         &self,
         data: &mut WorkData,
     ) -> Result<Option<QueryValue>, QueryRejection> {
+        if matches!(data.task, Task::Initialize) {
+            data.task = self.initial_query_task(&data.query)?;
+            return Ok(None);
+        }
         let invalid = |_: String| QueryRejection::InvalidResponse;
         match (&data.query, &mut data.task) {
             (Query::Observe { .. }, Task::Observe { builder }) => Ok(self
@@ -237,10 +245,11 @@ impl Game {
                             })
                     } else {
                         self.state
+                            .rules
                             .objects
                             .values()
                             .nth(cursor_index - 4)
-                            .filter(|o| self.target_legal(o.id))
+                            .filter(|o| self.is_battlefield_creature(o.id))
                             .map(|o| TargetEntity::Object { object: o.id })
                     };
                     if let Some(target) = target {
@@ -250,11 +259,11 @@ impl Game {
                         );
                     }
                     *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-                    return Ok((*cursor as usize >= 4 + self.state.objects.len())
+                    return Ok((*cursor as usize >= 4 + self.state.rules.objects.len())
                         .then(|| QueryValue::Decision(request.clone())));
                 }
                 if let Some(PlayerRequest::BottomOpening { candidates, .. }) = request {
-                    if let Some(o) = self.state.objects.values().nth(*cursor as usize)
+                    if let Some(o) = self.state.rules.objects.values().nth(*cursor as usize)
                         && o.zone == (Zone::Hand { owner: *viewer })
                     {
                         candidates.push(
@@ -263,14 +272,14 @@ impl Game {
                         );
                     }
                     *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-                    return Ok((*cursor as usize >= self.state.objects.len())
+                    return Ok((*cursor as usize >= self.state.rules.objects.len())
                         .then(|| QueryValue::Decision(request.clone())));
                 }
                 if !matches!(request, Some(PlayerRequest::Targets { .. })) {
                     return Ok(Some(QueryValue::Decision(request.clone())));
                 }
-                if let Some(object) = self.state.objects.values().nth(*cursor as usize)
-                    && self.target_legal(object.id)
+                if let Some(object) = self.state.rules.objects.values().nth(*cursor as usize)
+                    && self.is_battlefield_creature(object.id)
                 {
                     let handle = self
                         .handle_for(*viewer, object.id)
@@ -280,7 +289,7 @@ impl Game {
                     }
                 }
                 *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-                Ok((*cursor as usize >= self.state.objects.len())
+                Ok((*cursor as usize >= self.state.rules.objects.len())
                     .then(|| QueryValue::Decision(request.clone())))
             }
             (
@@ -301,7 +310,7 @@ impl Game {
                 if !*header_checked {
                     self.validate_player_token(*viewer, token)
                         .map_err(invalid)?;
-                    let timing_valid = match (&self.state.frame, response) {
+                    let timing_valid = match (&self.state.rules.frame, response) {
                         (Frame::Setup, PlayerResponse::Mulligan { .. }) => true,
                         (Frame::Setup, PlayerResponse::BottomOpening { objects }) => {
                             objects.len() <= 7
@@ -382,7 +391,7 @@ impl Game {
                     let id = self
                         .resolve_handle(*viewer, &objects[converted.len()])
                         .map_err(invalid)?;
-                    if !self.target_legal(id) {
+                    if !self.is_battlefield_creature(id) {
                         return Err(QueryRejection::InvalidResponse);
                     }
                     converted.push(id);
@@ -450,7 +459,7 @@ impl Game {
                 let receipt = self
                     .check_response(
                         *viewer,
-                        self.state.revision,
+                        self.state.rules.revision,
                         value.clone().ok_or(QueryRejection::Invariant)?,
                     )
                     .map_err(invalid)?;
@@ -472,7 +481,7 @@ impl Game {
                     *observation = self.reference_observation_unit(builder)?.map(Box::new);
                     return Ok(None);
                 }
-                let permitted = &self.state.visibility[viewer.0 as usize].history;
+                let permitted = &self.state.knowledge.visibility[viewer.0 as usize].history;
                 if history.len() < permitted.len() {
                     history.push_public(permitted[history.len()].to_public());
                     return Ok(None);
@@ -623,7 +632,7 @@ fn compare_with_profile(game: &Game, query: Query, profile: Option<&mut LegalPro
                         assert_eq!(
                             saved,
                             canonical(&SavedWork {
-                                work_version: 15,
+                                work_version: 16,
                                 build_id: BUILD_ID.into(),
                                 catalog_digest: game.prepared.catalog_digest.clone(),
                                 state_sha256: state_sha256.clone(),
@@ -666,7 +675,7 @@ pub(in crate::engine) fn compare_queries_with_profile(
             })
             .unwrap();
         }
-        if matches!(game.state.frame, Frame::Priority) && game.is_live(viewer) {
+        if matches!(game.state.rules.frame, Frame::Priority) && game.is_live(viewer) {
             if let Some(p) = profile.as_deref_mut() {
                 p.query(viewer, QueryKind::Search);
             }
@@ -857,16 +866,19 @@ fn optimized_work_matches_effects_modes_targets_and_trigger_candidate_domains() 
     let mut mode = fixture(choices, ScenarioConfig::choices());
     answer(&mut mode, Response::Cast { card: CardId(5) });
     let _ = mode.advance(Budget::unlimited());
-    assert!(matches!(mode.state.frame, Frame::Modes { .. }));
+    assert!(matches!(mode.state.rules.frame, Frame::Modes { .. }));
     compare_queries(&mode);
     answer(&mut mode, Response::Modes { mode: 1 });
     let _ = mode.advance(Budget::unlimited());
-    assert!(matches!(mode.state.frame, Frame::EntityTargets { .. }));
+    assert!(matches!(
+        mode.state.rules.frame,
+        Frame::EntityTargets { .. }
+    ));
     compare_queries(&mode);
     let mut targets = fixture(choices, ScenarioConfig::choices());
     answer(&mut targets, Response::Cast { card: CardId(4) });
     let _ = targets.advance(Budget::unlimited());
-    assert!(matches!(targets.state.frame, Frame::Targets { .. }));
+    assert!(matches!(targets.state.rules.frame, Frame::Targets { .. }));
     compare_queries(&targets);
     let mut triggers = fixture(
         include_str!("../../../../tests/fixtures/expected-trigger-ir.json"),
@@ -881,16 +893,19 @@ fn optimized_work_matches_effects_modes_targets_and_trigger_candidate_domains() 
         },
     );
     let _ = triggers.advance(Budget::unlimited());
-    assert!(matches!(triggers.state.frame, Frame::TriggerOrder { .. }));
+    assert!(matches!(
+        triggers.state.rules.frame,
+        Frame::TriggerOrder { .. }
+    ));
     compare_queries(&triggers);
 }
 fn shield(game: &mut Game, source: u32, amount: i64) {
     let source = game.object_id(CardId(source)).unwrap();
-    let id = EffectId(game.state.next_effect_id);
-    game.state.next_effect_id += 1;
-    game.state.next_stack_id = 1;
+    let id = EffectId(game.state.rules.next_effect_id);
+    game.state.rules.next_effect_id += 1;
+    game.state.rules.next_stack_id = 1;
     let source_handles = game.capture_trigger_source_handles(source).unwrap();
-    game.state.effects.push(ResolvedEffect {
+    game.state.rules.effects.push(ResolvedEffect {
         id,
         target_handles: vec![],
         origin: EffectOrigin {
@@ -902,7 +917,7 @@ fn shield(game: &mut Game, source: u32, amount: i64) {
             cursor: 0,
             source_block: 0,
         },
-        expires_in_cleanup_of_turn: game.state.turn.number,
+        expires_in_cleanup_of_turn: game.state.rules.turn.number,
         kind: ResolvedEffectKind::PreventNextDamage {
             target: TargetEntity::Player {
                 player: PlayerId(0),
@@ -913,6 +928,7 @@ fn shield(game: &mut Game, source: u32, amount: i64) {
 }
 fn damage_sources(game: &Game) -> Vec<DamageOccurrence> {
     game.state
+        .rules
         .objects
         .values()
         .filter(|o| {
@@ -940,6 +956,7 @@ fn optimized_work_matches_simultaneous_damage_effect_and_allocation_rows() {
     );
     let healer = effects
         .state
+        .rules
         .cards
         .iter()
         .find(|(_, c)| c.oracle_id == HEALER)
@@ -950,7 +967,10 @@ fn optimized_work_matches_simultaneous_damage_effect_and_allocation_rows() {
     let damage = damage_sources(&effects);
     effects.prepare_combat_damage(damage).unwrap();
     effects.refresh_visibility().unwrap();
-    assert!(matches!(effects.state.frame, Frame::DamageEffects { .. }));
+    assert!(matches!(
+        effects.state.rules.frame,
+        Frame::DamageEffects { .. }
+    ));
     compare_queries(&effects);
     let mut allocation = fixture(
         include_str!("../../../../tests/fixtures/expected-choices-ir.json"),
@@ -962,7 +982,7 @@ fn optimized_work_matches_simultaneous_damage_effect_and_allocation_rows() {
     allocation.damage_effect_step().unwrap();
     allocation.refresh_visibility().unwrap();
     assert!(matches!(
-        allocation.state.frame,
+        allocation.state.rules.frame,
         Frame::DamageAllocation { .. }
     ));
     compare_queries(&allocation);

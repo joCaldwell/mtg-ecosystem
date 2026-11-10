@@ -177,20 +177,21 @@ impl Game {
                 return Err("unsupported commander eligibility".into());
             }
             let history = CommanderHistory {
-                owner: self.state.cards[&card].owner,
+                owner: self.state.rules.cards[&card].owner,
                 color_identity: d.characteristics.color_identity.clone(),
                 command_casts: BTreeMap::new(),
                 combat_damage: BTreeMap::new(),
             };
-            self.state.commanders.records.insert(card, history);
+            self.state.rules.commanders.records.insert(card, history);
         }
         Ok(())
     }
     pub fn commander_ledger(&self) -> &CommanderLedger {
-        &self.state.commanders
+        &self.state.rules.commanders
     }
     pub fn live_players(&self) -> Vec<PlayerId> {
         self.state
+            .rules
             .original_seating
             .iter()
             .copied()
@@ -198,23 +199,24 @@ impl Game {
             .collect()
     }
     pub fn active_player(&self) -> Option<PlayerId> {
-        self.state.active
+        self.state.rules.active
     }
     pub fn turn_owner(&self) -> PlayerId {
-        self.state.turn_owner
+        self.state.rules.turn_owner
     }
     pub fn replay_journal(&self) -> ReplayJournal {
         ReplayJournal {
-            decisions: self.state.journal.clone(),
-            concessions: self.state.external_inputs.clone(),
+            decisions: self.state.audit.journal.iter().cloned().collect(),
+            concessions: self.state.audit.external_inputs.iter().cloned().collect(),
         }
     }
     pub(super) fn is_live(&self, player: PlayerId) -> bool {
         self.state
+            .rules
             .players
             .get(player.0 as usize)
             .is_some_and(|p| p.status == PlayerStatus::Live)
-            && !self.state.losing_players.contains(&player)
+            && !self.state.rules.losing_players.contains(&player)
     }
     pub(super) fn next_live(&self, after: PlayerId) -> Option<PlayerId> {
         (1..=4)
@@ -224,18 +226,18 @@ impl Game {
     pub(super) fn all_live_passed(&self) -> bool {
         self.live_players()
             .iter()
-            .all(|p| self.state.passes.contains(p))
+            .all(|p| self.state.rules.passes.contains(p))
     }
     pub(super) fn begin_resolution(&mut self) -> Result<(), String> {
-        self.state.passes.clear();
-        if self.state.stack.is_empty() {
-            self.state.frame = Frame::Transition;
+        self.state.rules.passes.clear();
+        if self.state.rules.stack.is_empty() {
+            self.state.rules.frame = Frame::Transition;
             return Ok(());
         }
         let stack = self.top()?.clone();
         let condition_check = self.check_resolution_condition(&stack)?;
         let legal_targets = self.announced_target_legality(&stack);
-        self.state.frame = Frame::Resolve {
+        self.state.rules.frame = Frame::Resolve {
             frame: Resolving {
                 set_damage: None,
                 target_facts: self.capture_target_facts(&stack, &legal_targets)?,
@@ -254,39 +256,38 @@ impl Game {
     /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub fn concede(&mut self, player: PlayerId) -> Result<(), String> {
         if !self.is_live(player)
-            || self.state.pending_concessions.contains(&player)
+            || self.state.rules.pending_concessions.contains(&player)
             || matches!(
-                self.state.frame,
+                self.state.rules.frame,
                 Frame::Finished { .. } | Frame::Draw | Frame::Fault { .. }
             )
             || self
                 .live_players()
                 .len()
-                .saturating_sub(self.state.pending_concessions.len())
+                .saturating_sub(self.state.rules.pending_concessions.len())
                 <= 1
         {
             return Err("concession is stale or game has already ended".into());
         }
         let revision = self
             .state
+            .rules
             .revision
             .checked_add(1)
             .ok_or("revision resource limit")?;
         let mut next = self.fork();
-        next.state.external_inputs.push(ExternalInput {
-            after_decisions: u64::try_from(next.state.journal.len())
+        next.state.audit.external_inputs.push(ExternalInput {
+            after_decisions: u64::try_from(next.state.audit.journal.len())
                 .map_err(|_| "input count resource limit")?,
-            boundary: next.state.rule_steps,
+            boundary: next.state.rules.rule_steps,
             player,
         });
-        next.state.retained_auxiliary_charge =
-            next.state
-                .retained_auxiliary_charge
-                .saturating_add(stored_history::payload_charge(
-                    next.state.external_inputs.last().unwrap(),
-                ));
-        next.state.pending_concessions.push(player);
-        next.state.revision = revision;
+        next.state.rules.retained_auxiliary_charge =
+            next.state.rules.retained_auxiliary_charge.saturating_add(
+                stored_history::payload_charge(next.state.audit.external_inputs.last().unwrap()),
+            );
+        next.state.rules.pending_concessions.push(player);
+        next.state.rules.revision = revision;
         next.refresh_visibility()?;
         self.state = next.state;
         self.trace = next.trace;
@@ -301,6 +302,7 @@ impl Game {
         // grant or the default controller, never ownership as a substitute.
         let objects = self
             .state
+            .rules
             .objects
             .values()
             .filter(|o| o.zone == Zone::Battlefield)
@@ -309,6 +311,7 @@ impl Game {
         for object in objects {
             let controller = self
                 .state
+                .rules
                 .control_effects
                 .iter()
                 .filter(|e| e.object == object.id && self.is_live(e.controller))
@@ -323,12 +326,14 @@ impl Game {
                 )?;
             } else if controller != object.controller {
                 self.state
+                    .rules
                     .objects
                     .get_mut(&object.id.card)
                     .ok_or("missing control object")?
                     .controller = controller;
                 self.remove_from_combat(object.id);
                 self.state
+                    .rules
                     .objects
                     .get_mut(&object.id.card)
                     .ok_or("missing control object")?
@@ -345,6 +350,7 @@ impl Game {
     fn begin_departure(&mut self, player: PlayerId) -> Result<Vec<ObjectId>, String> {
         if self
             .state
+            .rules
             .players
             .get(player.0 as usize)
             .is_none_or(|p| p.status != PlayerStatus::Live)
@@ -352,18 +358,19 @@ impl Game {
             return Err("duplicate departure".into());
         }
         let last = PlayerLastKnown {
-            life: self.state.players[player.0 as usize].life.clone(),
-            mana: self.state.players[player.0 as usize].mana.clone(),
+            life: self.state.rules.players[player.0 as usize].life.clone(),
+            mana: self.state.rules.players[player.0 as usize].mana.clone(),
         };
-        self.state.players[player.0 as usize].last_known = Some(last);
-        self.state.players[player.0 as usize].status = PlayerStatus::Left;
+        self.state.rules.players[player.0 as usize].last_known = Some(last);
+        self.state.rules.players[player.0 as usize].status = PlayerStatus::Left;
         self.record_event(Event::PlayerDeparted { player })?;
         // Owned objects leave, not a graveyard move and not an SBA (800.4a).
         let removed = self
             .state
+            .rules
             .objects
             .values()
-            .filter(|o| self.state.cards[&o.id.card].owner == player)
+            .filter(|o| self.state.rules.cards[&o.id.card].owner == player)
             .map(|o| o.id)
             .collect::<Vec<_>>();
         if !removed.is_empty() {
@@ -389,6 +396,7 @@ impl Game {
     fn finish_departure(&mut self, player: PlayerId, removed: &[ObjectId]) -> Result<(), String> {
         let ended = self
             .state
+            .rules
             .control_effects
             .iter()
             .filter(|e| {
@@ -399,6 +407,7 @@ impl Game {
             .map(|e| e.id)
             .collect::<Vec<_>>();
         self.state
+            .rules
             .control_effects
             .retain(|e| !ended.contains(&e.id));
         for id in ended {
@@ -407,12 +416,13 @@ impl Game {
         self.refresh_controllers(player)?;
         // A departure can remove a legend or change a controller while choices
         // are pending. Recompute the entire SBA wave; no stale keep survives.
-        if let Frame::LegendRule { resume, .. } = self.state.frame.clone() {
-            self.state.pending = None;
-            self.state.frame = *resume;
+        if let Frame::LegendRule { resume, .. } = self.state.rules.frame.clone() {
+            self.state.rules.pending = None;
+            self.state.rules.frame = *resume;
         }
         let lost_stack = self
             .state
+            .rules
             .stack
             .iter()
             .filter(|s| {
@@ -424,7 +434,10 @@ impl Game {
             })
             .map(|s| s.id)
             .collect::<Vec<_>>();
-        self.state.stack.retain(|s| !lost_stack.contains(&s.id));
+        self.state
+            .rules
+            .stack
+            .retain(|s| !lost_stack.contains(&s.id));
         self.revalidate_trigger_departure()?;
         self.revalidate_damage_departure()?;
         for stack_id in &lost_stack {
@@ -433,30 +446,31 @@ impl Game {
                 player,
             })?;
         }
-        if self.state.active == Some(player) {
-            self.state.active = None;
+        if self.state.rules.active == Some(player) {
+            self.state.rules.active = None;
         }
-        if self.state.priority == player {
+        if self.state.rules.priority == player {
             if let Some(next) = self.next_live(player) {
-                self.state.priority = next;
-            } else if !self.state.simultaneous_losses {
+                self.state.rules.priority = next;
+            } else if !self.state.rules.simultaneous_losses {
                 return Err("no remaining player".into());
             }
         }
         if self
             .state
+            .rules
             .pending
             .as_ref()
             .is_some_and(|p| p.player == player)
         {
-            self.state.pending = None;
+            self.state.rules.pending = None;
         }
-        if matches!(self.state.frame, Frame::Setup) {
+        if matches!(self.state.rules.frame, Frame::Setup) {
             self.revalidate_setup_departure()?;
         }
         let live = self.live_players();
-        self.state.passes.retain(|p| live.contains(p));
-        if !self.state.simultaneous_losses && self.finish_if_ended()? {
+        self.state.rules.passes.retain(|p| live.contains(p));
+        if !self.state.rules.simultaneous_losses && self.finish_if_ended()? {
             return Ok(());
         }
         self.revalidate_mana_departure()?;
@@ -472,15 +486,15 @@ impl Game {
         | Frame::Mana { cast }
         | Frame::SacrificeCost { cast }
         | Frame::SpendMana { cast }
-        | Frame::Payment { cast } = self.state.frame.clone()
+        | Frame::Payment { cast } = self.state.rules.frame.clone()
             && lost_stack.contains(&cast.stack_id)
         {
-            self.state.pending = None;
-            self.state.frame = Frame::Priority;
+            self.state.rules.pending = None;
+            self.state.rules.frame = Frame::Priority;
             // The departure removes the unfinished spell, but does not undo
             // legal casting-time mana activations. Those interrupt CR 117.4's
             // consecutive pass round even if their controller has now left.
-            self.state.passes = if cast.mana_activations.is_empty() {
+            self.state.rules.passes = if cast.mana_activations.is_empty() {
                 cast.prior_passes
                     .into_iter()
                     .filter(|p| live.contains(p))
@@ -498,40 +512,41 @@ impl Game {
         | Frame::Mana { cast }
         | Frame::SacrificeCost { cast }
         | Frame::SpendMana { cast }
-        | Frame::Payment { cast } = self.state.frame.clone()
+        | Frame::Payment { cast } = self.state.rules.frame.clone()
         {
-            let targets_bad = self.state.stack.last().is_some_and(|s| {
+            let targets_bad = self.state.rules.stack.last().is_some_and(|s| {
                 self.bound_target_count(s) != 0
                     && self
                         .announced_target_legality(s)
                         .iter()
                         .any(|legal| !*legal)
             });
-            let pending_bad = self
-                .state
-                .pending
-                .as_ref()
-                .is_some_and(|p| match &p.response {
-                    Response::EntityTargets { entities } => {
-                        self.validate_entity_targets(p.player, entities).is_err()
-                    }
-                    // Graveyard-card targets (Raise Dead) use their own domain.
-                    Response::Targets { objects } => self.top().map_or(true, |top| {
-                        objects.iter().any(|t| !self.object_target_legal(top, *t))
-                    }),
-                    Response::StackTargets { entries } => {
-                        self.validate_stack_targets(p.player, entries).is_err()
-                    }
-                    Response::PlayerTargets { players } => {
-                        players.iter().enumerate().any(|(slot, target)| {
-                            !self.player_target_legal(self.top().unwrap(), slot, *target)
-                        })
-                    }
-                    _ => false,
-                });
+            let pending_bad =
+                self.state
+                    .rules
+                    .pending
+                    .as_ref()
+                    .is_some_and(|p| match &p.response {
+                        Response::EntityTargets { entities } => {
+                            self.validate_entity_targets(p.player, entities).is_err()
+                        }
+                        // Graveyard-card targets (Raise Dead) use their own domain.
+                        Response::Targets { objects } => self.top().map_or(true, |top| {
+                            objects.iter().any(|t| !self.object_target_legal(top, *t))
+                        }),
+                        Response::StackTargets { entries } => {
+                            self.validate_stack_targets(p.player, entries).is_err()
+                        }
+                        Response::PlayerTargets { players } => {
+                            players.iter().enumerate().any(|(slot, target)| {
+                                !self.player_target_legal(self.top().unwrap(), slot, *target)
+                            })
+                        }
+                        _ => false,
+                    });
             let no_domain = !self.has_target_domain(self.program()?, self.top()?.controller);
             let source_bad = cast.origin == AnnouncementOrigin::Activated
-                && (matches!(self.state.frame, Frame::EntityTargets { .. })
+                && (matches!(self.state.rules.frame, Frame::EntityTargets { .. })
                     || matches!(self.top()?.kind, StackKind::Activated {ability,..} if self.top().is_ok_and(|top| self.definition(top.source.card).is_ok_and(|d| d.activated.get(ability as usize).is_some_and(|a| matches!(a.cost, ActivationCost::Composite {..}))))))
                 && self.current(self.top()?.source).is_err();
             if targets_bad || pending_bad || no_domain || source_bad {
@@ -542,7 +557,7 @@ impl Game {
         // activation before its rule step. Keep the input journal, discard
         // only the stale proposal, and leave valid pending actions intact.
         if matches!(
-            self.state.frame,
+            self.state.rules.frame,
             Frame::Priority
                 | Frame::Mana { .. }
                 | Frame::SacrificeCost { .. }
@@ -550,39 +565,41 @@ impl Game {
                 | Frame::ManaAbility { .. }
         ) && self
             .state
+            .rules
             .pending
             .as_ref()
             .is_some_and(|p| self.validate_response(p.player, &p.response).is_err())
         {
-            self.state.pending = None;
+            self.state.rules.pending = None;
         }
         // Drain boundary-ordered concessions before ordinary rules work:
         // later departures may finish the game or change target legality.
-        if matches!(self.state.frame, Frame::Priority)
-            && self.state.pending.is_none()
-            && self.state.pending_concessions.is_empty()
+        if matches!(self.state.rules.frame, Frame::Priority)
+            && self.state.rules.pending.is_none()
+            && self.state.rules.pending_concessions.is_empty()
             && self.all_live_passed()
         {
             self.begin_resolution()?;
         }
         self.revalidate_commander_departure()?;
         self.revalidate_actions_departure()?;
-        if !self.state.simultaneous_losses {
+        if !self.state.rules.simultaneous_losses {
             self.revalidate_combat_departure()?;
         }
         self.stabilize()
     }
     pub(super) fn apply_simultaneous_losses(&mut self, players: &[PlayerId]) -> Result<(), String> {
-        self.state.simultaneous_losses = true;
-        self.state.losing_players = players.to_vec();
+        self.state.rules.simultaneous_losses = true;
+        self.state.rules.losing_players = players.to_vec();
         let mut removed = vec![];
         // 800.4a: every losing owner's objects leave before control grants end.
         // Frozen doomed membership prevents temporary control by another loser.
         for player in players {
             removed.push((*player, self.begin_departure(*player)?));
         }
-        let ended=self.state.control_effects.iter().filter(|e|!self.is_live(e.controller) || self.current(e.object).is_err() || matches!(e.source,ControlSource::Static {object} if self.current(object).is_err())).map(|e|e.id).collect::<Vec<_>>();
+        let ended=self.state.rules.control_effects.iter().filter(|e|!self.is_live(e.controller) || self.current(e.object).is_err() || matches!(e.source,ControlSource::Static {object} if self.current(object).is_err())).map(|e|e.id).collect::<Vec<_>>();
         self.state
+            .rules
             .control_effects
             .retain(|e| !ended.contains(&e.id));
         for effect_id in ended {
@@ -591,8 +608,8 @@ impl Game {
         for (player, objects) in removed {
             self.finish_departure(player, &objects)?;
         }
-        self.state.simultaneous_losses = false;
-        self.state.losing_players.clear();
+        self.state.rules.simultaneous_losses = false;
+        self.state.rules.losing_players.clear();
         Ok(())
     }
     pub(super) fn replay_to(
@@ -612,15 +629,19 @@ impl Game {
         journal: &ReplayJournal,
         boundary: Option<u64>,
     ) -> Result<(), String> {
-        if !journal.decisions.starts_with(&self.state.journal)
-            || !journal.concessions.starts_with(&self.state.external_inputs)
-            || boundary.is_some_and(|limit| limit < self.state.rule_steps)
+        if !self.state.audit.journal.is_prefix_of(&journal.decisions)
+            || !self
+                .state
+                .audit
+                .external_inputs
+                .is_prefix_of(&journal.concessions)
+            || boundary.is_some_and(|limit| limit < self.state.rules.rule_steps)
         {
             return Err("snapshot does not extend the verified replay prefix".into());
         }
         let game = self;
-        let mut external = game.state.external_inputs.len();
-        for index in game.state.journal.len()..=journal.decisions.len() {
+        let mut external = game.state.audit.external_inputs.len();
+        for index in game.state.audit.journal.len()..=journal.decisions.len() {
             while external < journal.concessions.len()
                 && journal.concessions[external].after_decisions == index as u64
             {
@@ -630,16 +651,16 @@ impl Game {
                 }
                 let remaining = input
                     .boundary
-                    .checked_sub(game.state.rule_steps)
+                    .checked_sub(game.state.rules.rule_steps)
                     .ok_or("external input boundaries are not ordered")?;
                 if remaining > 0 {
                     let _ = game.advance(Budget::new(remaining));
                 }
-                if game.state.rule_steps != input.boundary {
+                if game.state.rules.rule_steps != input.boundary {
                     return Err("external boundary is unreachable".into());
                 }
                 game.concede(input.player)?;
-                if game.state.external_inputs.last() != Some(input) {
+                if game.state.audit.external_inputs.last() != Some(input) {
                     return Err("external ordering mismatch".into());
                 }
                 external += 1;
@@ -648,7 +669,7 @@ impl Game {
                 let budget = match boundary {
                     Some(limit) => Budget::new(
                         limit
-                            .checked_sub(game.state.rule_steps)
+                            .checked_sub(game.state.rules.rule_steps)
                             .ok_or("snapshot boundary mismatch")?,
                     ),
                     None => Budget::unlimited(),
@@ -668,7 +689,7 @@ impl Game {
         let budget = match boundary {
             Some(limit) => Budget::new(
                 limit
-                    .checked_sub(game.state.rule_steps)
+                    .checked_sub(game.state.rules.rule_steps)
                     .ok_or("snapshot boundary mismatch")?,
             ),
             None => Budget::unlimited(),

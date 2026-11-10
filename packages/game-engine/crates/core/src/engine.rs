@@ -1833,73 +1833,15 @@ pub enum Event {
         reason: String,
     },
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct State {
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    tokens: BTreeMap<CardId, tokens::TokenIdentity>,
-    // Deterministic conservative charge for inputs and potential detailed
-    // evidence, even in Off/Compact modes. Replay proves the counter.
-    #[serde(default, skip_serializing_if = "stored_history::is_zero_charge")]
-    retained_auxiliary_charge: usize,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    typed_fault: Option<RuleFault>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    match_state: Option<MatchState>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    effects: Vec<ResolvedEffect>,
-    #[serde(default, skip_serializing_if = "triggers::is_zero")]
-    next_effect_id: u64,
-    #[serde(default, skip_serializing_if = "triggers::is_zero")]
-    next_damage_transaction_id: u64,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pending_triggers: Vec<PendingTrigger>,
-    #[serde(default, skip_serializing_if = "triggers::is_zero")]
-    next_trigger_id: u64,
-    libraries: BTreeMap<PlayerId, Vec<CardId>>,
-    combat: Vec<Attacker>,
-    combat_declared: bool,
-    damage_choices: BTreeMap<ObjectId, Vec<(ObjectId, Quantity)>>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    player_damage_choices: BTreeMap<ObjectId, (PlayerId, Quantity)>,
-    /// CR510.4/702.7b: incarnation-bound first-step eligibility, retained even
-    /// after combat departure. Empty in every historical profile.
-    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    first_strike_participants: BTreeSet<ObjectId>,
-    /// CR506.4/509.1h: first/double strikers still blocking after their
-    /// attacker left combat. They assign no damage (510.1d) but still start a
-    /// first-strike damage step (510.4). Empty in every historical profile.
-    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    orphan_first_strike_blockers: BTreeSet<ObjectId>,
-    cleanup_repeat: bool,
-    simultaneous_losses: bool,
-    losing_players: Vec<PlayerId>,
-    revision: u64,
-    rule_steps: u64,
-    visibility: Vec<visibility::Knowledge>,
-    players: Vec<Player>,
-    cards: BTreeMap<CardId, Card>,
-    objects: BTreeMap<CardId, Object>,
-    active: Option<PlayerId>,
-    turn_owner: PlayerId,
-    turn: TurnState,
-    original_seating: Vec<PlayerId>,
-    commanders: CommanderLedger,
-    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    commander_returns: BTreeSet<ObjectId>,
-    control_effects: Vec<ControlEffect>,
-    external_inputs: Vec<ExternalInput>,
-    pending_concessions: Vec<PlayerId>,
-    priority: PlayerId,
-    passes: Vec<PlayerId>,
-    next_stack_id: u32,
-    stack: Vec<StackInstance>,
-    frame: Frame,
-    pending: Option<AcceptedInput>,
-    journal: Vec<AcceptedInput>,
-    next_batch_id: u64,
-    next_event_sequence: u64,
-}
+mod player_session;
+pub use player_session::PlayerSession;
+#[cfg(test)]
+mod architecture_transaction_tests;
+mod state;
+#[cfg(test)]
+mod state_ownership_tests;
+use state::{AuditState, KnowledgeState, RulesState, State};
+
 /// Full raw snapshot output receipt, returned only after the caller sink flushes.
 /// Host metadata only; not a snapshot field, schema or semantic State input.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1915,6 +1857,8 @@ pub struct Game {
     trace: TraceEvidence,
     executor: Arc<()>,
     state_token: Arc<()>,
+    // Private staging scope: nested event batches share the outer rollback.
+    in_rule_step: bool,
 }
 pub struct ValidatedResponse {
     executor: Arc<()>,
@@ -1994,61 +1938,67 @@ impl Game {
             })
             .collect();
         let state = State {
-            tokens: BTreeMap::new(),
-            retained_auxiliary_charge: 0,
-            typed_fault: None,
-            match_state: prepared.match_config.as_ref().map(MatchState::new),
-            effects: vec![],
-            next_effect_id: 0,
-            next_damage_transaction_id: 0,
-            pending_triggers: vec![],
-            next_trigger_id: 0,
-            libraries: prepared.config.initial_libraries(),
-            combat: vec![],
-            combat_declared: false,
-            damage_choices: BTreeMap::new(),
-            player_damage_choices: BTreeMap::new(),
-            first_strike_participants: BTreeSet::new(),
-            orphan_first_strike_blockers: BTreeSet::new(),
-            cleanup_repeat: false,
-            simultaneous_losses: false,
-            losing_players: vec![],
-            revision: 0,
-            rule_steps: 0,
-            visibility: (0..4).map(|_| visibility::Knowledge::default()).collect(),
-            players: (0..4)
-                .map(|p| Player {
-                    failed_draw: false,
-                    life: prepared.config.initial_life(PlayerId(p)),
-                    mana: BTreeMap::new(),
-                    status: PlayerStatus::Live,
-                    last_known: None,
-                })
-                .collect(),
-            cards,
-            objects,
-            active: Some(PlayerId(0)),
-            turn_owner: PlayerId(0),
-            turn: TurnState {
-                number: 1,
-                step: prepared.config.initial_turn_step(),
-                lands_played: 0,
+            rules: RulesState {
+                tokens: BTreeMap::new(),
+                retained_auxiliary_charge: 0,
+                typed_fault: None,
+                match_state: prepared.match_config.as_ref().map(MatchState::new),
+                effects: vec![],
+                next_effect_id: 0,
+                next_damage_transaction_id: 0,
+                pending_triggers: vec![],
+                next_trigger_id: 0,
+                libraries: prepared.config.initial_libraries(),
+                combat: vec![],
+                combat_declared: false,
+                damage_choices: BTreeMap::new(),
+                player_damage_choices: BTreeMap::new(),
+                first_strike_participants: BTreeSet::new(),
+                orphan_first_strike_blockers: BTreeSet::new(),
+                cleanup_repeat: false,
+                simultaneous_losses: false,
+                losing_players: vec![],
+                revision: 0,
+                rule_steps: 0,
+                players: (0..4)
+                    .map(|p| Player {
+                        failed_draw: false,
+                        life: prepared.config.initial_life(PlayerId(p)),
+                        mana: BTreeMap::new(),
+                        status: PlayerStatus::Live,
+                        last_known: None,
+                    })
+                    .collect(),
+                cards,
+                objects,
+                active: Some(PlayerId(0)),
+                turn_owner: PlayerId(0),
+                turn: TurnState {
+                    number: 1,
+                    step: prepared.config.initial_turn_step(),
+                    lands_played: 0,
+                },
+                original_seating: (0..4).map(PlayerId).collect(),
+                commanders: CommanderLedger::new(),
+                commander_returns: BTreeSet::new(),
+                control_effects: vec![],
+                pending_concessions: vec![],
+                priority: PlayerId(0),
+                passes: vec![],
+                next_stack_id: 0,
+                stack: vec![],
+                frame: Frame::Priority,
+                pending: None,
+                next_batch_id: 0,
+                next_event_sequence: 0,
             },
-            original_seating: (0..4).map(PlayerId).collect(),
-            commanders: CommanderLedger::new(),
-            commander_returns: BTreeSet::new(),
-            control_effects: vec![],
-            external_inputs: vec![],
-            pending_concessions: vec![],
-            priority: PlayerId(0),
-            passes: vec![],
-            next_stack_id: 0,
-            stack: vec![],
-            frame: Frame::Priority,
-            pending: None,
-            journal: vec![],
-            next_batch_id: 0,
-            next_event_sequence: 0,
+            knowledge: KnowledgeState {
+                visibility: (0..4).map(|_| visibility::Knowledge::default()).collect(),
+            },
+            audit: AuditState {
+                external_inputs: History::default(),
+                journal: History::default(),
+            },
         };
         let mut game = Self {
             prepared: Arc::new(prepared),
@@ -2056,12 +2006,13 @@ impl Game {
             trace: Self::initial_trace(),
             executor: Arc::new(()),
             state_token: Arc::new(()),
+            in_rule_step: false,
         };
         if let Some(config) = game.prepared.match_config.as_ref() {
-            game.state.active = Some(config.starting_player);
-            game.state.turn_owner = config.starting_player;
-            game.state.priority = config.starting_player;
-            game.state.frame = Frame::Setup;
+            game.state.rules.active = Some(config.starting_player);
+            game.state.rules.turn_owner = config.starting_player;
+            game.state.rules.priority = config.starting_player;
+            game.state.rules.frame = Frame::Setup;
         }
         game.initialize_commanders()
             .expect("admitted commander configuration");
@@ -2076,14 +2027,16 @@ impl Game {
             trace: self.trace.clone(),
             executor: Arc::new(()),
             state_token: Arc::new(()),
+            in_rule_step: false,
         }
     }
     fn history_charge(&self) -> usize {
         // Charge actual retained allocations, independently of trace mode.
         self.state
+            .knowledge
             .visibility
             .iter()
-            .fold(self.state.retained_auxiliary_charge, |n, k| {
+            .fold(self.state.rules.retained_auxiliary_charge, |n, k| {
                 n.saturating_add(k.history.retention_charge())
             })
     }
@@ -2099,7 +2052,7 @@ impl Game {
     }
     /// Trusted host execution boundary; never a player-facing identifier.
     pub fn rule_boundary(&self) -> u64 {
-        self.state.rule_steps
+        self.state.rules.rule_steps
     }
     pub fn state_digest(&self) -> Result<String, String> {
         state_digest::state_digest(&self.state)
@@ -2110,17 +2063,20 @@ impl Game {
     pub fn config(&self) -> &ScenarioConfig {
         self.prepared.config()
     }
-    pub fn journal(&self) -> &[AcceptedInput] {
-        &self.state.journal
+    /// Borrow the persistent input log without materializing a flat copy.
+    /// Use `iter()` for scans and explicitly collect when owned entries are needed.
+    pub fn journal(&self) -> &History<AcceptedInput> {
+        &self.state.audit.journal
     }
     pub fn object_id(&self, card: CardId) -> Option<ObjectId> {
-        self.state.objects.get(&card).map(|o| o.id)
+        self.state.rules.objects.get(&card).map(|o| o.id)
     }
     pub fn zone(&self, object: ObjectId) -> Option<Zone> {
         self.current(object).ok().map(|o| o.zone)
     }
     pub fn mana(&self, player: PlayerId, color: Color) -> Option<Quantity> {
         self.state
+            .rules
             .players
             .get(player.0 as usize)
             .map(|p| p.mana.get(&color).cloned().unwrap_or_default())
@@ -2156,25 +2112,29 @@ impl Game {
         })
     }
     fn definition(&self, card: CardId) -> Result<&Definition, String> {
-        if let Some(token) = self.state.tokens.get(&card) {
+        if let Some(token) = self.state.rules.tokens.get(&card) {
             return Ok(&token.definition);
         }
-        let physical = self.state.cards.get(&card).ok_or("unknown physical card")?;
+        let physical = self
+            .state
+            .rules
+            .cards
+            .get(&card)
+            .ok_or("unknown physical card")?;
         self.prepared
             .catalog
-            .definitions
-            .iter()
-            .find(|d| d.oracle_id == physical.oracle_id)
+            .definition_by_oracle_id(&physical.oracle_id)
             .ok_or_else(|| "missing admitted definition".into())
     }
     fn current(&self, id: ObjectId) -> Result<&Object, String> {
         self.state
+            .rules
             .objects
             .get(&id.card)
             .filter(|o| o.id == id)
             .ok_or_else(|| "stale or absent object incarnation".into())
     }
-    fn target_legal(&self, id: ObjectId) -> bool {
+    fn is_battlefield_creature(&self, id: ObjectId) -> bool {
         self.current(id).is_ok_and(|o| o.zone == Zone::Battlefield)
             && self
                 .characteristics(id)
@@ -2182,6 +2142,7 @@ impl Game {
     }
     fn top(&self) -> Result<&StackInstance, String> {
         self.state
+            .rules
             .stack
             .last()
             .ok_or_else(|| "missing stack frame".into())
@@ -2210,10 +2171,10 @@ impl Game {
         self.selected_program(root, stack.mode)
     }
     pub fn decision_for(&self, viewer: PlayerId) -> Result<Option<Request>, String> {
-        if self.state.pending.is_some() || !self.state.pending_concessions.is_empty() {
+        if self.state.rules.pending.is_some() || !self.state.rules.pending_concessions.is_empty() {
             return Ok(None);
         }
-        if matches!(self.state.frame, Frame::Setup) {
+        if matches!(self.state.rules.frame, Frame::Setup) {
             return Ok(self.setup_request()?.filter(|r| r.player() == viewer));
         }
         if let Some(req) = self.damage_allocation_request()? {
@@ -2234,18 +2195,18 @@ impl Game {
         if let Some(req) = self.combat_request()? {
             return Ok((req.player() == viewer).then_some(req));
         }
-        let req = match &self.state.frame {
+        let req = match &self.state.rules.frame {
             Frame::LegendRule { .. } => {
                 return Ok(self.legend_request()?.filter(|r| r.player() == viewer));
             }
             Frame::EntityTargets { .. } => Request::EntityTargets {
-                decision_id: self.state.revision,
+                decision_id: self.state.rules.revision,
                 player: self.top()?.controller,
                 occurrences: self.program()?.targets.clone(),
                 candidates: self.eligible_entities(),
             },
             Frame::StackTargets { .. } => Request::StackTargets {
-                decision_id: self.state.revision,
+                decision_id: self.state.rules.revision,
                 player: self.top()?.controller,
                 occurrences: self.program()?.targets.clone(),
                 candidates: self
@@ -2266,11 +2227,12 @@ impl Game {
                     return Ok(None);
                 }
                 Request::Targets {
-                    decision_id: self.state.revision,
+                    decision_id: self.state.rules.revision,
                     player: self.top()?.controller,
                     occurrences: self.program()?.targets.clone(),
                     candidates: self
                         .state
+                        .rules
                         .objects
                         .values()
                         .filter(|o| self.object_target_legal(self.top().unwrap(), o.id))
@@ -2286,14 +2248,14 @@ impl Game {
                     .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget) =>
             {
                 Request::EntityTargets {
-                    decision_id: self.state.revision,
+                    decision_id: self.state.rules.revision,
                     player: self.top()?.controller,
                     occurrences: self.program()?.targets.clone(),
                     candidates: self.eligible_entities(),
                 }
             }
             Frame::PlayerTargets { .. } | Frame::TriggerTargets { .. } => Request::PlayerTargets {
-                decision_id: self.state.revision,
+                decision_id: self.state.rules.revision,
                 player: self.top()?.controller,
                 occurrences: self.program()?.targets.clone(),
                 candidates: self
@@ -2312,30 +2274,31 @@ impl Game {
                 ..
             } => Request::CommanderReturn {
                 previous_choices: self.previous_commander_choices(),
-                decision_id: self.state.revision,
-                player: self.state.cards[&object.card].owner,
+                decision_id: self.state.rules.revision,
+                player: self.state.rules.cards[&object.card].owner,
                 object: *object,
                 destination: *destination,
             },
             Frame::Priority => Request::Priority {
-                decision_id: self.state.revision,
-                player: self.state.priority,
+                decision_id: self.state.rules.revision,
+                player: self.state.rules.priority,
             },
             Frame::AnnounceX { .. } => Request::AnnounceX {
-                decision_id: self.state.revision,
+                decision_id: self.state.rules.revision,
                 player: self.top()?.controller,
             },
             Frame::Mana { .. } => Request::Mana {
-                decision_id: self.state.revision,
+                decision_id: self.state.rules.revision,
                 player: self.top()?.controller,
                 cost: self.top()?.total_cost.clone(),
             },
             Frame::Targets { .. } => Request::Targets {
-                decision_id: self.state.revision,
+                decision_id: self.state.rules.revision,
                 player: self.top()?.controller,
                 occurrences: self.program()?.targets.clone(),
                 candidates: self
                     .state
+                    .rules
                     .objects
                     .values()
                     .filter(|o| self.object_target_legal(self.top().unwrap(), o.id))
@@ -2347,10 +2310,10 @@ impl Game {
         Ok((req.player() == viewer).then_some(req))
     }
     fn validate_response(&self, player: PlayerId, response: &Response) -> Result<(), String> {
-        if matches!(self.state.frame, Frame::LegendRule { .. }) {
+        if matches!(self.state.rules.frame, Frame::LegendRule { .. }) {
             return self.validate_legend_response(player, response);
         }
-        if let Frame::AnnounceX { .. } = self.state.frame {
+        if let Frame::AnnounceX { .. } = self.state.rules.frame {
             return if matches!(response, Response::AnnounceX { value } if !value.is_negative())
                 && self.top()?.controller == player
             {
@@ -2360,60 +2323,63 @@ impl Game {
             };
         }
         if matches!(
-            self.state.frame,
+            self.state.rules.frame,
             Frame::SacrificeCost { .. }
                 | Frame::ForcedSacrifice { .. }
                 | Frame::OptionalDamage { .. }
         ) {
             return self.validate_sacrifice_response(player, response);
         }
-        if matches!(self.state.frame, Frame::Setup) {
+        if matches!(self.state.rules.frame, Frame::Setup) {
             return self.validate_setup_response(player, response);
         }
-        if let Frame::Stabilize { resume, .. } = &self.state.frame {
+        if let Frame::Stabilize { resume, .. } = &self.state.rules.frame {
             let mut validation = self.fork();
-            validation.state.frame = *resume.clone();
+            validation.state.rules.frame = *resume.clone();
             return validation.validate_response(player, response);
         }
         if let (Frame::DamageEffects { .. }, Response::DamageEffect { effect, damage }) =
-            (&self.state.frame, response)
+            (&self.state.rules.frame, response)
         {
             return self.validate_damage_effect(player, effect, *damage);
         }
         if let (Frame::DamageAllocation { .. }, Response::DamageAllocation { allocations }) =
-            (&self.state.frame, response)
+            (&self.state.rules.frame, response)
         {
             return self.validate_damage_allocation(player, allocations);
         }
-        if let (Frame::Modes { .. }, Response::Modes { mode }) = (&self.state.frame, response) {
+        if let (Frame::Modes { .. }, Response::Modes { mode }) = (&self.state.rules.frame, response)
+        {
             return self.validate_mode(player, *mode);
         }
         if let Some(result) = self.validate_actions_response(player, response) {
             return result;
         }
-        if let Frame::ManaAbility { activation } = &self.state.frame {
+        if let Frame::ManaAbility { activation } = &self.state.rules.frame {
             return self.validate_permanent_mana_response(activation, player, response);
         }
         if let (Frame::SpendMana { .. }, Response::SpendMana { spending }) =
-            (&self.state.frame, response)
+            (&self.state.rules.frame, response)
         {
             return self.validate_spending(player, spending);
         }
         if self.combat_decision_player().is_some() {
             return self.validate_combat_response(player, response);
         }
-        match (&self.state.frame, response) {
+        match (&self.state.rules.frame, response) {
             (Frame::CommanderReturn { object, .. }, Response::CommanderReturn { .. })
-                if self.state.cards[&object.card].owner == player && self.is_live(player) =>
+                if self.state.rules.cards[&object.card].owner == player && self.is_live(player) =>
             {
                 Ok(())
             }
-            (Frame::Priority, Response::PlayLand { card }) if self.state.priority == player => {
+            (Frame::Priority, Response::PlayLand { card })
+                if self.state.rules.priority == player =>
+            {
                 self.validate_land_play(player, *card)
             }
-            (Frame::Priority, Response::Pass) if self.state.priority == player => Ok(()),
+            (Frame::Priority, Response::Pass) if self.state.rules.priority == player => Ok(()),
             (Frame::Priority, Response::ActivateMana { object })
-                if self.state.priority == player =>
+                if self.state.rules.priority == player =>
             {
                 self.validate_mana_activation(player, *object)
             }
@@ -2427,12 +2393,12 @@ impl Game {
             {
                 Ok(())
             }
-            (Frame::Priority, Response::Cast { card }) if self.state.priority == player => {
-                let o = self.state.objects.get(card).ok_or("invalid cast")?;
+            (Frame::Priority, Response::Cast { card }) if self.state.rules.priority == player => {
+                let o = self.state.rules.objects.get(card).ok_or("invalid cast")?;
                 if !(o.zone == (Zone::Hand { owner: player })
                     || (o.zone == (Zone::Command { owner: player })
-                        && self.state.commanders.history(*card).is_some()))
-                    || self.state.cards[card].owner != player
+                        && self.state.rules.commanders.history(*card).is_some()))
+                    || self.state.rules.cards[card].owner != player
                     || self.definition(*card)?.spell.is_none()
                 {
                     return Err("invalid or unsupported cast".into());
@@ -2492,8 +2458,8 @@ impl Game {
         decision_id: u64,
         response: Response,
     ) -> Result<ValidatedResponse, String> {
-        if self.state.pending.is_some()
-            || decision_id != self.state.revision
+        if self.state.rules.pending.is_some()
+            || decision_id != self.state.rules.revision
             || self.decision_for(player)?.is_none()
         {
             return Err("stale or unauthorized decision".into());
@@ -2501,7 +2467,7 @@ impl Game {
         self.validate_response(player, &response)?;
         Ok(ValidatedResponse {
             executor: self.executor.clone(),
-            revision: self.state.revision,
+            revision: self.state.rules.revision,
             state_token: self.state_token.clone(),
             input: AcceptedInput {
                 decision_id,
@@ -2514,24 +2480,26 @@ impl Game {
     pub fn submit(&mut self, receipt: ValidatedResponse) -> Result<(), String> {
         if !Arc::ptr_eq(&receipt.executor, &self.executor)
             || !Arc::ptr_eq(&receipt.state_token, &self.state_token)
-            || receipt.revision != self.state.revision
-            || self.state.pending.is_some()
+            || receipt.revision != self.state.rules.revision
+            || self.state.rules.pending.is_some()
         {
             return Err("stale or foreign validation receipt".into());
         }
         let revision = self
             .state
+            .rules
             .revision
             .checked_add(1)
             .ok_or("structural revision resource limit")?;
         let mut next = self.fork();
-        next.state.retained_auxiliary_charge = next
+        next.state.rules.retained_auxiliary_charge = next
             .state
+            .rules
             .retained_auxiliary_charge
             .saturating_add(stored_history::payload_charge(&receipt.input));
-        next.state.journal.push(receipt.input.clone());
-        next.state.pending = Some(receipt.input);
-        next.state.revision = revision;
+        next.state.audit.journal.push(receipt.input.clone());
+        next.state.rules.pending = Some(receipt.input);
+        next.state.rules.revision = revision;
         next.refresh_visibility()?;
         self.state = next.state;
         self.trace = next.trace;
@@ -2548,29 +2516,30 @@ impl Game {
         self.submit(r)
     }
     pub fn advance(&mut self, budget: Budget) -> Advance {
-        self.advance_internal::<false>(budget, &mut vec![])
+        self.advance_internal::<false, true>(budget, &mut vec![])
     }
-    fn advance_internal<const REPORT: bool>(
+    fn advance_internal<const REPORT: bool, const COALESCE: bool>(
         &mut self,
         mut budget: Budget,
         processed: &mut Vec<InputProcessingFact>,
     ) -> Advance {
         loop {
-            if let Frame::Finished { winner } = self.state.frame {
+            if let Frame::Finished { winner } = self.state.rules.frame {
                 return Advance::Finished { winner };
             }
-            if let Frame::Fault { reason } = &self.state.frame {
+            if let Frame::Fault { reason } = &self.state.rules.frame {
                 return Advance::Fault(reason.clone());
             }
-            if matches!(self.state.frame, Frame::Draw) {
+            if matches!(self.state.rules.frame, Frame::Draw) {
                 return Advance::Draw;
             }
-            if self.state.pending.is_none() && self.state.pending_concessions.is_empty() {
+            if self.state.rules.pending.is_none() && self.state.rules.pending_concessions.is_empty()
+            {
                 for p in self.live_players() {
                     match self.decision_for(p) {
                         Ok(Some(r)) => return Advance::AwaitingDecision(r),
                         Ok(None) => {}
-                        Err(e) => return Advance::Fault(e),
+                        Err(e) => return self.enter_fault(e, None),
                     }
                 }
             }
@@ -2583,28 +2552,19 @@ impl Game {
             // its pre-step state and become faults, never wins/losses/draws.
             let input_report = REPORT.then(|| advance_report::StepInputCapture::capture(self));
             let mut next = self.fork();
+            next.in_rule_step = COALESCE;
             if let Err(reason) = next.check_history_capacity().and_then(|()| next.step()) {
-                self.state.typed_fault = next.state.typed_fault;
-                self.state.frame = Frame::Fault {
-                    reason: reason.clone(),
-                };
-                self.state_token = Arc::new(());
-                return Advance::Fault(reason);
+                return self.enter_fault(reason, next.state.rules.typed_fault);
             }
-            let Some(steps) = next.state.rule_steps.checked_add(1) else {
-                return Advance::Fault("execution boundary resource limit".into());
+            let Some(steps) = next.state.rules.rule_steps.checked_add(1) else {
+                return self.enter_fault("execution boundary resource limit".into(), None);
             };
-            next.state.rule_steps = steps;
+            next.state.rules.rule_steps = steps;
             if let Err(reason) = next
                 .refresh_visibility()
                 .and_then(|()| next.check_history_capacity())
             {
-                self.state.typed_fault = next.state.typed_fault;
-                self.state.frame = Frame::Fault {
-                    reason: reason.clone(),
-                };
-                self.state_token = Arc::new(());
-                return Advance::Fault(reason);
+                return self.enter_fault(reason, next.state.rules.typed_fault);
             }
             self.state = next.state;
             self.trace = next.trace;
@@ -2614,13 +2574,21 @@ impl Game {
             }
         }
     }
+    fn enter_fault(&mut self, reason: String, typed: Option<RuleFault>) -> Advance {
+        self.state.rules.typed_fault = typed;
+        self.state.rules.frame = Frame::Fault {
+            reason: reason.clone(),
+        };
+        self.state_token = Arc::new(());
+        Advance::Fault(reason)
+    }
     fn step(&mut self) -> Result<(), String> {
         self.check_history_capacity()?;
-        if let Some(player) = self.state.pending_concessions.first().copied() {
-            self.state.pending_concessions.remove(0);
+        if let Some(player) = self.state.rules.pending_concessions.first().copied() {
+            self.state.rules.pending_concessions.remove(0);
             return self.apply_departure(player);
         }
-        match self.state.frame.clone() {
+        match self.state.rules.frame.clone() {
             Frame::LegendRule { .. } => self.legend_step()?,
             Frame::SacrificeCost { .. }
             | Frame::ForcedSacrifice { .. }
@@ -2633,6 +2601,7 @@ impl Game {
             Frame::Priority => {
                 let input = self
                     .state
+                    .rules
                     .pending
                     .take()
                     .ok_or("missing accepted priority input")?;
@@ -2648,7 +2617,7 @@ impl Game {
                             self.begin_permanent_mana(&input, object, Frame::Priority)?;
                         } else {
                             self.activate_intrinsic_mana(&input, object)?;
-                            self.state.passes.clear();
+                            self.state.rules.passes.clear();
                             self.stabilize()?;
                         }
                     }
@@ -2656,6 +2625,7 @@ impl Game {
                         self.check_stack_capacity(1)?;
                         let cast_from = self
                             .state
+                            .rules
                             .objects
                             .get(&card)
                             .ok_or("missing cast source")?
@@ -2663,13 +2633,15 @@ impl Game {
                         let total_cost = self.casting_cost(card, input.player, cast_from)?;
                         let original_object = self
                             .state
+                            .rules
                             .objects
                             .get(&card)
                             .ok_or("missing cast source")?
                             .id;
-                        let id = StackId(self.state.next_stack_id);
-                        self.state.next_stack_id = self
+                        let id = StackId(self.state.rules.next_stack_id);
+                        self.state.rules.next_stack_id = self
                             .state
+                            .rules
                             .next_stack_id
                             .checked_add(1)
                             .ok_or("stack ID resource limit")?;
@@ -2687,7 +2659,7 @@ impl Game {
                             .successor;
                         let effect_source_handles =
                             { self.capture_trigger_source_handles(source)? };
-                        self.state.stack.push(StackInstance {
+                        self.state.rules.stack.push(StackInstance {
                             x: None,
                             death_controller: None,
                             sacrificed: None,
@@ -2715,11 +2687,11 @@ impl Game {
                             spending: None,
                             stack_id: id,
                             original_object,
-                            prior_passes: self.state.passes.clone(),
+                            prior_passes: self.state.rules.passes.clone(),
                             mana_activations: vec![],
                             undo_mana: false,
                         };
-                        self.state.frame = if self.definition(card)?.x_mana_cost {
+                        self.state.rules.frame = if self.definition(card)?.x_mana_cost {
                             Frame::AnnounceX { cast }
                         } else if !self
                             .definition(card)?
@@ -2749,18 +2721,18 @@ impl Game {
                         } else {
                             Frame::Targets { cast }
                         };
-                        self.state.passes.clear();
+                        self.state.rules.passes.clear();
                     }
                     Response::Pass => {
                         self.record_event(Event::PriorityPassed {
                             player: input.player,
                         })?;
-                        self.state.passes.push(input.player);
+                        self.state.rules.passes.push(input.player);
                         // CR 117.4 applies to the current live player set.
                         if self.all_live_passed() {
                             self.begin_resolution()?;
                         } else {
-                            self.state.priority = self
+                            self.state.rules.priority = self
                                 .next_live(input.player)
                                 .ok_or("no live priority recipient")?;
                             self.stabilize()?;
@@ -2772,6 +2744,7 @@ impl Game {
             Frame::Targets { cast } => {
                 let input = self
                     .state
+                    .rules
                     .pending
                     .take()
                     .ok_or("missing accepted target input")?;
@@ -2786,14 +2759,15 @@ impl Game {
                             .collect::<Result<Vec<_>, _>>()
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                let top = self.state.stack.last_mut().ok_or("missing stack")?;
+                let top = self.state.rules.stack.last_mut().ok_or("missing stack")?;
                 top.targets = objects;
                 top.announced_targets = announced;
-                self.state.frame = Frame::Mana { cast };
+                self.state.rules.frame = Frame::Mana { cast };
             }
             Frame::Mana { mut cast } => {
                 let input = self
                     .state
+                    .rules
                     .pending
                     .take()
                     .ok_or("missing accepted mana input")?;
@@ -2804,12 +2778,12 @@ impl Game {
                         } else {
                             let receipt = self.activate_intrinsic_mana(&input, object)?;
                             cast.mana_activations.push(receipt);
-                            self.state.frame = Frame::Mana { cast };
+                            self.state.rules.frame = Frame::Mana { cast };
                         }
                     }
                     Response::FinishMana { undo_mana } => {
                         cast.undo_mana = undo_mana;
-                        self.state.frame = self.finish_mana_frame(cast)?;
+                        self.state.rules.frame = self.finish_mana_frame(cast)?;
                     }
                     _ => return Err("mana response/frame invariant".into()),
                 }
@@ -2851,7 +2825,7 @@ impl Game {
                             } else if self.current(target).is_err() {
                                 InstructionOutcome::ObjectNoLongerPresent { target }
                             } else {
-                                let owner = self.state.cards[&target.card].owner;
+                                let owner = self.state.rules.cards[&target.card].owner;
                                 let destination = if matches!(
                                     instruction,
                                     Instruction::PutOnTopOwnerLibrary { .. }
@@ -2860,8 +2834,8 @@ impl Game {
                                 } else {
                                     Zone::Hand { owner }
                                 };
-                                if self.state.commanders.history(target.card).is_some() {
-                                    self.state.frame = Frame::CommanderReturn {
+                                if self.state.rules.commanders.history(target.card).is_some() {
+                                    self.state.rules.frame = Frame::CommanderReturn {
                                         object: target,
                                         destination,
                                         continuation: Box::new(CommanderContinuation::SpellMove {
@@ -2893,7 +2867,7 @@ impl Game {
                         .cursor
                         .checked_add(1)
                         .ok_or("instruction cursor resource limit")?;
-                    self.state.frame = Frame::Resolve { frame };
+                    self.state.rules.frame = Frame::Resolve { frame };
                 } else {
                     self.finish_spell(&stack, true)?;
                 }
@@ -2922,7 +2896,7 @@ impl Game {
         if !stack.kind.is_spell() {
             return self.finish_ability(stack, resolved);
         }
-        let owner = self.state.cards[&stack.source.card].owner;
+        let owner = self.state.rules.cards[&stack.source.card].owner;
         if self.current(stack.source).is_ok() {
             if self.top()?.id != stack.id {
                 return Err("completion is not the top stack entry".into());
@@ -2948,7 +2922,7 @@ impl Game {
             if destination == Zone::Battlefield
                 && self.definition(stack.source.card)?.characteristics.subtypes == ["Aura"]
             {
-                let object = self.state.objects[&stack.source.card].id;
+                let object = self.state.rules.objects[&stack.source.card].id;
                 self.commit(
                     ProposedEvent::Attach {
                         object,
@@ -2961,19 +2935,20 @@ impl Game {
                     },
                 )?;
             }
-            self.state.stack.pop();
-        } else if self.is_live(owner) || self.state.stack.iter().any(|s| s.id == stack.id) {
+            self.state.rules.stack.pop();
+        } else if self.is_live(owner) || self.state.rules.stack.iter().any(|s| s.id == stack.id) {
             return Err("unsupported resolving-source movement".into());
         }
         self.record_event(Event::SpellCompleted {
             stack_id: stack.id,
             resolved,
         })?;
-        self.state.frame = Frame::Priority;
-        self.state.priority = self
+        self.state.rules.frame = Frame::Priority;
+        self.state.rules.priority = self
             .state
+            .rules
             .active
-            .or_else(|| self.next_live(self.state.turn_owner))
+            .or_else(|| self.next_live(self.state.rules.turn_owner))
             .ok_or("no live player after resolution")?;
         self.stabilize()
     }
@@ -2981,18 +2956,26 @@ impl Game {
         &self,
         player: PlayerId,
         cost: &ManaCost,
-    ) -> Result<BTreeMap<Color, Quantity>, String> {
+    ) -> Result<BTreeMap<Color, Quantity>, payments::PaymentError> {
+        use payments::PaymentError;
+        if cost.generic.is_negative() {
+            return Err(PaymentError::Invariant("negative mana cost"));
+        }
         let mut pool = self
             .state
+            .rules
             .players
             .get(player.0 as usize)
-            .ok_or("missing paying player")?
+            .ok_or(PaymentError::Invariant("missing paying player"))?
             .mana
             .clone();
+        if pool.values().any(Quantity::is_negative) {
+            return Err(PaymentError::Invariant("negative mana pool"));
+        }
         for color in &cost.colored {
             let n = pool.entry(*color).or_default();
             if *n < Quantity::from(1) {
-                return Err("insufficient mana".into());
+                return Err(PaymentError::InsufficientMana);
             }
             n.subtract(&Quantity::from(1));
         }
@@ -3003,12 +2986,12 @@ impl Game {
             generic.subtract(&spent);
         }
         if generic > Quantity::zero() {
-            return Err("insufficient mana".into());
+            return Err(PaymentError::InsufficientMana);
         }
         Ok(pool)
     }
     fn stabilize(&mut self) -> Result<(), String> {
-        if matches!(self.state.frame, Frame::Priority) {
+        if matches!(self.state.rules.frame, Frame::Priority) {
             self.schedule_stabilization(Frame::Priority, false);
         }
         Ok(())
@@ -3075,6 +3058,7 @@ impl Game {
             trace: s.trace,
             executor: Arc::new(()),
             state_token: Arc::new(()),
+            in_rule_step: false,
         };
         game.validate_state()?;
         Ok((game, s.state_sha256))
@@ -3098,30 +3082,34 @@ impl Game {
     fn validate_state(&self) -> Result<(), String> {
         self.validate_match_state()?;
         let s = &self.state;
-        if s.players.len() != 4
-            || s.visibility.len() != 4
-            || s.turn_owner.0 >= 4
-            || s.turn.number == 0
-            || s.turn.lands_played > 1
-            || s.active.is_some_and(|p| !self.is_live(p))
-            || s.original_seating != (0..4).map(PlayerId).collect::<Vec<_>>()
-            || s.priority.0 >= 4
-            || (!self.is_live(s.priority) && !matches!(s.frame, Frame::Draw))
-            || s.passes.len() > self.live_players().len()
-            || s.passes.iter().any(|p| !self.is_live(*p))
-            || s.passes.iter().collect::<BTreeSet<_>>().len() != s.passes.len()
-            || s.cards.len() != self.prepared.config.cards.len() + s.tokens.len()
-            || s.objects.len() > s.cards.len()
-            || s.stack.len() > self.stack_limit()
+        if s.rules.players.len() != 4
+            || s.knowledge.visibility.len() != 4
+            || s.rules.turn_owner.0 >= 4
+            || s.rules.turn.number == 0
+            || s.rules.turn.lands_played > 1
+            || s.rules.active.is_some_and(|p| !self.is_live(p))
+            || s.rules.original_seating != (0..4).map(PlayerId).collect::<Vec<_>>()
+            || s.rules.priority.0 >= 4
+            || (!self.is_live(s.rules.priority) && !matches!(s.rules.frame, Frame::Draw))
+            || s.rules.passes.len() > self.live_players().len()
+            || s.rules.passes.iter().any(|p| !self.is_live(*p))
+            || s.rules.passes.iter().collect::<BTreeSet<_>>().len() != s.rules.passes.len()
+            || s.rules.cards.len() != self.prepared.config.cards.len() + s.rules.tokens.len()
+            || s.rules.objects.len() > s.rules.cards.len()
+            || s.rules.stack.len() > self.stack_limit()
         {
             return Err("snapshot seating/table invariant".into());
         }
         for setup in &self.prepared.config.cards {
-            let card = s.cards.get(&setup.id).ok_or("snapshot missing card")?;
+            let card = s
+                .rules
+                .cards
+                .get(&setup.id)
+                .ok_or("snapshot missing card")?;
             if card.owner != setup.owner || card.oracle_id != setup.oracle_id {
                 return Err("snapshot physical identity invariant".into());
             }
-            let Some(o) = s.objects.get(&setup.id) else {
+            let Some(o) = s.rules.objects.get(&setup.id) else {
                 if self.is_live(setup.owner) {
                     return Err("snapshot missing live owner's object".into());
                 }
@@ -3145,7 +3133,7 @@ impl Game {
                 return Err("snapshot zone-owner invariant".into());
             }
         }
-        for o in s.objects.values() {
+        for o in s.rules.objects.values() {
             if let Some(target) = o.attached_to
                 && (o.zone != Zone::Battlefield
                     || o.id == target
@@ -3166,7 +3154,7 @@ impl Game {
         self.validate_choices_state()?;
         self.validate_commander_state()?;
         self.validate_actions_state()?;
-        for p in &s.players {
+        for p in &s.rules.players {
             if (p.status == PlayerStatus::Left) != p.last_known.is_some()
                 || p.last_known
                     .as_ref()
@@ -3178,21 +3166,27 @@ impl Game {
                 return Err("snapshot negative mana".into());
             }
         }
-        let ids: BTreeSet<_> = s.stack.iter().map(|entry| entry.id).collect();
+        let ids: BTreeSet<_> = s.rules.stack.iter().map(|entry| entry.id).collect();
         let sources: BTreeSet<_> = s
+            .rules
             .stack
             .iter()
             .filter(|entry| entry.kind.is_spell())
             .map(|entry| entry.source.card)
             .collect();
-        if ids.len() != s.stack.len()
-            || sources.len() != s.stack.iter().filter(|entry| entry.kind.is_spell()).count()
-            || !s.stack.windows(2).all(|w| w[0].id < w[1].id)
+        if ids.len() != s.rules.stack.len()
+            || sources.len()
+                != s.rules
+                    .stack
+                    .iter()
+                    .filter(|entry| entry.kind.is_spell())
+                    .count()
+            || !s.rules.stack.windows(2).all(|w| w[0].id < w[1].id)
         {
             return Err("snapshot duplicate or unordered stack identity".into());
         }
-        for (index, stack) in s.stack.iter().enumerate() {
-            if stack.id.0 >= s.next_stack_id
+        for (index, stack) in s.rules.stack.iter().enumerate() {
+            if stack.id.0 >= s.rules.next_stack_id
                 || !self.is_live(stack.controller)
                 || (stack.kind.is_spell() && self.current(stack.source)?.zone != Zone::Stack)
             {
@@ -3208,9 +3202,9 @@ impl Game {
             {
                 return Err("snapshot target announcement invariant".into());
             }
-            let incomplete_top = index + 1 == s.stack.len()
+            let incomplete_top = index + 1 == s.rules.stack.len()
                 && (matches!(
-                    self.underlying_mana_frame(&s.frame),
+                    self.underlying_mana_frame(&s.rules.frame),
                     Frame::TriggerTargets { .. }
                         | Frame::AnnounceX { .. }
                         | Frame::Modes { .. }
@@ -3223,7 +3217,7 @@ impl Game {
                         | Frame::SacrificeCost { .. }
                         | Frame::Payment { .. }
                 ) || (matches!(
-                    self.underlying_mana_frame(&s.frame),
+                    self.underlying_mana_frame(&s.rules.frame),
                     Frame::Finished { .. } | Frame::Fault { .. }
                 ) && stack.paid.is_none()));
             if !incomplete_top
@@ -3234,20 +3228,22 @@ impl Game {
             }
         }
         let stack_cards: BTreeSet<_> = s
+            .rules
             .stack
             .iter()
             .filter(|entry| entry.kind.is_spell())
             .map(|entry| entry.source.card)
             .collect();
-        if s.objects
+        if s.rules
+            .objects
             .values()
             .any(|o| (o.zone == Zone::Stack) != stack_cards.contains(&o.id.card))
         {
             return Err("snapshot stack/zone invariant".into());
         }
         self.validate_sacrifice_state()?;
-        self.validate_nested_mana_frame(&s.frame)?;
-        match self.underlying_mana_frame(&s.frame) {
+        self.validate_nested_mana_frame(&s.rules.frame)?;
+        match self.underlying_mana_frame(&s.rules.frame) {
             Frame::AnnounceX { cast }
             | Frame::Modes { cast }
             | Frame::EntityTargets { cast }
@@ -3280,7 +3276,7 @@ impl Game {
                             || (a.permanent.is_none() && a.amount != Quantity::from(1))
                     })
                     || (matches!(
-                        self.underlying_mana_frame(&s.frame),
+                        self.underlying_mana_frame(&s.rules.frame),
                         Frame::AnnounceX { .. }
                             | Frame::Modes { .. }
                             | Frame::EntityTargets { .. }
@@ -3288,13 +3284,15 @@ impl Game {
                             | Frame::PlayerTargets { .. }
                             | Frame::StackTargets { .. }
                     ) && (!cast.mana_activations.is_empty() || cast.undo_mana))
-                    || (matches!(self.underlying_mana_frame(&s.frame), Frame::Mana { .. })
-                        && cast.undo_mana)
+                    || (matches!(
+                        self.underlying_mana_frame(&s.rules.frame),
+                        Frame::Mana { .. }
+                    ) && cast.undo_mana)
                 {
                     return Err("snapshot casting mana receipt invariant".into());
                 }
                 if matches!(
-                    self.underlying_mana_frame(&s.frame),
+                    self.underlying_mana_frame(&s.rules.frame),
                     Frame::AnnounceX { .. }
                         | Frame::Modes { .. }
                         | Frame::EntityTargets { .. }
@@ -3306,7 +3304,7 @@ impl Game {
                     return Err("snapshot announcement target invariant".into());
                 }
                 if matches!(
-                    self.underlying_mana_frame(&s.frame),
+                    self.underlying_mana_frame(&s.rules.frame),
                     Frame::Mana { .. }
                         | Frame::SpendMana { .. }
                         | Frame::SacrificeCost { .. }
@@ -3322,11 +3320,11 @@ impl Game {
             | Frame::OptionalDamage { frame } => self.validate_resolving(frame)?,
             _ => {}
         }
-        if let Some(pending) = &s.pending {
-            if pending.decision_id >= s.revision || s.journal.last() != Some(pending) {
+        if let Some(pending) = &s.rules.pending {
+            if pending.decision_id >= s.rules.revision || s.audit.journal.last() != Some(pending) {
                 return Err("snapshot pending-input invariant".into());
             }
-            if !matches!(s.frame, Frame::Fault { .. }) {
+            if !matches!(s.rules.frame, Frame::Fault { .. }) {
                 self.validate_response(pending.player, &pending.response)?;
             }
         }
@@ -3415,17 +3413,17 @@ mod tests {
         cast(&mut game);
         complete(&mut game);
         assert_eq!(
-            game.state.objects[&CardId(2)].zone,
+            game.state.rules.objects[&CardId(2)].zone,
             Zone::Hand { owner: PlayerId(1) }
         );
-        assert_eq!(game.state.objects[&CardId(2)].id.incarnation, 1);
+        assert_eq!(game.state.rules.objects[&CardId(2)].id.incarnation, 1);
         assert_eq!(
-            game.state.objects[&CardId(1)].zone,
+            game.state.rules.objects[&CardId(1)].zone,
             Zone::Graveyard { owner: PlayerId(0) }
         );
-        assert_eq!(game.state.objects[&CardId(1)].id.incarnation, 2);
+        assert_eq!(game.state.rules.objects[&CardId(1)].id.incarnation, 2);
         assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::zero()));
-        assert_eq!(game.state.priority, PlayerId(0));
+        assert_eq!(game.state.rules.priority, PlayerId(0));
         assert_eq!(game.events().len(), 13);
     }
     #[test]
@@ -3489,7 +3487,7 @@ mod tests {
         assert!(
             game.respond(
                 PlayerId(0),
-                game.state.revision,
+                game.state.rules.revision,
                 Response::Targets {
                     objects: vec![ObjectId {
                         card: CardId(2),
@@ -3518,7 +3516,7 @@ mod tests {
         respond(&mut game, Response::FinishMana { undo_mana: true });
         let _ = game.advance(Budget::unlimited());
         assert_eq!(game.zone(original), Some(Zone::Hand { owner: PlayerId(0) }));
-        assert!(game.state.stack.is_empty());
+        assert!(game.state.rules.stack.is_empty());
         assert_eq!(game.journal().len(), 3);
         assert!(matches!(
             game.events().last(),
@@ -3551,7 +3549,7 @@ mod tests {
         let _ = restored.advance(Budget::unlimited());
         assert_eq!(game.state, restored.state);
         let mut snapshot: Snapshot = strict_read(&game.snapshot().unwrap()).unwrap();
-        snapshot.state.players[0]
+        snapshot.state.rules.players[0]
             .mana
             .insert(Color::U, Quantity::from(99));
         snapshot.state_sha256 = digest(&snapshot.state).unwrap();
@@ -3560,7 +3558,12 @@ mod tests {
     #[test]
     fn forest_intrinsic_is_derived_and_partial_multiblock_legality_keeps_other_block() {
         let mut game = Game::new(prepared());
-        game.state.cards.get_mut(&CardId(0)).unwrap().oracle_id = FOREST.into();
+        game.state
+            .rules
+            .cards
+            .get_mut(&CardId(0))
+            .unwrap()
+            .oracle_id = FOREST.into();
         assert_eq!(
             game.mana_abilities(game.object_id(CardId(0)).unwrap())
                 .unwrap(),
@@ -3603,13 +3606,13 @@ mod tests {
         let _ = game.advance(Budget::unlimited());
         // Test-only inaccessible mutation makes one occurrence stale. Both
         // blocks still share one resolution legality check and stack object.
-        game.state.stack.last_mut().unwrap().targets[0].incarnation = 99;
+        game.state.rules.stack.last_mut().unwrap().targets[0].incarnation = 99;
         for _ in 0..4 {
             respond(&mut game, Response::Pass);
         }
         let _ = game.advance(Budget::unlimited());
         assert_eq!(
-            game.state.objects[&CardId(2)].zone,
+            game.state.rules.objects[&CardId(2)].zone,
             Zone::Hand { owner: PlayerId(1) }
         );
         assert!(matches!(
@@ -3652,7 +3655,7 @@ mod tests {
             respond(&mut game, Response::Pass);
         }
         let _ = game.advance(Budget::unlimited());
-        assert_eq!(game.state.objects[&CardId(2)].zone, Zone::Battlefield);
+        assert_eq!(game.state.rules.objects[&CardId(2)].zone, Zone::Battlefield);
         assert!(matches!(
             game.events().last(),
             Some(Event::SpellCompleted {
@@ -3683,7 +3686,7 @@ mod tests {
         let target_moves=game.events().iter().filter(|e|matches!(e,Event::Committed{proposed:ProposedEvent::Move{object,..},..} if object.card==CardId(2))).count();
         assert_eq!(target_moves, 1);
         assert_eq!(
-            game.state.objects[&CardId(2)].zone,
+            game.state.rules.objects[&CardId(2)].zone,
             Zone::Hand { owner: PlayerId(1) }
         );
     }
@@ -3706,7 +3709,14 @@ mod tests {
         );
         let mut snapshot: Snapshot =
             strict_read(&Game::new(p.clone()).snapshot().unwrap()).unwrap();
-        snapshot.state.objects.get_mut(&CardId(2)).unwrap().id.card = CardId(99);
+        snapshot
+            .state
+            .rules
+            .objects
+            .get_mut(&CardId(2))
+            .unwrap()
+            .id
+            .card = CardId(99);
         snapshot.state_sha256 = digest(&snapshot.state).unwrap();
         assert!(Game::restore(p, &canonical(&snapshot).unwrap()).is_err());
     }

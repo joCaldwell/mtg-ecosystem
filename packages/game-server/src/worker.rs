@@ -2076,7 +2076,7 @@ mod tests {
         // Cancellation is host-only and precedes viewer freshness/core validation.
         input.expected_revision = Counter::new(0);
         let before = worker.head.clone();
-        let journal = worker.game.journal().to_vec();
+        let journal = worker.game.journal().clone();
         let cursor = worker.host.viewer_cursors;
         let result = worker
             .cancel_queued(seat, input.clone(), now(&worker) + Duration::from_secs(7))
@@ -2090,7 +2090,7 @@ mod tests {
         );
         assert_eq!(worker.head.boundary, before.boundary);
         assert_eq!(worker.head.state_sha256, before.state_sha256);
-        assert_eq!(worker.game.journal(), journal);
+        assert_eq!(worker.game.journal(), &journal);
         assert_eq!(worker.host.viewer_cursors, cursor);
         for other in 0..4 {
             assert_eq!(
@@ -2122,7 +2122,7 @@ mod tests {
             result
         );
         assert_eq!(recovered.head, head);
-        assert_eq!(recovered.game.journal(), journal);
+        assert_eq!(recovered.game.journal(), &journal);
         let mut conflicting = input;
         conflicting.command = CommandBody::Concede;
         assert!(

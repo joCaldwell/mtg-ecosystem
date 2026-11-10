@@ -4,16 +4,17 @@ use super::*;
 impl Game {
     fn reference_advance(&mut self, mut budget: Budget) -> Advance {
         loop {
-            if let Frame::Finished { winner } = self.state.frame {
+            if let Frame::Finished { winner } = self.state.rules.frame {
                 return Advance::Finished { winner };
             }
-            if let Frame::Fault { reason } = &self.state.frame {
+            if let Frame::Fault { reason } = &self.state.rules.frame {
                 return Advance::Fault(reason.clone());
             }
-            if matches!(self.state.frame, Frame::Draw) {
+            if matches!(self.state.rules.frame, Frame::Draw) {
                 return Advance::Draw;
             }
-            if self.state.pending.is_none() && self.state.pending_concessions.is_empty() {
+            if self.state.rules.pending.is_none() && self.state.rules.pending_concessions.is_empty()
+            {
                 for p in self.live_players() {
                     match self.decision_for(p) {
                         Ok(Some(r)) => return Advance::AwaitingDecision(r),
@@ -31,16 +32,16 @@ impl Game {
             // its pre-step state and become faults, never wins/losses/draws.
             let mut next = self.fork();
             if let Err(reason) = next.step() {
-                self.state.frame = Frame::Fault {
+                self.state.rules.frame = Frame::Fault {
                     reason: reason.clone(),
                 };
                 self.state_token = Arc::new(());
                 return Advance::Fault(reason);
             }
-            let Some(steps) = next.state.rule_steps.checked_add(1) else {
+            let Some(steps) = next.state.rules.rule_steps.checked_add(1) else {
                 return Advance::Fault("execution boundary resource limit".into());
             };
-            next.state.rule_steps = steps;
+            next.state.rules.rule_steps = steps;
             if let Err(reason) = next.refresh_visibility() {
                 return Advance::Fault(reason);
             }
@@ -73,7 +74,7 @@ fn answer(game: &mut Game, response: Response) {
 }
 fn pending_identity(game: &Game) -> CoreInputIdentity {
     let counts = game.accepted_input_counts().unwrap();
-    let input = game.state.pending.as_ref().unwrap();
+    let input = game.state.rules.pending.as_ref().unwrap();
     CoreInputIdentity::Decision {
         journal_ordinal: counts.decisions - 1,
         decision_id: input.decision_id,
@@ -149,7 +150,7 @@ fn ordinary_consumption_matches_original_advance_at_all_budgets_and_trace_modes(
             boundary: 999,
         };
         let mut facts = vec![sentinel];
-        disabled.advance_internal::<false>(Budget::unlimited(), &mut facts);
+        disabled.advance_internal::<false, true>(Budget::unlimited(), &mut facts);
         assert_eq!(facts, vec![sentinel]);
     }
 }
@@ -187,7 +188,7 @@ fn actor_and_target_departures_report_actual_pending_removal_not_boundary_progre
         };
         if departing == 3 {
             assert_eq!(report.processed, vec![concession]);
-            assert!(after.state.pending.is_some());
+            assert!(after.state.rules.pending.is_some());
             let next = after.advance_with_report(Budget::new(1));
             assert_eq!(next.processed[0].identity, identity);
             assert_eq!(next.processed[0].cause, InputProcessingCause::RulesStep);
@@ -203,7 +204,7 @@ fn actor_and_target_departures_report_actual_pending_removal_not_boundary_progre
                     concession
                 ]
             );
-            assert!(after.state.pending.is_none());
+            assert!(after.state.rules.pending.is_none());
         }
     }
 }
@@ -262,7 +263,7 @@ fn queued_concessions_have_distinct_ordinals_and_terminal_cleanup_reports_actual
             decisions[0].boundary,
             game.rule_boundary() + ordinal as u64 + 1
         );
-        assert!(after.state.pending.is_none());
+        assert!(after.state.rules.pending.is_none());
         let mut terminal = after;
         assert!(
             terminal
@@ -273,14 +274,14 @@ fn queued_concessions_have_distinct_ordinals_and_terminal_cleanup_reports_actual
         // Private boundary fixture: merely starting a call in Finished must
         // not invent consumption of an unchanged pending input. This forged
         // state is not admitted/restored as a reachable game.
-        terminal.state.pending = terminal.state.journal.last().cloned();
+        terminal.state.rules.pending = terminal.state.audit.journal.last().cloned();
         assert!(
             terminal
                 .advance_with_report(Budget::unlimited())
                 .processed
                 .is_empty()
         );
-        assert!(terminal.state.pending.is_some());
+        assert!(terminal.state.rules.pending.is_some());
     }
 }
 #[test]
@@ -349,12 +350,12 @@ fn failed_steps_emit_no_fact_and_prior_committed_facts_survive_later_fault_in_sa
     let mut game = fixture();
     answer(&mut game, Response::Pass);
     // Domain failure after pending.take(): the staged branch must roll back.
-    game.state.next_event_sequence = u64::MAX;
-    let pending = game.state.pending.clone();
+    game.state.rules.next_event_sequence = u64::MAX;
+    let pending = game.state.rules.pending.clone();
     let (after, report) = compare(&game, u64::MAX);
     assert!(matches!(report.advance, Advance::Fault(_)));
     assert!(report.processed.is_empty());
-    assert_eq!(after.state.pending, pending);
+    assert_eq!(after.state.rules.pending, pending);
     let mut fault = after;
     assert!(
         fault
@@ -372,7 +373,7 @@ fn failed_steps_emit_no_fact_and_prior_committed_facts_survive_later_fault_in_sa
     let mut game = Game::with_trace(p, TraceMode::Off);
     answer(&mut game, Response::Pass);
     let identity = pending_identity(&game);
-    game.state.rule_steps = u64::MAX - 1;
+    game.state.rules.rule_steps = u64::MAX - 1;
     let (after, report) = compare(&game, u64::MAX);
     assert!(matches!(report.advance, Advance::Fault(_)));
     assert_eq!(
@@ -383,7 +384,7 @@ fn failed_steps_emit_no_fact_and_prior_committed_facts_survive_later_fault_in_sa
             boundary: u64::MAX
         }]
     );
-    assert!(after.state.pending.is_none());
+    assert!(after.state.rules.pending.is_none());
 }
 #[test]
 fn fork_snapshot_restore_and_automatic_steps_do_not_carry_historical_receipts() {

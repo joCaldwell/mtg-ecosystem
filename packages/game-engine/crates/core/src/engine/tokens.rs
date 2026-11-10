@@ -97,7 +97,7 @@ fn token_definition(source: &Definition, id: CardId, token: &CreatureToken) -> D
 }
 impl Game {
     pub fn typed_fault(&self) -> Option<&RuleFault> {
-        self.state.typed_fault.as_ref()
+        self.state.rules.typed_fault.as_ref()
     }
 
     pub(super) fn capacity_error(&mut self, fault: RuleFault) -> String {
@@ -113,15 +113,16 @@ impl Game {
             RuleFault::StackCapacityExceeded { .. } => "stack capacity exceeded",
             RuleFault::EventGroupCapacityExceeded { .. } => "event group capacity exceeded",
         };
-        self.state.typed_fault = Some(fault);
+        self.state.rules.typed_fault = Some(fault);
         reason.into()
     }
     pub(super) fn check_stack_capacity(&mut self, additional: usize) -> Result<(), String> {
         let requested = self
             .state
+            .rules
             .stack
             .len()
-            .saturating_add(self.state.pending_triggers.len())
+            .saturating_add(self.state.rules.pending_triggers.len())
             .saturating_add(additional);
         if requested > self.stack_limit() {
             return Err(self.capacity_error(RuleFault::StackCapacityExceeded {
@@ -137,9 +138,10 @@ impl Game {
     pub(super) fn allocated_capacity_count(&self) -> usize {
         {
             self.state
+                .rules
                 .objects
                 .keys()
-                .filter(|id| self.state.tokens.contains_key(id))
+                .filter(|id| self.state.rules.tokens.contains_key(id))
                 .count()
         }
     }
@@ -158,12 +160,12 @@ impl Game {
             }));
         }
         if requested as usize
-            > capacities::TOKEN_HISTORY_LIMIT.saturating_sub(self.state.tokens.len())
+            > capacities::TOKEN_HISTORY_LIMIT.saturating_sub(self.state.rules.tokens.len())
         {
             return Err(
                 self.capacity_error(RuleFault::TokenHistoryCapacityExceeded {
                     capacity: capacities::TOKEN_HISTORY_LIMIT,
-                    created: self.state.tokens.len(),
+                    created: self.state.rules.tokens.len(),
                     requested,
                 }),
             );
@@ -217,7 +219,7 @@ impl Game {
                             .ok_or("missing counter target")?
                     }
                 };
-                if !self.target_legal(target) {
+                if !self.is_battlefield_creature(target) {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
@@ -265,14 +267,14 @@ impl Game {
                 let source_definition = self.definition(source.card)?.clone();
                 let mut objects = vec![];
                 for _ in 0..*count {
-                    let offset = u32::try_from(self.state.tokens.len())
+                    let offset = u32::try_from(self.state.rules.tokens.len())
                         .map_err(|_| "token identity overflow")?;
                     let card = CardId(
                         TOKEN_ID_START
                             .checked_add(offset)
                             .ok_or("token identity overflow")?,
                     );
-                    if self.state.cards.contains_key(&card) {
+                    if self.state.rules.cards.contains_key(&card) {
                         return Err("token/card identity collision".into());
                     }
                     let definition = token_definition(&source_definition, card, token);
@@ -280,14 +282,14 @@ impl Game {
                         card,
                         incarnation: 0,
                     };
-                    self.state.cards.insert(
+                    self.state.rules.cards.insert(
                         card,
                         Card {
                             owner: *controller,
                             oracle_id: definition.oracle_id.clone(),
                         },
                     );
-                    self.state.tokens.insert(
+                    self.state.rules.tokens.insert(
                         card,
                         TokenIdentity {
                             source: *source,
@@ -295,7 +297,7 @@ impl Game {
                             definition,
                         },
                     );
-                    self.state.objects.insert(
+                    self.state.rules.objects.insert(
                         card,
                         Object {
                             attached_to: None,
@@ -319,11 +321,12 @@ impl Game {
                 })
             }
             ProposedEvent::PutPlusOneCounters { object, amount } => {
-                if !self.target_legal(*object) || *amount <= Quantity::zero() {
+                if !self.is_battlefield_creature(*object) || *amount <= Quantity::zero() {
                     return Err("invalid counter placement".into());
                 }
                 let o = self
                     .state
+                    .rules
                     .objects
                     .get_mut(&object.card)
                     .ok_or("missing counter recipient")?;
@@ -337,14 +340,14 @@ impl Game {
                 })
             }
             ProposedEvent::CeaseToken { object } => {
-                if !self.state.tokens.contains_key(&object.card)
+                if !self.state.rules.tokens.contains_key(&object.card)
                     || self.current(*object)?.zone == Zone::Battlefield
                 {
                     return Err("invalid token cessation".into());
                 }
                 self.retain_source_lki(*object)?;
-                self.state.objects.remove(&object.card);
-                for library in self.state.libraries.values_mut() {
+                self.state.rules.objects.remove(&object.card);
+                for library in self.state.rules.libraries.values_mut() {
                     library.retain(|c| *c != object.card);
                 }
                 Ok(EventOutcome::TokenCeased { object: *object })
@@ -354,18 +357,18 @@ impl Game {
     }
     pub(super) fn validate_tokens_state(&self) -> Result<(), String> {
         if self.allocated_capacity_count() > self.token_capacity() as usize
-            || self.state.tokens.len() > capacities::TOKEN_HISTORY_LIMIT
+            || self.state.rules.tokens.len() > capacities::TOKEN_HISTORY_LIMIT
         {
             return Err("snapshot token capacity invariant".into());
         }
-        for (i, (id, t)) in self.state.tokens.iter().enumerate() {
+        for (i, (id, t)) in self.state.rules.tokens.iter().enumerate() {
             t.spec.validate()?;
             if Some(id.0)
                 != u32::try_from(i)
                     .ok()
                     .and_then(|i| TOKEN_ID_START.checked_add(i))
                 || self.prepared.config.cards.iter().any(|c| c.id == *id)
-                || self.state.commanders.history(*id).is_some()
+                || self.state.rules.commanders.history(*id).is_some()
             {
                 return Err("snapshot token physical identity invariant".into());
             }
@@ -384,6 +387,7 @@ impl Game {
             if t.definition != token_definition(source, *id, &t.spec)
                 || self
                     .state
+                    .rules
                     .cards
                     .get(id)
                     .is_none_or(|c| c.owner.0 >= 4 || c.oracle_id != t.definition.oracle_id)
@@ -391,7 +395,7 @@ impl Game {
                 return Err("snapshot token characteristic identity invariant".into());
             }
         }
-        for (id, o) in &self.state.objects {
+        for (id, o) in &self.state.rules.objects {
             if o.plus_one_counters.is_negative()
                 || (o.plus_one_counters > Quantity::zero()
                     && (o.zone != Zone::Battlefield
@@ -399,12 +403,12 @@ impl Game {
             {
                 return Err("snapshot counter invariant".into());
             }
-            if self.state.tokens.contains_key(id)
+            if self.state.rules.tokens.contains_key(id)
                 && (o.id.card != *id
                     || o.controller.0 >= 4
                     || o.default_controller.0 >= 4
                     || !self.is_live(o.controller)
-                    || !self.is_live(self.state.cards[id].owner)
+                    || !self.is_live(self.state.rules.cards[id].owner)
                     || o.id.incarnation > 1
                     || (o.zone == Zone::Battlefield && o.id.incarnation != 0)
                     || (o.zone != Zone::Battlefield && o.id.incarnation != 1)
@@ -427,7 +431,7 @@ impl Game {
                     created,
                     requested,
                 } if *capacity == capacities::TOKEN_HISTORY_LIMIT
-                    && *created == self.state.tokens.len()
+                    && *created == self.state.rules.tokens.len()
                     && *requested as usize > capacity - created =>
                 {
                     "token history capacity exceeded"
@@ -475,7 +479,7 @@ impl Game {
                 }
                 _ => return Err("snapshot typed capacity fault invariant".into()),
             };
-            if !matches!(&self.state.frame,Frame::Fault {reason} if reason==expected) {
+            if !matches!(&self.state.rules.frame,Frame::Fault {reason} if reason==expected) {
                 return Err("snapshot typed fault frame invariant".into());
             }
         }

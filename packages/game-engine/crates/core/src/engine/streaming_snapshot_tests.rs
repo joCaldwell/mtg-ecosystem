@@ -201,12 +201,12 @@ fn streamed_snapshot_restore_uses_same_identity_state_and_full_replay_checks() {
     // Validly rehashed but unreachable history must still fail full replay,
     // rather than pass because a streamed decoder verified its raw bytes.
     let mut unreachable = original.clone();
-    let last = unreachable.state.visibility[0]
+    let last = unreachable.state.knowledge.visibility[0]
         .history
         .last()
         .unwrap()
         .clone();
-    unreachable.state.visibility[0].history.push(last);
+    unreachable.state.knowledge.visibility[0].history.push(last);
     unreachable.state_sha256 = digest(&unreachable.state).unwrap();
     let raw = canonical(&unreachable).unwrap();
     assert!(Game::restore(prepared(), &raw).is_err());
@@ -220,7 +220,7 @@ fn streamed_snapshot_restore_uses_same_identity_state_and_full_replay_checks() {
     )
     .unwrap();
     let mut rng: Snapshot = strict_read(&old_json(&Game::new(match_prepared.clone()))).unwrap();
-    rng.state.match_state.as_mut().unwrap().random.seed[0] ^= 1;
+    rng.state.rules.match_state.as_mut().unwrap().random.seed[0] ^= 1;
     rng.state_sha256 = digest(&rng.state).unwrap();
     let raw = canonical(&rng).unwrap();
     assert!(Game::restore(match_prepared.clone(), &raw).is_err());
@@ -261,8 +261,8 @@ fn streamed_snapshot_failed_io_changed_input_and_late_forgery_cannot_poison_veri
     game.concede(PlayerId(1)).unwrap();
     let good = old_json(&game);
     let mut bad: Snapshot = strict_read(&good).unwrap();
-    bad.state.journal.clear();
-    bad.state.external_inputs.clear();
+    bad.state.audit.journal.clear();
+    bad.state.audit.external_inputs.clear();
     bad.state_sha256 = digest(&bad.state).unwrap();
     let raw = canonical(&bad).unwrap();
     assert!(

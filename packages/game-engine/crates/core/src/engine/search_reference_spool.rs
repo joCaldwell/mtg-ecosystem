@@ -708,6 +708,9 @@ fn replaced(
     guard.finish()
 }
 fn actual_data(data: &WorkData) -> Result<serde_json::Value, String> {
+    if matches!(data.task, Task::Initialize) {
+        return serde_json::to_value(data).map_err(text);
+    }
     let WorkData {
         query,
         task,
@@ -939,6 +942,7 @@ enum ReferenceError {
     Proof(String),
 }
 struct Reference {
+    initialized: bool,
     query: Query,
     builder: ObservationWork,
     observation: Option<Box<Observation>>,
@@ -950,6 +954,7 @@ struct Reference {
 #[derive(Serialize)]
 #[serde(tag = "task", rename_all = "snake_case")]
 enum OldTask<'a> {
+    Initialize,
     Search {
         builder: &'a ObservationWork,
         observation: &'a Option<Box<Observation>>,
@@ -974,27 +979,23 @@ struct OldContext<'a> {
     sampling_seed: &'a str,
 }
 impl Reference {
-    fn new(work: &Work, directory: &Directory) -> Result<Self, String> {
-        let WorkData {
-            query,
-            task,
-            units_done,
-        } = &work.data;
-        let Task::Search {
-            builder,
-            observation,
-            history,
-            decks,
-        } = task
-        else {
+    fn new(game: &Game, work: &Work, directory: &Directory) -> Result<Self, String> {
+        let Query::Search { viewer, .. } = &work.data.query else {
             return Err("reference requires Search".into());
         };
-        if *units_done != 0 || !history.is_empty() || !decks.is_empty() || observation.is_some() {
+        if work.data.units_done != 0 || !matches!(work.data.task, Task::Initialize) {
             return Err("reference must start at lazy zero".into());
         }
+        // Keep the original eager header algorithm as the body oracle. Its
+        // exposure now follows one explicit initialization unit in sidecar v16.
         Ok(Self {
-            query: query.clone(),
-            builder: builder.clone(),
+            initialized: false,
+            query: work.data.query.clone(),
+            builder: ObservationWork {
+                cursor: 0,
+                view: game.blank_view(*viewer)?,
+                decision: game.request_header(*viewer)?,
+            },
             observation: None,
             history: HistorySpool::new(directory).map_err(text)?,
             decks: vec![],
@@ -1003,6 +1004,10 @@ impl Reference {
         })
     }
     fn unit(&mut self, game: &Game) -> Result<bool, ReferenceError> {
+        if !self.initialized {
+            self.initialized = true;
+            return Ok(false);
+        }
         let Query::Search { viewer, .. } = &self.query else {
             return Err(ReferenceError::Query(QueryRejection::Invariant));
         };
@@ -1013,7 +1018,7 @@ impl Reference {
                 .map(Box::new);
             return Ok(false);
         }
-        let permitted = &game.state.visibility[viewer.0 as usize].history;
+        let permitted = &game.state.knowledge.visibility[viewer.0 as usize].history;
         if self.history.len() < permitted.len() {
             // Exactly one complete original public entry; discard it immediately
             // after the generic serializer. Never build/retain an old-owned Vec.
@@ -1062,11 +1067,15 @@ impl Reference {
     fn data(&self) -> Result<serde_json::Value, String> {
         serde_json::to_value(OldData {
             query: &self.query,
-            task: OldTask::Search {
-                builder: &self.builder,
-                observation: &self.observation,
-                history: &[],
-                decks: &self.decks,
+            task: if self.initialized {
+                OldTask::Search {
+                    builder: &self.builder,
+                    observation: &self.observation,
+                    history: &[],
+                    decks: &self.decks,
+                }
+            } else {
+                OldTask::Initialize
             },
             units_done: self.units_done,
         })
@@ -1106,6 +1115,14 @@ fn scratch_with_profile(
         ProofPhase::MetadataConversion,
         |_| Ok((reference.data()?, actual_data(actual)?)),
     )?;
+    if matches!(actual.task, Task::Initialize) {
+        return compare_bytes_with_profile(
+            directory,
+            |out| serde_json::to_writer(out, &old).map_err(text),
+            |out| serde_json::to_writer(out, &new).map_err(text),
+            profile,
+        );
+    }
     let Task::Search { history, .. } = &actual.task else {
         return Err("actual scratch not Search".into());
     };
@@ -1144,14 +1161,19 @@ pub(super) fn compare_with_profile(
             p.query(viewer, QueryKind::Search);
             p.quantum(
                 quantum,
-                u64::try_from(game.state.visibility[viewer.0 as usize].history.len()).unwrap(),
+                u64::try_from(
+                    game.state.knowledge.visibility[viewer.0 as usize]
+                        .history
+                        .len(),
+                )
+                .unwrap(),
             );
         }
         let (directory, mut work, mut reference) =
             proof_phase(profile.as_deref_mut(), ProofPhase::QuantumSetup, |_| {
                 let directory = Directory::new().unwrap();
                 let work = game.start_work(query.clone()).unwrap();
-                let reference = Reference::new(&work, &directory).unwrap();
+                let reference = Reference::new(game, &work, &directory).unwrap();
                 Ok((directory, work, reference))
             })
             .unwrap();
@@ -1273,7 +1295,7 @@ pub(super) fn compare_with_profile(
                     )
                     .unwrap();
                     work = next;
-                    // EXACT original sparse cold prefixes, not moved/shortened.
+                    // Same absolute sparse checkpoints under the new initialization schedule.
                     if (quantum == 1 && [1, 5, 31, 129].contains(&reference.units_done))
                         || (quantum == 64 && checkpoints == 0)
                     {
@@ -1286,7 +1308,7 @@ pub(super) fn compare_with_profile(
                                     ProofPhase::SparseColdSave,
                                     |_| game.save_work(&work),
                                 )?;
-                                let envelope = serde_json::json!({"work_version":15,"build_id":BUILD_ID,"catalog_digest":game.prepared.catalog_digest,"state_sha256":state_sha256,"data":reference.data().unwrap()});
+                                let envelope = serde_json::json!({"work_version":16,"build_id":BUILD_ID,"catalog_digest":game.prepared.catalog_digest,"state_sha256":state_sha256,"data":reference.data().unwrap()});
                                 proof_phase(
                                     profile.as_deref_mut(),
                                     ProofPhase::SparseSavedEnvelopeComparison,

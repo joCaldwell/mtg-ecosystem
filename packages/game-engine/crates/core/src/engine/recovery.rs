@@ -38,9 +38,9 @@ impl SnapshotVerifier {
         }
         // Failure must not change the proved cursor or last verified digest.
         let mut replayed = self.replay.fork();
-        replayed.extend_replay(&game.replay_journal(), Some(game.state.rule_steps))?;
-        if matches!(game.state.frame, Frame::Fault { .. })
-            && !matches!(replayed.state.frame, Frame::Fault { .. })
+        replayed.extend_replay(&game.replay_journal(), Some(game.state.rules.rule_steps))?;
+        if matches!(game.state.rules.frame, Frame::Fault { .. })
+            && !matches!(replayed.state.rules.frame, Frame::Fault { .. })
         {
             let _ = replayed.advance(Budget::new(1));
         }
@@ -174,7 +174,7 @@ mod tests {
             "restored games need a fresh receipt scope"
         );
         let mut forged: Snapshot = strict_read(&initial).unwrap();
-        forged.state.turn.lands_played = 1;
+        forged.state.rules.turn.lands_played = 1;
         forged.state_sha256 = digest(&forged.state).unwrap();
         assert!(verifier.verify(&canonical(&forged).unwrap()).is_err());
         assert_eq!(verifier.verify(&initial).unwrap().state, game.state);
@@ -189,7 +189,7 @@ mod tests {
             .unwrap();
         let valid = game.snapshot().unwrap();
         let mut later_forgery: Snapshot = strict_read(&valid).unwrap();
-        later_forgery.state.turn.lands_played = 1;
+        later_forgery.state.rules.turn.lands_played = 1;
         later_forgery.state_sha256 = digest(&later_forgery.state).unwrap();
         assert!(
             verifier
@@ -198,9 +198,18 @@ mod tests {
         );
         // Even a failure after consuming additional inputs must leave the
         // original pending-input boundary available to the cursor.
-        assert_eq!(verifier.verify(&accepted).unwrap().state.journal.len(), 1);
+        assert_eq!(
+            verifier
+                .verify(&accepted)
+                .unwrap()
+                .state
+                .audit
+                .journal
+                .len(),
+            1
+        );
         let mut forged: Snapshot = strict_read(&valid).unwrap();
-        forged.state.journal[0].response = Response::ActivateMana {
+        forged.state.audit.journal[0].response = Response::ActivateMana {
             object: ObjectId {
                 card: CardId(0),
                 incarnation: 0,

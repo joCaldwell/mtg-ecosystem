@@ -23,7 +23,7 @@ fn grave(g: &Game, card: u32) -> ProposedEvent {
         g,
         card,
         Zone::Graveyard {
-            owner: g.state.cards[&CardId(card)].owner,
+            owner: g.state.rules.cards[&CardId(card)].owner,
         },
     )
 }
@@ -59,7 +59,7 @@ fn visionary_placement() -> Game {
         answer(&mut g, Response::Pass);
     }
     assert!(matches!(settle(&mut g), Request::OrderTriggers { .. }));
-    assert_eq!(g.state.pending_triggers.len(), 4);
+    assert_eq!(g.state.rules.pending_triggers.len(), 4);
     g
 }
 fn recover(g: &Game) {
@@ -84,11 +84,12 @@ fn simultaneous_deaths_share_lookback_observers_including_both_dying_artists() {
             },
         )
         .unwrap();
-    assert_eq!(g.state.pending_triggers.len(), 10);
-    assert_eq!(g.state.next_trigger_id, 10);
+    assert_eq!(g.state.rules.pending_triggers.len(), 10);
+    assert_eq!(g.state.rules.next_trigger_id, 10);
     for fact in facts {
         let captured: Vec<_> = g
             .state
+            .rules
             .pending_triggers
             .iter()
             .filter(|t| t.source == fact.object)
@@ -128,7 +129,7 @@ fn simultaneous_deaths_share_lookback_observers_including_both_dying_artists() {
     ordered
         .commit_batch(BatchCause::Fixture, EventGroup::Ordered { children })
         .unwrap();
-    assert_eq!(ordered.state.pending_triggers.len(), 9);
+    assert_eq!(ordered.state.rules.pending_triggers.len(), 9);
 }
 
 #[test]
@@ -150,6 +151,7 @@ fn enters_use_resulting_battlefield_and_other_excludes_exact_source() {
     );
     let sources: BTreeSet<_> = g
         .state
+        .rules
         .pending_triggers
         .iter()
         .map(|t| t.source.card)
@@ -160,6 +162,7 @@ fn enters_use_resulting_battlefield_and_other_excludes_exact_source() {
     );
     let visionary = g
         .state
+        .rules
         .pending_triggers
         .iter()
         .find(|t| t.source.card == CardId(4))
@@ -173,6 +176,7 @@ fn enters_use_resulting_battlefield_and_other_excludes_exact_source() {
     g.commit_batch(BatchCause::Fixture, leaf(enter)).unwrap();
     assert_eq!(
         g.state
+            .rules
             .pending_triggers
             .iter()
             .map(|t| t.source.card)
@@ -192,8 +196,8 @@ fn nondeath_moves_and_noncreatures_do_not_emit_dies_triggers() {
         let mut g = game();
         let proposed = movement(&g, card, destination);
         g.commit_batch(BatchCause::Fixture, leaf(proposed)).unwrap();
-        assert!(g.state.pending_triggers.is_empty());
-        assert_eq!(g.state.next_trigger_id, 0);
+        assert!(g.state.rules.pending_triggers.is_empty());
+        assert_eq!(g.state.rules.next_trigger_id, 0);
         assert!(
             !g.events()
                 .iter()
@@ -228,7 +232,7 @@ fn rejected_ordered_batch_and_trigger_resource_overflow_roll_back_collection() {
     assert_eq!(g.trace, initial.trace);
     assert!(Arc::ptr_eq(&token, &g.state_token));
     let mut g = initial.fork();
-    g.state.next_trigger_id = u64::MAX;
+    g.state.rules.next_trigger_id = u64::MAX;
     let before = g.fork();
     assert!(g.commit_batch(BatchCause::Fixture, leaf(enter)).is_err());
     assert_eq!(g.state, before.state);
@@ -278,17 +282,18 @@ fn triggered_stack_targets_are_abilities_and_countering_moves_no_source_card() {
             other => panic!("unexpected placement decision {other:?}"),
         }
     }
-    assert_eq!(g.state.stack.len(), 4);
+    assert_eq!(g.state.rules.stack.len(), 4);
     assert!(
         g.state
+            .rules
             .stack
             .iter()
             .all(|s| matches!(s.kind, StackKind::Triggered { .. }) && s.paid.is_some())
     );
     recover(&g);
-    let target = g.state.stack[0].id;
-    let countering = g.state.stack[3].id;
-    let source = g.state.stack[0].source;
+    let target = g.state.rules.stack[0].id;
+    let countering = g.state.rules.stack[3].id;
+    let source = g.state.rules.stack[0].source;
     let fact = g.current(source).unwrap().clone();
     let initial = g.fork();
     assert!(
@@ -322,8 +327,8 @@ fn triggered_stack_targets_are_abilities_and_countering_moves_no_source_card() {
         })
     ));
     assert_eq!(g.current(source).unwrap(), &fact);
-    assert_eq!(g.state.stack.len(), 3);
-    assert!(!g.state.stack.iter().any(|s| s.id == target));
+    assert_eq!(g.state.rules.stack.len(), 3);
+    assert!(!g.state.rules.stack.iter().any(|s| s.id == target));
 }
 
 #[test]

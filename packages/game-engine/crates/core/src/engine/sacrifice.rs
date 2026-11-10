@@ -9,6 +9,7 @@ impl Game {
         filter: &SacrificeFilter,
     ) -> Vec<ObjectId> {
         self.state
+            .rules
             .objects
             .values()
             .filter(|o| o.zone == Zone::Battlefield && o.controller == player)
@@ -87,6 +88,7 @@ impl Game {
                 },
             )?;
             self.state
+                .rules
                 .stack
                 .last_mut()
                 .ok_or("missing sacrifice invocation")?
@@ -95,8 +97,8 @@ impl Game {
         Ok(())
     }
     pub(super) fn sacrifice_request(&self) -> Result<Option<Request>, String> {
-        let decision_id = self.state.revision;
-        Ok(match &self.state.frame {
+        let decision_id = self.state.rules.revision;
+        Ok(match &self.state.rules.frame {
             Frame::SacrificeCost { .. } => {
                 let stack = self.top()?;
                 let f = self
@@ -163,7 +165,7 @@ impl Game {
         }
     }
     pub(super) fn sacrifice_step(&mut self) -> Result<(), String> {
-        match self.state.frame.clone() {
+        match self.state.rules.frame.clone() {
             Frame::SacrificeCost { mut cast } => {
                 let stack = self.top()?.clone();
                 let filter = self
@@ -178,6 +180,7 @@ impl Game {
                 }
                 let input = self
                     .state
+                    .rules
                     .pending
                     .take()
                     .ok_or("missing sacrifice cost input")?;
@@ -192,6 +195,7 @@ impl Game {
                 let perform = if self.is_live(frame.spell.controller) {
                     let input = self
                         .state
+                        .rules
                         .pending
                         .take()
                         .ok_or("missing optional damage input")?;
@@ -219,6 +223,7 @@ impl Game {
                     if self.is_live(player) && !self.controlled_creatures(player).is_empty() {
                         let input = self
                             .state
+                            .rules
                             .pending
                             .take()
                             .ok_or("missing forced sacrifice input")?;
@@ -229,7 +234,7 @@ impl Game {
                         choices.push((player, object));
                     }
                     remaining.remove(0);
-                    self.state.frame = Frame::ForcedSacrifice {
+                    self.state.rules.frame = Frame::ForcedSacrifice {
                         frame,
                         remaining,
                         choices,
@@ -278,10 +283,10 @@ impl Game {
         match instruction {
             Instruction::EachOpponentSacrifice { source_block } => {
                 let remaining = (0..4)
-                    .map(|n| PlayerId((self.state.turn_owner.0 + n) % 4))
+                    .map(|n| PlayerId((self.state.rules.turn_owner.0 + n) % 4))
                     .filter(|p| self.is_live(*p) && *p != frame.spell.controller)
                     .collect();
-                self.state.frame = Frame::ForcedSacrifice {
+                self.state.rules.frame = Frame::ForcedSacrifice {
                     frame,
                     remaining,
                     choices: vec![],
@@ -290,7 +295,7 @@ impl Game {
                 Ok(())
             }
             Instruction::SacrificeDamage { optional: true, .. } => {
-                self.state.frame = Frame::OptionalDamage { frame };
+                self.state.rules.frame = Frame::OptionalDamage { frame };
                 Ok(())
             }
             Instruction::SacrificeDamage { .. } => self.start_sacrifice_damage(frame),
@@ -401,12 +406,13 @@ impl Game {
 }
 impl Game {
     pub(super) fn validate_sacrifice_state(&self) -> Result<(), String> {
-        for e in &self.state.stack {
+        for e in &self.state.rules.stack {
             if let Some(f) = &e.sacrificed {
                 if f.zone != Zone::Battlefield
                     || f.controller != e.controller
                     || self
                         .state
+                        .rules
                         .cards
                         .get(&f.object.card)
                         .is_none_or(|c| c.owner != f.owner)
@@ -424,7 +430,7 @@ impl Game {
                 return Err("snapshot missing sacrifice cost facts".into());
             }
         }
-        match &self.state.frame {
+        match &self.state.rules.frame {
             Frame::SacrificeCost { cast } => {
                 if self.invocation_sacrifice_filter(self.top()?).is_none()
                     || cast.spending.is_none()
@@ -447,7 +453,7 @@ impl Game {
                     matches!(instruction, Some(Instruction::EachPlayerSacrifice { .. }));
                 let valid = matches!(instruction,Some(Instruction::EachOpponentSacrifice {source_block:b} | Instruction::EachPlayerSacrifice {source_block:b}) if b==source_block);
                 let all = (0..4)
-                    .map(|n| PlayerId((self.state.turn_owner.0 + n) % 4))
+                    .map(|n| PlayerId((self.state.rules.turn_owner.0 + n) % 4))
                     .filter(|p| includes_caster || *p != frame.spell.controller)
                     .collect::<Vec<_>>();
                 if !valid
@@ -459,7 +465,7 @@ impl Game {
                     || choices.iter().any(|(p, o)| {
                         !all.contains(p)
                             || remaining.contains(p)
-                            || !self.state.cards.contains_key(&o.card)
+                            || !self.state.rules.cards.contains_key(&o.card)
                     })
                     || choices
                         .iter()

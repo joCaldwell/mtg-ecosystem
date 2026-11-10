@@ -144,9 +144,10 @@ fn fixture() -> (Game, Vec<ObjectId>, ObjectId) {
             other => panic!("unchanged effects fixture initial priority: {other:?}"),
         }
     }
-    assert!(game.state.effects.is_empty());
+    assert!(game.state.rules.effects.is_empty());
     let targets = game
         .state
+        .rules
         .objects
         .values()
         .filter(|o| {
@@ -160,12 +161,19 @@ fn fixture() -> (Game, Vec<ObjectId>, ObjectId) {
     assert_eq!(targets.len(), 4);
     let source = game
         .state
+        .rules
         .objects
         .values()
         .find(|o| game.definition(o.id.card).unwrap().oracle_id == GROWTH)
         .unwrap()
         .id;
-    assert!(game.state.visibility.iter().all(|v| !v.history.is_empty()));
+    assert!(
+        game.state
+            .knowledge
+            .visibility
+            .iter()
+            .all(|v| !v.history.is_empty())
+    );
     (game, targets, source)
 }
 fn seed_domain(base: &Game, targets: &[ObjectId], source: ObjectId, rows: &[Payload]) -> Game {
@@ -183,7 +191,7 @@ fn seed_domain(base: &Game, targets: &[ObjectId], source: ObjectId, rows: &[Payl
         let target = targets[payload.partition];
         let source_handles = game.capture_trigger_source_handles(source).unwrap();
         let target_handles = game.capture_trigger_source_handles(target).unwrap();
-        game.state.effects.push(ResolvedEffect {
+        game.state.rules.effects.push(ResolvedEffect {
             target_handles,
             id: EffectId(u64::try_from(index).unwrap()),
             origin: EffectOrigin {
@@ -195,7 +203,7 @@ fn seed_domain(base: &Game, targets: &[ObjectId], source: ObjectId, rows: &[Payl
                 cursor: 0,
                 source_block: *source_block,
             },
-            expires_in_cleanup_of_turn: game.state.turn.number,
+            expires_in_cleanup_of_turn: game.state.rules.turn.number,
             kind: ResolvedEffectKind::ModifyPowerToughness {
                 target,
                 power: power.clone(),
@@ -203,7 +211,7 @@ fn seed_domain(base: &Game, targets: &[ObjectId], source: ObjectId, rows: &[Payl
             },
         });
     }
-    game.state.next_effect_id = u64::try_from(rows.len()).unwrap();
+    game.state.rules.next_effect_id = u64::try_from(rows.len()).unwrap();
     let restore = Game::restore(game.prepared.as_ref().clone(), &game.snapshot().unwrap());
     assert_eq!(
         restore.is_err(),
@@ -299,7 +307,7 @@ fn modifier_row(count: usize, repetition: usize, collect: bool) -> serde_json::V
     if count > 0 {
         let ResolvedEffectKind::ModifyPowerToughness {
             power, toughness, ..
-        } = &mut changed.state.effects[0].kind
+        } = &mut changed.state.rules.effects[0].kind
         else {
             unreachable!()
         };
@@ -386,7 +394,7 @@ fn modifier_row(count: usize, repetition: usize, collect: bool) -> serde_json::V
             .map(|i| EffectId(u64::try_from(i).unwrap()))
             .collect::<Vec<_>>()
     );
-    assert!(changed.state.effects.is_empty());
+    assert!(changed.state.rules.effects.is_empty());
     assert_eq!(evaluate(&changed, &targets), arithmetic(&base, &targets, 0));
     serde_json::json!({"row":"synthetic_unique_modifier_payloads","repetition":repetition,"warmup":repetition==0,
         "unique_authentic_active_source_programs":0,"archived_operation_templates":1,"synthetic_unique_canonical_payloads":manifest.len(),

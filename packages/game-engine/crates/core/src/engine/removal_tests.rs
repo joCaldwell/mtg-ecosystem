@@ -134,7 +134,7 @@ fn check(g: &Game) {
         g.trace.mode,
     )
     .unwrap();
-    if matches!(g.state.frame, Frame::Fault { .. }) {
+    if matches!(g.state.rules.frame, Frame::Fault { .. }) {
         let _ = replayed.advance(Budget::new(1));
     }
     assert_eq!(replayed.state, g.state);
@@ -185,6 +185,7 @@ fn pay_proposal(g: &mut Game, targets: Vec<TargetEntity>, stack_target: Option<S
                 } else {
                     let land = g
                         .state
+                        .rules
                         .objects
                         .values()
                         .filter(|o| {
@@ -227,7 +228,7 @@ fn pay_proposal(g: &mut Game, targets: Vec<TargetEntity>, stack_target: Option<S
                 Response::SpendMana { spending }
             }
             Request::StackTargets { .. } => Response::StackTargets {
-                entries: vec![stack_target.unwrap_or(g.state.stack[0].id)],
+                entries: vec![stack_target.unwrap_or(g.state.rules.stack[0].id)],
             },
             Request::PlayerTargets { .. } => Response::PlayerTargets {
                 players: vec![PlayerId(1)],
@@ -281,8 +282,8 @@ fn resolve_with(g: &mut Game, targets: Vec<TargetEntity>, mut inspect: impl FnMu
             Advance::Suspended { .. } => {}
             Advance::AwaitingDecision(r) => {
                 if matches!(r, Request::Priority { .. })
-                    && g.state.stack.is_empty()
-                    && g.state.pending_triggers.is_empty()
+                    && g.state.rules.stack.is_empty()
+                    && g.state.rules.pending_triggers.is_empty()
                 {
                     return;
                 }
@@ -306,9 +307,10 @@ fn target(o: ObjectId) -> Vec<TargetEntity> {
 }
 fn token_objects(g: &Game) -> Vec<ObjectId> {
     g.state
+        .rules
         .objects
         .values()
-        .filter(|o| g.state.tokens.contains_key(&o.id.card))
+        .filter(|o| g.state.rules.tokens.contains_key(&o.id.card))
         .map(|o| o.id)
         .collect()
 }
@@ -438,7 +440,7 @@ fn swords_commander_equipment_lki_precedes_exile_return_and_public_exile_survive
         for _ in 0..100 {
             let r = request(g);
             if matches!(r, Request::CommanderReturn { .. }) {
-                assert_eq!(g.state.players[0].life, Quantity::from(44));
+                assert_eq!(g.state.rules.players[0].life, Quantity::from(44));
                 assert_eq!(g.zone(object(g, 0)), Some(Zone::Exile));
                 for seat in 0..4 {
                     let o = observation(g, seat);
@@ -480,7 +482,7 @@ fn swords_token_life_then_exile_cessation() {
         cast(g, 1, target(t));
         assert!(g.current(t).is_err());
         assert_eq!(token_objects(g).len(), 1);
-        assert_eq!(g.state.players[0].life, Quantity::from(41));
+        assert_eq!(g.state.rules.players[0].life, Quantity::from(41));
         assert!(observation(g, 0).view.players[0].exile.is_empty());
     });
 }
@@ -576,6 +578,7 @@ fn beast_within_land_rock_and_own_permanent_controller_tokens_and_mana_windows()
             );
             assert!(
                 !g.state
+                    .rules
                     .objects
                     .values()
                     .any(|o| o.id == old && o.zone == Zone::Battlefield)
@@ -611,8 +614,8 @@ fn natures_claim_life_to_artifact_controller() {
     rows.extend(lands("Forest", 1));
     traces(prepared(&rows), |g| {
         cast(g, 1, target(object(g, 0)));
-        assert_eq!(g.state.players[1].life, Quantity::from(44));
-        assert_eq!(g.state.players[0].life, Quantity::from(40));
+        assert_eq!(g.state.rules.players[1].life, Quantity::from(44));
+        assert_eq!(g.state.rules.players[0].life, Quantity::from(40));
     });
 }
 #[test]
@@ -637,7 +640,7 @@ fn feed_swarm_token_zero_mv_commander_printed_mv_and_opponent_filter() {
         let t = token_objects(g)[0];
         pay_proposal(g, target(t), None);
         resolve(g, vec![]);
-        assert_eq!(g.state.players[0].life, Quantity::from(40));
+        assert_eq!(g.state.rules.players[0].life, Quantity::from(40));
         assert!(g.current(t).is_err());
     });
     let mut rows = vec![
@@ -647,9 +650,10 @@ fn feed_swarm_token_zero_mv_commander_printed_mv_and_opponent_filter() {
     rows.extend(lands("Swamp", 2));
     traces(prepared(&rows), |g| {
         cast(g, 0, target(object(g, 1)));
-        assert_eq!(g.state.players[0].life, Quantity::from(34));
+        assert_eq!(g.state.rules.players[0].life, Quantity::from(34));
         assert_eq!(
             g.state
+                .rules
                 .commanders
                 .history(CardId(1))
                 .unwrap()
@@ -724,7 +728,7 @@ fn chupacabra_no_legal_opposing_trigger_target_removed() {
         resolve(g, vec![]);
         for _ in 0..100 {
             let r = request(g);
-            if g.state.active == Some(PlayerId(1))
+            if g.state.rules.active == Some(PlayerId(1))
                 && g.turn().step == TurnStep::PrecombatMain
                 && matches!(r, Request::Priority { .. })
             {
@@ -738,7 +742,7 @@ fn chupacabra_no_legal_opposing_trigger_target_removed() {
             answer(g, response);
         }
         cast(g, 2, vec![]);
-        assert!(g.state.stack.is_empty());
+        assert!(g.state.rules.stack.is_empty());
         if g.trace.mode == TraceMode::Detailed {
             assert!(g.events().iter().any(|e| matches!(
                 e,
@@ -798,8 +802,9 @@ fn zealot_targets_before_cost_artist_triggers_and_stifle_counters_detached_abili
             Some(Zone::Graveyard { owner: PlayerId(0) })
         );
         assert!(
-            !g.state.pending_triggers.is_empty()
+            !g.state.rules.pending_triggers.is_empty()
                 || g.state
+                    .rules
                     .stack
                     .iter()
                     .any(|e| matches!(e.kind, StackKind::Triggered { .. }))
@@ -814,6 +819,7 @@ fn zealot_targets_before_cost_artist_triggers_and_stifle_counters_detached_abili
         }
         let ability = g
             .state
+            .rules
             .stack
             .iter()
             .find(|e| matches!(e.kind, StackKind::Activated { .. }))
@@ -827,7 +833,7 @@ fn zealot_targets_before_cost_artist_triggers_and_stifle_counters_detached_abili
             g.zone(object(g, 0)),
             Some(Zone::Graveyard { owner: PlayerId(0) })
         );
-        assert_eq!(g.state.players[1].life, Quantity::from(39));
+        assert_eq!(g.state.rules.players[1].life, Quantity::from(39));
     });
 }
 #[test]
@@ -840,8 +846,8 @@ fn smash_furnace_six_noncombat_damage_no_commander_history() {
     rows.extend(lands("Mountain", 2));
     traces(prepared(&rows), |g| {
         cast(g, 2, target(object(g, 1)));
-        assert_eq!(g.state.players[1].life, Quantity::from(34));
-        assert!(g.state.commanders.records.is_empty());
+        assert_eq!(g.state.rules.players[1].life, Quantity::from(34));
+        assert!(g.state.rules.commanders.records.is_empty());
     });
 }
 #[test]
@@ -985,7 +991,7 @@ fn revoke_exiles_equipment_and_sage_chupacabra_destroy_legal_trigger_targets() {
 fn resolve_to_command(g: &mut Game) {
     for _ in 0..200 {
         let r = request(g);
-        if matches!(r, Request::Priority { .. }) && g.state.stack.is_empty() {
+        if matches!(r, Request::Priority { .. }) && g.state.rules.stack.is_empty() {
             return;
         }
         let response = if matches!(r, Request::CommanderReturn { .. }) {
@@ -1041,6 +1047,7 @@ fn feed_swarm_uses_six_mana_value_after_eight_mana_taxed_commander_cast() {
         resolve(g, vec![]);
         assert_eq!(
             g.state
+                .rules
                 .commanders
                 .history(CardId(0))
                 .unwrap()
@@ -1050,7 +1057,7 @@ fn feed_swarm_uses_six_mana_value_after_eight_mana_taxed_commander_cast() {
         );
         main_for(g, 1);
         cast(g, 3, target(object(g, 0)));
-        assert_eq!(g.state.players[1].life, Quantity::from(34));
+        assert_eq!(g.state.rules.players[1].life, Quantity::from(34));
     });
 }
 #[test]
@@ -1093,7 +1100,7 @@ fn removal_token_capacity_fault_is_typed_atomic_and_replayable_private_domain() 
                 requested: capacities::TOKEN_CAPACITY + 1
             })
         );
-        assert!(g.state.tokens.is_empty());
+        assert!(g.state.rules.tokens.is_empty());
     });
 }
 #[test]
@@ -1121,25 +1128,25 @@ fn removal_effect_capacity_is_typed_and_atomic_in_private_state_domain() {
         for _ in 0..4 {
             answer(&mut g, Response::Pass);
         }
-        while g.state.effects.is_empty() {
+        while g.state.rules.effects.is_empty() {
             assert!(matches!(
                 g.advance(Budget::new(1)),
                 Advance::Suspended { .. }
             ));
         }
-        let effect = g.state.effects[0].clone();
-        g.state.effects = vec![effect; capacities::EFFECT_LIMIT];
+        let effect = g.state.rules.effects[0].clone();
+        g.state.rules.effects = vec![effect; capacities::EFFECT_LIMIT];
         let mut expected = g.state.clone();
         let trace = g.trace.clone();
         assert_eq!(
             g.advance(Budget::new(1)),
             Advance::Fault("effect capacity exceeded".into())
         );
-        expected.typed_fault = Some(RuleFault::EffectCapacityExceeded {
+        expected.rules.typed_fault = Some(RuleFault::EffectCapacityExceeded {
             capacity: capacities::EFFECT_LIMIT,
             requested: capacities::EFFECT_LIMIT + 1,
         });
-        expected.frame = Frame::Fault {
+        expected.rules.frame = Frame::Fault {
             reason: "effect capacity exceeded".into(),
         };
         assert_eq!(g.state, expected);
@@ -1203,7 +1210,7 @@ fn sage_may_is_not_performed_for_a_departed_controller() {
         let ring = object(g, 1);
         announce(g, 0, vec![]);
         for _ in 0..4000 {
-            if matches!(&g.state.frame, Frame::Resolve { frame }
+            if matches!(&g.state.rules.frame, Frame::Resolve { frame }
                 if matches!(frame.spell.kind, StackKind::Triggered { .. }))
             {
                 break;
@@ -1389,13 +1396,17 @@ fn legend_rule_controller_keeps_each_permanent_type_through_public_choices_and_r
             assert_eq!(player, PlayerId(0));
             assert_eq!(candidates, [first, keep]);
             assert!(
-                g.respond(PlayerId(1), g.state.revision, Response::LegendRule { keep })
-                    .is_err()
+                g.respond(
+                    PlayerId(1),
+                    g.state.rules.revision,
+                    Response::LegendRule { keep }
+                )
+                .is_err()
             );
             assert!(
                 g.respond(
                     player,
-                    g.state.revision,
+                    g.state.rules.revision,
                     Response::LegendRule { keep: opponent }
                 )
                 .is_err()
@@ -1429,7 +1440,7 @@ fn legend_rule_controller_keeps_each_permanent_type_through_public_choices_and_r
             assert_eq!(g.zone(opponent), Some(Zone::Battlefield));
             assert!(g.current(first).is_err());
             assert_eq!(
-                g.state.objects[&first.card].zone,
+                g.state.rules.objects[&first.card].zone,
                 Zone::Graveyard { owner: PlayerId(0) }
             );
             let replay = Game::replay(p.clone(), &g.replay_journal()).unwrap();
@@ -1470,7 +1481,10 @@ fn legend_wave_finishes_before_fresh_commander_graveyard_return_choices() {
         let r = request(g);
         for (old, owner) in [(first, PlayerId(0)), (second, PlayerId(1))] {
             assert!(g.current(old).is_err());
-            assert_eq!(g.state.objects[&old.card].zone, Zone::Graveyard { owner });
+            assert_eq!(
+                g.state.rules.objects[&old.card].zone,
+                Zone::Graveyard { owner }
+            );
         }
         assert!(
             matches!(r, Request::CommanderReturn { player: PlayerId(0), object, .. } if object == self::object(g, 0))
@@ -1484,11 +1498,11 @@ fn legend_wave_finishes_before_fresh_commander_graveyard_return_choices() {
         answer(g, Response::CommanderReturn { to_command: false });
         request(g);
         assert_eq!(
-            g.state.objects[&first.card].zone,
+            g.state.rules.objects[&first.card].zone,
             Zone::Command { owner: PlayerId(0) }
         );
         assert_eq!(
-            g.state.objects[&second.card].zone,
+            g.state.rules.objects[&second.card].zone,
             Zone::Graveyard { owner: PlayerId(1) }
         );
         assert_eq!(g.zone(object(g, 1)), Some(Zone::Battlefield));
@@ -1544,7 +1558,7 @@ fn artifact_land_survives_nonland_wipe_and_is_removed_by_artifact_removal() {
     )
     .unwrap();
     assert_eq!(
-        g.state.objects[&land.card].zone,
+        g.state.rules.objects[&land.card].zone,
         Zone::Graveyard { owner: PlayerId(0) }
     );
 }
@@ -1568,7 +1582,12 @@ fn legend_rule_choices_are_apnap_and_share_the_lethal_damage_wave() {
     let mut g = Game::new(p);
     let (a, b, c, d) = (object(&g, 0), object(&g, 1), object(&g, 2), object(&g, 3));
     // A kept legend can still die from another simultaneous SBA (704.3).
-    g.state.objects.get_mut(&a.card).unwrap().marked_damage = Quantity::from(2);
+    g.state
+        .rules
+        .objects
+        .get_mut(&a.card)
+        .unwrap()
+        .marked_damage = Quantity::from(2);
     answer(&mut g, Response::Pass);
     let Advance::AwaitingDecision(r) = g.advance(Budget::unlimited()) else {
         panic!("legend")
@@ -1673,11 +1692,14 @@ fn flash_casts_permanent_spells_on_opponents_turns_and_in_response_with_paired_r
                     announce(g, 0, vec![]);
                 }
                 priority_for(g, 1);
-                assert_eq!(g.state.active, Some(PlayerId(0)));
+                assert_eq!(g.state.rules.active, Some(PlayerId(0)));
                 announce(g, 1, vec![]);
-                assert_eq!(g.state.stack.len(), if response_window { 2 } else { 1 });
+                assert_eq!(
+                    g.state.rules.stack.len(),
+                    if response_window { 2 } else { 1 }
+                );
                 resolve(g, vec![]);
-                assert_eq!(g.state.objects[&CardId(1)].zone, Zone::Battlefield);
+                assert_eq!(g.state.rules.objects[&CardId(1)].zone, Zone::Battlefield);
             });
         }
     }
@@ -1759,8 +1781,8 @@ fn archived_flash_sources_pay_and_resolve_in_response_on_an_opponents_turn() {
         priority_for(g, 1);
         announce(g, 0, vec![]);
         announce(g, 1, vec![]);
-        assert_eq!(g.state.active, Some(PlayerId(0)));
-        assert_eq!(g.state.stack.len(), 2);
+        assert_eq!(g.state.rules.active, Some(PlayerId(0)));
+        assert_eq!(g.state.rules.stack.len(), 2);
         resolve(g, vec![]);
         assert!(!g.current(object(g, 0)).unwrap().tapped);
         assert!(g.current(object(g, 1)).unwrap().tapped);
@@ -1824,7 +1846,7 @@ fn legend_rule_uses_controller_choices_owner_graveyards_and_revalidates_departur
         answer(g, Response::LegendRule { keep: object(g, 2) });
         request(g);
         assert_eq!(
-            g.state.objects[&CardId(1)].zone,
+            g.state.rules.objects[&CardId(1)].zone,
             Zone::Graveyard { owner: PlayerId(2) }
         );
     });
@@ -1849,9 +1871,9 @@ fn legend_rule_uses_controller_choices_owner_graveyards_and_revalidates_departur
         );
         answer(g, Response::LegendRule { keep: object(g, 3) });
         request(g);
-        assert!(!g.state.objects.contains_key(&CardId(0)));
+        assert!(!g.state.rules.objects.contains_key(&CardId(0)));
         assert_eq!(
-            g.state.objects[&CardId(2)].zone,
+            g.state.rules.objects[&CardId(2)].zone,
             Zone::Graveyard { owner: PlayerId(1) }
         );
         assert_eq!(g.zone(object(g, 3)), Some(Zone::Battlefield));

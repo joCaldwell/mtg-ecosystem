@@ -36,6 +36,7 @@ fn old_deep_owned_fork(game: &Game) -> Game {
         trace: game.trace.clone(),
         executor: Arc::new(()),
         state_token: Arc::new(()),
+        in_rule_step: false,
     }
 }
 fn complete(game: &Game, mut value: QueryResult) -> QueryValue {
@@ -124,7 +125,7 @@ fn prepared_arc_matches_old_deep_fork_and_keeps_receipts_and_work_executor_scope
     shared.submit(checked_pass(&shared)).unwrap();
     assert_ne!(shared.state, parent.state);
     assert!(Arc::ptr_eq(&shared.prepared, &parent.prepared));
-    assert!(parent.state.pending.is_none());
+    assert!(parent.state.rules.pending.is_none());
 }
 
 #[test]
@@ -233,7 +234,7 @@ fn prepared_arc_real400_decks_setup_knowledge_and_departures_match_deep_owned_re
     ready(&mut actual, 1);
     ready(&mut reference, u64::MAX);
     full_equal(&actual, &reference);
-    assert_eq!(actual.state.cards.len(), 400);
+    assert_eq!(actual.state.rules.cards.len(), 400);
     assert_eq!(actual.config().cards.len(), 400);
     assert_eq!(actual.live_players(), [PlayerId(0), PlayerId(3)]);
     let restored = Game::restore(
@@ -276,7 +277,7 @@ fn prepared_arc_failed_atomic_batch_keeps_state_trace_and_preexisting_receipt_va
     }
     full_equal(&actual, &reference);
     assert!(Arc::ptr_eq(&parent.prepared, &actual.prepared));
-    assert!(parent.state.pending.is_none());
+    assert!(parent.state.rules.pending.is_none());
 }
 
 #[test]

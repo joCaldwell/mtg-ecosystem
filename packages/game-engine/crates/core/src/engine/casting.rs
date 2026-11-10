@@ -38,7 +38,7 @@ impl Game {
             player: input.player,
             color,
             amount: Quantity::from(1),
-            mana_was_absent: !self.state.players[input.player.0 as usize]
+            mana_was_absent: !self.state.rules.players[input.player.0 as usize]
                 .mana
                 .contains_key(&color),
         };
@@ -94,7 +94,9 @@ impl Game {
                 let source = match self.current(receipt.object) {
                     Ok(o) if o.zone == Zone::Battlefield && o.tapped => Some(o.id),
                     Ok(_) => return Err("casting reversal source changed unexpectedly".into()),
-                    Err(_) if !self.is_live(self.state.cards[&receipt.object.card].owner) => None,
+                    Err(_) if !self.is_live(self.state.rules.cards[&receipt.object.card].owner) => {
+                        None
+                    }
                     Err(_) => return Err("casting reversal lost surviving mana source".into()),
                 };
                 children.push(EventGroup::Occurrence {
@@ -115,10 +117,11 @@ impl Game {
                 EventGroup::Ordered { children },
             )?;
         }
-        self.state.stack.pop();
+        self.state.rules.stack.pop();
         if cast.origin.is_spell() {
             let o = self
                 .state
+                .rules
                 .objects
                 .get_mut(&cast.original_object.card)
                 .ok_or("missing reversal object")?;
@@ -128,12 +131,12 @@ impl Game {
             o.default_controller = stack.controller;
             o.tapped = false;
         }
-        self.state.pending = None;
-        self.state.priority = stack.controller;
+        self.state.rules.pending = None;
+        self.state.rules.priority = stack.controller;
         // CR 117.4: keeping a legal mana activation interrupts the old pass
         // round. Undoing all activations restores the pre-attempt live passes.
         let live = self.live_players();
-        self.state.passes = if undo_mana || cast.mana_activations.is_empty() {
+        self.state.rules.passes = if undo_mana || cast.mana_activations.is_empty() {
             cast.prior_passes
                 .into_iter()
                 .filter(|p| live.contains(p))
@@ -141,7 +144,7 @@ impl Game {
         } else {
             vec![]
         };
-        self.state.frame = Frame::Priority;
+        self.state.rules.frame = Frame::Priority;
         self.record_event(Event::CastReversed {
             stack_id: cast.stack_id,
             reason: reason.into(),

@@ -31,26 +31,27 @@ impl Game {
         }
         if viewer.0 >= 4
             || !self.is_live(viewer)
-            || self.state.active != Some(viewer)
-            || self.state.priority != viewer
-            || self.state.turn.step != TurnStep::PrecombatMain
-            || !matches!(self.state.frame, Frame::Priority)
-            || !self.state.passes.is_empty()
-            || self.state.pending.is_some()
-            || !self.state.pending_concessions.is_empty()
-            || !self.state.stack.is_empty()
-            || !self.state.pending_triggers.is_empty()
-            || !self.state.effects.is_empty()
-            || !self.state.combat.is_empty()
-            || self.state.combat_declared
-            || !self.state.damage_choices.is_empty()
-            || !self.state.commander_returns.is_empty()
-            || !self.state.control_effects.is_empty()
-            || self.state.cleanup_repeat
-            || self.state.simultaneous_losses
-            || !self.state.losing_players.is_empty()
+            || self.state.rules.active != Some(viewer)
+            || self.state.rules.priority != viewer
+            || self.state.rules.turn.step != TurnStep::PrecombatMain
+            || !matches!(self.state.rules.frame, Frame::Priority)
+            || !self.state.rules.passes.is_empty()
+            || self.state.rules.pending.is_some()
+            || !self.state.rules.pending_concessions.is_empty()
+            || !self.state.rules.stack.is_empty()
+            || !self.state.rules.pending_triggers.is_empty()
+            || !self.state.rules.effects.is_empty()
+            || !self.state.rules.combat.is_empty()
+            || self.state.rules.combat_declared
+            || !self.state.rules.damage_choices.is_empty()
+            || !self.state.rules.commander_returns.is_empty()
+            || !self.state.rules.control_effects.is_empty()
+            || self.state.rules.cleanup_repeat
+            || self.state.rules.simultaneous_losses
+            || !self.state.rules.losing_players.is_empty()
             || self
                 .state
+                .rules
                 .match_state
                 .as_ref()
                 .is_none_or(|m| m.setup.is_some())
@@ -72,10 +73,11 @@ impl Game {
                     .is_err()
                     || p.catalog_sha256 != self.prepared.catalog_digest
             })
-            || self.state.objects.values().any(|o| {
+            || self.state.rules.objects.values().any(|o| {
                 o.marked_damage != Quantity::zero()
                     || self
                         .state
+                        .rules
                         .cards
                         .get(&o.id.card)
                         .is_none_or(|c| o.default_controller != c.owner || o.controller != c.owner)
@@ -174,7 +176,7 @@ impl Game {
             .data
             .as_mut()
             .ok_or_else(|| invariant("capture payload"))?;
-        if let Some(action) = self.state.visibility[w.viewer.0 as usize]
+        if let Some(action) = self.state.knowledge.visibility[w.viewer.0 as usize]
             .own_knowledge
             .get(w.action_cursor)
         {

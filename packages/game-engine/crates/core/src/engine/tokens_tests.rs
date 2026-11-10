@@ -126,7 +126,7 @@ fn check(g: &Game) {
         g.trace.mode,
     )
     .unwrap();
-    if matches!(g.state.frame, Frame::Fault { .. }) {
+    if matches!(g.state.rules.frame, Frame::Fault { .. }) {
         let _ = replayed.advance(Budget::new(1));
     }
     assert_eq!(replayed.state, g.state);
@@ -174,6 +174,7 @@ fn announce(g: &mut Game, id: u32, targets: Vec<TargetEntity>) {
                 } else {
                     let land = g
                         .state
+                        .rules
                         .objects
                         .values()
                         .filter(|o| {
@@ -251,8 +252,8 @@ fn resolve_with(g: &mut Game, targets: Vec<TargetEntity>, mut inspect: impl FnMu
             Advance::Suspended { .. } => {}
             Advance::AwaitingDecision(r) => {
                 if matches!(r, Request::Priority { .. })
-                    && g.state.stack.is_empty()
-                    && g.state.pending_triggers.is_empty()
+                    && g.state.rules.stack.is_empty()
+                    && g.state.rules.pending_triggers.is_empty()
                 {
                     return;
                 }
@@ -276,9 +277,10 @@ fn target(o: ObjectId) -> Vec<TargetEntity> {
 }
 fn token_objects(g: &Game) -> Vec<ObjectId> {
     g.state
+        .rules
         .objects
         .values()
-        .filter(|o| g.state.tokens.contains_key(&o.id.card))
+        .filter(|o| g.state.rules.tokens.contains_key(&o.id.card))
         .map(|o| o.id)
         .collect()
 }
@@ -304,7 +306,7 @@ fn simultaneous_spell_tokens_have_physical_identity_visibility_and_sickness() {
         let objects = token_objects(g);
         assert_eq!(objects.len(), 2);
         assert_ne!(objects[0].card, objects[1].card);
-        assert_eq!(g.state.players[0].life, 42.into());
+        assert_eq!(g.state.rules.players[0].life, 42.into());
         for p in 0..4 {
             let view = observation(g, p);
             let tokens = view
@@ -463,10 +465,10 @@ fn source_backed_token_spells_and_enters_triggers_define_exact_characteristics()
                 assert_eq!(c.subtypes, vec![subtype]);
                 assert_eq!(c.colors, vec![color]);
                 assert_eq!((c.power, c.toughness), (Some(pt.into()), Some(pt.into())));
-                assert_eq!(g.state.cards[&o.card].owner, PlayerId(0));
+                assert_eq!(g.state.rules.cards[&o.card].owner, PlayerId(0));
                 assert_eq!(g.current(o).unwrap().controller, PlayerId(0));
                 assert!(!g.current(o).unwrap().attack_ready);
-                assert!(g.state.commanders.history(o.card).is_none());
+                assert!(g.state.rules.commanders.history(o.card).is_none());
             }
         });
     }
@@ -502,7 +504,7 @@ fn token_dies_triggers_artist_before_cessation_and_bounce_never_returns_a_playab
                             Zone::Hand { owner: PlayerId(0) }
                         })
                     );
-                    assert_eq!(g.state.pending_triggers.len(), usize::from(dies));
+                    assert_eq!(g.state.rules.pending_triggers.len(), usize::from(dies));
                     // CR111.8: a token outside the battlefield cannot move again.
                     let mut branch = g.fork();
                     assert!(branch.move_object(id, Zone::Battlefield).is_err());
@@ -512,7 +514,7 @@ fn token_dies_triggers_artist_before_cessation_and_bounce_never_returns_a_playab
             assert!(destination_seen);
             assert!(g.object_id(old.card).is_none());
             assert!(g.zone(old).is_none());
-            assert!(g.state.tokens.contains_key(&old.card));
+            assert!(g.state.rules.tokens.contains_key(&old.card));
             let r = request(g);
             assert!(
                 g.check_response(
@@ -523,11 +525,11 @@ fn token_dies_triggers_artist_before_cessation_and_bounce_never_returns_a_playab
                 .is_err()
             );
             assert_eq!(
-                g.state.players[0].life,
+                g.state.rules.players[0].life,
                 Quantity::from(if dies { 41 } else { 40 })
             );
             assert_eq!(
-                g.state.players[1].life,
+                g.state.rules.players[1].life,
                 Quantity::from(if dies { 39 } else { 40 })
             );
             assert!(
@@ -718,7 +720,7 @@ fn token_capacity_is_a_typed_atomic_replayable_fault() {
                 requested: TOKEN_CAPACITY + 1
             })
         );
-        assert!(g.state.tokens.is_empty());
+        assert!(g.state.rules.tokens.is_empty());
     });
 }
 
@@ -738,7 +740,7 @@ fn next_own_main(g: &mut Game) {
     for _ in 0..1000 {
         let r = request(g);
         if g.turn().number > turn
-            && g.state.active == Some(PlayerId(0))
+            && g.state.rules.active == Some(PlayerId(0))
             && g.turn().step == TurnStep::PrecombatMain
             && matches!(r, Request::Priority { .. })
         {
@@ -838,7 +840,7 @@ fn token_flying_deathtouch_and_trample_use_existing_combat_rules() {
             Some(Zone::Graveyard { owner: PlayerId(1) })
         );
         assert!(g.object_id(token.card).is_none());
-        assert_eq!(g.state.players[1].life, 40.into());
+        assert_eq!(g.state.rules.players[1].life, 40.into());
     });
     // CR702.19b: Dinosaur3 assigns Bears2 lethal and player1 excess.
     let mut rows = vec![("Crested Herdcaller", 0, true), ("Grizzly Bears", 1, false)];
@@ -872,7 +874,7 @@ fn token_flying_deathtouch_and_trample_use_existing_combat_rules() {
             },
         );
         reach(g, TurnStep::EndCombat);
-        assert_eq!(g.state.players[1].life, 39.into());
+        assert_eq!(g.state.rules.players[1].life, 39.into());
         assert_eq!(g.current(token).unwrap().marked_damage, 2.into());
     });
 }
@@ -893,15 +895,15 @@ fn token_lifelink_vigilance_and_no_commander_damage() {
             answer(g, Response::Blockers { blocks: vec![] });
             reach(g, TurnStep::EndCombat);
             assert_eq!(
-                g.state.players[0].life,
+                g.state.rules.players[0].life,
                 Quantity::from(if lifelink { 41 } else { 40 })
             );
             assert_eq!(
-                g.state.players[1].life,
+                g.state.rules.players[1].life,
                 Quantity::from(if lifelink { 39 } else { 38 })
             );
-            assert!(g.state.commanders.history(token.card).is_none());
-            assert!(g.state.commanders.combat_loss_candidates().is_empty());
+            assert!(g.state.rules.commanders.history(token.card).is_none());
+            assert!(g.state.rules.commanders.combat_loss_candidates().is_empty());
         });
     }
 }
@@ -1036,21 +1038,24 @@ fn tokens_profile_inherits_first_and_double_strike_with_between_step_restore() {
                     },
                 );
                 reach(g, TurnStep::FirstStrikeDamage);
-                assert_eq!(g.state.first_strike_participants, BTreeSet::from([source]));
+                assert_eq!(
+                    g.state.rules.first_strike_participants,
+                    BTreeSet::from([source])
+                );
                 assert_eq!(g.current(source).unwrap().marked_damage, Quantity::zero());
                 if blocked {
                     assert_eq!(
                         g.zone(object(g, 1)),
                         Some(Zone::Graveyard { owner: PlayerId(1) })
                     );
-                    assert_eq!(g.state.players[1].life, 40.into());
+                    assert_eq!(g.state.rules.players[1].life, 40.into());
                 } else {
-                    assert_eq!(g.state.players[1].life, 39.into());
+                    assert_eq!(g.state.rules.players[1].life, 39.into());
                 }
                 check(g);
                 reach(g, TurnStep::CombatDamage);
                 assert_eq!(
-                    g.state.players[1].life,
+                    g.state.rules.players[1].life,
                     Quantity::from(if blocked { 40 } else { 38 })
                 );
             },
@@ -1077,6 +1082,7 @@ fn detached_enters_token_program_survives_source_destruction() {
             let r = request(g);
             if matches!(r, Request::Priority { .. })
                 && g.state
+                    .rules
                     .stack
                     .iter()
                     .any(|s| matches!(s.kind, StackKind::Triggered { .. }))
@@ -1100,10 +1106,10 @@ fn detached_enters_token_program_survives_source_destruction() {
         let tokens = token_objects(g);
         assert_eq!(tokens.len(), 1);
         let token = tokens[0];
-        assert_eq!(g.state.tokens[&token.card].source, source);
+        assert_eq!(g.state.rules.tokens[&token.card].source, source);
         assert_eq!(g.definition(token.card).unwrap().name, "Soldier Token");
         assert_eq!(g.characteristics(token).unwrap().power, Some(1.into()));
-        assert_eq!(g.state.cards[&token.card].owner, PlayerId(0));
+        assert_eq!(g.state.rules.cards[&token.card].owner, PlayerId(0));
         assert_eq!(g.current(token).unwrap().controller, PlayerId(0));
     });
 }
@@ -1121,6 +1127,7 @@ fn capacity_release_probe() {
     let mut g = Game::with_trace(prepared, TraceMode::Off);
     let source = g
         .state
+        .rules
         .cards
         .iter()
         .find(|(id, _)| g.definition(**id).unwrap().name == "Hornet Queen")
@@ -1151,6 +1158,7 @@ fn capacity_release_probe() {
     let fork_us = started.elapsed().as_micros() / 20;
     let occurrences = g
         .state
+        .rules
         .objects
         .values()
         .filter(|o| {
@@ -1169,9 +1177,10 @@ fn capacity_release_probe() {
     let wipe_us = started.elapsed().as_micros();
     let ceased = g
         .state
+        .rules
         .objects
         .values()
-        .filter(|o| g.state.tokens.contains_key(&o.id.card))
+        .filter(|o| g.state.rules.tokens.contains_key(&o.id.card))
         .map(|o| o.id)
         .collect::<Vec<_>>();
     g.commit_batch(
@@ -1184,20 +1193,20 @@ fn capacity_release_probe() {
         },
     )
     .unwrap();
-    let identity = g.state.tokens.values().next().unwrap().clone();
-    let first = *g.state.tokens.keys().next().unwrap();
-    for i in g.state.tokens.len()..capacities::TOKEN_HISTORY_LIMIT - TOKEN_CAPACITY as usize {
+    let identity = g.state.rules.tokens.values().next().unwrap().clone();
+    let first = *g.state.rules.tokens.keys().next().unwrap();
+    for i in g.state.rules.tokens.len()..capacities::TOKEN_HISTORY_LIMIT - TOKEN_CAPACITY as usize {
         let id = CardId(first.0 + i as u32);
         let mut token = identity.clone();
         token.definition.oracle_id = format!("token:{}", id.0);
-        g.state.cards.insert(
+        g.state.rules.cards.insert(
             id,
             Card {
                 owner: PlayerId(0),
                 oracle_id: token.definition.oracle_id.clone(),
             },
         );
-        g.state.tokens.insert(id, token);
+        g.state.rules.tokens.insert(id, token);
     }
     let spec = identity.spec.clone();
     g.commit(
@@ -1212,9 +1221,10 @@ fn capacity_release_probe() {
     .unwrap();
     let occurrences = g
         .state
+        .rules
         .objects
         .values()
-        .filter(|o| o.zone == Zone::Battlefield && g.state.tokens.contains_key(&o.id.card))
+        .filter(|o| o.zone == Zone::Battlefield && g.state.rules.tokens.contains_key(&o.id.card))
         .map(|o| ProposedEvent::DestroyCreature { object: o.id })
         .collect();
     let started = std::time::Instant::now();
@@ -1224,11 +1234,11 @@ fn capacity_release_probe() {
     )
     .unwrap();
     let history_wipe_us = started.elapsed().as_micros();
-    assert_eq!(g.state.tokens.len(), capacities::TOKEN_HISTORY_LIMIT);
+    assert_eq!(g.state.rules.tokens.len(), capacities::TOKEN_HISTORY_LIMIT);
     let history_snapshot_bytes = g.snapshot().unwrap().len();
     // Stack payload deliberately includes a full supported program via its source.
     let entry: StackInstance = strict_read(&serde_json::json!({"id":1,"source":source,"controller":0,"targets":[],"announced_targets":[],"player_targets":[],"paid":null,"total_cost":{"generic":"0","colored":[]},"cast_from":{"zone":"hand","owner":0}}).to_string()).unwrap();
-    g.state.stack = (0..capacities::STACK_LIMIT)
+    g.state.rules.stack = (0..capacities::STACK_LIMIT)
         .map(|i| {
             let mut e = entry.clone();
             e.id = StackId(i as u32);
@@ -1247,8 +1257,8 @@ fn capacity_release_probe() {
         g.typed_fault(),
         Some(RuleFault::StackCapacityExceeded { .. })
     ));
-    g.state.typed_fault = None;
-    g.state.frame = Frame::Stabilize {
+    g.state.rules.typed_fault = None;
+    g.state.rules.frame = Frame::Stabilize {
         resume: Box::new(Frame::Priority),
         cleanup: false,
         changed: false,
@@ -1259,7 +1269,7 @@ fn capacity_release_probe() {
     let stack_step_us = started.elapsed().as_micros();
     eprintln!(
         "capacity_probe {}",
-        serde_json::json!({"tokens":TOKEN_CAPACITY,"owned_cards":400,"create_us":create_us,"snapshot_bytes":snapshot_bytes,"fork_us":fork_us,"wipe_creatures":wipe_count,"wipe_us":wipe_us,"stack_entries":capacities::STACK_LIMIT,"stack_fork_us":stack_fork_us,"stack_fault_us":stack_fault_us,"stack_step_us":stack_step_us,"history_wipe_us":history_wipe_us,"history_snapshot_bytes":history_snapshot_bytes,"token_history":g.state.tokens.len()})
+        serde_json::json!({"tokens":TOKEN_CAPACITY,"owned_cards":400,"create_us":create_us,"snapshot_bytes":snapshot_bytes,"fork_us":fork_us,"wipe_creatures":wipe_count,"wipe_us":wipe_us,"stack_entries":capacities::STACK_LIMIT,"stack_fork_us":stack_fork_us,"stack_fault_us":stack_fault_us,"stack_step_us":stack_step_us,"history_wipe_us":history_wipe_us,"history_snapshot_bytes":history_snapshot_bytes,"token_history":g.state.rules.tokens.len()})
     );
 }
 
@@ -1288,8 +1298,8 @@ fn retained_token_history_capacity_faults_before_allocating_more_identities() {
         BatchCause::StateBased,
     )
     .unwrap();
-    let token = g.state.tokens.values().next().unwrap().clone();
-    let first = *g.state.tokens.keys().next().unwrap();
+    let token = g.state.rules.tokens.values().next().unwrap().clone();
+    let first = *g.state.rules.tokens.keys().next().unwrap();
     let id = g.object_id(first).unwrap();
     g.commit(
         ProposedEvent::Move {
@@ -1310,17 +1320,17 @@ fn retained_token_history_capacity_faults_before_allocating_more_identities() {
         let id = CardId(first.0 + i as u32);
         let mut identity = token.clone();
         identity.definition.oracle_id = format!("token:{}", id.0);
-        g.state.cards.insert(
+        g.state.rules.cards.insert(
             id,
             Card {
                 owner: PlayerId(0),
                 oracle_id: identity.definition.oracle_id.clone(),
             },
         );
-        g.state.tokens.insert(id, identity);
+        g.state.rules.tokens.insert(id, identity);
     }
     assert_eq!(g.allocated_capacity_count(), 0);
-    let before = g.state.tokens.clone();
+    let before = g.state.rules.tokens.clone();
     assert!(
         g.commit(
             ProposedEvent::CreateCreatureTokens {
@@ -1333,7 +1343,7 @@ fn retained_token_history_capacity_faults_before_allocating_more_identities() {
         )
         .is_err()
     );
-    assert_eq!(g.state.tokens, before);
+    assert_eq!(g.state.rules.tokens, before);
     assert_eq!(
         g.typed_fault(),
         Some(&RuleFault::TokenHistoryCapacityExceeded {
@@ -1342,7 +1352,7 @@ fn retained_token_history_capacity_faults_before_allocating_more_identities() {
             requested: 1
         })
     );
-    g.state.frame = Frame::Fault {
+    g.state.rules.frame = Frame::Fault {
         reason: "token history capacity exceeded".into(),
     };
     g.validate_tokens_state().unwrap();
@@ -1376,7 +1386,7 @@ fn death_payoff_board(tokens: u32) -> Game {
         Prepared::admit_pod(p.catalog().clone(), config).unwrap(),
         TraceMode::Off,
     );
-    for player in &mut g.state.players {
+    for player in &mut g.state.rules.players {
         player.life = 1_000_000.into();
     }
     let payoffs = [
@@ -1389,6 +1399,7 @@ fn death_payoff_board(tokens: u32) -> Game {
     ];
     let cards = g
         .state
+        .rules
         .cards
         .keys()
         .copied()
@@ -1408,6 +1419,7 @@ fn death_payoff_board(tokens: u32) -> Game {
     // Each token belongs to a different seat in round-robin groups.
     let source = *g
         .state
+        .rules
         .cards
         .keys()
         .find(|id| g.definition(**id).unwrap().name == "Hornet Queen")
@@ -1434,15 +1446,16 @@ fn death_payoff_board(tokens: u32) -> Game {
             .unwrap();
         }
     }
-    g.state.pending_triggers.clear();
-    g.state.frame = Frame::Priority;
-    g.state.turn.step = TurnStep::PrecombatMain;
+    g.state.rules.pending_triggers.clear();
+    g.state.rules.frame = Frame::Priority;
+    g.state.rules.turn.step = TurnStep::PrecombatMain;
     g.refresh_visibility().unwrap();
     g
 }
 fn wipe_death_payoff_board(g: &mut Game) -> (usize, usize) {
     let occurrences = g
         .state
+        .rules
         .objects
         .values()
         .filter(|o| {
@@ -1457,7 +1470,7 @@ fn wipe_death_payoff_board(g: &mut Game) -> (usize, usize) {
         EventGroup::Simultaneous { occurrences },
     )
     .unwrap();
-    (deaths, g.state.pending_triggers.len())
+    (deaths, g.state.rules.pending_triggers.len())
 }
 #[test]
 fn ninety_six_simultaneous_deaths_with_four_yargle_payoffs_resolve() {
@@ -1468,7 +1481,7 @@ fn ninety_six_simultaneous_deaths_with_four_yargle_payoffs_resolve() {
         triggers > 1024,
         "regression must exceed old ceiling: {triggers}"
     );
-    g.state.frame = Frame::Stabilize {
+    g.state.rules.frame = Frame::Stabilize {
         resume: Box::new(Frame::Priority),
         cleanup: false,
         changed: true,
@@ -1480,8 +1493,8 @@ fn ninety_six_simultaneous_deaths_with_four_yargle_payoffs_resolve() {
             .into_iter()
             .find_map(|p| g.decision_for(p).unwrap());
         if let Some(r) = r {
-            if g.state.pending_triggers.is_empty()
-                && g.state.stack.is_empty()
+            if g.state.rules.pending_triggers.is_empty()
+                && g.state.rules.stack.is_empty()
                 && matches!(r, Request::Priority { .. })
             {
                 break;
@@ -1502,8 +1515,8 @@ fn ninety_six_simultaneous_deaths_with_four_yargle_payoffs_resolve() {
             let checked = g
                 .check_response(r.player(), r.decision_id(), response)
                 .unwrap();
-            g.state.pending = Some(checked.input);
-            g.state.revision += 1;
+            g.state.rules.pending = Some(checked.input);
+            g.state.rules.revision += 1;
         }
         let mut staged = g.fork();
         staged.step().unwrap();
@@ -1515,6 +1528,7 @@ fn ninety_six_simultaneous_deaths_with_four_yargle_payoffs_resolve() {
     assert_eq!(g.allocated_capacity_count(), 0);
     assert!(
         g.state
+            .rules
             .players
             .iter()
             .any(|p| p.life != Quantity::from(1_000_000))
@@ -1562,11 +1576,12 @@ fn public_history_cascade(tokens: u32) -> (Game, usize, usize, usize) {
         Prepared::admit_pod(p.catalog().clone(), config).unwrap(),
         TraceMode::Off,
     );
-    for player in &mut g.state.players {
+    for player in &mut g.state.rules.players {
         player.life = 1_000_000.into();
     }
     let artists = g
         .state
+        .rules
         .cards
         .keys()
         .copied()
@@ -1585,6 +1600,7 @@ fn public_history_cascade(tokens: u32) -> (Game, usize, usize, usize) {
     }
     let source = *g
         .state
+        .rules
         .cards
         .keys()
         .find(|id| g.definition(**id).unwrap().name == "Hornet Queen")
@@ -1606,14 +1622,14 @@ fn public_history_cascade(tokens: u32) -> (Game, usize, usize, usize) {
         BatchCause::StateBased,
     )
     .unwrap();
-    g.state.pending_triggers.clear();
-    g.state.frame = Frame::Priority;
-    g.state.turn.step = TurnStep::PrecombatMain;
+    g.state.rules.pending_triggers.clear();
+    g.state.rules.frame = Frame::Priority;
+    g.state.rules.turn.step = TurnStep::PrecombatMain;
     g.refresh_visibility().unwrap();
     let (deaths, triggers) = wipe_death_payoff_board(&mut g);
     assert_eq!(deaths, tokens as usize + 4);
     assert_eq!(triggers, deaths * 4);
-    g.state.frame = Frame::Stabilize {
+    g.state.rules.frame = Frame::Stabilize {
         resume: Box::new(Frame::Priority),
         cleanup: false,
         changed: true,
@@ -1622,8 +1638,8 @@ fn public_history_cascade(tokens: u32) -> (Game, usize, usize, usize) {
         match g.advance(Budget::new(1)) {
             Advance::Suspended { .. } => (),
             Advance::AwaitingDecision(r) => {
-                if g.state.stack.is_empty()
-                    && g.state.pending_triggers.is_empty()
+                if g.state.rules.stack.is_empty()
+                    && g.state.rules.pending_triggers.is_empty()
                     && matches!(r, Request::Priority { .. })
                 {
                     break;
@@ -1643,11 +1659,11 @@ fn public_history_cascade(tokens: u32) -> (Game, usize, usize, usize) {
             other => panic!("public cascade: {other:?}, {:?}", g.typed_fault()),
         }
     }
-    assert!(g.state.stack.is_empty() && g.state.pending_triggers.is_empty());
+    assert!(g.state.rules.stack.is_empty() && g.state.rules.pending_triggers.is_empty());
     assert!(g.typed_fault().is_none());
     let mut nodes = BTreeSet::new();
     let mut entries = 0;
-    for k in &g.state.visibility {
+    for k in &g.state.knowledge.visibility {
         for view in k.history.iter() {
             let pointers = view.stack.node_pointers();
             entries += pointers.len();
@@ -1694,6 +1710,7 @@ fn public_history_release_probe() {
     assert_eq!(triggers, 480);
     let views = g
         .state
+        .knowledge
         .visibility
         .iter()
         .map(|k| k.history.len())
@@ -1716,16 +1733,16 @@ fn history_capacity_fault_rolls_back_the_entire_public_step_in_all_traces() {
     for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
         let mut g = Game::with_trace(prepared(&[]), mode);
         // Set up an ordinary priority input, then inject a near-boundary charge.
-        g.state.frame = Frame::Priority;
+        g.state.rules.frame = Frame::Priority;
         g.refresh_visibility().unwrap();
-        let r = g.decision_for(g.state.priority).unwrap().unwrap();
+        let r = g.decision_for(g.state.rules.priority).unwrap().unwrap();
         g.respond(r.player(), r.decision_id(), Response::Pass)
             .unwrap();
         let charge = g.history_charge();
         let mut probe = g.fork();
         probe.step().unwrap();
         let after_step = probe.history_charge();
-        probe.state.rule_steps += 1;
+        probe.state.rules.rule_steps += 1;
         probe.refresh_visibility().unwrap();
         let complete_charge = probe.history_charge();
         assert!(
@@ -1733,7 +1750,7 @@ fn history_capacity_fault_rolls_back_the_entire_public_step_in_all_traces() {
             "exercise post-mutation visibility overflow"
         );
         let headroom = complete_charge - charge - 1;
-        g.state.retained_auxiliary_charge += capacities::HISTORY_LIMIT - charge - headroom;
+        g.state.rules.retained_auxiliary_charge += capacities::HISTORY_LIMIT - charge - headroom;
         let mut expected = g.state.clone();
         assert_eq!(g.history_charge(), capacities::HISTORY_LIMIT - headroom);
         assert!(matches!(g.advance(Budget::new(1)), Advance::Fault(_)));
@@ -1741,8 +1758,8 @@ fn history_capacity_fault_rolls_back_the_entire_public_step_in_all_traces() {
         assert!(
             matches!(fault, RuleFault::HistoryCapacityExceeded { capacity: capacities::HISTORY_LIMIT, requested } if requested > capacities::HISTORY_LIMIT)
         );
-        expected.typed_fault = Some(fault.clone());
-        expected.frame = Frame::Fault {
+        expected.rules.typed_fault = Some(fault.clone());
+        expected.rules.frame = Frame::Fault {
             reason: "history capacity exceeded".into(),
         };
         assert_eq!(g.state, expected);
@@ -1788,6 +1805,7 @@ fn history_long_response(g: &Game, r: &Request, lands: bool) -> Response {
             if lands {
                 for object in g
                     .state
+                    .rules
                     .objects
                     .values()
                     .filter(|o| o.zone == Zone::Hand { owner: r.player() })
@@ -1855,6 +1873,7 @@ fn land_play_history_charge_grows_linearly_and_snapshot_restores_identically() {
     assert!(
         g.turn().lands_played > 0
             || g.state
+                .rules
                 .objects
                 .values()
                 .any(|o| o.zone == Zone::Battlefield)
@@ -1886,10 +1905,10 @@ fn history_decking_probe(lands: bool) {
             "profile":profile,"lands":lands,"turn":g.turn().number,
             "result":format!("{result:?}"),"fault":g.typed_fault(),
             "charge":g.history_charge(),"budget":capacities::HISTORY_LIMIT,
-            "auxiliary_charge":g.state.retained_auxiliary_charge,
-            "view_charge":g.state.visibility.iter().map(|k| k.history.retention_charge()).collect::<Vec<_>>(),
-            "views":g.state.visibility.iter().map(|k| k.history.len()).collect::<Vec<_>>(),
-            "rule_steps":g.state.rule_steps,"event_sequence":g.state.next_event_sequence,
+            "auxiliary_charge":g.state.rules.retained_auxiliary_charge,
+            "view_charge":g.state.knowledge.visibility.iter().map(|k| k.history.retention_charge()).collect::<Vec<_>>(),
+            "views":g.state.knowledge.visibility.iter().map(|k| k.history.len()).collect::<Vec<_>>(),
+            "rule_steps":g.state.rules.rule_steps,"event_sequence":g.state.rules.next_event_sequence,
             "baseline_rss_bytes":baseline_rss,"final_rss_bytes":history_rss_bytes(),
             "elapsed_us":start.elapsed().as_micros(),"build_id":BUILD_ID
         })
@@ -1926,15 +1945,21 @@ fn history_budget_release_probe() {
     ));
     // Diagnostic retention only, not accepted-input reachability. Small views
     // maximize per-view/Arc/metadata overhead relative to encoded payload.
-    let mut view = g.state.visibility[0].history.last().unwrap().to_public();
+    let mut view = g.state.knowledge.visibility[0]
+        .history
+        .last()
+        .unwrap()
+        .to_public();
     view.objects.clear();
     view.players.clear();
     view.commanders.clear();
     view.setup = None;
     while g.history_charge() <= capacities::HISTORY_LIMIT {
         view.turn.number += 1;
-        g.state.visibility[0].history.push_public(view.clone());
-        g.state.visibility[0]
+        g.state.knowledge.visibility[0]
+            .history
+            .push_public(view.clone());
+        g.state.knowledge.visibility[0]
             .history
             .last()
             .unwrap()
@@ -1950,7 +1975,7 @@ fn history_budget_release_probe() {
         "history_budget_probe {}",
         serde_json::json!({
             "charge":g.history_charge(),"budget":capacities::HISTORY_LIMIT,
-            "views":g.state.visibility[0].history.len(),
+            "views":g.state.knowledge.visibility[0].history.len(),
             "baseline_rss_bytes":baseline_rss,"final_rss_bytes":history_rss_bytes(),"build_id":BUILD_ID
         })
     );

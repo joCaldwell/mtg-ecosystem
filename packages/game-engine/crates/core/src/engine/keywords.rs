@@ -70,6 +70,7 @@ impl Game {
             {
                 let o = self
                     .state
+                    .rules
                     .objects
                     .get_mut(&object.card)
                     .ok_or("missing deathtouch recipient")?;
@@ -81,7 +82,7 @@ impl Game {
         }
         let mut results = vec![];
         for ((source, player), amount) in gains {
-            let life = &mut self.state.players[player.0 as usize].life;
+            let life = &mut self.state.rules.players[player.0 as usize].life;
             let previous = life.clone();
             life.add(&amount);
             results.push(LifelinkGain {

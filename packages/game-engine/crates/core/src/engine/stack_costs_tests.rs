@@ -52,7 +52,7 @@ fn bears_on_stack() -> Game {
     game
 }
 fn with_counter(mut game: Game, card: u32) -> Game {
-    let target = game.state.stack[0].id;
+    let target = game.state.rules.stack[0].id;
     answer(&mut game, Response::Pass);
     answer(&mut game, Response::Cast { card: CardId(card) });
     answer(
@@ -73,8 +73,8 @@ fn with_counter(mut game: Game, card: u32) -> Game {
         },
     );
     settle(&mut game);
-    assert_eq!(game.state.stack.len(), 2);
-    assert_eq!(game.state.stack[1].id, StackId(1));
+    assert_eq!(game.state.rules.stack.len(), 2);
+    assert_eq!(game.state.rules.stack[1].id, StackId(1));
     game
 }
 fn counter(target: StackId, domain: TargetDomain) -> ProposedEvent {
@@ -103,8 +103,8 @@ fn recover(game: &Game) {
 #[test]
 fn counter_event_consumes_exact_spell_membership_and_actual_physical_successor() {
     let mut game = with_counter(bears_on_stack(), 11);
-    let entry = game.state.stack[0].clone();
-    let mana = game.state.players[0].mana.clone();
+    let entry = game.state.rules.stack[0].clone();
+    let mana = game.state.rules.players[0].mana.clone();
     let receipt = game
         .commit_batch(
             BatchCause::Fixture,
@@ -134,9 +134,9 @@ fn counter_event_consumes_exact_spell_membership_and_actual_physical_successor()
     assert_eq!(movement.successor.incarnation, entry.source.incarnation + 1);
     assert_eq!(movement.destination, Zone::Graveyard { owner: PlayerId(0) });
     assert_eq!(game.object_id(CardId(10)), Some(movement.successor));
-    assert_eq!(game.state.stack.len(), 1);
-    assert_eq!(game.state.stack[0].id, StackId(1));
-    assert_eq!(game.state.players[0].mana, mana);
+    assert_eq!(game.state.rules.stack.len(), 1);
+    assert_eq!(game.state.rules.stack[0].id, StackId(1));
+    assert_eq!(game.state.rules.players[0].mana, mana);
 }
 
 #[test]
@@ -145,7 +145,7 @@ fn countered_noncard_invocation_retains_paid_tap_and_current_source() {
     ability(&mut game, 7);
     settle(&mut game);
     let mut game = with_counter(game, 12);
-    let entry = game.state.stack[0].clone();
+    let entry = game.state.rules.stack[0].clone();
     assert!(game.current(entry.source).unwrap().tapped);
     let receipt = game
         .commit_batch(
@@ -166,8 +166,8 @@ fn countered_noncard_invocation_retains_paid_tap_and_current_source() {
             ..
         })
     ));
-    assert_eq!(game.state.stack.len(), 1);
-    assert_eq!(game.state.stack[0].id, StackId(1));
+    assert_eq!(game.state.rules.stack.len(), 1);
+    assert_eq!(game.state.rules.stack[0].id, StackId(1));
     assert_eq!(game.object_id(CardId(7)), Some(entry.source));
     assert_eq!(game.current(entry.source).unwrap().zone, Zone::Battlefield);
     assert!(game.current(entry.source).unwrap().tapped);
@@ -176,7 +176,7 @@ fn countered_noncard_invocation_retains_paid_tap_and_current_source() {
 #[test]
 fn counter_event_failures_and_aggregate_conflicts_roll_back_every_write_and_receipt() {
     let initial = with_counter(bears_on_stack(), 11);
-    let target = initial.state.stack[0].id;
+    let target = initial.state.rules.stack[0].id;
     let land = initial.object_id(CardId(2)).unwrap();
     for group in [
         EventGroup::Ordered {
@@ -240,7 +240,7 @@ fn failed_mana_activation_reverses_only_its_receipts_and_preserves_preexisting_p
         let mut branch = initial.fork();
         answer(&mut branch, Response::FinishMana { undo_mana: undo });
         assert!(matches!(settle(&mut branch), Request::Priority { .. }));
-        assert!(branch.state.stack.is_empty());
+        assert!(branch.state.rules.stack.is_empty());
         assert_eq!(branch.object_id(CardId(8)), Some(source));
         assert!(!branch.current(source).unwrap().tapped);
         assert!(
@@ -295,15 +295,15 @@ fn reversing_mana_activation_preserves_naturally_tapped_attacking_source() {
     assert!(declared);
     settle(&mut game);
     assert!(game.current(source).unwrap().tapped);
-    let combat = game.state.combat.clone();
+    let combat = game.state.rules.combat.clone();
     ability(&mut game, 8);
     activate_mana(&mut game, 1);
     answer(&mut game, Response::FinishMana { undo_mana: true });
     settle(&mut game);
-    assert!(game.state.stack.is_empty());
+    assert!(game.state.rules.stack.is_empty());
     assert_eq!(game.object_id(CardId(8)), Some(source));
     assert!(game.current(source).unwrap().tapped);
-    assert_eq!(game.state.combat, combat);
+    assert_eq!(game.state.rules.combat, combat);
     assert!(
         !game
             .current(game.object_id(CardId(1)).unwrap())
@@ -332,15 +332,15 @@ fn successful_mana_activation_pays_exact_selected_cost_without_moving_or_tapping
         },
     );
     settle(&mut game);
-    assert_eq!(game.state.stack.len(), 1);
+    assert_eq!(game.state.rules.stack.len(), 1);
     assert_eq!(
-        game.state.stack[0].paid,
+        game.state.rules.stack[0].paid,
         Some(ManaCost {
             generic: 3.into(),
             colored: vec![Color::U]
         })
     );
-    assert_eq!(game.state.stack[0].source, source);
+    assert_eq!(game.state.rules.stack[0].source, source);
     assert_eq!(game.current(source).unwrap().zone, Zone::Battlefield);
     assert!(!game.current(source).unwrap().tapped);
     assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::zero()));
@@ -366,7 +366,7 @@ fn rehashed_stack_bindings_and_activation_origin_cannot_forge_reachable_snapshot
     let mut game = bears_on_stack();
     answer(&mut game, Response::Pass);
     answer(&mut game, Response::Cast { card: CardId(11) });
-    let target = game.state.stack[0].id;
+    let target = game.state.rules.stack[0].id;
     answer(
         &mut game,
         Response::StackTargets {
@@ -377,19 +377,19 @@ fn rehashed_stack_bindings_and_activation_origin_cannot_forge_reachable_snapshot
     recover(&game);
     for mutation in 0..6 {
         let mut snapshot: Snapshot = strict_read(&game.snapshot().unwrap()).unwrap();
-        let own_id = snapshot.state.stack[1].id;
+        let own_id = snapshot.state.rules.stack[1].id;
         match mutation {
-            0 => snapshot.state.stack[1].stack_targets[0] = own_id,
-            1 => snapshot.state.stack[1].stack_targets[0] = StackId(999),
-            2 => snapshot.state.stack[1].announced_stack_targets[0].clear(),
-            3 => snapshot.state.stack[1].cast_from = Zone::Battlefield,
+            0 => snapshot.state.rules.stack[1].stack_targets[0] = own_id,
+            1 => snapshot.state.rules.stack[1].stack_targets[0] = StackId(999),
+            2 => snapshot.state.rules.stack[1].announced_stack_targets[0].clear(),
+            3 => snapshot.state.rules.stack[1].cast_from = Zone::Battlefield,
             4 => {
-                if let Frame::Mana { cast } = &mut snapshot.state.frame {
+                if let Frame::Mana { cast } = &mut snapshot.state.rules.frame {
                     cast.origin = stack_costs::AnnouncementOrigin::Activated;
                 }
             }
             _ => {
-                if let Frame::Mana { cast } = &mut snapshot.state.frame {
+                if let Frame::Mana { cast } = &mut snapshot.state.rules.frame {
                     cast.original_object.card = CardId(8);
                 }
             }
@@ -408,7 +408,7 @@ fn rehashed_stack_bindings_and_activation_origin_cannot_forge_reachable_snapshot
     ability(&mut game, 8);
     settle(&mut game);
     let mut snapshot: Snapshot = strict_read(&game.snapshot().unwrap()).unwrap();
-    if let Frame::Mana { cast } = &mut snapshot.state.frame {
+    if let Frame::Mana { cast } = &mut snapshot.state.rules.frame {
         cast.origin = stack_costs::AnnouncementOrigin::Spell;
     }
     snapshot.state_sha256 = digest(&snapshot.state).unwrap();

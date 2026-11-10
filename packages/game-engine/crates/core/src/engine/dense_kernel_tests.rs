@@ -127,11 +127,16 @@ fn ready(game: &mut Game, quantum: u64) -> Request {
 fn fixture(spec: &FixtureSpec, mode: TraceMode) -> Game {
     let mut game = Game::with_trace(private_prepared(spec), mode);
     assert_eq!(
-        game.state.cards.len(),
+        game.state.rules.cards.len(),
         spec.battlefield_objects as usize + 400
     );
     assert_eq!(
-        game.state.libraries.values().map(Vec::len).sum::<usize>(),
+        game.state
+            .rules
+            .libraries
+            .values()
+            .map(Vec::len)
+            .sum::<usize>(),
         372
     );
     for _ in 0..4096 {
@@ -144,14 +149,16 @@ fn fixture(spec: &FixtureSpec, mode: TraceMode) -> Game {
             }
         ) && game
             .state
+            .knowledge
             .visibility
             .iter()
             .all(|k| k.history.len() >= spec.minimum_history_entries)
         {
-            assert!(game.state.effects.is_empty());
-            assert!(game.state.pending.is_none());
+            assert!(game.state.rules.effects.is_empty());
+            assert!(game.state.rules.pending.is_none());
             assert_eq!(
                 game.state
+                    .rules
                     .objects
                     .values()
                     .filter(|o| o.zone == Zone::Battlefield)
@@ -207,13 +214,13 @@ fn direct_projection(game: &Game, viewer: PlayerId) -> Observation {
     // Independent whole-table assembly versus the optimized/resumable query
     // cursor. Share reviewed field projections, not query caches or Work state.
     let mut view = game.blank_view(viewer).unwrap();
-    assert!(game.state.effects.is_empty());
-    assert!(game.state.stack.is_empty());
+    assert!(game.state.rules.effects.is_empty());
+    assert!(game.state.rules.stack.is_empty());
     for player in 0..4 {
         view.players
             .push(game.visible_player(PlayerId(player)).unwrap());
     }
-    for object in game.state.objects.values() {
+    for object in game.state.rules.objects.values() {
         if let Some(visible) = game.visible_object(viewer, object).unwrap() {
             view.objects.push(visible);
         }
@@ -279,29 +286,29 @@ fn first_write(game: &Game, quantum: u64) -> Game {
         }
     ));
     assert!(branch.current(object).unwrap().tapped);
-    let mut expected_mana = game.state.players[0]
+    let mut expected_mana = game.state.rules.players[0]
         .mana
         .get(&Color::G)
         .cloned()
         .unwrap_or_default();
     expected_mana.add(&Quantity::from(1));
     assert_eq!(
-        branch.state.players[0].mana.get(&Color::G),
+        branch.state.rules.players[0].mana.get(&Color::G),
         Some(&expected_mana)
     );
-    for (id, original) in &game.state.objects {
+    for (id, original) in &game.state.rules.objects {
         if *id != CardId(0) {
             assert_eq!(
-                branch.state.objects.get(id),
+                branch.state.rules.objects.get(id),
                 Some(original),
                 "first-write object footprint"
             );
         }
     }
     assert_eq!(branch.journal().len(), game.journal().len() + 1);
-    assert_eq!(branch.state.cards, game.state.cards);
-    assert_eq!(branch.state.libraries, game.state.libraries);
-    assert_eq!(branch.state.commanders, game.state.commanders);
+    assert_eq!(branch.state.rules.cards, game.state.rules.cards);
+    assert_eq!(branch.state.rules.libraries, game.state.rules.libraries);
+    assert_eq!(branch.state.rules.commanders, game.state.rules.commanders);
     if branch.trace.mode == TraceMode::Detailed {
         let added = &branch.events()[game.events().len()..];
         assert_eq!(
@@ -337,7 +344,7 @@ fn prove(spec: &FixtureSpec, mode: TraceMode) -> KernelProof {
             assert_eq!(observe(&game, viewer, quantum), reference);
         }
     }
-    for object in game.state.objects.values() {
+    for object in game.state.rules.objects.values() {
         assert_eq!(
             game.characteristics(object.id).unwrap(),
             game.definition(object.id.card).unwrap().characteristics,
@@ -374,16 +381,18 @@ fn prove(spec: &FixtureSpec, mode: TraceMode) -> KernelProof {
         fixture: spec.clone(),
         contract_sha256: sha256(CONTRACT.as_bytes()),
         synthetic_profile_digest: game.prepared.profile_digest.clone(),
-        physical_cards: game.state.cards.len(),
+        physical_cards: game.state.rules.cards.len(),
         initial_other_zone_cards: 400,
         root_other_zone_cards: game
             .state
+            .rules
             .objects
             .values()
             .filter(|o| o.zone != Zone::Battlefield)
             .count(),
         history_lengths: game
             .state
+            .knowledge
             .visibility
             .iter()
             .map(|k| k.history.len())
@@ -612,6 +621,7 @@ mod diagnostic {
             .collect::<Vec<_>>();
         let ids = game
             .state
+            .rules
             .objects
             .values()
             .map(|object| object.id)
@@ -711,8 +721,8 @@ mod diagnostic {
         }
         serde_json::json!({"case":spec,"oracle":oracle,"samples":samples,"work_counts_by_repetition":work_counts,
             "memory_including_setup_and_oracles":memory(),"timed_oracle_work":false,
-            "lives":game.state.players.iter().map(|player| player.life.clone()).collect::<Vec<_>>(),
-            "commanders":0,"physical_cards":game.state.cards.len(),"other_zone_cards":400,
+            "lives":game.state.rules.players.iter().map(|player| player.life.clone()).collect::<Vec<_>>(),
+            "commanders":0,"physical_cards":game.state.rules.cards.len(),"other_zone_cards":400,
             "all_segment_inputs_and_results_verified":true})
     }
 
@@ -751,6 +761,7 @@ mod diagnostic {
         };
         let targets = base
             .state
+            .rules
             .objects
             .values()
             .filter(|object| {
@@ -772,7 +783,7 @@ mod diagnostic {
                 let target = targets[index % targets.len()];
                 let source_handles = domain.capture_trigger_source_handles(source).unwrap();
                 let target_handles = domain.capture_trigger_source_handles(target).unwrap();
-                domain.state.effects.push(ResolvedEffect {
+                domain.state.rules.effects.push(ResolvedEffect {
                     id: EffectId(index as u64),
                     origin: EffectOrigin {
                         mode: None,
@@ -784,7 +795,7 @@ mod diagnostic {
                         source_block,
                     },
                     target_handles,
-                    expires_in_cleanup_of_turn: base.state.turn.number,
+                    expires_in_cleanup_of_turn: base.state.rules.turn.number,
                     kind: ResolvedEffectKind::ModifyPowerToughness {
                         target,
                         power: power.clone(),
@@ -792,7 +803,7 @@ mod diagnostic {
                     },
                 });
             }
-            domain.state.next_effect_id = count as u64;
+            domain.state.rules.next_effect_id = count as u64;
             // These rows deliberately have no invocation history. Even the
             // below-capacity seeded row is domain-only, never a legal restore.
             let restore = Game::restore(

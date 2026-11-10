@@ -122,7 +122,7 @@ fn opponent_announcement_and_resolution_sacrifice_have_distinct_choosers() {
     assert!(
         g.respond(
             PlayerId(0),
-            g.state.revision,
+            g.state.rules.revision,
             Response::Sacrifice {
                 object: candidates[1]
             }
@@ -139,11 +139,11 @@ fn opponent_announcement_and_resolution_sacrifice_have_distinct_choosers() {
     settle(&mut g);
     recover(&g);
     assert_eq!(
-        g.state.objects[&CardId(1)].zone,
+        g.state.rules.objects[&CardId(1)].zone,
         Zone::Graveyard { owner: PlayerId(1) }
     );
     assert_eq!(
-        g.state.objects[&CardId(4)].zone,
+        g.state.rules.objects[&CardId(4)].zone,
         Zone::Graveyard { owner: PlayerId(0) }
     );
 }
@@ -158,13 +158,14 @@ fn sacrificing_commander_waits_until_whole_spell_finishes_before_return_sba() {
         g.advance(Budget::new(1)),
         Advance::Suspended { .. }
     ));
-    assert!(matches!(g.state.frame, Frame::Resolve { .. }));
+    assert!(matches!(g.state.rules.frame, Frame::Resolve { .. }));
     assert_eq!(
-        g.state.objects[&CardId(0)].zone,
+        g.state.rules.objects[&CardId(0)].zone,
         Zone::Graveyard { owner: PlayerId(1) }
     );
     assert!(
         g.state
+            .rules
             .commander_returns
             .contains(&g.object_id(CardId(0)).unwrap())
     );
@@ -178,7 +179,7 @@ fn sacrificing_commander_waits_until_whole_spell_finishes_before_return_sba() {
         }
     ));
     assert_eq!(
-        g.state.objects[&CardId(4)].zone,
+        g.state.rules.objects[&CardId(4)].zone,
         Zone::Graveyard { owner: PlayerId(0) }
     );
     answer(&mut g, Response::CommanderReturn { to_command: true });
@@ -199,10 +200,10 @@ fn sacrifice_source_ability_has_own_stack_identity_and_historical_reference() {
     ability(&mut g);
     recover(&g);
     assert_eq!(
-        g.state.objects[&CardId(5)].zone,
+        g.state.rules.objects[&CardId(5)].zone,
         Zone::Graveyard { owner: PlayerId(1) }
     );
-    assert_eq!(g.state.stack.len(), 1);
+    assert_eq!(g.state.rules.stack.len(), 1);
     assert!(!g.top().unwrap().kind.is_spell());
     assert_eq!(g.top().unwrap().source, source);
     let own = view(&g, 1);
@@ -252,14 +253,14 @@ fn sacrifice_source_ability_has_own_stack_identity_and_historical_reference() {
     );
     settle(&mut g);
     recover(&g);
-    assert!(g.state.stack.is_empty());
+    assert!(g.state.rules.stack.is_empty());
     assert_eq!(
         g.object_id(CardId(5)).unwrap().incarnation,
         1,
         "ability completion must not move sacrificed source again"
     );
     assert_eq!(
-        g.state.objects[&CardId(17)].zone,
+        g.state.rules.objects[&CardId(17)].zone,
         Zone::Graveyard { owner: PlayerId(1) }
     );
     assert!(
@@ -288,7 +289,7 @@ fn accepted_activation_is_discarded_if_source_owner_leaves_before_cost() {
             ..
         }
     ));
-    assert!(g.state.stack.is_empty());
+    assert!(g.state.rules.stack.is_empty());
     assert!(
         !g.events()
             .iter()
@@ -350,11 +351,13 @@ fn rehashed_ability_and_resolution_metadata_cannot_forge_recovery() {
     for mutation in 0..4 {
         let mut snapshot: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
         match mutation {
-            0 => snapshot.state.stack[0].controller = PlayerId(2),
-            1 => snapshot.state.stack[0].source.incarnation = 10,
-            2 => snapshot.state.stack[0].kind = StackKind::Spell,
+            0 => snapshot.state.rules.stack[0].controller = PlayerId(2),
+            1 => snapshot.state.rules.stack[0].source.incarnation = 10,
+            2 => snapshot.state.rules.stack[0].kind = StackKind::Spell,
             _ => {
-                if let StackKind::Activated { ability, .. } = &mut snapshot.state.stack[0].kind {
+                if let StackKind::Activated { ability, .. } =
+                    &mut snapshot.state.rules.stack[0].kind
+                {
                     *ability = 3;
                 }
             }
@@ -366,7 +369,7 @@ fn rehashed_ability_and_resolution_metadata_cannot_forge_recovery() {
     }
     pass_round(&mut g);
     let mut snapshot: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
-    if let Frame::ResolutionChoice { frame, .. } = &mut snapshot.state.frame {
+    if let Frame::ResolutionChoice { frame, .. } = &mut snapshot.state.rules.frame {
         frame.cursor = 0;
     }
     snapshot.state_sha256 = digest(&snapshot.state).unwrap();

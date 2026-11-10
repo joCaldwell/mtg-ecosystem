@@ -9,6 +9,7 @@ use mtg_contracts::{ObjectSet, SetMove, WipeAmount};
 impl Game {
     pub(super) fn objects_in_set(&self, set: &ObjectSet, controller: PlayerId) -> Vec<ObjectId> {
         self.state
+            .rules
             .objects
             .values()
             .filter(|o| o.zone == Zone::Battlefield)
@@ -22,7 +23,7 @@ impl Game {
                     ObjectSet::NonlandPermanents => d.characteristics.kind != CardKind::Land,
                     ObjectSet::Enchantments => d.characteristics.has_type(CardKind::Enchantment),
                     ObjectSet::AttackingCreatures => {
-                        creature && self.state.combat.iter().any(|a| a.attacker == o.id)
+                        creature && self.state.rules.combat.iter().any(|a| a.attacker == o.id)
                     }
                     ObjectSet::OpponentCreatures => creature && o.controller != controller,
                     ObjectSet::FlyingCreatures => {
@@ -58,12 +59,12 @@ impl Game {
         Ok(q)
     }
     pub(super) fn bind_x(&mut self, cast: Casting) -> Result<(), String> {
-        let input = self.state.pending.take().ok_or("missing X input")?;
+        let input = self.state.rules.pending.take().ok_or("missing X input")?;
         self.validate_response(input.player, &input.response)?;
         let Response::AnnounceX { value } = input.response else {
             return Err("X response invariant".into());
         };
-        let top = self.state.stack.last_mut().ok_or("missing X spell")?;
+        let top = self.state.rules.stack.last_mut().ok_or("missing X spell")?;
         if top.x.is_some() {
             return Err("X already announced".into());
         }
@@ -75,11 +76,12 @@ impl Game {
             player: input.player,
             value,
         })?;
-        self.state.frame = Frame::Mana { cast };
+        self.state.rules.frame = Frame::Mana { cast };
         Ok(())
     }
     pub(super) fn cant_counter(&self, id: StackId) -> bool {
         self.state
+            .rules
             .stack
             .iter()
             .find(|e| e.id == id)
@@ -93,7 +95,7 @@ impl Game {
             })
     }
     pub(super) fn anger_replaces_death(&self, object: ObjectId, destination: Zone) -> bool {
-        matches!(destination,Zone::Graveyard { .. }) && self.current(object).is_ok_and(|o|o.zone==Zone::Battlefield) && self.state.effects.iter().any(|e|matches!(&e.kind,ResolvedEffectKind::ExileDamaged {targets} if targets.contains(&object)))
+        matches!(destination,Zone::Graveyard { .. }) && self.current(object).is_ok_and(|o|o.zone==Zone::Battlefield) && self.state.rules.effects.iter().any(|e|matches!(&e.kind,ResolvedEffectKind::ExileDamaged {targets} if targets.contains(&object)))
     }
     pub(super) fn move_board_set(
         &mut self,
@@ -106,10 +108,10 @@ impl Game {
         if action == SetMove::Hand {
             let mut remaining = vec![];
             for n in 0..4 {
-                let p = PlayerId((self.state.turn_owner.0 + n) % 4);
+                let p = PlayerId((self.state.rules.turn_owner.0 + n) % 4);
                 remaining.extend(objects.iter().copied().filter(|o| {
-                    self.state.cards[&o.card].owner == p
-                        && self.state.commanders.history(o.card).is_some()
+                    self.state.rules.cards[&o.card].owner == p
+                        && self.state.rules.commanders.history(o.card).is_some()
                 }));
             }
             return self.continue_board_return(frame, objects, remaining, vec![], block);
@@ -129,7 +131,7 @@ impl Game {
             .into_iter()
             .filter(|o| self.current(*o).is_ok_and(|o| o.zone == Zone::Battlefield))
             .map(|object| {
-                let owner = self.state.cards[&object.card].owner;
+                let owner = self.state.rules.cards[&object.card].owner;
                 match action {
                     SetMove::Destroy => {
                         if self.target_is_creature(object) {
@@ -182,13 +184,13 @@ impl Game {
     ) -> Result<(), String> {
         remaining.retain(|o| {
             self.current(*o).is_ok_and(|v| v.zone == Zone::Battlefield)
-                && self.is_live(self.state.cards[&o.card].owner)
+                && self.is_live(self.state.rules.cards[&o.card].owner)
         });
         if let Some(object) = remaining.first().copied() {
-            self.state.frame = Frame::CommanderReturn {
+            self.state.rules.frame = Frame::CommanderReturn {
                 object,
                 destination: Zone::Hand {
-                    owner: self.state.cards[&object.card].owner,
+                    owner: self.state.rules.cards[&object.card].owner,
                 },
                 continuation: Box::new(CommanderContinuation::BoardReturn {
                     frame,
@@ -304,7 +306,7 @@ impl Game {
         }
         let effect = ResolvedEffect {
             target_handles,
-            id: EffectId(self.state.next_effect_id),
+            id: EffectId(self.state.rules.next_effect_id),
             origin: EffectOrigin {
                 mode: frame.spell.mode,
                 stack_id: frame.spell.id,
@@ -314,7 +316,7 @@ impl Game {
                 cursor: frame.cursor,
                 source_block: block,
             },
-            expires_in_cleanup_of_turn: self.state.turn.number,
+            expires_in_cleanup_of_turn: self.state.rules.turn.number,
             kind,
         };
         let actual = self.commit(
@@ -428,10 +430,10 @@ impl Game {
             }
             Instruction::EachPlayerSacrifice { source_block } => {
                 let remaining = (0..4)
-                    .map(|n| PlayerId((self.state.turn_owner.0 + n) % 4))
+                    .map(|n| PlayerId((self.state.rules.turn_owner.0 + n) % 4))
                     .filter(|p| self.is_live(*p))
                     .collect();
-                self.state.frame = Frame::ForcedSacrifice {
+                self.state.rules.frame = Frame::ForcedSacrifice {
                     frame,
                     remaining,
                     choices: vec![],
@@ -454,7 +456,7 @@ impl Game {
             && targets.len() <= self.event_group_limit()
             && targets.iter().collect::<BTreeSet<_>>().len() == targets.len()
             && targets.iter().all(|o| {
-                self.state.cards.contains_key(&o.card)
+                self.state.rules.cards.contains_key(&o.card)
                     && self
                         .definition(o.card)
                         .is_ok_and(|d| d.characteristics.kind == CardKind::Creature)
@@ -508,7 +510,7 @@ impl Game {
             || f.targets.iter().any(|t| match t {
                 TargetEntity::Player { player } => player.0 >= 4,
                 TargetEntity::Object { object } => {
-                    !self.state.cards.contains_key(&object.card)
+                    !self.state.rules.cards.contains_key(&object.card)
                         || !self
                             .definition(object.card)
                             .is_ok_and(|d| d.characteristics.kind == CardKind::Creature)

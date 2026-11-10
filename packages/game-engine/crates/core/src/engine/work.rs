@@ -48,6 +48,16 @@ pub struct Work {
     cache: Box<WorkCache>,
 }
 
+impl Work {
+    pub(super) fn belongs_to_viewer(&self, viewer: PlayerId) -> bool {
+        let (Query::Observe { viewer: owner }
+        | Query::Decision { viewer: owner }
+        | Query::Check { viewer: owner, .. }
+        | Query::Search { viewer: owner, .. }) = &self.data.query;
+        *owner == viewer
+    }
+}
+
 // Pure derived accelerators live only in opaque, source/state-scoped Work.
 // They never enter SavedWork or semantic State. Initialization remains lazy:
 // Budget0 does not enumerate anything. The first existing unit computes each
@@ -65,8 +75,13 @@ impl WorkCache {
     fn next_object<'a>(&mut self, game: &'a Game) -> Option<&'a Object> {
         use std::ops::Bound::{Excluded, Unbounded};
         let next = match self.last_object {
-            None => game.state.objects.first_key_value(),
-            Some(last) => game.state.objects.range((Excluded(last), Unbounded)).next(),
+            None => game.state.rules.objects.first_key_value(),
+            Some(last) => game
+                .state
+                .rules
+                .objects
+                .range((Excluded(last), Unbounded))
+                .next(),
         };
         if let Some((key, _)) = next {
             self.last_object = Some(*key);
@@ -152,6 +167,9 @@ struct ObservationWork {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "task", rename_all = "snake_case", deny_unknown_fields)]
 enum Task {
+    // Sidecar v16: constructing projection/request headers is explicit work,
+    // rather than hidden work performed even when the caller grants no budget.
+    Initialize,
     Observe {
         builder: ObservationWork,
     },
@@ -242,18 +260,36 @@ impl Game {
         if viewer.0 >= 4 {
             return Err(QueryRejection::InvalidViewer);
         }
-        if !self.state.pending_concessions.is_empty() {
+        if !self.state.rules.pending_concessions.is_empty() {
             return Err(QueryRejection::UnsupportedBoundary);
         }
         if let Query::Search { sampling_seed, .. } = &query
-            && (!matches!(self.state.frame, Frame::Priority)
-                || self.state.pending.is_some()
+            && (!matches!(self.state.rules.frame, Frame::Priority)
+                || self.state.rules.pending.is_some()
                 || !self.is_live(viewer)
                 || sampling_seed.is_empty()
                 || sampling_seed.len() > 128)
         {
             return Err(QueryRejection::UnsupportedBoundary);
         }
+        Ok(Work {
+            executor: self.executor.clone(),
+            state_token: self.state_token.clone(),
+            data: WorkData {
+                query,
+                task: Task::Initialize,
+                units_done: 0,
+            },
+            cache: Box::default(),
+        })
+    }
+    fn initial_query_task(&self, query: &Query) -> Result<Task, QueryRejection> {
+        let viewer = match query {
+            Query::Observe { viewer }
+            | Query::Decision { viewer }
+            | Query::Check { viewer, .. }
+            | Query::Search { viewer, .. } => *viewer,
+        };
         let observe = || -> Result<ObservationWork, QueryRejection> {
             Ok(ObservationWork {
                 cursor: 0,
@@ -290,16 +326,7 @@ impl Game {
                 decks: vec![],
             },
         };
-        Ok(Work {
-            executor: self.executor.clone(),
-            state_token: self.state_token.clone(),
-            data: WorkData {
-                query,
-                task,
-                units_done: 0,
-            },
-            cache: Box::default(),
-        })
+        Ok(task)
     }
     fn begin_query(&self, query: Query, budget: Budget) -> QueryResult {
         match self.start_work(query) {
@@ -333,7 +360,7 @@ impl Game {
         &self,
         b: &mut ObservationWork,
         cache: &mut WorkCache,
-    ) -> Result<Option<Observation>, QueryRejection> {
+    ) -> Result<bool, QueryRejection> {
         let cursor = b.cursor as usize;
         let viewer = b.view.viewer;
         if cursor < 4 {
@@ -348,7 +375,7 @@ impl Game {
                 self.visible_player(PlayerId(cursor as u8))
                     .map_err(|_| QueryRejection::Invariant)?,
             );
-        } else if cursor < 4 + self.state.objects.len() {
+        } else if cursor < 4 + self.state.rules.objects.len() {
             if let Some(object) = cache.next_object(self)
                 && let Some(visible) = self
                     .visible_object(viewer, object)
@@ -382,15 +409,17 @@ impl Game {
                 }
                 b.view.objects.push(visible);
             }
-        } else if cursor < 4 + self.state.objects.len() + self.state.stack.len() {
+        } else if cursor < 4 + self.state.rules.objects.len() + self.state.rules.stack.len() {
             b.view.stack.push(
-                self.visible_stack(viewer, cursor - 4 - self.state.objects.len())
+                self.visible_stack(viewer, cursor - 4 - self.state.rules.objects.len())
                     .map_err(|_| QueryRejection::Invariant)?,
             );
         }
         if let Some(PlayerRequest::OrderTriggers { candidates, .. }) = &mut b.decision {
-            let offset =
-                4 + self.state.objects.len() + self.state.stack.len() + cache.effects(self).len();
+            let offset = 4
+                + self.state.rules.objects.len()
+                + self.state.rules.stack.len()
+                + cache.effects(self).len();
             if cursor >= offset
                 && let Some(id) = cache.triggers(self).get(cursor - offset)
             {
@@ -401,7 +430,7 @@ impl Game {
             }
         }
         b.cursor = b.cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-        let base = 4 + self.state.objects.len() + self.state.stack.len();
+        let base = 4 + self.state.rules.objects.len() + self.state.rules.stack.len();
         let effect_count = cache.effects(self).len();
         if cursor >= base && cursor < base + effect_count {
             b.view.effects.push(
@@ -447,26 +476,46 @@ impl Game {
             } else {
                 0
             };
-        if b.cursor as usize >= 4 + self.state.objects.len() + self.state.stack.len() + extra {
+        if b.cursor as usize
+            >= 4 + self.state.rules.objects.len() + self.state.rules.stack.len() + extra
+        {
             b.view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
-            return Ok(Some(Observation {
-                observation_version: 16,
-                view: b.view.clone(),
-                decision: b.decision.clone(),
-            }));
+            return Ok(true);
         }
-        Ok(None)
+        Ok(false)
     }
     fn query_unit(
         &self,
         data: &mut WorkData,
         cache: &mut WorkCache,
     ) -> Result<Option<QueryValue>, QueryRejection> {
+        if matches!(data.task, Task::Initialize) {
+            data.task = self.initial_query_task(&data.query)?;
+            return Ok(None);
+        }
         let invalid = |_: String| QueryRejection::InvalidResponse;
         match (&data.query, &mut data.task) {
-            (Query::Observe { .. }, Task::Observe { builder }) => Ok(self
-                .observation_unit(builder, cache)?
-                .map(QueryValue::Observation)),
+            (Query::Observe { .. }, Task::Observe { builder }) => {
+                if !self.observation_unit(builder, cache)? {
+                    return Ok(None);
+                }
+                // Work is consumed at completion. Move its assembled rows out;
+                // no observable incomplete prefix is changed by this placeholder.
+                let Task::Observe { builder } = std::mem::replace(
+                    &mut data.task,
+                    Task::Decision {
+                        cursor: 0,
+                        request: None,
+                    },
+                ) else {
+                    return Err(QueryRejection::Invariant);
+                };
+                Ok(Some(QueryValue::Observation(Observation {
+                    observation_version: 16,
+                    view: builder.view,
+                    decision: builder.decision,
+                })))
+            }
             (Query::Decision { viewer }, Task::Decision { cursor, request }) => {
                 if let Some(PlayerRequest::OrderTriggers { candidates, .. }) = request {
                     let ids = cache.triggers(self);
@@ -478,7 +527,7 @@ impl Game {
                     }
                     *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
                     return Ok((*cursor as usize >= ids.len())
-                        .then(|| QueryValue::Decision(request.clone())));
+                        .then(|| QueryValue::Decision(request.take())));
                 }
                 if let Some(PlayerRequest::DamageAllocation { candidates, .. }) = request {
                     let Some(ids) = cache.allocation(self)? else {
@@ -492,7 +541,7 @@ impl Game {
                     }
                     *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
                     return Ok((*cursor as usize >= ids.len())
-                        .then(|| QueryValue::Decision(request.clone())));
+                        .then(|| QueryValue::Decision(request.take())));
                 }
                 if let Some(PlayerRequest::Modes { candidates, .. }) = request {
                     let Some(ids) = cache.modes(self)? else {
@@ -503,7 +552,7 @@ impl Game {
                     }
                     *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
                     return Ok((*cursor as usize >= ids.len())
-                        .then(|| QueryValue::Decision(request.clone())));
+                        .then(|| QueryValue::Decision(request.take())));
                 }
                 if let Some(PlayerRequest::DamageEffect { candidates, .. }) = request {
                     let pairs = cache.damage(self)?;
@@ -515,7 +564,7 @@ impl Game {
                     }
                     *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
                     return Ok((*cursor as usize >= pairs.len())
-                        .then(|| QueryValue::Decision(request.clone())));
+                        .then(|| QueryValue::Decision(request.take())));
                 }
                 if let Some(PlayerRequest::EntityTargets { candidates, .. }) = request {
                     let cursor_index = *cursor as usize;
@@ -537,8 +586,8 @@ impl Game {
                         );
                     }
                     *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-                    return Ok((*cursor as usize >= 4 + self.state.objects.len())
-                        .then(|| QueryValue::Decision(request.clone())));
+                    return Ok((*cursor as usize >= 4 + self.state.rules.objects.len())
+                        .then(|| QueryValue::Decision(request.take())));
                 }
                 if let Some(PlayerRequest::BottomOpening { candidates, .. }) = request {
                     if let Some(o) = cache.next_object(self)
@@ -550,11 +599,11 @@ impl Game {
                         );
                     }
                     *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-                    return Ok((*cursor as usize >= self.state.objects.len())
-                        .then(|| QueryValue::Decision(request.clone())));
+                    return Ok((*cursor as usize >= self.state.rules.objects.len())
+                        .then(|| QueryValue::Decision(request.take())));
                 }
                 if !matches!(request, Some(PlayerRequest::Targets { .. })) {
-                    return Ok(Some(QueryValue::Decision(request.clone())));
+                    return Ok(Some(QueryValue::Decision(request.take())));
                 }
                 if let Some(object) = cache.next_object(self)
                     && self
@@ -569,8 +618,8 @@ impl Game {
                     }
                 }
                 *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-                Ok((*cursor as usize >= self.state.objects.len())
-                    .then(|| QueryValue::Decision(request.clone())))
+                Ok((*cursor as usize >= self.state.rules.objects.len())
+                    .then(|| QueryValue::Decision(request.take())))
             }
             (
                 Query::Check {
@@ -590,7 +639,7 @@ impl Game {
                 if !*header_checked {
                     self.validate_player_token(*viewer, token)
                         .map_err(invalid)?;
-                    let timing_valid = match (&self.state.frame, response) {
+                    let timing_valid = match (&self.state.rules.frame, response) {
                         (Frame::Setup, PlayerResponse::Mulligan { .. }) => true,
                         (Frame::Setup, PlayerResponse::BottomOpening { objects }) => {
                             objects.len() <= 7
@@ -769,8 +818,8 @@ impl Game {
                 let receipt = self
                     .check_response(
                         *viewer,
-                        self.state.revision,
-                        value.clone().ok_or(QueryRejection::Invariant)?,
+                        self.state.rules.revision,
+                        value.take().ok_or(QueryRejection::Invariant)?,
                     )
                     .map_err(invalid)?;
                 Ok(Some(QueryValue::Validated(receipt)))
@@ -788,10 +837,18 @@ impl Game {
                 },
             ) => {
                 if observation.is_none() {
-                    *observation = self.observation_unit(builder, cache)?.map(Box::new);
+                    if self.observation_unit(builder, cache)? {
+                        // Search remains incomplete here. Keep its historical
+                        // builder scratch intact for exact saved-work recovery.
+                        *observation = Some(Box::new(Observation {
+                            observation_version: 16,
+                            view: builder.view.clone(),
+                            decision: builder.decision.clone(),
+                        }));
+                    }
                     return Ok(None);
                 }
-                let permitted = &self.state.visibility[viewer.0 as usize].history;
+                let permitted = &self.state.knowledge.visibility[viewer.0 as usize].history;
                 if history.len() < permitted.len() {
                     history.push_stored(permitted[history.len()].clone());
                     return Ok(None);
@@ -817,9 +874,9 @@ impl Game {
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
                     context_version: 16,
-                    observation: *observation.clone().ok_or(QueryRejection::Invariant)?,
-                    permitted_history: history.clone(),
-                    open_decklists: decks.clone(),
+                    observation: *observation.take().ok_or(QueryRejection::Invariant)?,
+                    permitted_history: std::mem::take(history),
+                    open_decklists: std::mem::take(decks),
                     catalog_digest: self.prepared.catalog_digest.clone(),
                     profile_id: self.prepared.config.profile.clone(),
                     sampling_seed: sampling_seed.clone(),
@@ -835,7 +892,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 15,
+            work_version: 16,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -844,7 +901,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 15
+        if saved.work_version != 16
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?
@@ -902,8 +959,8 @@ impl Game {
         })
     }
     fn observation_work_units(&self, viewer: PlayerId) -> Result<u64, String> {
-        4u64.checked_add(self.state.objects.len() as u64)
-            .and_then(|n| n.checked_add(self.state.stack.len() as u64))
+        4u64.checked_add(self.state.rules.objects.len() as u64)
+            .and_then(|n| n.checked_add(self.state.rules.stack.len() as u64))
             .and_then(|n| n.checked_add(self.live_effect_keys().len() as u64))
             .and_then(|n| n.checked_add(self.request_extra_units(viewer).ok()?))
             .ok_or_else(|| "observation work resource limit".into())
@@ -911,14 +968,14 @@ impl Game {
     // A saved prefix must fit this exact task's row/conversion count. History
     // cannot stand in for effect, decision-candidate or response-entry work.
     fn query_work_units(&self, query: &Query) -> Result<u64, String> {
-        match query {
+        let body_units: Result<u64, String> = match query {
             Query::Observe { viewer } => self.observation_work_units(*viewer),
             Query::Decision { viewer } => Ok(match self.request_header(*viewer)? {
                 Some(PlayerRequest::Targets { .. } | PlayerRequest::BottomOpening { .. }) => {
-                    std::cmp::max(1, self.state.objects.len() as u64)
+                    std::cmp::max(1, self.state.rules.objects.len() as u64)
                 }
                 Some(PlayerRequest::EntityTargets { .. }) => 4u64
-                    .checked_add(self.state.objects.len() as u64)
+                    .checked_add(self.state.rules.objects.len() as u64)
                     .ok_or("decision work resource limit")?,
                 Some(
                     PlayerRequest::OrderTriggers { .. }
@@ -944,6 +1001,7 @@ impl Game {
                 .observation_work_units(*viewer)?
                 .checked_add(
                     self.state
+                        .knowledge
                         .visibility
                         .get(viewer.0 as usize)
                         .ok_or("invalid context viewer")?
@@ -952,10 +1010,17 @@ impl Game {
                 )
                 .and_then(|n| n.checked_add(5))
                 .ok_or_else(|| "context work resource limit".into()),
-        }
+        };
+        body_units?
+            .checked_add(1)
+            .ok_or_else(|| "query initialization work resource limit".into())
     }
 }
 
 #[cfg(test)]
 #[path = "work_optimization_tests.rs"]
 pub(super) mod optimization_tests;
+
+#[cfg(test)]
+#[path = "work_initialization_tests.rs"]
+mod initialization_tests;

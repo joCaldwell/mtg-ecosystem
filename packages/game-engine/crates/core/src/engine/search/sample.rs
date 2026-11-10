@@ -177,15 +177,15 @@ impl SampleRestoreWork {
             },
             RestoreStage::Replay(mut sampled) => {
                 let game = &mut sampled.game;
-                let n = game.state.journal.len();
-                let m = game.state.external_inputs.len();
+                let n = game.state.audit.journal.len();
+                let m = game.state.audit.external_inputs.len();
                 let snapshot = &self.snapshot;
-                if game.state.rule_steps > snapshot.boundary {
+                if game.state.rules.rule_steps > snapshot.boundary {
                     return Err(invalid("sample replay passed boundary"));
                 }
                 if n == snapshot.journal.decisions.len()
                     && m == snapshot.journal.concessions.len()
-                    && game.state.rule_steps == snapshot.boundary
+                    && game.state.rules.rule_steps == snapshot.boundary
                 {
                     if game.state_digest().map_err(invariant)? != snapshot.state_sha256 {
                         return Err(invalid(
@@ -197,15 +197,16 @@ impl SampleRestoreWork {
                 let next_external = snapshot.journal.concessions.get(m);
                 if let Some(input) = next_external {
                     if input.after_decisions < n as u64
-                        || input.boundary < game.state.rule_steps
+                        || input.boundary < game.state.rules.rule_steps
                         || input.boundary > snapshot.boundary
                     {
                         return Err(invalid("sample concession ordering/boundary"));
                     }
-                    if input.after_decisions == n as u64 && input.boundary == game.state.rule_steps
+                    if input.after_decisions == n as u64
+                        && input.boundary == game.state.rules.rule_steps
                     {
                         game.concede(input.player).map_err(invalid)?;
-                        if game.state.external_inputs.last() != Some(input) {
+                        if game.state.audit.external_inputs.last() != Some(input) {
                             return Err(invalid("sample concession mismatch"));
                         }
                         self.stage = Some(RestoreStage::Replay(sampled));
@@ -216,7 +217,7 @@ impl SampleRestoreWork {
                     && let Some(input) = snapshot.journal.decisions.get(n)
                 {
                     match game.advance(Budget::new(u64::from(
-                        game.state.rule_steps < snapshot.boundary,
+                        game.state.rules.rule_steps < snapshot.boundary,
                     ))) {
                         Advance::AwaitingDecision(request) => {
                             if request.player() != input.player
@@ -230,10 +231,10 @@ impl SampleRestoreWork {
                         Advance::Suspended { .. } => {}
                         _ => return Err(invalid("sample future decision is unreachable")),
                     }
-                } else if game.state.rule_steps < snapshot.boundary {
-                    let before = game.state.rule_steps;
+                } else if game.state.rules.rule_steps < snapshot.boundary {
+                    let before = game.state.rules.rule_steps;
                     let _ = game.advance(Budget::new(1));
-                    if before == game.state.rule_steps {
+                    if before == game.state.rules.rule_steps {
                         return Err(invalid("sample replay boundary is unreachable"));
                     }
                 } else {

@@ -101,8 +101,8 @@ fn each_opponent_can_respond_and_each_top_requires_its_own_pass_round() {
             input(&mut game, player, Response::Pass);
         }
         cast(&mut game, responder, true);
-        assert_eq!(game.state.stack.len(), 2);
-        assert!(game.state.passes.is_empty());
+        assert_eq!(game.state.rules.stack.len(), 2);
+        assert!(game.state.rules.passes.is_empty());
         let before = observe(&game, 0);
         assert_eq!(
             before
@@ -121,9 +121,9 @@ fn each_opponent_can_respond_and_each_top_requires_its_own_pass_round() {
                 .all(|s| s.cast_complete && s.targets[0].current.is_some())
         );
         pass_round(&mut game, responder);
-        assert_eq!(game.state.stack.len(), 1);
-        assert_eq!(game.state.priority, PlayerId(0));
-        assert!(game.state.passes.is_empty());
+        assert_eq!(game.state.rules.stack.len(), 1);
+        assert_eq!(game.state.rules.priority, PlayerId(0));
+        assert!(game.state.rules.passes.is_empty());
         assert_eq!(
             game.zone(game.object_id(CardId(2)).unwrap()),
             Some(Zone::Hand { owner: PlayerId(1) })
@@ -147,7 +147,7 @@ fn each_opponent_can_respond_and_each_top_requires_its_own_pass_round() {
                 .any(|o| o.oracle_id == BEARS)
         );
         pass_round(&mut game, 0);
-        assert!(game.state.stack.is_empty());
+        assert!(game.state.rules.stack.is_empty());
         let completed = game
             .events()
             .iter()
@@ -171,7 +171,7 @@ fn four_entry_chain_is_lifo_and_recovery_preserves_all_lower_spells() {
         }
         cast(&mut full, player, true);
     }
-    assert_eq!(full.state.stack.len(), 4);
+    assert_eq!(full.state.rules.stack.len(), 4);
     assert_eq!(
         observe(&full, 2)
             .view
@@ -185,7 +185,7 @@ fn four_entry_chain_is_lifo_and_recovery_preserves_all_lower_spells() {
     for _ in 0..3 {
         pass_round(&mut full, 0);
     }
-    assert!(full.state.stack.is_empty());
+    assert!(full.state.rules.stack.is_empty());
     let complete = full
         .events()
         .iter()
@@ -218,16 +218,16 @@ fn unpaid_response_reversal_restores_prior_passes_and_keeps_lower_spell() {
     cast(&mut game, 0, true);
     input(&mut game, 0, Response::Pass);
     let _ = settle(&mut game);
-    assert_eq!(game.state.passes, vec![PlayerId(0)]);
+    assert_eq!(game.state.rules.passes, vec![PlayerId(0)]);
     cast(&mut game, 1, false);
-    assert_eq!(game.state.passes, vec![PlayerId(0)]);
-    assert_eq!(game.state.stack.len(), 1);
+    assert_eq!(game.state.rules.passes, vec![PlayerId(0)]);
+    assert_eq!(game.state.rules.stack.len(), 1);
     assert_eq!(game.object_id(spell(1)).unwrap().incarnation, 0);
     for player in 1..4 {
         input(&mut game, player, Response::Pass);
     }
     let _ = settle(&mut game);
-    assert!(game.state.stack.is_empty());
+    assert!(game.state.rules.stack.is_empty());
     assert!(game.events().iter().any(|e| matches!(
         e,
         Event::SpellCompleted {
@@ -295,12 +295,12 @@ fn lower_source_departure_preserves_top_announcement_payment_and_resolution() {
         recover(&game);
         let _ = game.advance(Budget::new(1));
         recover(&game);
-        assert_eq!(game.state.stack.len(), 1);
-        assert_eq!(game.state.stack[0].id, StackId(1));
+        assert_eq!(game.state.rules.stack.len(), 1);
+        assert_eq!(game.state.rules.stack[0].id, StackId(1));
         match boundary {
-            0 => assert!(matches!(game.state.frame, Frame::Targets { .. })),
-            1 => assert!(matches!(game.state.frame, Frame::SpendMana { .. })),
-            _ => assert!(matches!(game.state.frame, Frame::Resolve { .. })),
+            0 => assert!(matches!(game.state.rules.frame, Frame::Targets { .. })),
+            1 => assert!(matches!(game.state.rules.frame, Frame::SpendMana { .. })),
+            _ => assert!(matches!(game.state.rules.frame, Frame::Resolve { .. })),
         }
     }
 }
@@ -326,9 +326,9 @@ fn reversing_after_departure_filters_saved_passes_and_removes_only_its_source() 
     recover(&game);
     input(&mut game, 1, Response::FinishMana { undo_mana: false });
     let _ = settle(&mut game);
-    assert!(game.state.passes.is_empty());
-    assert!(game.state.stack.is_empty());
-    assert_eq!(game.state.priority, PlayerId(1));
+    assert!(game.state.rules.passes.is_empty());
+    assert!(game.state.rules.stack.is_empty());
+    assert_eq!(game.state.rules.priority, PlayerId(1));
     assert_eq!(game.object_id(spell(1)).unwrap().incarnation, 0);
     let mut game = Game::new(prepared());
     cast(&mut game, 0, true);
@@ -339,9 +339,9 @@ fn reversing_after_departure_filters_saved_passes_and_removes_only_its_source() 
     let _ = game.advance(Budget::new(1));
     recover(&game);
     // P1 owns the target too, so the lower spell remains cast but will not resolve.
-    assert_eq!(game.state.stack.len(), 1);
-    assert_eq!(game.state.stack[0].id, StackId(0));
-    assert_eq!(game.state.passes, vec![PlayerId(0)]);
+    assert_eq!(game.state.rules.stack.len(), 1);
+    assert_eq!(game.state.rules.stack[0].id, StackId(0));
+    assert_eq!(game.state.rules.passes, vec![PlayerId(0)]);
 }
 #[test]
 fn detached_top_resolution_continues_and_lower_spell_waits_for_new_passes() {
@@ -359,19 +359,19 @@ fn detached_top_resolution_continues_and_lower_spell_waits_for_new_passes() {
     game.concede(PlayerId(3)).unwrap();
     let _ = game.advance(Budget::new(1));
     recover(&game);
-    assert!(matches!(game.state.frame, Frame::Resolve { .. }));
-    assert_eq!(game.state.stack.len(), 1);
+    assert!(matches!(game.state.rules.frame, Frame::Resolve { .. }));
+    assert_eq!(game.state.rules.stack.len(), 1);
     assert!(game.object_id(spell(3)).is_none());
     let _ = settle(&mut game);
-    assert_eq!(game.state.stack.len(), 1);
-    assert_eq!(game.state.priority, PlayerId(0));
-    assert!(game.state.passes.is_empty());
+    assert_eq!(game.state.rules.stack.len(), 1);
+    assert_eq!(game.state.rules.priority, PlayerId(0));
+    assert!(game.state.rules.passes.is_empty());
     assert_eq!(
         game.zone(game.object_id(CardId(2)).unwrap()),
         Some(Zone::Hand { owner: PlayerId(1) })
     );
     pass_round(&mut game, 0);
-    assert!(game.state.stack.is_empty());
+    assert!(game.state.rules.stack.is_empty());
     assert!(game.events().iter().any(|e| matches!(
         e,
         Event::SpellCompleted {
@@ -413,12 +413,12 @@ fn timing_ownership_and_rehashed_stack_metadata_reject_without_changing_state() 
     for mutation in 0..5 {
         let mut s: Snapshot = strict_read(&before).unwrap();
         match mutation {
-            0 => s.state.stack.swap(0, 1),
-            1 => s.state.stack[0].paid = None,
-            2 => s.state.stack[1].id = s.state.stack[0].id,
-            3 => s.state.stack[0].announced_targets[0][0] = ObjectHandle("forged".into()),
+            0 => s.state.rules.stack.swap(0, 1),
+            1 => s.state.rules.stack[0].paid = None,
+            2 => s.state.rules.stack[1].id = s.state.rules.stack[0].id,
+            3 => s.state.rules.stack[0].announced_targets[0][0] = ObjectHandle("forged".into()),
             _ => {
-                if let Frame::Targets { cast } = &mut s.state.frame {
+                if let Frame::Targets { cast } = &mut s.state.rules.frame {
                     cast.prior_passes.push(PlayerId(3));
                 }
             }
@@ -440,7 +440,7 @@ fn empty_stack_transition_works_and_restores_in_all_trace_modes() {
         ));
         recover(&game);
         assert_eq!(game.live_players().len(), 4);
-        assert!(!matches!(game.state.frame, Frame::Finished { .. }));
+        assert!(!matches!(game.state.rules.frame, Frame::Finished { .. }));
     }
 }
 #[test]
@@ -533,11 +533,11 @@ fn each_lower_entry_is_validated_against_its_own_program() {
     );
     input(&mut game, 1, Response::FinishMana { undo_mana: false });
     let _ = settle(&mut game);
-    assert_eq!(game.state.stack[0].targets.len(), 1);
-    assert_eq!(game.state.stack[1].targets.len(), 2);
+    assert_eq!(game.state.rules.stack[0].targets.len(), 1);
+    assert_eq!(game.state.rules.stack[1].targets.len(), 2);
     recover(&game);
     pass_round(&mut game, 1);
-    assert_eq!(game.state.stack.len(), 1);
+    assert_eq!(game.state.rules.stack.len(), 1);
     pass_round(&mut game, 0);
-    assert!(game.state.stack.is_empty());
+    assert!(game.state.rules.stack.is_empty());
 }

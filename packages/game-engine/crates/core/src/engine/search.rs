@@ -104,7 +104,7 @@ fn unsupported(s: impl Into<String>) -> SearchRejection {
 
 impl Game {
     pub(super) fn remember_opening_redraw(&mut self, player: PlayerId) {
-        self.state.visibility[player.0 as usize]
+        self.state.knowledge.visibility[player.0 as usize]
             .own_knowledge
             .push(OwnKnowledgeAction::OpeningRedraw);
     }
@@ -113,7 +113,9 @@ impl Game {
         player: PlayerId,
         objects: &[ObjectId],
     ) -> Result<(), String> {
-        let sequence = self.state.visibility[player.0 as usize].own_knowledge.len();
+        let sequence = self.state.knowledge.visibility[player.0 as usize]
+            .own_knowledge
+            .len();
         let cards = objects
             .iter()
             .enumerate()
@@ -122,6 +124,7 @@ impl Game {
                     memory_ref: format!("memory-{sequence}-{i}"),
                     oracle_id: self
                         .state
+                        .rules
                         .cards
                         .get(&o.card)
                         .ok_or("bottom memory source")?
@@ -130,13 +133,13 @@ impl Game {
                 })
             })
             .collect::<Result<_, String>>()?;
-        self.state.visibility[player.0 as usize]
+        self.state.knowledge.visibility[player.0 as usize]
             .own_knowledge
             .push(OwnKnowledgeAction::OpeningBottom { cards });
         Ok(())
     }
     pub(super) fn remember_draw(&mut self, owner: PlayerId, oracle_id: String) {
-        self.state.visibility[owner.0 as usize]
+        self.state.knowledge.visibility[owner.0 as usize]
             .own_knowledge
             .push(OwnKnowledgeAction::Drawn { oracle_id });
     }

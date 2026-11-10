@@ -68,16 +68,16 @@ impl Game {
         })
     }
     pub(super) fn record_evidence(&mut self, record: EvidenceRecord) -> Result<(), String> {
-        let sequence = self.state.next_event_sequence;
-        self.state.next_event_sequence = sequence
+        let sequence = self.state.rules.next_event_sequence;
+        self.state.rules.next_event_sequence = sequence
             .checked_add(1)
             .ok_or("event sequence resource limit")?;
         let entry = TraceRecord {
             sequence,
-            boundary: self.state.rule_steps,
-            decisions_seen: u64::try_from(self.state.journal.len())
+            boundary: self.state.rules.rule_steps,
+            decisions_seen: u64::try_from(self.state.audit.journal.len())
                 .map_err(|_| "trace input count resource limit")?,
-            concessions_seen: u64::try_from(self.state.external_inputs.len())
+            concessions_seen: u64::try_from(self.state.audit.external_inputs.len())
                 .map_err(|_| "trace input count resource limit")?,
             record,
         };
@@ -87,8 +87,9 @@ impl Game {
             EvidenceRecord::Event { event } => stored_history::payload_charge(event),
             EvidenceRecord::Batch { .. } => 0,
         };
-        self.state.retained_auxiliary_charge = self
+        self.state.rules.retained_auxiliary_charge = self
             .state
+            .rules
             .retained_auxiliary_charge
             .saturating_add(stored_history::payload_charge(&entry))
             .saturating_add(duplicate);
@@ -105,7 +106,7 @@ impl Game {
         bytes.push(0);
         bytes.extend_from_slice(canonical(&entry)?.as_bytes());
         verification.sha256 = sha256(&bytes);
-        verification.records = self.state.next_event_sequence;
+        verification.records = self.state.rules.next_event_sequence;
         if self.trace.mode == TraceMode::Detailed {
             if let EvidenceRecord::Event { event } = &entry.record {
                 self.trace.events.push((**event).clone());

@@ -128,7 +128,7 @@ fn check(g: &Game) {
         g.trace.mode,
     )
     .unwrap();
-    if matches!(g.state.frame, Frame::Fault { .. }) {
+    if matches!(g.state.rules.frame, Frame::Fault { .. }) {
         let _ = replayed.advance(Budget::new(1));
     }
     assert_eq!(replayed.state, g.state);
@@ -185,6 +185,7 @@ fn announce(g: &mut Game, id: u32, targets: Vec<TargetEntity>) {
                 } else {
                     let land = g
                         .state
+                        .rules
                         .objects
                         .values()
                         .filter(|o| {
@@ -262,8 +263,8 @@ fn resolve_with(g: &mut Game, targets: Vec<TargetEntity>, mut inspect: impl FnMu
             Advance::Suspended { .. } => {}
             Advance::AwaitingDecision(r) => {
                 if matches!(r, Request::Priority { .. })
-                    && g.state.stack.is_empty()
-                    && g.state.pending_triggers.is_empty()
+                    && g.state.rules.stack.is_empty()
+                    && g.state.rules.pending_triggers.is_empty()
                 {
                     return;
                 }
@@ -287,9 +288,10 @@ fn target(o: ObjectId) -> Vec<TargetEntity> {
 }
 fn token_objects(g: &Game) -> Vec<ObjectId> {
     g.state
+        .rules
         .objects
         .values()
-        .filter(|o| g.state.tokens.contains_key(&o.id.card))
+        .filter(|o| g.state.rules.tokens.contains_key(&o.id.card))
         .map(|o| o.id)
         .collect()
 }
@@ -366,9 +368,9 @@ fn murder_destroy_fizzle_and_simultaneous_day_lookback() {
         assert_eq!(token_objects(g).len(), 2);
         cast(g, 1, vec![]);
         assert!(token_objects(g).is_empty());
-        assert_eq!(g.state.players[0].life, 43.into());
-        assert_eq!(g.state.players[1].life, 37.into());
-        assert_eq!(g.state.pending_triggers.len(), 0);
+        assert_eq!(g.state.rules.players[0].life, 43.into());
+        assert_eq!(g.state.rules.players[1].life, 37.into());
+        assert_eq!(g.state.rules.pending_triggers.len(), 0);
     });
 }
 #[test]
@@ -396,8 +398,8 @@ fn recursion_targets_own_cards_optional_yes_no_and_commander() {
                 for _ in 0..100 {
                     let r = request(g);
                     if matches!(r, Request::Priority { .. })
-                        && g.state.stack.is_empty()
-                        && g.state.pending_triggers.is_empty()
+                        && g.state.rules.stack.is_empty()
+                        && g.state.rules.pending_triggers.is_empty()
                     {
                         break;
                     }
@@ -459,8 +461,8 @@ fn recursion_targets_own_cards_optional_yes_no_and_commander() {
                     for _ in 0..50 {
                         let r = request(g);
                         if matches!(r, Request::Priority { .. })
-                            && g.state.stack.is_empty()
-                            && g.state.pending_triggers.is_empty()
+                            && g.state.rules.stack.is_empty()
+                            && g.state.rules.pending_triggers.is_empty()
                         {
                             break;
                         }
@@ -497,8 +499,8 @@ fn recursion_targets_own_cards_optional_yes_no_and_commander() {
     rows.extend(lands("Swamp", 4));
     traces(prepared(&rows), |g| {
         cast(g, 0, vec![]);
-        assert!(g.state.stack.is_empty());
-        assert!(g.state.pending_triggers.is_empty());
+        assert!(g.state.rules.stack.is_empty());
+        assert!(g.state.rules.pending_triggers.is_empty());
     });
 }
 
@@ -565,13 +567,13 @@ fn draw_life_programs_and_continuous_anthem_layer_7c() {
                     vec![]
                 },
             );
-            assert_eq!(g.state.players[player.0 as usize].life, 38.into());
+            assert_eq!(g.state.rules.players[player.0 as usize].life, 38.into());
             assert_eq!(
-                g.state.libraries[&player].len(),
+                g.state.rules.libraries[&player].len(),
                 if player == PlayerId(0) { 1 } else { 2 }
             ); // active draw step already drew one
             assert_eq!(
-                g.state.players[if player == PlayerId(0) { 1 } else { 0 }].life,
+                g.state.rules.players[if player == PlayerId(0) { 1 } else { 0 }].life,
                 40.into()
             );
         });
@@ -671,7 +673,7 @@ fn search_prepared(name: &str) -> Prepared {
         let p = Prepared::admit_pod(catalog.clone(), config).unwrap();
         let mut g = Game::new(p.clone());
         opening(&mut g);
-        if g.state.objects.values().any(|o| {
+        if g.state.rules.objects.values().any(|o| {
             o.zone == (Zone::Hand { owner: PlayerId(0) })
                 && g.definition(o.id.card).unwrap().name == name
         }) {
@@ -699,6 +701,7 @@ fn develop_search(g: &mut Game, name: &str, cost: usize) -> CardId {
         {
             let forests = g
                 .state
+                .rules
                 .objects
                 .values()
                 .filter(|o| o.zone == Zone::Battlefield && o.controller == PlayerId(0))
@@ -706,6 +709,7 @@ fn develop_search(g: &mut Game, name: &str, cost: usize) -> CardId {
             if forests >= cost {
                 return g
                     .state
+                    .rules
                     .objects
                     .values()
                     .find(|o| {
@@ -719,6 +723,7 @@ fn develop_search(g: &mut Game, name: &str, cost: usize) -> CardId {
             if g.turn().lands_played == 0 {
                 let card = g
                     .state
+                    .rules
                     .objects
                     .values()
                     .find(|o| {
@@ -782,17 +787,26 @@ fn search_zero_one_two_private_handles_shuffle_and_pending_restore() {
                 assert_eq!(*player, PlayerId(0));
                 assert!(candidates.len() > 2);
                 check(g); // independently replay from setup to this private choice
-                let before = g.state.match_state.as_ref().unwrap().random.word_position;
-                let library_before = g.state.libraries[&PlayerId(0)].clone();
+                let before = g
+                    .state
+                    .rules
+                    .match_state
+                    .as_ref()
+                    .unwrap()
+                    .random
+                    .word_position;
+                let library_before = g.state.rules.libraries[&PlayerId(0)].clone();
                 let mut alternate = g.fork();
                 alternate
                     .state
+                    .rules
                     .libraries
                     .get_mut(&PlayerId(0))
                     .unwrap()
                     .reverse();
                 alternate
                     .state
+                    .rules
                     .cards
                     .get_mut(&candidates[0].card)
                     .unwrap()
@@ -879,10 +893,20 @@ fn search_zero_one_two_private_handles_shuffle_and_pending_restore() {
                 g.submit(validated).unwrap();
                 resolve(g, vec![]);
                 assert_eq!(
-                    g.state.libraries[&PlayerId(0)].len(),
+                    g.state.rules.libraries[&PlayerId(0)].len(),
                     library_before.len() - count as usize
                 );
-                assert!(g.state.match_state.as_ref().unwrap().random.word_position.0 > before.0);
+                assert!(
+                    g.state
+                        .rules
+                        .match_state
+                        .as_ref()
+                        .unwrap()
+                        .random
+                        .word_position
+                        .0
+                        > before.0
+                );
                 for id in found {
                     let o = g.current(g.object_id(id.card).unwrap()).unwrap();
                     assert_eq!(o.zone, Zone::Battlefield);
@@ -891,7 +915,7 @@ fn search_zero_one_two_private_handles_shuffle_and_pending_restore() {
                 for h in handles {
                     assert!(g.resolve_search_handle(PlayerId(0), &h).is_err());
                 }
-                assert_ne!(g.state.libraries[&PlayerId(0)], library_before);
+                assert_ne!(g.state.rules.libraries[&PlayerId(0)], library_before);
                 for seat in 0..4 {
                     assert_eq!(observation(g, seat).view.players[0].library_shuffles, 1);
                 }
@@ -1001,7 +1025,7 @@ fn reviewed_staples_resource_bounds_live_capacity_and_deck_counts() {
         g.commit(create(4), BatchCause::StateBased).unwrap();
     }
     assert_eq!(g.allocated_capacity_count(), 256);
-    assert_eq!(g.state.tokens.len(), 256);
+    assert_eq!(g.state.rules.tokens.len(), 256);
     let ceased = token_objects(&g)[0];
     g.commit(
         ProposedEvent::Move {
@@ -1019,10 +1043,10 @@ fn reviewed_staples_resource_bounds_live_capacity_and_deck_counts() {
     )
     .unwrap();
     g.commit(create(1), BatchCause::StateBased).unwrap();
-    assert_eq!(g.state.tokens.len(), 257);
+    assert_eq!(g.state.rules.tokens.len(), 257);
     assert_eq!(g.allocated_capacity_count(), 256);
     assert!(g.object_id(ceased.card).is_none());
-    assert!(g.state.tokens.last_key_value().unwrap().0.0 > ceased.card.0);
+    assert!(g.state.rules.tokens.last_key_value().unwrap().0.0 > ceased.card.0);
     assert!(
         g.commit(
             create(capacities::TOKEN_CAPACITY - 256 + 1),
@@ -1078,7 +1102,7 @@ fn staples_token_capacity_is_a_typed_atomic_replayable_truncation() {
                 requested: capacities::TOKEN_CAPACITY + 1
             })
         );
-        assert!(g.state.tokens.is_empty());
+        assert!(g.state.rules.tokens.is_empty());
     });
 }
 
@@ -1355,6 +1379,6 @@ fn concession_keeps_legal_pending_graveyard_target() {
             matches!(r, Request::Mana { .. }),
             "concede={concede}: {r:?}"
         );
-        assert_eq!(g.state.stack.len(), 1);
+        assert_eq!(g.state.rules.stack.len(), 1);
     }
 }

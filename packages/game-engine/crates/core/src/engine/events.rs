@@ -215,6 +215,84 @@ enum FactKey {
     AllDamage,
     Effects,
 }
+fn independent_footprints(
+    footprints: impl IntoIterator<Item = (BTreeSet<FactKey>, BTreeSet<FactKey>)>,
+) -> bool {
+    let mut prior_reads = BTreeSet::new();
+    let mut prior_writes = BTreeSet::new();
+    for (reads, writes) in footprints {
+        // This is exactly the pairwise dependency rule: a new write must not
+        // intersect any earlier read, nor a new read any earlier write. Shared
+        // reads remain allowed; an occurrence's own accesses are not compared.
+        if !writes.is_disjoint(&prior_reads) || !reads.is_disjoint(&prior_writes) {
+            return false;
+        }
+        prior_reads.extend(reads);
+        prior_writes.extend(writes);
+    }
+    true
+}
+
+#[cfg(test)]
+mod footprint_tests {
+    use super::*;
+
+    #[test]
+    fn streaming_conflicts_match_pairwise_reference_exhaustively() {
+        let keys = [FactKey::Object(CardId(0)), FactKey::Mana(PlayerId(1))];
+        let sets = (0..4)
+            .map(|mask| {
+                keys.iter()
+                    .enumerate()
+                    .filter(|(index, _)| mask & (1 << index) != 0)
+                    .map(|(_, key)| *key)
+                    .collect::<BTreeSet<_>>()
+            })
+            .collect::<Vec<_>>();
+        let footprints = sets
+            .iter()
+            .flat_map(|reads| {
+                sets.iter()
+                    .map(move |writes| (reads.clone(), writes.clone()))
+            })
+            .collect::<Vec<_>>();
+        assert!(independent_footprints([]));
+        for a in &footprints {
+            assert!(independent_footprints([a.clone()]));
+            for b in &footprints {
+                for c in &footprints {
+                    let sequence = [a.clone(), b.clone(), c.clone()];
+                    let reference = (0..sequence.len()).all(|i| {
+                        (i + 1..sequence.len()).all(|j| {
+                            sequence[i].1.is_disjoint(&sequence[j].0)
+                                && sequence[j].1.is_disjoint(&sequence[i].0)
+                        })
+                    });
+                    assert_eq!(independent_footprints(sequence), reference);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn streaming_conflicts_cover_full_capacity_and_distant_dependencies() {
+        let footprints = (0..capacities::EVENT_GROUP_LIMIT)
+            .map(|index| {
+                let keys = BTreeSet::from([FactKey::Object(CardId(index as u32))]);
+                (keys.clone(), keys)
+            })
+            .collect::<Vec<_>>();
+        assert!(independent_footprints(footprints.clone()));
+        let mut conflicting = footprints;
+        conflicting
+            .last_mut()
+            .unwrap()
+            .0
+            .insert(FactKey::Object(CardId(0)));
+        assert!(!independent_footprints(conflicting));
+    }
+}
+
 fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
     match event {
         ProposedEvent::CreateCreatureTokens { .. } => {
@@ -450,16 +528,8 @@ fn collect<'a>(
                 return Err("global aggregate cannot compose simultaneously".into());
             }
             out.extend(occurrences);
-            let keys = occurrences
-                .iter()
-                .map(|event| access(event, game))
-                .collect::<Vec<_>>();
-            for i in 0..keys.len() {
-                for j in i + 1..keys.len() {
-                    if !keys[i].1.is_disjoint(&keys[j].0) || !keys[j].1.is_disjoint(&keys[i].0) {
-                        return Err("unsupported simultaneous read/write dependency".into());
-                    }
-                }
+            if !independent_footprints(occurrences.iter().map(|event| access(event, game))) {
+                return Err("unsupported simultaneous read/write dependency".into());
             }
         }
     }
@@ -482,7 +552,7 @@ impl Game {
             )
         });
         let effects = if effects_event {
-            self.state.effects.clone()
+            self.state.rules.effects.clone()
         } else {
             vec![]
         };
@@ -505,12 +575,13 @@ impl Game {
                 )
             }))
         .then(|| TurnBefore {
-            turn: self.state.turn.clone(),
-            owner: self.state.turn_owner,
-            active: self.state.active,
-            priority: matches!(self.state.frame, Frame::Priority).then_some(self.state.priority),
+            turn: self.state.rules.turn.clone(),
+            owner: self.state.rules.turn_owner,
+            active: self.state.rules.active,
+            priority: matches!(self.state.rules.frame, Frame::Priority)
+                .then_some(self.state.rules.priority),
             live_turn_order: self.live_players(),
-            stack_empty: self.state.stack.is_empty(),
+            stack_empty: self.state.rules.stack.is_empty(),
         });
         let mut commander_damage = BTreeSet::new();
         let mut libraries = BTreeSet::new();
@@ -551,8 +622,12 @@ impl Game {
                         }
                         SetupAction::Draw { player } => {
                             libraries.insert(*player);
-                            if let Some(card) =
-                                self.state.libraries.get(player).and_then(|l| l.first())
+                            if let Some(card) = self
+                                .state
+                                .rules
+                                .libraries
+                                .get(player)
+                                .and_then(|l| l.first())
                             {
                                 objects.insert(
                                     self.object_id(*card).ok_or("missing opening draw object")?,
@@ -563,6 +638,7 @@ impl Game {
                             libraries.insert(*player);
                             objects.extend(
                                 self.state
+                                    .rules
                                     .objects
                                     .values()
                                     .filter(|o| o.zone == (Zone::Hand { owner: *player }))
@@ -586,6 +662,7 @@ impl Game {
                     players.insert(effect.origin.controller);
                     if self
                         .state
+                        .rules
                         .stack
                         .iter()
                         .any(|s| s.id == effect.origin.stack_id)
@@ -630,6 +707,7 @@ impl Game {
                                     players.insert(player);
                                     if self
                                         .state
+                                        .rules
                                         .commanders
                                         .history(d.source.object.card)
                                         .is_some()
@@ -647,6 +725,7 @@ impl Game {
                     }
                     objects.extend(
                         self.state
+                            .rules
                             .objects
                             .values()
                             .filter(|o| o.zone == Zone::Battlefield)
@@ -675,6 +754,7 @@ impl Game {
                 ProposedEvent::CounterStackObject { target, .. } => {
                     let entry = self
                         .state
+                        .rules
                         .stack
                         .iter()
                         .find(|entry| entry.id == *target)
@@ -690,6 +770,7 @@ impl Game {
                     if *reason == PlayerLossReason::CommanderDamage {
                         commander_damage.extend(
                             self.state
+                                .rules
                                 .commanders
                                 .records
                                 .keys()
@@ -706,6 +787,7 @@ impl Game {
                     objects.insert(*object);
                     libraries.insert(
                         self.state
+                            .rules
                             .cards
                             .get(&object.card)
                             .ok_or("missing library movement card")?
@@ -732,7 +814,7 @@ impl Game {
                         match d.recipient {
                             DamageRecipient::Player { player } => {
                                 players.insert(player);
-                                if self.state.commanders.history(d.source.card).is_some() {
+                                if self.state.rules.commanders.history(d.source.card).is_some() {
                                     commander_damage.insert((d.source.card, player));
                                 }
                             }
@@ -748,6 +830,7 @@ impl Game {
                 ProposedEvent::ClearDamage => {
                     objects.extend(
                         self.state
+                            .rules
                             .objects
                             .values()
                             .filter(|o| o.marked_damage > Quantity::zero())
@@ -788,10 +871,11 @@ impl Game {
                 }
                 ProposedEvent::LandPlayed { .. } | ProposedEvent::TurnTransition { .. } => {
                     if let ProposedEvent::TurnTransition { next, owner } = event
-                        && next.number != self.state.turn.number
+                        && next.number != self.state.rules.turn.number
                     {
                         objects.extend(
                             self.state
+                                .rules
                                 .objects
                                 .values()
                                 .filter(|o| o.zone == Zone::Battlefield && o.controller == *owner)
@@ -799,18 +883,18 @@ impl Game {
                         );
                     }
                     turn = Some(TurnBefore {
-                        turn: self.state.turn.clone(),
-                        owner: self.state.turn_owner,
-                        active: self.state.active,
-                        priority: matches!(self.state.frame, Frame::Priority)
-                            .then_some(self.state.priority),
+                        turn: self.state.rules.turn.clone(),
+                        owner: self.state.rules.turn_owner,
+                        active: self.state.rules.active,
+                        priority: matches!(self.state.rules.frame, Frame::Priority)
+                            .then_some(self.state.rules.priority),
                         live_turn_order: self.live_players(),
-                        stack_empty: self.state.stack.is_empty(),
+                        stack_empty: self.state.rules.stack.is_empty(),
                     });
                 }
                 ProposedEvent::ReversePermanentMana { receipt } => {
                     players.insert(receipt.player);
-                    if let Some(o) = self.state.objects.get(&receipt.source.object.card) {
+                    if let Some(o) = self.state.rules.objects.get(&receipt.source.object.card) {
                         objects.insert(o.id);
                     }
                 }
@@ -830,7 +914,7 @@ impl Game {
                     keywords: { self.current_keywords(object) },
                     deathtouch_damage: o.deathtouch_damage,
                     object,
-                    owner: self.state.cards[&object.card].owner,
+                    owner: self.state.rules.cards[&object.card].owner,
                     controller: o.controller,
                     default_controller: o.default_controller,
                     zone: o.zone,
@@ -846,6 +930,7 @@ impl Game {
             .map(|player| {
                 let p = self
                     .state
+                    .rules
                     .players
                     .get(player.0 as usize)
                     .ok_or("invalid event player")?;
@@ -865,6 +950,7 @@ impl Game {
                 recipient,
                 previous: self
                     .state
+                    .rules
                     .commanders
                     .history(commander)
                     .and_then(|history| history.combat_damage.get(&recipient))
@@ -878,6 +964,7 @@ impl Game {
                 owner,
                 cards: self
                     .state
+                    .rules
                     .libraries
                     .get(&owner)
                     .cloned()
@@ -889,6 +976,7 @@ impl Game {
             .map(|id| {
                 let entry = self
                     .state
+                    .rules
                     .stack
                     .iter()
                     .find(|entry| entry.id == id)
@@ -911,7 +999,7 @@ impl Game {
                         | ProposedEvent::ShuffleLibraryWord { .. }
                 )
             }) {
-                self.state.match_state.clone()
+                self.state.rules.match_state.clone()
             } else {
                 None
             },
@@ -973,15 +1061,38 @@ impl Game {
         }
         collect(&group, self, 0, self.event_group_limit(), &mut events)?;
         let before = self.facts(&events)?;
-        let batch_id = self.state.next_batch_id;
+        let batch_id = self.state.rules.next_batch_id;
         let next_batch = batch_id.checked_add(1).ok_or("batch ID resource limit")?;
-        let mut staged = self.fork();
-        staged.state.next_batch_id = next_batch;
-        let mut occurrences = vec![];
-        if let Err(error) = staged.apply_group(&group, batch_id, &mut vec![], &mut occurrences) {
-            self.state.typed_fault = staged.state.typed_fault;
-            return Err(error);
+        if self.in_rule_step {
+            // The enclosing rule-step staging owns rollback. No intermediate
+            // state is observable, and every failed batch aborts that step.
+            return self.apply_batch(cause, group, before, batch_id, next_batch);
         }
+        let mut staged = self.fork();
+        match staged.apply_batch(cause, group, before, batch_id, next_batch) {
+            Ok(result) => {
+                self.state = staged.state;
+                self.trace = staged.trace;
+                self.state_token = Arc::new(());
+                Ok(result)
+            }
+            Err(error) => {
+                self.state.rules.typed_fault = staged.state.rules.typed_fault;
+                Err(error)
+            }
+        }
+    }
+    fn apply_batch(
+        &mut self,
+        cause: BatchCause,
+        group: EventGroup,
+        before: PreEventFacts,
+        batch_id: u64,
+        next_batch: u64,
+    ) -> Result<CommittedBatch, String> {
+        self.state.rules.next_batch_id = next_batch;
+        let mut occurrences = vec![];
+        self.apply_group(&group, batch_id, &mut vec![], &mut occurrences)?;
         let result = CommittedBatch {
             batch_id,
             rules: cause.rules(),
@@ -990,11 +1101,9 @@ impl Game {
             before,
             occurrences,
         };
-        staged.record_evidence(EvidenceRecord::Batch {
+        self.record_evidence(EvidenceRecord::Batch {
             batch: Box::new(result.clone()),
         })?;
-        self.state = staged.state;
-        self.trace = staged.trace;
         self.state_token = Arc::new(());
         Ok(result)
     }
@@ -1031,7 +1140,14 @@ impl Game {
                 let mut facts = vec![];
                 for event in occurrences {
                     facts.push(common.facts(&[event])?);
-                    common.fork().apply_occurrence(event)?;
+                    let mut validation = common.fork();
+                    if let Err(error) = validation.apply_occurrence(event) {
+                        // The validation branch is discarded, but its typed
+                        // resource failure must reach the enclosing atomic
+                        // transaction just as an application failure does.
+                        self.state.rules.typed_fault = validation.state.rules.typed_fault;
+                        return Err(error);
+                    }
                 }
                 for (i, (event, before)) in occurrences.iter().zip(facts).enumerate() {
                     path.push(u32::try_from(i).map_err(|_| "event path resource limit")?);
@@ -1044,6 +1160,7 @@ impl Game {
                 {
                     for o in common
                         .state
+                        .rules
                         .objects
                         .values()
                         .filter(|o| o.zone == Zone::Battlefield)
@@ -1150,12 +1267,13 @@ impl Game {
     ) -> Result<EventOutcome, String> {
         let actual = match proposed {
             ProposedEvent::FinishLibraryShuffle { player } => {
-                if !matches!(self.state.frame,Frame::ResolutionChoice {choice:ResolutionChoice::Shuffle {player:p,index:0,..},..} if p==*player)
+                if !matches!(self.state.rules.frame,Frame::ResolutionChoice {choice:ResolutionChoice::Shuffle {player:p,index:0,..},..} if p==*player)
                 {
                     return Err("invalid shuffle completion".into());
                 }
                 let count = self
                     .state
+                    .rules
                     .match_state
                     .as_mut()
                     .ok_or("missing match randomness")?
@@ -1178,12 +1296,13 @@ impl Game {
                         .subtypes
                         .iter()
                         .any(|s| s == "Equipment" || s == "Aura")
-                    || target.is_some_and(|t| t == *object || !self.target_legal(t))
+                    || target.is_some_and(|t| t == *object || !self.is_battlefield_creature(t))
                 {
                     return Err("invalid attachment event".into());
                 }
                 let o = self
                     .state
+                    .rules
                     .objects
                     .get_mut(&object.card)
                     .ok_or("missing attachment")?;
@@ -1205,18 +1324,18 @@ impl Game {
                 self.apply_occurrence(&ProposedEvent::Move {
                     object: *object,
                     destination: Zone::Graveyard {
-                        owner: self.state.cards[&object.card].owner,
+                        owner: self.state.rules.cards[&object.card].owner,
                     },
                 })?
             }
             ProposedEvent::DestroyCreature { object } => {
-                if !self.target_legal(*object) {
+                if !self.is_battlefield_creature(*object) {
                     return Err("invalid destroy creature event".into());
                 }
                 self.apply_occurrence(&ProposedEvent::Move {
                     object: *object,
                     destination: Zone::Graveyard {
-                        owner: self.state.cards[&object.card].owner,
+                        owner: self.state.rules.cards[&object.card].owner,
                     },
                 })?
             }
@@ -1230,6 +1349,7 @@ impl Game {
                 })?;
                 let o = self
                     .state
+                    .rules
                     .objects
                     .get_mut(&object.card)
                     .ok_or("missing searched land")?;
@@ -1257,7 +1377,7 @@ impl Game {
                 if !self.is_live(*player) || *amount <= Quantity::zero() {
                     return Err("invalid life change".into());
                 }
-                let life = &mut self.state.players[player.0 as usize].life;
+                let life = &mut self.state.rules.players[player.0 as usize].life;
                 let previous = life.clone();
                 if matches!(proposed, ProposedEvent::GainLife { .. }) {
                     life.add(amount);
@@ -1282,7 +1402,7 @@ impl Game {
                 countering,
                 domain,
             } => {
-                if countering.0 >= self.state.next_stack_id
+                if countering.0 >= self.state.rules.next_stack_id
                     || !self.stack_target_legal(*target, *countering, *domain)
                 {
                     return Err("invalid countered stack object".into());
@@ -1292,15 +1412,17 @@ impl Game {
                 }
                 let index = self
                     .state
+                    .rules
                     .stack
                     .iter()
                     .position(|entry| entry.id == *target)
                     .ok_or("missing counter target")?;
-                let entry = self.state.stack[index].clone();
+                let entry = self.state.rules.stack[index].clone();
                 let spell = entry.kind.is_spell();
                 let movement = if spell {
                     let owner = self
                         .state
+                        .rules
                         .cards
                         .get(&entry.source.card)
                         .ok_or("missing countered spell physical card")?
@@ -1317,7 +1439,7 @@ impl Game {
                 } else {
                     None
                 };
-                self.state.stack.remove(index);
+                self.state.rules.stack.remove(index);
                 EventOutcome::StackObjectCountered {
                     target: *target,
                     source: entry.source,
@@ -1331,7 +1453,7 @@ impl Game {
                 spending,
             } => {
                 let pool = self.selected_payment_pool(*player, cost, spending)?;
-                self.state.players[player.0 as usize].mana = pool;
+                self.state.rules.players[player.0 as usize].mana = pool;
                 EventOutcome::ManaPaidSelected {
                     player: *player,
                     cost: cost.clone(),
@@ -1347,6 +1469,7 @@ impl Game {
                 }
                 let owner = self
                     .state
+                    .rules
                     .cards
                     .get(&object.card)
                     .ok_or("missing sacrificed card")?
@@ -1386,12 +1509,14 @@ impl Game {
             ProposedEvent::PutOnTopOwnerLibrary { object } => {
                 let owner = self
                     .state
+                    .rules
                     .cards
                     .get(&object.card)
                     .ok_or("missing top-library card")?
                     .owner;
                 let previous_top = self
                     .state
+                    .rules
                     .libraries
                     .get(&owner)
                     .and_then(|cards| cards.first())
@@ -1406,6 +1531,7 @@ impl Game {
                 };
                 let cards = self
                     .state
+                    .rules
                     .libraries
                     .get_mut(&owner)
                     .ok_or("missing owner library")?;
@@ -1420,28 +1546,29 @@ impl Game {
                 if !self.is_live(*player)
                     || match reason {
                         PlayerLossReason::Life => {
-                            self.state.players[player.0 as usize].life > Quantity::zero()
+                            self.state.rules.players[player.0 as usize].life > Quantity::zero()
                         }
                         PlayerLossReason::CommanderDamage => !self
                             .state
+                            .rules
                             .commanders
                             .combat_loss_candidates()
                             .contains(player),
                         PlayerLossReason::FailedDraw => {
-                            !self.state.players[player.0 as usize].failed_draw
+                            !self.state.rules.players[player.0 as usize].failed_draw
                         }
                     }
                 {
                     return Err("invalid state-based player loss".into());
                 }
-                self.state.losing_players.push(*player);
+                self.state.rules.losing_players.push(*player);
                 EventOutcome::Lost {
                     player: *player,
                     reason: *reason,
                 }
             }
             ProposedEvent::DeclareAttackers { attacks } => {
-                let player = self.state.active.ok_or("missing attacking player")?;
+                let player = self.state.rules.active.ok_or("missing attacking player")?;
                 self.validate_combat_response(
                     player,
                     &Response::Attackers {
@@ -1453,8 +1580,8 @@ impl Game {
                         self.apply_occurrence(&ProposedEvent::Tap { object: *object })?;
                     }
                 }
-                self.state.combat_declared = !attacks.is_empty();
-                self.state.combat = attacks
+                self.state.rules.combat_declared = !attacks.is_empty();
+                self.state.rules.combat = attacks
                     .iter()
                     .map(|(attacker, defender)| Attacker {
                         attacker: *attacker,
@@ -1477,6 +1604,7 @@ impl Game {
                 for (b, a) in blocks {
                     let attacker = self
                         .state
+                        .rules
                         .combat
                         .iter_mut()
                         .find(|x| x.attacker == *a)
@@ -1494,18 +1622,19 @@ impl Game {
                 if !self.is_live(*player)
                     || self
                         .state
+                        .rules
                         .libraries
                         .get(player)
                         .is_none_or(|l| !l.is_empty())
                 {
                     return Err("invalid failed draw".into());
                 }
-                self.state.players[player.0 as usize].failed_draw = true;
+                self.state.rules.players[player.0 as usize].failed_draw = true;
                 EventOutcome::DrawFailed { player: *player }
             }
             ProposedEvent::ClearDamage => {
                 let mut previous = vec![];
-                for o in self.state.objects.values_mut() {
+                for o in self.state.rules.objects.values_mut() {
                     if o.marked_damage > Quantity::zero() {
                         previous.push((o.id, std::mem::take(&mut o.marked_damage)));
                     }
@@ -1518,7 +1647,7 @@ impl Game {
                     .characteristics(*object)?
                     .toughness
                     .ok_or("missing SBA toughness")?;
-                if !self.target_legal(*object)
+                if !self.is_battlefield_creature(*object)
                     || match reason {
                         CreatureLossReason::ZeroToughness => toughness > Quantity::zero(),
                         CreatureLossReason::Deathtouch => {
@@ -1532,7 +1661,7 @@ impl Game {
                     return Err("invalid creature SBA".into());
                 }
                 let destination = Zone::Graveyard {
-                    owner: self.state.cards[&object.card].owner,
+                    owner: self.state.rules.cards[&object.card].owner,
                 };
                 let EventOutcome::Moved { movement } =
                     self.apply_occurrence(&ProposedEvent::Move {
@@ -1553,6 +1682,7 @@ impl Game {
                     return Err("invalid untap event".into());
                 }
                 self.state
+                    .rules
                     .objects
                     .get_mut(&object.card)
                     .ok_or("missing untap object")?
@@ -1563,19 +1693,20 @@ impl Game {
                 if !self.is_live(*player) {
                     return Err("invalid mana clearing player".into());
                 }
-                let previous = std::mem::take(&mut self.state.players[player.0 as usize].mana);
+                let previous =
+                    std::mem::take(&mut self.state.rules.players[player.0 as usize].mana);
                 EventOutcome::ManaCleared {
                     player: *player,
                     previous,
                 }
             }
             ProposedEvent::LandPlayed { player } => {
-                if !self.main_phase_action(*player) || self.state.turn.lands_played != 0 {
+                if !self.main_phase_action(*player) || self.state.rules.turn.lands_played != 0 {
                     return Err("invalid land-play counting event".into());
                 }
-                let previous = self.state.turn.lands_played;
+                let previous = self.state.rules.turn.lands_played;
                 let current = previous.checked_add(1).ok_or("land play resource limit")?;
-                self.state.turn.lands_played = current;
+                self.state.rules.turn.lands_played = current;
                 EventOutcome::LandPlayCounted {
                     player: *player,
                     previous,
@@ -1583,7 +1714,7 @@ impl Game {
                 }
             }
             ProposedEvent::TurnTransition { next, owner } => {
-                if !matches!(self.state.frame, Frame::Transition)
+                if !matches!(self.state.rules.frame, Frame::Transition)
                     || self.next_turn_state()? != (next.clone(), *owner)
                 {
                     return Err("invalid turn-transition event".into());
@@ -1591,14 +1722,16 @@ impl Game {
                 // CR510.4/702.7b: capture eligibility atomically as the first
                 // damage step begins, before any later departure boundary.
                 if next.step == TurnStep::FirstStrikeDamage {
-                    self.state.first_strike_participants = self.first_strikers();
+                    self.state.rules.first_strike_participants = self.first_strikers();
                 }
-                let previous = std::mem::replace(&mut self.state.turn, next.clone());
-                let previous_owner = std::mem::replace(&mut self.state.turn_owner, *owner);
-                self.state.active = self.is_live(*owner).then_some(*owner);
+                let previous = std::mem::replace(&mut self.state.rules.turn, next.clone());
+                let previous_owner = std::mem::replace(&mut self.state.rules.turn_owner, *owner);
+                self.state.rules.active = self.is_live(*owner).then_some(*owner);
                 if next.number != previous.number {
-                    for o in self.state.objects.values_mut() {
-                        if o.zone == Zone::Battlefield && Some(o.controller) == self.state.active {
+                    for o in self.state.rules.objects.values_mut() {
+                        if o.zone == Zone::Battlefield
+                            && Some(o.controller) == self.state.rules.active
+                        {
                             o.attack_ready = true;
                         }
                     }
@@ -1616,6 +1749,7 @@ impl Game {
                     return Err("invalid tap event".into());
                 }
                 self.state
+                    .rules
                     .objects
                     .get_mut(&object.card)
                     .ok_or("missing tap object")?
@@ -1631,6 +1765,7 @@ impl Game {
                 if self.current(*source).is_err()
                     && !(self
                         .state
+                        .rules
                         .cards
                         .get(&source.card)
                         .is_some_and(|c| !self.is_live(c.owner)))
@@ -1641,6 +1776,7 @@ impl Game {
                     return Err("negative mana or departed recipient".into());
                 }
                 self.state
+                    .rules
                     .players
                     .get_mut(player.0 as usize)
                     .ok_or("missing mana player")?
@@ -1660,6 +1796,7 @@ impl Game {
                 }
                 let pool = self.payment_pool(*player, cost)?;
                 self.state
+                    .rules
                     .players
                     .get_mut(player.0 as usize)
                     .ok_or("missing payment player")?
@@ -1697,6 +1834,7 @@ impl Game {
                 }
                 let pool = &mut self
                     .state
+                    .rules
                     .players
                     .get_mut(player.0 as usize)
                     .ok_or("missing mana reversal player")?
@@ -1712,6 +1850,7 @@ impl Game {
                 }
                 if let Some(object) = source {
                     self.state
+                        .rules
                         .objects
                         .get_mut(&object.card)
                         .ok_or("missing mana reversal source")?
@@ -1731,19 +1870,20 @@ impl Game {
             } => {
                 self.current(*object)?;
                 self.retain_source_lki(*object)?;
-                if self.state.cards[&object.card].owner != *departing_owner
+                if self.state.rules.cards[&object.card].owner != *departing_owner
                     || self.is_live(*departing_owner)
                 {
                     return Err("invalid leave-game ownership/status".into());
                 }
                 self.state
+                    .rules
                     .commander_returns
                     .retain(|id| id.card != object.card);
                 self.remove_from_combat(*object);
-                for library in self.state.libraries.values_mut() {
+                for library in self.state.rules.libraries.values_mut() {
                     library.retain(|c| *c != object.card);
                 }
-                self.state.objects.remove(&object.card);
+                self.state.rules.objects.remove(&object.card);
                 EventOutcome::LeftGame {
                     object: *object,
                     owner: *departing_owner,
@@ -1763,12 +1903,14 @@ impl Game {
                 let destination = &replaced;
                 let o = self.current(*object)?.clone();
                 // CR 111.8: once a token has left the battlefield it cannot move again.
-                if self.state.tokens.contains_key(&object.card) && o.zone != Zone::Battlefield {
+                if self.state.rules.tokens.contains_key(&object.card) && o.zone != Zone::Battlefield
+                {
                     return Err("token cannot move again after leaving battlefield".into());
                 }
                 self.retain_source_lki(*object)?;
                 let owner = self
                     .state
+                    .rules
                     .cards
                     .get(&object.card)
                     .ok_or("missing movement card")?
@@ -1783,13 +1925,14 @@ impl Game {
                 }
                 if self
                     .state
+                    .rules
                     .match_state
                     .as_ref()
                     .is_some_and(|m| m.setup.is_none())
                     && o.zone == (Zone::Library { owner })
                     && *destination == (Zone::Hand { owner })
                 {
-                    let oracle_id = self.state.cards[&object.card].oracle_id.clone();
+                    let oracle_id = self.state.rules.cards[&object.card].oracle_id.clone();
                     self.remember_draw(owner, oracle_id);
                 }
                 // CR 400.7: a zone move creates a new incarnation, and an actual
@@ -1802,12 +1945,13 @@ impl Game {
                         .ok_or("incarnation resource limit")?,
                 };
                 self.state
+                    .rules
                     .commander_returns
                     .retain(|id| id.card != object.card);
-                if self.state.commanders.history(object.card).is_some()
+                if self.state.rules.commanders.history(object.card).is_some()
                     && matches!(destination, Zone::Graveyard { .. } | Zone::Exile)
                 {
-                    self.state.commander_returns.insert(successor);
+                    self.state.rules.commander_returns.insert(successor);
                 }
                 let controller = if *destination == Zone::Battlefield {
                     o.controller
@@ -1815,11 +1959,12 @@ impl Game {
                     owner
                 };
                 self.remove_from_combat(*object);
-                for library in self.state.libraries.values_mut() {
+                for library in self.state.rules.libraries.values_mut() {
                     library.retain(|c| *c != object.card);
                 }
                 if let Zone::Library { owner } = destination {
                     self.state
+                        .rules
                         .libraries
                         .entry(*owner)
                         .or_default()
@@ -1834,7 +1979,7 @@ impl Game {
                         .static_abilities
                         .iter()
                         .any(|a| a.effect == StaticEffect::EntersTapped);
-                self.state.objects.insert(
+                self.state.rules.objects.insert(
                     object.card,
                     Object {
                         attached_to: None,
@@ -1880,7 +2025,7 @@ impl Game {
         let mut totals: BTreeMap<(u8, u32), Quantity> = BTreeMap::new();
         let mut commander_totals: BTreeMap<(CardId, PlayerId), Quantity> = BTreeMap::new();
         for d in damage {
-            if !self.target_legal(d.source)
+            if !self.is_battlefield_creature(d.source)
                 || self.current(d.source)?.controller != d.controller
                 || !self.is_live(d.controller)
                 || d.amount <= Quantity::zero()
@@ -1892,7 +2037,7 @@ impl Game {
                     if !self.is_live(player) {
                         return Err("departed damage recipient".into());
                     }
-                    if self.state.commanders.history(d.source.card).is_some() {
+                    if self.state.rules.commanders.history(d.source.card).is_some() {
                         commander_totals
                             .entry((d.source.card, player))
                             .or_default()
@@ -1901,7 +2046,7 @@ impl Game {
                     (0, u32::from(player.0))
                 }
                 DamageRecipient::Creature { object } => {
-                    if !self.target_legal(object) {
+                    if !self.is_battlefield_creature(object) {
                         return Err("invalid creature damage recipient".into());
                     }
                     (1, object.card.0)
@@ -1926,13 +2071,14 @@ impl Game {
         for ((kind, id), amount) in totals {
             let (recipient, previous, current) = if kind == 0 {
                 let player = PlayerId(id as u8);
-                let life = &mut self.state.players[player.0 as usize].life;
+                let life = &mut self.state.rules.players[player.0 as usize].life;
                 let previous = life.clone();
                 life.subtract(&amount);
                 (DamageRecipient::Player { player }, previous, life.clone())
             } else {
                 let object = self
                     .state
+                    .rules
                     .objects
                     .get_mut(&CardId(id))
                     .ok_or("missing damage object")?;
@@ -1954,16 +2100,19 @@ impl Game {
         for ((commander, recipient), amount) in commander_totals {
             let previous = self
                 .state
+                .rules
                 .commanders
                 .history(commander)
                 .and_then(|history| history.combat_damage.get(&recipient))
                 .cloned()
                 .unwrap_or_default();
             self.state
+                .rules
                 .commanders
                 .record_damage(commander, recipient, true, &amount)?;
             let current = self
                 .state
+                .rules
                 .commanders
                 .history(commander)
                 .and_then(|history| history.combat_damage.get(&recipient))
