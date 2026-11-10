@@ -7,6 +7,9 @@
   ],
   "scripts": {
     "check:engine": "node scripts/check-engine.ts",
+    "check:engine:source": "node scripts/check-engine.ts --source",
+    "check:engine:contracts": "node scripts/check-engine.ts --contracts",
+    "check:engine:full": "node scripts/check-engine.ts --full",
     "demo:engine": "cargo run --locked -p mtg-sim -- demo",
     "retain:engine": "node scripts/retain-engine-evidence.ts",
     "build": "npm run build --workspaces",

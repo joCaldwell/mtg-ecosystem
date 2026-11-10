@@ -4,19 +4,54 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { engineCheckPhases, measuredCommand, sourceIdentity, withAdvisoryLock } from "./check-engine-driver.ts";
+import { engineCheckPlans, parseCheckArguments, runCheckPhases, measuredCommand, sourceIdentity, withAdvisoryLock } from "./check-engine-driver.ts";
 
-test("contract preflight precedes runtime while the complete normal checks remain", () => {
-  const preflight = engineCheckPhases.findIndex(phase => phase.label === "contract-preflight");
-  assert.ok(preflight >= 0);
-  assert.ok(preflight < engineCheckPhases.findIndex(phase => phase.label === "rust-tests"));
-  assert.ok(preflight < engineCheckPhases.findIndex(phase => phase.label === "clippy"));
-  assert.deepEqual(engineCheckPhases.find(phase => phase.label === "rust-tests")?.args, ["test", "--workspace", "--locked"]);
-  const complete = engineCheckPhases.find(phase => phase.label === "node-tests")!;
-  for (const filename of ["scripts/capture-json-output.test.ts", "scripts/retain-policy-sources.test.ts", "scripts/retain-server-evidence.test.ts", "packages/game-engine/tests/contracts.test.ts"]) {
-    assert.ok((complete.args as readonly string[]).includes(filename));
+test("default coverage is bounded and deeper runtime work is explicit", () => {
+  assert.equal(parseCheckArguments([]).mode, "fast");
+  const fast = engineCheckPlans.fast.phases;
+  assert.ok(fast.some(phase => phase.label === "compiler-tests"));
+  assert.ok(fast.some(phase => phase.label === "rust-check"));
+  assert.ok(fast.some(phase => phase.label === "archive-parser"));
+  assert.ok(!fast.some(phase => ["clippy", "rust-tests", "node-tests", "contract-preflight"].includes(phase.label)));
+  assert.ok(!fast.some(phase => phase.args.includes("--release")));
+  assert.equal(engineCheckPlans.source.phases.some(phase => phase.command === "cargo"), false);
+  const full = engineCheckPlans.full.phases;
+  assert.deepEqual(full.find(phase => phase.label === "rust-tests")?.args, ["test", "--workspace", "--locked"]);
+  assert.equal(full.filter(phase => phase.args.includes("packages/game-engine/tests/contracts.test.ts")).length, 1);
+  assert.equal("preflight" in full.find(phase => phase.label === "node-tests")!, false);
+  assert.match(engineCheckPlans.fast.omitted, /Core\/simulator\/server runtime tests/);
+});
+
+test("mode selection rejects typos and conflicting modes before launching commands", () => {
+  assert.deepEqual(parseCheckArguments(["--contracts", "--plan"]), { mode: "contracts", planOnly: true, help: false });
+  assert.throws(() => parseCheckArguments(["--ful"]), /Unknown/);
+  assert.throws(() => parseCheckArguments(["--full", "--fast"]), /exactly one/);
+  assert.throws(() => parseCheckArguments(["--full", "--full"]), /exactly one/);
+});
+
+test("phase failure stops subsequent work and inherited preflight cannot shrink full coverage", async () => {
+  for (const code of [7, 143, null]) {
+    const calls: any[] = [];
+    const result = await runCheckPhases(engineCheckPlans.full.phases, {
+      cwd: process.cwd(), record: () => {}, env: { MTG_ENGINE_CONTRACT_PREFLIGHT: "1", CARGO_INCREMENTAL: "0" },
+    }, async (label, command, args, options) => {
+      calls.push({ label, env: options.env });
+      return { code, signal: null };
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].env.MTG_ENGINE_CONTRACT_PREFLIGHT, "0");
+    assert.equal(calls[0].env.CARGO_INCREMENTAL, "0");
+    assert.deepEqual(result, { code: code ?? 1, completed: [], failed: "format" });
   }
-  assert.equal("preflight" in complete, false);
+  const cohorts: string[] = [];
+  const result = await runCheckPhases(engineCheckPlans.contracts.phases, {
+    cwd: process.cwd(), record: () => {}, env: { MTG_ENGINE_CONTRACT_PREFLIGHT: "0" },
+  }, async (label, command, args, options) => {
+    cohorts.push(options.env!.MTG_ENGINE_CONTRACT_PREFLIGHT!);
+    return { code: 0, signal: null };
+  });
+  assert.deepEqual(cohorts, ["0", "1"]);
+  assert.deepEqual(result, { code: 0, completed: ["tooling-tests", "contract-preflight"], failed: null });
 });
 
 test("command measurement retains nonzero exit, CPU, scoped RSS and exact identities", async () => {
