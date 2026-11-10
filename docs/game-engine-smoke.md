@@ -25,9 +25,10 @@ commands must acquire the shared lock documented in
 The coordinator owns npm/check-runner integration.
 
 The default writes only a small JSON result to stdout; failure returns nonzero.
-The result includes an exact shell-quoted rerun command with working directory
-and runtime library path. For an existing saved artifact, use `smoke-replay`
-rather than repeating its create-new write command.
+The result includes an exact shell-quoted reproduction command with working
+directory and runtime library path. After a successful artifact write it reads
+that artifact with `smoke-replay`; an IO failure retains the original command
+so the failed write can be reproduced without replacing existing evidence.
 The optional artifact preserves both successful and failed probes, including
 partial journals/checkpoints when ordinary errors occur. It uses create-new
 semantics: existing files and symlinks are never replaced, and missing parent
@@ -60,3 +61,62 @@ It excludes process startup and Cargo compilation. Measure wall-clock process
 startup/run separately from Cargo build and from warm repeats. No arbitrary
 latency threshold, full game completion, match profile, search, server, SDK,
 release matrix or retention rebuild is part of this check.
+
+## Focused verification and development cost (2026-11-09)
+
+The initial implementation checkpoint is `552651e`; a subsequent small CLI
+correction selects `smoke-replay FILE` after saving an artifact, retaining the
+original command when writing fails. This correction changes reporting only.
+
+Three focused Rust tests passed, with 131 simulator tests deliberately filtered
+out. They cover source compilation, public inputs, state outcomes and replay;
+first input/checkpoint/identity differences; strict/bounded artifact reads and
+non-overwriting writes. The final test-bearing source run took 86.834 seconds
+including recompilation; the tests themselves took 0.01 seconds. The earlier
+implementation run took 90.104 seconds and also passed. These are separate source
+runs, not a speed comparison. The six-line final CLI correction was verified by
+building and rerunning process-level checks rather than repeating the optimized
+Rust suite.
+
+The first debug executable build took 19.604 seconds. It needed separate
+unoptimized library outputs from the optimized test profile; the target directory
+was reused, not deleted or cold-started. A subsequent no-change debug build took
+0.0261 seconds. Simulator edits still invalidate the broad core build identity.
+Thus the runtime probe is cheap once compiled, but it does not remove codegen cost.
+All Cargo commands used the shared advisory lock, pinned Rust 1.99.0, the preserved
+`perf-engine-verification-loop/target`, and `CARGO_INCREMENTAL=0`.
+
+The process checks include successful smoke/write/replay and real nonzero exits
+for mutated input, checkpoint, state digest, build identity, artifact version,
+recorded failure, unknown fields, long diagnostic keys, malformed/oversized or
+missing files, invalid CLI usage and missing output parents. Existing files and
+symlink destinations remain byte-identical after rejected writes. Each output
+was also checked below 16 KiB. These are targeted tooling checks; no demo, full
+profile game, server, SDK, Clippy, release matrix or retention build was run.
+
+Measurements are local developer feedback on an uncontrolled host, not a quiet
+benchmark or a same-workload engine speedup. Process wall time includes startup;
+reported internal runtime excludes it. Repeats are fresh processes with warm
+filesystem caches, not iterations inside a single long-lived engine process.
+
+The final CLI rebuild took **15.681 seconds**. All **24 process checks** passed
+(8 successful executions, including repeats, and 16 expected failures). The first
+process took 26.836 ms wall / 25.217 ms internal. Five warm-cache fresh-process
+repeats had median **25.298 ms wall / 24.186 ms internal**. The saved artifact was
+**2,037 bytes**. Final executable SHA256:
+`5cbf94a32264d3d0794c35c45842c7165815c4857d0b41c770cdbc10a6d22f5a`;
+core build identity:
+`e57b70ee34b38ad6a02b9d624c9e257433ba815f544274e331f9d770e2934fe5`;
+smoke source SHA256:
+`56dbd123d9f2ef9c52e5404afdcdf40ff29dded000dc35bb999160340a7c66f7`.
+
+Exact commands, exit statuses, timings, stdout/stderr, immutable positive/negative
+artifacts and the process-check harness are retained outside the worktree at
+`/home/josh/.local/share/mtg-ecosystem/engine-verification/smoke-platform-20261110T003902.327783Z/`.
+Earlier CLI evidence remains in the sibling
+`smoke-platform-20261110T003615.742355Z/` directory. These directories do not retain
+an executable or offline source/dependency closure; the shared cache executable
+may subsequently change. They are scoped development evidence, not release
+retention bundles. Two environment launch attempts (missing Rust runtime library
+path for rustfmt, unavailable `/usr/bin/time`) failed before verification;
+corrected invocations produced the results above.

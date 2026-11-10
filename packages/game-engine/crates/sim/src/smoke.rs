@@ -379,6 +379,12 @@ pub(super) fn cli(args: &[String]) -> Result<(), String> {
             }
         } else if let Some(path) = path {
             write_new(path, &current)?;
+            // Once saved, reproduction reads evidence instead of colliding with it.
+            report["reproduce"] = reproduce(&[
+                "smoke-replay".into(),
+                path.to_str().ok_or("non-UTF8 artifact path")?.into(),
+            ])?
+            .into();
         }
         if let Some(failure) = current.failure {
             return Err(failure);
