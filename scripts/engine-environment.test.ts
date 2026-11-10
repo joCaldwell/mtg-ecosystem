@@ -124,3 +124,17 @@ test("launcher rejects a mismatched Node pin without executing the command", t =
   assert.match(result.stderr, /require Node 0.0.1/);
   assert.equal(result.stdout, "");
 });
+
+test("unavailable rustup toolchain does not block source-only commands", t => {
+  const directory = fixture(t);
+  fs.copyFileSync(path.join(root, "scripts/engine-cache.py"), path.join(directory, "scripts/engine-cache.py"));
+  const bundle = path.join(directory, "tools");
+  fs.mkdirSync(path.join(bundle, "usr/bin"), { recursive: true });
+  fs.symlinkSync(process.execPath, path.join(bundle, "usr/bin/node"));
+  fs.writeFileSync(path.join(bundle, "usr/bin/rustc"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  const env: NodeJS.ProcessEnv = { ...process.env, MTG_ENGINE_TOOLCHAIN_ROOT: bundle };
+  delete env.CARGO_TARGET_DIR;
+  const result = spawnSync("sh", [path.join(directory, "scripts/engine-env.sh"), "node", "-e", 'console.log("source-only works")'], { env, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), "source-only works");
+});

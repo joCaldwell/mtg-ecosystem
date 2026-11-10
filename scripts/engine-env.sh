@@ -24,7 +24,7 @@ if [ "$(node --version 2>/dev/null || true)" != "v$engine_node" ]; then
 fi
 # Source-only tools and doctor remain available when Rust is absent. Native
 # entry points select and validate their target before taking the build lock.
-if [ -f "$engine_root/scripts/engine-cache.py" ] && { [ -n "${CARGO_TARGET_DIR:-}" ] || command -v rustc >/dev/null 2>&1; }; then
+if [ -f "$engine_root/scripts/engine-cache.py" ] && { [ -n "${CARGO_TARGET_DIR:-}" ] || rustc --version >/dev/null 2>&1; }; then
     CARGO_TARGET_DIR=$(python3 "$engine_root/scripts/engine-cache.py" path)
     export CARGO_TARGET_DIR
 fi

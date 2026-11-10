@@ -44,6 +44,13 @@ Focused strict TypeScript passed for the runners, environment doctor and their
 tests. Doctor reported healthy with exact tools/dependencies. All 179 relative
 links checked across current onboarding/topical entry documents resolved.
 
+A final launcher correction also tolerates an installed rustup proxy whose pinned
+toolchain is absent: source-only commands and doctor can still start without a
+native cache identity. Its regression test and the full source-only gate passed
+(48 Node tests including archive/parser, 38 Python tests); strict TypeScript passed
+after a test environment type annotation correction. Native checks remain those
+of `1e7424e`; this shell/test-only correction did not change engine source.
+
 The first integrated attempt at `efa1ca3` correctly failed formatting in the new
 simulator CLI dispatch before native compilation. Its receipt is preserved.
 The formatting-only correction is `1e7424e`; the subsequent complete bounded
