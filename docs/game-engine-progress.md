@@ -1,5 +1,13 @@
 # Compiler and engine implementation progress
 
+This is a **historical chronological ledger**, not the onboarding path or a
+current acceptance claim. Start with [the current map](game-engine-current.md),
+[development commands](game-engine-development.md), and the
+[historical report/recovery index](history/engine/index.md). Accepted D2c-d at
+`394301d` excludes later IR25/digest reuse; candidate-focused checks and the
+November fast workflow retain their separate qualifications. Entries below and
+all existing report/evidence paths are preserved.
+
 Historical `expected-*scenario.json` and `expected-combat-games.json` references
 below describe the original releases. The unconsumed reports now live in Git
 history; see the [fixture recovery index](../packages/game-engine/tests/fixtures/README.md).

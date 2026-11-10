@@ -9,7 +9,7 @@ if [ -f scripts/engine-cache.py ]; then
 fi
 echo 'Installing locked root + engine + parser dependencies (npm ci; install scripts disabled).'
 # npm ci removes the selected install tree; do not run alongside another npm install.
-# https://docs.npmjs.com/cli/v12/commands/npm-ci
+# https://docs.npmjs.com/cli/v11/commands/npm-ci/
 npm ci --workspace=@mtg-ecosystem/game-engine --workspace=@mtg-ecosystem/oracle-parser --include-workspace-root --include=dev --ignore-scripts --no-audit --no-fund
 node scripts/engine-doctor.ts
 echo 'Ready. Run: sh scripts/engine-env.sh npm run check:engine:source'

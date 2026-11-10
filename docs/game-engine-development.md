@@ -87,6 +87,19 @@ them. Add the smallest affected runtime test for behavior changes. Never report
 unrun work as passed, relax a runtime guard, or bless a changed expected outcome
 without source/rules review.
 
+For a tiny runtime sanity probe, use the coordinator-wired commands:
+
+```sh
+sh scripts/engine-env.sh npm run engine:smoke
+sh scripts/engine-env.sh npm run engine:smoke -- --artifact generated/my-new-smoke.json
+sh scripts/engine-env.sh npm run engine:smoke:replay -- generated/my-new-smoke.json
+```
+
+These use the check driver's native lock, cache and environment controls. See
+[the smoke contract](game-engine-smoke.md) for the fixed seedless scenario,
+create-new bounded artifact, replay diagnostics and omissions. The small probe
+does not replace an affected mechanic test or establish combined acceptance.
+
 New helpers can be checked without compiling native code:
 
 ```sh
@@ -107,14 +120,15 @@ Replace EXACT_FILTER with a real relevant test and check that tests actually ran
 The lock parent must already exist (the check runner normally creates it).
 Continue source/docs work while the native owner is busy.
 
-The environment launcher integrates the build owner's `scripts/engine-cache.py`
-when present: `path` supplies CARGO_TARGET_DIR without writes and preserves an
+The environment launcher uses `scripts/engine-cache.py`: `path` supplies
+CARGO_TARGET_DIR without writes and preserves an
 explicit override; CARGO_INCREMENTAL defaults to 0. Bootstrap invokes `check`
 before installing dependencies. Cache budget checks belong before native builds,
-not every source-only command. Until that separate helper is integrated, Cargo's
-normal target default applies. No environment helper migrates, deletes or prunes
+not every source-only command. Older checkouts without that helper retain Cargo's
+normal target default. No environment helper migrates, deletes or prunes
 caches. The existing `perf-engine-verification-loop/target` stays preserved;
-reuse requires an explicit coordinated override. See [storage boundaries](game-engine-storage.md).
+reuse requires an explicit coordinated override. See [cache selection and budgets](game-engine-builds.md#cache-selection-and-lifecycle)
+and [storage boundaries](game-engine-storage.md).
 
 Doctor checks free bytes at the worktree and nearest existing target ancestor,
 reporting a failure below 256 MiB and a warning below 2 GiB. These are small-install
@@ -127,3 +141,5 @@ remote URL, npm configuration or child diagnostic stream is printed by doctor.
 Commit and push coherent checkpoints after relevant focused checks. Preserve
 historical source/evidence/worktrees and all failed/interrupted results. The
 coordinator integrates changes; publishing a branch is not release acceptance.
+Use [the worktree lifecycle guide](game-engine-worktrees.md) for inventory,
+checkpoint and cleanup commands; do not improvise historical worktree deletion.

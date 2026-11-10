@@ -78,7 +78,7 @@ export function inspectEngine(options: Options): Check[] {
       add(label, status, `${gib.toFixed(2)} GiB available; this is not a native-build budget approval`, status === "ok" ? undefined : "Inspect storage with the build owner; preserve evidence and existing caches. See docs/game-engine-storage.md.");
     } catch { add(label, "fail", "Cannot inspect filesystem capacity.", "Check directory access and mount availability."); }
   }
-  add("Cargo cache", "ok", env.CARGO_TARGET_DIR ? "Explicit target inherited; no cache created or modified." : "Cargo default target; coordinate native builds and cache selection with the build owner.");
+  add("Cargo cache", "ok", env.CARGO_TARGET_DIR ? "Selected target inherited; no cache created or modified. Use engine-cache.py status for the resolved path and budget." : "Cargo default target; coordinate native builds and cache selection with the build owner.");
   const head = run("git", ["rev-parse", "--verify", "HEAD"]);
   if (head.status !== 0) add("Git", "fail", "Cannot resolve worktree HEAD.", "Run from a Git worktree with a committed base.");
   else {

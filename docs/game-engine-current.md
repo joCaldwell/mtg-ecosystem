@@ -19,7 +19,8 @@ uses its own Scryfall database and does not consume this engine.
 | `packages/game-server/sdk/` | Generated public TypeScript client contracts; separate package manual and install |
 | `packages/game-engine/tests/fixtures/` | Exact local card source records, catalog manifests, profile data and small reviewed references |
 
-Core imports contracts, never compiler/parser. Filesystem/network/clock/OS
+Core's runtime imports contracts, never compiler/parser; compiler-backed tests
+are development-only dependencies. Filesystem/network/clock/OS
 randomness and inference stay outside core. Catalog/profile identity is separate
 from engine code identity. The host adds its own SERVER_BUILD_ID. See
 [runtime invariants](game-engine-invariants.md), [profile admission](game-engine-profiles.md)
@@ -46,8 +47,9 @@ engine work absent from `main`. These are separate evidence claims:
 | Later digest reuse and November tooling changes | Separate focused-work evidence, not part of the frozen D2c-d gate; see [trace digests](game-engine-verification-trace-digests.md) and [fast checks](game-engine-fast-checks-20261109.md) |
 
 At this baseline trusted snapshot/bundle formats are 19/20; public
-projection/context/query-sidecar formats are 16/16/15. Read Rust types and
-validation at the edited source for version authority; old reports retain their
+projection/context/query-sidecar formats are 16/16/15. `mtg_contracts::CURRENT_IR_VERSION`
+is the current IR authority; see [version and build checks](game-engine-builds.md).
+Read Rust types and validation at the edited source; old reports retain their
 original version numbers. Do not update historical catalogs or expected hashes
 just to match the newest IR version. No new quiet P7 performance, offline
 rebuild, full-profile or combined-acceptance claim follows from a focused check.
@@ -60,6 +62,9 @@ rebuild, full-profile or combined-acceptance claim follows from a focused check.
 - [Catalog workflow](game-engine-catalogs.md): source facts, provenance, compilation and generic match commands.
 - [Historical index](history/engine/index.md): previous onboarding, release contracts, unchanged evidence paths and recovery.
 - [Storage policy](game-engine-storage.md): budgets and bounded retention; ignored output is not automatically disposable.
+- [Build/cache policy](game-engine-builds.md): version authority, source guards, cache selection and measured invalidation costs.
+- [Tiny runtime smoke](game-engine-smoke.md): fixed seedless probe, small failure artifact and explicit replay; not full acceptance.
+- [Branch/worktree lifecycle](game-engine-worktrees.md): safe checkpoints, integration and preservation of unique work/evidence.
 
 The long [progress ledger](game-engine-progress.md) is chronological evidence,
 not the onboarding sequence. The [plan](game-engine-plan.md) and

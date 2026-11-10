@@ -1,5 +1,10 @@
 # Local Rust hosting and generated clients
 
+For current engine architecture, setup and evidence boundaries, start with
+[the engine map](../../docs/game-engine-current.md) and
+[bootstrap/doctor](../../docs/game-engine-development.md). Release figures below
+are historical and source-qualified; later IR25 candidate work is separate.
+
 Engine/server follow-ups use `docs/game-engine-verification-workflow.md`: cheap
 focused verification is the default; full runtime/release/profile checks are
 explicit opt-ins. The default engine check compiles server targets but does not
@@ -57,7 +62,8 @@ strict TypeScript and 33 response variants. `EventPlayerRecipientV1` and
 `SourceStatusConditionV1` remain outside reviewed hosting/search capability sets;
 no hosted profile was added. See `docs/game-engine-cards-as-data-d2c-b.md` for the
 exact engine/server identities and source closure. This is functional evidence,
-not a new quiet performance claim; parent independent review remains pending.
+not a new quiet performance claim. The D2c-b report/progress ledger records the
+completed parent review; this historical increment does not accept later IR25 work.
 
 Rust links the deterministic core directly. Rust DTOs and embedded core public
 projection/decision types are the external protocol authority. Generate Draft7

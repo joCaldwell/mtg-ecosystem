@@ -1,121 +1,89 @@
-# System Architecture
+# System architecture
 
-This document describes the full layered architecture of the MTG Ecosystem. The intended dependency order is **bottom-up**. The standalone deck-builder was pulled forward and is the active package; it does not depend on the parser or rules engine. The parser remains a limited supported subset, with broader work paused.
+Project Multiverse separates source interpretation, executable rules, hosting and
+applications. The adopted stack is TypeScript plus Rust; see the
+[language decision](runtime-language-decision.md). Commander is the engine's
+supported format, with four-player headless matches and agent search as the
+primary workload. The delivered scope is finite and explicitly reviewed.
 
-The language stack is **adopted**. An initial compiler/runtime scenario exists;
-full games, search, and server implementation remain future work. Start with the
-[implementation plan](game-engine-plan.md), then the
-[engine specification](game-engine-spec.md) and
-[runtime language decision](runtime-language-decision.md). Commander is the
-only planned game format, with four-player headless simulation and agent search
-as the primary workload. TypeScript owns ingestion, parsing, the deck-builder,
-browser applications, and client SDK. Rust owns semantic compilation, rules
-execution, simulation/search/native agents, and the game server. Browser-local
-rules reuse the Rust core compiled to WebAssembly.
+## Implemented path
 
----
-
-## 🗺️ Build Order
-
-```mermaid
-graph LR
-    classDef done fill:#065f46,stroke:#10b981,color:#fff;
-    classDef active fill:#1e3a5f,stroke:#3b82f6,stroke-width:3px,color:#fff;
-    classDef future fill:#1f2937,stroke:#475569,color:#6b7280;
-
-    M1["Milestone 1<br/>Oracle Parser<br/>& Card IR (limited subset)"]:::future
-    M2["Milestone 2<br/>Game State<br/>& Rules Engine"]:::future
-    M3["Milestone 3<br/>Game Server<br/>& API"]:::future
-    M4["Milestone 4<br/>Clients &<br/>Agent Apps (deck-builder active)"]:::active
-
-    M1 --> M2 --> M3 --> M4
+```text
+Scryfall source → TypeScript parser → versioned AST/source archive
+                                            ↓
+                          Rust semantic compiler + executable IR contracts
+                                            ↓
+                      deterministic Rust core ← catalog/profile admission data
+                               ↓                         ↓
+                    native simulator/search       local Rust host
+                                                        ↓
+                                              generated TypeScript SDK
 ```
 
----
+The standalone deck-builder uses its own Scryfall/SQLite store. It does not
+consume the parser, Card IR or rules core. Future integration must not block its
+current development. General game UI, browser-local WebAssembly rules and broader
+clients remain architectural directions.
 
-## 💾 Layer 0: Oracle Text Parser & Card IR
+## Layer 0: source parser and semantic compiler
 
-**Goal**: Parse every MTG card's oracle text into a typed AST, then compile it into per-set JSON IR files that downstream layers consume.
+The TypeScript normalizer/lexer/parser produces a supported AST subset while
+preserving source boundaries, unknown text and explicit failures. Source archives
+bind exact records, ASTs and provenance. Parsing acceptance alone never establishes
+executable rules support. See [parser design](oracle_parser.md) and its
+[package manual](../packages/oracle-parser/AGENTS.md).
 
-**Key components**:
-- **Ingestion**: Pull raw card data from Scryfall bulk data.
-- **Normalizer and lexer**: Preserve ability boundaries and tokenize text without dropping unknown characters.
-- **Hand-written parser**: Builds typed AST nodes directly from supported productions.
-- **AST contract**: `packages/oracle-parser/src/ast.ts`; explicit logic, event grouping, zones, restrictions, and scope.
-- **Verification**: Structural and negative tests, cursor invariants, and reproducible corpus acceptance reports.
-- **Semantic validation and IR emitter** (future, Rust): Resolve references, check consumer capabilities, and emit versioned Card IR under `packages/card-data/`. The compiler crate lives with the engine to share executable contracts.
+Rust contracts define executable Card IR; the compiler lowers complete supported
+sources or rejects them. Catalog manifests select exact archived definitions,
+expected IR and canonical digests. Generic source-backed catalog compilation
+exists; bulk per-set `build-ir` emission remains unimplemented. Generated bulk
+Card IR belongs under `packages/card-data/`, not in hand-edited source files.
+See [catalog workflow](game-engine-catalogs.md).
 
-**Stack**: Ingestion/parser/archive use zero-runtime-dependency TypeScript,
-executed directly by Node ≥ 23. The semantic compiler uses Rust and exchanges
-versioned JSON artifacts with the parser and engine.
-`npm run build-ir` fails explicitly. The Rust compiler lowers the frozen first
-scenario subset; parsed ASTs themselves are never executable Card IR.
+## Layer 1: deterministic rules and native simulation
 
-See **[Oracle Parser Design](oracle_parser.md)** for full details.
+Core owns state, typed events, priority, announcements/payment, stack resolution,
+turns/combat/SBAs, supported continuous/replacement/trigger families, resumable
+choices, private observations, budgeted queries, snapshots, forks and replay.
+Unsupported semantics are explicit; this is not the complete Magic rules system.
+Core imports executable contracts only and performs no host I/O or OS randomness.
 
----
+Legal finite Commander matches include deck/pod admission, seeded shuffle,
+multiplayer mulligans and complete games. Profiles are strict data, not hardcoded
+rule selectors. All admitted catalogs use the common rules implementation and
+shared structural capacities. Data requests for hosting/search must pass explicit
+capability review. See [profiles](game-engine-profiles.md),
+[capacities](game-engine-capacity-policy.md) and [runtime invariants](game-engine-invariants.md).
 
-## ⚙️ Layer 1: Commander Game State & Rules Engine
+The native simulator provides generic catalog and match commands, public-observation
+policies, deterministic evidence/replay and sampled-world search. Search consumes
+permitted information and distinguishes hypothetical sample origins from real
+restores. Performance claims belong to exact measured source/executables.
+See [search](game-engine-search.md) and [the current evidence map](game-engine-current.md).
 
-**Goal**: A deterministic state machine that takes a `GameState` + `Action` → produces a new `GameState` + `Events`. Consumes the compiled Card IR from Layer 0.
+## Layer 2: local hosting and generated API
 
-**Stack**: Rust for the engine, native simulation/search harness, and in-process
-agent policies. One core also supplies the browser WebAssembly rules module.
+The Rust host directly calls core and owns OS processes, HTTP, authentication,
+SQLite persistence, queues, clocks and resource groups. Durable accepted inputs,
+idempotent commands, private seat views, crash/reconnect and recovery are implemented
+for the reviewed finite hosted profiles. The host has its own build identity
+alongside the engine identity. Public authentication services, deployment/lobby
+infrastructure and unrestricted hosting are outside this finite local release.
 
-The proposed design also makes pending player decisions, serializable execution
-continuations, private observations, snapshots/forks, and resource suspension
-explicit. Internal mutation is an implementation choice; this conceptual
-transition does not require a full-state clone for every action.
+Rust DTOs and public core types generate schemas and the TypeScript SDK. Private
+snapshots, raw identities, seeds, query receipts and other seats' history never
+become public API. Read [the server manual](../packages/game-server/AGENTS.md)
+and [host contract](game-engine-server.md) for exact scope.
 
-**Key subsystems** (future):
-1. **Turn & Phase State Machine**: Track phases, steps, priority passes, and turn order.
-2. **Stack & Resolution**: LIFO stack for spells and abilities, including targeting and resolution.
-3. **MTG Layer System (Rule 613)**: Evaluate continuous effects in the correct dependency order.
-4. **State-Based Actions**: Check-loop for lethal damage, legend rule, 0 toughness, etc.
-5. **Triggered Ability Controller**: Detect and order triggers (APNAP).
-6. **Dynamic Rule Registry**: Track replacement effects, restrictions, and modifications.
+## Layer 3: applications and agents
 
-The current implementation supports [reviewed small scenario games](game-engine-combat-games.md),
-including ordinary multiplayer combat and rules-defined outcomes. Legal Commander
-matches remain a later milestone.
+The active deck-builder is independent. The generated SDK supplies the local
+hosting client contract; native policy/search agents run in Rust, and external
+clients connect through the public host protocol. A complete browser game client,
+draft simulator and general rules adviser are future applications, not implied
+by current engine or parser acceptance.
 
-The first complete-match delivery targets four-player headless Commander pods for a small
-audited card profile, with deterministic replay and branchable state. Commander
-setup/deck rules, command-zone movement, tax, commander damage, multiplayer
-priority, and player departure are early requirements. Semantic compilation and the
-engine are developed together on that subset; 98% syntax acceptance is not a
-prerequisite for beginning Layer 1. See the
-[milestone gates](game-engine-plan.md#3-milestones-and-dependencies) and
-[Card IR boundary](game-engine-spec.md#3-card-compiler-and-executable-contract).
-
----
-
-## 🌐 Layer 2: Game Server & API
-
-**Goal**: Expose the rules engine over a network API for Commander pods, replays, and agent integration.
-
-**Stack**: Rust server with direct core calls. Network/session orchestration
-and remote-agent coordination stay outside the deterministic rules core.
-
-**Key components** (future):
-- Real-time event streams (WebSocket or gRPC).
-- Semantic action space API — clients query legal actions, not guess.
-- State diffs for efficient syncing.
-- Explanation API for rules tracing.
-
----
-
-## 📱 Layer 3: Ecosystem Applications
-
-**Goal**: Client-side software built on top of the API layer.
-
-**Stack**: TypeScript browser applications and client SDK, with HTML/CSS for
-presentation. The standalone deck-builder retains its TypeScript backend,
-frontend, and MCP tools. Native simulation agents run in Rust; external agents
-connect through the server protocol.
-
-**Applications**:
-- **Game Client**: Board visualization, player input, animations.
-- **Deck Builder** (active, standalone): Uses its own Scryfall SQLite database. Future integration must not delay its current development.
-- **Draft Simulator**: Booster drafting against AI or humans.
-- **AI Agents**: Play assistants, rules advisors, and playtesting bots.
+For development, start at [the current map](game-engine-current.md) and
+[focused workflow](game-engine-development.md). Broader milestones remain in the
+[plan](game-engine-plan.md) and [specification](game-engine-spec.md); prior release
+proof and onboarding remain in the [historical index](history/engine/index.md).

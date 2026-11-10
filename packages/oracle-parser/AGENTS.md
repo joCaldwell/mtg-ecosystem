@@ -1,8 +1,9 @@
 # 🔮 oracle-parser — Layer 0: Oracle Text Parser & Card IR
 
 Parse every Magic card's oracle text into a typed AST and versioned source
-archive. The Rust semantic compiler (future work under `packages/game-engine/`)
-will bind and lower that archive to JSON Card IR for the Rust rules engine.
+archive. The Rust semantic compiler under `packages/game-engine/` binds and lowers
+supported complete archived sources to executable Card IR. Bulk per-set emission
+remains unimplemented; see [the current engine map](../../docs/game-engine-current.md).
 The parser and its ingestion/archive tooling remain TypeScript; see the
 [adopted language decision](../../docs/runtime-language-decision.md).
 See [docs/oracle_parser.md](../../docs/oracle_parser.md) for the design and
@@ -61,8 +62,9 @@ From the repo root:
     `npm run validate -- --json` includes per-card AST hashes for comparison.
     Empty text is valid; missing face text fails. The historical 33% cards /
     53% lines baseline used a different denominator and is not a target.
-*   `npm run build-ir` — deliberately fails. Semantic validation and emission
-    are future work; acceptance percentage alone does not justify emission.
+*   `npm run build-ir` — deliberately fails. Bulk per-set emission
+    remains unimplemented; executable catalog compilation exists in the Rust
+    engine package. Acceptance percentage alone does not justify emission.
 
 ## 🔄 Development loop: correctness before coverage
 

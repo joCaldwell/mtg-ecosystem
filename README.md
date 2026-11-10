@@ -1,133 +1,67 @@
 # MTG Ecosystem (Project Multiverse)
 
-Project Multiverse is an initiative to digitize Magic: The Gathering into a modular, layered, agent-first system — built from the bottom up.
+An agent-first Magic: The Gathering platform with explicit contracts between
+card parsing, executable rules, local hosting and applications. TypeScript owns
+source ingestion/parsing and clients; Rust owns semantic compilation, deterministic
+rules, native simulation/search and hosting.
 
-## 🌟 Vision
+## What works today
 
-1. **The Game is the API**: Every layer exposes clean, documented interfaces.
-2. **AI is a First-Class Citizen**: Agents can consume card data, query rules, and play games natively.
-3. **Bottom-Up Architecture**: Layers have explicit contracts; the active standalone deck-builder is an intentional exception to the original build order.
+| Layer | Implementation and boundary |
+| --- | --- |
+| Source data | TypeScript parser and archived AST subset; Rust compiler lowers supported complete sources to executable catalogs. Bulk Card IR emission remains unimplemented. |
+| Rules | Deterministic finite Commander matches, events, private decisions, snapshots/forks and replay; unsupported semantics reject or fault explicitly. |
+| Search and hosting | Sampled-world search on the reviewed foundations profile; local Rust hosting for foundations and attachments with generated TypeScript SDK. |
+| Applications | Active standalone deck-builder with its own Scryfall/SQLite database; it does not depend on parser/engine completion. |
 
-## 🏗️ Layered Architecture & Build Order
+These are finite supported capabilities, not arbitrary-deck Commander or a
+complete Magic rules implementation. Browser applications and browser-local
+WebAssembly rules remain architectural directions, not a claim of a delivered
+full game client. See [architecture](docs/architecture.md).
 
-```mermaid
-graph BT
-    classDef current fill:#1f2937,stroke:#10b981,stroke-width:3px,color:#fff;
-    classDef future fill:#1f2937,stroke:#475569,stroke-width:1px,color:#6b7280;
+## Engine development
 
-    L0["🔮 Layer 0: Oracle Text Parser & Card IR<br/>Limited AST subset; IR planned"]:::future
-    L1["⚙️ Layer 1: Game State & Rules Engine<br/>Turn structure, SBAs, stack, continuous effects"]:::future
-    L2["🌐 Layer 2: Game Server & API<br/>Match hosting, action space, event streams"]:::future
-    L3["📱 Layer 3: Clients & Agent Apps<br/>Standalone deck-builder active"]:::current
+Read [the engine manual](packages/game-engine/AGENTS.md) and
+[current map](docs/game-engine-current.md). From a fresh worktree:
 
-    L0 --> L1
-    L1 --> L2
-    L2 --> L3
+```sh
+sh scripts/engine-bootstrap.sh
+sh scripts/engine-env.sh npm run check:engine:source
+sh scripts/engine-env.sh npm run check:engine -- --plan
 ```
 
-**Current applications → deck-builder and finite Commander engine.** The standalone
-deck-builder is active. The Layer-0 parser is a limited supported subset, and the
-Rust compiler/kernel execute 42 reviewed four-seat scenario configurations and
-the verified [`commander-foundations-v1`](docs/game-engine-matches.md) profile:
-legal four-player setup, seeded shuffle/mulligans, and complete games from a
-21-card construction pool within a 34-definition catalog. Its finite sampled-world
-search passed the frozen primary performance, semantic replay, workspace and
-offline rebuild/replay gates, followed by an independent retained-bundle audit. Local Rust hosting and its generated TypeScript SDK have passed an actual
-four-client game, crash/reconnect, backpressure and completed-game recovery;
-current-build search now passed all sixty primary jobs and independent replay
-(p95 2.662119s, maximum 2.690433s, whole-process peak 394,698,752 bytes;
-4,188 useful trials and 3,012 unstarted trials excluded). Verification also
-passed 526 Rust debug tests plus 40 Node checks, 526 release tests, and 40 SDK
-tests with strict TypeScript. Fresh offline native/server/SDK reconstruction and
-independent retained-artifact audits passed. A private external archive preserves
-all integration, recovery, measurement, failed-attempt and verification proofs.
-The original passed phases retain their exact pause/host-tool-fix provenance.
-Dense/scaling/omniscient diagnostic measurements remain separate engine-plan work.
-Bulk Card IR emission
-remains future work. Read the
-relevant package’s `AGENTS.md` before development.
+Bootstrap uses existing pinned tools and installs minimal locked engine/parser
+Node dependencies. The environment launcher configures commands and their child
+processes. [Development instructions](docs/game-engine-development.md) explain
+missing-tool setup, doctor output and choosing focused checks. The default native
+check is intentionally narrower than runtime or full acceptance; report omissions.
 
-## 📂 Project Structure
+Accepted D2c-d at `394301d` is separate from later IR25 candidate work and tooling
+changes. [Current evidence boundaries](docs/game-engine-current.md#evidence-boundaries-at-the-platform-baseline)
+link the exact source-qualified reports. Old release counts and performance
+measurements are in the [historical index](docs/history/engine/index.md).
 
-The adopted stack is **TypeScript + Rust**: TypeScript for ingestion/parser,
-the deck-builder, browser applications, and client SDK; Rust for semantic
-compilation, rules, native simulation/search/agents, and the game server.
-Browser-local rules use the Rust core compiled to WebAssembly. Existing packages
-use npm workspaces alongside the initial compiler/engine Cargo workspace.
-See the [language decision](docs/runtime-language-decision.md).
+## Other packages
 
-```
-mtg-ecosystem/
-├── README.md                           # Project overview, quickstart, roadmap
-├── CONTRIBUTING.md                     # How to set up, contribute, and submit PRs
-├── LICENSE                             # Project license
-├── .gitignore                          # Git ignore rules
-│
-├── docs/                               # Project-wide documentation
-│   ├── architecture.md                 # System architecture & layer overview
-│   ├── oracle_parser.md                # Parser design, AST, and IR format
-│   ├── data_schemas.md                 # Input and output JSON schemas
-│   ├── agent_design.md                 # Agent-first integration philosophy
-│   ├── decisions.md                    # Architectural decision log with rationale
-│   ├── glossary.md                     # MTG & system terminology reference
-│   ├── project-structure.md            # Directory structure and workspaces guide
-│   └── scryfall-integration.md         # Scryfall bulk data ingestion pipeline
-│
-└── packages/                           # TypeScript packages and planned Rust crates
-    ├── oracle-parser/                  # Layer 0: hand-written TypeScript parser
-    ├── deck-builder/                   # Active standalone deck application
-    ├── card-data/                      # Generated Card IR from the Rust compiler
-    ├── game-engine/                    # Rust compiler/kernel and finite Commander CLI
-    └── game-server/                    # Verified Rust local host & generated SDK
-```
+Read the relevant manual before changing a package:
 
-For a detailed explanation of each directory and config file, see the [Project Structure Guide](docs/project-structure.md).
+- [Deck-builder](packages/deck-builder/AGENTS.md): standalone application setup.
+- [Oracle parser](packages/oracle-parser/AGENTS.md): TypeScript AST/archive tools and structural checks.
+- [Game server](packages/game-server/AGENTS.md): local hosting and generated client protocol.
+- [Server SDK](packages/game-server/sdk/AGENTS.md): separate SDK dependencies and verification.
 
-## 🚀 Running the Pipeline
+The parser's root commands include `ingest`, `archive-parser`, and `validate`;
+read its manual before downloading a corpus or interpreting acceptance results.
+`npm run build-ir` deliberately rejects the unimplemented bulk pipeline. The
+minimal engine bootstrap does not install every application's dependencies.
 
-The parser uses Node ≥ 23 and has no Java or parser-generation step.
-From the repository root:
+## Documentation
 
-```bash
-npm install
-npm run check --workspace=@mtg-ecosystem/oracle-parser
-npm run ingest
-npm run validate
-```
-
-`check` runs TypeScript checking and Node's structural test suite, including
-pipeline tests. `ingest` validates and atomically caches `oracle_cards` under
-`.scryfall-cache/`. `validate` reports acceptance with corpus/source identities
-and explicit exclusions. Use `npm run validate -- --json` for a machine-readable
-report. Acceptance is not semantic correctness; fixing false successes can
-lower coverage. `npm run build-ir` intentionally fails because emission is not
-implemented.
-
-For deck-builder setup, use its [package manual](packages/deck-builder/AGENTS.md).
-For the compiler/engine scenario games, use the
-[engine manual](packages/game-engine/AGENTS.md): `npm run check:engine` and
-`npm run demo:engine` from the root with Rust 1.99.0.
-
-## 📚 Documentation
-
-| Document | Description |
-|----------|-------------|
-| [Architecture](docs/architecture.md) | System-wide layered architecture and build order |
-| [Game Engine Plan](docs/game-engine-plan.md) | Proposed Commander milestones, verification, and headless search benchmarks |
-| [Game Engine Specification](docs/game-engine-spec.md) | Proposed Commander execution, state, rules, decisions, replay, and branching |
-| [Language Decision](docs/runtime-language-decision.md) | Adopted TypeScript/Rust assignments across all layers and their integration boundaries |
-| [Oracle Parser](docs/oracle_parser.md) | **Layer 0** — Parser design, pipeline, AST spec, and IR format |
-| [Data Schemas](docs/data_schemas.md) | Implemented AST contract and proposed Card IR envelope |
-| [Agent Design](docs/agent_design.md) | Agent-first integration patterns and AI assistant vision |
-| [Decisions Log](docs/decisions.md) | Adopted architecture decisions and implementation status |
-| [Glossary](docs/glossary.md) | Reference mapping MTG jargon to system concepts |
-| [Project Structure](docs/project-structure.md) | Detailed walkthrough of repository directories and workspaces |
-| [Scryfall Integration](docs/scryfall-integration.md) | Ingestion and normalization pipeline for Scryfall bulk data |
-| [Contributing Guide](CONTRIBUTING.md) | How to set up, build, test, and contribute to the ecosystem |
-
-## 🗺️ Roadmap
-
-- [ ] **Milestone 1 — Oracle Text Parser**: Parse card oracle text into a typed AST, compile to an intermediate representation (IR), and store as card data files. Well-tested, well-documented, extensible for new sets.
-- [ ] **Milestone 2 — Game State Engine**: Deterministic rules engine consuming compiled card IR. Turn structure, stack, SBAs, priority, continuous effects.
-- [ ] **Milestone 3 — Game Server & API**: Network layer exposing matches, action spaces, and event streams.
-- [ ] **Milestone 4 — Ecosystem Clients**: Game UI, deck builder, draft simulator, and AI agent applications.
+[Architecture](docs/architecture.md), [language decision](docs/runtime-language-decision.md),
+[project structure](docs/project-structure.md), [parser design](docs/oracle_parser.md),
+[data schemas](docs/data_schemas.md), [agent design](docs/agent_design.md),
+[decisions](docs/decisions.md), [glossary](docs/glossary.md),
+[Scryfall integration](docs/scryfall-integration.md), and [contributing](CONTRIBUTING.md).
+The [engine plan](docs/game-engine-plan.md) and [specification](docs/game-engine-spec.md)
+include goals beyond the implemented finite scope; current onboarding is the
+engine map above.
