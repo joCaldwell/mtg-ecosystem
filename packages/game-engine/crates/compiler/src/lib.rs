@@ -1439,8 +1439,14 @@ fn append_spell_effects(
             } else {
                 serde_json::json!({"ref":"filter","filter":{"supertypes":["basic"],"types":["land"],"cls":"card"},"count":{"amount":"fixed","value":1}})
             };
-            if who.player != "you"
-                || who.selection_id.is_some()
+            // This instruction searches and shuffles only its controller's
+            // library. Consume the complete actor, including object qualifiers.
+            let you = PlayerSelector {
+                player: "you".into(),
+                selection_id: None,
+                of: None,
+            };
+            if *who != you
                 || shuffler != who
                 || *zones
                     != serde_json::json!({"selection":"all","of":[{"zone":"library","owner":"your"}]})
@@ -1856,6 +1862,7 @@ fn append_spell_effects(
                     what,
                     chosen_by,
                 } if who.player == "target-opponent"
+                    && who.of.is_none()
                     && who == chosen_by
                     && what.reference == "filter"
                     && fixed_one(&what.count)
@@ -4100,6 +4107,90 @@ mod tests {
                     CompileResult::Lowered { .. }
                 ),
                 "{name}"
+            );
+        }
+    }
+    #[test]
+    fn basic_land_search_rejects_qualified_search_and_shuffle_players() {
+        for (name, raw, maximum) in [
+            (
+                "Rampant Growth",
+                include_str!("../../../tests/fixtures/rampant-growth.json"),
+                1,
+            ),
+            (
+                "Explosive Vegetation",
+                include_str!("../../../tests/fixtures/explosive-vegetation.json"),
+                2,
+            ),
+            (
+                "Sakura-Tribe Elder",
+                include_str!("../../../tests/fixtures/sakura-tribe-elder.json"),
+                1,
+            ),
+        ] {
+            let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
+                panic!("complete archived source must lower: {name}")
+            };
+            let program = definition
+                .activated
+                .first()
+                .map(|a| &a.program)
+                .or(definition.spell.as_ref())
+                .unwrap();
+            assert!(
+                matches!(program.instructions.as_slice(), [Instruction::SearchBasicLands { maximum: actual, .. }] if *actual == maximum),
+                "{name}"
+            );
+            // These are synthetic AST negatives over unchanged exact source.
+            // Qualifying both actors must not bypass the actor-equality check.
+            for steps in [&[0, 2][..], &[0][..], &[2][..]] {
+                for (field, value) in [
+                    ("of", serde_json::json!({"ref":"it"})),
+                    ("selectionId", serde_json::json!("qualified-player")),
+                ] {
+                    let bad = changed_source(raw, |r| {
+                        let result = &mut r["faces"][0]["result"];
+                        for &step in steps {
+                            result["abilities"][0]["effects"][0]["steps"][step]["who"][field] =
+                                value.clone();
+                        }
+                        result["lines"][0]["ability"] = result["abilities"][0].clone();
+                    });
+                    assert!(
+                        matches!(compile(fixtures::MANIFEST, &bad), CompileResult::Unsupported { path, .. } if path == "effects.search"),
+                        "{name}, {field}, steps {steps:?}"
+                    );
+                }
+            }
+        }
+    }
+    #[test]
+    fn target_opponent_sacrifice_rejects_qualified_player_and_chooser() {
+        let raw = include_str!("../../../tests/fixtures/cruel-edict.json");
+        let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
+            panic!("complete archived Cruel Edict source must lower")
+        };
+        let program = definition.spell.as_ref().unwrap();
+        assert!(matches!(
+            program.instructions.as_slice(),
+            [Instruction::TargetPlayerSacrificeCreature { target_slot: 0, .. }]
+        ));
+        assert_eq!(program.targets[0].domain, TargetDomain::OpponentPlayer);
+        // Synthetic AST negatives: identical qualifications on both actors
+        // must reject just as a qualification on either actor alone does.
+        for actors in [&["who", "chosenBy"][..], &["who"][..], &["chosenBy"][..]] {
+            let bad = changed_source(raw, |r| {
+                let result = &mut r["faces"][0]["result"];
+                for &actor in actors {
+                    result["abilities"][0]["effects"][0]["steps"][0][actor]["of"] =
+                        serde_json::json!({"ref":"it"});
+                }
+                result["lines"][0]["ability"] = result["abilities"][0].clone();
+            });
+            assert!(
+                matches!(compile(fixtures::MANIFEST, &bad), CompileResult::Unsupported { path, .. } if path == "effects.steps"),
+                "qualified sacrifice actors: {actors:?}"
             );
         }
     }
