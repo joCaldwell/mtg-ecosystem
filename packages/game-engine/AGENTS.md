@@ -2,15 +2,17 @@
 
 ## Review and verification ownership
 
-Josh's 2026-11-03 workflow requires focused implementer checks, independent source
-review, then **one full acceptance run on the final reviewed freeze**, owned by
-the reviewer or a designated verifier. Implementers must not each run the full
-engine/demo/all-profile suite. Do not rerun a passed full gate after read-only
-review or documentation-only edits; explain which source change invalidates a
-phase before repeating it. Preserve every required guard, workload and replay.
-See `docs/game-engine-verification-workflow.md` for ownership, parallel work and
-the measured optimization loop. This supersedes earlier task briefs assigning
-the complete gate to every implementation agent.
+Josh's 2026-11-09 workflow favors substantially faster focused verification,
+including reduced coverage. `npm run check:engine` now runs cheap source/tooling
+checks, formatting, all-target compilation and compiler/contracts unit tests.
+Core/simulator/server runtime tests, executable contracts, demo and full matrices
+are explicit opt-ins; no mandatory full acceptance run follows every change.
+Do not silently remove runtime guards or describe omitted checks as passed.
+See `docs/game-engine-verification-workflow.md` for modes, exact omissions,
+measurements, shared Cargo ownership and Git checkpoint cadence: commit coherent
+changes after focused checks and push each meaningful checkpoint and handoff;
+do not wait for full acceptance. Historical reports below keep their original
+source/coverage qualifications, not recurring workflow obligations.
 
 D1b-2 removes runtime lineage gates. The historical profile descriptions below
 record earlier release boundaries; they no longer enable rules or select limits.
@@ -327,9 +329,11 @@ measurements remain required broader-plan work, separate from finite acceptance.
 
 Run from repository root, using pinned Rust 1.99.0:
 
-- `npm run check:engine`: toolchain check, formatting, Clippy, Rust tests, and
-  the Node cross-language fixture contract check. The test profile uses optimization
-  level 2 with debug assertions and overflow checks enabled.
+- `npm run check:engine`: bounded development checks described above. Add
+  `-- --plan` to inspect commands without execution. `check:engine:source` avoids
+  Cargo; `check:engine:contracts` adds executable schema/catalog contracts;
+  `check:engine:full` opts into the former broad Rust/Node workload. The test
+  profile keeps optimization level 2, debug assertions and overflow checks.
 - `cargo test --workspace --locked` and `cargo test --workspace --locked --release`.
 - `target/release/mtg-sim match-batch PROFILE OUTPUT`: 18 games and independent replay,
   with generic batch coverage in `report.json`; OUTPUT must be new.
