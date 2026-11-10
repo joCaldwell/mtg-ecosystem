@@ -6,6 +6,8 @@
     "packages/*"
   ],
   "scripts": {
+    "engine:bootstrap": "sh scripts/engine-bootstrap.sh",
+    "engine:doctor": "sh scripts/engine-env.sh node scripts/engine-doctor.ts",
     "check:engine": "node scripts/check-engine.ts",
     "check:engine:source": "node scripts/check-engine.ts --source",
     "check:engine:contracts": "node scripts/check-engine.ts --contracts",
