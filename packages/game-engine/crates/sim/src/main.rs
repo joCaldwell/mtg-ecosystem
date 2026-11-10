@@ -1595,7 +1595,10 @@ fn verify_bundle(json: &str) -> Result<String, String> {
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if matches!(args.first().map(String::as_str), Some("smoke" | "smoke-replay")) {
+    if matches!(
+        args.first().map(String::as_str),
+        Some("smoke" | "smoke-replay")
+    ) {
         return smoke::cli(&args).map_err(Into::into);
     }
     match args.first().map(String::as_str) {
