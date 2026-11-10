@@ -1956,3 +1956,38 @@ test("IR29 exact-source damage recipient sacrifice preserves actor and version b
     if(passed) fs.rmSync(temporary,{recursive:true,force:true});
   }
 });
+
+test("headless damage profile catalog preserves complete pinned source and parser agreement", () => {
+  const catalog=loadCatalog("damage-matches");
+  assert.equal(catalog.schema_version,29);
+  assert.equal(catalog.definitions.length,32);
+  const group=fileURLToPath(new URL("fixtures/damage-matches/",import.meta.url));
+  const provenance=JSON.parse(fs.readFileSync(path.join(group,"provenance.json"),"utf8"));
+  assert.equal(provenance.records.length,32);
+  for(const witness of provenance.records) {
+    const raw=fs.readFileSync(path.join(group,witness.file),"utf8");
+    assert.equal(sha(raw.trimEnd()),witness.record_sha256);
+    const record=JSON.parse(raw);
+    assert.equal(record.status,"parsed");
+    assert.equal(record.source.legalities.commander,"legal");
+    const definition=catalog.definitions.find((d:any)=>d.oracle_id===record.oracleIdentity);
+    assert.ok(definition,record.source.name);
+    assert.equal(definition.provenance.source_sha256,witness.source_sha256);
+    assert.equal(definition.provenance.ast_sha256,witness.ast_sha256);
+    const parsed=parseOracleText(record.source.oracle_text,record.source.name,{
+      layout:record.source.layout,typeLine:record.source.type_line,includeSourceProvenance:true,
+    });
+    assert.equal(parsed.ok,true,record.source.name);
+    if(parsed.ok) assert.deepEqual(JSON.parse(JSON.stringify(parsed.abilities)),record.faces[0].result.abilities,record.source.name);
+  }
+  const profile=JSON.parse(read("profiles/commander-damage-triggers-v1.json"));
+  assert.equal(profile.hosted,false);
+  assert.equal(profile.search,false);
+  assert.equal(profile.decks.length,4);
+  assert.deepEqual(profile.commanders,["333cc91b-01ab-4491-a993-d8304fc382c6"]);
+  assert.ok(catalog.definitions.some((d:any)=>d.name==="Sivitri Scarzam"&&d.characteristics.legendary));
+  const capabilities=new Set(catalog.definitions.flatMap((d:any)=>d.capabilities));
+  for(const capability of ["source_damage_trigger_v2","optional_controller_draw_v1","event_player_discard_v1","event_player_sacrifice_v1"]) {
+    assert.ok(capabilities.has(capability),capability);
+  }
+});

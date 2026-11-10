@@ -33,6 +33,8 @@ the [capacity policy](game-engine-capacity-policy.md) explains their rationale.
 Profiles request hosting/search through data, subject to explicit reviewed
 capability sets: foundations and attachments are hosted; foundations alone is
 search-enabled. New compiler support does not implicitly expand those sets.
+The separate [damage-trigger development profile](game-engine-damage-match-profile.md)
+admits finite legal headless matches for IR26–IR29 and requests neither feature.
 
 ## Evidence boundaries at the platform baseline
 
