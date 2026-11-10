@@ -43,3 +43,17 @@ This increment adds no player request, effect instruction, profile, hosting or
 search admission. Snapshot/bundle/public format versions do not change; exact
 catalog and engine identities still bind recovery. Focused development validation
 is separate from combined acceptance of the later IR25/IR26 development line.
+
+Source checkpoint `edd9c20` passed 101 compiler and 15 contracts library tests,
+26 selected core damage-trigger tests (six new), workspace all-target compilation,
+formatting, and 28 executable source/schema/catalog checks. Exact-source combat
+and Fog cases restore/replay across trace modes; private noncombat event and
+collector tests establish their narrower boundaries. The fixed tiny smoke and
+explicit replay passed with two inputs and three checkpoints. Source/tooling
+checks passed; the initial all-target failure from three test-only `clone()`
+calls was corrected to the existing `fork()` API and remains retained.
+Logs and smoke evidence are under
+`~/.local/share/mtg-ecosystem/engine-verification/correctness-loop-20261110/`.
+Full core/sim/server runtime suites, Clippy, SDK, release/profile matrices,
+coverage measurements and retention rebuilds were not run. The schema checks
+compiled the release CLI; they did not execute a release gameplay matrix.
