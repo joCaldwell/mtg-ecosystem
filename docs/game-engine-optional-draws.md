@@ -39,3 +39,21 @@ CR 603.5 places optional triggers normally and defers the choice to resolution;
 113.7a preserves independent invocations; 121.3/704.5b define failed draws;
 903.9b defines Commander hand replacement. Official source:
 <https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt>.
+
+Source checkpoint `ad739fa` passed formatting, workspace all-target compilation,
+104 compiler and 16 contracts library tests, six new optional-draw tests,
+six existing Commander/draw tests, six existing action tests and one historical
+token-lifetime test. All 29 executable source/schema/catalog checks passed,
+including the recursive stripped-label downgrade cases. The exact-source runtime
+tests include accepted-input restore/replay at the option and hidden Commander
+replacement, plus a coherently rehashed false-choice rejection.
+
+Retained logs are under
+`~/.local/share/mtg-ecosystem/engine-verification/correctness-loop-20261110/`.
+Initial failures exposed an exhaustive historical proof needing explicit opcode
+exclusion and three synthetic negatives describing the superseded optional-one
+restriction. Their unsupported draw-two boundaries and positive optional-one
+semantics are now explicit; no archived source or expected catalog changed.
+Full core/sim/server runtime suites, Clippy, SDK, release/profile gameplay
+matrices, coverage and retention rebuilds were omitted. The schema checks built
+the release CLI; no new full acceptance or performance claim follows.
