@@ -7,6 +7,17 @@ import type { ObjectFilter, ObjectRef, StaticEffect } from "../ast.ts";
  * https://api.scryfall.com/cards/87545415-2e27-4841-a3af-7653af2ba6d3/rulings
  * https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt */
 export function bindOtherExclusion(filter: ObjectFilter, subject: ObjectRef): ObjectFilter | null {
+  // Counted pools joined by "and" ("each other Assassin you control and each
+  // Assassin card in your graveyard"): "other" belongs to its own pool.
+  if (!filter.other && filter.anyOf?.some(member => member.other)) {
+    const anyOf: ObjectFilter[] = [];
+    for (const member of filter.anyOf) {
+      const bound = bindOtherExclusion(member, subject);
+      if (!bound) return null;
+      anyOf.push(bound);
+    }
+    return { ...filter, anyOf };
+  }
   if (!filter.other) return filter;
   let otherThan: ObjectFilter["otherThan"];
   if (subject.ref === "self" || subject.ref === "this") {

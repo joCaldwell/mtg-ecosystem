@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../api/client.ts";
 import type {
   DeckState,
@@ -17,6 +17,7 @@ import { CardInspection, RichText } from "../../mtg/index.ts";
 import {
   Button,
   CounterControl,
+  Dot,
   MultiSelect,
   Select,
   TextArea,
@@ -77,6 +78,23 @@ export function InspectionPanel({
   }, [target, c.ui.draft.text]);
   const busy = c.pending > 0,
     playing = f.opening.stage === "playing";
+  const selectFocus = useRef<{ control: HTMLButtonElement; objectId: string | null; sessionId: string } | null>(null);
+  useEffect(() => {
+    if (busy) return;
+    const previous = selectFocus.current;
+    selectFocus.current = null;
+    // Native focus falls to body when the save temporarily disables a select.
+    // Restore only this object's control, without stealing subsequent focus.
+    if (previous && previous.objectId === objectId && previous.sessionId === s.id && previous.control.isConnected && !previous.control.disabled && document.activeElement === document.body)
+      previous.control.focus({ preventScroll: true });
+  }, [busy, objectId, s.id]);
+  function changeSelect(action: PlaytestAction, requiresPlaying = false) {
+    if (busy || (requiresPlaying && !playing)) return;
+    // Select hands focus back to its trigger before it reports the change.
+    const control = document.activeElement;
+    if (control instanceof HTMLButtonElement) selectFocus.current = { control, objectId, sessionId: s.id };
+    void c.act(action);
+  }
   const act = (action: PlaytestAction) => {
     if (!busy && playing) void c.act(action);
   };
@@ -134,7 +152,11 @@ export function InspectionPanel({
         {card && object ? (
           <CardInspection
             observation={observeObject(c.view!, object.id)}
-            context={`${ZONE_LABELS[objectZone(c.view!, object.id)!]} · ${object.role}${object.token ? " · token copy" : ""}`}
+            context={[
+              ZONE_LABELS[objectZone(c.view!, object.id)!],
+              object.role === "card" ? null : object.role,
+              object.token ? "token copy" : null,
+            ].filter(Boolean).join(" · ")}
           >
             {card.faces.length > 1 && (
               <label>
@@ -142,22 +164,16 @@ export function InspectionPanel({
                 <Select
                   aria-label="Card face"
                   disabled={busy}
-                  value={object.face}
-                  onChange={(e) => {
-                    if (!busy)
-                      void c.act({
+                  options={card.faces.map((face, i) => ({ value: String(i), label: face.name }))}
+                  value={String(object.face)}
+                  onChange={(value) => {
+                    changeSelect({
                         type: "edit",
                         id: object.id,
-                        face: Number(e.target.value),
+                        face: Number(value),
                       });
                   }}
-                >
-                  {card.faces.map((face, i) => (
-                    <option key={i} value={i}>
-                      {face.name}
-                    </option>
-                  ))}
-                </Select>
+                />
               </label>
             )}
             {!pinned && (
@@ -173,26 +189,27 @@ export function InspectionPanel({
         ) : (
           <section>
             <h2>{s.deck_name}</h2>
-            <p className={styles.muted}>
-              Testing r{s.deck_revision}. Memories and tags are saved to the
-              deck; game undo affects only the table.
-            </p>
-            <details>
+            <details className={styles.checks}>
               <summary>
-                Current deck checks r{deck.deck.revision} · {deck.checks.length}{" "}
-                findings
+                Deck checks · {deck.checks.length}{" "}
+                {deck.checks.length === 1 ? "finding" : "findings"}
               </summary>
-              {deck.checks.map((finding, i) => (
-                <p key={i}>
-                  {finding.title}: {finding.detail}
-                </p>
-              ))}
-              {!deck.checks.length && (
-                <p>
-                  Deck checks are clear. Manual play is not a rules or legality
-                  check.
-                </p>
-              )}
+              <ul className={styles.findings}>
+                {deck.checks.map((finding) => (
+                  <li key={finding.key}>
+                    <Dot tone={finding.severity === "error" ? "cut" : "warn"} />
+                    <span>
+                      <strong>{finding.title}</strong> {finding.detail}
+                    </span>
+                  </li>
+                ))}
+                {!deck.checks.length && (
+                  <li>
+                    <Dot tone="add" />
+                    <span>Deck checks are clear.</span>
+                  </li>
+                )}
+              </ul>
             </details>
           </section>
         )}
@@ -241,8 +258,7 @@ export function InspectionPanel({
             ))}
             <p className={styles.muted}>
               Printed {faceOf(card, object.face).power ?? "—"}/
-              {faceOf(card, object.face).toughness ?? "—"}. Manual values do not
-              evaluate continuous effects.
+              {faceOf(card, object.face).toughness ?? "—"}
             </p>
             <div className={styles.row}>
               <TextField
@@ -291,26 +307,22 @@ export function InspectionPanel({
                 Attached to
                 <Select
                   aria-label="Attachment host"
+                  options={[
+                    { value: "", label: "Not attached" },
+                    ...f.zones.battlefield
+                      .filter((id) => id !== object.id)
+                      .map((id) => ({ value: id, label: `${s.cards[f.objects[id].oracle_id].name} · ${id.slice(0, 4)}` })),
+                  ]}
                   value={object.attached_to ?? ""}
                   disabled={busy || !playing}
-                  onChange={(e) =>
-                    act({
+                  onChange={(value) =>
+                    changeSelect({
                       type: "attach",
                       id: object.id,
-                      host: e.target.value || null,
-                    })
+                      host: value || null,
+                    }, true)
                   }
-                >
-                  <option value="">Not attached</option>
-                  {f.zones.battlefield
-                    .filter((id) => id !== object.id)
-                    .map((id) => (
-                      <option key={id} value={id}>
-                        {s.cards[f.objects[id].oracle_id].name} ·{" "}
-                        {id.slice(0, 4)}
-                      </option>
-                    ))}
-                </Select>
+                />
               </label>
             )}
             </div>
@@ -398,7 +410,6 @@ export function InspectionPanel({
             }}
           />
           <Button
-            variant="primary"
             disabled={!c.ui.draft.text.trim() || savingMemory}
             onClick={() => void saveMemory()}
           >
@@ -413,7 +424,7 @@ export function InspectionPanel({
             <div key={m.id} className={styles.memory}>
               <RichText text={m.text} />
               <small>
-                {m.author} ·{" "}
+                {m.author_display ?? m.author} ·{" "}
                 {m.deck_revision === null ? "global" : `r${m.deck_revision}`} ·
                 #{m.id}
               </small>

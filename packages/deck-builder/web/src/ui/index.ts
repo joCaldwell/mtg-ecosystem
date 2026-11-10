@@ -4,6 +4,7 @@ export { Badge, type BadgeProps } from "./Badge.tsx";
 export { Banner, type BannerProps } from "./Banner.tsx";
 export { Box, type BoxProps } from "./Box.tsx";
 export { Button, type ButtonProps } from "./Button.tsx";
+export { ButtonLink, type ButtonLinkProps } from "./ButtonLink.tsx";
 export { Checkbox, type CheckboxProps } from "./Checkbox.tsx";
 export { Chip, type ChipProps } from "./Chip.tsx";
 export { ConfirmDialog, type ConfirmDialogProps } from "./ConfirmDialog.tsx";
@@ -32,10 +33,11 @@ export { ResizeHandle, type ResizeHandleProps } from "./ResizeHandle.tsx";
 export { Row, type RowProps } from "./Row.tsx";
 export { Section, type SectionProps } from "./Section.tsx";
 export { Segmented, type SegmentedProps } from "./Segmented.tsx";
-export { Select, type SelectProps } from "./Select.tsx";
+export { Select, type SelectOption, type SelectProps } from "./Select.tsx";
 export { Spacer } from "./Spacer.tsx";
 export { SplitPane, type SplitPaneProps } from "./SplitPane.tsx";
 export { Stack, type Gap, type StackProps } from "./Stack.tsx";
+export { Stepper, type StepperProps } from "./Stepper.tsx";
 export { ClickableRow, Table, type ClickableRowProps } from "./Table.tsx";
 export { Tabs, type TabSpec, type TabsProps } from "./Tabs.tsx";
 export { Text, type TextProps } from "./Text.tsx";
@@ -46,3 +48,8 @@ export { tokenPx } from "./tokens.ts";
 export { pressesFocusedControl, useHotkeys, type HotkeyOptions } from "./useHotkeys.ts";
 
 export { CounterControl } from "./CounterControl.tsx";
+
+export { Pill } from "./Pill.tsx";
+
+export { Explainer } from "./Explainer.tsx";
+export { useNearView } from "./useNearView.ts";

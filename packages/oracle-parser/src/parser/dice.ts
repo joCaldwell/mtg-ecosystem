@@ -136,6 +136,7 @@ export function parseDiceResultAmount(c: Cursor): Amount | null {
   return c.attempt(c => {
     if (c.words("the", "total", "of", "those", "results") || c.words("the", "total", "of", "the", "results"))
       return { amount: "dice-result", roll: { roll: "contextual" }, measure: "total" };
+    if (c.words("the", "difference", "between", "those", "results")) return { amount: "dice-result", roll: { roll: "contextual" }, measure: "difference" };
     if (c.words("the", "result")) return { amount: "dice-result", roll: { roll: "contextual" }, measure: "result" };
     return null;
   });

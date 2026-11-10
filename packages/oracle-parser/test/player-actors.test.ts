@@ -123,8 +123,14 @@ describe("definite contextual player references", () => {
     const zone = new Cursor(lex("the player's graveyard"));
     assert.deepEqual(parseZoneRef(zone), { zone: "graveyard", owner: contextual });
     assert.ok(zone.done());
-    for (const text of ["the player with the most life", "the player who controls the most creatures", "the player to your right", "the player whose turn it is"])
+    for (const text of ["the player to your right", "the player whose turn it is"])
       assert.equal(parsePlayerRef(new Cursor(lex(text))), null, text);
+    // The superlative descriptions keep their qualifier as a definite player.
+    assert.deepEqual(parsePlayerRef(new Cursor(lex("the player with the most life"))), { player: "definite", filter: { lifeTotal: { op: "eq",
+      value: { amount: "life-total-extremum", extremum: "maximum", among: { player: "each-player" } } } } });
+    assert.deepEqual(parsePlayerRef(new Cursor(lex("the player who controls the most creatures"))), { player: "definite", filter: { controls: {
+      filter: { types: ["creature"] }, comparison: { op: "eq", value: { amount: "per-player-extremum", extremum: "maximum",
+        among: { player: "each-player" }, count: { count: "controlled", of: { types: ["creature"] } } } } } } });
   });
   it("diagnoses group result scope and definite-player identity instead of inventing antecedents", () => {
     for (const text of ["You and target opponent each create a 1/1 white Soldier creature token. Sacrifice it.", "Target player draws a card. The player draws a card.", "The player draws a card."]) {

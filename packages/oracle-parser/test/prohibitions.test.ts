@@ -200,10 +200,17 @@ describe("damage prevention prohibitions", () => {
 
   it("refuses to turn a particular damage event into a global prohibition", () => {
     for (const text of [
-      "This spell deals 4 damage to target creature. The damage can't be prevented.",
       "This damage can't be prevented.",
       "Damage can't be prevented or dealt instead to another player.",
     ]) assert.equal(parseOracleText(text).ok, false, text);
+    // No longer rejected. The rider is kept on that one damage
+    // instruction (CR 608.2c, 615.12), still never a global prohibition.
+    const rider = parseOracleText("This spell deals 4 damage to target creature. The damage can't be prevented.");
+    assert.deepEqual(JSON.parse(JSON.stringify(rider.ok ? rider.abilities : null)), [{ kind: "spell", effects: [{ steps: [{
+      effect: "damage", source: { ref: "this", noun: "spell" }, amount: { amount: "fixed", value: 4 },
+      to: { to: "object", ref: { ref: "target", filter: { types: ["creature"] }, count: { amount: "fixed", value: 1 } } },
+      unpreventable: true,
+    }] }] }]);
   });
 });
 

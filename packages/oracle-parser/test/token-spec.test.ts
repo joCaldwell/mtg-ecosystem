@@ -97,6 +97,14 @@ describe("token copy exception scope", () => {
       "Create a token that's a copy of target creature, except it's 2/2 and.",
     ]) assert.equal(parseOracleText(text).ok, false, text);
   });
+
+  // Converted from a must-fail wording: the named defender is now recorded (CR 508.4) in `attackingDefender`.
+  it("records a named defending player on a specified token", () => {
+    const result = parseOracleText("Create a 1/1 white Soldier creature token that's tapped and attacking that player.");
+    assert.equal(result.ok, true);
+    const ability = JSON.parse(JSON.stringify(result.abilities[0]));
+    assert.deepEqual(ability.effects[0].steps[0].token.attackingDefender, { player: "that-player" });
+  });
 });
 
 describe("token entry state stays outside copied characteristics", () => {
@@ -132,7 +140,6 @@ describe("token entry state stays outside copied characteristics", () => {
       "Create a tapped and tapped Food token.",
       "Create a colorless and red Goblin creature token.",
       "Create a red and creature and token.",
-      "Create a 1/1 white Soldier creature token that's tapped and attacking that player.",
       "Create a tapped token that's a copy of target creature that's tapped.",
       "Create a token that's a copy of target creature that's a Food.",
       "Create a token that's a copy of target creature and that's mysterious.",

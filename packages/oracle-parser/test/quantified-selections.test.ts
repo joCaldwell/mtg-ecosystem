@@ -138,8 +138,10 @@ describe("the other member of an established group", () => {
   });
   it("is not offered outside action slots or for the other participant of an event", () => {
     assert.equal(ref("the other"), null);
-    assert.equal(ref("the other creature", parseObjectSelection), null);
-    fails("Whenever enchanted creature deals damage to a creature, destroy the other creature.", "Enchantment — Aura");
+    // The other participant of an event is now a definite reference
+    // with the unresolved lexical contrast, never the complement `rest`.
+    assert.deepEqual(ref("the other creature", parseObjectSelection), { ref: "that", filter: { types: ["creature"], other: true } });
+    assert.ok(parseOracleText("Whenever enchanted creature deals damage to a creature, destroy the other creature.", "Fixture", { typeLine: "Enchantment — Aura" }).ok);
   });
 });
 

@@ -41,12 +41,27 @@ function parseDesignation(c: Cursor, g: ConditionGrammar): Condition | null {
       return negated({ condition: "designation", who: copula.who, designation: "monarch" }, copula.negate);
     }
     const has = parsePlayerHas(c, g);
+    if (has && c.words("max", "speed")) return negated({ condition: "max-speed", who: has.who }, has.negate);
+    // CR 702.195b: "an enduring story" is the designation storied confers.
+    if (has && c.words("an", "enduring", "story"))
+      return negated({ condition: "designation", who: has.who, designation: "enduring-story" }, has.negate);
     if (!has || c.word("the") === null) return null;
     let designation: PlayerDesignation;
     if (c.word("initiative") !== null) designation = "initiative";
     else if (c.possessive("city") !== null && c.word("blessing") !== null) designation = "city's-blessing";
     else return null;
     return negated({ condition: "designation", who: has.who, designation }, has.negate);
+  });
+}
+
+/** CR 701.54c: "the Ring has tempted you two or more times this game". */
+function parseRingTempted(c: Cursor, g: ConditionGrammar): Condition | null {
+  return c.attempt((c): Condition | null => {
+    if (!c.words("the", "ring", "has", "tempted")) return null;
+    const who = g.parsePlayerRef(c);
+    const comparison = who && g.parseComparison(c);
+    if (!who || !comparison || comparison.op === "eq" || c.word("time", "times") === null || !c.words("this", "game")) return null;
+    return { condition: "ring-tempted", who, comparison };
   });
 }
 
@@ -103,9 +118,10 @@ function parsePoisoned(c: Cursor, g: ConditionGrammar): Condition | null {
   });
 }
 
-/** Renowned (CR 702.112b) is a designation of a permanent; suspended
- * (702.62b) is the defined state of an exiled card with suspend and a time
- * counter. Neither is a characteristic or a keyword the object has. */
+/** Renowned (CR 702.112b) and prepared (722.3a) are designations of a
+ * permanent; suspended (702.62b) is the defined state of an exiled card with
+ * suspend and a time counter. None is a characteristic or a keyword the
+ * object has. */
 function parseObjectDesignation(c: Cursor, g: ConditionGrammar): Condition | null {
   return c.attempt((c): Condition | null => {
     let what: ObjectRef | null;
@@ -119,12 +135,16 @@ function parseObjectDesignation(c: Cursor, g: ConditionGrammar): Condition | nul
       else if (c.word("is") !== null) negate = c.word("not") !== null;
       else return null;
     }
-    const status = c.word("renowned", "suspended");
+    // CR 701.54e: "is your Ring-bearer" is true while the creature is on the
+    // battlefield under your control and has the designation.
+    if (c.words("your", "ring-bearer"))
+      return negated({ condition: "is-filter", what, filter: { ringBearer: true, control: "you" } }, negate);
+    const status = c.word("renowned", "suspended", "prepared");
     return status ? negated({ condition: "status", what, status }, negate) : null;
   });
 }
 
 export function parseDesignationCondition(c: Cursor, g: ConditionGrammar): Condition | null {
-  return parseDesignation(c, g) ?? parseDayNight(c) ?? parseDungeonOrParty(c, g) ?? parseTurnOf(c, g)
+  return parseDesignation(c, g) ?? parseRingTempted(c, g) ?? parseDayNight(c) ?? parseDungeonOrParty(c, g) ?? parseTurnOf(c, g)
     ?? parsePoisoned(c, g) ?? parseObjectDesignation(c, g);
 }

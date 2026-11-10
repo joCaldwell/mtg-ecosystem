@@ -1,41 +1,67 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../../api/client.ts";
 import { useQuery } from "../../../api/useQuery.ts";
-import { Button, Checkbox, ErrorNote, Row, Spacer, Stack, Text, TextArea, useToast } from "../../../ui/index.ts";
+import { Button, Checkbox, ErrorNote, Row, Spacer, Stack, Text, TextArea } from "../../../ui/index.ts";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
+import { useSharedDeckView } from "../DeckViewContext.ts";
 import styles from "./ExportPanel.module.css";
 
 export function ExportPanel() {
   const { deckId } = useDeck();
-  const { deck } = useDeckState();
-  const { toast } = useToast();
-  const [categories, setCategories] = useState(true);
+  const { deck, cards } = useDeckState();
+  const { matches } = useSharedDeckView();
+  const [filtered, setFiltered] = useState(matches.active);
+  const [categories, setCategories] = useState(!matches.active);
+  // When every match is on the maybe list, a filtered export without it would
+  // be empty, so it opens with the maybe list included.
+  const [includeMaybe, setIncludeMaybe] = useState(() => matches.active && matches.addIds.size === 0 && matches.cardIds.size > 0
+    && [...matches.cardIds].every(id => cards.some(c => c.oracle_id === id && c.maybe)));
   const [copyError, setCopyError] = useState<string | null>(null);
+  // Copy confirms itself on the button ("Copied") for about two seconds,
+  // instead of a toast across the screen; "Copied 1 line" is announced.
+  const [copied, setCopied] = useState<string | null>(null);
+  const copiedTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(copiedTimer.current), []);
 
-  // Refetched when the revision moves, so a card added elsewhere is in the text.
+  const oracleIds = filtered ? [...matches.cardIds].sort() : undefined;
+  const queryKey = JSON.stringify([deckId, categories, includeMaybe, oracleIds, deck.revision]);
+  // Keep a previous scope's response from being copied while the new export loads.
   const exported = useQuery(
-    () => api.exportDeck(deckId, { categories }),
-    [deckId, categories, deck.revision],
+    async () => ({ key: queryKey, result: await api.exportDeck(deckId, { categories, oracleIds, includeMaybe }) }),
+    [queryKey], { resources: ["deck"], deckId },
   );
-  const result = exported.data;
+  const result = exported.data?.key === queryKey && !exported.error ? exported.data.result : null;
+  // A changed scope is a different export; what was copied no longer describes it.
+  useEffect(() => {
+    window.clearTimeout(copiedTimer.current);
+    setCopied(null);
+  }, [queryKey]);
+  // An empty filtered export whose matches sit only on the maybe list says so;
+  // the Include maybe list box above is the way to include them.
+  const maybeMatches = filtered && !includeMaybe
+    ? cards.filter((c) => c.maybe && matches.cardIds.has(c.oracle_id)).length
+    : 0;
 
   async function copy() {
     if (!result?.text) return;
     setCopyError(null);
     try {
       await navigator.clipboard.writeText(result.text);
-      toast(`Copied ${result.line_count} ${result.line_count === 1 ? "line" : "lines"}.`);
+      window.clearTimeout(copiedTimer.current);
+      setCopied(`Copied ${result.line_count} ${result.line_count === 1 ? "line" : "lines"}`);
+      copiedTimer.current = window.setTimeout(() => setCopied(null), 2000);
     } catch {
       setCopyError("The browser blocked the clipboard. Select the text and copy it by hand.");
     }
   }
 
   return (
-    <Stack gap={5} className={styles.panel}>
+    <Stack gap={5}>
       <Row gap={6} wrap>
+        <Checkbox checked={filtered} onChange={setFiltered} disabled={!matches.active && !filtered} label="Only current filter matches" />
+        <Checkbox checked={includeMaybe} onChange={setIncludeMaybe} label="Include maybe list" />
         <Checkbox checked={categories} onChange={setCategories} label="Include categories" />
       </Row>
-
       {exported.error ? <ErrorNote>{exported.error}</ErrorNote> : null}
       {copyError ? <ErrorNote>{copyError}</ErrorNote> : null}
 
@@ -48,11 +74,15 @@ export function ExportPanel() {
           className={styles.text}
           onFocus={(e) => e.currentTarget.select()}
         />
+      ) : result && maybeMatches > 0 ? (
+        <Text tone="muted" as="p" className={styles.empty}>
+          {maybeMatches === 1 ? "1 match is on the maybe list." : `${maybeMatches} matches are on the maybe list.`}
+        </Text>
       ) : result ? (
         <Text tone="muted" as="p" className={styles.empty}>
-          Nothing to export. The deck is empty.
+          {filtered ? "No cards match these filters and export options." : "Nothing to export with these options."}
         </Text>
-      ) : null}
+      ) : !exported.error ? <Text tone="muted">Preparing export…</Text> : null}
 
       <Row>
         {result ? (
@@ -65,20 +95,18 @@ export function ExportPanel() {
               {result.line_count}
             </Text>{" "}
             {result.line_count === 1 ? "line" : "lines"}
-            .
+            {" · Archidekt format · pending proposals excluded"}
           </Text>
         ) : null}
         <Spacer />
-        <Button variant="primary" onClick={copy} disabled={!result?.text}>
-          Copy
+        {/* Always present, so the polite announcement is heard when it fills;
+            visually the button's "Copied" says it. */}
+        <Text role="status" aria-live="polite" className="visually-hidden">{copied}</Text>
+        {/* Disabled looks disabled: an empty export has no primary action. */}
+        <Button variant={result?.text ? "primary" : "default"} onClick={copy} disabled={!result?.text}>
+          {copied ? "Copied" : "Copy"}
         </Button>
       </Row>
-
-      <Text tone="muted" size="sm" as="p">
-        Quantity and name, one card per line, with categories in brackets: Archidekt's own round-trip syntax. Set
-        codes and foil markers are left out on purpose. They break some importers, and this app keys cards on
-        oracle id, so nothing is lost. The maybe list is not exported.
-      </Text>
     </Stack>
   );
 }

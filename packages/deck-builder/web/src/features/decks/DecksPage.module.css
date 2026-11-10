@@ -1,22 +1,27 @@
-/* The table keeps its columns on one line; a narrow window scrolls it sideways instead of squeezing them. */
-.tableWrap {
-  overflow-x: auto;
-}
-
-.commander {
-  max-width: 360px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.actions {
-  width: var(--s-8);
-  text-align: right;
-}
-
-/* Wide enough for eight columns, not so wide the eye loses the row. */
+.page { --page-width: clamp(var(--page-wide), var(--decks-page-fluid), var(--decks-page-wide)); }
+/* The roster and statistics share the centered application page frame. */
 .body {
+  --text-xs: var(--text-sm);
   display: grid;
   gap: var(--s-8);
-  max-width: 1360px;
+  min-width: 0;
+}
+
+.shared {
+  color: var(--text-soft);
+}
+.collection { display: grid; gap: var(--s-6); min-width: 0; }
+/* Cards fill their grid row, so a partner's two-line commander leaves no
+   ragged gap; the stats line is pinned to the bottom. */
+.roster { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-6); padding: 0; margin: 0; list-style: none; }
+
+@media (max-width: 1099px) { .roster { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.page > header { position: relative; }
+.page.scrolled > header::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  border-bottom: 1px solid var(--line);
+  pointer-events: none;
 }

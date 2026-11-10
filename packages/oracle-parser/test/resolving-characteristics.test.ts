@@ -113,12 +113,13 @@ describe('resolving characteristic changes preserve layers, choices, and snapsho
     assert.equal(parseResolvingCharacteristics(c, undefined, parseGainedAbilities), null);
     assert.equal(c.pos, 0);
   });
-  it('keeps cross-layer snapshot binding explicitly uncertified', () => {
+  it('binds a characteristic change and leaves its layers to the engine', () => {
     const result = parse('Target land becomes a 3/3 creature with haste until end of turn.');
     const binding = analyzeCardBindings({ identity: 'resolving-characteristics-fixture', source: { name: 'Fixture', layout: 'normal', type_line: 'Instant' }, faces: [{ sourceFaceIndex: 0, result }] });
     assert.equal(binding.fullyBound, false);
-    assert.ok(binding.diagnostics.some(d => d.code === 'unsupported-scope' && /affected-object snapshot/.test(d.message)));
-    assert.ok(binding.references.some(r => 'ref' in r.expression && r.expression.ref === 'target' && r.binding === 'unresolved'));
+    assert.equal(binding.referencesBound, true, JSON.stringify(binding.diagnostics));
+    assert.ok(binding.engineFeatures.some(need => need.feature === 'characteristic-layers'));
+    assert.ok(binding.references.some(r => 'ref' in r.expression && r.expression.ref === 'target' && r.binding === 'bound'));
   });
   it('keeps existing object effects outside the new snapshot barrier', () => {
     for (const text of [
@@ -129,9 +130,8 @@ describe('resolving characteristic changes preserve layers, choices, and snapsho
     ]) {
       const result = parse(text);
       const binding = analyzeCardBindings({ identity: 'existing-effect-fixture', source: { name: 'Fixture', layout: 'normal', type_line: 'Instant' }, faces: [{ sourceFaceIndex: 0, result }] });
-      // Keyword expansion has its own pre-existing certification barrier;
-      // it must still retain the target as the later tap's antecedent.
-      assert.equal(binding.fullyBound, !text.includes('gains flying'), text + ': ' + JSON.stringify(binding.diagnostics));
+      // A granted keyword binds in the recipient's scope; the target remains the later tap's antecedent.
+      assert.equal(binding.fullyBound, true, text + ': ' + JSON.stringify(binding.diagnostics));
       assert.ok(!binding.diagnostics.some(d => /affected-object snapshot/.test(d.message)), text);
       assert.ok(binding.references.every(r => r.binding === 'bound'), text);
     }

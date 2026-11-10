@@ -1,9 +1,13 @@
+import { BrandMark } from "../../app/BrandMark.tsx";
+import { ArtExamples } from "./ArtExamples.tsx";
+import { OnboardingPatterns } from "./OnboardingPatterns.tsx";
 import { useState, type ReactNode } from "react";
 import {
   Badge,
   Banner,
   Box,
   Button,
+  ButtonLink,
   Checkbox,
   Chip,
   ClickableRow,
@@ -13,6 +17,7 @@ import {
   Dot,
   EmptyState,
   ErrorNote,
+  Explainer,
   Eyebrow,
   Field,
   Icon,
@@ -25,6 +30,7 @@ import {
   MultiSelect,
   Page,
   PageHeader,
+  Pill,
   Popover,
   ResizeHandle,
   Row,
@@ -35,6 +41,7 @@ import {
   SplitPane,
   Stack,
   Table,
+  Stepper,
   Tabs,
   Text,
   TextArea,
@@ -58,13 +65,15 @@ interface Token {
 }
 
 const SURFACES: Token[] = [
-  { name: "--bg", note: "The page, inputs, boxes sunk into a panel" },
-  { name: "--surface", note: "Sidebar, panels, page headers" },
-  { name: "--raised", note: "Buttons, selected rows, popovers" },
-  { name: "--hover", note: "Hovered rows and buttons" },
-  { name: "--overlay", note: "Dialogs and toasts" },
-  { name: "--line", note: "Quiet dividers and borders" },
-  { name: "--line-strong", note: "Control borders" },
+  { name: "--bg", note: "True-black canvas and sidebar" },
+  { name: "--surface", note: "Near-black cards, panels and inputs" },
+  { name: "--raised", note: "Brighter selected surfaces and neutral chips" },
+  { name: "--hover", note: "4% white over the current surface" },
+  { name: "--overlay", note: "Opaque near-black dialogs, menus and toasts" },
+  { name: "--line", note: "8% white hairline dividers" },
+  { name: "--line-strong", note: "11% white control borders" },
+  { name: "--line-hover", note: "18% white hovered borders" },
+  { name: "--action", note: "Blue primary actions, black ink" },
 ];
 
 const TEXTS: Token[] = [
@@ -93,12 +102,13 @@ const MANA: Token[] = [
 ];
 
 const SIZES = [
-  { token: "--text-2xs", px: "10px", sample: "Key caps and the smallest tags" },
-  { token: "--text-xs", px: "11px", sample: "Labels, eyebrows, meta" },
+  { token: "--text-2xs", px: "11px", sample: "Key caps and the smallest tags" },
+  { token: "--text-xs", px: "12px", sample: "Labels, eyebrows, meta" },
   { token: "--text-sm", px: "12px", sample: "Secondary text, small buttons, table cells" },
   { token: "--text-md", px: "13px", sample: "Body text: card names, oracle text, fields" },
   { token: "--text-lg", px: "15px", sample: "Card and section titles" },
   { token: "--text-xl", px: "17px", sample: "Page titles" },
+  { token: "--text-wordmark", px: "24px", sample: "The product name on sign-in" },
 ] as const;
 
 const SPACE: Gap[] = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -108,8 +118,10 @@ const RADII = ["--r-sm", "--r-md", "--r-lg", "--r-xl", "--r-pill"] as const;
 
 const ICONS: IconName[] = [
   "inbox", "decks", "memories", "activity", "profile", "settings", "back",
-  "close", "check", "plus", "chevronDown", "undo", "search", "more",
+  "close", "check", "plus", "chevronDown", "arrowUp", "arrowDown", "undo", "redo", "search", "more", "globe", "link", "warning",
 ];
+
+const LONG_OPTIONS = Array.from({ length: 24 }, (_, i) => ({ value: String(i + 1), label: `Option ${i + 1}` }));
 
 type Tone = "neutral" | "agent" | "warn" | "add" | "cut";
 const TONES: Tone[] = ["neutral", "agent", "warn", "add", "cut"];
@@ -155,17 +167,17 @@ function Colours() {
           {SURFACES.map((t) => <Swatch key={t.name} token={t.name} note={t.note} />)}
         </div>
       </Section>
-      <Section title="Colour: text">
+      <Section title="Colour: text" aside="AA minima including nested tints: 11.51 / 8.47 / 5.79 / 5.15:1">
         <div className={styles.swatches}>
           {TEXTS.map((t) => <Swatch key={t.name} token={t.name} note={t.note} />)}
         </div>
       </Section>
-      <Section title="Colour: what each one means" aside="each has a -bg tint, and all but sel a -line border">
+      <Section title="Colour: what each one means" aside="each has a 6% -bg tint and a 32% -line border">
         <Stack gap={4}>
           {MEANINGS.map((m) => (
             <Row key={m.name} gap={5} align="center">
               <div className={styles.triple}>
-                {(m.name === "sel" ? ["", "-bg"] : ["", "-bg", "-line"]).map((suffix) => (
+                {["", "-bg", "-line"].map((suffix) => (
                   <div key={suffix} className={styles.chipface} style={{ background: `var(--${m.name}${suffix})` }} />
                 ))}
               </div>
@@ -245,18 +257,31 @@ function TypeScale() {
 }
 
 function Buttons() {
+  const [pillOn, setPillOn] = useState(false);
   const variants = ["default", "ghost", "primary", "accept", "reject", "agent"] as const;
   return (
     <Stack gap={7}>
       <Section title="Button">
-        <Demo note="Rows: md, sm, with a key hint, disabled.">
-          {[{}, { size: "sm" as const }, { kbd: "A" }, { disabled: true }].map((extra, i) => (
+        <Demo note="Rows: md, sm, touch (one --tap tall, for phones), with a key hint, disabled. Disabled is one neutral look for every variant.">
+          {[{}, { size: "sm" as const }, { size: "touch" as const }, { kbd: "A" }, { disabled: true }].map((extra, i) => (
             <Row key={i} gap={4} wrap>
               {variants.map((v) => (
                 <Button key={v} variant={v} {...extra}>{v}</Button>
               ))}
             </Row>
           ))}
+        </Demo>
+        <Demo note="ButtonLink: a link that goes somewhere, drawn as a button (default, ghost, primary).">
+          <Row gap={4} wrap>
+            <ButtonLink href="#button-link">Sign in to fork or compare</ButtonLink>
+            <ButtonLink href="#button-link" variant="ghost">ghost</ButtonLink>
+            <ButtonLink href="#button-link" variant="primary">primary</ButtonLink>
+          </Row>
+        </Demo>
+      </Section>
+      <Section title="Pill filters">
+        <Demo note="Selectable filters show their pressed state; click either example.">
+          <Row><Pill on={pillOn} onClick={() => setPillOn(true)}>Selected</Pill><Pill on={!pillOn} onClick={() => setPillOn(false)}>Other filter</Pill></Row>
         </Demo>
       </Section>
       <Section title="IconButton">
@@ -270,6 +295,8 @@ function Buttons() {
             {(["close", "more"] as IconName[]).map((n) => (
               <IconButton key={n} label={n} size="sm"><Icon name={n} /></IconButton>
             ))}
+            <Label>touch</Label>
+            <IconButton label="close" size="touch"><Icon name="close" /></IconButton>
           </Row>
         </Demo>
       </Section>
@@ -282,6 +309,17 @@ function Buttons() {
                 <Label>{n}</Label>
               </Stack>
             ))}
+          </Row>
+        </Demo>
+      </Section>
+      <Section title="BrandMark" aside="app/; currentColor, cap height of its wordmark">
+        <Demo>
+          <Row gap={7} wrap align="center">
+            <span className={styles.brandSidebar}><BrandMark className={styles.brandGap} />Deck Builder</span>
+            <span className={styles.brandDisplay}><BrandMark className={styles.brandGap} />Deck Builder</span>
+            <span className={styles.brandRail}><BrandMark /></span>
+            <span className={`${styles.brandRail} ${styles.brandLarge}`}><BrandMark /></span>
+            <span className={`${styles.brandRail} ${styles.brandMuted}`}><BrandMark /></span>
           </Row>
         </Demo>
       </Section>
@@ -346,6 +384,9 @@ function Navigation() {
   const [view, setView] = useState<"grid" | "list" | "text">("list");
   return (
     <Stack gap={7}>
+      <Section title="Sidebar">
+        <Text tone="muted">My decks comes first. Profile holds Profile and Activity tabs. At 1100 px and wider, the sidebar’s collapse control saves your account’s choice; icons, inbox counts and named deck thumbnails stay visible in the rail. Tablet navigation keeps its labels.</Text>
+      </Section>
       <Section title="Tabs" aside="arrow keys move between tabs">
         <Demo>
           <Tabs
@@ -399,6 +440,7 @@ function Navigation() {
               align="end"
               items={[{ id: "a", label: "One", onSelect: () => undefined }, { id: "b", label: "Two", onSelect: () => undefined }]}
             />
+            <LifecyclePillDemo />
             <Menu
               label="More actions"
               icon="more"
@@ -416,11 +458,40 @@ function Navigation() {
   );
 }
 
+/** A pill trigger with a single-choice list: the current state, changed from
+ *  its menu. A last item, set apart, opens an explanation beside the pill. */
+function LifecyclePillDemo() {
+  const [value, setValue] = useState("Paper");
+  const [pill, setPill] = useState<HTMLButtonElement | null>(null);
+  const [explaining, setExplaining] = useState(false);
+  return (
+    <>
+      <Menu
+        pill
+        label={value}
+        ariaLabel={`Lifecycle: ${value}`}
+        triggerRef={setPill}
+        items={[
+          ...["Paper", "Theorycrafted", "Archived"].map((v) => ({ id: v, label: v, checked: v === value, onSelect: () => setValue(v) })),
+          { id: "help", label: "Who can edit?", separated: true, onSelect: () => setExplaining(true) },
+        ]}
+      />
+      <Explainer title="Deck lifecycle" control={{ anchor: pill, open: explaining, onClose: () => setExplaining(false) }}>
+        An explanation opened from a menu item sits beside the menu's trigger and returns focus to it.
+      </Explainer>
+    </>
+  );
+}
+
 function Forms() {
   const [text, setText] = useState("");
   const [area, setArea] = useState("This one grows as you type.\nTry adding lines.");
   const [checked, setChecked] = useState(true);
   const [sel, setSel] = useState("b");
+  const [requiredFormat, setRequiredFormat] = useState("");
+  const [withDisabled, setWithDisabled] = useState("a");
+  const [long, setLong] = useState("7");
+  const [copies, setCopies] = useState(4);
   const [multi, setMulti] = useState<string[]>([]);
   return (
     <Stack gap={7}>
@@ -429,8 +500,8 @@ function Forms() {
           <Stack gap={4} className={styles.narrow}>
             <TextField placeholder="md (default)" value={text} onChange={(e) => setText(e.target.value)} />
             <TextField fieldSize="lg" placeholder="lg: for the add bar" />
-            <TextField invalid defaultValue="invalid" />
-            <TextField disabled defaultValue="disabled" />
+            <TextField aria-label="Invalid example" invalid defaultValue="invalid" />
+            <TextField aria-label="Disabled example" disabled defaultValue="disabled" />
           </Stack>
         </Demo>
       </Section>
@@ -438,19 +509,35 @@ function Forms() {
         <Demo>
           <Stack gap={4} className={styles.narrow}>
             <TextArea placeholder="Fixed rows" rows={2} />
-            <TextArea autosize value={area} onChange={(e) => setArea(e.target.value)} />
+            <TextArea aria-label="Autosizing example" autosize value={area} onChange={(e) => setArea(e.target.value)} />
           </Stack>
         </Demo>
       </Section>
-      <Section title="Select and Checkbox">
+      <Section title="Select" aside="closed, placeholder and invalid, disabled, a disabled option, a long list, open">
         <Demo>
-          <Row gap={6}>
-            <Select value={sel} onChange={(e) => setSel(e.target.value)}>
-              <option value="a">Commander</option>
-              <option value="b">Brawl</option>
-              <option value="c">Standard</option>
-            </Select>
-            <Select disabled defaultValue="a"><option value="a">Disabled</option></Select>
+          <Row gap={6} wrap align="start" className={styles.openSelect}>
+            <Select aria-label="Select example" options={[{ value: "a", label: "Commander" }, { value: "b", label: "Brawl" }, { value: "c", label: "Standard" }]} value={sel} onChange={setSel} />
+            <Select aria-label="Required format" placeholder="Choose a format…" invalid={!requiredFormat} options={[{ value: "commander", label: "Commander" }, { value: "brawl", label: "Brawl" }]} value={requiredFormat} onChange={setRequiredFormat} />
+            <Select aria-label="Disabled select example" disabled options={[{ value: "a", label: "Disabled" }]} value="a" onChange={() => undefined} />
+            <Select aria-label="Select with a disabled option" options={[{ value: "a", label: "Available" }, { value: "b", label: "Unavailable", disabled: true }, { value: "c", label: "Also available" }]} value={withDisabled} onChange={setWithDisabled} />
+            <Select aria-label="Long select example" options={LONG_OPTIONS} value={long} onChange={setLong} />
+            <Select aria-label="Open select example" defaultOpen options={[{ value: "a", label: "Commander" }, { value: "b", label: "Brawl" }, { value: "c", label: "A longer label that wraps when space is limited" }]} value="a" onChange={() => undefined} />
+          </Row>
+        </Demo>
+      </Section>
+      <Section title="Stepper" aside="type the number or nudge it; at a limit that arrow is off">
+        <Demo>
+          <Row gap={6} wrap>
+            <Stepper aria-label="Example copies" upLabel="Add a copy" downLabel="Remove a copy" value={String(copies)} onChange={(e) => setCopies(Number(e.target.value) || 1)} onStepUp={() => setCopies(copies + 1)} onStepDown={() => setCopies(copies - 1)} downDisabled={copies <= 1} />
+            <Stepper aria-label="At the lowest quantity" upLabel="Add a copy" downLabel="Remove a copy" value="1" readOnly onStepUp={() => undefined} onStepDown={() => undefined} downDisabled />
+            <Stepper aria-label="At a printed limit" upLabel="Add a copy" downLabel="Remove a copy" value="7" readOnly onStepUp={() => undefined} onStepDown={() => undefined} upDisabled />
+            <Stepper aria-label="Disabled stepper" upLabel="Add a copy" downLabel="Remove a copy" value="4" disabled onStepUp={() => undefined} onStepDown={() => undefined} />
+          </Row>
+        </Demo>
+      </Section>
+      <Section title="Checkbox">
+        <Demo>
+          <Row gap={6} wrap>
             <Checkbox checked={checked} onChange={setChecked} label="Checked" />
             <Checkbox checked={false} onChange={() => undefined} label="Unchecked" />
             <Checkbox checked disabled onChange={() => undefined} label="Disabled" />
@@ -463,6 +550,7 @@ function Forms() {
             <MultiSelect label="Example tags" placeholder="Select tags…" options={[{ value: "a", label: "Need to get" }, { value: "b", label: "Engine piece" }, { value: "c", label: "A longer label that wraps when space is limited" }]} value={multi} onChange={setMulti} />
             <MultiSelect label="Empty example" options={[]} value={[]} onChange={() => undefined} />
             <MultiSelect compact label="Compact example" placeholder="Select tags…" options={[{ value: "a", label: "Need to get" }, { value: "b", label: "Engine piece" }, { value: "c", label: "A longer label that wraps when space is limited" }]} value={multi} onChange={setMulti} footer={<Button size="sm" variant="ghost" onClick={() => setMulti([])}>Clear selection</Button>} />
+            <MultiSelect compact label="Custom summary example" summary="Not Have" options={[{ value: "have", label: "Have" }]} value={["have"]} onChange={() => undefined} />
           </Stack>
         </Demo>
       </Section>
@@ -470,7 +558,7 @@ function Forms() {
         <Demo>
           <Stack gap={5} className={styles.narrow}>
             <Field label="Deck name" hint="Shown in the sidebar."><TextField defaultValue="Jo's upkeep" /></Field>
-            <Field label="Format"><Select defaultValue="b"><option value="b">Commander</option></Select></Field>
+            <Field label="Format"><Select options={[{ value: "b", label: "Commander" }]} value="b" onChange={() => undefined} /></Field>
             <Field label="Brief" hint="Only you can set this."><TextArea rows={2} /></Field>
           </Stack>
         </Demo>
@@ -491,8 +579,8 @@ function Feedback() {
                 <div className={styles.grow}><Meter tone={t} value={(i + 1) * 20} max={100} aria-label={t} /></div>
               </Row>
             ))}
-            <Row gap={5}><span className={styles.meterLabel}><Label>over</Label></span><div className={styles.grow}><Meter tone="warn" value={140} max={100} /></div></Row>
-            <Row gap={5}><span className={styles.meterLabel}><Label>empty</Label></span><div className={styles.grow}><Meter value={0} max={100} /></div></Row>
+            <Row gap={5}><span className={styles.meterLabel}><Label>over</Label></span><div className={styles.grow}><Meter aria-label="Over budget example" tone="warn" value={140} max={100} /></div></Row>
+            <Row gap={5}><span className={styles.meterLabel}><Label>empty</Label></span><div className={styles.grow}><Meter aria-label="Empty meter example" value={0} max={100} /></div></Row>
           </Stack>
         </Demo>
       </Section>
@@ -513,7 +601,7 @@ function Feedback() {
           <Banner tone="agent" actions={<><Button size="sm" variant="reject">Reject all</Button><Button size="sm" variant="accept" kbd="A">Accept all</Button></>}>
             <Text weight="medium">Claude Code</Text> proposed 6 changes to this deck.
           </Banner>
-          <Banner tone="warn" actions={<Button size="sm">Fork</Button>}>This Legacy deck is read-only.</Banner>
+          <Banner tone="warn" actions={<Button size="sm">Fork</Button>}>This Archived deck is read-only.</Banner>
           <Banner tone="error">Could not reach the server.</Banner>
           <Banner tone="neutral">Nothing is waiting on you.</Banner>
         </div>
@@ -526,6 +614,7 @@ function Feedback() {
         </Demo>
       </Section>
       <Section title="DiffView">
+        <Stack gap={4}>
         <DiffView
           lines={[
             { kind: "same", text: "Aggro-leaning shell with a graveyard subtheme." },
@@ -534,6 +623,17 @@ function Feedback() {
             { kind: "same", text: "Never play wraths." },
           ]}
         />
+        <DiffView
+          foldSame
+          lines={[
+            { kind: "same", text: "Aggro-leaning shell with a graveyard subtheme." },
+            { kind: "same", text: "Two cards at 5 or more." },
+            { kind: "same", text: "Never play wraths." },
+            { kind: "add", text: "No tutors that cost more than 2." },
+          ]}
+        />
+        <Text size="sm" tone="muted">foldSame: only the changes; each run of unchanged lines is one row that opens in place.</Text>
+        </Stack>
       </Section>
       <ToastDemo />
     </Stack>
@@ -550,6 +650,9 @@ function ToastDemo() {
           <Button onClick={() => toast("Removed Sol Ring.", { action: { label: "Undo", kbd: "Z", onAction: () => toast("Restored.") } })}>
             With action
           </Button>
+          <Button onClick={() => toast("Added Sol Ring to the maybe list.", { action: { label: "Undo", onAction: () => toast("Removed.") }, secondaryAction: { label: "View card", onAction: () => toast("Opened.") } })}>
+            With two actions
+          </Button>
           <Button onClick={() => toast("Stays for 20 seconds.", { duration: 20000 })}>Long</Button>
           <Button variant="ghost" onClick={dismiss}>Dismiss</Button>
         </Row>
@@ -559,7 +662,7 @@ function ToastDemo() {
 }
 
 function Overlays() {
-  const [dialog, setDialog] = useState<null | "md" | "lg" | "confirm" | "danger">(null);
+  const [dialog, setDialog] = useState<null | "md" | "lg" | "wide" | "sheet" | "confirm" | "danger">(null);
   const [pop, setPop] = useState<null | "below" | "right" | "above" | "left">(null);
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null);
   const [note, setNote] = useState("");
@@ -570,19 +673,22 @@ function Overlays() {
           <Row gap={4} wrap>
             <Button onClick={() => setDialog("md")}>Dialog md</Button>
             <Button onClick={() => setDialog("lg")}>Dialog lg</Button>
+            <Button onClick={() => setDialog("wide")}>Dialog wide</Button>
+            <Button onClick={() => setDialog("sheet")}>Dialog sheet (touch)</Button>
             <Button onClick={() => setDialog("confirm")}>Confirm</Button>
             <Button variant="reject" onClick={() => setDialog("danger")}>Confirm, danger</Button>
           </Row>
         </Demo>
-        {dialog === "md" || dialog === "lg" ? (
+        {dialog === "md" || dialog === "lg" || dialog === "wide" || dialog === "sheet" ? (
           <Dialog
             title="Rename deck"
-            width={dialog}
+            width={dialog === "sheet" ? "md" : dialog}
+            placement={dialog === "sheet" ? "sheet" : "center"}
             onClose={() => setDialog(null)}
             footer={<><Button variant="ghost" onClick={() => setDialog(null)}>Cancel</Button><Button variant="primary" onClick={() => setDialog(null)}>Save</Button></>}
           >
             <Field label="Name" hint="Autofocused through data-autofocus.">
-              <TextField data-autofocus defaultValue="Jo's upkeep" />
+              <TextField aria-label="Deck name" data-autofocus defaultValue="Jo's upkeep" />
             </Field>
           </Dialog>
         ) : null}
@@ -718,7 +824,7 @@ function Layout() {
         <div className={styles.framed}>
           <Page
             width="full"
-            header={<PageHeader title="Memories" subtitle="What agents have been told to remember" actions={<><Button size="sm">Filter</Button><Button size="sm" variant="primary">New memory</Button></>} />}
+            header={<PageHeader title="Memories" actions={<><Button size="sm">Filter</Button><Button size="sm" variant="primary">New memory</Button></>} />}
           >
             <SplitPane
               list={<><Box padding="sm">First item</Box><Box padding="sm">Second item</Box></>}
@@ -735,9 +841,11 @@ export function StyleguidePage() {
   return (
     <Page
       width="lg"
-      header={<PageHeader title="Design" subtitle="Every primitive in every state. The rules are in web/DESIGN.md." />}
+      header={<PageHeader title="Design" />}
     >
       <div className={styles.groups}>
+        <OnboardingPatterns />
+        <ArtExamples />
         <Colours />
         <TypeScale />
         <Buttons />

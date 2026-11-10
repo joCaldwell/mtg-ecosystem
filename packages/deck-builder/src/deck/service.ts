@@ -1,18 +1,23 @@
+import { memoRead } from "../read-context.ts";
+import { analyzeMana, type ManaCard } from "./mana.ts";
+import { roleEligibility } from "./roles.ts";
+import { creditedArt, type CardArt } from "../art.ts";
 // Decks, their organization, and the composite deck view. What is *in* a deck
 // changes only through deck/membership.ts; everything here is either deck
 // lifecycle, organization (spec §5.4 — slots, tags, the maybe list, none of
 // which touches the 100), or reading.
 
-import type { DatabaseSync } from "node:sqlite";
-import { ServiceError } from "../errors.ts";
+import type { Database } from "../sqlite.ts";
+import { isUniqueViolation, ServiceError } from "../errors.ts";
 import { withTransaction } from "../db.ts";
-import { type Actor, PermissionError, requireOwner } from "../actor.ts";
-import { recordActivity } from "../activity.ts";
-import { requireCardById } from "../cards.ts";
-import { estimateCost, pricesAsOf } from "../prices.ts";
+import { type Actor, type DeckRole, isDeckOwner, requireDeckOwner, authorOf, PermissionError, requireUi } from "../actor.ts";
+import { recordActivity, withActivity } from "../activity.ts";
+import { lintProse, requireCardById } from "../cards.ts";
+import { estimateCost, priceResolver, type PriceMetadata, type ResolvedPrice } from "../prices.ts";
 
 export type Role = "card" | "commander" | "companion";
-export type DeckCategory = "paper" | "theorycrafted" | "legacy";
+export type DeckCategory = "paper" | "theorycrafted" | "archived";
+export type Visibility = "private" | "unlisted" | "public";
 
 // Card types and supertypes. Slots and tags say what a card *does* — "ramp",
 // "interaction" — and card type says what it *is*; the decklist groups by
@@ -30,7 +35,7 @@ const RESERVED_NAMES = new Set([
   // search prefixes
   "t", "type", "o", "oracle", "fo", "fulloracle", "cmc", "mv", "manavalue",
   "c", "color", "id", "identity", "pow", "power", "tou", "toughness",
-  "loy", "loyalty", "usd", "is", "f", "format", "banned", "slot", "tag",
+  "loy", "loyalty", "usd", "eur", "is", "f", "format", "banned", "slot", "tag",
   // grammar words and sentinels
   "or", "and", "not", "none",
 ]);
@@ -64,20 +69,22 @@ const WORD_NUMBERS: Record<string, number> = {
   eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
 };
 
-// How many copies a card allows: 1 (singleton), a printed cap ("up to seven
-// cards named..."), or Infinity (basics, "any number of cards named...").
+// How many copies a card allows: 1 (singleton), a printed cap ("A deck can have
+// up to seven cards named..."), or Infinity (basics, "A deck can have any number
+// of cards named..."). Only that sentence counts: "search your library for up to
+// three cards named Squadron Hawk" is an effect, not a deck-building rule.
 export function copyLimit(card: { type_line: string; oracle_text?: string }): number {
   if (/\bBasic\b/.test(card.type_line)) return Infinity;
-  const text = (card.oracle_text ?? "").toLowerCase();
-  if (text.includes("any number of cards named")) return Infinity;
-  const m = text.match(/up to (\w+) cards named/);
-  if (m) return WORD_NUMBERS[m[1]] ?? 1;
-  return 1;
+  const rule = (card.oracle_text ?? "").toLowerCase().match(/a deck can have (any number of|up to (\w+)) cards named/);
+  if (!rule) return 1;
+  return rule[2] ? WORD_NUMBERS[rule[2]] ?? 1 : Infinity;
 }
 
 // ---------- deck lifecycle ----------
 
 export interface DeckRow {
+  user_id: number;
+  role: DeckRole;
   id: number;
   name: string;
   category: DeckCategory;
@@ -85,32 +92,46 @@ export interface DeckRow {
   ci_mask: number | null;
   color_identity: string;
   revision: number;
+  edit_version: number;
   created_at: string;
+  visibility: Visibility;
+  slug: string | null;
+  publish_decisions: number;
+  accept_suggestions: number;
+  parent_owner_handle: string | null;
+  parent_slug: string | null;
+  parent_name: string | null;
 }
 
 export function createDeck(
-  db: DatabaseSync,
+  db: Database,
+  actor: Actor,
   name: string,
   opts: { category?: DeckCategory; parentId?: number | null } = {},
 ): number {
   const trimmed = name.trim();
   if (!trimmed) throw new ServiceError("Deck name cannot be empty");
-  if (opts.category !== undefined && !["paper", "theorycrafted", "legacy"].includes(opts.category))
-    throw new ServiceError("Deck category must be 'paper', 'theorycrafted' or 'legacy'");
+  if (opts.category !== undefined && !["paper", "theorycrafted", "archived"].includes(opts.category))
+    throw new ServiceError("Deck category must be 'paper', 'theorycrafted' or 'archived'");
+  if (opts.category !== undefined && opts.category !== "theorycrafted") requireUi(actor, "classify a new deck");
+  if (opts.parentId != null) requireDeckOwner(db, actor, opts.parentId, "fork this deck");
   try {
-    const r = db
-      .prepare("INSERT INTO decks (name, category, parent_id) VALUES (?, ?, ?)")
-      .run(trimmed, opts.category ?? "theorycrafted", opts.parentId ?? null);
-    return Number(r.lastInsertRowid);
+    return withTransaction(db, () => {
+      const r = db.prepare("INSERT INTO decks (user_id, name, category, parent_id) VALUES (?, ?, ?, ?)")
+        .run(actor.user_id, trimmed, opts.category ?? "theorycrafted", opts.parentId ?? null);
+      const id = Number(r.lastInsertRowid);
+      recordActivity(db, actor, "create_deck", id, `Created "${trimmed}"`);
+      return id;
+    });
   } catch (e: any) {
-    if (String(e.message).includes("UNIQUE"))
+    if (isUniqueViolation(e))
       throw new ServiceError(`A deck named '${trimmed}' already exists. Choose another name.`, 409);
     throw e;
   }
 }
 
-export function renameDeck(db: DatabaseSync, actor: Actor, deckId: number, name: string): void {
-  const deck = requireEditableDeck(db, deckId);
+export function renameDeck(db: Database, actor: Actor, deckId: number, name: string): void {
+  const deck = requireEditableDeck(db, actor, deckId);
   const trimmed = name.trim();
   if (!trimmed) throw new ServiceError("Deck name cannot be empty");
   try {
@@ -119,14 +140,14 @@ export function renameDeck(db: DatabaseSync, actor: Actor, deckId: number, name:
       recordActivity(db, actor, "rename_deck", deckId, `Renamed "${deck.name}" to "${trimmed}"`);
     });
   } catch (e: any) {
-    if (String(e.message).includes("UNIQUE"))
+    if (isUniqueViolation(e))
       throw new ServiceError(`A deck named '${trimmed}' already exists`, 409);
     throw e;
   }
 }
 
-export function deleteDeck(db: DatabaseSync, actor: Actor, deckId: number): void {
-  const deck = requireEditableDeck(db, deckId);
+export function deleteDeck(db: Database, actor: Actor, deckId: number): void {
+  const deck = requireEditableDeck(db, actor, deckId);
   withTransaction(db, () => {
     db.prepare("DELETE FROM decks WHERE id = ?").run(deckId);
     // The deck no longer exists; its name stays in the audit summary.
@@ -136,15 +157,15 @@ export function deleteDeck(db: DatabaseSync, actor: Actor, deckId: number): void
 
 /** Only the owner changes lifecycle: it controls agent permissions. */
 export function setDeckCategory(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   deckId: number,
   category: DeckCategory,
 ): void {
-  requireOwner(actor, "change a deck’s lifecycle");
-  const deck = requireDeck(db, deckId);
-  if (category !== "paper" && category !== "theorycrafted" && category !== "legacy")
-    throw new ServiceError("Deck category must be 'paper', 'theorycrafted' or 'legacy'");
+  const deck = requireDeckOwner(db, actor, deckId);
+  requireUi(actor, "change a deck’s lifecycle");
+  if (category !== "paper" && category !== "theorycrafted" && category !== "archived")
+    throw new ServiceError("Deck category must be 'paper', 'theorycrafted' or 'archived'");
   withTransaction(db, () => {
     db.prepare("UPDATE decks SET category = ? WHERE id = ?").run(category, deckId);
     recordActivity(db, actor, "set_deck_category", deckId, `Changed "${deck.name}" from ${deck.category} to ${category}`);
@@ -155,21 +176,22 @@ export function setDeckCategory(
 // deck that was copied by hand before forks existed, this is how it gets the
 // link that lets the two be compared and read as one family.
 export function setDeckParent(
-  db: DatabaseSync,
+  db: Database,
   actor: Actor,
   deckId: number,
   parentId: number | null,
 ): void {
-  requireEditableDeck(db, deckId);
-  requireOwner(actor, "change which deck a deck was forked from");
-  const deck = requireDeck(db, deckId);
+  requireEditableDeck(db, actor, deckId);
+  requireUi(actor, "change which deck a deck was forked from");
+  const deck = requireDeck(db, actor, deckId);
   if (parentId != null) {
+    requireDeckOwner(db, actor, parentId, "use this parent deck");
     // Walking up from the proposed parent must not arrive back here.
     const seen = new Set<number>();
-    for (let cur: number | null = parentId; cur != null; cur = requireDeck(db, cur).parent_id) {
+    for (let cur: number | null = parentId; cur != null; cur = requireDeckOwner(db, actor, cur).parent_id) {
       if (cur === deckId)
         throw new ServiceError(
-          `"${requireDeck(db, parentId).name}" is itself descended from "${deck.name}", so it cannot be its parent`,
+          `"${requireDeck(db, actor, parentId).name}" is itself descended from "${deck.name}", so it cannot be its parent`,
         );
       if (seen.has(cur)) break;
       seen.add(cur);
@@ -186,67 +208,92 @@ export interface DeckSummary {
   parent_name: string | null;
   color_identity: string;
   revision: number;
+  edit_version: number;
   created_at: string;
   card_count: number;
   commanders: string[];
+  commander_art: CardArt[];
   pending_items: number;
   pending_document_edits: number;
+  visibility: Visibility;
+  slug: string | null;
 }
 
 /** The roster: one line per deck, enough to choose which one to open. */
-export function listDecks(db: DatabaseSync): DeckSummary[] {
+export function listDecks(db: Database, actor: Actor): DeckSummary[] {
   const rows = db
     .prepare(
-      `SELECT d.id, d.name, d.category, d.parent_id, p.name AS parent_name, d.color_identity,
-              d.revision, d.created_at,
+      `SELECT d.id, d.name, d.category, CASE WHEN p.id IS NOT NULL THEN d.parent_id END AS parent_id, p.name AS parent_name, d.color_identity,
+              d.revision, d.edit_version, d.created_at, d.visibility, d.slug,
               COALESCE((SELECT SUM(quantity) FROM deck_cards dc
                         WHERE dc.deck_id = d.id AND dc.role != 'companion' AND dc.maybe = 0), 0) AS card_count,
               (SELECT COUNT(*) FROM proposal_items pi JOIN proposals pr ON pr.id = pi.proposal_id
-               WHERE pr.deck_id = d.id AND pi.status = 'pending') AS pending_items,
+               WHERE pr.deck_id = d.id AND pr.status = 'open' AND pi.status = 'pending') AS pending_items,
               (SELECT COUNT(*) FROM document_edits de
                WHERE de.deck_id = d.id AND de.status = 'pending') AS pending_document_edits
-       FROM decks d LEFT JOIN decks p ON p.id = d.parent_id ORDER BY d.name`,
+       FROM decks d LEFT JOIN decks p ON p.id = d.parent_id AND p.user_id = d.user_id WHERE d.user_id = ? ORDER BY d.name`,
     )
-    .all() as unknown as Array<Omit<DeckSummary, "commanders">>;
+    .all(actor.user_id) as unknown as Array<Omit<DeckSummary, "commanders" | "commander_art">>;
   const commanders = db.prepare(
-    `SELECT c.name FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
-     WHERE dc.deck_id = ? AND dc.role = 'commander' ORDER BY c.name`,
+    `SELECT c.oracle_id, c.name, c.image_art_crop, c.artist FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
+     WHERE dc.deck_id = ? AND dc.role = 'commander' AND dc.maybe = 0 ORDER BY c.name`,
   );
-  return rows.map((r) => ({
-    ...r,
-    commanders: (commanders.all(r.id) as unknown as { name: string }[]).map((c) => c.name),
-  }));
+  return rows.map((r) => {
+    const cards = commanders.all(r.id) as unknown as CardArt[];
+    return { ...r, commanders: cards.map(c => c.name), commander_art: cards.map(creditedArt).filter((c): c is CardArt => c !== null) };
+  });
 }
 
-export function requireDeck(db: DatabaseSync, deckId: number): DeckRow {
+/** The owner's read gate for id-addressed capabilities. Viewers never pass it:
+ * they address shared decks by slug through requireViewableDeck (§18.3). */
+export function requireDeck(db: Database, actor: Actor, deckId: number): DeckRow {
   const deck = db.prepare("SELECT * FROM decks WHERE id = ?").get(deckId) as DeckRow | undefined;
-  if (!deck)
+  if (!deck || !actor || deck.user_id !== actor.user_id)
     throw new ServiceError(
       `There is no deck ${deckId}. List the decks to see which ids exist.`,
       404,
     );
-  return deck;
+  return { ...deck, role: "owner" };
+}
+
+/** A deck by its shared link (§18.3). The owner always reads it; anyone else,
+ * signed in or not (`viewer` null), only while it is unlisted or public.
+ * Everything else is the same 404, so a private slug says nothing. */
+export function requireViewableDeck(db: Database, viewer: Actor | null, slug: string): DeckRow {
+  const deck = db.prepare("SELECT * FROM decks WHERE slug = ?").get(String(slug)) as DeckRow | undefined;
+  const owner = !!deck && !!viewer && deck.user_id === viewer.user_id;
+  const owned = !!deck && !!db.prepare("SELECT 1 FROM users WHERE id = ? AND deleted_at IS NULL").get(deck.user_id);
+  if (!deck || !owned || (!owner && deck.visibility === "private"))
+    throw new ServiceError("There is no shared deck at that link. It may be private, or it may have been deleted.", 404);
+  return { ...deck, role: owner ? "owner" : "viewer" };
+}
+
+/** Guard a membership revision before a dependent mutation. */
+export function requireRevision(db: Database, actor: Actor, deckId: number, expected?: number): void {
+  const deck = requireDeck(db, actor, deckId);
+  if (expected !== undefined && expected !== deck.revision)
+    throw new ServiceError(`Deck revision changed: expected ${expected}, current ${deck.revision}. Read the deck again.`, 409);
 }
 
 /** All writes to an archived deck pass this guard, including organization. */
-export function requireEditableDeck(db: DatabaseSync, deckId: number): DeckRow {
-  const deck = requireDeck(db, deckId);
-  if (deck.category === "legacy")
-    throw new PermissionError(`"${deck.name}" is a Legacy deck and is read-only. Fork it to explore changes, or have the owner restore it to Paper or Theorycrafted.`);
+export function requireEditableDeck(db: Database, actor: Actor, deckId: number): DeckRow {
+  const deck = requireDeckOwner(db, actor, deckId);
+  if (deck.category === "archived")
+    throw new PermissionError(`"${deck.name}" is an Archived deck and is read-only. Fork it to explore changes, or have the owner restore it to Paper or Theorycrafted.`);
   return deck;
 }
 
 /** The shared permission gate for direct membership changes. */
-export function requireDirectCardEdit(db: DatabaseSync, actor: Actor, deckId: number): DeckRow {
-  const deck = requireEditableDeck(db, deckId);
-  if (actor.kind === "agent" && deck.category === "paper")
+export function requireDirectCardEdit(db: Database, actor: Actor, deckId: number): DeckRow {
+  const deck = requireEditableDeck(db, actor, deckId);
+  if (actor.via === "agent" && deck.category === "paper")
     throw new PermissionError(`"${deck.name}" is a Paper deck, so its cards change only through a proposal the owner accepts. Use propose_changes. Agents edit Theorycrafted cards directly with edit_cards; only the owner can change lifecycle.`);
   return deck;
 }
 
 // Deck identity = union of commander identities (spec §5.1, denormalized).
-export function recomputeIdentity(db: DatabaseSync, deckId: number): void {
-  requireEditableDeck(db, deckId);
+export function recomputeIdentity(db: Database, actor: Actor, deckId: number): void {
+  requireEditableDeck(db, actor, deckId);
   const commanders = db
     .prepare(
       `SELECT c.ci_mask, c.color_identity FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
@@ -283,27 +330,29 @@ export interface DeckCardRow {
 }
 
 export function findDeckCard(
-  db: DatabaseSync,
+  db: Database, actor: Actor,
   deckId: number,
   oracleId: string,
 ): DeckCardRow | undefined {
+  requireDeck(db, actor, deckId);
   const row = db
     .prepare(
       `SELECT oracle_id, slot_id, role, maybe, maybe_note, quantity
        FROM deck_cards WHERE deck_id = ? AND oracle_id = ?`,
     )
     .get(deckId, oracleId) as DeckCardRow | undefined;
-  if (row) row.secondary_slot_ids = secondarySlotsOf(db, deckId, oracleId);
+  if (row) row.secondary_slot_ids = secondarySlotsOf(db, actor, deckId, oracleId);
   return row;
 }
 
-export function secondarySlotsOf(db: DatabaseSync, deckId: number, oracleId: string): number[] {
+export function secondarySlotsOf(db: Database, actor: Actor, deckId: number, oracleId: string): number[] {
+  requireDeck(db, actor, deckId);
   return (db.prepare("SELECT slot_id FROM deck_card_secondary_slots WHERE deck_id = ? AND oracle_id = ? ORDER BY slot_id")
     .all(deckId, oracleId) as unknown as { slot_id: number }[]).map(r => r.slot_id);
 }
 
-function requireDeckCard(db: DatabaseSync, deckId: number, oracleId: string): DeckCardRow {
-  const row = findDeckCard(db, deckId, oracleId);
+function requireDeckCard(db: Database, actor: Actor, deckId: number, oracleId: string): DeckCardRow {
+  const row = findDeckCard(db, actor, deckId, oracleId);
   if (!row) {
     const name = requireCardById(db, oracleId).name;
     throw new ServiceError(`${name} is not in this deck or on its maybe list`, 404);
@@ -321,7 +370,8 @@ export interface SlotRow {
   position: number;
 }
 
-export function listSlots(db: DatabaseSync, deckId: number): SlotRow[] {
+export function listSlots(db: Database, actor: Actor, deckId: number): SlotRow[] {
+  requireDeck(db, actor, deckId);
   return db
     .prepare(
       "SELECT id, name, target_min, target_max, position FROM slots WHERE deck_id = ? ORDER BY position, id",
@@ -329,7 +379,7 @@ export function listSlots(db: DatabaseSync, deckId: number): SlotRow[] {
     .all(deckId) as unknown as SlotRow[];
 }
 
-function requireSlot(db: DatabaseSync, deckId: number, slotId: number): SlotRow {
+function requireSlot(db: Database, actor: Actor, deckId: number, slotId: number): SlotRow {
   const slot = db
     .prepare("SELECT id, name, target_min, target_max, position FROM slots WHERE id = ? AND deck_id = ?")
     .get(slotId, deckId) as SlotRow | undefined;
@@ -337,7 +387,8 @@ function requireSlot(db: DatabaseSync, deckId: number, slotId: number): SlotRow 
   return slot;
 }
 
-export function findSlotByName(db: DatabaseSync, deckId: number, name: string): SlotRow | null {
+export function findSlotByName(db: Database, actor: Actor, deckId: number, name: string): SlotRow | null {
+  requireDeck(db, actor, deckId);
   return (
     (db
       .prepare(
@@ -349,10 +400,11 @@ export function findSlotByName(db: DatabaseSync, deckId: number, name: string): 
 }
 
 /** A slot by name, or an error that lists the slots that do exist. */
-export function requireSlotByName(db: DatabaseSync, deckId: number, name: string): SlotRow {
-  const slot = findSlotByName(db, deckId, name);
+export function requireSlotByName(db: Database, actor: Actor, deckId: number, name: string): SlotRow {
+  requireDeck(db, actor, deckId);
+  const slot = findSlotByName(db, actor, deckId, name);
   if (slot) return slot;
-  const existing = listSlots(db, deckId).map((s) => s.name);
+  const existing = listSlots(db, actor, deckId).map((s) => s.name);
   throw new ServiceError(
     `This deck has no slot named '${name}'. ` +
       (existing.length
@@ -371,13 +423,13 @@ function validateTargets(min: number | null, max: number | null) {
 }
 
 export function createSlot(
-  db: DatabaseSync,
+  db: Database, actor: Actor,
   deckId: number,
   name: string,
   targetMin: number | null = null,
   targetMax: number | null = null,
 ): number {
-  requireEditableDeck(db, deckId);
+  requireEditableDeck(db, actor, deckId);
   const valid = validateVocabName(name);
   validateTargets(targetMin, targetMax);
   const { p } = db
@@ -391,42 +443,42 @@ export function createSlot(
       .run(deckId, valid, targetMin, targetMax, p);
     return Number(r.lastInsertRowid);
   } catch (e: any) {
-    if (String(e.message).includes("UNIQUE"))
+    if (isUniqueViolation(e))
       throw new ServiceError(`Slot '${valid}' already exists in this deck`, 409);
     throw e;
   }
 }
 
 export function updateSlot(
-  db: DatabaseSync,
+  db: Database, actor: Actor,
   deckId: number,
   slotId: number,
   patch: { name?: string; targetMin?: number | null; targetMax?: number | null },
 ): void {
-  requireEditableDeck(db, deckId);
-  const slot = requireSlot(db, deckId, slotId);
+  requireEditableDeck(db, actor, deckId);
+  const slot = requireSlot(db, actor, deckId, slotId);
   const name = patch.name !== undefined ? validateVocabName(patch.name) : slot.name;
   const min = patch.targetMin !== undefined ? patch.targetMin : slot.target_min;
   const max = patch.targetMax !== undefined ? patch.targetMax : slot.target_max;
   validateTargets(min, max);
   try {
-    db.prepare("UPDATE slots SET name = ?, target_min = ?, target_max = ? WHERE id = ?").run(
+    db.prepare("UPDATE slots SET name = ?, target_min = ?, target_max = ? WHERE id = ? AND deck_id = ?").run(
       name,
       min,
       max,
-      slotId,
+      slotId, deckId,
     );
   } catch (e: any) {
-    if (String(e.message).includes("UNIQUE"))
+    if (isUniqueViolation(e))
       throw new ServiceError(`Slot '${name}' already exists in this deck`, 409);
     throw e;
   }
 }
 
-export function deleteSlot(db: DatabaseSync, deckId: number, slotId: number): void {
-  requireEditableDeck(db, deckId);
-  requireSlot(db, deckId, slotId);
-  db.prepare("DELETE FROM slots WHERE id = ?").run(slotId);
+export function deleteSlot(db: Database, actor: Actor, deckId: number, slotId: number): void {
+  requireEditableDeck(db, actor, deckId);
+  requireSlot(db, actor, deckId, slotId);
+  db.prepare("DELETE FROM slots WHERE id = ? AND deck_id = ?").run(slotId, deckId);
 }
 
 // ---------- tags ----------
@@ -436,13 +488,14 @@ export interface TagRow {
   name: string;
 }
 
-export function listTags(db: DatabaseSync, deckId: number): TagRow[] {
+export function listTags(db: Database, actor: Actor, deckId: number): TagRow[] {
+  requireDeck(db, actor, deckId);
   return db
     .prepare("SELECT id, name FROM tags WHERE deck_id = ? ORDER BY name")
     .all(deckId) as unknown as TagRow[];
 }
 
-function requireTag(db: DatabaseSync, deckId: number, tagId: number) {
+function requireTag(db: Database, actor: Actor, deckId: number, tagId: number) {
   const tag = db.prepare("SELECT * FROM tags WHERE id = ? AND deck_id = ?").get(tagId, deckId);
   if (!tag) throw new ServiceError(`Tag ${tagId} not found in deck ${deckId}`, 404);
   return tag;
@@ -469,11 +522,11 @@ export function similarTag(existing: string[], candidate: string): string | null
   return existing.find((e) => tagKey(e) === key) ?? null;
 }
 
-export function createTag(db: DatabaseSync, deckId: number, name: string): number {
-  requireEditableDeck(db, deckId);
+export function createTag(db: Database, actor: Actor, deckId: number, name: string): number {
+  requireEditableDeck(db, actor, deckId);
   const valid = validateVocabName(name);
   const clash = similarTag(
-    listTags(db, deckId).map((t) => t.name),
+    listTags(db, actor, deckId).map((t) => t.name),
     valid,
   );
   if (clash)
@@ -485,35 +538,52 @@ export function createTag(db: DatabaseSync, deckId: number, name: string): numbe
   return Number(r.lastInsertRowid);
 }
 
-export function renameTag(db: DatabaseSync, deckId: number, tagId: number, name: string): void {
-  requireEditableDeck(db, deckId);
-  requireTag(db, deckId, tagId);
+// Have adds evidence of ownership only. Reapplying it must not erase a more
+// precise current physical/available count or create extra physical copies.
+function recordHaveEvidence(db: Database, actor: Actor, deckId: number, oracleId: string): void {
+  const latest = db.prepare("SELECT status FROM ownership_evidence WHERE oracle_id = ? AND user_id = ? ORDER BY id DESC LIMIT 1").get(oracleId, actor.user_id) as { status: string } | undefined;
+  if (latest?.status === "owned") return;
+  db.prepare(`INSERT INTO ownership_evidence
+    (oracle_id, status, basis, author, source_deck_id, source_deck_name, user_id, author_user_id, author_via, author_label)
+    VALUES (?, 'owned', 'Explicit Have tag; physical quantity and availability unknown', ?, ?, ?, ?, ?, ?, ?)`)
+    .run(oracleId, authorOf(actor), deckId, requireDeck(db, actor, deckId).name, actor.user_id, actor.user_id, actor.via, actor.label);
+}
+
+export function renameTag(db: Database, actor: Actor, deckId: number, tagId: number, name: string): void {
+  requireEditableDeck(db, actor, deckId);
+  requireTag(db, actor, deckId, tagId);
   const valid = validateVocabName(name);
-  const clash = similarTag(listTags(db, deckId).filter((tag) => tag.id !== tagId).map((tag) => tag.name), valid);
+  const clash = similarTag(listTags(db, actor, deckId).filter((tag) => tag.id !== tagId).map((tag) => tag.name), valid);
   if (clash)
     throw new ServiceError(
       `This deck already has the tag '${clash}', which '${valid}' would duplicate. Use '${clash}'.`,
       409,
     );
   try {
-    db.prepare("UPDATE tags SET name = ? WHERE id = ?").run(valid, tagId);
+    withTransaction(db, () => {
+      db.prepare("UPDATE tags SET name = ? WHERE id = ? AND deck_id = ?").run(valid, tagId, deckId);
+      if (valid.trim().toLowerCase() === "have") {
+        for (const row of db.prepare("SELECT oracle_id FROM deck_card_tags WHERE deck_id = ? AND tag_id = ?").all(deckId, tagId) as unknown as { oracle_id: string }[])
+          recordHaveEvidence(db, actor, deckId, row.oracle_id);
+      }
+    });
   } catch (e: any) {
-    if (String(e.message).includes("UNIQUE"))
+    if (isUniqueViolation(e))
       throw new ServiceError(`Tag '${valid}' already exists in this deck`, 409);
     throw e;
   }
 }
 
-export function deleteTag(db: DatabaseSync, deckId: number, tagId: number): void {
-  requireEditableDeck(db, deckId);
-  requireTag(db, deckId, tagId);
-  db.prepare("DELETE FROM tags WHERE id = ?").run(tagId);
+export function deleteTag(db: Database, actor: Actor, deckId: number, tagId: number): void {
+  requireEditableDeck(db, actor, deckId);
+  requireTag(db, actor, deckId, tagId);
+  db.prepare("DELETE FROM tags WHERE id = ? AND deck_id = ?").run(tagId, deckId);
 }
 
-function findOrCreateTag(db: DatabaseSync, deckId: number, name: string): number {
-  const existing = listTags(db, deckId);
+function findOrCreateTag(db: Database, actor: Actor, deckId: number, name: string): number {
+  const existing = listTags(db, actor, deckId);
   const exact = existing.find((t) => t.name.toLowerCase() === name.trim().toLowerCase());
-  return exact ? exact.id : createTag(db, deckId, name);
+  return exact ? exact.id : createTag(db, actor, deckId, name);
 }
 
 // ---------- organization of cards (spec §5.4) ----------
@@ -527,27 +597,28 @@ export interface OrganizePatch {
   tagIds?: number[];
 }
 
-export function validateSlotAssignments(db: DatabaseSync, deckId: number, primary: number | null, secondary: number[]): void {
+export function validateSlotAssignments(db: Database, actor: Actor, deckId: number, primary: number | null, secondary: number[]): void {
+  requireDeck(db, actor, deckId);
   if (primary != null && (!Number.isSafeInteger(primary) || primary < 1))
     throw new ServiceError("Primary slot ID must be a positive integer or null");
   if (!Array.isArray(secondary) || secondary.some(id => !Number.isSafeInteger(id) || id < 1))
     throw new ServiceError("Secondary slot IDs must be an array of positive integers");
-  if (primary != null) requireSlot(db, deckId, primary);
-  for (const id of secondary) requireSlot(db, deckId, id);
+  if (primary != null) requireSlot(db, actor, deckId, primary);
+  for (const id of secondary) requireSlot(db, actor, deckId, id);
   if (primary != null && secondary.includes(primary))
     throw new ServiceError("A primary slot cannot also be secondary");
 }
 
 /** File one card's purposes and management tags. Changes no membership. */
 export function organizeCard(
-  db: DatabaseSync,
+  db: Database, actor: Actor,
   deckId: number,
   oracleId: string,
   patch: OrganizePatch,
 ): void {
-  requireEditableDeck(db, deckId);
+  requireEditableDeck(db, actor, deckId);
   withTransaction(db, () => {
-    const row = requireDeckCard(db, deckId, oracleId);
+    const row = requireDeckCard(db, actor, deckId, oracleId);
     if (patch.tagIds !== undefined && (!Array.isArray(patch.tagIds) || patch.tagIds.some((id) => !Number.isSafeInteger(id) || id < 1)))
       throw new ServiceError("Tag IDs must be an array of positive integers");
     if (patch.slotId !== undefined || patch.secondarySlotIds !== undefined) {
@@ -555,7 +626,7 @@ export function organizeCard(
       // Promoting a secondary purpose removes its secondary assignment. An
       // explicit duplicate is an error, so ambiguous writes never land.
       const secondary = patch.secondarySlotIds !== undefined ? patch.secondarySlotIds : row.secondary_slot_ids.filter(id => id !== primary);
-      validateSlotAssignments(db, deckId, primary, secondary);
+      validateSlotAssignments(db, actor, deckId, primary, secondary);
       db.prepare("DELETE FROM deck_card_secondary_slots WHERE deck_id = ? AND oracle_id = ?").run(deckId, oracleId);
       db.prepare("UPDATE deck_cards SET slot_id = ? WHERE deck_id = ? AND oracle_id = ?").run(
         primary,
@@ -566,7 +637,11 @@ export function organizeCard(
       for (const id of new Set(secondary)) ins.run(deckId, oracleId, id);
     }
     if (patch.tagIds !== undefined) {
-      for (const tagId of patch.tagIds) requireTag(db, deckId, tagId);
+      for (const tagId of patch.tagIds) requireTag(db, actor, deckId, tagId);
+      const hadHave = db.prepare(`SELECT 1 FROM deck_card_tags ct JOIN tags t ON t.id = ct.tag_id
+        WHERE ct.deck_id = ? AND ct.oracle_id = ? AND lower(trim(t.name)) = 'have'`).get(deckId, oracleId);
+      const addsHave = patch.tagIds.some(id => listTags(db, actor, deckId).some(t => t.id === id && t.name.trim().toLowerCase() === "have"));
+      if (addsHave && !hadHave) recordHaveEvidence(db, actor, deckId, oracleId);
       db.prepare("DELETE FROM deck_card_tags WHERE deck_id = ? AND oracle_id = ?").run(
         deckId,
         oracleId,
@@ -591,50 +666,53 @@ export interface FilingInput {
 
 // Bulk filing by name, for agents: every entry lands or none does. Tags named
 // here are created if the deck lacks them, subject to the near-duplicate rule.
-export function fileCards(db: DatabaseSync, deckId: number, filings: FilingInput[], removeUnusedTags: string[] = []): void {
-  requireEditableDeck(db, deckId);
-  if (!Array.isArray(removeUnusedTags) || removeUnusedTags.some(name => typeof name !== "string"))
-    throw new ServiceError("Unused tags to remove must be an array of tag names");
-  withTransaction(db, () => {
-    for (const f of filings) {
-      requireDeckCard(db, deckId, f.oracle_id);
-      const patch: OrganizePatch = {};
-      if (f.slot !== undefined)
-        patch.slotId = f.slot === null ? null : requireSlotByName(db, deckId, f.slot).id;
-      if (f.secondary_slots !== undefined) {
-        if (!Array.isArray(f.secondary_slots) || f.secondary_slots.some(name => typeof name !== "string"))
-          throw new ServiceError("Secondary slots must be an array of slot names");
-        patch.secondarySlotIds = f.secondary_slots.map(name => requireSlotByName(db, deckId, name).id);
-      }
-      if (f.add_tags?.length || f.remove_tags?.length) {
-        const current = new Set(
-          (
-            db
-              .prepare("SELECT tag_id FROM deck_card_tags WHERE deck_id = ? AND oracle_id = ?")
-              .all(deckId, f.oracle_id) as unknown as { tag_id: number }[]
-          ).map((t) => t.tag_id),
-        );
-        for (const name of f.add_tags ?? []) current.add(findOrCreateTag(db, deckId, name));
-        for (const name of f.remove_tags ?? []) {
-          const tag = listTags(db, deckId).find(
-            (t) => t.name.toLowerCase() === name.trim().toLowerCase(),
-          );
-          if (tag) current.delete(tag.id);
+export function fileCards(db: Database, actor: Actor, deckId: number, filings: FilingInput[], removeUnusedTags: string[] = []): void {
+  return withActivity(db, actor, "fileCards", () => {
+    requireEditableDeck(db, actor, deckId);
+    if (!Array.isArray(removeUnusedTags) || removeUnusedTags.some(name => typeof name !== "string"))
+      throw new ServiceError("Unused tags to remove must be an array of tag names");
+    withTransaction(db, () => {
+      for (const f of filings) {
+        requireDeckCard(db, actor, deckId, f.oracle_id);
+        const patch: OrganizePatch = {};
+        if (f.slot !== undefined)
+          patch.slotId = f.slot === null ? null : requireSlotByName(db, actor, deckId, f.slot).id;
+        if (f.secondary_slots !== undefined) {
+          if (!Array.isArray(f.secondary_slots) || f.secondary_slots.some(name => typeof name !== "string"))
+            throw new ServiceError("Secondary slots must be an array of slot names");
+          patch.secondarySlotIds = f.secondary_slots.map(name => requireSlotByName(db, actor, deckId, name).id);
         }
-        patch.tagIds = [...current];
+        if (f.add_tags?.length || f.remove_tags?.length) {
+          const current = new Set(
+            (
+              db
+                .prepare("SELECT tag_id FROM deck_card_tags WHERE deck_id = ? AND oracle_id = ?")
+                .all(deckId, f.oracle_id) as unknown as { tag_id: number }[]
+            ).map((t) => t.tag_id),
+          );
+          for (const name of f.add_tags ?? []) current.add(findOrCreateTag(db, actor, deckId, name));
+          for (const name of f.remove_tags ?? []) {
+            const tag = listTags(db, actor, deckId).find(
+              (t) => t.name.toLowerCase() === name.trim().toLowerCase(),
+            );
+            if (tag) current.delete(tag.id);
+          }
+          patch.tagIds = [...current];
+        }
+        organizeCard(db, actor, deckId, f.oracle_id, patch);
       }
-      organizeCard(db, deckId, f.oracle_id, patch);
-    }
-    // Explicit vocabulary cleanup, never inferred from an empty assignment.
-    // Reserved status tags can stay even while no card carries them.
-    for (const name of removeUnusedTags) {
-      const tag = listTags(db, deckId).find(t => t.name.toLowerCase() === name.trim().toLowerCase());
-      if (!tag) continue;
-      if (db.prepare("SELECT 1 FROM deck_card_tags WHERE deck_id = ? AND tag_id = ? LIMIT 1").get(deckId, tag.id))
-        throw new ServiceError(`Tag '${tag.name}' is still assigned; remove its assignments before removing it from the vocabulary`);
-      deleteTag(db, deckId, tag.id);
-    }
-  });
+      // Explicit vocabulary cleanup, never inferred from an empty assignment.
+      // Reserved status tags can stay even while no card carries them.
+      for (const name of removeUnusedTags) {
+        const tag = listTags(db, actor, deckId).find(t => t.name.toLowerCase() === name.trim().toLowerCase());
+        if (!tag) continue;
+        if (db.prepare("SELECT 1 FROM deck_card_tags WHERE deck_id = ? AND tag_id = ? LIMIT 1").get(deckId, tag.id))
+          throw new ServiceError(`Tag '${tag.name}' is still assigned; remove its assignments before removing it from the vocabulary`);
+        deleteTag(db, actor, deckId, tag.id);
+      }
+    });
+
+  }, result => ({ deckId: deckId, summary: `Filed ${filings.length} card(s)` }));
 }
 
 export interface SlotSpec {
@@ -649,28 +727,31 @@ export interface SlotSpec {
 
 // Create, rename, retarget and remove slots in one transactional call. A slot
 // named here that does not exist is created; one that exists is updated.
-export function defineSlots(db: DatabaseSync, deckId: number, specs: SlotSpec[]): void {
-  requireEditableDeck(db, deckId);
-  withTransaction(db, () => {
-    for (const s of specs) {
-      const existing = findSlotByName(db, deckId, s.name);
-      if (s.remove) {
-        if (!existing) requireSlotByName(db, deckId, s.name);
-        deleteSlot(db, deckId, existing!.id);
-        continue;
+export function defineSlots(db: Database, actor: Actor, deckId: number, specs: SlotSpec[]): void {
+  return withActivity(db, actor, "defineSlots", () => {
+    requireEditableDeck(db, actor, deckId);
+    withTransaction(db, () => {
+      for (const s of specs) {
+        const existing = findSlotByName(db, actor, deckId, s.name);
+        if (s.remove) {
+          if (!existing) requireSlotByName(db, actor, deckId, s.name);
+          deleteSlot(db, actor, deckId, existing!.id);
+          continue;
+        }
+        if (!existing) {
+          if (s.rename_to !== undefined) requireSlotByName(db, actor, deckId, s.name);
+          createSlot(db, actor, deckId, s.name, s.target_min ?? null, s.target_max ?? null);
+          continue;
+        }
+        updateSlot(db, actor, deckId, existing.id, {
+          name: s.rename_to,
+          targetMin: s.target_min,
+          targetMax: s.target_max,
+        });
       }
-      if (!existing) {
-        if (s.rename_to !== undefined) requireSlotByName(db, deckId, s.name);
-        createSlot(db, deckId, s.name, s.target_min ?? null, s.target_max ?? null);
-        continue;
-      }
-      updateSlot(db, deckId, existing.id, {
-        name: s.rename_to,
-        targetMin: s.target_min,
-        targetMax: s.target_max,
-      });
-    }
-  });
+    });
+
+  }, result => ({ deckId: deckId, summary: "Updated purpose slots" }));
 }
 
 // ---------- the maybe list (spec §5.4) ----------
@@ -679,43 +760,50 @@ export function defineSlots(db: DatabaseSync, deckId: number, specs: SlotSpec[])
 // outside the 100 and bumps no revision. Moving a card between the 100 and
 // the maybe list is membership and goes through deck/membership.ts.
 export function shortlistCard(
-  db: DatabaseSync,
+  db: Database, actor: Actor,
   deckId: number,
   oracleId: string,
   note = "",
 ): void {
-  requireEditableDeck(db, deckId);
-  const card = requireCardById(db, oracleId);
-  const existing = findDeckCard(db, deckId, oracleId);
-  if (existing && !existing.maybe)
-    throw new ServiceError(`${card.name} is already in the deck, so it cannot be shortlisted`);
-  if (existing) {
-    db.prepare("UPDATE deck_cards SET maybe_note = ? WHERE deck_id = ? AND oracle_id = ?").run(
-      note.trim() || existing.maybe_note,
-      deckId,
-      oracleId,
-    );
-    return;
-  }
-  db.prepare(
-    "INSERT INTO deck_cards (deck_id, oracle_id, maybe, maybe_note) VALUES (?, ?, 1, ?)",
-  ).run(deckId, oracleId, note.trim());
+  return withActivity(db, actor, "shortlistCard", () => {
+    requireEditableDeck(db, actor, deckId);
+    lintProse(db, note);
+    const card = requireCardById(db, oracleId);
+    const existing = findDeckCard(db, actor, deckId, oracleId);
+    if (existing && !existing.maybe)
+      throw new ServiceError(`${card.name} is already in the deck, so it cannot be shortlisted`);
+    if (existing) {
+      db.prepare("UPDATE deck_cards SET maybe_note = ? WHERE deck_id = ? AND oracle_id = ?").run(
+        note.trim() || existing.maybe_note,
+        deckId,
+        oracleId,
+      );
+      return;
+    }
+    db.prepare(
+      "INSERT INTO deck_cards (deck_id, oracle_id, maybe, maybe_note) VALUES (?, ?, 1, ?)",
+    ).run(deckId, oracleId, note.trim());
+
+  }, () => ({ deckId, summary: `Shortlisted ${requireCardById(db, oracleId).name}` }));
 }
 
-export function unshortlistCard(db: DatabaseSync, deckId: number, oracleId: string): void {
-  requireEditableDeck(db, deckId);
-  const row = requireDeckCard(db, deckId, oracleId);
-  if (!row.maybe)
-    throw new ServiceError(
-      `${requireCardById(db, oracleId).name} is in the deck, not on the maybe list. ` +
-        `Removing it from the deck is a membership change.`,
-    );
-  db.prepare("DELETE FROM deck_cards WHERE deck_id = ? AND oracle_id = ?").run(deckId, oracleId);
+export function unshortlistCard(db: Database, actor: Actor, deckId: number, oracleId: string): void {
+  return withActivity(db, actor, "unshortlistCard", () => {
+    requireEditableDeck(db, actor, deckId);
+    const row = requireDeckCard(db, actor, deckId, oracleId);
+    if (!row.maybe)
+      throw new ServiceError(
+        `${requireCardById(db, oracleId).name} is in the deck, not on the maybe list. ` +
+          `Removing it from the deck is a membership change.`,
+      );
+    db.prepare("DELETE FROM deck_cards WHERE deck_id = ? AND oracle_id = ?").run(deckId, oracleId);
+
+  }, () => ({ deckId, summary: `Removed ${requireCardById(db, oracleId).name} from the maybe list` }));
 }
 
 // ---------- the deck view ----------
 
-export interface DeckCardView {
+export interface DeckCardView extends ResolvedPrice {
   oracle_id: string;
   name: string;
   mana_cost: string | null;
@@ -730,7 +818,12 @@ export interface DeckCardView {
   commander_legality: string;
   is_commander: number;
   /** Spec §4.4: the cheapest printing's price; null when no printing has one. */
-  usd_cents: number | null;
+  image_small: string | null;
+  image_normal: string | null;
+  image_art_crop: string | null;
+  /** Credit for the art crop (D10); null until a refresh supplies it. */
+  artist: string | null;
+  retired: number;
   slot_id: number | null;
   secondary_slot_ids: number[];
   role: Role;
@@ -738,25 +831,36 @@ export interface DeckCardView {
   maybe: number;
   maybe_note: string;
   quantity: number;
+  /** Most copies the card allows (copyLimit); null when there is no limit. */
+  copy_limit: number | null;
+  /** Offered panel roles, not write restrictions or companion-condition checks. */
+  can_be_commander: boolean;
+  can_be_companion: boolean;
   tag_ids: number[];
 }
 
-export function getDeck(db: DatabaseSync, deckId: number) {
-  const deck = requireDeck(db, deckId);
-  const slots = listSlots(db, deckId);
-  const tags = listTags(db, deckId);
+/** `opts` serve the public projection (§18.3): price for the viewer, not the
+ * owner (null is anonymous USD/lowest), and count nothing pending, so a
+ * shared deck's computed state carries no trace of proposals. */
+export function getDeck(db: Database, actor: Actor, deckId: number, opts: { pricesFor?: Actor | null; withoutPending?: boolean } = {}) {
+  return memoRead(db, JSON.stringify(["deck", actor.user_id, deckId, opts]), () => readDeck(db, actor, deckId, opts));
+}
+function readDeck(db: Database, actor: Actor, deckId: number, opts: { pricesFor?: Actor | null; withoutPending?: boolean }) {
+  const deck = requireDeck(db, actor, deckId);
+  const slots = listSlots(db, actor, deckId);
+  const tags = listTags(db, actor, deckId);
 
-  const cards = db
+  const prices = priceResolver(db, "pricesFor" in opts ? opts.pricesFor ?? null : actor);
+  const cards = prices.resolve(db
     .prepare(
       `SELECT c.oracle_id, c.name, c.mana_cost, c.cmc, c.type_line, c.oracle_text,
-              c.power, c.toughness, c.loyalty, c.color_identity, c.ci_mask,
-              c.commander_legality, c.is_commander, p.usd_cents,
+              c.power, c.toughness, c.loyalty, c.color_identity, c.ci_mask, c.layout, c.faces_json,
+              c.commander_legality, c.is_commander, c.image_small, c.image_normal, c.image_art_crop, c.artist, c.retired,
               dc.slot_id, dc.role, dc.maybe, dc.maybe_note, dc.quantity
        FROM deck_cards dc JOIN cards c ON c.oracle_id = dc.oracle_id
-       LEFT JOIN card_prices p ON p.oracle_id = dc.oracle_id
        WHERE dc.deck_id = ? ORDER BY c.name`,
     )
-    .all(deckId) as unknown as DeckCardView[];
+    .all(deckId) as unknown as (DeckCardView & Pick<ManaCard, "layout" | "faces_json">)[]);
 
   const tagRows = db
     .prepare("SELECT oracle_id, tag_id FROM deck_card_tags WHERE deck_id = ?")
@@ -767,7 +871,12 @@ export function getDeck(db: DatabaseSync, deckId: number) {
     list.push(r.tag_id);
     tagsByCard.set(r.oracle_id, list);
   }
-  for (const card of cards) card.tag_ids = tagsByCard.get(card.oracle_id) ?? [];
+  for (const card of cards) {
+    card.tag_ids = tagsByCard.get(card.oracle_id) ?? [];
+    const limit = copyLimit(card);
+    card.copy_limit = Number.isFinite(limit) ? limit : null;
+    Object.assign(card, roleEligibility(card));
+  }
   const secondaryRows = db.prepare("SELECT oracle_id, slot_id FROM deck_card_secondary_slots WHERE deck_id = ? ORDER BY slot_id")
     .all(deckId) as unknown as { oracle_id: string; slot_id: number }[];
   const secondaryByCard = new Map<string, number[]>();
@@ -778,23 +887,27 @@ export function getDeck(db: DatabaseSync, deckId: number) {
   }
   for (const card of cards) card.secondary_slot_ids = secondaryByCard.get(card.oracle_id) ?? [];
 
-  const pendingItems = db
+  const pendingItems = opts.withoutPending ? [] : prices.resolve(db
     .prepare(
-      `SELECT pi.action, pi.slot_id, dc.slot_id AS current_slot_id,
+      `SELECT pi.oracle_id, pi.action, pi.to_maybe, pi.slot_id, dc.slot_id AS current_slot_id,
               dc.maybe AS current_maybe, dc.role AS current_role
        FROM proposal_items pi
        JOIN proposals p ON p.id = pi.proposal_id
        LEFT JOIN deck_cards dc ON dc.deck_id = p.deck_id AND dc.oracle_id = pi.oracle_id
-       WHERE p.deck_id = ? AND pi.status = 'pending'`,
+       WHERE p.deck_id = ? AND p.status = 'open' AND pi.status = 'pending' ORDER BY pi.id`,
     )
-    .all(deckId) as unknown as PendingItem[];
+    .all(deckId) as unknown as PendingItem[]);
 
   const parentRow = deck.parent_id
-    ? (db.prepare("SELECT id, name FROM decks WHERE id = ?").get(deck.parent_id) as
+    ? (db.prepare("SELECT id, name FROM decks WHERE id = ? AND user_id = ?").get(deck.parent_id, actor.user_id) as
         | { id: number; name: string }
         | undefined)
     : undefined;
   const parent = parentRow ? { id: parentRow.id, name: parentRow.name } : null;
+  // A cross-owner fork's source, from the snapshot taken when it was forked (§18.4).
+  const upstream = deck.parent_slug && deck.parent_owner_handle
+    ? { owner_handle: deck.parent_owner_handle, slug: deck.parent_slug, name: deck.parent_name ?? "" }
+    : null;
 
   return {
     deck: {
@@ -802,20 +915,27 @@ export function getDeck(db: DatabaseSync, deckId: number) {
       name: deck.name,
       category: deck.category,
       parent,
+      upstream,
+      visibility: deck.visibility,
+      slug: deck.slug,
+      publish_decisions: !!deck.publish_decisions,
       ci_mask: deck.ci_mask,
       color_identity: deck.color_identity,
       revision: deck.revision,
+      edit_version: deck.edit_version,
     },
     slots,
     tags,
-    cards,
-    computed: computeState(deck, slots, cards, pendingItems, pricesAsOf(db)),
+    cards: cards.map(({ layout: _layout, faces_json: _faces, ...card }) => card),
+    computed: computeState(deck, slots, cards, pendingItems, prices),
   };
 }
 
 export type DeckView = ReturnType<typeof getDeck>;
 
-interface PendingItem {
+interface PendingItem extends ResolvedPrice {
+  oracle_id: string;
+  to_maybe: number;
   action: "add" | "cut";
   slot_id: number | null;
   current_slot_id: number | null;
@@ -832,9 +952,9 @@ const isLand = (c: { type_line: string }) => /\bLand\b/.test(c.type_line);
 function computeState(
   deck: { ci_mask: number | null },
   slots: SlotRow[],
-  cards: DeckCardView[],
+  cards: (DeckCardView & Pick<ManaCard, "layout" | "faces_json">)[],
   pendingItems: PendingItem[],
-  pricesAsOf: string | null,
+  prices: PriceMetadata,
 ) {
   // Everything below counts the deck. The maybe list is explicitly not part
   // of it: parked cards contribute to no count, curve, pip spread, slot delta
@@ -845,6 +965,13 @@ function computeState(
   const deckCards = cards.filter((c) => !c.maybe);
   const mainCards = deckCards.filter((c) => c.role !== "companion");
   const cardCount = mainCards.reduce((n, c) => n + c.quantity, 0);
+  const displayTypes = ["Creature", "Planeswalker", "Battle", "Instant", "Sorcery", "Artifact", "Enchantment"];
+  const typeCounts: Record<string, number> = Object.fromEntries([...displayTypes, "Land", "Other"].map(type => [type, 0]));
+  for (const card of mainCards) {
+    const primary = isLand(card) ? "Land" : displayTypes.find(type => new RegExp(`\\b${type}\\b`).test(card.type_line)) ?? "Other";
+    typeCounts[primary] += card.quantity;
+  }
+
 
   const slotDeltas = slots.map((s) => {
     const primaryCount = mainCards
@@ -931,7 +1058,22 @@ function computeState(
   // Spec §4.4: what the deck would cost to buy, every card at its cheapest
   // printing. The companion is a card to buy too, so it counts here though it
   // sits outside the 100.
-  const cost = { ...estimateCost(deckCards), as_of: pricesAsOf };
+  const cost = { ...estimateCost(deckCards), currency: prices.currency, store: prices.store, as_of: prices.as_of, source: prices.source };
+
+  // Price projection follows membership's one-copy add/cut and whole-card
+  // parking rules. Simulate by oracle id so copies and unpriced distinct cards
+  // stay correct when several proposals touch the same card (§4.4).
+  const projected = new Map(deckCards.map(c => [c.oracle_id, { cents: c.cents, quantity: c.quantity }]));
+  for (const item of pendingItems) {
+    const held = projected.get(item.oracle_id);
+    if (item.action === "add") projected.set(item.oracle_id, { cents: item.cents, quantity: (held?.quantity ?? 0) + 1 });
+    else if (held) {
+      if (item.to_maybe || held.quantity === 1) projected.delete(item.oracle_id);
+      else projected.set(item.oracle_id, { ...held, quantity: held.quantity - 1 });
+    }
+  }
+  const projectedCost = { ...cost, ...estimateCost([...projected.values()]) };
+  const costDelta = { ...cost, cents: projectedCost.cents - cost.cents, unpriced: projectedCost.unpriced - cost.unpriced };
 
   const pendingAdds = pendingItems.filter((i) => i.action === "add").length;
   const pendingCuts = pendingItems.filter((i) => i.action === "cut").length;
@@ -956,6 +1098,8 @@ function computeState(
       cuts: pendingCuts,
       projected_count: cardCount + pendingAdds - pendingCuts,
       by_slot: pendingBySlot,
+      projected_cost: projectedCost,
+      cost_delta: costDelta,
     },
     unslotted_count: unslotted,
     maybe_count: maybeCards.length,
@@ -967,6 +1111,8 @@ function computeState(
     average_mana_value: averageManaValue,
     curve,
     pips,
+    mana: analyzeMana(cards),
+    type_counts: typeCounts,
     cost,
   };
 }

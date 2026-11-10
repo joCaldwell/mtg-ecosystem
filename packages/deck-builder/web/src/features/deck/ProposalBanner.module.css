@@ -9,6 +9,15 @@
   flex: none;
 }
 
+/* The quoted title and its time read as one phrase. */
+.tail {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
 /* One line; a long summary is cut rather than pushing the button away. */
 .summary {
   flex: 0 1 auto;
@@ -24,4 +33,29 @@
 
 .keys {
   white-space: nowrap;
+}
+.tabletReview { display: none; }
+
+
+
+/* Touch tablets: the review action is a full tap target. */
+@media (max-width: 1099px) { .tap { min-height: var(--tap); } }
+
+@media (max-width: 1099px) {
+  .desktopReview { display: none; }
+  .tabletReview {
+    position: sticky;
+    top: calc(var(--tablet-bar-outer-h) + var(--deck-scroll-heading-space, 0px));
+    z-index: var(--z-sticky);
+    display: flex;
+    min-height: var(--tablet-review-h);
+    padding: var(--s-2) var(--s-4);
+    background: var(--bg);
+  }
+  .line { flex-wrap: wrap; gap: var(--s-2) var(--s-4); }
+  .who { flex-shrink: 1; }
+}
+
+@media (pointer: coarse) {
+  .banner kbd, .banner .keys { display: none; }
 }

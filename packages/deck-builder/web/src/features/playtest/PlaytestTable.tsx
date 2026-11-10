@@ -1,12 +1,11 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type {
   DeckState,
-  Mode,
   PlaytestAction,
+  TableObject,
   Zone,
   TableRow,
 } from "../../api/client.ts";
-import { useReportFocus } from "../../app/useReportFocus.ts";
 import { href } from "../../app/routes.ts";
 import {
   ROW_LABELS,
@@ -20,7 +19,6 @@ import { PlayerSummary, TableZone, TextCard, TapButton } from "../../mtg/index.t
 import {
   Banner,
   Button,
-  ConfirmDialog,
   ContextMenu,
   Dialog,
   Icon,
@@ -30,6 +28,7 @@ import {
   tokenPx,
   useHotkeys,
   useLocalStorage,
+  useToast,
   type ContextMenuTarget,
   type ContextMenuProps,
 } from "../../ui/index.ts";
@@ -37,8 +36,12 @@ import { SessionControls } from "./SessionControls.tsx";
 import { InspectionPanel } from "./InspectionPanel.tsx";
 import { ZoneViewer } from "./ZoneViewer.tsx";
 import { TokenDialog } from "./TokenDialog.tsx";
+import { NewGameDialog } from "./NewGameDialog.tsx";
+import { RandomNumberDialog, type Roll } from "./RandomNumberDialog.tsx";
 import type { PlaytestController } from "./usePlaytest.ts";
 import styles from "./PlaytestTable.module.css";
+/** How long a drawn card keeps its arrival mark. */
+const DRAWN_MARK_MS = 3000;
 export function PlaytestTable({
   controller: c,
   deck,
@@ -55,10 +58,11 @@ export function PlaytestTable({
   const [hover, setHover] = useState<string | null>(null),
     [restart, setRestart] = useState(false),
     [token, setToken] = useState(false),
-    [drawing, setDrawing] = useState(false);
+    [drawing, setDrawing] = useState(false),
+    [rolling, setRolling] = useState(false),
+    [rolls, setRolls] = useState<Roll[]>([]);
   const [context, setContext] = useState<(ContextMenuTarget & { id: string; ids: string[] }) | null>(null);
-  const [mode, setMode] = useState<Mode>(f.opening.mode),
-    [drawCount, setDrawCount] = useState("3");
+  const [drawCount, setDrawCount] = useState("3");
   const [width, setWidth] = useLocalStorage<number | null>(
     "playtest.panelWidth",
     (raw) => (raw && Number.isFinite(Number(raw)) ? Number(raw) : null),
@@ -72,9 +76,78 @@ export function PlaytestTable({
     }),
     [],
   );
+  const { toast, dismiss } = useToast();
+  const table = useRef<HTMLDivElement>(null);
+  const latest = useRef(v);
+  latest.current = v;
+  // The frame a draw produced while its toast still offers Undo.
+  const drawToast = useRef<string | null>(null);
+  const [drawn, setDrawn] = useState<string[]>([]);
   const act = (action: PlaytestAction) => {
-    if (!c.pending) void c.act(action);
+    if (!c.pending) void perform(action);
   };
+  async function perform(action: PlaytestAction) {
+    const before = latest.current.session.frame;
+    if (action.type === "undo") drawToast.current = null;
+    const next = await c.act(action);
+    if (!next) return;
+    const after = next.session.frame;
+    if (action.type === "draw") {
+      const ids = after.zones.hand.filter((id) => !before.zones.hand.includes(id));
+      if (!ids.length) return;
+      setDrawn(ids);
+      const only = after.objects[ids[0]];
+      drawToast.current = JSON.stringify(after);
+      toast(ids.length === 1
+        ? `Drew ${faceOf(next.session.cards[only.oracle_id], only.face).name}.`
+        : `Drew ${ids.length} cards.`, {
+        action: { label: "Undo", kbd: "Z", onAction: () => {
+          // Only while the table is still exactly what the draw left.
+          if (drawToast.current === JSON.stringify(latest.current.session.frame)) act({ type: "undo" });
+        } },
+      });
+    } else if (action.type === "undo") {
+      const returned = before.zones.hand.filter((id) => !after.zones.hand.includes(id));
+      const draw = returned.length > 0 &&
+        returned.every((id) => after.zones.library.includes(id)) &&
+        after.zones.library.length - before.zones.library.length === returned.length &&
+        after.zones.hand.length === before.zones.hand.length - returned.length;
+      toast(draw ? "Undid draw." : "Undone.");
+    }
+  }
+  // Any other change to the table retires the draw's Undo offer.
+  const frameKey = JSON.stringify(f);
+  useEffect(() => {
+    if (drawToast.current && drawToast.current !== frameKey) {
+      drawToast.current = null;
+      dismiss();
+    }
+  }, [frameKey, dismiss]);
+  // Bring a drawn card into view inside the hand's own scroller, without
+  // moving focus, and mark it briefly as having just arrived.
+  useEffect(() => {
+    const root = table.current;
+    if (!root || !drawn.length) return;
+    const nodes = drawn
+      .map((id) => root.querySelector<HTMLElement>(`[data-table-cards] > [data-object-id="${CSS.escape(id)}"]`))
+      .filter((node): node is HTMLElement => !!node);
+    const last = nodes.at(-1), scroller = last?.closest<HTMLElement>("[data-table-cards]");
+    if (last && scroller) {
+      const box = scroller.getBoundingClientRect(), card = last.getBoundingClientRect();
+      let left = scroller.scrollLeft, top = scroller.scrollTop;
+      if (card.right > box.right) left += Math.min(card.right - box.right, card.left - box.left);
+      else if (card.left < box.left) left -= box.left - card.left;
+      if (card.top < box.top || card.top > box.bottom - card.height / 2) top += card.top - box.top;
+      const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      scroller.scrollTo({ left, top, behavior: still ? "auto" : "smooth" });
+    }
+    for (const node of nodes) node.setAttribute("data-drawn", "");
+    const timer = setTimeout(() => setDrawn([]), DRAWN_MARK_MS);
+    return () => {
+      clearTimeout(timer);
+      for (const node of nodes) node.removeAttribute("data-drawn");
+    };
+  }, [drawn]);
   const selected = c.ui.selected.filter((id) => !!f.objects[id]);
   const pinned = c.ui.pinned && f.objects[c.ui.pinned] ? c.ui.pinned : null;
   const preview = hover && f.objects[hover] ? hover : null;
@@ -83,9 +156,6 @@ export function PlaytestTable({
     setHover(null);
     c.editUi({ selected: [], pinned: null });
   };
-  useReportFocus(s.deck_id, s.deck_name, [
-    ...new Set(selected.map((id) => f.objects[id].oracle_id)),
-  ]);
   function select(id: string, multiple: boolean) {
     c.editUi({
       selected: selectedAfterClick(c.ui.selected, id, multiple),
@@ -111,9 +181,14 @@ export function PlaytestTable({
         contextItems.push({ id: "tap", label: tapped ? "Untap" : "Tap", disabled: busy,
           onSelect: () => act({ type: "tap", ids: contextIds, tapped: !tapped }) });
       }
-      for (const zone of ["hand", "battlefield", "graveyard", "exile", "command", "companion", "stack"] as Zone[]) {
+      // Moving cards to the zone they are all already in does nothing, so
+      // the menu leads with the first real destination instead.
+      const zones = new Set(contextIds.map((id) => objectZone(v, id)));
+      const destinations = (["hand", "battlefield", "graveyard", "exile", "command", "companion", "stack"] as Zone[])
+        .filter((zone) => zones.size !== 1 || !zones.has(zone));
+      for (const zone of destinations) {
         contextItems.push({ id: zone, label: `Move to ${ZONE_LABELS[zone].toLowerCase()}`, disabled: busy,
-          separator: zone === "hand", onSelect: () => move(contextIds, zone) });
+          separator: zone === destinations[0], onSelect: () => move(contextIds, zone) });
       }
       contextItems.push(
         { id: "library-top", label: "Move to library top", disabled: busy, onSelect: () => move(contextIds, "library", undefined, 0) },
@@ -186,19 +261,12 @@ export function PlaytestTable({
         footer={
           <>
             <span>
-              {selected.includes(id)
-                ? "Selected"
-                : obj.token
-                  ? "Token"
-                  : objectZone(v, id) === "battlefield"
-                    ? obj.tapped
-                      ? "Tapped"
-                      : "Untapped"
-                    : ""}
+              {obj.tapped && objectZone(v, id) === "battlefield" ? "Tapped" : ""}
             </span>
             {!playing &&
-            v.computed.bottom_required > 0 &&
-            f.zones.hand.includes(id) ? (
+            f.zones.hand.includes(id) &&
+            (bottomIndex >= 0 ||
+              f.opening.bottom.length < v.computed.bottom_required) ? (
               <Button
                 size="sm"
                 disabled={
@@ -245,6 +313,7 @@ export function PlaytestTable({
     s: () => playing && act({ type: "shuffle" }),
     u: () => playing && act({ type: "untap-all" }),
     n: () => playing && act({ type: "next-turn" }),
+    r: () => setRolling(true),
     t: () =>
       playing &&
       selected.length > 0 &&
@@ -266,6 +335,18 @@ export function PlaytestTable({
     },
     escape: () => (c.ui.viewer ? c.editUi({ viewer: null }) : clearSelection()),
   }, { enabled: !context });
+  // The commander and companion sit on the table, not behind a button; their
+  // zones join the strip only when the deck has nothing that lives there.
+  const hasRole = (role: TableObject["role"]) =>
+    Object.values(f.objects).some((o) => o.role === role);
+  const railZones = (["command", "companion"] as Zone[]).filter(
+    (zone) => v.computed.counts[zone] > 0 || hasRole(zone === "command" ? "commander" : "companion"),
+  );
+  const zoneButtons = (["library", "graveyard", "exile", "stack", "command", "companion"] as Zone[]).filter(
+    (zone) =>
+      !railZones.includes(zone) &&
+      (zone !== "companion" || v.computed.counts.companion > 0),
+  );
   const modeOptions = [
     { value: "commander" as const, label: "Commander mulligans" },
     { value: "practice" as const, label: "Practice redraws" },
@@ -285,29 +366,41 @@ export function PlaytestTable({
       }}
     >
       <header className={styles.header}>
-        <div>
-          <div className={styles.titleRow}>
-            <h1>
-              {s.deck_name} <span>· Playtest</span>
-            </h1>
-            <a
-              className={styles.deckLink}
-              href={href({ page: "deck", deckId: s.deck_id })}
-            >
-              <Icon name="back" />
-              Deck overview
-            </a>
+        <div className={styles.identity}>
+          <a
+            className={styles.deckLink}
+            href={href({ page: "deck", deckId: s.deck_id })}
+            aria-label="Back to deck overview"
+            title="Back to deck overview"
+          >
+            <Icon name="back" />
+          </a>
+          <div className={styles.title}>
+            <h1>{s.deck_name}</h1>
+            <span>
+              Playtest · <span className={styles.mono}>r{s.deck_revision}</span>
+            </span>
           </div>
-          <p>Solo table · manual play · tested r{s.deck_revision}</p>
         </div>
         <PlayerSummary
           name="You"
+          showName={false}
           life={f.life}
-          turn={f.turn}
-          status={playing ? "Early-turn testing" : "Choosing an opening hand"}
+          turn={playing ? f.turn : undefined}
           onLifeChange={
             playing ? (value) => act({ type: "life", value }) : undefined
           }
+        />
+        <SessionControls
+          view={v}
+          busy={busy}
+          status={c.status}
+          onAction={act}
+          onDrawSeveral={() => setDrawing(true)}
+          onCreateToken={() => setToken(true)}
+          onRandomNumber={() => setRolling(true)}
+          onRestart={() => setRestart(true)}
+          onObservation={clearSelection}
         />
       </header>
       {deck.deck.revision !== s.deck_revision && (
@@ -329,20 +422,53 @@ export function PlaytestTable({
         </Banner>
       )}
       {!playing && (
-        <div className={styles.opening}>
-          <div className={styles.openingTitle}>
-            <strong>Opening hand</strong>
+        <div className={styles.opening} role="region" aria-label="Opening hand">
+          <div className={styles.openingStatus}>
+            <strong>
+              {f.opening.mode === "practice"
+                ? "Practice hand"
+                : f.opening.mulligans === 0
+                  ? "Opening hand"
+                  : `Mulligan ${f.opening.mulligans}`}
+            </strong>
+            <span>
+              {f.opening.mode === "practice"
+                ? "Unlimited redraws"
+                : f.opening.mulligans === 0
+                  ? "First mulligan is free"
+                  : v.computed.bottom_required
+                    ? `Bottom ${f.opening.bottom.length} of ${v.computed.bottom_required}`
+                    : "Free mulligan"}
+            </span>
+          </div>
+          {f.opening.bottom.length > 0 && (
+            <ol className={styles.bottom} aria-label="Cards to bottom, nearest the top first">
+              {f.opening.bottom.map((id) => (
+                <li key={id}>
+                  <Button
+                    size="sm"
+                    aria-label={`Keep ${s.cards[f.objects[id].oracle_id].name} in hand`}
+                    onClick={() =>
+                      act({
+                        type: "bottom",
+                        ids: f.opening.bottom.filter((x) => x !== id),
+                      })
+                    }
+                  >
+                    {s.cards[f.objects[id].oracle_id].name}
+                    <Icon name="close" size={12} />
+                  </Button>
+                </li>
+              ))}
+            </ol>
+          )}
+          <div className={styles.openingActions}>
             <Segmented
               label="Mulligan mode"
               options={modeOptions}
               value={f.opening.mode}
               onChange={(mode) => act({ type: "mode", mode })}
             />
-            <span>
-              {f.opening.mode === "practice"
-                ? "Unlimited practice redraws"
-                : `Mulligan ${f.opening.mulligans} · ${v.computed.bottom_required} to bottom`}
-            </span>
             <Button
               disabled={busy || !v.computed.can_mulligan}
               onClick={() => act({ type: "mulligan" })}
@@ -352,64 +478,39 @@ export function PlaytestTable({
             <Button
               variant="primary"
               disabled={busy || !v.computed.can_keep}
+              title={
+                v.computed.can_keep
+                  ? undefined
+                  : `Choose ${v.computed.bottom_required - f.opening.bottom.length} more to bottom`
+              }
               onClick={() => act({ type: "keep" })}
             >
               Keep hand
             </Button>
           </div>
-          {v.computed.bottom_required > 0 && (
-            <p>
-              {`Choose ${v.computed.bottom_required} cards in bottom order (first chosen is nearer the library's top). Keep is available once all are chosen.`}
-            </p>
-          )}
-          {f.opening.bottom.length > 0 && (
-            <div className={styles.bottom}>
-              {f.opening.bottom.map((id, i) => (
-                <Button
-                  key={id}
-                  size="sm"
-                  onClick={() =>
-                    act({
-                      type: "bottom",
-                      ids: f.opening.bottom.filter((x) => x !== id),
-                    })
-                  }
-                >
-                  {i + 1}. {s.cards[f.objects[id].oracle_id].name} ×
-                </Button>
-              ))}
-            </div>
-          )}
         </div>
       )}
       <div
         className={styles.workspace}
+        onDragStartCapture={() => setHover(null)}
         style={
           width == null
             ? undefined
             : ({ "--inspection-w": `${width}px` } as CSSProperties)
         }
       >
-        <div className={`${styles.table} ${!playing ? styles.choosing : ""}`}>
+        <div ref={table} className={`${styles.table} ${!playing ? styles.choosing : ""} ${c.ui.viewer ? styles.viewing : ""} ${playing && f.zones.battlefield.length === 0 && !c.ui.viewer ? styles.emptyBattlefield : ""}`}>
           <nav className={styles.zones} aria-label="Table zones">
-            {(
-              [
-                "library",
-                "command",
-                "companion",
-                "graveyard",
-                "exile",
-                "stack",
-              ] as Zone[]
-            ).map((zone) => (
-              <Button
+            {zoneButtons.map((zone) => (
+              <button
                 key={zone}
-                variant="ghost"
-                size="sm"
+                type="button"
+                className={styles.zone}
                 aria-pressed={c.ui.viewer === zone}
-                onClick={() =>
-                  c.editUi({ viewer: c.ui.viewer === zone ? null : zone })
-                }
+                onClick={() => {
+                  setHover(null);
+                  c.editUi({ viewer: c.ui.viewer === zone ? null : zone });
+                }}
                 onDragOver={(e) => {
                   if (playing) e.preventDefault();
                 }}
@@ -418,31 +519,59 @@ export function PlaytestTable({
                   if (id) drop(id, zone);
                 }}
               >
-                {ZONE_LABELS[zone]}{" "}
-                <span className={styles.mono}>{v.computed.counts[zone]}</span>
-              </Button>
+                {ZONE_LABELS[zone]}
+                <span className={styles.count}>{v.computed.counts[zone]}</span>
+              </button>
             ))}
           </nav>
-          <div className={styles.battlefield} aria-label="Battlefield">
-            {playing &&
-              (Object.keys(ROW_LABELS) as TableRow[]).map((row) => (
-                <TableZone
-                  key={row}
-                  label={ROW_LABELS[row]}
-                  showHeader={false}
-                  count={
-                    f.zones.battlefield.filter(
-                      (id) => f.objects[id].row === row,
-                    ).length
-                  }
-                  emptyText=""
-                  onDrop={(id) => drop(id, "battlefield", row)}
-                >
-                  {f.zones.battlefield
-                    .filter((id) => f.objects[id].row === row)
-                    .map((id) => card(id))}
-                </TableZone>
-              ))}
+          <div className={styles.surface}>
+            {railZones.length > 0 && (
+              <div className={styles.rail}>
+                {railZones.map((zone) => (
+                  <TableZone
+                    key={zone}
+                    label={ZONE_LABELS[zone]}
+                    count={v.computed.counts[zone]}
+                    emptyText=""
+                    onDrop={busy || !playing ? undefined : (id) => drop(id, zone)}
+                  >
+                    {f.zones[zone].map((id) => card(id))}
+                  </TableZone>
+                ))}
+              </div>
+            )}
+            <div className={styles.battlefield} aria-label="Battlefield">
+              {playing &&
+                (Object.keys(ROW_LABELS) as TableRow[]).map((row) => (
+                  <TableZone
+                    key={row}
+                    label={ROW_LABELS[row]}
+                    showHeader={false}
+                    count={
+                      f.zones.battlefield.filter(
+                        (id) => f.objects[id].row === row,
+                      ).length
+                    }
+                    emptyText=""
+                    onDrop={(id) => drop(id, "battlefield", row)}
+                  >
+                    {f.zones.battlefield
+                      .filter((id) => f.objects[id].row === row)
+                      .map((id) => card(id))}
+                  </TableZone>
+                ))}
+            </div>
+            {c.ui.viewer && (
+              <ZoneViewer
+                key={c.ui.viewer}
+                controller={c}
+                zone={c.ui.viewer}
+                onPreview={setHover}
+                onSelect={select}
+                onMove={move}
+                onContextMenu={openContext}
+              />
+            )}
           </div>
           <TableZone
             label="Hand"
@@ -473,16 +602,6 @@ export function PlaytestTable({
             onChange={setWidth}
             onReset={() => setWidth(null)}
           />
-          <SessionControls
-            view={v}
-            busy={busy}
-            status={c.status}
-            onAction={act}
-            onDrawSeveral={() => setDrawing(true)}
-            onCreateToken={() => setToken(true)}
-            onRestart={() => { setMode(f.opening.mode); setRestart(true); }}
-            onObservation={clearSelection}
-          />
           <div className={styles.inspection}>
             <InspectionPanel
               controller={c}
@@ -502,17 +621,6 @@ export function PlaytestTable({
           >
             <TextCard observation={observeObject(v, preview)} full />
           </div>
-        )}
-        {c.ui.viewer && (
-          <ZoneViewer
-            key={c.ui.viewer}
-            controller={c}
-            zone={c.ui.viewer}
-            onPreview={setHover}
-            onSelect={select}
-            onMove={move}
-            onContextMenu={openContext}
-          />
         )}
       </div>
       <ContextMenu
@@ -540,30 +648,27 @@ export function PlaytestTable({
         </Dialog>
       )}
       {restart && (
-        <ConfirmDialog
-          title="Start a new opening test?"
-          confirmLabel="Replace current session"
-          tone="danger"
-          onClose={() => setRestart(false)}
-          onConfirm={() => {
+        <NewGameDialog
+          deckName={s.deck_name}
+          revision={deck.deck.revision}
+          commanders={deck.cards.filter((x) => x.role === "commander" && !x.maybe)}
+          initialMode={f.opening.mode}
+          replaces="table"
+          keepsDraft={!!c.ui.draft.text}
+          busy={busy}
+          onStart={(mode) => {
             setRestart(false);
             void c.start(mode, true);
           }}
-        >
-          <p>
-            This replaces the current table and game undo history. Saved
-            memories and tags remain.
-            {c.ui.draft.text
-              ? " Your unfinished observation is retained with its tested revision."
-              : ""}
-          </p>
-          <Segmented
-            label="New session mode"
-            value={mode}
-            onChange={setMode}
-            options={modeOptions}
-          />
-        </ConfirmDialog>
+          onClose={() => setRestart(false)}
+        />
+      )}
+      {rolling && (
+        <RandomNumberDialog
+          rolls={rolls}
+          onRoll={(roll) => setRolls((previous) => [roll, ...previous].slice(0, 6))}
+          onClose={() => setRolling(false)}
+        />
       )}
       {token && (
         <TokenDialog

@@ -1,3 +1,7 @@
+import { withReadContext } from "../read-context.ts";
+import { executeCommand, type CommandMeta } from "../commands.ts";
+import { priceResolver, formatPrice } from "../prices.ts";
+import { priceSourceLine } from "./render.ts";
 // The agent's tools (spec §10.3). Few, shaped around tasks, each a thin
 // adapter: resolve names, call the capability layer, render text. Every rule
 // an agent is held to is enforced below this file, in the same functions the
@@ -6,19 +10,19 @@
 // A tool is a plain function of (context, arguments) so it can be tested
 // without a transport; mcp/http.ts registers the same list with the SDK.
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "../sqlite.ts";
 import * as z from "zod/v4";
-import { type Actor } from "../actor.ts";
-import { recordActivity } from "../activity.ts";
+import { type Actor, requireDeckOwner } from "../actor.ts";
 import { type CardRow, lintProse, resolveCard, resolveCards, tryResolveCard } from "../cards.ts";
 import { withTransaction } from "../db.ts";
 import { ServiceError } from "../errors.ts";
 import { getFocus } from "../focus.ts";
 import { compareDecks, forkDeck } from "../deck/fork.ts";
+import { compareDeckSources, recordOwnership } from "../deck/sourcing.ts";
 import { exportDeck, fillFromList } from "../deck/interop.ts";
 import { cardHistories, listLog, markReviewed, unreviewedCount } from "../deck/log.ts";
 import { type Change, applyChanges } from "../deck/membership.ts";
-import { createProposal, getProposal } from "../deck/proposals.ts";
+import { createProposal, getProposal, listProposals, amendProposal, withdrawProposal } from "../deck/proposals.ts";
 import {
   createDeck,
   deleteDeck,
@@ -35,7 +39,7 @@ import {
   unshortlistCard,
 } from "../deck/service.ts";
 import { PowerTargetSchema, PowerAssessmentSchema, getPower, recordPowerAssessment } from "../deck/power.ts";
-import { getProfile, proposeDocumentEdit } from "../documents.ts";
+import { getProfile, proposeDocumentEdit, getDocumentEdit, listDocumentEdits, proposeDocumentGroup, withdrawDocumentEdit } from "../documents.ts";
 import {
   type MemoryView,
   listMemories,
@@ -45,6 +49,8 @@ import {
   reviseMemory,
 } from "../memory.ts";
 import { SearchError, search } from "../search/index.ts";
+import { sharedCounts, slugFrom } from "../sharing.ts";
+import { publicDeckState } from "../state.ts";
 import { playerStats } from "../stats.ts";
 import { PLAYBOOK } from "./playbook.ts";
 import {
@@ -56,23 +62,26 @@ import {
   renderCompare,
   renderDeck,
   renderPower,
+  renderPublicDeck,
   renderMemories,
   renderScope,
   renderStats,
   resolutionFailureLine,
   rosterLines,
-  rulingLine,
+  decisionLine,
 } from "./render.ts";
 
 export interface ToolContext {
-  db: DatabaseSync;
+  db: Database;
   actor: Actor;
 }
 
 export interface ToolResult {
   text: string;
+  structuredContent?: Record<string, unknown>;
   /** Set by tools that wrote something, so the app can refresh what is on screen. */
   changed?: boolean;
+  command?: CommandMeta;
 }
 
 export interface ToolDef {
@@ -82,6 +91,8 @@ export interface ToolDef {
   input: z.ZodRawShape;
   readOnly: boolean;
   destructive?: boolean;
+  /** Includes personal prices in text/structured data, or orients the agent. */
+  prices?: boolean;
   run: (ctx: ToolContext, args: any) => string | ToolResult;
 }
 
@@ -90,62 +101,112 @@ export interface ToolDef {
 const deckRef = z
   .union([z.number().int(), z.string()])
   .describe(
-    'A deck: its id (a number from the roster), its exact name, or "focus" for the deck the owner has open in the app.',
+    'A deck: its id (a number from the roster), its exact name, or "focus" for the current or last-viewed deck context.',
   );
 const cardRef = z
   .string()
   .describe("A card: its exact name as a tool returned it, or its oracle_id. Never a guess.");
 
-function deckId(db: DatabaseSync, ref: number | string): number {
-  if (typeof ref === "number") return requireDeck(db, ref).id;
+function deckId(db: Database, actor: Actor, ref: number | string, forWrite = false): number {
+  const resolve = (id: number) => forWrite ? requireDeckOwner(db, actor, id).id : requireDeck(db, actor, id).id;
+  if (typeof ref === "number") return resolve(ref);
   const text = ref.trim();
-  if (/^\d+$/.test(text)) return requireDeck(db, Number(text)).id;
+  if (/^\d+$/.test(text)) return resolve(Number(text));
   if (text.toLowerCase() === "focus") {
-    const focus = getFocus(db);
+    const focus = getFocus(db, actor);
     if (!focus)
       throw new ServiceError(
-        `The owner has no deck open in the app, so "focus" names nothing. Use a deck id:\n${rosterLines(listDecks(db))}`,
+        `There is no current deck in agent context, so "focus" names nothing. Use a deck id:\n${rosterLines(listDecks(db, actor))}`,
       );
+    if (forWrite && focus.stale) throw new ServiceError(`The last-viewed focus is ${focus.age_minutes} minutes old. Read deck ${focus.deck_id} and use its explicit ID for this write.`);
     return focus.deck_id;
   }
-  const named = listDecks(db).filter((d) => d.name.toLowerCase() === text.toLowerCase());
+  const named = listDecks(db, actor).filter((d) => d.name.toLowerCase() === text.toLowerCase());
   if (named.length === 1) return named[0].id;
-  throw new ServiceError(`There is no deck named "${ref}". The decks are:\n${rosterLines(listDecks(db))}`);
+  const slug = slugFrom(text);
+  if (slug) {
+    const own = db.prepare("SELECT id FROM decks WHERE slug = ? AND user_id = ?").get(slug, actor.user_id) as { id: number } | undefined;
+    if (own) return own.id;
+    throw new ServiceError(`"${ref}" is a link to a shared deck. Only get_deck, compare_decks (as other) and fork_deck read shared decks; it cannot be changed here.`, 404);
+  }
+  throw new ServiceError(`There is no deck named "${ref}". The decks are:\n${rosterLines(listDecks(db, actor))}`, 404);
 }
 
-const done = (text: string): ToolResult => ({ text, changed: true });
+/** A deck by any reference, or another user's shared deck by its slug or link (§18.7). */
+function deckOrShared(db: Database, actor: Actor, ref: number | string): number | { slug: string } {
+  try {
+    return deckId(db, actor, ref);
+  } catch (e) {
+    const slug = typeof ref === "string" ? slugFrom(ref) : null;
+    if (slug && e instanceof ServiceError && e.status === 404) return { slug };
+    throw e;
+  }
+}
 
-function myDecksFor(db: DatabaseSync, oracleIds: string[], exceptDeck?: number): Map<string, string[]> {
+const sharedRef = z
+  .union([z.number().int(), z.string()])
+  .describe(
+    'A deck: its id, its exact name, "focus", or a shared deck\'s link (/d/<slug>) or slug.',
+  );
+
+const done = (text: string, structuredContent?: Record<string, unknown>): ToolResult => ({ text, changed: true, structuredContent });
+
+/** §18.7: how many decks anyone with a link can read. Only the owner changes it, in the app. */
+function sharingLine(counts: { public: number; unlisted: number }): string {
+  return `\nShared: ${counts.public} public (listed on the owner's profile), ${counts.unlisted} unlisted (anyone with the link); the rest are private. ` +
+    "Viewers see the list, brief, checks and power, never memories or proposals. Only the owner changes who can see a deck.";
+}
+
+const documentChange = z.strictObject({
+  kind: z.enum(["profile", "thesis", "constraints", "engine_set", "engine_remove", "power_target"]),
+  text: z.string().optional(), engine_name: z.string().optional(), description: z.string().optional(),
+  pieces: z.array(z.strictObject({ card: cardRef, note: z.string().optional() })).optional(),
+  target: PowerTargetSchema.nullable().optional(), reason: z.string().trim().min(1),
+});
+const proposalItem = z.strictObject({
+  action: z.enum(["add", "cut"]), card: cardRef, reason: z.string().trim().min(1),
+  slot: z.string().optional(), secondary_slots: z.array(z.string()).optional(),
+  to_maybe: z.boolean().optional(), group: z.string().optional(),
+});
+function documentChanges(db: Database, actor: Actor, changes: z.infer<typeof documentChange>[]) {
+  return changes.map(c => ({ kind: c.kind, reason: c.reason, payload: {
+    content: c.text, engine_name: c.engine_name, description: c.description, target: c.target,
+    pieces: c.pieces?.map(p => ({ oracle_id: resolveCard(db, p.card).oracle_id, note: p.note })),
+  } }));
+}
+
+
+function myDecksFor(db: Database, actor: Actor, oracleIds: string[], exceptDeck?: number): Map<string, string[]> {
   const stmt = db.prepare(
     `SELECT d.name FROM deck_cards dc JOIN decks d ON d.id = dc.deck_id
-     WHERE dc.oracle_id = ? AND dc.maybe = 0 AND dc.deck_id != ? ORDER BY d.name`,
+     WHERE dc.oracle_id = ? AND dc.maybe = 0 AND dc.deck_id != ? AND d.user_id = ? ORDER BY d.name`,
   );
   const out = new Map<string, string[]>();
   for (const id of new Set(oracleIds)) {
-    const names = (stmt.all(id, exceptDeck ?? -1) as unknown as { name: string }[]).map((r) => r.name);
+    const names = (stmt.all(id, exceptDeck ?? -1, actor.user_id) as unknown as { name: string }[]).map((r) => r.name);
     if (names.length) out.set(id, names);
   }
   return out;
 }
 
 // The context the app attaches to cards wherever they appear (spec §7.2,
-// §8.3): linked memories always, prior rulings and membership when a deck is
+// §8.3): linked memories always, prior decisions and membership when a deck is
 // named, other decks only when the call asked (§4.2).
 function contextFor(
-  db: DatabaseSync,
+  db: Database, actor: Actor,
   cards: CardRow[],
   deck: number | undefined,
   includeMyDecks: boolean,
 ) {
   const ids = cards.map((c) => c.oracle_id);
-  const memories = memoriesForCards(db, ids, deck);
-  const rulings = deck === undefined ? new Map() : cardHistories(db, deck, ids);
-  const mine = includeMyDecks ? myDecksFor(db, ids, deck) : new Map<string, string[]>();
+  const memories = memoriesForCards(db, actor, ids, deck);
+  const decisions = deck === undefined ? new Map() : cardHistories(db, actor, deck, ids);
+  const mine = includeMyDecks ? myDecksFor(db, actor, ids, deck) : new Map<string, string[]>();
   return (card: CardRow) => {
-    const row = deck === undefined ? undefined : findDeckCard(db, deck, card.oracle_id);
+    const row = deck === undefined ? undefined : findDeckCard(db, actor, deck, card.oracle_id);
     return {
       memories: memories.get(card.oracle_id),
-      rulings: rulings.get(card.oracle_id),
+      decisions: decisions.get(card.oracle_id),
       myDecks: mine.get(card.oracle_id),
       membership: row ? (row.maybe ? "on this deck's maybe list" : "already in this deck") : undefined,
     };
@@ -157,35 +218,38 @@ function contextFor(
 export const TOOLS: ToolDef[] = [
   {
     name: "start_session",
+    prices: true,
     title: "Start a session",
     readOnly: true,
     description:
       "Call this first, once per conversation. Returns the playbook (the rules for working with this app), " +
-      "the owner's profile, your global memories, the deck roster with ids, the deck the owner has open " +
-      "(the focus), and how many of the owner's rulings you have not read yet.",
+      "the owner's profile, your global memories, the deck roster with ids, the owner's current or last-viewed deck " +
+      "(the focus), and how many of the owner's decisions you have not read yet.",
     input: {},
-    run: ({ db }) => {
-      const profile = getProfile(db);
-      const focus = getFocus(db);
-      const unreviewed = unreviewedCount(db);
+    run: ({ db, actor }) => {
+      const identity = db.prepare("SELECT handle, display_name FROM users WHERE id = ?").get(actor.user_id) as { handle: string; display_name: string };
+      const profile = getProfile(db, actor);
+      const focus = getFocus(db, actor);
+      const unreviewed = unreviewedCount(db, actor);
       return [
         PLAYBOOK,
+        `# Identity\n${identity.handle} — ${identity.display_name}`,
         `# The owner's profile\n${profile.body_md || "(empty — the owner has not written one. If you learn durable things about them, propose a profile with propose_profile_edit.)"}` +
           (profile.over_cap
             ? `\n(The profile is ${profile.word_count} words, over its soft cap. Suggest tightening it.)`
             : ""),
-        `# Your global memories\n${renderScope(loadScope(db, "global"), "global")}`,
-        `# Decks\n${rosterLines(listDecks(db))}`,
+        `# Your global memories\n${renderScope(loadScope(db, actor, "global"), "global")}`,
+        `# Decks\n${rosterLines(listDecks(db, actor))}${sharingLine(sharedCounts(db, actor))}`,
         `# Focus\n${
           focus
-            ? `The owner has deck ${focus.deck_id} "${focus.deck_name}" open` +
+            ? `The owner ${focus.stale ? "last viewed" : "has open"} deck ${focus.deck_id} "${focus.deck_name}"` +
               (focus.selected.length ? `, with these cards selected: ${focus.selected.join(", ")}` : "") +
               ` (reported ${focus.age_minutes} minute(s) ago).`
-            : "The owner has no deck open in the app right now."
+            : "No deck is currently available in agent context."
         }`,
-        `# Rulings you have not read\n${
+        `# Decisions you have not read\n${
           unreviewed
-            ? `${unreviewed}. Read them with list_rulings (unreviewed_only: true) before proposing anything, then mark_rulings_reviewed.`
+            ? `${unreviewed}. Read them with list_decisions (unreviewed_only: true) before proposing anything, then mark_decisions_reviewed.`
             : "None."
         }`,
       ].join("\n\n");
@@ -201,21 +265,23 @@ export const TOOLS: ToolDef[] = [
       "Use this for questions about the owner's tastes or what to build next. These are facts the app " +
       "computes; never store them as memories.",
     input: {},
-    run: ({ db }) => renderStats(playerStats(db)),
+    run: ({ db, actor }) => renderStats(playerStats(db, actor)),
   },
   {
     name: "get_deck",
+    prices: true,
     title: "Read a deck",
     readOnly: true,
     description:
-      "One deck in full: its brief, the list grouped by slot with oracle text, the maybe list, the app's " +
-      "computed counts, check results, the memories for this deck, what is awaiting the owner's ruling, " +
-      "and recent rulings. Read a deck before discussing or changing it. To re-read cheaply after a " +
-      "change, pass only the sections you need, or card_text: false for names without oracle text.",
+      "One deck in full: its brief, the list grouped by slot with oracle text, the maybe list, related tokens and emblems, the app's " +
+      "computed counts, check results, the memories for this deck, what is awaiting the owner's decision, " +
+      "and recent decisions. Read a deck before discussing or changing it. To re-read cheaply after a " +
+      "change, pass only the sections you need, or card_text: false for names without oracle text. " +
+      "Given another user's shared deck link or slug, returns what its viewers see, read-only.",
     input: {
-      deck: deckRef,
+      deck: sharedRef,
       sections: z
-        .array(z.enum(DECK_SECTIONS))
+        .array(z.enum(DECK_SECTIONS, { error: (issue) => issue.input === "rulings" ? "'rulings' was renamed to 'decisions'" : undefined }))
         .optional()
         .describe("Which parts to return. Omit for everything."),
       card_text: z
@@ -223,31 +289,43 @@ export const TOOLS: ToolDef[] = [
         .optional()
         .describe("Include each card's oracle text (default true)."),
     },
-    run: ({ db }, a) => renderDeck(db, deckId(db, a.deck), a.sections ?? DECK_SECTIONS, a.card_text ?? true),
+    run: ({ db, actor }, a) => {
+      const ref = deckOrShared(db, actor, a.deck);
+      const focus = typeof a.deck === "string" && a.deck.toLowerCase() === "focus" ? getFocus(db, actor) : null;
+      const text = typeof ref === "number"
+        ? renderDeck(db, actor, ref, a.sections ?? DECK_SECTIONS, a.card_text ?? true)
+        : renderPublicDeck(publicDeckState(db, actor, ref.slug), a.sections ?? DECK_SECTIONS, a.card_text ?? true);
+      return { text: (focus?.stale ? `Last viewed ${focus.age_minutes} minutes ago. Confirm this is still the intended deck; use an explicit ID for writes.\n\n` : "") + text,
+        structuredContent: typeof ref === "number" ? { deck: (() => { const d = requireDeck(db, actor, ref); return { id: d.id, name: d.name, revision: d.revision, edit_version: d.edit_version }; })(), ...(focus ? { focus } : {}) } : undefined };
+
+    },
   },
   {
     name: "propose_power_target",
+    prices: true,
     title: "Set or propose a power target",
     readOnly: false,
     description:
       "Set a deck's desired power profile: intent, usual win range, consistency, resilience, interaction, " +
       "win conditions and allowed play patterns, plus a Game Changer limit. Agents always propose targets " +
-      "for the owner to accept. Legacy is read-only. Unknown fields may be omitted. " +
+      "for the owner to accept. Archived is read-only. Unknown fields may be omitted. " +
       "This changes the target, never the current assessment or cards. Give a reason grounded in the owner's preferences. " +
       "Use get_deck sections: [power] for field anchors and the app's explained bracket mapping.",
     input: {
       deck: deckRef,
+      expected_revision: z.number().int().nonnegative().optional(),
       target: PowerTargetSchema.nullable().describe("The desired profile and limits, or null to clear the target. Turn ranges are inclusive; occasional early wins are outliers, not frequent lines."),
       reason: z.string().trim().min(1).describe("Why this target fits what the owner wants; card references as [[Card Name]]."),
     },
     run: ({ db, actor }, a) => {
-      const id = deckId(db, a.deck);
-      const r = proposeDocumentEdit(db, actor, id, "power_target", { target: a.target }, a.reason);
-      return done(`${r.applied ? "Set the power target." : `Proposed power target edit #${r.edit_id}; awaiting the owner.`}\n${renderPower(getPower(db, id))}\n${afterWrite(db, id)}`);
+      const id = deckId(db, actor, a.deck, true);
+      const r = proposeDocumentEdit(db, actor, id, "power_target", { target: a.target }, a.reason, { expected_revision: a.expected_revision });
+      return done(`${r.applied ? "Set the power target." : `Proposed power target edit #${r.edit_id}; awaiting the owner.`}\n${renderPower(getPower(db, actor, id))}\n${afterWrite(db, actor, id)}`, { ...r });
     },
   },
   {
     name: "assess_deck_power",
+    prices: true,
     title: "Record a deck power assessment",
     readOnly: false,
     description:
@@ -258,9 +336,58 @@ export const TOOLS: ToolDef[] = [
       "An agent cannot overwrite the owner's assessment of the same revision. This never changes the target or cards.",
     input: { deck: deckRef, assessment: PowerAssessmentSchema.describe("Gameplay judgments, not card counts. Unknown profile fields may be omitted. Explain evidence in notes, with cards as [[Card Name]].") },
     run: ({ db, actor }, a) => {
-      const id = deckId(db, a.deck);
+      const id = deckId(db, actor, a.deck, true);
       const assessmentId = recordPowerAssessment(db, actor, id, a.assessment);
-      return done(`Recorded power assessment #${assessmentId}.\n${renderPower(getPower(db, id))}\n${afterWrite(db, id)}`);
+      return done(`Recorded power assessment #${assessmentId}.\n${renderPower(getPower(db, actor, id))}\n${afterWrite(db, actor, id)}`, { assessment_id: assessmentId });
+    },
+  },
+  {
+    name: "compare_deck_sources",
+    prices: true,
+    title: "Compare a deck against its sources",
+    readOnly: false,
+    description: "Compare a target with multiple source decks in one operation. Returns actual shared cards and expensive remaining cards, IDs, exact names, list quantities, source decks, persistent ownership evidence, availability, estimated prices and timestamps, and app-computed totals as structured data. Membership never proves ownership or physical quantity; unknown ownership is not a shopping list. Optionally add all source tags in bulk, preserving slots and unrelated tags; revision guards are required when tagging. Filtering affects cards/result totals, not shared_cards, remaining_cards or tagging.",
+    input: {
+      deck: deckRef, sources: z.array(deckRef).min(1),
+      sourcing: z.enum(["shared", "not_in_sources"]).optional(),
+      ownership: z.enum(["owned", "unowned", "unknown"]).optional(),
+      not_marked_owned: z.boolean().optional(),
+      availability: z.enum(["available", "insufficient", "unknown"]).optional(),
+      sort: z.enum(["name", "price_desc", "price_asc", "ownership", "sourcing"]).optional(),
+      apply_source_tags: z.boolean().optional(),
+      expected_revision: z.number().int().nonnegative().optional(),
+      expected_source_revisions: z.record(z.string(), z.number().int().nonnegative()).optional(),
+    },
+    run: ({ db, actor }, a) => {
+      const result = compareDeckSources(db, actor, deckId(db, actor, a.deck, !!a.apply_source_tags), a.sources.map((s: string | number) => deckId(db, actor, s, !!a.apply_source_tags)), a);
+      const s = result.summary;
+      const price = (cents: number | null) => cents == null ? "price unknown" : `${formatPrice(cents, result.price.currency)} est.`;
+      return {
+        changed: !!a.apply_source_tags, structuredContent: result,
+        text: `${result.target.name}: ${s.target.cards} distinct cards / ${s.target.copies} copies. ${s.shared.cards} shared; ${s.remaining.cards} absent from sources and not explicitly owned (${price(s.remaining.cost.cents)}, ${s.remaining.cost.unpriced} unpriced). ${s.unknown_ownership.cards} have unknown ownership. Physical quantities are never summed across decks.${a.apply_source_tags ? ` Source tags applied to ${s.tagged} card${s.tagged === 1 ? "" : "s"}.` : ""}\n` +
+          `Shared: ${result.shared_cards.map(c => `${c.name} [${c.source_decks.map(d => d.name).join("; ")}]`).join(", ") || "none"}\n` +
+          `Most expensive remaining (first 10; full data attached): ${result.remaining_cards.slice(0, 10).map(c => `${c.name} — ${price(c.price.cents)}, ${c.ownership.status}`).join("; ") || "none"}\nUnknown ownership and source membership do not establish availability or a purchase requirement.`,
+      };
+    },
+  },
+  {
+    name: "record_ownership",
+    prices: true,
+    title: "Record explicit ownership evidence",
+    readOnly: false,
+    description: "Record explicit owner-provided ownership and optional physical/available quantities, with evidence. Persists independently of deck membership; never infer it from list appearances or keep preferences. Latest statement is current and all history remains. Requires an editable context deck, supports revision/evidence guards, and changes no cards, slots, brief or power target.",
+    input: {
+      deck: deckRef, expected_revision: z.number().int().nonnegative().optional(),
+      cards: z.array(z.strictObject({ card: cardRef, status: z.enum(["owned", "unowned", "unknown"]),
+        quantity: z.number().int().nonnegative().nullable().optional(), available_quantity: z.number().int().nonnegative().nullable().optional(),
+        basis: z.string().trim().min(1), expected_evidence_id: z.number().int().positive().nullable().optional(),
+      })).min(1),
+    },
+    run: ({ db, actor }, a) => {
+      const id = deckId(db, actor, a.deck, true);
+      const cards = resolveCards(db, a.cards.map((c: { card: string }) => c.card));
+      recordOwnership(db, actor, id, a.cards.map((c: object, i: number) => ({ ...c, oracle_id: cards[i].oracle_id })), a.expected_revision);
+      return done(`Recorded explicit ownership evidence for ${cards.length} card(s).\n${afterWrite(db, actor, id)}`, { oracle_ids: cards.map(c => c.oracle_id) });
     },
   },
   {
@@ -270,26 +397,27 @@ export const TOOLS: ToolDef[] = [
     description:
       "The cards only in one deck, only in the other, and how many they share. With one deck named, " +
       "compares a fork against the deck it was forked from. Use it to see how a fork has diverged, or how " +
-      "two of the owner's decks overlap.",
+      "two of the owner's decks overlap. other may be another user's shared deck, by link or slug.",
     input: {
       deck: deckRef,
-      other: deckRef.optional().describe("The deck to compare against. Omit to use the first deck's parent."),
+      other: sharedRef.optional().describe("The deck to compare against: one of the owner's, or a shared deck's link. Omit to use the first deck's parent."),
     },
-    run: ({ db }, a) =>
-      renderCompare(compareDecks(db, deckId(db, a.deck), a.other === undefined ? undefined : deckId(db, a.other))),
+    run: ({ db, actor }, a) =>
+      renderCompare(compareDecks(db, actor, deckId(db, actor, a.deck), a.other === undefined ? undefined : deckOrShared(db, actor, a.other))),
   },
   {
     name: "search_cards",
+    prices: true,
     title: "Search cards",
     readOnly: true,
     description:
       "Search every Magic card with a subset of Scryfall syntax. Bare words match the name; " +
       't:creature (type), o:"draw a card" (oracle text), fo: (text including reminder text), ' +
       "mv<=2 or cmc>=5, c:rg (colours, at least these), id<=wub (colour identity within), " +
-      "pow>=4, tou<3, loy=3, usd<=2 (price of the cheapest printing, in dollars), is:commander, " +
+      "pow>=4, tou<3, loy=3, usd<=2 or eur<=2 (cheapest playable printing in that currency, at your chosen store or lowest), is:commander, " +
       "f:commander, banned:commander. Combine with spaces (AND), " +
       "'or', '-' or 'not', and parentheses. With a deck named, results are limited to that deck's colour " +
-      "identity, marked if already in it, and carry the owner's prior rulings on each card in that deck; " +
+      "identity, marked if already in it, and carry the owner's prior decisions on each card in that deck; " +
       "slot:ramp, slot:none and tag:name then filter to that deck's own cards. Memories linked to a card " +
       "are always attached. Results come back alphabetically, 20 at a time: make several narrow searches " +
       "rather than one broad one.",
@@ -309,12 +437,12 @@ export const TOOLS: ToolDef[] = [
         .describe("With a deck named, do not limit results to its colour identity."),
       limit: z.number().int().min(1).max(50).optional().describe("How many results (default 20, max 50)."),
     },
-    run: ({ db }, a) => {
-      const deck = a.deck === undefined ? undefined : deckId(db, a.deck);
+    run: ({ db, actor }, a) => {
+      const deck = a.deck === undefined ? undefined : deckId(db, actor, a.deck);
       const limit = a.limit ?? 20;
       let results: CardRow[];
       try {
-        results = search(db, a.query, {
+        results = search(db, actor, a.query, {
           deckId: deck,
           filterByDeckIdentity: !a.ignore_identity,
           limit: limit + 1,
@@ -322,7 +450,7 @@ export const TOOLS: ToolDef[] = [
       } catch (e) {
         if (e instanceof SearchError)
           throw new ServiceError(
-            `That search could not be read: ${e.message}. Supported keys: t, o, fo, mv/cmc, c, id, pow, tou, loy, usd, ` +
+            `That search could not be read: ${e.message}. Supported keys: t, o, fo, mv/cmc, c, id, pow, tou, loy, usd, eur, ` +
               `is:commander, f:commander, banned:commander, and with a deck: slot:, tag:. Quote phrases: o:"draw a card".`,
           );
         throw e;
@@ -336,7 +464,7 @@ export const TOOLS: ToolDef[] = [
             ? ` within this deck's colour identity. If the card may be outside it, search again with ignore_identity: true.`
             : `. Loosen the query, or check the syntax.`)
         );
-      const ctx = contextFor(db, shown, deck, !!a.include_my_decks);
+      const ctx = contextFor(db, actor, shown, deck, !!a.include_my_decks);
       return [
         `${shown.length} result(s) for "${a.query}"${deck !== undefined ? ` in the context of deck ${deck}` : ""}` +
           (more ? ` — there are more; narrow the query to see them.` : "."),
@@ -346,11 +474,12 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "get_cards",
+    prices: true,
     title: "Look up cards by name",
     readOnly: true,
     description:
       "Exact-name lookup of up to 25 cards: full oracle text, memories linked to each card, and, with a " +
-      "deck named, whether it is in that deck and the owner's prior rulings on it there. This is also how " +
+      "deck named, whether it is in that deck and the owner's prior decisions on it there. This is also how " +
       "to check that names are real before you rely on them: a name that is not a card comes back marked " +
       "NOT A CARD with the closest real names, and the rest of the lookup still succeeds.",
     input: {
@@ -361,38 +490,40 @@ export const TOOLS: ToolDef[] = [
         .optional()
         .describe("Also say which of the owner's other decks contain each card. Off by default."),
     },
-    run: ({ db }, a) => {
-      const deck = a.deck === undefined ? undefined : deckId(db, a.deck);
+    run: ({ db, actor }, a) => {
+      const deck = a.deck === undefined ? undefined : deckId(db, actor, a.deck);
       const resolved = (a.cards as string[]).map((ref) => tryResolveCard(db, ref));
-      const found = resolved.filter((r): r is CardRow => !("problem" in r));
-      const ctx = contextFor(db, found, deck, !!a.include_my_decks);
-      return resolved
-        .map((r) => ("problem" in r ? resolutionFailureLine(r) : cardWithContext(r, ctx(r))))
-        .join("\n");
+      const found = priceResolver(db, actor).resolve(resolved.filter((r): r is CardRow => !("problem" in r)));
+      const priced = new Map(found.map(c => [c.oracle_id, c]));
+      const ctx = contextFor(db, actor, found, deck, !!a.include_my_decks);
+      return {
+        text: resolved.map(r => "problem" in r ? resolutionFailureLine(r) : cardWithContext(priced.get(r.oracle_id)!, ctx(r))).join("\n"),
+        structuredContent: { cards: found, failures: resolved.filter(r => "problem" in r) },
+      };
     },
   },
   {
-    name: "list_rulings",
-    title: "List rulings and changes",
+    name: "list_decisions",
+    title: "List decisions and changes",
     readOnly: true,
     description:
-      "The rulings log, newest first: every accept and reject with the owner's reason, plus direct edits, " +
+      "The decisions log, newest first: every accept and reject with the owner's reason, plus direct edits, " +
       "imports and undos. Use unreviewed_only: true to read what the owner decided while you were not " +
-      "running; after deciding what is worth a memory, call mark_rulings_reviewed.",
+      "running; after deciding what is worth a memory, call mark_decisions_reviewed.",
     input: {
       deck: deckRef.optional().describe("Only this deck. Omit for every deck and the profile."),
       unreviewed_only: z.boolean().optional(),
       since: z.string().optional().describe("Only entries on or after this date (YYYY-MM-DD)."),
       limit: z.number().int().min(1).max(200).optional().describe("Default 30."),
     },
-    run: ({ db }, a) => {
-      const entries = listLog(db, {
-        deckId: a.deck === undefined ? undefined : deckId(db, a.deck),
+    run: ({ db, actor }, a) => {
+      const entries = listLog(db, actor, {
+        deckId: a.deck === undefined ? undefined : deckId(db, actor, a.deck),
         unreviewedOnly: a.unreviewed_only,
         since: a.since,
         limit: a.limit ?? 30,
       });
-      const waiting = unreviewedCount(db);
+      const waiting = unreviewedCount(db, actor);
       const unread = entries.filter((e) => e.reviewed_at == null);
       return (
         `${entries.length} entr${entries.length === 1 ? "y" : "ies"}` +
@@ -401,8 +532,10 @@ export const TOOLS: ToolDef[] = [
         // The exact follow-up, because the first agent to do this guessed at
         // the arguments.
         (unread.length
-          ? `\n\nOnce you have decided what here is worth a memory, call mark_rulings_reviewed with ` +
-            `{"through": ${Math.max(...unread.map((e) => e.id))}}.`
+          ? `\n\nOnce you have decided what here is worth a memory, call mark_decisions_reviewed with ` +
+            (new Set(unread.map(e => e.deck_id)).size === 1
+              ? `{"through": ${Math.max(...unread.map((e) => e.id))}}.`
+              : `${JSON.stringify({ ids: unread.map(e => e.id) })}.`)
           : "")
       );
     },
@@ -427,12 +560,12 @@ export const TOOLS: ToolDef[] = [
         .describe("Also return superseded and retired memories (the history)."),
       limit: z.number().int().min(1).max(100).optional().describe("Default 25."),
     },
-    run: ({ db }, a) =>
+    run: ({ db, actor }, a) =>
       renderMemories(
-        listMemories(db, {
+        listMemories(db, actor, {
           query: a.query,
           scope: a.scope,
-          deckId: a.deck === undefined ? undefined : deckId(db, a.deck),
+          deckId: a.deck === undefined ? undefined : deckId(db, actor, a.deck),
           cardId: a.card ? resolveCard(db, a.card).oracle_id : undefined,
           status: a.include_retired ? "any" : "active",
           limit: a.limit ?? 25,
@@ -450,28 +583,29 @@ export const TOOLS: ToolDef[] = [
       deck: deckRef,
       categories: z.boolean().optional().describe("Include [Category] from slots (default true)."),
     },
-    run: ({ db }, a) => {
-      const r = exportDeck(db, deckId(db, a.deck), {
+    run: ({ db, actor }, a) => {
+      const r = exportDeck(db, actor, deckId(db, actor, a.deck), {
         categories: a.categories,
       });
       return `${r.card_count} card(s) at revision ${r.revision}:\n\n${r.text}`;
     },
   },
 
-  // ---------- writes that need no ruling ----------
+  // ---------- writes that need no decision ----------
 
   {
     name: "rename_deck",
+    prices: true,
     title: "Rename a deck",
     readOnly: false,
     description:
-      "Rename a Paper or Theorycrafted deck. The name must be nonempty and unique across decks. " +
+      "Rename a Paper or Theorycrafted deck. The name must be nonempty and unique across your decks. " +
       "Its cards, revision, category and editing permissions stay the same. The change is attributed in Activity.",
     input: { deck: deckRef, name: z.string().describe("The new deck name.") },
     run: ({ db, actor }, a) => {
-      const id = deckId(db, a.deck);
+      const id = deckId(db, actor, a.deck, true);
       renameDeck(db, actor, id, a.name);
-      return done(`Renamed deck ${id} to "${requireDeck(db, id).name}".\n${afterWrite(db, id)}`);
+      return done(`Renamed deck ${id} to "${requireDeck(db, actor, id).name}".\n${afterWrite(db, actor, id)}`);
     },
   },
   {
@@ -480,20 +614,21 @@ export const TOOLS: ToolDef[] = [
     readOnly: false,
     destructive: true,
     description:
-      "Permanently delete a deck and its card list, slots, tags, brief, proposals, rulings and deck-scoped " +
+      "Permanently delete a deck and its card list, slots, tags, brief, proposals, decisions and deck-scoped " +
       "memories. This cannot be undone. Global memories and fork decks remain; forks lose their parent link. " +
       "Use only when the owner asks to delete this deck. The deletion stays attributed in Activity.",
     input: { deck: deckRef },
     run: ({ db, actor }, a) => {
-      const id = deckId(db, a.deck);
-      const name = requireDeck(db, id).name;
+      const id = deckId(db, actor, a.deck, true);
+      const name = requireDeck(db, actor, id).name;
       deleteDeck(db, actor, id);
-      return done(`Deleted deck ${id} "${name}" and its associated records. This cannot be undone.\n${rosterLines(listDecks(db))}`);
+      return done(`Deleted deck ${id} "${name}" and its associated records. This cannot be undone.\n${rosterLines(listDecks(db, actor))}`);
     },
   },
 
   {
     name: "create_deck",
+    prices: true,
     title: "Create a Theorycrafted deck",
     readOnly: false,
     description:
@@ -501,7 +636,7 @@ export const TOOLS: ToolDef[] = [
       "commanders or paste a whole list. A supplied thesis becomes a proposed brief edit for the owner’s approval. " +
       "Only the owner changes lifecycle. If any card name does not resolve, nothing is created.",
     input: {
-      name: z.string().describe("A name not already used by another deck."),
+      name: z.string().describe("A name not already used by one of your decks."),
       commanders: z.array(cardRef).max(2).optional().describe("One commander, or two that may be paired."),
       list: z
         .string()
@@ -516,10 +651,10 @@ export const TOOLS: ToolDef[] = [
       const commanders = resolveCards(db, a.commanders ?? []);
       let thesisProposal: number | null = null;
       const id = withTransaction(db, () => {
-        const deck = createDeck(db, a.name);
+        const deck = createDeck(db, actor, a.name);
         if (a.list?.trim()) fillFromList(db, actor, deck, a.list);
         const changes: Change[] = commanders.map((c) => {
-          const row = findDeckCard(db, deck, c.oracle_id);
+          const row = findDeckCard(db, actor, deck, c.oracle_id);
           return row && !row.maybe
             ? { action: "role", oracle_id: c.oracle_id, role: "commander" }
             : { action: "add", oracle_id: c.oracle_id, role: "commander" };
@@ -531,44 +666,55 @@ export const TOOLS: ToolDef[] = [
         }
         return deck;
       });
-      recordActivity(db, actor, "create_deck", id, `Created Theorycrafted deck "${a.name}"`);
-      return done(`Created Theorycrafted deck ${id} "${a.name.trim()}" (lifecycle ${requireDeck(db, id).category}).\n${thesisProposal != null ? `Initial thesis proposed as edit #${thesisProposal}; awaiting the owner.\n` : ""}${afterWrite(db, id)}`);
+      return done(`Created Theorycrafted deck ${id} "${a.name.trim()}" (lifecycle ${requireDeck(db, actor, id).category}).\n${thesisProposal != null ? `Initial thesis proposed as edit #${thesisProposal}; awaiting the owner.\n` : ""}${afterWrite(db, actor, id)}`, { deck_id: id, thesis_edit_id: thesisProposal });
     },
   },
   {
     name: "fork_deck",
+    prices: true,
     title: "Fork a deck",
     readOnly: false,
     description:
       "Copy a deck — its list, slots, tags, maybe list, brief and deck memories — into a new Theorycrafted deck that " +
       "records where it came from. Use it when the owner wants to make big changes to a deck but keep the " +
-      "original. The original is untouched; compare_decks shows how the two diverge.",
-    input: { deck: deckRef, name: z.string().describe("The new deck's name.") },
+      "original. The original is untouched; compare_decks shows how the two diverge. " +
+      "Another user's shared deck (its link or slug) forks too, without its memories, decisions or power records.",
+    input: { deck: sharedRef, name: z.string().describe("The new deck's name.") },
     run: ({ db, actor }, a) => {
-      const parent = deckId(db, a.deck);
-      const id = forkDeck(db, actor, parent, a.name);
-      recordActivity(db, actor, "fork_deck", id, `Forked "${requireDeck(db, parent).name}" as "${a.name}"`);
+      const source = deckOrShared(db, actor, a.deck);
+      const id = forkDeck(db, actor, typeof source === "number" ? requireDeckOwner(db, actor, source).id : source, a.name);
+      const from = requireDeck(db, actor, id);
+      if (typeof source !== "number" && from.parent_owner_handle) {
+
+        return done(
+          `Forked ${from.parent_owner_handle}'s shared deck "${from.parent_name}" into your Theorycrafted deck ${id} "${a.name.trim()}". ` +
+            `It copied the list, slots, tags, brief and engines; it has none of the original's memories, decisions or power records. ` +
+            `Edit its cards with edit_cards.\n${afterWrite(db, actor, id)}`,
+        );
+      }
+
       return done(
         `Forked into Theorycrafted deck ${id} "${a.name.trim()}". Edit its cards with edit_cards.\n` +
-          `It starts with the original's brief, memories and rulings history. If the fork has a different ` +
-          `aim, propose a new thesis first (propose_brief_edit), then change the cards.\n${afterWrite(db, id)}`,
+          `It starts with the original's brief, memories and decisions history. If the fork has a different ` +
+          `aim, propose a new thesis first (propose_brief_edit), then change the cards.\n${afterWrite(db, actor, id)}`,
       );
     },
   },
   {
     name: "edit_cards",
+    prices: true,
     title: "Edit Theorycrafted cards",
     readOnly: false,
     description:
       "Change a Theorycrafted deck’s cards directly: add and remove cards or set commanders. " +
       "Everything in one call lands together as one logged change, or none of it does. On a Paper deck " +
-      "use propose_changes; Legacy is read-only. Brief changes always use propose_brief_edit. " +
+      "use propose_changes; Archived is read-only. Brief changes always use propose_brief_edit. " +
       "Returns the new counts and check results.",
     input: {
       deck: deckRef,
       add: z
         .array(
-          z.object({
+          z.strictObject({
             card: cardRef,
             quantity: z.number().int().min(1).optional().describe("Copies to add (default 1)."),
             slot: z.string().optional().describe("An existing primary purpose slot."),
@@ -578,7 +724,7 @@ export const TOOLS: ToolDef[] = [
         .optional(),
       remove: z
         .array(
-          z.object({
+          z.strictObject({
             card: cardRef,
             quantity: z
               .number()
@@ -601,7 +747,7 @@ export const TOOLS: ToolDef[] = [
       note: z.string().optional().describe("One line for the log saying what this edit was."),
     },
     run: ({ db, actor }, a) => {
-      const deck = deckId(db, a.deck);
+      const deck = deckId(db, actor, a.deck, true);
       requireDirectCardEdit(db, actor, deck);
       const adds = (a.add ?? []) as Array<{ card: string; quantity?: number; slot?: string; secondary_slots?: string[] }>;
       const removes = (a.remove ?? []) as Array<{ card: string; quantity?: number; to_maybe?: boolean }>;
@@ -612,7 +758,7 @@ export const TOOLS: ToolDef[] = [
       const changes: Change[] = [];
       if (commanders) {
         const keep = new Set(commanders.map((c) => c.oracle_id));
-        for (const c of getDeck(db, deck).cards)
+        for (const c of getDeck(db, actor, deck).cards)
           if (c.role === "commander" && !c.maybe && !keep.has(c.oracle_id))
             changes.push({ action: "role", oracle_id: c.oracle_id, role: "card" });
       }
@@ -629,12 +775,12 @@ export const TOOLS: ToolDef[] = [
           action: "add",
           oracle_id: addCards[i].oracle_id,
           quantity: x.quantity,
-          slot_id: x.slot ? requireSlotByName(db, deck, x.slot).id : undefined,
-          secondary_slot_ids: x.secondary_slots?.map(name => requireSlotByName(db, deck, name).id),
+          slot_id: x.slot ? requireSlotByName(db, actor, deck, x.slot).id : undefined,
+          secondary_slot_ids: x.secondary_slots?.map(name => requireSlotByName(db, actor, deck, name).id),
         }),
       );
       for (const c of commanders ?? []) {
-        const row = findDeckCard(db, deck, c.oracle_id);
+        const row = findDeckCard(db, actor, deck, c.oracle_id);
         const beingAdded = addCards.some((x) => x.oracle_id === c.oracle_id);
         changes.push(
           (row && !row.maybe) || beingAdded
@@ -643,9 +789,10 @@ export const TOOLS: ToolDef[] = [
         );
       }
 
+      let logId: number | null = null;
       withTransaction(db, () => {
         if (changes.length)
-          applyChanges(db, actor, deck, changes, { kind: "edit", summary: a.note?.trim() || undefined });
+          logId = applyChanges(db, actor, deck, changes, { kind: "edit", summary: a.note?.trim() || undefined });
       });
       const did = [
         adds.length ? `added ${adds.length}` : null,
@@ -653,24 +800,25 @@ export const TOOLS: ToolDef[] = [
         commanders ? "set commanders" : null,
       ].filter(Boolean);
       if (!did.length) throw new ServiceError("Nothing to do: give cards to add or remove, or commanders");
-      recordActivity(db, actor, "edit_cards", deck, `${did.join(", ")}${a.note ? ` — ${a.note}` : ""}`);
-      return done(`Done (${did.join(", ")}).\n${afterWrite(db, deck)}`);
+
+      return done(`Done (${did.join(", ")}).\n${afterWrite(db, actor, deck)}`, { log_id: logId });
     },
   },
   {
     name: "define_slots",
+    prices: true,
     title: "Define a deck's slots",
     readOnly: false,
     description:
       "Create, retarget, rename and remove slots on Paper or Theorycrafted decks; this is organization and " +
-      "needs no ruling. A slot says what a card does (ramp, interaction, card advantage) and may carry a " +
+      "needs no decision. A slot says what a card does (ramp, interaction, card advantage) and may carry a " +
       "soft target count or range. A name you give that does not exist is created; one that exists is " +
       "updated. Card types (land, creatures…) cannot be slot names. All of it lands or none does.",
     input: {
       deck: deckRef,
       slots: z
         .array(
-          z.object({
+          z.strictObject({
             name: z.string(),
             rename_to: z.string().optional(),
             target_min: z.number().int().min(0).nullable().optional().describe("null clears it."),
@@ -681,19 +829,20 @@ export const TOOLS: ToolDef[] = [
         .min(1),
     },
     run: ({ db, actor }, a) => {
-      const deck = deckId(db, a.deck);
-      defineSlots(db, deck, a.slots);
-      recordActivity(db, actor, "define_slots", deck, `Slots: ${a.slots.map((s: any) => (s.remove ? `removed ${s.name}` : s.rename_to ?? s.name)).join(", ")}`);
-      return done(`Slots updated.\n${renderDeck(db, deck, ["state"])}`);
+      const deck = deckId(db, actor, a.deck, true);
+      defineSlots(db, actor, deck, a.slots);
+
+      return done(`Slots updated.\n${renderDeck(db, actor, deck, ["state"])}`, { slots: getDeck(db, actor, deck).slots });
     },
   },
   {
     name: "file_cards",
+    prices: true,
     title: "File cards into slots and tags",
     readOnly: false,
     description:
       "Set primary and secondary purpose slots and management tags of cards already in a deck (or on its maybe list), on Paper or Theorycrafted decks; this is " +
-      "organization and needs no ruling. File many cards in one call; if any card or slot name is wrong, " +
+      "organization and needs no decision. File many cards in one call; if any card or slot name is wrong, " +
       "nothing is filed. A tag that does not exist yet is created, unless it would duplicate an existing " +
       "tag (same words, different spelling), in which case the call fails and names the tag to use. " +
       "remove_unused_tags removes explicitly named vocabulary entries after filing, only if no card still uses them.",
@@ -702,7 +851,7 @@ export const TOOLS: ToolDef[] = [
       remove_unused_tags: z.array(z.string()).optional().describe("Remove these tags from the vocabulary after filing, only if no card still uses them. Other unused tags stay."),
       filings: z
         .array(
-          z.object({
+          z.strictObject({
             card: cardRef,
             slot: z.string().nullable().optional().describe("Primary slot name; null clears the primary; omit to leave it."),
             secondary_slots: z.array(z.string()).optional().describe("Replace secondary purpose slots; [] clears them; omit to leave them. Cannot include the primary slot."),
@@ -713,37 +862,38 @@ export const TOOLS: ToolDef[] = [
         .min(1),
     },
     run: ({ db, actor }, a) => {
-      const deck = deckId(db, a.deck);
+      const deck = deckId(db, actor, a.deck, true);
       const filings = a.filings as Array<{ card: string; slot?: string | null; secondary_slots?: string[]; add_tags?: string[]; remove_tags?: string[] }>;
       const cards = resolveCards(db, filings.map((f) => f.card));
       fileCards(
-        db,
+        db, actor,
         deck,
         filings.map((f, i) => ({ ...f, oracle_id: cards[i].oracle_id })),
         a.remove_unused_tags,
       );
-      recordActivity(db, actor, "file_cards", deck, `Filed ${cards.length} card(s)${a.remove_unused_tags?.length ? `; removed unused tags: ${a.remove_unused_tags.join(", ")}` : ""}`);
-      return done(`Filed ${cards.length} card(s).\n${renderDeck(db, deck, ["state"])}`);
+
+      return done(`Filed ${cards.length} card(s).\n${renderDeck(db, actor, deck, ["state"])}`, { oracle_ids: cards.map(c => c.oracle_id) });
     },
   },
   {
     name: "shortlist_cards",
+    prices: true,
     title: "Add to or remove from the maybe list",
     readOnly: false,
     description:
-      "Put cards on a deck's maybe list, or take them off it, on Paper or Theorycrafted decks; needs no ruling. The maybe list " +
+      "Put cards on a deck's maybe list, or take them off it, on Paper or Theorycrafted decks; needs no decision. The maybe list " +
       "is outside the 100: use it to park candidates worth considering, each with a note saying why. " +
       "Moving a card from the deck itself to the maybe list is a cut and goes through edit_cards or " +
       "propose_changes.",
     input: {
       deck: deckRef,
       add: z
-        .array(z.object({ card: cardRef, note: z.string().optional().describe("Why it is worth considering. Cards as [[Card Name]].") }))
+        .array(z.strictObject({ card: cardRef, note: z.string().optional().describe("Why it is worth considering. Cards as [[Card Name]].") }))
         .optional(),
       remove: z.array(cardRef).optional(),
     },
     run: ({ db, actor }, a) => {
-      const deck = deckId(db, a.deck);
+      const deck = deckId(db, actor, a.deck, true);
       const adds = (a.add ?? []) as Array<{ card: string; note?: string }>;
       const addCards = resolveCards(db, adds.map((x) => x.card));
       const removeCards = resolveCards(db, a.remove ?? []);
@@ -751,23 +901,12 @@ export const TOOLS: ToolDef[] = [
       withTransaction(db, () => {
         adds.forEach((x, i) => {
           if (x.note) lintProse(db, x.note);
-          shortlistCard(db, deck, addCards[i].oracle_id, x.note ?? "");
+          shortlistCard(db, actor, deck, addCards[i].oracle_id, x.note ?? "");
         });
-        for (const c of removeCards) unshortlistCard(db, deck, c.oracle_id);
+        for (const c of removeCards) unshortlistCard(db, actor, deck, c.oracle_id);
       });
-      recordActivity(
-        db,
-        actor,
-        "shortlist_cards",
-        deck,
-        [
-          addCards.length ? `shortlisted ${addCards.map((c) => c.name).join(", ")}` : null,
-          removeCards.length ? `dropped ${removeCards.map((c) => c.name).join(", ")}` : null,
-        ]
-          .filter(Boolean)
-          .join("; "),
-      );
-      return done(`Maybe list updated.\n${renderDeck(db, deck, ["maybe"], false)}`);
+
+      return done(`Maybe list updated.\n${renderDeck(db, actor, deck, ["maybe"], false)}`, { added: addCards.map(c => c.oracle_id), removed: removeCards.map(c => c.oracle_id) });
     },
   },
   {
@@ -775,7 +914,7 @@ export const TOOLS: ToolDef[] = [
     title: "Write a memory",
     readOnly: false,
     description:
-      "Save one thing worth knowing next time: a preference, a correction, the reason behind a ruling, a " +
+      "Save one thing worth knowing next time: a preference, a correction, the reason behind a decision, a " +
       "fact about the owner's playgroup, how a deck played. No approval is needed; the owner can see and " +
       "edit every memory. One statement and its reason per memory. Never save what a tool can tell you or " +
       "what a card says. The result lists existing memories that resemble this one: if one is the same " +
@@ -789,20 +928,20 @@ export const TOOLS: ToolDef[] = [
         .enum(["stated", "inferred"])
         .optional()
         .describe("'stated' only if the owner said it; 'inferred' (the default) for your own conclusion."),
-      source_ruling: z.number().int().optional().describe("The id of the ruling that prompted this, if one did."),
+      source_decision: z.number().int().optional().describe("The id of the decision that prompted this, if one did."),
     },
     run: ({ db, actor }, a) => {
-      const deck = a.scope === "deck" ? (a.deck === undefined ? null : deckId(db, a.deck)) : null;
+      const deck = a.scope === "deck" ? (a.deck === undefined ? null : deckId(db, actor, a.deck, true)) : null;
       const { memory, similar } = remember(db, actor, {
         text: a.text,
         scope: a.scope,
         deck_id: deck,
         cards: resolveCards(db, a.cards ?? []).map((c) => c.oracle_id),
         basis: a.basis,
-        source_log_id: a.source_ruling,
+        source_log_id: a.source_decision,
       });
-      recordActivity(db, actor, "remember", deck, `Memory #${memory.id}: ${memory.text}`);
-      const loaded = loadScope(db, memory.scope, deck ?? undefined);
+
+      const loaded = loadScope(db, actor, memory.scope, deck ?? undefined);
       return done(
         [
           `Saved.\n${memoryLine(memory)}`,
@@ -815,6 +954,7 @@ export const TOOLS: ToolDef[] = [
         ]
           .filter(Boolean)
           .join("\n\n"),
+        { memory, similar_ids: similar.map(m => m.id), budget: { used: loaded.used, limit: loaded.budget, omitted: loaded.omitted } },
       );
     },
   },
@@ -850,32 +990,32 @@ export const TOOLS: ToolDef[] = [
           cards,
           basis: a.basis,
           scope: a.scope,
-          deck_id: a.deck === undefined ? undefined : deckId(db, a.deck),
+          deck_id: a.deck === undefined ? undefined : deckId(db, actor, a.deck, true),
         });
       } else {
         result = reviseMemory(db, actor, a.id, { action: a.action });
       }
-      recordActivity(db, actor, "revise_memory", result.deck_id, `${a.action} memory #${a.id}${result.id !== a.id ? ` → #${result.id}` : ""}: ${result.text}`);
+
       return done(
-        `${a.action === "supersede" ? `Memory #${a.id} is now superseded by:` : "Done:"}\n${memoryLine(result)}`,
+        `${a.action === "supersede" ? `Memory #${a.id} is now superseded by:` : "Done:"}\n${memoryLine(result)}`, { memory: result },
       );
     },
   },
   {
-    name: "mark_rulings_reviewed",
-    title: "Mark rulings as read",
+    name: "mark_decisions_reviewed",
+    title: "Mark decisions as read",
     readOnly: false,
     description:
-      "Tell the app you have read rulings from list_rulings and decided what, if anything, is worth a " +
-      "memory. Give the ids, or 'through' to clear everything up to and including an id.",
+      "Tell the app you have read decisions from list_decisions and decided what, if anything, is worth a " +
+      "memory. Give the ids, or 'through' to clear that decision's deck up to and including its id.",
     input: {
       ids: z.array(z.number().int()).optional(),
       through: z.number().int().optional(),
     },
     run: ({ db, actor }, a) => {
-      const n = markReviewed(db, { ids: a.ids, through: a.through });
-      recordActivity(db, actor, "mark_rulings_reviewed", null, `Reviewed ${n} ruling(s)`);
-      return done(`Marked ${n} as reviewed. ${unreviewedCount(db)} still unreviewed.`);
+      const n = markReviewed(db, actor, { ids: a.ids, through: a.through });
+
+      return done(`Marked ${n} as reviewed. ${unreviewedCount(db, actor)} still unreviewed.`, { reviewed: n, unreviewed: unreviewedCount(db, actor) });
     },
   },
 
@@ -886,35 +1026,36 @@ export const TOOLS: ToolDef[] = [
     title: "Propose changes to a deck",
     readOnly: false,
     description:
-      "Propose adding and cutting cards. This is the only way to change which cards are in an ACTIVE deck: " +
-      "the owner rules on each item in the app, and you learn the outcome from list_rulings. Propose as " +
+      "Propose adding and cutting cards. This is the only way to change which cards are in a Paper deck: " +
+      "the owner decides each item in the app, and you learn the outcome from list_decisions. Propose as " +
       "many items as the request calls for. Every item needs its own reason (write cards as [[Card Name]], " +
       "and quote the oracle text you rely on). Give items that only make sense together the same group " +
       "so they are accepted or rejected as a unit. A cut removes the card from the deck; set to_maybe on " +
       "a cut to move it to the maybe list instead, when it is worth keeping in view. The result shows " +
-      "what the deck would become and any prior rulings and memories on the cards involved.",
+      "what the deck would become and any prior decisions and memories on the cards involved.",
     input: {
       deck: deckRef,
+      expected_revision: z.number().int().nonnegative().optional(),
       summary: z.string().optional().describe("One line on what this proposal is for."),
       items: z
         .array(
-          z.object({
+          z.strictObject({
             action: z.enum(["add", "cut"]),
             card: cardRef,
-            reason: z.string().describe("Why. The owner reads this when ruling."),
+            reason: z.string().describe("Why. The owner reads this when deciding."),
             slot: z.string().optional().describe("For an add: an existing primary purpose slot."),
             secondary_slots: z.array(z.string()).optional().describe("For an add: additional purpose slots; omit to retain a maybe card's assignments."),
             to_maybe: z
               .boolean()
               .optional()
               .describe("For a cut: if accepted, move the card to the maybe list instead of out of the deck (default false)."),
-            group: z.string().optional().describe("A label shared by items to be ruled on together."),
+            group: z.string().optional().describe("A label shared by items the owner decides together."),
           }),
         )
         .min(1),
     },
     run: ({ db, actor }, a) => {
-      const deck = deckId(db, a.deck);
+      const deck = deckId(db, actor, a.deck, true);
       const items = a.items as Array<{
         action: "add" | "cut";
         card: string;
@@ -927,37 +1068,38 @@ export const TOOLS: ToolDef[] = [
       const cards = resolveCards(db, items.map((i) => i.card));
       const id = createProposal(db, actor, deck, {
         summary: a.summary,
+        expected_revision: a.expected_revision,
         items: items.map((i, n) => ({
           action: i.action,
           oracle_id: cards[n].oracle_id,
           reason: i.reason,
-          slot_id: i.slot ? requireSlotByName(db, deck, i.slot).id : undefined,
-          secondary_slot_ids: i.secondary_slots?.map(name => requireSlotByName(db, deck, name).id),
+          slot_id: i.slot ? requireSlotByName(db, actor, deck, i.slot).id : undefined,
+          secondary_slot_ids: i.secondary_slots?.map(name => requireSlotByName(db, actor, deck, name).id),
           to_maybe: i.to_maybe,
           group: i.group,
         })),
       });
-      const proposal = getProposal(db, id)!;
-      recordActivity(db, actor, "propose_changes", deck, `Proposal #${id}: ${proposal.items.length} item(s)${a.summary ? ` — ${a.summary}` : ""}`);
+      const proposal = getProposal(db, actor, id, true)!;
 
-      const view = getDeck(db, deck);
+
+      const view = getDeck(db, actor, deck);
       const c = view.computed;
       const ids = cards.map((x) => x.oracle_id);
-      const rulings = cardHistories(db, deck, ids);
-      const memories = memoriesForCards(db, ids, deck);
+      const decisions = cardHistories(db, actor, deck, ids);
+      const memories = memoriesForCards(db, actor, ids, deck);
       const context = cards
-        .filter((x) => rulings.has(x.oracle_id) || memories.has(x.oracle_id))
+        .filter((x) => decisions.has(x.oracle_id) || memories.has(x.oracle_id))
         .map((x) =>
           [
             `- ${x.name}:`,
-            ...(rulings.get(x.oracle_id) ?? []).map((r) => `  ${rulingLine(r)}`),
+            ...(decisions.get(x.oracle_id) ?? []).map((r) => `  ${decisionLine(r)}`),
             ...(memories.get(x.oracle_id) ?? []).map((m) => `  ${memoryLine(m)}`),
           ].join("\n"),
         );
       return done(
         [
-          `Proposal #${id} is waiting for the owner's ruling in the app (${proposal.items.length} item(s)).`,
-          `The deck is ${c.card_count}/100. Awaiting ruling across all proposals: +${c.pending.adds} / −${c.pending.cuts}; ` +
+          `Proposal #${id} is waiting for the owner's decision in the app (${proposal.items.length} item(s)).`,
+          `The deck is ${c.card_count}/100. Awaiting decision across all proposals: +${c.pending.adds} / −${c.pending.cuts}; ` +
             `if all were accepted it would be ${c.pending.projected_count}/100.`,
           context.length
             ? `What the app already knows about these cards. If your reasons did not account for it, tell the owner now:\n${context.join("\n")}`
@@ -965,32 +1107,105 @@ export const TOOLS: ToolDef[] = [
         ]
           .filter(Boolean)
           .join("\n\n"),
+        { proposal_id: id, item_ids: proposal.items.map(i => i.id), base_revision: proposal.base_revision },
       );
     },
   },
   {
+    name: "list_proposals",
+    prices: true,
+    title: "Read current proposals and their history",
+    readOnly: true,
+    description: "Read card and document proposals with current status, supersession links, revision bases, stale flags, and full preserved drafts. Defaults to current pending work; include_history returns resolved, withdrawn and superseded versions. No approval or mutation is performed.",
+    input: { deck: deckRef.optional(), include_history: z.boolean().optional() },
+    run: ({ db, actor }, a) => {
+      const id = a.deck === undefined ? undefined : deckId(db, actor, a.deck);
+      const proposals = listProposals(db, actor, { deckId: id, status: a.include_history ? undefined : "open" });
+      const document_edits = listDocumentEdits(db, actor, { deckId: id, status: a.include_history ? undefined : "pending" });
+      return { structuredContent: { proposals, document_edits }, text:
+        [...proposals.map(p => `Card proposal #${p.id}: ${p.is_current ? "current open" : p.disposition === "current" ? p.status : p.disposition}, based on r${p.base_revision ?? "unknown"}${p.stale ? ", stale" : ""}${p.superseded_by ? ` → #${p.superseded_by}` : ""}`),
+          ...document_edits.map(e => `Document edit #${e.id}${e.group_id ? ` (group #${e.group_id})` : ""}: ${e.kind}, ${e.is_current ? "current pending" : e.disposition === "current" ? e.status : e.disposition}, based on r${e.base_revision ?? "unknown"}${e.stale ? ", stale" : ""}${e.superseded_by ? ` → #${e.superseded_by}` : ""}`)].join("\n") || "No proposals.",
+      };
+    },
+  },
+  {
+    name: "propose_document_changes",
+    title: "Propose a related set of document changes",
+    readOnly: false,
+    description: "Propose related brief or power-target changes as one atomic owner approval group. Use supersedes to explicitly replace your previous pending edits/groups; their history and links remain. The full replacement group becomes current. Always awaits owner approval for agents; Archived is read-only. Profile groups omit deck and contain only profile edits. Duplicate current drafts for the same field require explicit supersession.",
+    input: { deck: deckRef.optional(), changes: z.array(documentChange).min(1),
+      supersedes: z.array(z.number().int().positive()).optional(), expected_revision: z.number().int().nonnegative().optional() },
+    run: ({ db, actor }, a) => {
+      const id = a.deck === undefined ? null : deckId(db, actor, a.deck, true);
+      const result = proposeDocumentGroup(db, actor, id, documentChanges(db, actor, a.changes), a);
+      return { changed: true, structuredContent: { ...result, document_edits: listDocumentEdits(db, actor, id == null ? { profileOnly: true } : { deckId: id }) },
+        text: `Document group #${result.group_id}: edits ${result.edit_ids.join(", ")}; awaiting the owner's grouped approval. Superseded drafts remain in history.` };
+    },
+  },
+  {
+    name: "revise_proposal",
+    prices: true,
+    title: "Amend or withdraw your pending proposal",
+    readOnly: false,
+    description: "Amend or withdraw only your own pending card or document proposal. Amendments are linked replacements retaining the original audit history. For documents name any edit in a group and supply the complete replacement changes; the whole group is superseded. For partially decided card proposals, supply only remaining work; earlier decisions stay in history. Never accepts, changes lifecycle, or edits an approved brief/power target.",
+    input: { type: z.enum(["cards", "document"]), id: z.number().int().positive(), action: z.enum(["amend", "withdraw"]),
+      reason: z.string().trim().min(1), expected_revision: z.number().int().nonnegative().optional(),
+      summary: z.string().optional(), items: z.array(proposalItem).min(1).optional(), changes: z.array(documentChange).min(1).optional() },
+    run: ({ db, actor }, a) => {
+      if (a.action === "withdraw") {
+        const scope = a.type === "cards" ? getProposal(db, actor, a.id, true)?.deck_id : getDocumentEdit(db, actor, a.id, true)?.deck_id;
+        if (a.type === "cards") withdrawProposal(db, actor, a.id, a.reason, a.expected_revision);
+        else withdrawDocumentEdit(db, actor, a.id, a.reason, a.expected_revision);
+        return done(`Withdrew ${a.type} proposal #${a.id}; history retained.${scope == null ? "" : `\n${afterWrite(db, actor, scope)}`}`);
+      }
+      if (a.type === "document") {
+        const edit = getDocumentEdit(db, actor, a.id, true);
+        if (!edit) throw new ServiceError(`Proposed edit ${a.id} not found`, 404);
+        if (!a.changes) throw new ServiceError("A document amendment needs the complete replacement changes");
+        lintProse(db, a.reason);
+        const result = proposeDocumentGroup(db, actor, edit.deck_id, documentChanges(db, actor, a.changes), { supersedes: [a.id], expected_revision: a.expected_revision });
+
+        return { changed: true, structuredContent: result, text: `Current document group #${result.group_id} supersedes #${a.id}; awaiting owner approval.` };
+      }
+      const old = getProposal(db, actor, a.id, true);
+      if (!old) throw new ServiceError(`Proposal ${a.id} not found`, 404);
+      if (!a.items) throw new ServiceError("A card amendment needs the complete replacement items");
+      lintProse(db, a.reason);
+      const items = (a.items as z.infer<typeof proposalItem>[]).map(i => ({ ...i,
+        oracle_id: resolveCard(db, i.card).oracle_id,
+        slot_id: i.slot ? requireSlotByName(db, actor, old.deck_id, i.slot).id : undefined,
+        secondary_slot_ids: i.secondary_slots?.map(name => requireSlotByName(db, actor, old.deck_id, name).id),
+      }));
+      const id = amendProposal(db, actor, a.id, { summary: a.summary, items, expected_revision: a.expected_revision });
+
+      return { changed: true, structuredContent: { proposal: getProposal(db, actor, id, true) }, text: `Current card proposal #${id} supersedes #${a.id}; awaiting owner approval.\n${afterWrite(db, actor, old.deck_id)}` };
+    },
+  },
+  {
     name: "propose_brief_edit",
+    prices: true,
     title: "Propose an edit to a deck's brief",
     readOnly: false,
     description:
       "Propose a change to a deck's brief: replace the thesis or the constraints, define or replace a " +
       "named engine (with the cards that are its required pieces), or remove one. The brief is the " +
-      "owner's document, so this always waits for their ruling and needs a reason citing what " +
-      "prompted it. Legacy is read-only.",
+      "owner's document, so this always waits for their decision and needs a reason citing what " +
+      "prompted it. Archived is read-only.",
     input: {
       deck: deckRef,
+      expected_revision: z.number().int().nonnegative().optional(),
       kind: z.enum(["thesis", "constraints", "engine_set", "engine_remove"]),
       text: z.string().optional().describe("For thesis / constraints: the full replacement text."),
       engine_name: z.string().optional().describe("For engine_set / engine_remove."),
       description: z.string().optional().describe("For engine_set: what the engine does."),
       pieces: z
-        .array(z.object({ card: cardRef, note: z.string().optional() }))
+        .array(z.strictObject({ card: cardRef, note: z.string().optional() }))
         .optional()
         .describe("For engine_set: the cards the engine needs."),
-      reason: z.string().trim().min(1).describe("What prompted this (rulings, memories). Required for every brief proposal."),
+      reason: z.string().trim().min(1).describe("What prompted this (decisions, memories). Required for every brief proposal."),
     },
     run: ({ db, actor }, a) => {
-      const deck = deckId(db, a.deck);
+      const deck = deckId(db, actor, a.deck, true);
       const pieces = (a.pieces ?? []) as Array<{ card: string; note?: string }>;
       const cards = resolveCards(db, pieces.map((p) => p.card));
       const r = proposeDocumentEdit(
@@ -1005,12 +1220,13 @@ export const TOOLS: ToolDef[] = [
           pieces: a.kind === "engine_set" ? pieces.map((p, i) => ({ oracle_id: cards[i].oracle_id, note: p.note })) : undefined,
         },
         a.reason ?? "",
+        { expected_revision: a.expected_revision },
       );
-      recordActivity(db, actor, "propose_brief_edit", deck, r.applied ? `Wrote the brief (${a.kind})` : `Proposed brief edit #${r.edit_id} (${a.kind})`);
+
       return done(
         r.applied
-          ? `Applied the brief edit.\n${renderDeck(db, deck, ["brief"])}`
-          : `Proposed edit #${r.edit_id} is waiting for the owner's ruling in the app.`,
+          ? `Applied the brief edit.\n${renderDeck(db, actor, deck, ["brief"])}`
+          : `Proposed edit #${r.edit_id} is waiting for the owner's decision in the app.`, { ...r },
       );
     },
   },
@@ -1021,17 +1237,17 @@ export const TOOLS: ToolDef[] = [
     description:
       "Propose new text for the owner's profile: who they are as a builder — tastes, playgroup and power " +
       "level, budget stance, standing dislikes. Give the complete replacement text; the owner sees a diff " +
-      "against the current profile and rules on it. Use this when memories have settled into something " +
+      "against the current profile and decides on it. Use this when memories have settled into something " +
       "durable, and cite them in the reason.",
     input: {
       text: z.string().describe("The complete new profile, in markdown. Keep it under about 600 words."),
-      reason: z.string().describe("What prompted this: the rulings and memories it rests on."),
+      reason: z.string().describe("What prompted this: the decisions and memories it rests on."),
     },
     run: ({ db, actor }, a) => {
       const r = proposeDocumentEdit(db, actor, null, "profile", { content: a.text }, a.reason);
-      recordActivity(db, actor, "propose_profile_edit", null, r.applied ? "Edited the profile" : `Proposed profile edit #${r.edit_id}`);
+
       return done(
-        r.applied ? "The profile was updated." : `Proposed edit #${r.edit_id} is waiting for the owner's ruling in the app.`,
+        r.applied ? "The profile was updated." : `Proposed edit #${r.edit_id} is waiting for the owner's decision in the app.`, { ...r },
       );
     },
   },
@@ -1039,7 +1255,26 @@ export const TOOLS: ToolDef[] = [
 
 // ---------- calling a tool without a transport ----------
 
-const SCHEMAS = new Map(TOOLS.map((t) => [t.name, (["create_deck", "edit_cards"].includes(t.name) ? z.strictObject(t.input) : z.object(t.input))]));
+// D9 renamed these arguments in phase 4b, during the invite-only beta, with
+// no deprecation period (v3 plan D19). The old name gets a specific error.
+const RENAMED_ARGUMENTS: Record<string, string> = { source_ruling: "source_decision" };
+
+/** Every tool rejects an argument it does not define, naming the key, rather
+ * than silently dropping it (a renamed key would otherwise "succeed"). The
+ * SDK's own fields (`_meta`) travel beside `arguments`, never inside it. */
+export function inputSchema(tool: ToolDef) {
+  return z.strictObject({ ...tool.input, ...(!tool.readOnly ? {
+    idempotency_key: z.string().trim().min(1).max(128).optional().describe("Use a unique key for this write; retry the identical arguments with the same key after a lost response. Results replay for 24 hours; expired keys are refused."),
+    ...(tool.input.deck && tool.name !== "fork_deck" ? { expected_revision: z.number().int().nonnegative().optional().describe("Membership revision you read; mismatches require re-reading."),
+      expected_edit_version: z.number().int().nonnegative().optional().describe("Edit version you read; also detects slot, tag, brief and other organization changes.") } : {}),
+  } : {}) }, {
+    error: (issue) => issue.code !== "unrecognized_keys" ? undefined : issue.keys
+      .map((key) => RENAMED_ARGUMENTS[key] ? `'${key}' was renamed to '${RENAMED_ARGUMENTS[key]}'` : `'${key}' is not an argument of ${tool.name}`)
+      .join("; "),
+  });
+}
+
+const SCHEMAS = new Map(TOOLS.map((t) => [t.name, inputSchema(t)]));
 
 /** Validate arguments and run a tool. Errors propagate; the transport turns them into tool errors. */
 export function callTool(ctx: ToolContext, name: string, args: unknown = {}): ToolResult {
@@ -1050,6 +1285,36 @@ export function callTool(ctx: ToolContext, name: string, args: unknown = {}): To
     throw new ServiceError(
       `Invalid arguments for ${name}: ${parsed.error.issues.map((i) => `${i.path.join(".") || "(arguments)"}: ${i.message}`).join("; ")}`,
     );
-  const result = tool.run(ctx, parsed.data);
-  return typeof result === "string" ? { text: result } : result;
+  return runTool(ctx, tool, parsed.data);
+}
+
+/** Shared execution for SDK-validated HTTP calls and local validated calls.
+ * Non-price tools retain their exact text, particularly pasteable exports. */
+export function runTool(ctx: ToolContext, tool: ToolDef, args: unknown): ToolResult {
+  return withReadContext(() => executeTool(ctx, tool, args));
+}
+function executeTool(ctx: ToolContext, tool: ToolDef, args: unknown): ToolResult {
+  const execute = (): ToolResult => {
+    const result = tool.run(ctx, args);
+    const output = typeof result === "string" ? { text: result } : result;
+    if (!tool.prices) return output;
+    const line = priceSourceLine(priceResolver(ctx.db, ctx.actor));
+    return { ...output, text: [output.text.split("\n" + line).join("").split(line).join("").trimEnd(), line].join("\n") };
+  };
+  // The write, attribution and response computation form one operation. A
+  // late validation/rendering failure must not leave an unreported mutation.
+  if (tool.readOnly) return execute();
+  const a = args as Record<string, any>;
+  const { idempotency_key, ...input } = a;
+  const result = executeCommand(ctx.db, ctx.actor, {
+    operation: tool.name, input, idempotency_key,
+    expected_revision: a.expected_revision, expected_edit_version: a.expected_edit_version,
+    deck: () => tool.name === "fork_deck" ? undefined : a.deck === undefined ? (tool.name === "revise_proposal" ?
+      (a.type === "cards" ? getProposal(ctx.db, ctx.actor, a.id, true)?.deck_id : getDocumentEdit(ctx.db, ctx.actor, a.id)?.deck_id) ?? undefined : undefined)
+      : deckId(ctx.db, ctx.actor, a.deck, tool.name !== "fork_deck"),
+  }, execute);
+  return { ...result.value,
+    text: result.command.replayed ? `Replayed the original result; no additional write. Counts and findings below describe that original outcome.\n\n${result.value.text}` : result.value.text,
+    changed: result.command.replayed ? false : result.value.changed,
+    command: result.command, structuredContent: { ...result.value.structuredContent, command: result.command } };
 }

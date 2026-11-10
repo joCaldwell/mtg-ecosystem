@@ -1,170 +1,112 @@
 import type { ReactNode } from "react";
 import { api, type PlayerStats } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
-import { CardRef, ColorIdentity, ManaSymbol } from "../../mtg/index.ts";
-import { Box, Chip, EmptyState, ErrorNote, KeyValue, Meter, Section, Text } from "../../ui/index.ts";
+import { CardRef, ColorIdentity, ManaSymbol, COLOR_NAMES } from "../../mtg/index.ts";
+import { Box, Chip, EmptyState, ErrorNote, Meter, Text } from "../../ui/index.ts";
 import styles from "./PlayerStatsPanel.module.css";
 
 const WUBRG = ["W", "U", "B", "R", "G"] as const;
 
-function Block({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <Box>
-      <div className={styles.block}>
-        <Text tone="muted" size="xs" weight="medium">
-          {title}
-        </Text>
-        {children}
-      </div>
-    </Box>
-  );
+function Block({ title, children, className = "" }: { title: string; children: ReactNode; className?: string }) {
+  return <Box className={`${styles.panel} ${className}`}>
+    <h3 className={styles.panelTitle}>{title}</h3>
+    {children}
+  </Box>;
 }
 
 const num = (n: number | null, digits = 1) => (n == null ? "–" : n.toFixed(digits).replace(/\.0+$/, ""));
 
-function Colors({ stats }: { stats: PlayerStats }) {
-  return (
-    <Block title="Colours">
-      <div className={styles.bars}>
-        {WUBRG.map((c) => (
-          <div key={c} className={styles.bar}>
-            <ManaSymbol symbol={c} />
-            <Meter value={stats.colors[c] ?? 0} max={stats.deck_count} aria-label={`Decks including ${c}`} />
-            <Text mono tone="muted" size="sm">
-              {stats.colors[c] ?? 0}
-            </Text>
-          </div>
-        ))}
-      </div>
-    </Block>
-  );
+function identityNames(identity: string) {
+  const colours = WUBRG.filter(c => identity.includes(c));
+  if (colours.length === WUBRG.length) return "All five colours";
+  return (colours.length ? colours : ["C"]).map(c => {
+    const name = COLOR_NAMES[c]!;
+    return name[0]!.toUpperCase() + name.slice(1);
+  }).join(", ");
 }
 
-/**
- * What the owner builds, across their Paper decks (spec §10.3). The numbers are
- * computed on the server, the same ones an agent gets from `player_stats`;
- * this only arranges them. Empty blocks are left out.
- */
+function Colors({ stats }: { stats: PlayerStats }) {
+  return <Block title="Colours in deck identities">
+    <div className={styles.bars}>
+      {WUBRG.map(c => <div key={c} className={styles.bar} data-color={c}>
+        <span className={styles.colour}><ManaSymbol symbol={c} /><span>{COLOR_NAMES[c]}</span></span>
+        <Meter value={stats.colors[c] ?? 0} max={stats.deck_count} aria-label={`Paper decks including ${COLOR_NAMES[c]}`} />
+        <Text mono tone="soft" size="sm">{stats.colors[c] ?? 0} / {stats.deck_count}</Text>
+      </div>)}
+    </div>
+  </Block>;
+}
+
+/** Server-computed Paper-deck statistics (§10.3); the gallery only arranges them. */
 export function PlayerStatsPanel() {
-  const query = useQuery(() => api.getStats(), []);
+  const query = useQuery(() => api.getStats(), [], "stats");
   const stats = query.data;
   if (query.error && !stats) return <ErrorNote>{query.error}</ErrorNote>;
   if (!stats) return null;
-  if (stats.deck_count === 0) return (
-    <Section title="Across your paper decks">
-      <EmptyState title="No paper decks yet">
-        Mark a deck as Paper using its Actions menu to include it in these statistics.
-      </EmptyState>
-    </Section>
-  );
+  if (stats.deck_count === 0) return <section className={styles.stats} aria-labelledby="paper-stats-heading">
+    <h2 id="paper-stats-heading" className={styles.heading}>Across your paper decks</h2>
+    <EmptyState title="No paper decks yet">Set a deck’s lifecycle to Paper to include its statistics.</EmptyState>
+  </section>;
 
-  const byType: Array<[ReactNode, ReactNode]> = Object.entries(stats.averages.by_type).map(([type, n]) => [
-    type,
-    <Text mono key={type}>
-      {num(n)}
-    </Text>,
-  ]);
-  const averages: Array<[ReactNode, ReactNode]> = [];
-  if (stats.averages.mana_value != null) averages.push(["Mana value", <Text mono key="mv">{num(stats.averages.mana_value, 2)}</Text>]);
-  if (stats.averages.lands != null) averages.push(["Land count", <Text mono key="l">{num(stats.averages.lands)}</Text>]);
+  // stats.ts classifies types by the front face, while computed.land_count
+  // includes Land anywhere in the type line (including a back face). Keep
+  // the authoritative land metric above; repeating its front-face subset
+  // beside it would look like two conflicting counts of the same thing.
+  const byType = Object.entries(stats.averages.by_type).filter(([type]) => type !== "Land");
+  const figures = [
+    ["Paper decks", stats.deck_count],
+    ["Families", stats.families],
+    ["Average mana value", num(stats.averages.mana_value, 2)],
+    ["Average lands per deck", num(stats.averages.lands)],
+  ] as const;
 
-  return (
-    <Section title="Across your paper decks">
-      <div className={styles.grid}>
-        <Block title="Decks">
-          <KeyValue
-            items={[
-              ["Decks", <Text mono key="d">{stats.deck_count}</Text>],
-              ["Families", <Text mono key="f">{stats.families}</Text>],
-            ]}
-          />
-          <Text tone="faint" size="xs">
-            A fork and its parent count as one family.
-          </Text>
-        </Block>
-
-        <Colors stats={stats} />
-
-        {stats.identities.length > 0 && (
-          <Block title="Most common identities">
-            <div className={styles.rows}>
-              {stats.identities.map((i) => (
-                <div key={i.identity} className={styles.row}>
-                  <span className={styles.pips}>
-                    <ColorIdentity colors={i.identity === "C" ? "" : i.identity} />
-                  </span>
-                  <Text mono tone="muted" size="sm">
-                    {i.decks} {i.decks === 1 ? "deck" : "decks"}
-                  </Text>
-                </div>
-              ))}
-            </div>
-          </Block>
-        )}
-
-        {stats.commander_types.length > 0 && (
-          <Block title="Commander types">
-            <div className={styles.chips}>
-              {stats.commander_types.map((t) => (
-                <Chip key={t.type}>
-                  {t.type}
-                  <Text mono tone="faint">
-                    {t.decks}
-                  </Text>
-                </Chip>
-              ))}
-            </div>
-          </Block>
-        )}
-
-        {averages.length + byType.length > 0 && (
-          <Block title="Averages per deck">
-            {averages.length > 0 && <KeyValue items={averages} />}
-            {byType.length > 0 && (
-              <>
-                <Text tone="faint" size="xs">
-                  Cards of each type
-                </Text>
-                <KeyValue items={byType} />
-              </>
-            )}
-          </Block>
-        )}
-
-        {stats.slots.length > 0 && (
-          <Block title="Slots you use">
-            <div className={styles.rows}>
-              {stats.slots.map((s) => (
-                <div key={s.name} className={styles.slot}>
-                  <Text className={styles.slotName}>{s.name}</Text>
-                  <Text mono tone="muted" size="sm" title="Average cards in this slot, and how many decks use it">
-                    avg {num(s.average_count)} · {s.decks} {s.decks === 1 ? "deck" : "decks"}
-                  </Text>
-                </div>
-              ))}
-            </div>
-          </Block>
-        )}
+  return <section className={styles.stats} aria-labelledby="paper-stats-heading">
+    <h2 id="paper-stats-heading" className={styles.heading}>Across your paper decks</h2>
+    <div className={styles.summary}>
+      <dl className={styles.figures}>
+        {figures.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+      </dl>
+      <Text tone="muted" size="sm">A fork and its parent count as one family.</Text>
+    </div>
+    <div className={styles.grid}>
+      <Colors stats={stats} />
+      {(stats.identities.length > 0 || stats.commander_types.length > 0) && <div className={styles.column}>
+        {stats.identities.length > 0 && <Block title="Common colour identities">
+          <div className={styles.identities}>
+            {stats.identities.map(i => <div key={i.identity} className={styles.identity}>
+              <span className={styles.identityLabel}>
+                <span className={styles.pips}><ColorIdentity colors={i.identity === "C" ? "" : i.identity} /></span>
+                <span>{identityNames(i.identity)}</span>
+              </span>
+              <Text mono tone="soft" size="sm">{i.decks} {i.decks === 1 ? "deck" : "decks"}</Text>
+            </div>)}
+          </div>
+        </Block>}
+        {stats.commander_types.length > 0 && <Block title="Commander types">
+          <div className={styles.chips}>
+            {stats.commander_types.map(t => <Chip key={t.type}>{t.type}<Text mono tone="soft">{t.decks}</Text></Chip>)}
+          </div>
+        </Block>}
+      </div>}
+      {byType.length > 0 && <Block title="Averages per deck" className={styles.averages}>
+        <Text tone="muted" size="sm">Cards of each type</Text>
+        <div className={styles.typeCounts}>
+          {byType.map(([type, value]) => <div key={type} className={styles.typeCount}><Text>{type}</Text><Text mono tone="soft">{num(value)}</Text></div>)}
+        </div>
+      </Block>}
+    </div>
+    {stats.slots.length > 0 && <Block title="Slots you use">
+      <div className={styles.slots}>
+        {stats.slots.map(s => <div key={s.name} className={styles.slot}>
+          <Text className={styles.slotName}>{s.name}</Text>
+          <Text mono tone="soft" size="sm">avg {num(s.average_count)} · {s.decks} {s.decks === 1 ? "deck" : "decks"}</Text>
+        </div>)}
       </div>
-
-      {stats.reused_cards.length > 0 && (
-        <Block title="Cards reused across deck families">
-          <ul className={styles.reused}>
-            {stats.reused_cards.map((c) => (
-              <li key={c.name}>
-                <CardRef name={c.name} />
-                <Text mono tone="faint" size="sm">
-                  {c.decks}
-                </Text>
-              </li>
-            ))}
-          </ul>
-        </Block>
-      )}
-
-      <Text tone="faint" size="xs">
-        Only Paper decks contribute. These are the same computed numbers an agent gets from <Text mono>player_stats</Text>.
-      </Text>
-    </Section>
-  );
+    </Block>}
+    {stats.reused_cards.length > 0 && <Block title="Cards reused across deck families">
+      <ul className={styles.reused}>
+        {stats.reused_cards.map(c => <li key={c.name}><CardRef name={c.name} /><Text mono tone="soft" size="sm">{c.decks}</Text></li>)}
+      </ul>
+    </Block>}
+  </section>;
 }

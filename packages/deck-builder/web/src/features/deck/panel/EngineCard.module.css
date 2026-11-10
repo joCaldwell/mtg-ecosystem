@@ -14,7 +14,7 @@
 .actions {
   display: flex;
   margin-left: auto;
-  gap: var(--s-1);
+  gap: var(--s-4);
 }
 
 .description {

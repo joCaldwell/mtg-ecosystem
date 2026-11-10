@@ -342,7 +342,11 @@ const COMPLEMENT = { win: "lose", lose: "win", heads: "tails", tails: "heads" } 
 export function foldCoinFlipOutcome(
   c: Cursor, previous: Sentence | undefined, parseBody: (body: Cursor) => Sentence[] | null,
 ): "folded" | "none" | null {
-  const flip = previous?.steps.at(-1);
+  let flip = previous?.steps.at(-1);
+  // The flip scheduled by "flip a coin at the beginning of the next end
+  // step" is made by the delayed ability; its outcomes belong inside it.
+  if (flip?.effect === "create-delayed-trigger" && flip.effects.length === 1 && flip.effects[0].steps.length === 1
+      && flip.effects[0].steps[0].effect === "flip-coin" && !flip.effects[0].otherwise) flip = flip.effects[0].steps[0];
   if (!previous || flip?.effect !== "flip-coin" || previous.otherwise) return "none";
   const header = c.attempt((c): CoinFlipOutcome["result"] | "otherwise" | null => {
     if (c.word("otherwise") !== null) { c.punct(","); return "otherwise"; }

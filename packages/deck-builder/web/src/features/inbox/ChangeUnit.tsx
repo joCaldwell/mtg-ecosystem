@@ -1,12 +1,12 @@
 import type { ReviewUnit } from "../../domain/review.ts";
 import type { DeckState } from "../../api/client.ts";
-import { CardRef, ManaCost } from "../../mtg/index.ts";
+import { CardRef, InlineText, ManaCost } from "../../mtg/index.ts";
 import { Box, Chip, Text } from "../../ui/index.ts";
 import styles from "./ChangeUnit.module.css";
 
 const LABEL: Record<ReviewUnit["kind"], string> = {
-  swap: "Swap, ruled together",
-  group: "Ruled together",
+  swap: "Swap · decided together",
+  group: "Group · decided together",
   add: "Add",
   cut: "Cut",
 };
@@ -20,12 +20,15 @@ function slotOf(state: DeckState | null, oracleId: string): string | null {
 
 /** One decision the owner will make in the deck: its items, read-only. */
 export function ChangeUnit({ unit, state }: { unit: ReviewUnit; state: DeckState | null }) {
+  const reason = unit.items[0]?.reason;
+  const sharedReason = reason && unit.items.every(item => item.reason === reason) ? reason : null;
   return (
     <Box padding="sm" className={styles.unit}>
       {unit.items.map((item) => {
         const slot = item.action === "add" ? (item.slot_name ?? "Unfiled") : slotOf(state, item.oracle_id);
         return (
-          <div key={item.id} className={styles.item}>
+          <div key={item.id} className={styles.context}>
+          <div className={styles.item}>
             <span className={item.action === "add" ? styles.add : styles.cut} aria-label={item.action}>
               {item.action === "add" ? "+" : "−"}
             </span>
@@ -36,8 +39,11 @@ export function ChangeUnit({ unit, state }: { unit: ReviewUnit; state: DeckState
             {!!item.to_maybe && <Chip>to maybe list</Chip>}
             {slot && <Chip>{slot}</Chip>}
           </div>
+          {!sharedReason && item.reason && <p className={styles.reason}><InlineText text={item.reason} /></p>}
+          </div>
         );
       })}
+      {sharedReason && <p className={styles.reason}><InlineText text={sharedReason} /></p>}
       <Text tone="faint" size="xs" className={styles.kind}>
         {LABEL[unit.kind]}
       </Text>

@@ -1,99 +1,119 @@
+import { usePreferences, useVoice } from "../../app/Preferences.tsx";
 import { useEffect, useRef, useState } from "react";
-import { navigate } from "../../app/routes.ts";
+import { href, navigate, useScrollRestore } from "../../app/routes.ts";
+import { useMediaQuery, PANEL_QUERY } from "../../app/breakpoints.ts";
 import { useInbox } from "../../app/Inbox.tsx";
-import { EmptyState, Loading, PageHeader, SplitPane, Text, useHotkeys } from "../../ui/index.ts";
-import { DocumentEditCard } from "../rulings/index.ts";
+import { Button, EmptyState, Loading, Page, PageHeader, SplitPane, useHotkeys } from "../../ui/index.ts";
+import { DocumentEditCard } from "../decisions/index.ts";
 import { inboxEntries } from "./entries.ts";
 import { InboxEntry } from "./InboxEntry.tsx";
+import { ProposalHistory } from "./ProposalHistory.tsx";
 import { ProposalSummary } from "./ProposalSummary.tsx";
 import styles from "./InboxPage.module.css";
 
 /**
- * Everything waiting on the owner, across decks (spec §8.4, §11). A queue that
- * hands proposals off to the deck, where each change is ruled among the cards
- * around it. Document edits are ruled here, because a text diff is the whole
- * decision.
+ * Everything waiting on the owner, across decks (spec §8.4, §11). Decide a
+ * whole proposal here or review individual changes among the cards in the deck.
  */
-export function InboxPage() {
+export function InboxPage({ entryKey }: { entryKey?: string }) {
+  const tablet = useMediaQuery(PANEL_QUERY);
+  const voice = useVoice();
+  const { hasAgentActivity, loaded } = usePreferences();
   const { inbox, apply } = useInbox();
+  const [history, setHistory] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   const entries = inbox ? inboxEntries(inbox) : [];
-  const found = entries.findIndex((e) => e.key === selectedKey);
+  const found = entries.findIndex((e) => e.key === (entryKey ?? selectedKey));
   // Where the selection was, so one that disappears hands over to its neighbour.
   const lastIndex = useRef(0);
   const index = found >= 0 ? found : Math.min(lastIndex.current, entries.length - 1);
-  const selected = entries[index] ?? null;
+  const selected = entryKey && found < 0 ? null : entries[index] ?? null;
+  const detailOpen = entryKey != null;
+  useScrollRestore(inbox != null);
   useEffect(() => {
     if (index >= 0) lastIndex.current = index;
   }, [index]);
 
   const step = (by: number) => {
     const next = entries[Math.min(Math.max(index + by, 0), entries.length - 1)];
-    if (next) setSelectedKey(next.key);
+    if (next) {
+      setSelectedKey(next.key);
+      if (detailOpen) navigate({ page: "inbox", entry: next.key });
+    }
   };
   useHotkeys({
     j: () => step(1),
     k: () => step(-1),
     enter: (e) => {
-      if (!selected || selected.type !== "proposal") return;
-      // Enter on a button or link already does what that control says.
-      const target = e.target instanceof HTMLElement ? e.target.closest("button, a") : null;
-      if (target && !target.matches("[data-entry][aria-current='true']")) return;
-      e.preventDefault();
-      navigate({ page: "deck", deckId: selected.proposal.deck_id, review: true });
+      if (!selected) return;
+      // Native controls own Enter, including disclosure summaries.
+      const target = e.target instanceof HTMLElement ? e.target.closest("button, a, summary") : null;
+      if (target) return;
+      if (tablet && !detailOpen) {
+        e.preventDefault();
+        navigate({ page: "inbox", entry: selected.key });
+      } else if (selected.type === "proposal") {
+        e.preventDefault();
+        navigate({ page: "deck", deckId: selected.proposal.deck_id, review: true, proposal: selected.proposal.id });
+      }
     },
   });
 
   const header = (
-    <PageHeader
-      title="Inbox"
-      subtitle="Everything an agent needs your decision on, across all decks. Nothing here has been applied."
-    />
+    <>
+      <a className={styles.back} href={href({ page: "inbox" })}>← Back to inbox</a>
+      <PageHeader
+        title={tablet && detailOpen && selected ? (selected.type === "proposal" ? "Proposal" : "Document edit") : "Inbox"}
+        actions={inbox != null && !(tablet && detailOpen) ?
+          <Button variant="ghost" aria-expanded={history} onClick={() => setHistory(!history)}>{history ? "Hide proposal history" : "Show proposal history"}</Button> : undefined}
+      />
+    </>
   );
 
   if (!inbox) {
     return (
-      <div className={styles.page}>
-        {header}
-        <Loading />
+      <div className={styles.page} data-detail={detailOpen || undefined}>
+        <Page scroll={false} header={header}><Loading /></Page>
       </div>
     );
   }
 
   return (
-    <div className={styles.page}>
-      {header}
-      <SplitPane
-        list={entries.map((entry) => (
-          <InboxEntry
-            key={entry.key}
-            entry={entry}
-            selected={entry.key === selected?.key}
-            onSelect={() => setSelectedKey(entry.key)}
-          />
-        ))}
-        detail={
-          selected?.type === "proposal" ? (
-            <ProposalSummary key={selected.key} proposal={selected.proposal} />
-          ) : selected?.type === "edit" ? (
-            <DocumentEditCard key={selected.key} edit={selected.edit} showDeck onRuled={(result) => apply(result.inbox)} />
-          ) : (
-            <div className={styles.empty}>
-              <EmptyState title="Nothing is waiting on you.">
-                Your rulings and reasons are queued. An agent reads them the next time it starts a session,
-                whether or not it was running when you ruled.
-              </EmptyState>
-              {inbox.unreviewed > 0 && (
-                <Text tone="muted" size="sm">
-                  {inbox.unreviewed} of your rulings {inbox.unreviewed === 1 ? "has" : "have"} not been read by an agent
-                  yet.
-                </Text>
-              )}
-            </div>
-          )
-        }
-      />
+    <div className={styles.page} data-detail={detailOpen || undefined}>
+      <Page scroll={entries.length === 0} header={header}>
+        {history && <div className={styles.history}><ProposalHistory unreviewed={inbox.unreviewed} /></div>}
+        {entries.length === 0 ? <EmptyState heading="h2" title={detailOpen ? "This item is no longer waiting" : "Nothing is waiting on you"}>
+          {detailOpen ? <a href={href({ page: "inbox" })}>Back to inbox</a>
+            : loaded && !hasAgentActivity ? <>Agents send proposals here. <a className={styles.link} href={href({ page: "settings" })}>Connect an agent</a></>
+            : "No proposals or edits need a decision."}
+        </EmptyState> :
+        <SplitPane
+          className={styles.panes}
+          list={entries.length === 0 && tablet ? <EmptyState title="Nothing is waiting on you">There are no proposed changes to review.</EmptyState> : entries.map((entry) => (
+            <InboxEntry
+              key={entry.key}
+              entry={entry}
+              selected={entry.key === selected?.key}
+              href={href({ page: "inbox", entry: entry.key })}
+              onSelect={() => setSelectedKey(entry.key)}
+            />
+          ))}
+          detail={
+            selected?.type === "proposal" ? (
+              <ProposalSummary key={selected.key} proposal={selected.proposal} />
+            ) : selected?.type === "edit" ? (
+              <DocumentEditCard key={selected.key} edit={selected.edit} showDeck onRuled={(result) => apply(result.inbox)} />
+            ) : (
+              <div className={styles.empty}>
+                <EmptyState title={detailOpen ? "This item is no longer waiting" : "Nothing is waiting on you"}>
+                  {voice("There are no proposed changes to review. Keep building your decks; your decisions stay in each deck’s History.", "Your decisions and reasons are queued. An agent reads them the next time it starts a session, whether or not it was running when you decided.")}
+                </EmptyState>
+              </div>
+            )
+          }
+        />}
+      </Page>
     </div>
   );
 }

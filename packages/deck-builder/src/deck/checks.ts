@@ -1,11 +1,15 @@
+import { memoRead } from "../read-context.ts";
+import { requireDeck } from "./service.ts";
+import type { Actor } from "../actor.ts";
 // Deterministic checks (spec §9): computed on request from the current list,
 // never stored, never a model's arithmetic. Judgement about a deck is an
 // agent's work and reaches the app as proposals and memories, not here.
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "../sqlite.ts";
 import { getPower } from "./power.ts";
 import { getBrief } from "./brief.ts";
 import { getDeck } from "./service.ts";
+import { roleEligibility } from "./roles.ts";
 
 export interface Finding {
   key: string;
@@ -35,8 +39,14 @@ export function isDoctorPair(cards: { type_line: string; oracle_text: string }[]
   );
 }
 
-export function checkDeck(db: DatabaseSync, deckId: number): Finding[] {
-  const { deck, cards, computed } = getDeck(db, deckId);
+const cardCount = (n: number) => `${n} ${n === 1 ? "card" : "cards"}`;
+
+export function checkDeck(db: Database, actor: Actor, deckId: number): Finding[] {
+  return memoRead(db, `checks:${actor.user_id}:${deckId}`, () => readChecks(db, actor, deckId));
+}
+function readChecks(db: Database, actor: Actor, deckId: number): Finding[] {
+  requireDeck(db, actor, deckId);
+  const { deck, cards, computed } = getDeck(db, actor, deckId);
   const inDeck = cards.filter((c) => !c.maybe);
   const findings: Finding[] = [];
 
@@ -47,10 +57,16 @@ export function checkDeck(db: DatabaseSync, deckId: number): Finding[] {
       title: `Deck is ${computed.card_count}/100`,
       detail:
         computed.delta_to_100 < 0
-          ? `${-computed.delta_to_100} card(s) short of 100 (commanders count, the companion doesn't).`
-          : `${computed.delta_to_100} card(s) over 100.`,
+          ? `${cardCount(-computed.delta_to_100)} short of 100 · commanders count, companions don't`
+          : `${cardCount(computed.delta_to_100)} over 100`,
     });
   }
+
+  for (const c of cards.filter(c => c.retired)) findings.push({
+    key: `retired:${c.oracle_id}`, severity: "warn", title: `${c.name}: retired printing/oracle id`,
+    detail: "Absent from the latest Scryfall bulk data; retained for this deck and its history. Verify the current card identity.",
+    oracle_id: c.oracle_id, card_name: c.name,
+  });
 
   const commanders = inDeck.filter((c) => c.role === "commander");
   if (!commanders.length) {
@@ -62,7 +78,7 @@ export function checkDeck(db: DatabaseSync, deckId: number): Finding[] {
     });
   }
   for (const c of commanders) {
-    if (!c.is_commander) {
+    if (!roleEligibility(c).can_be_commander) {
       findings.push({
         key: `commander_ineligible:${c.oracle_id}`,
         severity: "error",
@@ -127,13 +143,13 @@ export function checkDeck(db: DatabaseSync, deckId: number): Finding[] {
         key: `slot_${s.status}:${s.slot_id}`,
         severity: "warn",
         title: `${s.name} is ${s.status} target (${s.count}/${s.target_min ?? 0}–${s.target_max ?? "∞"})`,
-        detail: `${Math.abs(s.delta)} card(s) ${s.status === "under" ? "below the minimum" : "above the maximum"}. Targets are soft — adjust the slot target if this count is deliberate.`,
+        detail: `${cardCount(Math.abs(s.delta))} ${s.status === "under" ? "below the minimum" : "above the maximum"}. Targets are soft — adjust the slot target if this count is deliberate.`,
       });
     }
   }
 
   // Spec §6: an engine's pieces are card references so this is a lookup.
-  for (const engine of getBrief(db, deckId).engines) {
+  for (const engine of getBrief(db, actor, deckId).engines) {
     const missing = engine.pieces.filter((p) => !p.in_deck);
     if (missing.length)
       findings.push({
@@ -155,7 +171,7 @@ export function checkDeck(db: DatabaseSync, deckId: number): Finding[] {
     });
   }
 
-  const power = getPower(db, deckId);
+  const power = getPower(db, actor, deckId);
   if (power.assessment?.stale) findings.push({
     key: "power_assessment_stale", severity: "warn", title: "Power assessment needs review",
     detail: `Assessed at r${power.assessment.revision}; the current list is r${deck.revision}. Reassess before comparing it with the target.`,

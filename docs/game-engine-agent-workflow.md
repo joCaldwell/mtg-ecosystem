@@ -12,9 +12,9 @@ able to reconstruct the work from the repository and evidence.
    Read only the invariant/contract sections relevant to the change. The historical
    ledger is supporting evidence, not required onboarding for every task.
 2. Inspect `git status --short --branch`, HEAD, the assigned branch/worktree and
-   existing changes. Verify the supplied base against actual Git state. While the
-   engine is absent from main, dependent work starts from `feat/engine-plan` or a
-   newer explicitly assigned engine base; a root checkout is not proof of currency.
+   existing changes. Verify the supplied base against actual Git state. New
+   independent work starts from current `origin/main`; dependent work uses its
+   explicitly assigned base. The former `feat/engine-plan` branch is retired.
 3. Inspect the environment with the direct JSON doctor below. Reuse a healthy
    dependency installation. Run bootstrap only when dependencies are missing or
    broken, after checking that no other agent owns an installation in that tree.

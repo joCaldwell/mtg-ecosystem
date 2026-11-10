@@ -4,10 +4,10 @@
 // into a silent wrong answer. A reference that resolves to nothing fails the
 // whole call with suggestions the caller must explicitly pick from.
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "./sqlite.ts";
 import { AppError } from "./errors.ts";
 import { normalizeName } from "./db.ts";
-import { USD_CENTS_COLUMN } from "./prices.ts";
+import type { ResolvedPrice } from "./prices.ts";
 
 export interface CardRow {
   oracle_id: string;
@@ -23,13 +23,21 @@ export interface CardRow {
   ci_mask: number;
   commander_legality: string;
   is_commander: number;
-  /** Spec §4.4: the cheapest printing's price; null when no printing has one. */
-  usd_cents: number | null;
+  /** Global resolution has no personal price. Front doors enrich through
+   * priceResolver(db, actor); null then means this store has no price (§4.4). */
+  cents?: number | null;
+  currency?: ResolvedPrice["currency"];
+  store?: ResolvedPrice["store"];
+  as_of?: string | null;
+  image_small: string | null;
+  image_normal: string | null;
+  image_art_crop: string | null;
+  retired: number;
 }
 
 export const CARD_COLUMNS =
   "oracle_id, name, mana_cost, cmc, type_line, oracle_text, power, toughness, loyalty, " +
-  `color_identity, ci_mask, commander_legality, is_commander, ${USD_CENTS_COLUMN}`;
+  `color_identity, ci_mask, commander_legality, is_commander, image_small, image_normal, image_art_crop, retired`;
 
 export interface ResolutionFailure {
   ref: string;
@@ -68,14 +76,14 @@ function describeFailures(failures: ResolutionFailure[]): string {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function byId(db: DatabaseSync, oracleId: string): CardRow | undefined {
+function byId(db: Database, oracleId: string): CardRow | undefined {
   return db.prepare(`SELECT ${CARD_COLUMNS} FROM cards WHERE oracle_id = ?`).get(oracleId) as
     | CardRow
     | undefined;
 }
 
 /** Every card whose full name or any face name is exactly this. */
-export function cardsNamed(db: DatabaseSync, name: string): CardRow[] {
+export function cardsNamed(db: Database, name: string): CardRow[] {
   return db
     .prepare(
       `SELECT ${CARD_COLUMNS} FROM cards
@@ -91,7 +99,7 @@ export function cardsNamed(db: DatabaseSync, name: string): CardRow[] {
 // ambiguous purely because some double-faced card has a face with the same
 // name. The card actually *called* that wins (spec §4.3); what remains
 // ambiguous after that genuinely is, and needs an oracle_id.
-function resolveOne(db: DatabaseSync, ref: string): CardRow | ResolutionFailure {
+function resolveOne(db: Database, ref: string, suggest = true): CardRow | ResolutionFailure {
   const trimmed = ref.trim();
   if (!trimmed) return { ref, problem: "unknown", suggestions: [], candidates: [] };
   // Test fixtures use short ids, so an id lookup is tried for anything that
@@ -112,16 +120,16 @@ function resolveOne(db: DatabaseSync, ref: string): CardRow | ResolutionFailure 
       candidates: (full.length ? full : matches).map((m) => ({ name: m.name, oracle_id: m.oracle_id })),
     };
   }
-  return { ref, problem: "unknown", suggestions: suggestNames(db, trimmed), candidates: [] };
+  return { ref, problem: "unknown", suggestions: suggest ? suggestNames(db, trimmed) : [], candidates: [] };
 }
 
 /** Resolve one reference or throw. */
-export function resolveCard(db: DatabaseSync, ref: string): CardRow {
+export function resolveCard(db: Database, ref: string): CardRow {
   return resolveCards(db, [ref])[0];
 }
 
 /** Resolve every reference or throw once, naming all the failures. */
-export function resolveCards(db: DatabaseSync, refs: string[]): CardRow[] {
+export function resolveCards(db: Database, refs: string[]): CardRow[] {
   const results = refs.map((r) => resolveOne(db, r));
   const failures = results.filter((r): r is ResolutionFailure => "problem" in r);
   if (failures.length) throw new CardResolutionError(failures);
@@ -129,11 +137,12 @@ export function resolveCards(db: DatabaseSync, refs: string[]): CardRow[] {
 }
 
 /** The non-throwing form, for callers that report failures line by line. */
-export function tryResolveCard(db: DatabaseSync, ref: string): CardRow | ResolutionFailure {
-  return resolveOne(db, ref);
+/** `suggest: false` skips the suggestion search, which is the costly part of a miss. */
+export function tryResolveCard(db: Database, ref: string, { suggest = true }: { suggest?: boolean } = {}): CardRow | ResolutionFailure {
+  return resolveOne(db, ref, suggest);
 }
 
-export function requireCardById(db: DatabaseSync, oracleId: string): CardRow {
+export function requireCardById(db: Database, oracleId: string): CardRow {
   const row = byId(db, oracleId);
   if (!row) throw new AppError(`Unknown oracle_id ${oracleId}`, 404);
   return row;
@@ -160,7 +169,7 @@ function editDistance(a: string, b: string): number {
 // share the opening letters; they are then ordered by edit distance to what
 // was typed, because the index's own rank prefers short documents over close
 // spellings. These are offered, never applied.
-export function suggestNames(db: DatabaseSync, name: string, limit = 5): string[] {
+export function suggestNames(db: Database, name: string, limit = 5): string[] {
   const norm = normalizeName(name);
   const terms = norm
     .split(/\s+/)
@@ -220,7 +229,7 @@ export function extractCardRefs(text: string): string[] {
 // a card that does not exist. A name shared by several cards passes: it
 // exists, and prose has no way to carry an oracle_id. Returns the cards that
 // resolved to exactly one card.
-export function lintProse(db: DatabaseSync, text: string): CardRow[] {
+export function lintProse(db: Database, text: string): CardRow[] {
   const results = extractCardRefs(text).map((r) => resolveOne(db, r));
   const unknown = results.filter(
     (r): r is ResolutionFailure => "problem" in r && r.problem === "unknown",

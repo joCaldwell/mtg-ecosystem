@@ -159,8 +159,12 @@ describe('dynamic static scalar multipliers', () => {
       ...pt(1, 1), multiplier: { amount: 'distinct-count', characteristic: 'basic-land-type', among: { ref: 'each', filter: { types: ['land'], control: 'you' } } },
       valueScope: 'each-affected-object',
     }, abilities('trample')]));
+    // Collective possession is an explicit total over the opponents.
+    assert.deepEqual(one('This creature gets +1/+1 for each poison counter your opponents have.'), modify(source, [{
+      ...pt(1, 1), multiplier: { amount: 'counter-count', counter: { type: 'poison' }, on: { player: 'each-opponent' }, total: true },
+      valueScope: 'each-affected-object',
+    }]));
     for (const text of [
-      'This creature gets +1/+1 for each poison counter your opponents have.',
       'This creature gets +1/+1 for each poison counter on each opponent.',
       'This creature gets +1/+1 for each poison counter on each player with more life than you.',
       'Enchanted creature gets +1/+1 for each +1/+1 counter on other creatures you control.',

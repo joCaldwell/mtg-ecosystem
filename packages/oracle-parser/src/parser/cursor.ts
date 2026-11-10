@@ -11,6 +11,10 @@ import type { Token } from "../lexer.ts";
 
 export class Cursor {
   pos = 0;
+  /** Set only while parsing the instructions of a pregame opening-hand action
+   * (CR 103.6b), where "the first upkeep" names a turn of the game that has not
+   * begun; elsewhere that wording stays unsupported. */
+  pregame = false;
   readonly tokens: Token[];
   private farthestPos = 0;
   private farthestExpected: string[] = [];

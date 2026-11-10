@@ -1,14 +1,17 @@
 .control {
   display: flex;
   flex-direction: column;
-  gap: var(--s-3);
   min-width: 0;
+}
+
+/* The chosen items are part of the field: its edge runs on around them. */
+.control:has(> .selected) > .trigger {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 .trigger {
   width: 100%;
-  justify-content: space-between;
-  text-align: left;
 }
 
 .trigger span, .chip span {
@@ -27,14 +30,15 @@
   background: var(--sel-bg);
 }
 
-.trigger > svg {
-  flex-shrink: 0;
-}
-
 .selected {
   display: flex;
   flex-wrap: wrap;
   gap: var(--s-2);
+  padding: var(--s-3);
+  border: 1px solid var(--line-strong);
+  border-top: 0;
+  border-radius: 0 0 var(--r-md) var(--r-md);
+  background: var(--surface);
 }
 
 .chip {
@@ -42,11 +46,10 @@
   align-items: center;
   gap: var(--s-2);
   max-width: 100%;
-  min-height: var(--h-md);
+  min-height: var(--h-sm);
   padding: var(--s-1) var(--s-3);
-  border: 1px solid var(--sel-line);
   border-radius: var(--r-sm);
-  background: var(--sel-bg);
+  background: var(--raised);
   color: var(--text);
   font-size: var(--text-sm);
   cursor: pointer;
@@ -57,32 +60,9 @@
   flex-shrink: 0;
 }
 
-.chip:hover { background: var(--hover); }
+.chip:hover { background: linear-gradient(var(--hover), var(--hover)), var(--raised); }
 .chip:disabled { cursor: wait; }
 
 .popover {
   width: min(var(--panel-w), calc(100vw - var(--s-8)));
 }
-
-.panel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-3);
-  padding: var(--s-4);
-}
-
-.options {
-  max-height: calc(var(--s-8) * 7);
-  overflow-y: auto;
-}
-
-.option {
-  display: flex;
-  min-height: var(--h-lg);
-  padding: var(--s-2) var(--s-3);
-  border-radius: var(--r-sm);
-  overflow-wrap: anywhere;
-}
-
-.option:hover { background: var(--hover); }
-.empty { margin: var(--s-4); color: var(--muted); }

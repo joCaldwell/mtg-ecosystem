@@ -1,44 +1,23 @@
-.budgets {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--s-5);
-}
-
-.budgetHead {
-  display: flex;
-  align-items: baseline;
-  gap: var(--s-4);
-}
-
-.budgetTitle {
-  margin: 0;
-  font-size: var(--text-lg);
-  font-weight: 600;
-}
-
-.grow {
-  flex: 1;
-}
-
-.num {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-  font-size: var(--text-sm);
-}
-
-.small {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--muted);
-}
-
+/* Composer first; then one row of filters (wrapping only when the frame is
+   too narrow for it), and a rule between them and the list. */
 .filters {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--s-3) var(--s-6);
+  gap: var(--s-4) var(--s-6);
 }
+
+/* The scope keeps a stable width, so loading deck names never moves the row. */
+.scope {
+  display: flex;
+  flex: 0 1 var(--memories-scope-w);
+  align-items: center;
+  gap: var(--s-3);
+  min-width: 0;
+}
+.scope > label { color: var(--muted); font-weight: inherit; }
+.scope > :last-child { flex: 1; min-width: 0; }
+.scope button { width: 100%; }
 
 .group {
   display: flex;
@@ -48,30 +27,22 @@
 }
 
 /* Pill toggles: a Chip cannot show "selected", and these are state, not tags. */
-.pill {
-  height: var(--h-sm);
-  padding: 0 var(--s-4);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-pill);
-  background: none;
-  color: var(--muted);
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-
-.pill:hover {
-  color: var(--text);
-}
-
-.pillOn {
-  background: var(--raised);
-  border-color: var(--faint);
-  color: var(--text);
-}
 
 .search {
-  width: 240px;
-  margin-left: auto;
+  flex: 1 1 var(--memories-search-min);
+  min-width: 0;
+}
+@media (max-width: 1099px) {
+  .filters button { min-height: var(--tap); }
+}
+@media (max-width: 719px) {
+  .filters { flex-direction: column; align-items: stretch; }
+  .scope, .search { flex: none; }
+}
+
+.listSection {
+  padding-top: var(--s-6);
+  border-top: 1px solid var(--line);
 }
 
 .listHead {
@@ -85,22 +56,4 @@
 .list {
   display: grid;
   gap: var(--s-4);
-}
-
-.note {
-  margin: 0;
-  padding-left: var(--s-5);
-  border-left: 2px solid var(--line-strong);
-  font-size: var(--text-sm);
-  color: var(--muted);
-}
-
-.note b {
-  color: var(--text-soft);
-  font-weight: 600;
-}
-
-.addTo {
-  font-size: var(--text-sm);
-  color: var(--muted);
 }

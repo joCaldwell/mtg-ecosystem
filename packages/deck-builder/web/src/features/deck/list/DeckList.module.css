@@ -1,21 +1,81 @@
 .scroll {
+  /* TokenRow's absolute screen-reader suffixes must be contained by this
+     scroller. Anchoring them to listPane lets them escape its overflow and
+     enlarge the outer page's native header scroll range. */
+  position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  /* Room under the last row for the floating selection bar. */
-  padding: var(--s-6) var(--s-6) calc(var(--s-8) * 2);
+  /* A revealed row or the maybe list stops short of the pane's top edge. */
+  scroll-padding-top: var(--s-4);
+  padding: var(--s-6);
+}
+
+/* Reserve bulk-action clearance only while those controls are present. */
+.scroll:has(+ [role="toolbar"]) {
+  padding-bottom: calc(var(--s-8) * 2);
+}
+
+/* Read-only: part of a page that scrolls as a whole (ReadOnlyDeck). */
+.flow {
+  /* A shared list must identify every card without opening it. */
+  --deck-column-min: var(--deck-editor-column-min);
+  --card-name-white-space: normal;
+  min-width: 0;
+}
+
+/* The columns and, over them, the continued groups' names. */
+.frame {
+  position: relative;
+}
+
+/* Drawn into the space a long group reserves at the top of each column it
+   continues into (GroupBlock), styled as that group's header without its
+   count, target or cost. */
+.continued {
+  position: absolute;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-2);
+  height: calc(var(--group-cont-h) - var(--s-1));
+  padding: 0 var(--s-3) var(--s-2);
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.continuedTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.continuedMark {
+  flex: none;
+  color: var(--muted);
 }
 
 .cols {
-  columns: 3 250px;
-  column-gap: var(--s-7);
+  /* Native columns rebalance whenever rows, headers or details change height.
+     Keep three only when the available list width can fit readable names. */
+  columns: 3 var(--deck-column-min);
+  column-gap: var(--s-5);
 }
 
 .hint {
   padding: var(--s-2) var(--s-3);
   color: var(--faint);
   font-size: var(--text-sm);
+}
+
+/* The one line shown when a filter leaves no cards; Clear sits in the
+   filter row above. */
+.noMatches {
+  padding: var(--s-2) var(--s-3);
+  color: var(--text-soft);
 }
 
 .legend {
@@ -30,4 +90,48 @@
   display: inline-flex;
   align-items: center;
   gap: var(--s-3);
+}
+
+@media (max-width: 1099px) { .scroll { overflow: visible; } }
+
+/* Wide desktop editors add columns instead of stretching three of them, so a
+   name stays near its pips and price, up to five: a sixth spread the list so
+   thin at 2560 px that it ended halfway down the window. With both set, the
+   count is a maximum and the 300 px minimum still decides how many fit.
+   1280 and 1440 px windows still fit two, exactly as with the count of 3. */
+@media not all and (max-width: 1099px) {
+  .cols { column-count: 5; }
+}
+
+/* Filter results start below navigation and the sticky active-filter row
+   (revealFilterResults reads this margin). */
+@media (max-width: 1099px) {
+  .scroll {
+    scroll-margin-top: calc(var(--tablet-bar-outer-h) + var(--tap) + var(--s-4));
+  }
+}
+
+@media (max-width: 1099px) {
+  .flow {
+    --deck-column-min: var(--deck-reader-column-min);
+    --card-name-white-space: nowrap;
+  }
+}
+
+/* A filter confined to maybes has no main board to title. */
+.frame:has(> .cols:empty) { display: none; }
+
+/* One native list offset includes the header's travel. Compensation keeps
+   rows at their original content coordinates while the workspace grows. The
+   minimum gives even an empty deck enough native range to yield its hero. */
+@media not all and (max-width: 1099px) {
+  .scroll { overflow-anchor: none; scrollbar-gutter: stable; }
+  .scroll, .scroll:has(+ [role="toolbar"]) { padding-bottom: 0; }
+  .scroll > .content {
+    display: flow-root;
+    padding-bottom: var(--s-6);
+    min-height: calc(100% + var(--deck-fold-room, 0px));
+    transform: translateY(var(--deck-fold, 0px));
+  }
+  .scroll:has(+ [role="toolbar"]) > .content { padding-bottom: calc(var(--s-8) * 2); }
 }

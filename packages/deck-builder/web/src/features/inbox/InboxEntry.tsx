@@ -1,6 +1,7 @@
 import { editTitle } from "../../domain/documents.ts";
 import { reviewUnits } from "../../domain/review.ts";
 import { ago } from "../../domain/time.ts";
+import type { MouseEvent } from "react";
 import { Chip } from "../../ui/index.ts";
 import { describeEdit, plainText, type Entry } from "./entries.ts";
 import styles from "./InboxEntry.module.css";
@@ -13,7 +14,7 @@ function parts(entry: Entry) {
     return {
       chip: "Proposal",
       where: proposal.deck_name,
-      author: proposal.author,
+      author: proposal.author_display ?? proposal.author,
       title: proposal.summary ? plainText(proposal.summary) : "No summary given",
       sub: `${changes} ${changes === 1 ? "change" : "changes"} in ${units.length} ${units.length === 1 ? "decision" : "decisions"}`,
     };
@@ -22,22 +23,26 @@ function parts(entry: Entry) {
   return {
     chip: edit.kind === "profile" ? "Profile edit" : "Brief edit",
     where: edit.deck_name ?? "Your profile",
-    author: edit.author,
+    author: edit.author_display ?? edit.author,
     title: editTitle(edit),
     sub: describeEdit(edit),
   };
 }
 
 /** One row of the queue. */
-export function InboxEntry({ entry, selected, onSelect }: { entry: Entry; selected: boolean; onSelect: () => void }) {
+export function InboxEntry({ entry, selected, onSelect, href }: { entry: Entry; selected: boolean; onSelect: () => void; href?: string }) {
   const p = parts(entry);
+  const Tag = href ? "a" : "button";
   return (
-    <button
-      type="button"
+    <Tag
+      href={href}
+      type={href ? undefined : "button"}
       data-entry
       className={styles.entry}
       aria-current={selected ? "true" : undefined}
-      onClick={onSelect}
+      onClick={(e: MouseEvent) => {
+        if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) onSelect();
+      }}
     >
       <span className={styles.top}>
         <Chip tone="agent">{p.chip}</Chip>
@@ -46,9 +51,9 @@ export function InboxEntry({ entry, selected, onSelect }: { entry: Entry; select
       </span>
       <span className={styles.title}>{p.title}</span>
       <span className={styles.top}>
-        <span className={styles.author}>{p.author}</span>
+        <span className={styles.author_display ?? styles.author}>{p.author}</span>
         <span className={styles.sub}>· {p.sub}</span>
       </span>
-    </button>
+    </Tag>
   );
 }

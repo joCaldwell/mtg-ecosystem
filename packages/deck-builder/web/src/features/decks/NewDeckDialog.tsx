@@ -1,3 +1,4 @@
+import { useVoice } from "../../app/Preferences.tsx";
 import { useId, useState, type FormEvent } from "react";
 import { api, type DeckCategory } from "../../api/client.ts";
 import { navigate } from "../../app/routes.ts";
@@ -7,6 +8,7 @@ import styles from "./NewDeckDialog.module.css";
 
 /** Creates a deck and opens it. The lifecycle defaults to Theorycrafted, with no slots. */
 export function NewDeckDialog({ onClose }: { onClose: () => void }) {
+  const voice = useVoice();
   const formId = useId();
   const [name, setName] = useState("");
   const [category, setCategory] = useState<DeckCategory>("theorycrafted");
@@ -44,15 +46,11 @@ export function NewDeckDialog({ onClose }: { onClose: () => void }) {
       }
     >
       <form id={formId} onSubmit={create} className={styles.form}>
-        <Field label="Deck name" hint="Choose how this deck is used and edited.">
+        <Field label="Deck name">
           <TextField data-autofocus value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
         </Field>
-        <Field label="Lifecycle" hint="Paper requires agent card proposals; Theorycrafted allows direct agent card edits. Brief changes always need approval. You can archive this deck as Legacy later.">
-          <Select value={category} onChange={(e) => setCategory(e.target.value as DeckCategory)} disabled={busy}>
-            {DECK_CATEGORY_OPTIONS.filter(o => o.value !== "legacy").map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </Select>
+        <Field label="Lifecycle" hint={voice("Theorycrafted is a work in progress. Paper is a deck you play. You can archive either later.", "Paper requires agent card proposals; Theorycrafted allows direct agent card edits. Brief changes always need approval. You can archive either later.")}>
+          <Select options={DECK_CATEGORY_OPTIONS.filter(o => o.value !== "archived").map(({ value, label }) => ({ value, label }))} value={category} onChange={(value) => setCategory(value as DeckCategory)} disabled={busy} />
         </Field>
         {error && <ErrorNote>{error}</ErrorNote>}
       </form>

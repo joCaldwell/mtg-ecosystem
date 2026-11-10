@@ -1,5 +1,11 @@
+/* Equal buttons, so the row closes the form at its full width. */
 .actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--s-3);
+  gap: var(--s-4);
+}
+
+.actions > button {
+  flex: 1 1 0;
+  justify-content: center;
 }

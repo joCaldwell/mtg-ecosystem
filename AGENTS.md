@@ -38,7 +38,10 @@ not repeated release counts here. Old onboarding is preserved in the
 - Compile complete supported semantics or reject them explicitly. A wrong AST
   or silently incomplete rule is worse than rejection.
 - Prefer clean design over compatibility shims. The standalone deck-builder
-  does not consume Card IR or the engine and must not wait for them.
+  does not consume Card IR or the engine and must not wait for them. Preserve
+  its public compatibility policy (v3 D19): never drop other users’ data; from
+  public sign-up, MCP tools, shared URLs and token formats change additively or
+  through deprecation. Internals may be rewritten freely.
 - Use package-specific npm/Cargo checks. Engine verification favors focused,
   substantially faster checks with explicit omissions; no automatic full matrix.
 - Commit and push coherent engine checkpoints after relevant focused checks.

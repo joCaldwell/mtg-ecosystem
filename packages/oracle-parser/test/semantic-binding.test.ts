@@ -149,9 +149,11 @@ describe("whole-card reference binding", () => {
   });
 
   it("does not leak source or antecedent bindings between abilities or faces", () => {
-    const isolated = analyzeCardBindings(input("Draw a card.\nReveal it."));
+    const isolated = analyzeCardBindings(input("{T}: Draw a card.\n{1}: Reveal it."));
     assert.equal(isolated.fullyBound, false);
     assert.ok(isolated.diagnostics.some(d => d.code === "missing-antecedent"));
+    // An instant's or sorcery's paragraphs are followed in order as one spell (CR 113.3a, 608.2c).
+    assert.equal(analyzeCardBindings(input("Draw a card.\nReveal it.")).fullyBound, true);
     const front = parseOracleText("Draw a card.", "Front");
     const back = parseOracleText("Reveal it.", "Back");
     const graph = analyzeCardBindings({ identity: "two-faced", source: { name: "Front // Back", layout: "transform",
@@ -165,11 +167,11 @@ describe("whole-card reference binding", () => {
   });
 
   it("reports every symbolic reference behind an unsupported nested scope", () => {
-    const graph = analyzeCardBindings(input("You may draw a card."));
+    const graph = analyzeCardBindings(input("Choose two. You may choose the same mode more than once.\n• Draw a card.\n• Target player mills a card."));
     assert.equal(graph.fullyBound, false);
     assert.ok(graph.diagnostics.some(d => d.code === "unsupported-scope"));
-    assert.equal(graph.counts.obligations, 1);
-    assert.equal(graph.counts.unresolved, 1);
+    assert.equal(graph.counts.obligations, 2);
+    assert.equal(graph.counts.unresolved, 2);
     const unknownX = analyzeCardBindings(input("Draw X cards."));
     assert.equal(unknownX.fullyBound, false);
     assert.ok(unknownX.diagnostics.some(d => d.code === "unsupported-number-binding"));
@@ -193,18 +195,13 @@ describe("whole-card reference binding", () => {
     assert.equal(unsupported.diagnostics[0].code, "unparsed-face");
   });
 
-  it("does not call unexpanded intrinsic keyword or payment scopes fully bound", () => {
-    // Actual costs/keywords include Edge of Autumn, Graveyard Trespasser,
-    // Primal Growth, Tenth District Hero, and Ruthless Waterbender.
-    for (const text of ["Equip {2}", "Crew 2", "Ward {2}", "Cycling—Sacrifice a land.",
-      "Ward—Discard a card.", "Kicker—Sacrifice a creature.", "Collect evidence 6: Draw a card.",
-      "Waterbend {2}: Draw a card.", "Forage: Draw a card.", "Blight 1: Draw a card."]) {
+  it("does not call unexpanded intrinsic payment scopes fully bound", () => {
+    // Actual costs include Tenth District Hero and Ruthless Waterbender.
+    for (const text of ["Collect evidence 6: Draw a card.", "Waterbend {2}: Draw a card.", "Forage: Draw a card.", "Blight 1: Draw a card."]) {
       const graph = analyzeCardBindings(input(text));
       assert.equal(graph.fullyBound, false, text);
       assert.ok(graph.diagnostics.some(d => d.code === "unsupported-scope"), text);
     }
-    const keyword = analyzeCardBindings(input("Cycling—Sacrifice a land."));
-    assert.ok(keyword.references.every(ref => ref.binding === "unresolved"));
   });
 
   it("diagnoses unbound other/affected-object exclusions without crashing", () => {
@@ -218,7 +215,6 @@ describe("whole-card reference binding", () => {
 
   it("does not equate a moved source with its old object or assume a qualified that", () => {
     for (const text of ["Exile this creature, then return this card to the battlefield.",
-      "Whenever this creature dies, return this card to your hand.",
       "Sacrifice this creature: Return this card to your hand."]) {
       const graph = analyzeCardBindings(input(text));
       assert.equal(graph.fullyBound, false, text);
@@ -242,21 +238,32 @@ describe("whole-card reference binding", () => {
     }
   });
 
-  it("does not carry antecedents across unexpanded intrinsic action choices", () => {
+  it("does not resolve a pronoun past an action that creates new objects", () => {
+    // Populate and discover produce objects of their own, so "it" has two candidates.
     for (const text of ["Create a 1/1 white Soldier creature token. Populate. Sacrifice it.",
-      "Tap target creature. Discover 3. Untap it.", "Create a Treasure token."]) {
+      "Tap target creature. Discover 3. Untap it."]) {
       const graph = analyzeCardBindings(input(text));
       assert.equal(graph.fullyBound, false, text);
-      assert.ok(graph.diagnostics.some(d => d.code === "unsupported-scope"));
+      const it = graph.references.find(ref => "ref" in ref.expression && ref.expression.ref === "it");
+      assert.ok(it && it.binding === "unresolved" && it.code === "ambiguous-antecedent", `${text}: ${JSON.stringify(it)}`);
     }
   });
 
-  it("does not bind another player's optional payment to the ability controller", () => {
+  it("keeps an action's participant as the antecedent when it creates nothing", () => {
+    const graph = analyzeCardBindings(input("Tap target creature. Scry 2. Untap it."));
+    assert.equal(graph.fullyBound, true, JSON.stringify(graph.diagnostics));
+    assert.equal(targetOf(graph, "/steps/0/what"), targetOf(graph, "/effects/2/steps/0/what"));
+  });
+
+  it("binds another player's optional payment to that player, not the ability controller (CR 118.12a)", () => {
     const graph = analyzeCardBindings(input("Draw a card unless target opponent pays {2}."));
-    assert.equal(graph.fullyBound, false);
-    const payer = graph.references.find(ref => ref.path.endsWith("/cost/0/payer"));
-    assert.ok(payer && payer.binding === "unresolved");
-    assert.ok(graph.diagnostics.some(d => d.rules.includes("118.12a")));
+    assert.equal(graph.fullyBound, true, JSON.stringify(graph.diagnostics));
+    assert.equal(targetOf(graph, "/cost/0/payer"), targetOf(graph, "/condition/who"));
+    assert.notEqual(targetOf(graph, "/cost/0/payer"), targetOf(graph, "/steps/0/who"));
+    // "Unless its controller pays": the controller of the spell the instruction targets.
+    const counter = analyzeCardBindings(input("Counter target spell unless its controller pays {3}."));
+    assert.equal(counter.fullyBound, true, JSON.stringify(counter.diagnostics));
+    assert.equal(targetOf(counter, "/condition/who/of"), targetOf(counter, "/steps/0/what"));
   });
 
   it("retains implicit actor, turn-owner, payer, and zone-owner obligations", () => {

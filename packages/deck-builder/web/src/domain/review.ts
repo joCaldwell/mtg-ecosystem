@@ -1,7 +1,7 @@
-// Ruling on proposals (spec §8). The owner decides in units, never in loose
+// Decision on proposals (spec §8). The owner decides in units, never in loose
 // items, and sees the list as it would look if everything pending were accepted.
 
-import type { DeckState, Proposal, ProposalItem } from "../api/client.ts";
+import type { DeckListState, Proposal, ProposalItem } from "../api/client.ts";
 import { groupKeyForAdd, pendingOf } from "./grouping.ts";
 import type { DeckLayout, GroupBy } from "./grouping.ts";
 import { pendingItems } from "./inbox.ts";
@@ -61,6 +61,29 @@ export function reviewUnits(proposals: Proposal[]): ReviewUnit[] {
   return out;
 }
 
+/** An open proposal's place in the review queue: its position among the
+ * proposals left ("1 of 3"), the first of its decisions in `units` (where the
+ * cursor goes to focus it) and how many changes it still asks for. */
+export interface QueuedProposal {
+  proposalId: number;
+  position: number;
+  of: number;
+  firstUnit: number;
+  changes: number;
+}
+
+/** The proposals left to decide, oldest first, as `reviewUnits` orders them. */
+export function proposalQueue(units: ReviewUnit[]): QueuedProposal[] {
+  const out: QueuedProposal[] = [];
+  units.forEach((unit, index) => {
+    const last = out.at(-1);
+    if (last?.proposalId === unit.proposalId) last.changes += unit.items.length;
+    else out.push({ proposalId: unit.proposalId, position: out.length + 1, of: 0, firstUnit: index, changes: unit.items.length });
+  });
+  for (const entry of out) entry.of = out.length;
+  return out;
+}
+
 export interface ReviewOverlay {
   /** oracle_ids with a pending cut. */
   cuts: Set<string>;
@@ -72,7 +95,7 @@ export interface ReviewOverlay {
 }
 
 /** What the list looks like if every pending item were accepted. */
-export function reviewOverlay(state: DeckState, layout: DeckLayout, groupBy: GroupBy): ReviewOverlay {
+export function reviewOverlay(state: DeckListState, layout: DeckLayout, groupBy: GroupBy): ReviewOverlay {
   const pending = pendingOf(state);
   const cuts = new Set(pending.filter((i) => i.action === "cut").map((i) => i.oracle_id));
 

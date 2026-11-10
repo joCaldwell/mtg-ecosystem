@@ -85,8 +85,11 @@ describe("target selection provenance", () => {
     assert.deepEqual(effects("Target creature gets +1/+1 and gains flying until end of turn."), [
       { ...common, duration: { duration: "end-of-turn" } }, grant,
     ]);
+    // The one trailing duration reaches both coordinated modifiers
+    // (CR 611.2a); the first pump used to be left without any duration. The
+    // two explicit targets are still distinct selectors.
     assert.deepEqual(effects("Target creature gets +1/+1 and target creature gains flying until end of turn."), [
-      common, { ...grant, what: creature("line:0:9") },
+      { ...common, duration: { duration: "end-of-turn" } }, { ...grant, what: creature("line:0:9") },
     ]);
     assert.deepEqual(effects("Destroy target creature. Destroy target creature."), [
       { effect: "destroy", what: creature("line:0:1") }, { effect: "destroy", what: creature("line:0:5") },

@@ -8,8 +8,11 @@ export function PlayerSummary({
   status,
   onLifeChange,
   actions,
+  showName = true,
 }: {
   name: string;
+  /** A solo table has one player; the name is still the controls' label. */
+  showName?: boolean;
   life: number;
   turn?: number;
   status?: string;
@@ -18,21 +21,30 @@ export function PlayerSummary({
 }) {
   return (
     <div className={styles.summary}>
-      <div className={styles.identity}>
-        <strong>{name}</strong>
-        {status && <span>{status}</span>}
-      </div>
-      <span>Life</span>
-      {onLifeChange ? (
-        <CounterControl
-          label={`${name} life`}
-          value={life}
-          onChange={onLifeChange}
-        />
-      ) : (
-        <span className={styles.number}>{life}</span>
+      {(showName || status) && (
+        <div className={styles.identity}>
+          {showName && <strong>{name}</strong>}
+          {status && <span>{status}</span>}
+        </div>
       )}
-      {turn !== undefined && <span className={styles.number}>Turn {turn}</span>}
+      {turn !== undefined && (
+        <span className={styles.stat}>
+          <span className={styles.label}>Turn</span>
+          <span className={styles.number}>{turn}</span>
+        </span>
+      )}
+      <span className={styles.stat}>
+        <span className={styles.label}>Life</span>
+        {onLifeChange ? (
+          <CounterControl
+            label={`${name} life`}
+            value={life}
+            onChange={onLifeChange}
+          />
+        ) : (
+          <span className={styles.number}>{life}</span>
+        )}
+      </span>
       {actions}
     </div>
   );

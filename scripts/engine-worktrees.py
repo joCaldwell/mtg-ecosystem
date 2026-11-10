@@ -33,7 +33,7 @@ def ancestor(root, head, base):
     return result.returncode == 0
 
 
-def plan(root, worktree, base, remote='origin', remote_branch='feat/engine-plan'):
+def plan(root, worktree, base, remote='origin', remote_branch='main'):
     root, worktree = Path(root).resolve(), Path(worktree).absolute()
     storage.no_symlinks(worktree)
     entries = registered(root)
@@ -78,7 +78,7 @@ def plan(root, worktree, base, remote='origin', remote_branch='feat/engine-plan'
             'blockers': blockers, 'ignored': ignored, 'references': references, 'activity': activity}
 
 
-def retire(root, worktree, base, remote='origin', remote_branch='feat/engine-plan',
+def retire(root, worktree, base, remote='origin', remote_branch='main',
            apply=False, expected_head=None, inactive=False, allow_uninspectable=False,
            lock=storage.DEFAULT_LOCK):
     with storage.cargo_lock(lock):
@@ -101,9 +101,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parent.parent)
     parser.add_argument('--worktree', type=Path, required=True)
-    parser.add_argument('--base', default='feat/engine-plan')
+    parser.add_argument('--base', default='main')
     parser.add_argument('--remote', default='origin')
-    parser.add_argument('--remote-branch', default='feat/engine-plan')
+    parser.add_argument('--remote-branch', default='main')
     parser.add_argument('--apply', action='store_true')
     parser.add_argument('--expect-head')
     parser.add_argument('--inactive', action='store_true', help='Owner has finished and will not resume in this checkout')

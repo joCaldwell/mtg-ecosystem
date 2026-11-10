@@ -36,8 +36,9 @@ search-enabled. New compiler support does not implicitly expand those sets.
 
 ## Evidence boundaries at the platform baseline
 
-This platform work starts from `c62777b` on local `feat/engine-plan`, which includes
-engine work absent from `main`. These are separate evidence claims:
+The platform baseline was `c62777b` on the former `feat/engine-plan` branch.
+Engine, platform and architecture work are now integrated on `main`; start new
+independent work there. Historical evidence remains separately qualified:
 
 | Source boundary | Status and scope |
 | --- | --- |
@@ -46,8 +47,10 @@ engine work absent from `main`. These are separate evidence claims:
 | Later IR25/D2c-e | Present on the development line, with candidate-focused validation; final parent source review/combined acceptance remain pending in [the D2c-e report](game-engine-cards-as-data-d2c-e.md) |
 | Later digest reuse and November tooling changes | Separate focused-work evidence, not part of the frozen D2c-d gate; see [trace digests](game-engine-verification-trace-digests.md) and [fast checks](game-engine-fast-checks-20261109.md) |
 
-At this baseline trusted snapshot/bundle formats are 19/20; public
-projection/context/query-sidecar formats are 16/16/15. `mtg_contracts::CURRENT_IR_VERSION`
+At the platform baseline trusted snapshot/bundle formats were 19/20 and public
+projection/context/query-sidecar formats were 16/16/15. The architecture refactor
+retains snapshot/bundle/public formats but advances query work sidecars to 16
+and adds one charged initialization unit; old sidecars reject. `mtg_contracts::CURRENT_IR_VERSION`
 is the current IR authority; see [version and build checks](game-engine-builds.md).
 Read Rust types and validation at the edited source; old reports retain their
 original version numbers. Do not update historical catalogs or expected hashes

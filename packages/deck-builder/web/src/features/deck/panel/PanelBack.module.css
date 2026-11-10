@@ -1,0 +1,5 @@
+.back {
+  flex: none;
+  width: var(--h-back);
+  height: var(--h-back);
+}

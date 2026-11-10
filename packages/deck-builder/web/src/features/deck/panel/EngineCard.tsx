@@ -3,13 +3,14 @@
 
 import type { Engine } from "../../../api/client.ts";
 import { RichText, useCardHover } from "../../../mtg/index.ts";
-import { Box, Button, Chip } from "../../../ui/index.ts";
-import { useDeckState } from "../DeckStore.tsx";
+import { Box, Button, Chip, Icon, IconButton } from "../../../ui/index.ts";
+import { useDeckList } from "../DeckListStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import styles from "./EngineCard.module.css";
 
-export function EngineCard({ engine, onEdit, onRemove }: { engine: Engine; onEdit: () => void; onRemove: () => void }) {
-  const state = useDeckState();
+/** Without onEdit and onRemove it is read-only: a shared deck or the phone view. */
+export function EngineCard({ engine, onEdit, onRemove }: { engine: Pick<Engine, "name" | "description" | "pieces">; onEdit?: () => void; onRemove?: () => void }) {
+  const { state } = useDeckList();
   const ui = useDeckUi();
   const hover = useCardHover();
   const missing = engine.pieces.filter((p) => !p.in_deck).length;
@@ -19,14 +20,14 @@ export function EngineCard({ engine, onEdit, onRemove }: { engine: Engine; onEdi
       <div className={styles.head}>
         <b className={styles.name}>{engine.name}</b>
         {missing > 0 ? <Chip tone="warn">{missing} missing</Chip> : <Chip tone="add">complete</Chip>}
-        <span className={styles.actions}>
-          <Button size="sm" variant="ghost" disabled={state.deck.category === "legacy"} onClick={onEdit} aria-label={`Edit the engine ${engine.name}`}>
+        {onEdit && onRemove && <span className={styles.actions}>
+          <Button size="sm" reach disabled={state.deck.category === "archived"} onClick={onEdit} aria-label={`Edit the engine ${engine.name}`}>
             Edit
           </Button>
-          <Button size="sm" variant="ghost" disabled={state.deck.category === "legacy"} onClick={onRemove} aria-label={`Remove the engine ${engine.name}`}>
-            Remove
-          </Button>
-        </span>
+          <IconButton tone="danger" disabled={state.deck.category === "archived"} onClick={onRemove} label={`Remove ${engine.name}`} size="sm">
+            <Icon name="trash" />
+          </IconButton>
+        </span>}
       </div>
       {engine.description.trim() && <RichText text={engine.description} className={styles.description} />}
       {engine.pieces.length > 0 && (

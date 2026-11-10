@@ -1,29 +1,40 @@
 .head {
   display: flex;
   align-items: baseline;
-  gap: var(--s-4);
+  gap: var(--s-3);
+  break-inside: avoid;
+  /* An h2 for the outline (h1 is the deck), sized exactly as the h3 it was (1.17em): the
+     children set their own type, but the row's line box follows this. */
+  font-size: calc(var(--text-md) * 1.17);
   margin-bottom: var(--s-1);
   padding: 0 var(--s-3) var(--s-2);
   border-bottom: 1px solid var(--line);
 }
 
 .title {
+  flex: 0 0 auto;
+  white-space: nowrap;
   font-size: var(--text-sm);
   font-weight: 600;
 }
 
 .spacer {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 /* Sits over the rows' price column, so it reads as that column's sum. */
 .cost {
-  --price-color: var(--muted);
+  flex: 0 1 auto;
+  min-width: 0;
+  --price-color: var(--text-soft);
 }
 
 .count {
-  color: var(--muted);
-  font: var(--text-xs) var(--font-mono);
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--text-soft);
+  font: var(--text-sm) var(--font-mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -32,13 +43,23 @@
   color: var(--add);
 }
 
+/* The status sign before the count, in the count's colour. */
+.sign {
+  margin-right: var(--s-2);
+  font-weight: 700;
+}
+
+.sign > svg {
+  vertical-align: middle;
+}
+
 .under,
 .over {
   color: var(--warn);
 }
 
 .untargeted {
-  color: var(--muted);
+  color: var(--text-soft);
 }
 
 .projected {
@@ -49,3 +70,20 @@
 .head {
   break-after: avoid;
 }
+
+/* Board titles sit one level above the smaller card-group headings. */
+.board {
+  gap: var(--s-4);
+  margin-bottom: var(--s-6);
+  padding: 0 var(--s-3);
+  border: 0;
+  font-size: var(--text-xl);
+}
+
+.board .title {
+  font-size: inherit;
+  font-weight: 700;
+}
+
+/* The count sits by the title, as Maybe's does, not across the list's columns. */
+.board .spacer { display: none; }

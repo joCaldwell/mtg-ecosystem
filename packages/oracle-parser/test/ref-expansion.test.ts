@@ -89,7 +89,12 @@ describe("extremum values and property bounds", () => {
     assert.deepEqual(complete(parseAmount, "the least toughness among creatures you control"), {
       amount: "attribute-extremum", extremum: "minimum", attribute: "toughness", among: { types: ["creature"], control: "you" },
     });
-    incomplete(parseAmount, "the greatest power among creatures you control and creature cards in your graveyard");
+    // Pools in different zones cannot overlap, so the extremum ranges over their union (pooled-counts.ts).
+    assert.deepEqual(complete(parseAmount, "the greatest power among creatures you control and creature cards in your graveyard"), {
+      amount: "attribute-extremum", extremum: "maximum", attribute: "power",
+      among: { anyOf: [{ types: ["creature"], control: "you" },
+        { types: ["creature"], cls: "card", zone: { zone: "graveyard", owner: "your" } }] },
+    });
   });
 
   it("preserves comparison operators and tied greatest-value eligibility", () => {
@@ -103,6 +108,14 @@ describe("extremum values and property bounds", () => {
     assert.deepEqual(complete(parseFilter, "creature with the greatest power among creatures that player controls"), {
       types: ["creature"], properties: [{ property: "power", comparison: { op: "eq", value: {
         amount: "attribute-extremum", extremum: "maximum", attribute: "power", among: { types: ["creature"], control: "that-player" },
+      } } }],
+      // The chosen creature is one of that pool, not any creature with that power.
+      allOf: [{ types: ["creature"], control: "that-player" }],
+    });
+    // A comparison with the extremum states no membership (Cosmic Cube).
+    assert.deepEqual(complete(parseFilter, "spell with mana value less than or equal to the greatest power among creatures you control"), {
+      cls: "spell", properties: [{ property: "mana-value", comparison: { op: "le", value: {
+        amount: "attribute-extremum", extremum: "maximum", attribute: "power", among: { types: ["creature"], control: "you" },
       } } }],
     });
   });
@@ -124,8 +137,9 @@ describe("keyword and repeated filter constraints", () => {
     assert.deepEqual(complete(parseFilter, "creatures you control and that player controls"), {
       types: ["creature"], control: "you", allOf: [{ control: "that-player" }],
     });
+    // No object is in two zones at once: the zones are alternatives (Crackling Drake).
     assert.deepEqual(complete(parseFilter, "cards in your graveyard and in exile"), {
-      cls: "card", zone: { zone: "graveyard", owner: "your" }, allOf: [{ zone: { zone: "exile", owner: undefined } }],
+      cls: "card", allOf: [{ anyOf: [{ zone: { zone: "graveyard", owner: "your" } }, { zone: { zone: "exile", owner: undefined } }] }],
     });
     assert.deepEqual(complete(parseFilter, "creatures with flying and with power 3 or less"), {
       types: ["creature"], withAbility: ["flying"], properties: [{ property: "power", comparison: { op: "le", value: fixed(3) } }],

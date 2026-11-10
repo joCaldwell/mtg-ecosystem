@@ -1,7 +1,12 @@
+import { priceSourceLine } from "./mcp/render.ts";
+import { localActor } from "./mode.ts";
+import { backupDatabase, restoreDatabase } from "./backups.ts";
+import { runJob } from "./jobs.ts";
 import { openDb, DEFAULT_DB_PATH } from "./db.ts";
-import { formatUsd } from "./prices.ts";
+import { formatPrice, priceResolver } from "./prices.ts";
 import { refreshCardData } from "./refresh.ts";
 import { search, SearchError } from "./search/index.ts";
+import { logging } from "./logging.ts";
 
 function formatCard(c: {
   name: string;
@@ -12,7 +17,8 @@ function formatCard(c: {
   toughness: string | null;
   loyalty: string | null;
   color_identity: string;
-  usd_cents: number | null;
+  cents: number | null;
+  currency: "USD" | "EUR";
 }): string {
   const cost = c.mana_cost ? `  ${c.mana_cost}` : "";
   const pt =
@@ -23,7 +29,7 @@ function formatCard(c: {
         : "";
   const id = c.color_identity || "C";
   const text = c.oracle_text ? "\n  " + c.oracle_text.replaceAll("\n", "\n  ") : "";
-  const price = c.usd_cents == null ? "" : `  ${formatUsd(c.usd_cents)}`;
+  const price = c.cents == null ? "" : `  ${formatPrice(c.cents, c.currency)}`;
   return `${c.name}${cost}  (${c.type_line})${pt}  id:${id}${price}${text}`;
 }
 
@@ -33,8 +39,20 @@ async function main() {
   switch (cmd) {
     case "refresh": {
       const db = openDb();
-      await refreshCardData(db, { force: rest.includes("--force") });
-      db.close();
+      try { await runJob(db, "refresh", () => refreshCardData(db, { force: rest.includes("--force") })); }
+      finally { db.close(); }
+      break;
+    }
+    case "backup": {
+      const db = openDb();
+      try { console.log(await runJob(db, "backup", () => backupDatabase(db))); }
+      finally { db.close(); }
+      break;
+    }
+    case "restore": {
+      if (rest.length !== 1) throw new Error("Usage: cli.ts restore <backup-file>");
+      const result = await restoreDatabase(rest[0]);
+      console.log(`Restored ${result.decks} decks to ${DEFAULT_DB_PATH}`);
       break;
     }
     case "search": {
@@ -50,7 +68,8 @@ async function main() {
         process.exit(1);
       }
       try {
-        const results = search(db, query, { limit: 20 });
+        const results = search(db, localActor(), query, { limit: 20 });
+        console.log(priceSourceLine(priceResolver(db, localActor())));
         for (const c of results) console.log(formatCard(c) + "\n");
         console.log(`${results.length} result(s)${results.length === 20 ? " (limit 20)" : ""}`);
       } catch (e) {
@@ -64,9 +83,9 @@ async function main() {
       break;
     }
     default:
-      console.error("Usage: cli.ts <refresh [--force] | search <query>>");
+      console.error("Usage: cli.ts <refresh [--force] | backup | restore <file> | search <query>>");
       process.exit(1);
   }
 }
 
-main();
+main().catch(error => { logging.failure("job_error", error); process.exitCode = 1; });

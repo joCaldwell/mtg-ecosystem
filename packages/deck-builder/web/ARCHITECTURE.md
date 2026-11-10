@@ -6,6 +6,13 @@ with one-way dependencies, and one rule about where each kind of code goes.
 
 ## Layers
 
+`Page` supplies a shared centered frame through the inherited `--page-width`:
+`md` is reading width, `lg` grows to `--page-wide` (1440 px), and `full` is
+uncapped. `PageHeader` uses the same black canvas, centered frame and gutter as its
+page content, with a real h1, aligned actions and optional compact state metadata.
+It has no separate background band or explanatory subtitle. A feature must not add a second,
+left-aligned width cap inside that frame. Prose can retain its reading measure.
+
 ```
 web/src/
   design/    tokens.css, base.css          the only place raw colours and sizes exist
@@ -13,8 +20,8 @@ web/src/
   mtg/       ManaCost, CardRef, RichText…  how a Magic card is shown; no API, no app state
   domain/    grouping, review, marks…      pure functions over wire types; no React, no DOM
   api/       client.ts, live.tsx, useQuery the typed HTTP client and the change stream
-  app/       App, routes, shell, providers wiring: routing, sidebar, app-wide providers
-  features/  deck/, inbox/, memories/…     one folder per screen or shared workflow
+  app/       App, routes, shell, providers wiring: routing, sidebar, app-wide providers, the breakpoint
+  features/  deck/, inbox/, public/, phone/… one folder per screen or shared workflow
 ```
 
 Imports go **down this list only**:
@@ -36,7 +43,7 @@ import that the table forbids, the code is in the wrong layer.
 - **It is a number or a colour.** `design/tokens.css`. Never a literal in a component.
 - **It could be used by an app that has nothing to do with Magic.** `ui/`.
 - **It draws part of a Magic card.** `mtg/`.
-- **It turns server data into something to display, and has no JSX.** `domain/`, with a test in `test/web/`.
+- **It turns server data into something to display, and has no JSX.** `domain/`. Test only consequential domain invariants.
 - **It talks to the server.** `api/client.ts`. Components never call `fetch`.
 - **It is one screen, or a workflow shared by two screens.** `features/<name>/`.
 
@@ -44,8 +51,8 @@ import that the table forbids, the code is in the wrong layer.
 
 The server is the source of truth and the client never merges.
 
-1. **Reads.** `useQuery(() => api.something(), [deps])` fetches, and refetches
-   whenever the server's event stream says anything changed (`useLive`). That
+1. **Reads.** `useQuery(() => api.something(), [deps], scope)` fetches, and refetches
+   when that user’s event stream names a matching resource/deck (`useLive`). That
    is what makes an agent's proposal appear without a reload.
 2. **The open deck.** `features/deck/DeckStore.tsx` holds the `DeckState`
    composite. Every mutation endpoint returns a fresh composite under
@@ -80,12 +87,16 @@ The server is the source of truth and the client never merges.
 **A new page** (say, a playtester):
 
 1. `features/playtest/PlaytestPage.tsx`, built from `ui/` and `mtg/` pieces.
-2. Add the route to `app/routes.ts` and the page to the switch in `app/App.tsx`.
-3. Add a sidebar entry in `app/Sidebar.tsx` if it needs one.
+2. Add the route to `app/routes.ts` (a path, built only by `href()`), the page
+   to the switch in `app/App.tsx`, and the path to the server's app-route
+   list in `src/app.ts` `serveStatic` (D16: anything else is 404).
+3. Add a sidebar entry in `app/Sidebar.tsx` if it needs one, and decide what
+   the phone shell shows for it (`features/phone/PhoneApp.tsx`; by default,
+   "Open on a larger screen").
 4. Any data shaping goes in `domain/` with a test.
 
 **A new primitive:** add it to `ui/`, export it from `ui/index.ts`, and add
-an example to `features/styleguide/StyleguidePage.tsx` (`#/design`). If it
+an example to `features/styleguide/StyleguidePage.tsx` (`/design`). If it
 needs a new colour or size, that is a token first.
 
 **A new server field:** change the server type; `api/client.ts` imports it
@@ -97,4 +108,619 @@ has to follow.
 `npm run build` typechecks the server and the UI. `npm test` runs the domain
 tests and the layering test. `npm run dev` serves the UI with hot reload;
 seed the demo deck first (`npm run seed:demo`) so every panel has content.
-`#/design` shows every primitive in every state.
+`/design` shows every primitive in every state.
+
+## Routing (v3 phase 4a, spec §11.1)
+
+Path routes: `/`, `/decks`, `/deck/:id`, `/deck/:id/review`,
+`/deck/:id/playtest`, `/inbox`, `/memories`, `/profile`, `/activity`,
+`/settings`, `/design`, `/signin`, `/privacy`, `/terms`, `/d/:slug`,
+`/u/:handle`. Following review, the owner decided on 2026-10-27 to restore
+`/activity` as a standalone ActivityPage with its own title and sidebar entry
+after Memories. `/profile` renders a single ProfilePage without tabs. Their
+named routes and `href()` paths stay independent; the server already
+allow-lists both paths (D16). `app/routes.ts` owns them: `parseRoute`, `href()` (the only
+place a URL is built), `navigate()`, and `useRoute()`, which also turns a
+plain same-origin `<a href>` click into in-place navigation, so components
+keep writing ordinary links. A hash-era bookmark (`/#/deck/5`) is rewritten
+once on load. The server answers only those paths with `index.html`; for
+`/d/:slug` and `/u/:handle` it first injects the title, description and Open
+Graph tags (`src/preview.ts`) and answers 404 when the requester cannot read
+what the path names. Vite's dev server falls back to `index.html` for every
+path, so link previews exist only when the API server serves the build.
+
+## Shared pages and read-only decks (`features/public`, spec §18)
+
+`/d/:slug` and `/u/:handle` render outside the signed-in app:
+`SessionProvider open` lets them through signed out, and they get only
+`CardProviders` (lookup and hover), never `LiveProvider`, `InboxProvider` or
+`FocusProvider`, which need a session. They read `api.publicDeck`,
+`api.publicExport` and `api.publicProfile`, which the server answers without
+an account.
+
+`features/deck/ReadOnlyDeck.tsx` is the one read-only composition, exported
+from the deck feature. It takes a `ReadOnlyDeckModel` from
+`domain/readOnlyDeck.ts` (`fromPublic` for a shared deck, `fromOwner` for the
+owner's own deck on a phone) and draws the existing `DeckList`, `GroupBlock`,
+`CardRow`, `ChecksPanel`, read-only `BriefField`s and `EngineCard`s inside
+read-only providers: `DeckListProvider readOnly` and its own
+`DeckUiProvider`. List components read `useDeckList()` (a `DeckListState`:
+cards, slots, tags, computed, proposals, log), not the whole `DeckState`, so
+they work from either source; the live `DeckProvider` provides the same
+context. Read-only rows cannot be selected, and a tap opens `CardSheet`
+instead of the side panel.
+
+## The phone view (`features/phone`, spec §11.2, D17)
+
+`app/breakpoints.ts` holds the one breakpoint, `PHONE_MAX_WIDTH = 719`, and
+`useIsPhone()`. CSS repeats it as `@media (max-width: 719px)`, and
+`web-architecture.test.ts` fails on any other width query outside the
+playtester. Below it, `App` renders `PhoneApp` instead of `AppShell`: a top
+bar, `PhoneDecks`, `PhoneDeck` (the live `DeckProvider` around
+`ReadOnlyDeck`, with `PhoneDecisions` drawing every decision and Accept all,
+each with its optional reason, through the same `useReview` as desktop) and
+`PhoneInbox` (proposals open their deck; document edits rule in place with
+`DocumentEditCard`). Every other route renders `LargerScreen`. The phone
+shell sits inside `AppProviders`, so the event stream refetches as on
+desktop and an agent's new proposal appears without a reload. 4b inherits
+the breakpoint, `ReadOnlyDeck` and the router.
+
+The desktop app scrolls inside its panes, so `design/base.css` pins the body
+with `overflow: hidden`. The phone shell and `PublicShell` scroll the window
+instead, and call `useWindowScroll()` (`app/windowScroll.ts`), which marks
+`<html data-scroll="window">` while they are mounted so base.css releases the
+body. Without it, touch and wheel scrolling do nothing (a script's
+`scrollTo` still works, so automated checks must scroll by wheel or touch).
+
+## Recovery and background work
+
+`api/client.ts` checks HTTP status and content type before decoding JSON.
+`ApiError` retains both the status and server error text. `DeckStore` treats
+404 as missing, 403 as forbidden, and network/5xx failures as retryable load
+errors; `DeckGate` renders each state and offers Retry. A top-level
+`app/ErrorBoundary` catches render failures and offers Reload.
+
+`useReview.tsx` renders the existing `ConfirmDialog` for older proposals.
+Accept-all sends one atomic batch at the revision visible when clicked,
+acknowledging only proposals already stale then. All original baselines are
+validated before the server applies any changes.
+
+Images are ingested card facts (`image_small`, `image_normal`,
+`image_art_crop`); `mtg/cardImage.ts` selects a stored URL. `CardImage`
+uses a supplied card's stored image URL directly, or resolves through
+`CardLookup` (shared with hover cards) when no URL is known. Every image uses
+lazy loading. Missing image data retains the placeholder. Never construct a
+Scryfall API image URL in the client. Mana symbols are the one constructed
+image URL: `mtg/manaSymbols.symbolSvgUrl` names the static SVG on
+`svgs.scryfall.io` that Scryfall's Card Symbols API documents for each symbol
+(pattern cited there, checked against real `/symbology` entries in
+`test/fixtures/scryfall-symbology.json`). The hosted CSP allows that host
+in `img-src`. `ManaSymbol` keeps its plain fallback disc until the image
+loads, and keeps it if the image fails.
+
+Settings enqueues refresh jobs and displays last/next run and result for
+refresh and backup. The server's SSE has a 25-second comment heartbeat;
+job completion emits a normal invalidation. The shared `domain/familyOrder`
+keeps all fork descendants in the roster; `ui/Pill` owns selectable filter
+pills. Proposal history uses Section/Box/Stack/Chip and human-readable dates
+and edit titles, without approval controls. Memories resets a deleted scope from its response’s owned-deck metadata, and
+resets pagination when a filter changes.
+
+
+## Identity foundation (v3 Phase 1)
+
+The browser calls the same actor-scoped capabilities as MCP. Local mode builds
+implicit user 1 without a login. Hosted APIs use cookie sessions; the
+unauthenticated session bootstrap is `/api/session`. `SessionProvider` sits
+above `LiveProvider` and gates private providers/screens until signed in, so
+SSE and private data queries never start on the sign-in page. `useSession()`
+exposes mode, configured providers, the current account and a reload hook.
+The first-run handle picker appears only on a provider-handle collision.
+Legal pages and shared pages bypass sign-in; `/signin` is an auth boundary. The server serves `/consent` as plain
+HTML with an external script; it submits Better Auth's signed oauth_query.
+Local mode never renders sign-in, regardless of the path.
+
+`api/live.tsx` consumes `{ kind, resources?, deck_ids?, global_resources? }`
+events on a per-user SSE stream. Reconnect invalidates every query; ordinary
+events refresh matching resource/deck subscriptions. Another principal's mutations never
+reach the stream. Attribution uses structured user/via/label fields and
+`author_display` (`handle via label`), while compact MCP author text stays
+stable. UI/agent distinctions must use `author_via`, not an agent's name.
+
+The Settings connection card manages labelled per-user tokens: create, show
+once, copy, list with last use, and revoke through ConfirmDialog. Secrets
+stay only in component state until dismissed or unmounted, never browser
+storage. Client snippets use a placeholder outside that one-time display.
+Reachability copy follows server mode. Revoke actions align at the row edge;
+labels and metadata stay grouped and long labels wrap. Existing generic
+primitives and design tokens supply the form and dialogs.
+
+## Hosted request recovery and account settings
+
+`request()` explicitly uses same-origin cookies and emits an `api-error`
+event on HTTP failure. `SessionProvider` maps 401 to `/signin` only in hosted
+mode, 403 to the server's readable-action error toast, and 429 to a slowdown
+toast including Retry-After seconds. It retains ApiError status and text;
+404/revision/5xx behavior is unchanged. EventSource automatically sends the
+same-origin cookie. Sign-out navigates away and unmounts all private providers.
+
+Settings retains once-shown personal tokens in component state, adds hosted
+OAuth connector steps and last-seen grant usage (Settings refreshes every
+30 seconds while open), and has Account export/delete
+with typed-handle confirmation. The Admin card appears only for is_admin;
+the server rechecks admin/UI permissions. The final admin's disabled deletion
+button explains why. The legal footer names WotC's Fan Content policy and
+Scryfall daily estimates with as-of date; no new price source is introduced.
+
+
+Hosted `/api/session` also bootstraps `legal` (public operator name/contact)
+and `invites_required`. LegalPage renders the runtime identity as React text;
+no source placeholders or personal operator data are committed. Local mode
+renders no legal routes/footer. Open signup requests a blank registration
+ticket. Provider/state failures and invite registration failures have distinct
+recovery messages. HandlePicker is allowed only on first-run collisions.
+
+Settings lists consent-backed OAuth apps separately from personal tokens,
+including unused grants, and confirms Disconnect through the UI-only
+account capability. The server deletes consent/refresh tokens and remembers
+an issuance cutoff, so re-consent cannot revive old credentials. Public
+hashed assets cache immutably; hosted HTML, API and consent remain no-store.
+
+
+## Price sources (v3 Phase 1b)
+
+Settings' PriceSourceCard saves currency and store together through the typed
+client; changing currency resets the draft store to Lowest. The server applies
+the principal's choice everywhere. Wire prices use `cents`, `currency`, `store`,
+`as_of`, `source`; domain/price formats $ or € and propagates currency into group
+totals. Deck headers and card panels label the store/date. Proposal projections
+consume server-computed pending.projected_cost and cost_delta, including
+unpriced counts; components never calculate proposal price deltas.
+
+The shared card lookup cache clears on live invalidation; a card panel resolved
+outside the deck also refetches. Source changes in another tab therefore cannot
+leave a cached USD quote attached to an EUR view. Source preferences are per
+principal, and agents cannot set them. PublicDeckState.price integration belongs
+to Phase 4a if it lands later: viewer choice when authenticated, USD/lowest for
+anonymous readers. `priceResolver(db, viewer | null)` is that entry point;
+it never reads owner preferences for anonymous viewers. Both proposal cost
+compositions show store/date beside their estimates. Settings saves source and
+budgets in one transaction.
+
+## Phase 4b: first run, tablets and loading
+
+`PreferencesProvider` reads /api/preferences for the private shell. It
+supplies `has_agent_activity`, both copy voices through `useVoice`, and the
+account’s desktop sidebar collapse state. Saving that preference is UI-only
+below HTTP. Sidebar status uses /api/agents and includes authenticated reads. The
+first-run voice remains write-based; token creation and read-only requests
+do not enable it. /api/activity/latest remains a write-history endpoint.
+
+Owner decision (2026-10-27, §11.3): Advanced and its account preference are
+removed. History owns current and entry revisions; card decisions show their
+revision, while memory and power assessment metadata uses native titles.
+Neither desktop nor phone deck headers show revisions. CardControls keeps
+secondary slots directly under the primary field, ungated.
+LogRow shows review status, and the inbox's proposal history shows the count
+of decisions no agent has read yet. CardHistory's owner-scoped response adds ownership
+evidence, rendered only when nonempty with basis, quantities and attribution.
+Settings alone shows memory limits, usage and omitted counts for the global
+scope and owned decks, computed through loadScope. No new migration. The
+disclosure primitive is removed.
+
+The tablet frame runs from 720 through 1099 px; `TabletScroll`
+(`app/TabletShell.tsx`) **calls useWindowScroll()** while it applies. The
+sidebar lives in a drawer throughout 720–1099 px. The top bar names the
+current page and links directly to Inbox with its waiting count. Inbox selection
+uses `/inbox?entry=proposal-<id>` or `edit-<id>`, with Back to inbox above
+the title; desktop retains the split view. `AppShell` keeps every child at
+a fixed position (navigation,
+`<main>`, then `TabletScroll`), so crossing a breakpoint, as an iPad rotating
+does, re-styles the frame without remounting the page. Lazy pages suspend
+inside `<main>`, so a first visit keeps the sidebar. `DeckBody` likewise keeps
+the list in place and renders the panel once, through a portal into one host
+element that it attaches to the side pane or to a requested Dialog sheet below
+`PANEL_BREAKPOINT` (1100). A Brief draft or a half-typed reason survives a
+rotation. Only a card, a header stat, a tab request or the tablet bar’s "Deck details"
+opens the sheet; a review runs in the list with its keys, and R opens the
+sheet only for the reason field, closing it again after the reason is sent or
+cancelled. The list scrolls the window. At 1100+ the existing panes scroll
+independently. Dialog's body scroll lock is counted, so nested dialogs that
+close together release the page; Dialog's focus trap listens natively,
+because the portalled panel's React events do not bubble through the sheet.
+Escape that starts in a field reaches the field first: an inline editor in a
+sheet cancels, and the next Escape closes the sheet. A specifically labelled Explainer keeps the
+trigger's place in the Tab order and closes when focus leaves it. Up to
+1099 px, editor header, toolbar, banner and panel controls are `--tap` tall
+and card rows grow to 44 px, regardless of pointer type or import history.
+Desktop rows remain 24 px. `PHONE_MAX_WIDTH` and
+`useIsPhone()` still select 4a's read-only phone view. Tables contain their own
+horizontal overflow. Every shell provides the labelled `main-content` skip
+link target. QA must use actual wheel/touch input, never script scrolling.
+
+`App` lazily loads the signed-in routes and public pages. `SignedIn` lazily
+loads playtest, settings and the style guide. Authentication screens, shared
+action dialogs and card inspection load when requested. `CardProviders` is a
+small public provider independent of private inbox/focus/preferences. The
+reader API and HTTP transport are separate from editor API methods; wire types
+still flow through client.ts. DeckListStore is the shared read-only context;
+DeckStore owns editing and re-exports the same hooks. useDeckView receives
+memories as data instead of fetching in the read-only composition. The deck
+page asks `api.deckMemories` for only the memories that can mark its rows: the
+deck's own and the global ones, following `has_more` past the 100-row cap.
+
+Barrel index.ts files are re-exports only; an architecture test enforces this
+so Vite may tree-shake their unused exports without executing the editor.
+React has its own manual chunk. `node scripts/check-public-bundle.mjs` after
+`vite build` sums unique gzip JS chunks in the initial public-deck visit,
+including React and the entry, and fails at 110,000 bytes (raised from 90,000 by the owner on 2026-10-27). Deferred interaction
+chunks are excluded, and CSS is reported by Vite separately.
+
+Components never call fetch. **All HTTP calls live in api/**, including
+style-guide examples. web-architecture.test.ts enforces that boundary alongside
+layer imports, token colors, the exact three width queries and the window-scroll
+contract. Activity pages request 100 rows at an offset; Memories requests one
+100-row response containing scope choices, budget metadata and has_more, with
+scope/status/basis/search applied before pagination. It no longer fetches a
+second unfiltered memory list or a deck roster just to construct its filters.
+
+
+## Credited art (v3 Phase 4c)
+
+`src/art.ts` admits only stored Scryfall art-crop URLs paired with an artist.
+Actor-scoped deck summaries add `commander_art`; `/api/session` adds one
+shared-card `backdrop` resolved from the curated exact-name set. No new table,
+tenant lookup, external HTTP call or client Scryfall lookup is involved.
+`domain/art.ts` repeats the admission rule for the client (`creditedArt`,
+parsed URL) and words the credit; `mtg/DeckArt` draws strips, banners,
+showcases and backdrops, and `mtg/DeckThumbnail` the rail's decorative art.
+Both consume facts, never API state. DESIGN.md and /design own their tokens,
+variants and fallbacks. Features choose placement and loading: roster cards
+pass `load` from `ui/useNearView`, which observes the nearest container that
+actually scrolls (or the window) with a 200 px margin, so off-screen roster
+and rail art is not downloaded. The owner's editor uses `editor`: native-size
+right-aligned crops and a dim blurred wash behind the title. `useDeckHeaderScroll`
+uses the list's native scroll offset for the entire header-to-list gesture.
+The first hero-to-compact pixels scroll the outer page and expand the workspace;
+a matching translation inside the list compensates for those pixels. Its range
+stays constant, including on short decks. No wheel event is cancelled or smoothed
+in JavaScript, so native wheel animation and precise trackpad momentum both
+survive the hand-off in either direction. Dimensions are cached on resize, and
+past the fold the hook makes no style writes. The headers crossfade with scroll
+position and only the active copy is accessible. Panel-only scrolling does not
+fold it. Explicit find/review/card reveals expose the full viewport before
+measuring their target; native keyboard/scrollbar scrolling uses the continuous
+offset. Filter restore remembers both list and outer page positions.
+Tablet/phone/public shells retain
+`useWindowScroll` and let their headers leave naturally with the document. Sign-in uses that same hook and a labelled main. The public/phone
+reader uses `BriefText`, without the editable
+brief wrapper's state or loader in its initial dependency graph.
+
+## Direct deck import
+
+`features/import` owns the shared new/existing-deck dialog. All decks and
+first run open it directly; the deck menu has separate Import and Export
+actions. New-deck preview calls `/api/decks/import/preview`, which uses the
+same capability-layer diff against an empty snapshot without writing a deck.
+Apply calls `createDeck` and then the existing import endpoint. A failed
+apply retains the created id for retry; closing opens that empty deck.
+Existing-deck results and undo responses replace the deck store as usual.
+
+The preview unmounts the source form behind Edit list. Totals and warnings
+stay above the independently scrolling changes, with cuts first; Apply and
+the optional History note remain in Dialog's footer. Formats is a native
+disclosure in the source step. Dialog's optional `bodyClassName` lets this
+workflow size its scrolling region without changing other dialogs.
+Nonzero change counts link to their sections inside the changes pane and
+focus the section's native summary. Each section starts open, can collapse
+after review, and reopens when its count is chosen; warnings and Apply stay
+in place while navigating the change list. Against an empty deck (no cuts,
+unchanged, quantity or role changes) the summary omits zero counts and the
+add and maybe sections start closed behind their counts; while every section
+is closed the dialog sizes to its content. Skipped lines and
+the parser's after-import checks share one warning callout, named by its
+headings; the section title is a real heading under the dialog title.
+
+## Sidebar navigation
+
+Expanded desktop navigation gives deck names their full row width, with
+shared-state icons and the waiting badge beside the title. Theorycrafted and
+Archived retain a readable second line after repeated blind review (2026-10-28);
+collapsed links keep the lifecycle in their accessible names and tooltips.
+Collections with more than eight decks expose a native name/commander
+filter over the existing actor-scoped summaries. Search never remounts the deck
+editor or writes data. Escape clears it; empty results provide a clear action.
+Collapsed rail and tablet drawer always retain the full deck list, even while an
+expanded-desktop filter is set. Route/rail changes reveal the active deck only
+inside the navigation scroller, without shifting the deck list or page.
+
+All decks leads the section navigation, followed by Inbox, Memories, Activity,
+Profile and Settings. Following review, the owner decided on 2026-10-27 to
+restore the standalone ActivityPage and its own page title. ProfilePage has
+no tabs; ActivityPage owns its Page and scroll container around ActivityPanel.
+The inbox badge uses a solid violet fill with black ink in expanded and
+collapsed layouts. Expanded deck rows end in the same badge with that deck's
+waiting count (`domain/inbox` `waitingByDeck`, from the shared inbox); the rail
+keeps a violet dot on the thumbnail instead.
+The route allow-list and public-path decoding share compact parsing to keep
+the initial public bundle below its existing budget.
+
+At 1100+ px, AppShell applies the account's `sidebar_collapsed` preference
+from /api/settings to its grid and Sidebar. The icon rail uses
+`--sidebar-rail-w`; links retain names, titles, the inbox count and deck
+thumbnails/dots. The collapse button names its action and exposes
+`aria-expanded`. Saving is UI-only in `src/preferences.ts`, uses an existing
+user_settings key (default expanded), and sends no data invalidation.
+PreferencesProvider reports a failed save in a toast and retains the saved
+state. It does not use browser storage.
+
+The 720–1099 px drawer stays expanded inside, with no collapse control.
+Its top bar shows the current page and Inbox count. Returning to 1100+ restores the
+account's saved choice. AppShell keeps `<main>` at the same child position;
+collapse and breakpoint changes never replace it. TabletScroll still calls
+useWindowScroll; the phone shell below 720 is unchanged.
+
+## Deck editor scanning (2026-10-27)
+
+Tablet headers combine lifecycle help, counts and actions; the pinned tablet
+bar’s “Deck details” entry sends the explicit details request. The art header
+has no duplicate details control. The
+panel host and list remain mounted across 1100 px. Only unfamiliar lifecycle consequences, slot targets and proposal mechanics
+get specifically labelled help; obvious controls do not need generic popovers. Toolbar
+controls share a raised surface; tablet add/search fields and tag/group/sort
+controls wrap into two rows before the proposal banner.
+
+Deck filtering hides nonmatching rows; see the 2026-10-28 find-in-deck
+note below. Header totals, checks and stats keep describing the whole deck.
+Phone decks use native fragment links between the title, card list and pending
+proposals. The read-only composition accepts optional list navigation; editing
+and phone decision permissions are unchanged.
+
+Deck-editor UX regressions can be checked against the disposable `browser-checks/serve.ts`
+server with `scripts/check-deck-editor.mjs`; set `PLAYWRIGHT_MODULE` to an installed
+Playwright entry point and `AXE_MODULE` to axe-core's `axe.min.js`. It checks all
+five viewport widths, real wheel scrolling, proposal handoffs, add/undo, column
+reflow, post-import tablet targets, and panel identity across 1100 px. It requires
+the seeded evaluation database and never runs against live data.
+
+The card list uses native balanced columns with the width minima below and
+unfragmented row/header tracks. The browser recalculates breaks as content sizes
+change. Review arrival reveals the chosen decision's first card, then focuses
+its optional reason in the panel (the requested sheet on tablets). Panel-only
+scrolling and resize observation keep asynchronously loaded context from moving
+the controls away or undoing the list reveal.
+
+Desktop editors and readers use a 300 px column minimum to leave more room for
+names beside mana and estimates; narrow layouts retain the 250 px minimum.
+All decks filters its existing family-ordered roster by deck/commander name and
+lifecycle. Collection statistics continue to describe all Paper decks. Memories
+uses a labelled scope selector with stable width, so loading deck choices cannot
+push the composer down by adding rows of scope pills.
+
+Secondary-page UX (2026-10-27): inbox ProposalDecision calls the existing ruleProposal capability with the revision read at the click and captures stale confirmation before submitting. It applies the returned inbox without client merging. PhoneInbox preserves the proposal parameter; PhoneDecisions keeps selected units first and discloses bulk decisions. The shared mtg/DeckCard is the roster presentation used by All decks and public profiles; publicProfile supplies only public commanders’ credited art facts alongside their names.
+
+Inbox shows the selected proposal's changes before the deck-wide forecast. With
+multiple pending proposals, that server-computed aggregate is a closed native
+disclosure labelled with its full scope; it is never presented as a selected-only
+estimate. Native summaries own Enter instead of invoking the Inbox review shortcut.
+Maybe import provenance uses exact strings from interop: one visible count per
+origin and each card's original note as an accessible description. Custom notes
+keep their independent controls, and this presentation changes neither sort order
+nor stored notes. Collection identity statistics label colours visibly, and
+identities are named images of mana symbols (`ColorIdentity`), so no separate code is drawn.
+
+Review refinement (2026-10-27): AddBar retains search results after maybe-list adds, while its
+Undo uses removeCard; ordinary membership Undo still uses its log entry.
+PhoneDecisions falls back to the first pending proposal after its selected one
+is resolved.
+
+Active tablet filters keep only their query/tag summary, match count and Clear
+action below navigation while the toolbar scrolls away. Revealing the results
+reserves that row's height. Pending impact headings in Inbox and Review name
+the full proposal count; individual decisions retain their existing scope.
+Settings' existing selector separates Claude Code token and OAuth setup, with
+optional tool permissions in a native disclosure. Token and grant management
+remain visible regardless of the selected method. Phone larger-screen notices
+use page titles and a separate back action; sign-in consent uses inline links
+with natural sentence wrapping.
+
+## Panel destinations and statistics (owner direction, 2026-10-27)
+
+DeckPanel exposes text buttons for Review, Brief, Power, Stats, Checks, Memories
+and History. They use normal Tab/Enter/Space behavior and aria-current, not
+fake URLs or tab semantics. All seven destinations stay on one line at minimum, default and wider panel
+widths, using the existing readable type and compact spacing. Review remains available when empty and shows its pending
+count when nonzero. Card inspection replaces that header with the card title
+and an icon-only Back whose accessible name includes the remembered destination.
+The original card title, status chips and mana cost sit inline in that header;
+there is no separator beneath it. Type, price and estimate metadata stay below.
+The original deck view stays mounted, hidden and inert, with its scroll and local
+drafts retained. Card-to-card inspection keeps the first origin; Back restores
+that visible trigger or the active view control. List browsing retains list
+focus, including on Escape. A hidden panel trigger instead hands focus to Back.
+The same mounted panel moves through the existing portal host into the narrower
+sheet; its context follows the actual destination. Sheet Escape first leaves
+card inspection; its Close control closes the sheet. Resizing never resets the
+card, review cursor or local draft.
+Review shortcuts cannot accept/reject from another focused panel destination.
+
+Stats arranges server totals, mana curve, type counts and computed.mana. Checks
+contains findings and soft slot targets. ReadOnlyDeck retains both sections.
+ManaComparison loads only with Stats or the reader's statistical composition.
+Totals and a readable count-labelled curve lead. Paired WUBRG donuts use
+independent fixed-symbol and source-colour-count denominators, with visible exact
+legends. Source colours overlap; shares are never unique-card percentages.
+The 2026-10-29 panel refinement pairs the donuts above one shared colour table,
+with each series' count and share on every colour row at every panel width.
+The pure domain/deckStats adapter arranges computed buckets; it does not
+parse cards or infer production. Colourless, any-colour and flexible counts stay
+separate. Exact tables, other costs/faces and coverage use specific disclosures.
+Type bars use the server's exclusive display groups, one group per card. The
+curve excludes lands without a printed cost; it is not unconditionally nonland.
+Its counts come from src/deck/mana.ts, shared with agent state text; the client
+never infers production. The analysis uses stored face/cost/Oracle/type facts,
+separates first and other faces, fixed/flexible/special costs and land/nonland
+source copies, and reports partial or unresolved patterns. Internal face JSON
+and layout used for analysis are stripped before the card wire is returned.
+
+TextCard exposes `data-text-card` on known and anonymous roots for host sizing.
+TableZone, CardInspection and playtest host rules target this hook, never its
+HTML tag. The interactive known-card group remains a valid div with nested tools.
+
+Empty Inbox uses one content-frame state instead of retaining an unused list
+pane. Resolved deep links retain an explicit return to Inbox, and proposal history
+stays available. Activity exposes pagination only when an earlier or later page
+exists. TableZone's hand variant observes actual overflow and exposes native
+Previous/Next controls only when needed. They scroll along the overflowing axis
+to card boundaries; they never dispatch a playtest action or alter selection.
+
+Playtest draws announce the drawn card through the shared toast, with Undo
+while the table is still exactly what the draw left; any other table change
+retires that offer, and undo confirms itself ("Undid draw."). The drawn card
+is scrolled into view inside the hand's own scroller (instantly under reduced
+motion) without moving focus, and carries a brief `data-drawn` mark set by
+the playtest feature. A card's action menu omits the zone its cards are all
+already in. An open zone viewer keeps
+`--playtest-viewer-reserve` of window height clear of the hand, so its five
+default library rows fit on short windows; the hand never drops below its minimum.
+
+Inbox ChangeUnit renders the proposal items' stored reasons at the decision point,
+using InlineText as deck Review does. A shared reason is shown once within its
+swap/group; distinct reasons remain next to their corresponding items. Historical
+Activity badges describe write type (proposal/applied), not current approval status:
+the activity wire has no current proposal disposition. TextCard groups name, cost
+and type in its existing semantic header; the hand keeps that identity sticky when
+rules text overflows, including native focus/selection scrolling.
+
+Settings keeps connection setup and permission instructions intact, with token
+save/revoke consequences at their controls. Store options name the actual current
+source, budget labels carry their token units, and priced-card metadata is concise.
+The public product no longer links to the internal design reference from Settings.
+Hand identities do not flex-shrink, and composite state tints over an opaque
+surface: inherited translucent hover/selection backgrounds let scrolling rules
+show through. Hand QA checks child type bounds and opacity, with visual capture
+inspection in addition to box geometry.
+Native focus on an oversized hand card reveals its start after the browser's
+focus scroll. This only adjusts the hand's vertical scroll for the card itself;
+horizontal focus traversal, nested controls and deliberate scrolling retain their
+normal behavior. Regression QA checks the opening rules start below the identity.
+
+Secondary-page review (2026-10-28): disabled Buttons share one neutral, dimmed
+look whatever their variant; `ButtonLink` draws navigation as a Button. The
+owner's own shared link renders the signed-out reader's header, and its note
+links back to the deck, found by slug in the owner's summaries (reader
+`listDecks`). The owner's decisions no agent has read (§8.4) are counted in
+proposal history, not the inbox header, where they read as contradicting the
+waiting badge. Stale proposals describe the cards changed since, from `DeckState.log`
+(`domain/staleChanges`), not revision numbers, in the inbox, deck Review and
+phone decisions alike; the accept toast names the accepted cards the same way.
+The inbox colours that note amber only when `staleTouches` finds a
+change to a card the proposal adds or cuts (or cannot tell); otherwise grey. The inbox detail pane reaches the
+frame edge with content capped at `--inbox-detail-w` (780 px). The reason field
+and Accept/Reject share one row under the changes and the deck impact
+(`ProposalDecision.module.css` lays out DecisionControls' two children).
+
+Deck editor review (2026-10-28): a decision becoming current reveals all its
+rows when they fit together, else its first item, and flashes them once
+(`--flash`; reduced motion keeps only the static outline). Stale proposals are
+amber in Review only when the changes since touch their own cards
+(`staleTouches`); the server's stale flag and confirmation are unchanged.
+Export opens with the maybe list included when every match is on it.
+
+Find-in-deck hides nonmatches (owner decision, 2026-10-28, reversing the
+earlier muting after three rounds of blind review asked for it). A find query
+or tag filter leaves the layout and every total untouched: `matchDeckList`
+only names the matching cards and, while reviewing, proposed adds.
+`filterGroup` (domain/deckSearch) gives each group its matching rows and
+matched copies, or `null` to hide it; `GroupBlock` draws that, its header
+reading "2 of 14" without the target, projection or cost, which describe the
+hidden rows. Secondary and command-zone disclosures are left out while
+filtering, since each of those cards is drawn in its own primary group. The
+maybe list shows only its matches ("1 of 5 · outside the 100") or nothing.
+When nothing matches the list shows one line (`noMatchesLine`); Clear stays
+in the filter row, which counts matches ("5 matches"). Previous/next stepping
+was removed: matches now sit together, so there is nothing to step past.
+`DeckList` remembers the unfiltered scroll position (list pane, or window
+below 1100 px) and restores it when the filter clears; each filter change
+shows the results from the top (`revealFilterResults`). The open card and the
+bulk selection survive a filter that hides them. Read-only views have no find
+box and never filter.
+
+Shared page width (2026-10-28): `PublicShell` grows from `--public-w` toward
+`--public-wide` with the window (`--public-grow`, fluid because only the three
+breakpoint queries are allowed), so 2560 px readers get a third list column.
+The reader omits an unset power target and calls a deck's single unslotted
+group "Main deck". The share dialog's "Preview public page" is a ButtonLink
+beside Copy link.
+
+Deck editor review, round 3 (2026-10-28): the Review destination expands only
+the proposal holding the review cursor (`ui.cursor`, clamped as `useReview`
+does, so also outside review mode). The others are one-line buttons (queue
+position, plain-text title, agent label, change count) that move the cursor
+to their first decision; J/K reach them the same way. Queue positions come
+from `domain/review` `proposalQueue` ("1 of 3"); the open proposal's
+counter sits at the right of its `ProposalEyebrow` (see round 4 below). Only the focused decision has the reason field; its siblings
+in the open proposal keep Accept/Reject, Reject asking for a reason. Reason
+drafts live in ReviewPanel by unit key, so moving between proposals keeps
+them. `revealReviewUnit` brings a decision in by its top edge (the proposal's
+when the summary and decision fit), never by aligning bottoms, so nothing is
+left under the panel navigation; while reviewing, a blank tail
+(`--review-scroll-tail`) gives the last proposals room to reach that edge,
+and a clamped scroll shows a cut neighbour whole when it can. The projection (ReviewDelta) leads the
+destination once. Brief, profile and power-target edits show only changed
+lines (`DiffView foldSame`). The card panel's role control is "Board" (Main
+deck, Commander, Companion); its meta is the type line, then the estimate
+with mono price and an unbroken date. Export keeps the header's close button
+only and states format and exclusions on its count line.
+
+Secondary-page review (2026-10-28, wide screens): Activity groups the feed by
+local day (`domain/activity` `groupByDay`: Today, Yesterday, a date) with one
+row per write: time, agent, deck link, action, summary and proposal/applied.
+The rows share one subgrid so columns align down the feed; agent sessions are
+no longer drawn, since each row already names its agent and deck. A public
+profile is a centred `--public-profile-w` column with the app's PageHeader
+(name, handle, public deck count) over the All decks roster grid.
+`app/BrandMark` is imported by the sidebar, the public, phone and sign-in
+shells and the style guide.
+
+Deck editor review, round 4 (2026-10-29): every row action in the deck's
+panels and dialogs is a small bordered Button; Delete and Remove use the
+red `reject` outline that Cut uses, behind their existing confirmations. A
+card proposal has one label, `features/decisions` `ProposalEyebrow`:
+"Proposal #5 · rowan via claude-code · yesterday" in sentence case, in the
+inbox (which appends the deck name), deck Review (which adds its "2 of 3"
+counter at the right) and card details. Stats reads Deck totals, Mana curve,
+Card types, then mana costs and sources. When sources are unresolved or
+partial, an amber line with the warning icon sits under Direct sources and
+opens the existing Source coverage details. Card details show an empty
+history as one muted line each ("No linked memories", "No decisions in this
+deck"). Export confirms a copy in the dialog: the button reads "Copied" for
+two seconds beside a polite status ("Copied 1 line"); there is no toast, and
+a changed scope clears it.
+
+
+Agent interaction audit (2026-10-30): PreferencesProvider reads the lightweight
+`/api/preferences` endpoint, avoiding full Settings' per-deck memory loading
+on every live invalidation. Sidebar reads `/api/agents`: authorization and
+last authenticated request are separate from Activity's writes. It remains
+visible before the first write and links to Settings when collapsed too.
+`useLive` / `useQuery` subscribe by resource family and optional deck ID.
+A stable external store batches bursts and only notifies changed snapshots;
+contact events touch `agents`, and focus touches `focus`. Memory scope moves
+invalidate memory views together; cross-deck effects name global resources.
+Unknown legacy events and initial/reconnected streams still refresh all reads.
+Every private query declares its resource; `data` remains a conservative fallback.
+`FocusProvider` reads the server-confirmed context, keeping it on failure;
+`useReportFocus` owns compare-and-clear tab tokens with visible heartbeats,
+interaction claims and pagehide cleanup (spec §10.3). UI domain requests get
+retry keys and retry a dropped response once, preserving that key. A replayed
+deck composite is refreshed before the store applies it.
+The existing `has_agent_activity` preference retains its write-only meaning.
+
+Copies (2026-10-30): `features/deck/panel/CopiesControl` owns the card panel's
+quantity edit, mounted per card. Each `setQuantity` is one log entry and one
+undo, so arrow clicks show a running number and settle after 500 ms into one
+absolute write; writes run one at a time, newest wins, and an unmount saves a
+run in progress. A failed write returns to the server's number. Cards carry
+`copy_limit` (null is unlimited) from `copyLimit`, so the client never reads
+oracle text for it.

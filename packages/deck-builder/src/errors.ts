@@ -12,3 +12,10 @@ export class AppError extends Error {
 
 // Domain-rule violations from deck/ (bad input, missing rows → 404, …).
 export class ServiceError extends AppError {}
+
+// Node exposes SQLite's extended result code as errcode (2067 = UNIQUE,
+// 1555 = PRIMARY KEY), independent of localized error-message wording.
+// https://www.sqlite.org/rescode.html#constraint_unique
+export function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Error && "errcode" in error && (error.errcode === 2067 || error.errcode === 1555);
+}

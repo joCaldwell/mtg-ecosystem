@@ -1,7 +1,7 @@
 /* Floats over the bottom of the list pane, which is positioned. */
 .bar {
   position: absolute;
-  /* Clear of the toast, which sits at the bottom centre of the window. */
+  /* Clear of a toast below 1100 px, which sits at the bottom centre. */
   bottom: calc(var(--s-8) * 2 + var(--s-4));
   left: 50%;
   z-index: var(--z-sticky);

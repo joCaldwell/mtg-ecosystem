@@ -1,0 +1,13 @@
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3);
+  min-width: 0;
+}
+
+/* The reason sits on its own line above the buttons it goes with. */
+.withReason {
+  display: grid;
+  gap: var(--s-3);
+}

@@ -1,22 +1,38 @@
 .summary {
   display: flex;
   align-items: center;
-  gap: var(--s-5);
-  padding: var(--s-5) var(--s-6);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
+  gap: var(--s-6);
+  min-width: 0;
 }
 .identity {
   display: grid;
-  gap: var(--s-2);
-  margin-right: auto;
+  gap: var(--s-1);
+  min-width: 0;
+}
+.identity strong {
+  font-size: var(--text-md);
+  font-weight: 600;
 }
 .identity span {
   color: var(--muted);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
+  white-space: nowrap;
 }
-.number {
-  font-family: var(--font-mono);
+.stat {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-4);
+}
+.label {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.number,
+.stat output {
+  font: 600 var(--text-hud) / 1 var(--font-mono);
   font-variant-numeric: tabular-nums;
+  color: var(--text);
 }

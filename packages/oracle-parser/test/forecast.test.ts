@@ -58,8 +58,11 @@ describe("Forecast preserves its intrinsic zone, timing and reveal rules", () =>
     for (const text of ["Forecast", "Forecast — Draw a card.", "Forecast — Flying", "Forecast — When this creature enters, draw a card.",
       "Forecast — {U}: Invent a mechanic.", "Forecast — {U}: Draw a card. Unsupported rules.",
       "Companion — Draw a card.", "Companion — Creatures you control get +1/+1.", "Companion — {U}: Draw a card.",
-      "Companion — When this creature enters, draw a card.", "Companion — Flying", "Companion — Your starting deck contains only cards with even mana values."])
+      "Companion — When this creature enters, draw a card.", "Companion — Flying"])
       assert.equal(parseOracleText(text).ok, false, text);
+    // A parity deck condition is now represented completely (ObjectFilter.parity).
+    assert.deepEqual(parse("Companion — Your starting deck contains only cards with even mana values."), [{ kind: "keywords", keywords: [{ keyword: "companion",
+      companion: { deck: "each", of: { cls: "card" }, matches: { parity: { property: "mana-value", parity: "even" } } } }] }]);
     assert.deepEqual(parse("Doctor's companion"), [{ kind: "keywords", keywords: [{ keyword: "doctor's companion" }] }]);
     assert.deepEqual(parse("Study — {U}: Draw a card."), [{ kind: "activated", abilityWord: "Study", restriction: undefined, costs: [{ cost: "mana", symbols: ["U"] }], effects: [{ steps: [{ effect: "draw", who: you, amount: one }] }] }]);
   });

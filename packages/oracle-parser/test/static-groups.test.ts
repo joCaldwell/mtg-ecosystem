@@ -178,12 +178,21 @@ describe("coordinated continuous static clauses", () => {
   });
 
   it("does not reinterpret a combat declaration payment as a resolving unless choice", () => {
-    // Floodtide Serpent; Qal Sisma Behemoth. The declaration-cost AST is not
-    // represented yet, so these must fail even without card type metadata.
-    for (const text of [
-      "This creature can't attack unless you return an enchantment you control to its owner's hand.",
-      "This creature can't attack or block unless you pay {2}.",
-    ]) assert.equal(parseOracleText(text).ok, false, text);
+    // Floodtide Serpent; Qal Sisma Behemoth. These former rejections
+    // are now the declaration-cost combat rule (CR 508.1h, 509.1d), still
+    // never a resolving "unless" sentence.
+    assert.deepEqual(one("This creature can't attack unless you return an enchantment you control to its owner's hand."), {
+      kind: "static", effect: { static: "combat-rule", what: { ref: "this", noun: "creature" }, rule: {
+        rule: "declaration-cost", action: "attack", who: { player: "you" }, scope: "each-affected-creature",
+        costs: [{ cost: "return", what: { ref: "filter", filter: { types: ["enchantment"], control: "you" }, count: fixed(1) }, to: "hand", owner: "owner" }],
+      } },
+    });
+    assert.deepEqual(one("This creature can't attack or block unless you pay {2}."), {
+      kind: "static", effect: { static: "combat-rule", what: { ref: "this", noun: "creature" }, rule: {
+        rule: "declaration-cost", action: "attack-or-block", who: { player: "you" }, scope: "each-affected-creature",
+        costs: [{ cost: "mana", symbols: ["2"] }],
+      } },
+    });
     assert.deepEqual(one("Counter target spell unless its controller pays {2}."), {
       kind: "spell", effects: [{ steps: [{ effect: "counter", what: {
         ref: "target", filter: { cls: "spell" }, count: fixed(1),

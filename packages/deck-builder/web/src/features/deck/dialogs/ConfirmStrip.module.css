@@ -14,3 +14,11 @@
   min-width: 0;
   font-size: var(--text-sm);
 }
+
+/* In a banner: a compact question that keeps the banner's height. */
+.accept {
+  padding: var(--s-1) var(--s-1) var(--s-1) var(--s-4);
+  border-color: var(--line-strong);
+  background: transparent;
+  white-space: nowrap;
+}

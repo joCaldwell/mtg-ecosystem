@@ -12,7 +12,7 @@
   padding: 0 var(--s-4);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-md);
-  background: var(--surface);
+  background: var(--raised);
   cursor: text;
 }
 
@@ -21,10 +21,16 @@
   box-shadow: 0 0 0 3px var(--sel-bg);
 }
 
-.icon {
+.addLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
   flex: none;
-  color: var(--faint);
+  color: var(--text-soft);
+  font-size: var(--text-sm);
 }
+
+.syntax { flex-basis: 100%; }
 
 .input {
   flex: 1;
@@ -51,7 +57,7 @@
   left: 0;
   z-index: var(--z-pop);
   width: 100%;
-  min-width: 420px;
+  min-width: var(--add-drop-min-w);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-lg);
   background: var(--raised);
@@ -65,15 +71,21 @@
 }
 
 .none {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-4);
   padding: var(--s-4);
 }
 
+/* One compact line: the keys, then the colour scope. */
 .foot {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--s-2) var(--s-5);
+  white-space: nowrap;
   padding: var(--s-3) var(--s-4);
   border-top: 1px solid var(--line);
   color: var(--faint);
@@ -84,5 +96,13 @@
 .limit {
   display: inline-flex;
   align-items: center;
-  gap: var(--s-5);
+  gap: var(--s-4);
+}
+
+/* Touch: the field inside is a full tap target (base.css, DeckToolbar), so
+   the frame around it grows with it. */
+@media (max-width: 1099px) { .bar { height: auto; min-height: var(--tap); } }
+
+@media (pointer: coarse) {
+  .bar > kbd { display: none; }
 }

@@ -1,8 +1,9 @@
 // "each A and B <qualifier>" has one determiner and one trailing qualifier
 // for both nouns ("each creature and planeswalker your opponents control").
 // Reading it as "each A" plus an independent "B <qualifier>" silently drops
-// the qualifier from A. Until the filter grammar builds that union under a
-// singular "each", a coordinated list must reject the split (CR 608.2c:
+// the qualifier from A. parseEachFilter (refs.ts) builds that union for two
+// bare nouns; any other coordination (a prenominal modifier on either noun)
+// still reaches the list grammar, which must reject the split (CR 608.2c:
 // the complete instruction is read before applying its parts).
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 import type { ObjectFilter, ObjectRef, PlayerRef } from "../ast.ts";

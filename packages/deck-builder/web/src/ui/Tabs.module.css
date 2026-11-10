@@ -37,3 +37,7 @@
   border-bottom-color: var(--agent);
   color: var(--agent);
 }
+
+@media (pointer: coarse) and (max-width: 1099px) {
+  .tab { min-height: var(--tap); }
+}

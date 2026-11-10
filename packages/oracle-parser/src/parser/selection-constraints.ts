@@ -1,5 +1,5 @@
 import type { Amount, Comparison, Condition, GroupConstraint, ObjectFilter, PlayerRef } from "../ast.ts";
-import { parseSharedGroupConstraint } from "./characteristic-relations.ts";
+import { parseSameValueGroupConstraint, parseSharedGroupConstraint } from "./characteristic-relations.ts";
 import type { Cursor } from "./cursor.ts";
 
 /** Restrictions on one selected group, not on each eligible object. CR
@@ -12,6 +12,12 @@ export function parseGroupConstraint(c: Cursor, parseComparison: (c: Cursor) => 
   return c.attempt((c): GroupConstraint | null => {
     const shared = parseSharedGroupConstraint(c);
     if (shared) return shared;
+    // "two target creatures controlled by the same player / by different
+    // players": the controllers of the selected group (CR 108.4).
+    if (c.words("controlled", "by")) {
+      if (c.words("the", "same", "player")) return { constraint: "same-controller" };
+      return c.words("different", "players") ? { constraint: "pairwise-different", property: "controller" } : null;
+    }
     if (c.word("with") === null) return null;
     if (c.word("total") !== null) {
       const attribute = c.words("mana", "value") ? "mana-value" : c.word("power", "toughness") as "power" | "toughness" | null;
@@ -57,8 +63,8 @@ export function parseControlledSubset(c: Cursor, g: SubsetGrammar): Condition | 
     if (comparison?.op !== "ge" || !validSelectionCount(comparison.value)) return null;
     const of = g.parseFilter(c);
     if (!of) return null;
-    const constraint = parseGroupConstraint(c, g.parseComparison);
-    if (constraint?.constraint !== "pairwise-different") return null;
+    const constraint = parseGroupConstraint(c, g.parseComparison) ?? parseSameValueGroupConstraint(c);
+    if (constraint?.constraint !== "pairwise-different" && constraint?.constraint !== "shared-value") return null;
     return { condition: "controls-subset", who, of, minimum: comparison.value, groupConstraints: [constraint] };
   });
 }

@@ -1,0 +1,11 @@
+.card {
+  gap: var(--s-5);
+  min-width: 0;
+}
+
+.title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: var(--leading);
+  overflow-wrap: anywhere;
+}

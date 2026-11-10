@@ -4,17 +4,20 @@
 // place — opening a card clears nothing, starting a review switches the panel
 // to Review, and so on.
 
-import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode, type RefObject } from "react";
 import type { SortBy } from "../../domain/cards.ts";
 import type { GroupBy } from "../../domain/grouping.ts";
 import type { TagMatch } from "../../domain/deckSearch.ts";
 
-export type PanelTab = "review" | "brief" | "power" | "checks" | "memories" | "history";
-export type DeckDialog = "fork" | "compare" | "interop" | "slots" | "delete";
+import type { PanelView } from "./panelViews.ts";
+export type PanelTab = PanelView;
+export type DeckDialog = "fork" | "compare" | "export" | "import" | "slots" | "delete" | "share";
 
 export interface OpenCard {
   oracleId: string;
   name: string;
+  /** A token or emblem the deck makes, opened from the Tokens section. */
+  token?: boolean;
 }
 
 export interface DeckUiState {
@@ -24,6 +27,7 @@ export interface DeckUiState {
   searchTerm: string;
   tagIds: number[];
   tagMatch: TagMatch;
+  tagInverted: boolean;
   tab: PanelTab;
   /** The card shown in the side panel, over whichever tab is open. It need
    *  not be in the deck: a proposed add or a card named in a memory opens too. */
@@ -45,6 +49,7 @@ type Action =
   | { t: "searchTerm"; value: string }
   | { t: "tagIds"; value: number[] }
   | { t: "tagMatch"; value: TagMatch }
+  | { t: "tagInverted"; value: boolean }
   | { t: "tab"; value: PanelTab }
   | { t: "openCard"; card: OpenCard | null }
   | { t: "toggleSelected"; oracleId: string }
@@ -72,9 +77,11 @@ function reducer(ui: DeckUiState, action: Action): DeckUiState {
     case "searchTerm":
       return { ...ui, searchTerm: action.value };
     case "tagIds":
-      return { ...ui, tagIds: action.value };
+      return { ...ui, tagIds: action.value, tagInverted: action.value.length > 0 && ui.tagInverted };
     case "tagMatch":
       return { ...ui, tagMatch: action.value };
+    case "tagInverted":
+      return { ...ui, tagInverted: action.value };
     case "tab":
       // Choosing a tab is asking to see it, so the card panel gets out of the way.
       return { ...ui, tab: action.value, openCard: null };
@@ -93,18 +100,21 @@ function reducer(ui: DeckUiState, action: Action): DeckUiState {
     case "cursor":
       return { ...ui, cursor: Math.max(0, action.index), rejecting: null };
     case "rejecting":
-      return { ...ui, rejecting: action.key };
+      return { ...ui, rejecting: action.key, ...(action.key ? { tab: "review", openCard: null } : {}) };
     case "dialog":
       return { ...ui, dialog: action.value };
   }
 }
 
 export interface DeckUi extends DeckUiState {
+  /** The first inspection trigger, retained through card-to-card browsing. */
+  cardOrigin: RefObject<HTMLElement | null>;
   setGroupBy: (value: GroupBy) => void;
   setSortBy: (value: SortBy) => void;
   setSearchTerm: (value: string) => void;
   setTagIds: (value: number[]) => void;
   setTagMatch: (value: TagMatch) => void;
+  setTagInverted: (value: boolean) => void;
   setTab: (value: PanelTab) => void;
   openCardPanel: (card: OpenCard | null) => void;
   toggleSelected: (oracleId: string) => void;
@@ -117,15 +127,18 @@ export interface DeckUi extends DeckUiState {
   closeDialog: () => void;
 }
 
-const DeckUiContext = createContext<DeckUi | null>(null);
+const DeckUiContext = /* @__PURE__ */ createContext<DeckUi | null>(null);
 
 export function DeckUiProvider({ children }: { children: ReactNode }) {
+  const cardOrigin = useRef<HTMLElement | null>(null);
+  const currentCard = useRef<OpenCard | null>(null);
   const [ui, dispatch] = useReducer(reducer, null, (): DeckUiState => ({
     groupBy: localStorage.getItem(GROUP_BY_KEY) === "type" ? "type" : "slot",
     sortBy: storedSortBy(),
     searchTerm: "",
     tagIds: [],
     tagMatch: "any",
+    tagInverted: false,
     tab: "brief",
     openCard: null,
     selected: [],
@@ -134,6 +147,7 @@ export function DeckUiProvider({ children }: { children: ReactNode }) {
     rejecting: null,
     dialog: null,
   }));
+  currentCard.current = ui.openCard;
 
   useEffect(() => {
     localStorage.setItem(GROUP_BY_KEY, ui.groupBy);
@@ -150,8 +164,13 @@ export function DeckUiProvider({ children }: { children: ReactNode }) {
       setSearchTerm: (value: string) => dispatch({ t: "searchTerm", value }),
       setTagIds: (value: number[]) => dispatch({ t: "tagIds", value }),
       setTagMatch: (value: TagMatch) => dispatch({ t: "tagMatch", value }),
-      setTab: (value: PanelTab) => dispatch({ t: "tab", value }),
-      openCardPanel: (card: OpenCard | null) => dispatch({ t: "openCard", card }),
+      setTagInverted: (value: boolean) => dispatch({ t: "tagInverted", value }),
+      setTab: (value: PanelTab) => { dispatch({ t: "tab", value }); window.dispatchEvent(new Event("deck-details")); },
+      openCardPanel: (card: OpenCard | null) => {
+        if (card && !currentCard.current) cardOrigin.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        currentCard.current = card;
+        dispatch({ t: "openCard", card });
+      },
       toggleSelected: (oracleId: string) => dispatch({ t: "toggleSelected", oracleId }),
       clearSelection: () => dispatch({ t: "clearSelection" }),
       startReview: () => dispatch({ t: "startReview" }),
@@ -164,7 +183,7 @@ export function DeckUiProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  return <DeckUiContext.Provider value={{ ...ui, ...actions }}>{children}</DeckUiContext.Provider>;
+  return <DeckUiContext.Provider value={{ ...ui, ...actions, cardOrigin }}>{children}</DeckUiContext.Provider>;
 }
 
 export function useDeckUi(): DeckUi {

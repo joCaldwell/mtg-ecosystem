@@ -14,34 +14,37 @@
 // directs (https://ts.sdk.modelcontextprotocol.io/v2/serving/http).
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { DatabaseSync } from "node:sqlite";
-import * as z from "zod/v4";
+import type { Database } from "../sqlite.ts";
 import {
   McpServer,
   createMcpHandler,
-  hostHeaderValidationResponse,
-  localhostAllowedHostnames,
-  localhostAllowedOrigins,
-  originValidationResponse,
 } from "@modelcontextprotocol/server";
-import { agent } from "../actor.ts";
+import { SAMPLE_AGENT_LABEL, type Actor } from "../actor.ts";
+import { readRequestBody } from "../http-body.ts";
+import { createRateLimiter, RateLimitError } from "../ratelimit.ts";
+import { clientIp } from "../mode.ts";
+import { allowedRequest, getMode, type Mode, publicOrigin } from "../mode.ts";
 import { AppError } from "../errors.ts";
-import { tokenMatches } from "../token.ts";
+import { verifyToken } from "../tokens.ts";
 import { INSTRUCTIONS } from "./playbook.ts";
-import { TOOLS } from "./tools.ts";
+import { TOOLS, inputSchema, runTool } from "./tools.ts";
+import type { Change } from "../changes.ts";
+import { logging } from "../logging.ts";
 
 export const MCP_PATH = "/mcp";
-const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
 // The 2026-07-28 revision carries the client's identity in every request's
 // _meta; the 2025 revisions sent it once, in initialize.
 const CLIENT_INFO_KEY = "io.modelcontextprotocol/clientInfo";
 
 export interface AgentEndpointOptions {
-  token: string;
+  mode?: Mode;
   version: string;
+  verifyOAuth?: (token: string) => Promise<Actor | null>;
+  rateLimit?: ReturnType<typeof createRateLimiter>;
+  withDatabase?: <T>(work:()=>T|Promise<T>)=>Promise<T>;
   /** Called after any tool wrote something, so the UI can refresh. */
-  onChange?: () => void;
+  onChange?: (userId: number, change: Change) => void;
 }
 
 // Who is calling, for attribution only (spec §1, rule 5) — it grants nothing.
@@ -49,7 +52,8 @@ export interface AgentEndpointOptions {
 // and wins; otherwise the client's self-reported name; otherwise its
 // User-Agent product; otherwise "agent".
 export function agentName(pathname: string, body: unknown, userAgent: string | undefined): string {
-  const fromPath = decodeURIComponent(pathname.slice(MCP_PATH.length).replace(/^\/+|\/+$/g, ""));
+  let fromPath = "";
+  try { fromPath = decodeURIComponent(pathname.slice(MCP_PATH.length).replace(/^\/+|\/+$/g, "")); } catch { /* malformed hint carries no authority */ }
   if (fromPath) return clean(fromPath);
   const first = Array.isArray(body) ? body[0] : body;
   const params = (first as any)?.params;
@@ -67,31 +71,19 @@ function respond(res: ServerResponse, status: number, message: string, headers: 
   res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message }, id: null }));
 }
 
-async function readBody(req: IncomingMessage): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of req) {
-    size += (chunk as Buffer).length;
-    if (size > MAX_BODY_BYTES) throw new AppError("Request body too large", 413);
-    chunks.push(chunk as Buffer);
-  }
-  return Buffer.concat(chunks);
-}
-
-export function createAgentEndpoint(db: DatabaseSync, opts: AgentEndpointOptions) {
+export function createAgentEndpoint(db: Database, opts: AgentEndpointOptions) {
   // Which protocol era each client speaks, logged once per client: the
   // question spec §15 leaves to be answered by what actually connects.
+  const mode = opts.mode ?? getMode();
   const seen = new Set<string>();
   const handler = createMcpHandler(
     (ctx) => {
-      const actor = agent(ctx.authInfo?.clientId ?? "agent");
+      const actor = ctx.authInfo!.extra!.actor as Actor;
       const who = `${ctx.authInfo?.clientId ?? "agent"}/${ctx.era}`;
       if (!seen.has(who)) {
+        if (seen.size >= 256) seen.clear();
         seen.add(who);
-        console.log(
-          `[mcp] "${ctx.authInfo?.clientId ?? "agent"}" connected, speaking the ` +
-            (ctx.era === "modern" ? "2026-07-28 protocol" : "2025 protocol (served statelessly)"),
-        );
+        logging.event("mcp_connected", { user_id: actor.user_id, via: actor.via, label: actor.label, era: ctx.era });
       }
       const server = new McpServer(
         { name: "deck-builder", version: opts.version },
@@ -101,17 +93,19 @@ export function createAgentEndpoint(db: DatabaseSync, opts: AgentEndpointOptions
       // cache the list (the spec asks for a deterministic order).
       for (const tool of TOOLS) {
         const run = async (args: unknown) => {
+          const start = performance.now();
           try {
-            const out = tool.run({ db, actor }, args ?? {});
-            const result = typeof out === "string" ? { text: out } : out;
-            if (result.changed) opts.onChange?.();
-            return { content: [{ type: "text" as const, text: result.text }] };
+            const result = runTool({ db, actor }, tool, args ?? {});
+            if (result.changed) opts.onChange?.(actor.user_id, { kind: tool.name, resources: result.command?.resources, deck_ids: result.command?.deck_ids, global_resources: result.command?.global_resources });
+            logging.tool(actor, tool.name, start, 200);
+            return { content: [{ type: "text" as const, text: result.text }],
+              ...(result.structuredContent ? { structuredContent: result.structuredContent } : {}) };
           } catch (e) {
+            logging.tool(actor, tool.name, start, e instanceof AppError ? e.status : 500, e);
             // A failure the agent can act on is a tool result, not a protocol
             // error: the message says how to fix the call.
             if (e instanceof AppError)
               return { content: [{ type: "text" as const, text: e.message }], isError: true };
-            console.error(`[mcp] ${tool.name} failed`, e);
             return {
               content: [{ type: "text" as const, text: "The app hit an internal error handling that call. Nothing was changed." }],
               isError: true,
@@ -128,24 +122,23 @@ export function createAgentEndpoint(db: DatabaseSync, opts: AgentEndpointOptions
             openWorldHint: false,
           },
         };
-        if (Object.keys(tool.input).length)
-          server.registerTool(tool.name, { ...config, inputSchema: ["create_deck", "edit_cards"].includes(tool.name) ? z.strictObject(tool.input) : z.object(tool.input) }, run);
-        else server.registerTool(tool.name, config, () => run({}));
+        server.registerTool(tool.name, { ...config, inputSchema: inputSchema(tool) }, run);
       }
       return server;
     },
-    { onerror: (e) => console.error("[mcp]", e.message) },
+    { onerror: (e) => logging.error(e) },
   );
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
+    if (!allowedRequest(req, mode)) return respond(res, 403, "Host or Origin is not allowed");
+    const url = new URL(req.url ?? "/", mode === "hosted" ? publicOrigin() : "http://127.0.0.1");
     const headers = new Headers();
     for (const [k, v] of Object.entries(req.headers))
       if (v !== undefined) headers.set(k, Array.isArray(v) ? v.join(", ") : v);
 
     let body: Buffer;
     try {
-      body = req.method === "GET" || req.method === "HEAD" ? Buffer.alloc(0) : await readBody(req);
+      body = req.method === "GET" || req.method === "HEAD" ? Buffer.alloc(0) : await readRequestBody(req);
     } catch (e: any) {
       return respond(res, e.status ?? 400, e.message);
     }
@@ -158,20 +151,22 @@ export function createAgentEndpoint(db: DatabaseSync, opts: AgentEndpointOptions
     // DNS rebinding and cross-site requests: a page in the owner's browser
     // can reach a loopback port, so the Host must be loopback and an Origin,
     // if present, must be too.
-    const rejected =
-      hostHeaderValidationResponse(request, localhostAllowedHostnames()) ??
-      originValidationResponse(request, localhostAllowedOrigins());
-    if (rejected) return send(res, rejected);
+    if (!allowedRequest(req, mode)) return respond(res, 403, "Host or Origin is not allowed");
 
+    const dispatch = async () => {
     const auth = req.headers.authorization ?? "";
     const presented = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-    if (!presented || !tokenMatches(presented, opts.token))
+    const authenticated = verifyToken(db, presented) ?? (mode === "hosted" && presented ? await opts.verifyOAuth?.(presented) : null);
+    if (!authenticated) {
+      if (mode === "hosted") try { opts.rateLimit?.("unauthenticated", clientIp(req)); }
+      catch(e) { if(e instanceof RateLimitError) return respond(res,429,e.message,{"Retry-After":String(e.retryAfter)});throw e; }
       return respond(
         res,
         401,
         "Missing or wrong bearer token. Copy the agent token from the app's Settings page into this client's configuration.",
-        { "WWW-Authenticate": "Bearer" },
+        { "WWW-Authenticate": `Bearer resource_metadata="${mode === "hosted" ? publicOrigin() : `http://${req.headers.host}`}/.well-known/oauth-protected-resource/mcp"${mode === "hosted" ? ", scope=\"deck-builder\"" : ""}${presented ? ", error=\"invalid_token\"" : ""}` },
       );
+    }
 
     let parsed: unknown;
     if (body.length) {
@@ -181,12 +176,28 @@ export function createAgentEndpoint(db: DatabaseSync, opts: AgentEndpointOptions
         return respond(res, 400, "Request body is not valid JSON");
       }
     }
-    const name = agentName(url.pathname, parsed, req.headers["user-agent"]);
+    const hint = agentName(url.pathname, parsed, req.headers["user-agent"]);
+    const name = mode === "hosted" || authenticated.oauth_client_id || hint === "agent" ? authenticated.label : hint;
+    if (mode === "hosted") try {
+      opts.rateLimit?.("mcp", authenticated.oauth_client_id ? `${authenticated.user_id}:${authenticated.oauth_client_id}` : `personal:${authenticated.token_id}`);
+      const tool = (parsed as any)?.params?.name;
+      if (tool === "search_cards" || tool === "search_memories") opts.rateLimit?.("search", `mcp:${authenticated.user_id}`);
+      if (tool === "compare_decks" || tool === "compare_deck_sources") opts.rateLimit?.("compare", `mcp:${authenticated.user_id}`);
+    } catch (e) { if (e instanceof RateLimitError) return respond(res,429,e.message,{"Retry-After":String(e.retryAfter)}); throw e; }
+    // The sample's label marks demonstration data (§11.3); a client that
+    // claims it, by URL, token label or OAuth name, is attributed apart.
+    const actor: Actor = { ...authenticated, label: name === SAMPLE_AGENT_LABEL ? `${name} (connected)` : name };
+    logging.actor(actor);
+    // A read also proves contact. This event only invalidates connection UI.
+    opts.onChange?.(actor.user_id, { kind: "agent_contact" });
     const response = await handler.fetch(request, {
-      authInfo: { token: presented, clientId: name, scopes: [] },
+      authInfo: { token: presented, clientId: name, scopes: [], extra: { actor } },
       parsedBody: parsed,
     });
-    return send(res, response);
+    return response;
+    };
+    const response = await (opts.withDatabase ? opts.withDatabase(dispatch) : dispatch());
+    if (response) return send(res, response);
   }
 
   return { handle, close: () => handler.close?.() };

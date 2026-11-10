@@ -35,8 +35,14 @@ describe("subtype identity survives parsing", () => {
     // rejecting an unresolved name is required until its binding is supported.
     for (const text of [
       "When Sharuum enters, you may return target artifact card from your graveyard to the battlefield.",
-      "Fortified land has indestructible.",
     ]) assert.equal(parseOracleText(text).ok, false, text);
+    // "Fortified land" is the land a Fortification is attached to (CR 301.6),
+    // now an object reference of its own rather than an invented subtype.
+    const fortified = parseOracleText("Fortified land has indestructible.");
+    assert.equal(fortified.ok, true);
+    assert.deepEqual(fortified.abilities, [{ kind: "static", abilityWord: undefined, effect: { static: "modify", what: { ref: "fortified", noun: "land" },
+      modifiers: [{ modifier: "abilities", abilities: [{ gained: "keyword", keyword: { keyword: "indestructible" } }] }],
+      condition: undefined, duration: undefined } }]);
   });
 
   it("stores Puppet Conjurer's token subtype without removing its final letter", () => {

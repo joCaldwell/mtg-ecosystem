@@ -1,118 +1,191 @@
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { DeckThumbnail } from "../mtg/index.ts";
+import { BrandMark } from "./BrandMark.tsx";
+import { familyOrder } from "../domain/familyOrder.ts";
+import { waitingByDeck } from "../domain/inbox.ts";
 // The left rail: where to go, which decks exist, and what an agent connected
 // right now would be told. Decks are one click away from anywhere, and a deck
 // with something waiting on the owner carries the agent colour.
 
-import { api, type DeckSummary } from "../api/client.ts";
+import { api } from "../api/client.ts";
 import { useQuery } from "../api/useQuery.ts";
-import { ago } from "../domain/time.ts";
-import { Badge, Dot, Eyebrow, Icon } from "../ui/index.ts";
+import { DECK_CATEGORY_LABELS } from "../domain/deckCategory.ts";
+import { ago, parseServerTime } from "../domain/time.ts";
+import { Badge, Dot, Icon, IconButton, TextField } from "../ui/index.ts";
 import { useFocus } from "./Focus.tsx";
 import { useInbox } from "./Inbox.tsx";
 import { href, type PageName, type Route } from "./routes.ts";
 import styles from "./Sidebar.module.css";
 
 const NAV: Array<{ page: PageName; label: string; icon: "inbox" | "decks" | "memories" | "activity" | "profile" | "settings" }> = [
+  { page: "decks", label: "My decks", icon: "decks" },
   { page: "inbox", label: "Inbox", icon: "inbox" },
-  { page: "decks", label: "All decks", icon: "decks" },
   { page: "memories", label: "Memories", icon: "memories" },
   { page: "activity", label: "Activity", icon: "activity" },
   { page: "profile", label: "Profile", icon: "profile" },
   { page: "settings", label: "Settings", icon: "settings" },
 ];
 
-/** Forks listed directly under the deck they came from. */
-function familyOrder(decks: DeckSummary[]): Array<{ deck: DeckSummary; fork: boolean }> {
-  const ids = new Set(decks.map((d) => d.id));
-  const roots = decks.filter((d) => d.parent_id == null || !ids.has(d.parent_id));
-  return roots.flatMap((root) => [
-    { deck: root, fork: false },
-    ...decks.filter((d) => d.parent_id === root.id).map((deck) => ({ deck, fork: true })),
-  ]);
-}
 
-export function Sidebar({ route }: { route: Route }) {
-  const { waiting } = useInbox();
+/** `brand` is off inside the tablet drawer, whose title already names it. */
+export function Sidebar({ route, brand = true, collapsed = false, onToggle, toggleDisabled = false }: {
+  route: Route; brand?: boolean; collapsed?: boolean; onToggle?: () => void; toggleDisabled?: boolean;
+}) {
+  const { waiting, inbox } = useInbox();
+  const deckWaiting = useMemo(() => inbox ? waitingByDeck(inbox) : new Map<number, number>(), [inbox]);
   const { focus } = useFocus();
-  const decks = useQuery(() => api.listDecks(), []);
-  const activity = useQuery(() => api.listActivity(), []);
-  const last = activity.data?.[0];
+  const decks = useQuery(() => api.listDecks(), [], "decks");
+  const connections = useQuery(() => api.agentConnections(), [], "agents");
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const [deckQuery, setDeckQuery] = useState("");
+  const filterInput = useRef<HTMLInputElement>(null);
+  const deckNav = useRef<HTMLElement>(null);
+  const canFilter = brand && !collapsed && (decks.data?.length ?? 0) > 8;
+  const query = canFilter ? deckQuery.trim().toLocaleLowerCase() : "";
+  const orderedDecks = familyOrder(decks.data ?? []);
+  const shownDecks = orderedDecks.filter(({ deck }) => !query || [deck.name, ...deck.commanders].some(name => name.toLocaleLowerCase().includes(query)));
+  const currentDeckId = route.page === "deck" || route.page === "playtest" ? route.deckId : null;
+  useLayoutEffect(() => {
+    if (!brand || currentDeckId == null) return;
+    const nav = deckNav.current;
+    if (!nav) return;
+    const reveal = () => {
+      const current = nav.querySelector<HTMLElement>('a[aria-current="page"]');
+      if (!current) return false; // The summaries may still be loading.
+      const pane = nav.getBoundingClientRect(), item = current.getBoundingClientRect();
+      // Only this rail scrolls. A later presence footer can reduce its height.
+      if (item.bottom > pane.bottom) nav.scrollTop += item.bottom - pane.bottom;
+      else if (item.top < pane.top) nav.scrollTop += item.top - pane.top;
+      return true;
+    };
+    const waiting = new MutationObserver(() => { if (reveal()) waiting.disconnect(); });
+    waiting.observe(nav, { childList: true, subtree: true });
+    if (reveal()) waiting.disconnect();
+    const sizes = new ResizeObserver(() => { reveal(); });
+    sizes.observe(nav);
+    return () => { waiting.disconnect(); sizes.disconnect(); };
+  }, [brand, collapsed, currentDeckId, route.page]);
+  const last = connections.data?.find(client => client.last_used_at !== null);
+  const recent = !!last?.last_used_at && now - parseServerTime(last.last_used_at) < 5 * 60_000;
+  const contact = last?.last_used_at
+    ? `Last request: ${last.label} · ${ago(last.last_used_at, now)}`
+    : connections.data === null ? (connections.error ? "Agent status unavailable" : "Agent status") : connections.data.length ? "No agent requests yet" : "Connect an agent";
+  const section = route.page;
+
+  const context = focus
+    ? `${focus.stale ? "Last-viewed agent context (stale)" : "Current agent context"}, reported ${focus.ageMinutes} min ago: ${focus.deckName}${focus.selectedCount > 0 ? ` · ${focus.selectedCount} selected` : ""}`
+    : "No deck in agent context";
+  const presence = `${contact}. ${context}. Open agent settings.`;
 
   return (
-    <aside className={styles.sidebar}>
-      <div className={styles.brand}>
-        <span className={styles.mark} aria-hidden="true" />
-        Deck Builder
-      </div>
+    <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ""} ${brand ? "" : styles.inDrawer}`} aria-label="Sidebar">
+      {brand && <div className={styles.brand}>
+        <span className={styles.brandName}><BrandMark className={styles.mark} />{!collapsed && "Deck Builder"}</span>
+        {onToggle && <IconButton label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed} onClick={onToggle} disabled={toggleDisabled} className={styles.toggle}>
+          <Icon name={collapsed ? "sidebarExpand" : "sidebarCollapse"} />
+        </IconButton>}
+      </div>}
 
       <nav className={styles.nav} aria-label="Sections">
         {NAV.map((item) => (
           <a
             key={item.page}
             href={href({ page: item.page })}
-            className={route.page === item.page ? styles.current : undefined}
-            aria-current={route.page === item.page ? "page" : undefined}
+            className={section === item.page ? styles.current : undefined}
+            aria-current={section === item.page ? "page" : undefined}
+            aria-label={collapsed ? (item.page === "inbox" && waiting > 0 ? `Inbox, ${waiting} waiting` : item.label) : undefined}
+            title={collapsed ? item.label : undefined}
           >
             <Icon name={item.icon} />
-            {item.label}
+            <span className={styles.label}>{item.label}</span>
             {item.page === "inbox" && waiting > 0 && (
               <span className={styles.end}>
-                <Badge tone="agent">{waiting}</Badge>
+                <Badge className={styles.inboxBadge}>{waiting}</Badge>{!collapsed && <span className="visually-hidden"> waiting</span>}
               </span>
             )}
           </a>
         ))}
       </nav>
 
-      <div className={styles.heading}>
-        <Eyebrow>Decks</Eyebrow>
-      </div>
-      <nav className={styles.decks} aria-label="Decks">
-        {familyOrder(decks.data ?? []).map(({ deck, fork }) => {
+      <div className={styles.divider} />
+      <span className="visually-hidden" role="status">{query && `${shownDecks.length} ${shownDecks.length === 1 ? "match" : "matches"}`}</span>
+      {canFilter && <div className={styles.filter}>
+        <TextField ref={filterInput} type="search" aria-label="Find a deck or commander in sidebar" placeholder="Find a deck…"
+          value={deckQuery} onChange={event => setDeckQuery(event.target.value)}
+          onKeyDown={event => { if (event.key === "Escape" && deckQuery) { event.preventDefault(); event.stopPropagation(); setDeckQuery(""); } }} />
+      </div>}
+      <nav ref={deckNav} className={styles.decks} aria-label="Decks">
+        {shownDecks.map(({ deck, fork }) => {
           const open = (route.page === "deck" || route.page === "playtest") && route.deckId === deck.id;
-          const pending = deck.pending_items + deck.pending_document_edits > 0;
+          // The count matches the Inbox badge (proposals and edit groups); the
+          // summary's own flag covers the moment before the inbox has loaded.
+          const count = deckWaiting.get(deck.id) ?? 0;
+          const pending = count > 0 || deck.pending_items + deck.pending_document_edits > 0;
+          const waitingText = count > 0 ? `${count} ${count === 1 ? "proposal" : "proposals"} waiting` : "waiting on you";
           return (
             <a
               key={deck.id}
               href={href({ page: "deck", deckId: deck.id })}
               className={[open ? styles.current : "", fork ? styles.fork : ""].join(" ")}
               aria-current={open ? "page" : undefined}
-              title={pending ? `${deck.name} — something is waiting on you` : deck.name}
+              aria-label={collapsed ? `${deck.name}${pending ? `, ${waitingText}` : ""}${deck.category !== "paper" ? `, ${DECK_CATEGORY_LABELS[deck.category]}` : ""}${deck.visibility !== "private" ? `, ${deck.visibility}` : ""}` : undefined}
+              title={`${deck.name}${deck.category !== "paper" ? ` — ${DECK_CATEGORY_LABELS[deck.category]}` : ""}${pending ? ` — ${waitingText}` : ""}`}
             >
-              <Dot tone={pending ? "agent" : "neutral"} />
+              {/* The thumbnail takes the dot's column. Expanded rows count what waits at
+                  their end, as the Inbox does; the rail has no room, so a waiting deck
+                  keeps a violet dot on the thumbnail's corner there. */}
+              <span className={styles.lead}>
+                <DeckThumbnail cards={deck.commander_art} className={styles.thumb} />
+                <Dot tone={collapsed && pending ? "agent" : "neutral"} className={collapsed && pending ? styles.pending : styles.fallback} />
+              </span>
               <span className={styles.name}>{deck.name}</span>
-              {deck.category === "legacy" && <span className={styles.draft}>legacy</span>}
+              {!collapsed && pending && (count > 0
+                ? <span className={styles.waiting}><Badge aria-hidden="true" className={styles.waitingBadge}>{count}</Badge><span className="visually-hidden">, {waitingText}</span></span>
+                : <span className="visually-hidden">, {waitingText}</span>)}
+              {deck.visibility !== "private" && (
+                <span className={styles.shared} role="img" aria-label={deck.visibility === "public" ? "Public" : "Unlisted"} title={deck.visibility === "public" ? "Public" : "Unlisted: anyone with the link"}>
+                  <Icon name={deck.visibility === "public" ? "globe" : "link"} size={12} />
+                </span>
+              )}
+              {/* Every row names its lifecycle, Paper too, so the rows stay even. */}
+              <span className={styles.lifecycle} data-lifecycle={deck.category}>
+                {DECK_CATEGORY_LABELS[deck.category]}
+              </span>
             </a>
           );
         })}
+        {query && shownDecks.length === 0 && <div className={styles.noMatches}>
+          <span>No decks found</span>
+          <button type="button" onClick={() => { setDeckQuery(""); filterInput.current?.focus(); }}>Clear filter</button>
+        </div>}
       </nav>
 
-      <div className={styles.presence}>
-        {last ? (
-          <div className={styles.who}>
-            <Dot tone="agent" pulse />
-            <span className={styles.agent}>{last.actor}</span>
-            <span className={styles.when}>· {ago(last.ts)}</span>
-          </div>
-        ) : (
-          <div className={styles.when}>No agent has written anything yet.</div>
-        )}
-        <div className={styles.focus}>
-          {focus ? (
-            <>
-              To an agent, “this deck” is <b>{focus.deckName}</b>
-              {focus.selectedCount > 0 && (
-                <>
-                  {" "}
-                  and “these cards” are the <b>{focus.selectedCount} selected</b>
-                </>
-              )}
-              .
-            </>
-          ) : (
-            <>No deck is open, so “this deck” means nothing to an agent right now.</>
-          )}
-        </div>
-      </div>
+      {/* Both status rows share one full-size Settings target. The accessible
+          name and tooltip retain context even when names or the rail clip. */}
+      <a href={href({ page: "settings" })} className={styles.presence}
+        title={`${presence} Recent requests do not mean an agent is still connected.`}>
+        <span className={styles.who} aria-hidden="true">
+          <Dot tone={recent ? "agent" : "neutral"} />
+          <span className={styles.presenceText}>
+            {last?.last_used_at ? <>
+              <span className={styles.agent}>{last.label}</span>
+              <span className={styles.when}> · request {ago(last.last_used_at, now)}</span>
+            </> : contact}
+          </span>
+        </span>
+        {!collapsed && <span className={styles.focus} aria-hidden="true">
+          {focus ? <>
+            <span>{focus.stale ? "Last viewed" : "Context"}</span>
+            <b className={styles.focusDeck}>{focus.deckName}</b>
+            {focus.stale && <span>· {focus.ageMinutes}m</span>}
+            {focus.selectedCount > 0 && <span>· {focus.selectedCount} selected</span>}
+          </> : "No deck in agent context"}
+        </span>}
+      </a>
     </aside>
   );
 }

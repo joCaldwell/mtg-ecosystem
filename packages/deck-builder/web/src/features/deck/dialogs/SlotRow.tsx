@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { SlotDelta } from "../../../api/client.ts";
-import { Button, Text, TextField } from "../../../ui/index.ts";
+import { Icon, IconButton, Text, TextField } from "../../../ui/index.ts";
 import { ConfirmStrip } from "./ConfirmStrip.tsx";
 import { parseTarget, TARGET_ERROR, targetText } from "./targets.ts";
 import styles from "./SlotsTable.module.css";
@@ -120,15 +120,15 @@ export function SlotRow({ slot, onSave, onInvalid, onRevert, onDelete }: Props) 
               {Math.abs(slot.delta)} {slot.status}
             </Text>
           ) : slot.status === "ok" ? (
-            <Text tone="muted" size="sm" className={styles.status}>
-              on target
+            <Text tone="add" size="sm" className={`${styles.status} ${styles.onTarget}`}>
+              <Icon name="check" size={12} /> on target
             </Text>
           ) : null}
         </td>
         <td className={styles.actions}>
-          <Button size="sm" variant="ghost" onClick={() => setConfirming(true)} aria-label={`Delete the slot ${slot.name}`}>
-            Delete
-          </Button>
+          <IconButton tone="danger" onClick={() => setConfirming(true)} label={`Delete ${slot.name}`}>
+            <Icon name="trash" />
+          </IconButton>
         </td>
       </tr>
       {confirming ? (

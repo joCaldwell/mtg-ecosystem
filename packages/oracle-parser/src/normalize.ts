@@ -57,6 +57,15 @@ function replaceName(text: string, name: string, protect: (name: string) => stri
       // Gideon's emblem says "a Gideon planeswalker" (CR 201.5 / 205.3j).
       // A prefix of a literal name such as Nissa's Chosen is not that name.
       if (/\b(?:named|partner\s+with)\s+"?$/i.test(before)) return matched;
+      // A flavor/ability-word label before a dash is printed text, not a
+      // reference: "Blade of Magnus — Whenever Magnus the Red deals …".
+      const head = before.slice(before.lastIndexOf("\n") + 1);
+      const rest = text.slice(offset + matched.length);
+      const dash = rest.indexOf(" — "), lineEnd = rest.indexOf("\n");
+      if (!head.includes("—") && dash >= 0 && (lineEnd < 0 || dash < lineEnd)) {
+        const label = head + matched + rest.slice(0, dash);
+        if (!/[.,:;{]/.test(label) && label.trim().split(/\s+/u).length <= 4) return matched;
+      }
       if (/\b(?:a|an|another|each|every|all|other)\s+$/i.test(before) ||
           /\btarget\s+$/i.test(before) && !/\bthat\s+target\s+$/i.test(before) ||
           /^\s+(?:planeswalkers?|spells?|cards?|creatures?|tokens?)\b/i.test(text.slice(offset + matched.length))) return matched;
@@ -120,6 +129,8 @@ export function normalizeOracleText(text: string, cardName?: string, catalog?: C
     const names: string[] = [];
     const protect = (value: string) => `${marker}${names.push(value) - 1}${marker}`;
     t = replaceName(t, name, protect);
+    // Mid-sentence the article of "The Wizardly Barge" is printed lowercase.
+    if (name.startsWith("The ")) t = replaceName(t, `the ${name.slice(4)}`, protect);
     const comma = name.indexOf(",");
     if (comma > 0) {
       // Legendary short name: "Halsin, Emerald Archdruid" → also replace "Halsin".
@@ -133,6 +144,24 @@ export function normalizeOracleText(text: string, cardName?: string, catalog?: C
       const prefix = name.split(" ")[0];
       const subtypes = typeLine.split(/—|\s-\s/u)[1]?.trim().split(/\s+/u) ?? [];
       if (name !== prefix && subtypes.includes(prefix)) t = replaceName(t, prefix, protect, true);
+    } else if (namesLegendaryCharacter(typeLine)) {
+      // CR 201.5c: a legendary character named with an epithet and no comma
+      // ("Bontu the Glorified", "Sorin of House Markov") is called by the
+      // part of its own name before that epithet. Source metadata supplies
+      // both facts; no other leading words of a name are ever a short name.
+      const epithet = /^(.+?) (?:the|of) ./u.exec(name);
+      if (epithet) t = replaceName(t, epithet[1], protect, true);
+      else if (name.includes(" ")) {
+        // CR 201.5c: "Edgar Markov" is called "Edgar" in "Whenever Edgar
+        // attacks". The first word is taken as the short name only when the
+        // card itself uses it as the subject of a trigger, and never when it
+        // is one of the card's own creature types or a title before a
+        // capitalized surname ("Captain Janeway").
+        const first = name.split(" ")[0];
+        const subtypes = typeLine?.split(/—|\s-\s/u)[1]?.trim().split(/\s+/u) ?? [];
+        const subject = new RegExp(`\\b(?:When|Whenever) ${escapeRegExp(first)}(?= (?:enters|attacks|dies|leaves|blocks|deals|becomes|is|transforms|or|and)\\b)`, "u");
+        if (/^\p{Lu}/u.test(first) && !subtypes.includes(first) && subject.test(t)) t = replaceName(t, first, protect, true);
+      }
     }
     // Literal names are still opaque markers here, so a pronoun-shaped word
     // inside one ("A Girl and Her Dogs") cannot be rewritten.

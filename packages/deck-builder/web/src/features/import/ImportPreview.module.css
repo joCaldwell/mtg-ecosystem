@@ -1,0 +1,65 @@
+.list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-1);
+  margin: 0;
+  padding: 0;
+}
+
+.note {
+  padding: 0 var(--s-4);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  list-style: none;
+}
+
+.problems {
+  display: grid;
+  gap: var(--s-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.candidates {
+  margin: var(--s-2) 0 0;
+  padding: 0;
+}
+
+.suggestion {
+  border-bottom: 1px dotted var(--faint);
+  color: var(--text);
+}
+
+.preview { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: var(--s-4); }
+.summary { flex: none; }
+.warnings { flex: 0 1 auto; min-height: var(--h-lg); max-height: 40%; overflow: auto; }
+.scrollFrame { position: relative; display: flex; flex: 1; min-height: 0; overflow: hidden; border-block: 1px solid var(--line); }
+.scrollFrame[data-more]::after { content: ""; position: absolute; inset: auto var(--s-5) 0 0; height: var(--s-8); background: linear-gradient(transparent, var(--overlay)); pointer-events: none; }
+.changes { flex: 1; min-height: 0; overflow-y: scroll; scrollbar-gutter: stable; scrollbar-color: auto; padding: var(--s-3); }
+.changes::-webkit-scrollbar { width: var(--s-4); }
+.changes::-webkit-scrollbar-track { background: var(--raised); }
+.changes::-webkit-scrollbar-thumb { background: var(--muted); border: var(--s-1) solid var(--raised); border-radius: var(--r-pill); }
+.continuation { flex: none; text-align: center; }
+.scrollbar { position: absolute; inset: 0 0 0 auto; width: var(--s-4); background: var(--raised); pointer-events: none; }
+.scrollbar > span { position: absolute; inset-inline: var(--s-1); background: var(--muted); border-radius: var(--r-pill); }
+.changes:focus-visible { outline: 2px solid var(--sel); outline-offset: -2px; }
+/* Only closed section headings: no scroll track to draw. */
+.preview[data-import-collapsed] .changes { overflow-y: auto; scrollbar-gutter: auto; }
+.preview[data-import-collapsed] .scrollbar { display: none; }
+/* The 40% cap assumes the full-height preview; the dialog's own cap applies here. */
+.preview[data-import-collapsed] .warnings { max-height: none; }
+
+.problemLink { color: var(--warn); text-decoration: underline; text-underline-offset: var(--s-1); }
+.sectionLink { color: inherit; text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: var(--s-1); }
+.sectionLink:hover { color: var(--text); }
+.group > summary { cursor: pointer; padding-block: var(--s-3); }
+.group > summary:focus-visible { outline: 2px solid var(--sel); outline-offset: -2px; }
+@media (max-width: 1099px) {
+  .group > summary { min-height: var(--tap); align-content: center; }
+}
+
+@supports not selector(::-webkit-scrollbar) { .changes { scrollbar-color: var(--muted) var(--raised); } }
+
+.check { display: grid; gap: var(--s-2); }
+.check[data-after-skipped] { margin-top: var(--s-2); padding-top: var(--s-3); border-top: 1px solid var(--warn-line); }

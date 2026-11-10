@@ -10,12 +10,12 @@
 //   7. spell text (imperative sentences)
 // Anything else fails loudly with the farthest-failure diagnostic.
 
-import type { Ability, CostModification, ParseCardResult, ParsedLine, Sentence, TriggeredAbility, TriggerLimit } from "../ast.ts";
+import type { Ability, CostModification, ParseCardResult, ParsedLine, Sentence, TriggeredAbility, PaymentRestriction, TriggerLimit, VariableConstraint, VariableDefinition } from "../ast.ts";
 import { LexError, lex, type Token } from "../lexer.ts";
 import { normalizeOracleText } from "../normalize.ts";
 import type { CardNameCatalog } from "../card-names.ts";
 import { Cursor } from "./cursor.ts";
-import { parseCostList } from "./costs.ts";
+import { parseActivationCostList, parseCostList } from "./costs.ts";
 import { type EffectContext, parseSentences, registerLineParser } from "./effects.ts";
 import { isKeywordName, parseKeywordLine } from "./keywords.ts";
 import { parseCondition } from "./refs.ts";
@@ -26,6 +26,9 @@ import { prepareStackCopyInput, type StackCopyInputProof } from "./stack-copy.ts
 import { finalizeCharacteristicDefinitions } from "./characteristic-origin.ts";
 import { attachDiceTable, parseDiceTableRows } from "./dice.ts";
 import { parseClassCard, parseLevelCard } from "./level-cards.ts";
+import { parseStationCard } from "./station-cards.ts";
+import { parseStickerSheet } from "./sticker-sheets.ts";
+import { hasBrackets, hasCleaveKeyword, parseCleaveParagraph } from "./cleave.ts";
 import { parseCaseAbility, startsCaseKeyword } from "./case-cards.ts";
 import { parseTrigger, parseTriggerLimit } from "./triggers.ts";
 import { parseDelayedSpellPrefix } from "./delayed.ts";
@@ -33,9 +36,19 @@ import { parseActivationCostModifications, parseAdditionalCostModifications } fr
 import { looksLikeStaticReplacement } from "./replacement.ts";
 import { mergeReplacementParagraph } from "./paragraph-replacement.ts";
 import { parseActionLimit, parseActivationRules, type ActivationRules } from "./restrictions.ts";
+import { mentionsX, parseVariableConstraints } from "./variable-constraints.ts";
+import { hasInstructionBinding, parseVariableDefinitions } from "./variable-definitions.ts";
+import { parsePaymentRestriction } from "./payment-restrictions.ts";
 import { looksLikeStaticPlayPermission } from "./permissions.ts";
 import { parseExertOnAttack } from "./status-actions.ts";
+import { parseLinkedReveal } from "./linked-reveal.ts";
 import { hasUnresolvedKeywordCost } from "./ability-grants.ts";
+import { parseAnchorWords } from "./anchor-words.ts";
+import { splitFlavorLabel } from "./flavor-labels.ts";
+import { parseRingBearerChoice } from "./ring-choice.ts";
+import { withConditionDifference } from "./condition-differences.ts";
+import { parseSameIsTrueFor } from "./same-is-true.ts";
+import { parseCommanderPregameChoice } from "./pregame-choice.ts";
 
 // ---------------------------------------------------------------------------
 
@@ -57,6 +70,7 @@ class LineSession {
 }
 
 type EffectsBlock = { sentences: Sentence[]; costModifications?: CostModification[]; triggerLimit?: TriggerLimit;
+  variableConstraints?: VariableConstraint[]; paymentRestriction?: PaymentRestriction; variableDefinitions?: VariableDefinition[];
   actionLimit?: TriggeredAbility["actionLimit"] } & ActivationRules;
 /** CR 603.2h presupposes an action its controller can decline to take. */
 function hasOptionalAction(value: unknown): boolean {
@@ -67,19 +81,32 @@ function hasOptionalAction(value: unknown): boolean {
       (value.effect === "optional-group" || value.effect === "grant-play-permission"))) return true;
   return Object.values(value).some(hasOptionalAction);
 }
-function parseEffectsBlock(c: Cursor, options: Token[][], stackCopyInput?: StackCopyInputProof, triggered = false): EffectsBlock | null {
+function parseEffectsBlock(c: Cursor, options: Token[][], stackCopyInput?: StackCopyInputProof, triggered = false, definitions = false): EffectsBlock | null {
   return c.attempt((c): EffectsBlock | null => {
     const ctx: EffectContext = { modalOptions: options, ...(stackCopyInput ? { stackCopyInput } : {}) };
-    const sentences = parseSentences(c, ctx);
-    if (!sentences) return null;
+    const parsed = parseSentences(c, ctx);
+    if (!parsed) return null;
+    // Only callers that keep it (activated abilities) ask for a definition.
+    const variableDefinitions = definitions && !hasInstructionBinding(parsed) ? parseVariableDefinitions(c) : null;
+    const sentences = parsed;
+    // Activation rules after the definition are not yet supported.
+    if (variableDefinitions) return c.done() ? { sentences, variableDefinitions } : null;
     if (c.done()) return { sentences };
     const actionLimit = triggered && hasOptionalAction(sentences) ? parseActionLimit(c) : null;
     if (actionLimit) return { sentences, actionLimit };
+    // CR 107.3: "X can't be 0." limits the chosen X; it precedes any
+    // activation rules printed after it.
+    const variableConstraints = parseVariableConstraints(c);
+    // CR 601.2h / 602.2b: "Spend only black mana on X." limits the payment.
+    const paymentRestriction = parsePaymentRestriction(c, "x-only");
+    const payment = { ...(variableConstraints ? { variableConstraints } : {}), ...(paymentRestriction ? { paymentRestriction } : {}) };
+    if ((variableConstraints || paymentRestriction) && c.done()) return { sentences, ...payment };
     const costModifications = parseActivationCostModifications(c);
     const triggerLimit = parseTriggerLimit(c);
     const rules = parseActivationRules(c);
     if (c.done() && (costModifications || triggerLimit || rules)) return {
-      sentences, ...(costModifications ? { costModifications } : {}), ...(triggerLimit ? { triggerLimit } : {}), ...rules,
+      sentences, ...payment,
+      ...(costModifications ? { costModifications } : {}), ...(triggerLimit ? { triggerLimit } : {}), ...rules,
     };
     return null;
   });
@@ -97,13 +124,22 @@ function parseLineTokens(tokens: Token[], options: Token[][], session = new Line
 }
 
 function parseLineTokensUnchecked(tokens: Token[], options: Token[][], session: LineSession): Ability | null {
+  // CR 614.12c: bullets after an anchor-word choice are abilities, not modes.
+  if (options.length) {
+    const anchors = parseAnchorWords(tokens, options, child => parseLineTokens(child, [], session));
+    if (anchors) return anchors;
+  }
+  const repeated = parseSameIsTrueFor(tokens, child => parseLineTokensUnchecked(child, options, session));
+  if (repeated) return repeated;
   // Mechanical Case keywords cannot fall through to inert ability words.
   if (startsCaseKeyword(tokens)) return parseCaseAbility(session.cursor(tokens),
     child => parseLineTokens(child, options, session));
   // Chapter symbols are triggered abilities, never flavor words (CR 714.2).
   // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
   const roman = new Map([['i', 1], ['ii', 2], ['iii', 3], ['iv', 4], ['v', 5], ['vi', 6], ['vii', 7], ['viii', 8], ['ix', 9], ['x', 10]]);
-  if (tokens[0]?.kind === "word" && roman.has(tokens[0].value)) {
+  // A chapter number is followed by "," or "—"; "X target creatures ..." is
+  // an ordinary sentence whose X is a number.
+  if (tokens[0]?.kind === "word" && roman.has(tokens[0].value) && tokens[1]?.kind === "punct" && [",", "—"].includes(tokens[1].value)) {
     const c = session.cursor(tokens);
     const chapters: number[] = [];
     for (;;) {
@@ -114,8 +150,24 @@ function parseLineTokensUnchecked(tokens: Token[], options: Token[][], session: 
       if (!c.punct(",")) break;
     }
     if (!c.punct("—")) return null;
+    const bodyStart = c.pos;
     const block = parseEffectsBlock(c, options);
-    return block && !block.restriction && !block.permission && !block.costModifications && !block.triggerLimit ? { kind: "chapter", chapters, effects: block.sentences } : null;
+    if (block) return !block.restriction && !block.permission && !block.costModifications && !block.triggerLimit && !block.variableConstraints && !block.paymentRestriction ? { kind: "chapter", chapters, effects: block.sentences } : null;
+    // CR 207.2c–d: a chapter ability may carry an ability word or flavor
+    // word of its own ("I — Aerospark — Exile target creature …").
+    const labeled = splitFlavorLabel(tokens.slice(bodyStart));
+    if (!labeled) return null;
+    const body = parseEffectsBlock(session.cursor(labeled.rest), options);
+    return body && !body.restriction && !body.permission && !body.costModifications && !body.triggerLimit && !body.variableConstraints && !body.paymentRestriction
+      ? { kind: "chapter", chapters, abilityWord: labeled.label, effects: body.sentences } : null;
+  }
+  // CR 702.159a: "Visit — [effect]" is the Attraction's triggered visit
+  // ability; its body is resolution text, like a chapter's.
+  if (tokens[0]?.kind === "word" && !tokens[0].possessive && tokens[0].value === "visit" && tokens[1]?.kind === "punct" && tokens[1].value === "—") {
+    const c = session.cursor(tokens);
+    c.pos = 2;
+    const block = parseEffectsBlock(c, options);
+    return block && !block.restriction && !block.permission && !block.costModifications && !block.triggerLimit && !block.variableConstraints ? { kind: "visit", effects: block.sentences } : null;
   }
   // Keyword parameters after a dash are rules, not cosmetic ability words.
   const keywords = parseKeywordLine(session.cursor(tokens));
@@ -128,6 +180,15 @@ function parseLineTokensUnchecked(tokens: Token[], options: Token[][], session: 
   //    parses as a full ability. (Modal headers also contain "—" but end with it.)
   const abilityWord = tryAbilityWord(tokens, options, session);
   if (abilityWord) return abilityWord;
+  // CR 207.2d: flavor words are free text ("Avalanche!", "Nitro-9", "In You,
+  // All Things Are Possible"). Such a label is accepted only on an ability
+  // that records it; a keyword line after it could be a parameterized rule.
+  const flavor = splitFlavorLabel(tokens);
+  if (flavor) {
+    const ability = parseLineCore(flavor.rest, options, flavor.label, session);
+    if (ability && (ability.kind === "triggered" || ability.kind === "activated" || ability.kind === "static" || ability.kind === "spell")
+      && ability.abilityWord === flavor.label) return ability;
+  }
 
   return parseLineCore(tokens, options, undefined, session);
 }
@@ -135,12 +196,21 @@ function parseLineTokensUnchecked(tokens: Token[], options: Token[][], session: 
 function tryLoyalty(tokens: Token[], options: Token[][], session: LineSession): Ability | null {
   let sign: 1 | -1 | 0 = 0;
   let i = 0;
-  const first = tokens[0];
+  // CR 107.7, 701.71a: within rules text a loyalty symbol is written in
+  // square brackets ("[-3]: ..."); it is the same cost as a printed symbol.
+  const bracketed = tokens[0]?.kind === "punct" && tokens[0].value === "[";
+  if (bracketed) i = 1;
+  const first = tokens[i];
   if (first?.kind === "punct" && (first.value === "+" || first.value === "-")) {
     sign = first.value === "+" ? 1 : -1;
-    i = 1;
+    i++;
   }
   const num = tokens[i];
+  if (bracketed) {
+    const close = tokens[i + 1];
+    if (close?.kind !== "punct" || close.value !== "]") return null;
+    i++;
+  }
   const colon = tokens[i + 1];
   const isAmount =
     num && ((num.kind === "number") || (num.kind === "word" && num.value === "x"));
@@ -148,7 +218,7 @@ function tryLoyalty(tokens: Token[], options: Token[][], session: LineSession): 
   if (sign === 0 && !(num.kind === "number" && num.value === 0)) return null;
   const c = session.cursor(tokens.slice(i + 2));
   const block = parseEffectsBlock(c, options);
-  if (!block || block.triggerLimit) return null;
+  if (!block || block.triggerLimit || block.variableConstraints || block.paymentRestriction) return null;
   return {
     kind: "loyalty",
     cost: { sign, amount: num.kind === "number" ? num.value : "x" },
@@ -178,7 +248,7 @@ function tryAbilityWord(tokens: Token[], options: Token[][], session: LineSessio
   if (dash < 1 || tokens[0].kind !== "word") return null;
   const word = tokens
     .slice(0, dash)
-    .map((t) => (t.kind === "word" || t.kind === "number" ? t.raw : ""))
+    .map((t) => (t.kind === "word" ? (t.possessive ? `${t.raw}${t.possessiveSuffix ?? "'s"}` : t.raw) : t.kind === "number" ? t.raw : ""))
     .join(" ");
   const rest = tokens.slice(dash + 1);
   if (rest.length === 0) return null;
@@ -190,6 +260,11 @@ function tryAbilityWord(tokens: Token[], options: Token[][], session: LineSessio
     const ability = parseLineTokens(rest, options, session);
     return ability ? { kind: "max-speed", ability } : null;
   }
+  // CR 702.186b: an ability held only while the permanent is harnessed.
+  if (name === "∞") {
+    const ability = parseLineTokens(rest, options, session);
+    return ability ? { kind: "infinity", ability } : null;
+  }
   // CR 702.57 / 702.142 / 702.177 / 702.193: these name activated abilities
   // and impose intrinsic timing/zone/history/payment rules. Forecast also
   // keeps its source revealed beyond paying its printed reveal cost.
@@ -200,6 +275,8 @@ function tryAbilityWord(tokens: Token[], options: Token[][], session: LineSessio
   }
   if (isKeywordName(name)) return null;
   const ability = parseLineCore(rest, options, word, session);
+  // The label must be recorded on the ability, never silently dropped.
+  if (ability && !("abilityWord" in ability && ability.abilityWord === word)) return null;
   return ability;
 }
 
@@ -211,8 +288,10 @@ function parseLineCore(tokens: Token[], options: Token[][], abilityWord: string 
       const optional = c.words("you", "may");
       const costs = parseCostList(c);
       c.punct(".");
+      const variableConstraints = costs && !c.done() && mentionsX(costs) ? parseVariableConstraints(c) : null;
       const costModifications = costs && !c.done() ? parseAdditionalCostModifications(c) : null;
-      if (costs && c.done()) return { kind: "additional-cost", costs, ...(optional ? { optional: true as const } : {}),
+      if (costs && c.done()) return { kind: "additional-cost", ...(abilityWord ? { abilityWord } : {}), costs, ...(optional ? { optional: true as const } : {}),
+        ...(variableConstraints ? { variableConstraints } : {}),
         ...(costModifications ? { costModifications } : {}) };
       return null;
     }
@@ -226,7 +305,8 @@ function parseLineCore(tokens: Token[], options: Token[][], abilityWord: string 
       // Intervening if: "When ~ dies, if <cond>, <effects>"
       const condition = c.attempt((cc) => {
         if (cc.word("if") === null) return null;
-        const cond = parseCondition(cc);
+        // CR 701.54a: only a temptation event carries a Ring-bearer choice.
+        const cond = (trigger.trigger === "ring-tempts" && trigger.who.player === "you" ? parseRingBearerChoice(cc) : null) ?? parseCondition(cc);
         if (!cond || !cc.punct(",")) return null;
         return cond;
       });
@@ -234,8 +314,9 @@ function parseLineCore(tokens: Token[], options: Token[][], abilityWord: string 
       // tests this condition already at trigger time. A fresh target cannot
       // establish either predicate. Do not backtrack into a resolving `if`.
       if (condition && hasMatchTimeTarget(condition)) return null;
-      const block = parseEffectsBlock(c, options, condition ? undefined : prepareStackCopyInput(c, trigger), true);
-      if (block && !block.restriction && !block.permission && !block.costModifications) {
+      const block = withConditionDifference(condition ?? undefined, () => parseEffectsBlock(c, options, condition ? undefined : prepareStackCopyInput(c, trigger), true));
+      if (block && !block.restriction && !block.permission && !block.costModifications && !block.paymentRestriction &&
+          (!block.variableConstraints || mentionsX(block.sentences))) {
         return {
           kind: "triggered",
           abilityWord,
@@ -243,6 +324,7 @@ function parseLineCore(tokens: Token[], options: Token[][], abilityWord: string 
           condition: condition ?? undefined,
           effects: block.sentences,
           ...(block.triggerLimit ? { limit: block.triggerLimit } : {}),
+          ...(block.variableConstraints ? { variableConstraints: block.variableConstraints } : {}),
           ...(block.actionLimit ? { actionLimit: block.actionLimit } : {}),
         };
       }
@@ -266,17 +348,21 @@ function parseLineCore(tokens: Token[], options: Token[][], abilityWord: string 
   }
   if (colonAt > 0) {
     const costCursor = session.cursor(tokens.slice(0, colonAt));
-    const costs = parseCostList(costCursor);
+    const costs = parseActivationCostList(costCursor);
     if (costs && costCursor.done()) {
       const c = session.cursor(tokens.slice(colonAt + 1));
-      const block = parseEffectsBlock(c, options);
-      if (block && !block.triggerLimit) {
+      const block = parseEffectsBlock(c, options, undefined, false, true);
+      if (block && !block.triggerLimit && (!block.variableConstraints || mentionsX(costs) || mentionsX(block.sentences)) &&
+          (!block.paymentRestriction || mentionsX(costs)) && (!block.variableDefinitions || mentionsX(costs) || mentionsX(block.sentences))) {
         return {
           kind: "activated",
           abilityWord,
           costs,
           effects: block.sentences,
           ...(block.costModifications ? { costModifications: block.costModifications } : {}),
+          ...(block.variableConstraints ? { variableConstraints: block.variableConstraints } : {}),
+          ...(block.variableDefinitions ? { variableDefinitions: block.variableDefinitions } : {}),
+          ...(block.paymentRestriction ? { paymentRestriction: block.paymentRestriction } : {}),
           restriction: block.restriction,
           ...(block.permission ? { permission: block.permission } : {}),
         };
@@ -289,7 +375,7 @@ function parseLineCore(tokens: Token[], options: Token[][], abilityWord: string 
   {
     const c = session.cursor(tokens);
     const keywords = parseKeywordLine(c);
-    if (keywords) return { kind: "keywords", keywords };
+    if (keywords) return { kind: "keywords", ...(abilityWord ? { abilityWord } : {}), keywords };
   }
 
   // 5b. Exert as an attack cost (with its linked "When you do" ability)
@@ -299,7 +385,21 @@ function parseLineCore(tokens: Token[], options: Token[][], abilityWord: string 
     if (exert && c.done()) return exert;
   }
 
+  // 5c. A static ability with its linked triggered abilities (CR 603.11)
+  {
+    const linked = parseLinkedReveal(tokens, body => {
+      const block = parseEffectsBlock(session.cursor(body), options, undefined, true);
+      return block && Object.keys(block).length === 1 ? block.sentences : null;
+    });
+    if (linked) return abilityWord ? null : linked;
+  }
+
   // 6. Static
+  {
+    const c = session.cursor(tokens);
+    const effect = parseCommanderPregameChoice(c, parseStatic);
+    if (effect && c.done()) return { kind: "static", abilityWord, effect };
+  }
   {
     const c = session.cursor(tokens);
     const effect = parseStatic(c);
@@ -311,7 +411,9 @@ function parseLineCore(tokens: Token[], options: Token[][], abilityWord: string 
     const c = session.cursor(tokens);
     if (looksLikeStaticPlayPermission(c) || hasUnboundStaticOther(c) || hasUnsupportedStaticConditional(c) || hasUnsupportedStaticTargets(c) || looksLikeStaticReplacement(c)) return null;
     const block = parseEffectsBlock(c, options);
-    if (block && !block.restriction && !block.permission && !block.costModifications && !block.triggerLimit) return { kind: "spell", abilityWord, effects: block.sentences };
+    if (block && !block.restriction && !block.permission && !block.costModifications && !block.triggerLimit && !block.paymentRestriction &&
+        (!block.variableConstraints || mentionsX(block.sentences))) return { kind: "spell", abilityWord, effects: block.sentences,
+      ...(block.variableConstraints ? { variableConstraints: block.variableConstraints } : {}) };
   }
 
   return null;
@@ -329,9 +431,13 @@ function hasMatchTimeTarget(value: unknown): boolean {
 }
 
 function containsModal(ability: Ability): boolean {
-  if (ability.kind === "max-speed" || ability.kind === "case-solved") return containsModal(ability.ability);
-  return "effects" in ability && ability.effects.some(sentence =>
-    sentence.steps.some(step => step.effect === "modal"));
+  if (ability.kind === "anchor-words") return true; // its bullets are its own options
+  if (ability.kind === "max-speed" || ability.kind === "infinity" || ability.kind === "case-solved") return containsModal(ability.ability);
+  // CR 603.12, 700.2b: "When you do, choose one —" makes the bullets the
+  // modes of the reflexive triggered ability this ability creates.
+  const owns = (sentences: Sentence[]): boolean => sentences.some(sentence => sentence.steps.some(step =>
+    step.effect === "modal" || (step.effect === "create-reflexive-trigger" && owns(step.effects))));
+  return "effects" in ability && owns(ability.effects);
 }
 registerLineParser((tokens, options) => parseLineTokens(tokens, options));
 
@@ -340,7 +446,7 @@ registerLineParser((tokens, options) => parseLineTokens(tokens, options));
 // ---------------------------------------------------------------------------
 
 /** Diagnostic-bearing single-line parse. */
-function parseLineWithDiagnostics(text: string, optionTokens: Token[][], sourceId?: string, cardNames?: CardNameCatalog): ParsedLine {
+function parseLineWithDiagnostics(text: string, optionTokens: Token[][], sourceId?: string, cardNames?: CardNameCatalog, cleave = false): ParsedLine {
   let tokens: Token[];
   try {
     tokens = lex(text, sourceId, cardNames);
@@ -351,13 +457,15 @@ function parseLineWithDiagnostics(text: string, optionTokens: Token[][], sourceI
     throw e;
   }
   const session = new LineSession(tokens);
-  const ability = parseLineTokens(tokens, optionTokens, session);
+  const ability = cleave && hasBrackets(tokens) ? (optionTokens.length ? null : parseCleaveParagraph(tokens, t => parseLineTokens(t, [], session)))
+    : parseLineTokens(tokens, optionTokens, session);
   if (ability) {
     if (optionTokens.length && !containsModal(ability))
       return { text, ok: false, error: "modal bullets require a consuming modal header" };
     return { text, ok: true, ability };
   }
-  return { text, ok: false, error: session.error() };
+  // Unpaired, empty or nested cleave brackets fail before any parse attempt.
+  return { text, ok: false, error: session.cursors.length ? session.error() : "malformed square brackets in cleave text" };
 
 }
 
@@ -442,7 +550,7 @@ function parseAbilityBlocks(lines: readonly string[], startIndex: number, contex
       continue;
     }
 
-    const parsed = parseLineWithDiagnostics(line, [], sourceId(i), context.cardNames);
+    const parsed = parseLineWithDiagnostics(line, [], sourceId(i), context.cardNames, hasCleaveKeyword(lines));
     // CR 614.15: a following paragraph may only replace this spell ability's
     // instruction. It then belongs to this block instead of failing alone.
     const merged = parsed.ok && i + 1 < lines.length && !lines[i + 2]?.startsWith("•")
@@ -467,9 +575,11 @@ export function parseOracleText(text: string, cardName?: string, context: ParseC
   if (context.layout === "dungeon" || /^Dungeon\b/.test(context.typeLine ?? "")) {
     return { name: cardName ?? "", ok: false, lines: (lines.length ? lines : [""]).map(text => ({ text, ok: false, error: "unsupported dungeon room structure" })) };
   }
-  const results = parseLevelCard(lines, (section, startIndex) => parseAbilityBlocks(section, startIndex, context), context.typeLine)
+  const results = parseStickerSheet(lines, (section, startIndex) => parseAbilityBlocks(section, startIndex, context), context.typeLine)
+    ?? parseLevelCard(lines, (section, startIndex) => parseAbilityBlocks(section, startIndex, context), context.typeLine)
     ?? parseClassCard(lines, (section, startIndex) => parseAbilityBlocks(section, startIndex, context),
       (line, index) => lex(line, context.includeSourceProvenance ? `line:${index}` : undefined, context.cardNames))
+    ?? parseStationCard(lines, (section, startIndex) => parseAbilityBlocks(section, startIndex, context), text)
     ?? parseAbilityBlocks(lines, 0, context);
 
   // CR 113.3a: resolving spell instructions belong to instants/sorceries.

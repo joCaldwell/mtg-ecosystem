@@ -6,8 +6,10 @@
 import type { Effect, ManaProduction, ManaSpendingRestriction, ManaSpendingRider, ManaSpendingUse, ObjectFilter, PlayerRef, Sentence } from "../ast.ts";
 import { Cursor } from "./cursor.ts";
 import { isManaSymbol } from "../symbols.ts";
-import { parseAmount, parseFilter, parseObjectRef, parsePlayerRef } from "./refs.ts";
-import { parseChosenValueRef } from "./choices.ts";
+import { isPluralPlayerRef, parseAmount, parseFilter, parseObjectRef, parsePlayerRef } from "./refs.ts";
+import { parseChosenColorRef, parseChosenValueRef, parseThatChoiceQualifier } from "./choices.ts";
+import { parseSpecialSpendingUse } from "./mana-uses.ts";
+import { parseStaticEntryCounters } from "./entry.ts";
 
 function readSymbols(c: Cursor): string[] | null {
   return c.attempt(c => {
@@ -30,6 +32,14 @@ function parseAtomicProduction(c: Cursor): ManaProduction | null {
     }
     const scaled = c.attempt((c): ManaProduction | null => {
       if (!c.words("an", "amount", "of")) return null;
+      // "an amount of mana of that color equal to …": a number of mana of
+      // one chosen color (CR 106.1, 608.2c).
+      if (c.words("mana", "of")) {
+        const choice = parseChosenColorRef(c, parseFilter);
+        if (!choice || !c.words("equal", "to")) return null;
+        const amount = parseAmount(c);
+        return amount && { mana: "chosen-color", amount, choice };
+      }
       const symbol = c.symbol();
       if (!symbol || !/^[WUBRGC]$/.test(symbol) || !c.words("equal", "to")) return null;
       const amount = parseAmount(c);
@@ -37,7 +47,18 @@ function parseAtomicProduction(c: Cursor): ManaProduction | null {
     });
     if (scaled) return scaled;
     const amount = parseAmount(c);
-    if (!amount || c.word("mana") === null) return null;
+    if (!amount) return null;
+    // "Add six {G}" / "add that much {R}": a number of one printed symbol.
+    // A fixed number is the same production as that many printed symbols.
+    const unit = c.peek();
+    if (unit?.kind === "symbol") {
+      if (!/^[WUBRGC]$/.test(unit.value) || c.peek(1)?.kind === "symbol") return c.fail("one basic mana symbol after its number");
+      c.pos++;
+      if (amount.amount === "fixed") return amount.value >= 1 && Number.isInteger(amount.value)
+        ? { mana: "fixed", symbols: Array<string>(amount.value).fill(unit.value) } : null;
+      return { mana: "scaled-symbol", symbol: unit.value, amount };
+    }
+    if (c.word("mana") === null) return null;
     if (c.words("in", "any", "combination", "of")) {
       if (c.word("colors") !== null) return { mana: "combination", amount, options: "colors" };
       const options: string[] = [];
@@ -52,16 +73,24 @@ function parseAtomicProduction(c: Cursor): ManaProduction | null {
           const slash = and && c.punct("/");
           if (slash && c.word("or") === null) return null;
           const or = !and && c.word("or") !== null;
-          return comma || and || or ? true : null;
+          // A comma before "where X is …" ends the list.
+          return (comma || and || or) && c.peek()?.kind === "symbol" ? true : null;
         });
         if (!join) break;
       }
       return { mana: "combination", amount, options };
     }
+    // "Choose a color. Add one mana of that color": the same linked
+    // reference as "of the chosen color" (CR 607.2d, 608.2c).
+    const that = parseThatChoiceQualifier(c, parseFilter);
+    if (that?.chosenColor) return { mana: "chosen-color", amount, choice: that.chosenColor };
+    if (that) return null;
     if (c.word("of") === null) return null;
-    const chosen = parseChosenValueRef(c);
-    if (chosen) return chosen.category === "color" ? { mana: "chosen-color", amount,
-      choice: { ...chosen, category: "color" } } : null;
+    if (c.words("different", "colors"))
+      return amount.amount === "fixed" && amount.value >= 2 && amount.value <= 5 ? { mana: "different-colors", amount } : null;
+    const choice = parseChosenColorRef(c, parseFilter);
+    if (choice) return { mana: "chosen-color", amount, choice };
+    if (parseChosenValueRef(c)) return null;
     if (c.word("any") === null) return null;
     if (c.words("one", "color")) return { mana: "any-one-color", amount };
     const kind = c.word("color", "type");
@@ -76,6 +105,10 @@ function parseAtomicProduction(c: Cursor): ManaProduction | null {
       return c.word("produced") !== null ? { mana: "produced", amount, what, colorOnly: kind === "color" } : null;
     });
     if (productionSource) return productionSource;
+    if (kind === "color" && c.word("among") !== null) {
+      const among = parseObjectRef(c);
+      return among ? { mana: "color-among", amount, among } : null;
+    }
     if (kind === "type") return { mana: "any-type", amount };
     if (c.attempt(c => c.words("in", "your") && c.possessive("commander") !== null && c.words("color", "identity") ? true : null))
       return { mana: "commander-color", amount, whose: { player: "you" } };
@@ -111,8 +144,10 @@ function parseProduction(c: Cursor): ManaProduction | null {
   });
 }
 
-function parseSpendingUse(c: Cursor): ManaSpendingUse | null {
+export function parseSpendingUse(c: Cursor): ManaSpendingUse | null {
   return c.attempt((c): ManaSpendingUse | null => {
+    const special = parseSpecialSpendingUse(c, "to");
+    if (special) return special;
     if (c.word("cast") !== null) {
       if (c.words("your", "commander")) return { use: "cast-commander", whose: { player: "you" } };
       c.word("a", "an");
@@ -146,22 +181,41 @@ function parseSpendingUses(c: Cursor): ManaSpendingUse[] | null {
     const first = parseSpendingUse(c);
     if (!first) return null;
     const uses = [first];
+    let closed = true;
     for (;;) {
+      // "to cast A, activate B, or pay C": commas separate listed purposes.
+      let conjunction = false;
       const next = c.attempt(c => {
-        if (c.word("or", "and") === null) return null;
+        const comma = c.punct(",");
+        conjunction = c.word("or", "and") !== null;
+        if (!conjunction && !comma) return null;
         c.word("to");
         return parseSpendingUse(c);
       });
       if (!next) break;
       uses.push(next);
+      closed = conjunction;
     }
+    // A comma-separated list ends with its conjunction before the last purpose.
+    if (!closed) return c.fail("final conjunction of listed purposes");
     return uses;
+  });
+}
+
+/** "Spend this mana only on costs that contain {X}." */
+function parseOnCostsRestriction(c: Cursor): ManaSpendingRestriction | null {
+  return c.attempt((c): ManaSpendingRestriction | null => {
+    if (!c.words("spend", "this", "mana", "only", "on")) return null;
+    const use = parseSpecialSpendingUse(c, "on");
+    return use && (c.done() || c.isPunct(".")) ? { restriction: "only", uses: [use] } : null;
   });
 }
 
 function parseRestriction(c: Cursor): ManaSpendingRestriction | null {
   return c.attempt(c => {
     let restriction: ManaSpendingRestriction["restriction"];
+    const onCosts = parseOnCostsRestriction(c);
+    if (onCosts) return onCosts;
     if (c.words("spend", "this", "mana", "only", "to")) restriction = "only";
     else if (c.words("this", "mana", "can't", "be", "spent", "to")) restriction = "not";
     else return null;
@@ -199,7 +253,8 @@ function parseRider(c: Cursor, parseBody: BodyParser): ManaSpendingRider | null 
     let connector: string | null;
     if (c.word("if") !== null) {
       const any = c.words("any", "of");
-      if (!c.words("that", "mana", "is", "spent") && !c.words("this", "mana", "is", "spent")) return null;
+      // "If you spend this mana to ..." states the same condition as "if this mana is spent to ...".
+      if (!c.words("that", "mana", "is", "spent") && !c.words("this", "mana", "is", "spent") && !c.words("you", "spend", "this", "mana")) return null;
       connector = c.word("on", "to");
       head = { rider: "effect", mana: any ? "any-of-that" : "that" };
     } else if (c.word("when") !== null) {
@@ -209,6 +264,16 @@ function parseRider(c: Cursor, parseBody: BodyParser): ManaSpendingRider | null 
     } else return null;
     const spentOn = connector === "on" ? parseSpentOnSpell(c) : connector === "to" ? parseSpendingUses(c) : null;
     if (!spentOn || !c.punct(",")) return null;
+    if (head.rider === "effect" && head.mana === "that") {
+      const entry = c.attempt(c => {
+        const body = new Cursor(c.tokens.slice(c.pos, Math.min(sentenceEnd(c) + 1, c.tokens.length)));
+        const effect = parseStaticEntryCounters(body);
+        if (effect?.static !== "enters-with-counters" || !body.done()) return null;
+        c.pos += body.pos;
+        return effect;
+      });
+      if (entry) return { rider: "entry", mana: "that", spentOn, effect: entry };
+    }
     let end = sentenceEnd(c);
     const retarget = new Cursor(c.tokens.slice(end + 1));
     if (retarget.words("you", "may", "choose", "new", "targets", "for", "the", "copy") && retarget.isPunct("."))
@@ -231,6 +296,26 @@ function parseSpentOnSpell(c: Cursor): ManaSpendingUse[] | null {
   });
 }
 
+/** CR 106.4, 500.5: "Until end of turn, you don't lose this mana as steps
+ * and phases end." The player is the one who added the mana; only steps end
+ * within a combat phase, so "as steps end" belongs to "until end of combat". */
+export function parseManaRetention(c: Cursor, adder: PlayerRef): NonNullable<Extract<Effect, { effect: "add-mana" }>["keptUntil"]> | null {
+  return c.attempt(c => {
+    const duration = c.words("until", "end", "of", "turn") ? { duration: "end-of-turn" as const }
+      : c.words("until", "end", "of", "combat") ? { duration: "end-of-combat" as const } : null;
+    if (!duration || !c.punct(",")) return null;
+    const pronoun = c.word("you", "they");
+    if (!pronoun || (pronoun === "you") !== (adder.player === "you")) return null;
+    if (!c.words("don't", "lose", "this", "mana", "as", "steps")) return null;
+    // Each period has exactly one printed form, so the period alone records
+    // which was printed: "steps and phases" for a turn, "steps" for a combat.
+    const phases = c.words("and", "phases");
+    if (phases !== (duration.duration === "end-of-turn")) return null;
+    if (c.word("end") === null || (!c.punct(".") && !c.done())) return null;
+    return duration;
+  });
+}
+
 export interface ManaSpendingRules { restriction?: ManaSpendingRestriction; riders?: ManaSpendingRider[] }
 
 /** Complete sentences after a mana-producing instruction that govern "this
@@ -242,6 +327,8 @@ export function parseManaSpendingRules(c: Cursor, parseBody: BodyParser, allowRe
     let restriction: ManaSpendingRestriction | undefined;
     if (allowRestriction) {
       const restricted = c.attempt(c => {
+        const onCosts = parseOnCostsRestriction(c);
+        if (onCosts) return c.punct(".") || c.done() ? { restriction: onCosts, rider: undefined } : null;
         let kind: ManaSpendingRestriction["restriction"];
         if (c.words("spend", "this", "mana", "only", "to")) kind = "only";
         else if (c.words("this", "mana", "can't", "be", "spent", "to")) kind = "not";
@@ -284,6 +371,15 @@ export function parseManaSpendingRules(c: Cursor, parseBody: BodyParser, allowRe
 /** Actor state is committed by the caller only on success; failure rolls back
  * all tokens, including optional attached spending-restriction sentences. */
 export function parseAddManaEffect(c: Cursor, previousPlayer?: PlayerRef): { effects: Effect[]; actor: PlayerRef } | null {
+  const eachColor = c.attempt(c => {
+    if (!c.words("for", "each", "color", "among")) return null;
+    const among = parseObjectRef(c);
+    if (!among || !c.punct(",") || c.word("add") === null || previousPlayer?.player === "they"
+      || !c.words("one", "mana", "of", "that", "color")) return null;
+    const actor: PlayerRef = { player: "you" };
+    return { actor, effects: [{ effect: "add-mana" as const, who: actor, mana: { mana: "each-color-among" as const, among } }] };
+  });
+  if (eachColor) return eachColor;
   return c.attempt(c => {
     const explicit = parsePlayerRef(c);
     const verb = c.word("add", "adds");
@@ -293,6 +389,10 @@ export function parseAddManaEffect(c: Cursor, previousPlayer?: PlayerRef): { eff
     c.words("an", "additional");
     const mana = parseProduction(c);
     if (!mana) return null;
+    // "That player adds one mana of any color they choose": the adder makes
+    // the color choice, as for any mana of any color (CR 106.3).
+    if (c.isWord("they") && actor.player !== "you" && !isPluralPlayerRef(actor) &&
+        (mana.mana === "any-color" || mana.mana === "any-one-color") && !c.words("they", "choose")) return null;
     const restriction = c.attempt(c => {
       if (!c.punct(".")) return null;
       return parseRestriction(c);

@@ -69,8 +69,14 @@ describe("player eligibility retains quantifiers and target identity", () => {
     assert.deepEqual(complete(parsePlayerRef, "each player other than its controller"), {
       player: "filtered", base: { player: "each-player" }, filter: { otherThan: { player: "controller", of: { ref: "it" } } },
     });
-    for (const text of ["each player other than target player with no cards in hand", "each player who controls eight lands", "each opponent who didn't discard a card this way", "each player with the most life", "each player with no cards in their graveyard"])
+    for (const text of ["each player other than target player with no cards in hand", "each player who controls eight lands", "each player with the most life", "each player with no cards in their graveyard"])
       incomplete(parsePlayerRef, text);
+    // An event outcome per candidate is now represented: PlayerFilter.eventResults.
+    assert.deepEqual(complete(parsePlayerRef, "each opponent who didn't discard a card this way"), {
+      player: "filtered", base: { player: "each-opponent" }, filter: { eventResults: {
+        of: { cls: "card", relation: { relation: "event-result", event: "discard", scope: "this-way" } },
+        comparison: { op: "eq", value: { amount: "fixed", value: 0 } } } },
+    });
   });
   it("distinguishes a declared restricted target from a resolution choice", () => {
     assert.deepEqual(effects("Choose target player with no cards in hand."), [{ effect: "declare-target", what: {
@@ -163,7 +169,9 @@ describe("directed attachment, blocking, and identity exclusions", () => {
     const otherThan = { ref: "that", filter: { types: ["creature"] } };
     assert.deepEqual(complete(parseFilter, "creature other than that creature"), { types: ["creature"], otherThan });
     assert.deepEqual(complete(parseFilter, "another creature other than that creature"), { other: true, types: ["creature"], allOf: [{ otherThan }] });
-    for (const text of ["creatures blocked by two creatures", "creatures blocked by all creatures", "creatures blocked by each creature", "creatures attached to up to one target creature", "abilities of two creatures", "creatures other than a creature", "creatures other than Goblins", "creatures other than those creatures", "creature blocking a creature and blocked by that creature", "Equipment attached to a creature and attached to this creature", "creature blocking or blocked by", "creatures blocked by or blocking a creature", "creatures with another Aura attached to them"])
+    // "other than <kind>" is the exclusion of that kind.
+    assert.deepEqual(complete(parseFilter, "creatures other than Goblins"), { types: ["creature"], nonSubtypes: ["Goblin"] });
+    for (const text of ["creatures blocked by two creatures", "creatures blocked by all creatures", "creatures blocked by each creature", "creatures attached to up to one target creature", "abilities of two creatures", "creatures other than a creature", "creatures other than those creatures", "creature blocking a creature and blocked by that creature", "Equipment attached to a creature and attached to this creature", "creature blocking or blocked by", "creatures blocked by or blocking a creature", "creatures with another Aura attached to them"])
       incomplete(parseFilter, text);
   });
 });

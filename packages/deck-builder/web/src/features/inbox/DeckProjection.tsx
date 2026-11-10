@@ -1,3 +1,4 @@
+import { costCaption, formatPrice } from "../../domain/price.ts";
 import type { DeckState } from "../../api/client.ts";
 import { formatTarget } from "../../domain/grouping.ts";
 import { Box, Eyebrow, Text } from "../../ui/index.ts";
@@ -41,13 +42,13 @@ function lines(state: DeckState): Line[] {
   return out;
 }
 
-/** What the list becomes if everything pending on the deck were accepted (spec §8.4). */
-export function DeckProjection({ state }: { state: DeckState }) {
+/** What the list becomes if everything pending on the deck were accepted (spec §8.1). */
+export function DeckProjection({ state, heading = true }: { state: DeckState; heading?: boolean }) {
   const rows = lines(state);
   const openProposals = state.proposals.length;
   return (
     <Box>
-      <Eyebrow>What the deck becomes</Eyebrow>
+      {heading && <Eyebrow>If {openProposals > 1 ? "all " : ""}{openProposals} pending {openProposals === 1 ? "proposal is" : "proposals are"} accepted</Eyebrow>}
       <div className={styles.grid}>
         {rows.map((row) => (
           <div key={row.key} className={styles.line}>
@@ -58,16 +59,12 @@ export function DeckProjection({ state }: { state: DeckState }) {
             <Text mono tone={row.outside ? "warn" : "default"}>
               {row.to}
               {row.target && <span className={styles.target}> / {row.target}</span>}
+              {row.outside && <span className={styles.target}> · outside target</span>}
             </Text>
           </div>
         ))}
       </div>
-      <Text tone="faint" size="xs">
-        {openProposals > 1
-          ? `Counts everything pending on this deck: ${openProposals} open proposals, not only this one.`
-          : "Counts everything pending on this deck."}{" "}
-        Amber means outside the target.
-      </Text>
+      {state.computed.cost.as_of && <Text size="sm" tone="muted" title={costCaption(state.computed.cost)}>Estimated cost: {formatPrice(state.computed.cost.cents, state.computed.cost.currency)} → {formatPrice(state.computed.pending.projected_cost.cents, state.computed.cost.currency)} · {state.computed.pending.projected_cost.unpriced} unpriced cards · {state.computed.cost.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} · {state.computed.cost.as_of.slice(0, 10)}</Text>}
     </Box>
   );
 }

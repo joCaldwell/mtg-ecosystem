@@ -1,47 +1,23 @@
-import { PlaytestPage } from "../features/playtest/index.ts";
-import type { ReactNode } from "react";
-import { ActivityPage } from "../features/activity/index.ts";
-import { DeckPage } from "../features/deck/index.ts";
-import { DecksPage } from "../features/decks/index.ts";
-import { InboxPage } from "../features/inbox/index.ts";
-import { MemoriesPage } from "../features/memories/index.ts";
-import { ProfilePage } from "../features/profile/index.ts";
-import { SettingsPage } from "../features/settings/index.ts";
-import { StyleguidePage } from "../features/styleguide/index.ts";
-import { AppShell } from "./AppShell.tsx";
-import { AppProviders } from "./Providers.tsx";
-import { useRoute, type Route } from "./routes.ts";
-
-/** The one place a route becomes a screen. A new page is a line here and a
- *  line in routes.ts. */
-function screen(route: Route): ReactNode {
-  switch (route.page) {
-    case "playtest":
-      return <PlaytestPage deckId={route.deckId} key={route.deckId} />;
-    case "deck":
-      return <DeckPage deckId={route.deckId} review={route.review} key={route.deckId} />;
-    case "decks":
-      return <DecksPage />;
-    case "inbox":
-      return <InboxPage />;
-    case "memories":
-      return <MemoriesPage />;
-    case "activity":
-      return <ActivityPage />;
-    case "profile":
-      return <ProfilePage />;
-    case "settings":
-      return <SettingsPage />;
-    case "design":
-      return <StyleguidePage />;
-  }
-}
-
+import { lazy, Suspense } from "react";
+import { Loading, ToastProvider } from "../ui/index.ts";
+import { ErrorBoundary } from "./ErrorBoundary.tsx";
+import { SessionProvider } from "./Session.tsx";
+import { CardProviders } from "./CardProviders.tsx";
+import { isPublicRoute, useRoute } from "./routes.ts";
+const AppProviders = lazy(() => import("./Providers.tsx").then(m => ({ default: m.AppProviders })));
+const SignedIn = lazy(() => import("./SignedIn.tsx").then(m => ({ default: m.SignedIn })));
+const PublicDeckPage = lazy(() => import("../features/public/PublicDeckPage.tsx").then(m => ({ default: m.PublicDeckPage })));
+const PublicProfilePage = lazy(() => import("../features/public/PublicProfilePage.tsx").then(m => ({ default: m.PublicProfilePage })));
 export function App() {
   const route = useRoute();
+  const open = isPublicRoute(route);
   return (
-    <AppProviders>
-      <AppShell route={route}>{screen(route)}</AppShell>
-    </AppProviders>
+    <ErrorBoundary><ToastProvider><a className="skip-link" href="#main-content" onClick={(e) => { e.preventDefault(); document.getElementById("main-content")?.focus(); }}>Skip to main content</a><Suspense fallback={<Loading />}>
+      <SessionProvider open={open}>
+        {route.page === "shared" ? <CardProviders><PublicDeckPage slug={route.slug} key={route.slug} /></CardProviders>
+          : route.page === "user" ? <CardProviders><PublicProfilePage handle={route.handle} key={route.handle} /></CardProviders>
+          : <AppProviders><SignedIn route={route} /></AppProviders>}
+      </SessionProvider>
+    </Suspense></ToastProvider></ErrorBoundary>
   );
 }

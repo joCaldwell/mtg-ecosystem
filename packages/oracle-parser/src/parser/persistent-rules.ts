@@ -7,6 +7,9 @@ import type { Duration, Effect, LookPermission, ObjectRef, PlayerRef, StaticEffe
 import { Cursor } from "./cursor.ts";
 import { parsePlayPermissionStatic } from "./permissions.ts";
 import { parseCastingRule } from "./casting-rules.ts";
+import { parseManaSpendingRule } from "./mana-spending-rules.ts";
+import { parseActivationRule } from "./activation-rules.ts";
+import { parseTargetingStatic } from "./targeting-rules.ts";
 import { parseDuration, parseObjectRef, parsePlayerRef } from "./refs.ts";
 
 interface LookOptions {
@@ -62,10 +65,36 @@ function parseLook(c: Cursor, options: LookOptions): { permission: LookPermissio
  * The enclosing "may" permits future inspection; it does not make creation
  * of this continuous effect optional (CR 611.2a/c). */
 export function parseLookPermissionEffect(c: Cursor, options: LookOptions = {}): Effect[] | null {
+  const exiled = parseExiledCardLook(c, options);
+  if (exiled) return exiled;
   return c.attempt((c) => {
     const result = parseLook(c, options);
     if (!result?.duration) return null;
     return [{ effect: "grant-look-permission", permission: result.permission, duration: result.duration }];
+  });
+}
+
+/** "You may look at those cards for as long as they remain exiled." CR 406.3:
+ * looking at a card exiled face down needs an effect's permission. The lasting
+ * period, not "any time", distinguishes it from an immediate look; as with
+ * "look at and play", each card's permission ends when that card leaves exile.
+ * The looked-at reference must be the same card(s) the period names. */
+function parseExiledCardLook(c: Cursor, options: LookOptions): Effect[] | null {
+  return c.attempt((c): Effect[] | null => {
+    if (options.leadingDuration) return null;
+    if (!options.optionalConsumed && !c.words("you", "may")) return null;
+    if (!c.words("look", "at")) return null;
+    const what = parseObjectRef(c);
+    if (!what) return null;
+    const number = what.ref === "it" ? "singular" : what.ref === "them" ? "plural"
+      : what.ref === "that" && what.filter.cls === "card" && Object.keys(what.filter).length === 1 ? (what.plural ? "plural" : "singular")
+      : null;
+    if (!number) return null;
+    const duration = parseDuration(c);
+    if (duration?.duration !== "as-long-as" || duration.condition.condition !== "remains" || duration.condition.zone.zone !== "exile") return null;
+    if (duration.condition.what.ref !== (number === "singular" ? "it" : "them")) return null;
+    return [{ effect: "grant-look-permission", permission: { who: { player: "you" }, what: [what], timing: "any-time" },
+      duration, durationScope: "each-permitted-card" }];
   });
 }
 
@@ -110,8 +139,29 @@ function parseOptionalUntap(c: Cursor): StaticEffect | null {
   });
 }
 
+/** "All damage is dealt [to you] as though its source had wither." CR 609.4,
+ * 120.3b/d: only the results of that damage change; no source gains the
+ * ability, so nothing else that looks for wither or infect sees it. */
+function parseDamagePretense(c: Cursor): StaticEffect | null {
+  return c.attempt((c): StaticEffect | null => {
+    if (!c.words("all", "damage", "is", "dealt")) return null;
+    let to: PlayerRef | undefined;
+    if (c.word("to") !== null) {
+      const who = parsePlayerRef(c);
+      if (!who) return null;
+      to = who;
+    }
+    if (!c.words("as", "though", "its", "source", "had")) return null;
+    const keyword = c.word("wither", "infect") as "wither" | "infect" | null;
+    if (!keyword) return null;
+    c.punct(".");
+    if (!c.done()) return null;
+    return { static: "damage-as-though", keyword, ...(to ? { to } : {}) };
+  });
+}
+
 /** Complete persistent clauses only: a following unsupported deck rule or
  * action must fail the ability rather than be silently discarded. */
 export function parsePersistentRule(c: Cursor): StaticEffect | null {
-  return parseStaticLook(c) ?? parseCommanderEligibility(c) ?? parseOptionalUntap(c) ?? parseCastingRule(c);
+  return parseStaticLook(c) ?? parseCommanderEligibility(c) ?? parseOptionalUntap(c) ?? parseCastingRule(c) ?? parseManaSpendingRule(c) ?? parseActivationRule(c) ?? parseTargetingStatic(c) ?? parseDamagePretense(c);
 }

@@ -66,7 +66,11 @@ describe("player counters and explicit choices", () => {
     });
     assert.deepEqual(one("Choose target creature."), spell({ effect: "declare-target", what: target }));
     assert.deepEqual(one("Choose a creature."), spell({ effect: "choose-object", who: you, what: { ref: "filter", filter: { types: ["creature"] }, count: n(1) } }));
-    assert.equal(parseOracleText("As this enchantment enters, choose a creature type other than Elf.").ok, false);
+    // The excluded value is now represented (CR 205.3e), so this former rejection is a positive assertion.
+    assert.deepEqual(one("As this enchantment enters, choose a creature type other than Elf."), {
+      kind: "static", effect: { static: "as-enters", what: { ref: "this", noun: "enchantment" },
+        effects: [{ steps: [{ effect: "choose-value", who: you, category: "creature-type", excluding: ["Elf"] }] }] },
+    });
     assert.equal(parseOracleText("Choose a number between one and ten.").ok, false);
   });
   it("retains optional causative actions and complete emblem abilities", () => {

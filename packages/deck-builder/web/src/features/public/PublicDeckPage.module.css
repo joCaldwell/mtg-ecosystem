@@ -1,0 +1,30 @@
+.note {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+}
+
+/* Icon-only Back, as the owner's other ways back to a deck. */
+.back {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--h-md);
+  height: var(--h-md);
+  border-radius: var(--r-md);
+  color: var(--muted);
+  transition: background var(--fast), color var(--fast);
+}
+
+.back:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+@media (pointer: coarse) {
+  .back {
+    width: var(--tap);
+    height: var(--tap);
+  }
+}

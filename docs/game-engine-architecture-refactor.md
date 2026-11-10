@@ -67,3 +67,29 @@ Raw logs, including development failures, are retained outside the checkout unde
 `~/.local/share/mtg-ecosystem/engine-verification/architecture-20261110/`.
 The full core suite, server runtime, release/profile matrices, SDK and retention
 checks were not run. No combined acceptance or new performance claim is implied.
+
+## Integration audit
+
+The coordinator merged `f4e224c` into the engine line at `7ddba6b`. The resulting
+Git tree exactly matched the reviewed checkpoint
+`fd62708ea2332389aff71adb55dfd21a77f5b535`; all 18 retained evidence files matched
+their SHA-256 manifest, and source/smoke receipts recorded unchanged inventories.
+Two separate read-only reviews found no blockers in state/rollback/fault behavior
+or query/recovery/privacy/indexing. They did not execute Cargo or review every
+mechanic. No fixture bytes changed relative to platform `3cd24f3`.
+
+At Josh's request, the engine line is integrated with main's `4dfcb50`, preserving
+both histories. Conflicts were limited to root/parser manuals; the resolution
+keeps current parser instructions and the deck-builder public compatibility
+policy alongside current engine/agent instructions. Deck-builder files and parser
+source/tests match that main checkpoint byte-for-byte. Cargo inputs, engine Rust
+and server files match `f4e224c` byte-for-byte, so the native checks above remain
+qualified to that same source without an unnecessary rebuild.
+
+The combined working inventory passed the source gate (48 tooling Node tests,
+one archive/parser test and 38 Python tests, plus structural guard). This checks
+the current main parser against retained engine source inputs. The integration
+adds documentation and changes worktree-helper defaults to main; the former
+engine-plan branch is retired. The historical engine checkout is preserved
+detached because it contains referenced generated evidence and dependencies.
+No new full-runtime, SDK, release/profile or retention acceptance is claimed.

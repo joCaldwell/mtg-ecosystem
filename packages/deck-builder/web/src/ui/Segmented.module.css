@@ -26,3 +26,20 @@
 .option:focus-visible {
   outline-offset: -2px;
 }
+
+/* Touch (DESIGN.md, narrow screens and touch tablets): each option is a full
+   tap target. */
+@media (max-width: 719px), (pointer: coarse) and (max-width: 1099px) {
+  .seg {
+    height: auto;
+  }
+  .option {
+    min-height: var(--tap);
+    padding: 0 var(--s-5);
+  }
+}
+
+.option:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}

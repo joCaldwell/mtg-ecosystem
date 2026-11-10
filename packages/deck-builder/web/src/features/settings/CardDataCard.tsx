@@ -4,7 +4,7 @@ import { ago } from "../../domain/time.ts";
 import { Box, Button, ErrorNote, Row, Spacer, Stack, Text } from "../../ui/index.ts";
 
 /** The card database and its prices, ingested from Scryfall's bulk files (spec §4.1, §4.4). */
-export function CardDataCard({ cards, onChanged }: { cards: Settings["cards"]; onChanged: () => void }) {
+export function CardDataCard({ cards, jobs, onChanged, canRefresh = true }: { cards: Settings["cards"]; jobs: Settings["jobs"]; onChanged: () => void; canRefresh?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
@@ -16,7 +16,7 @@ export function CardDataCard({ cards, onChanged }: { cards: Settings["cards"]; o
     try {
       const next = await api.refreshCards();
       setResult(
-        `Loaded ${next.cards.count.toLocaleString()} cards and ${next.cards.prices.priced.toLocaleString()} prices.`,
+        `Refresh ${next.jobs?.active === "refresh" ? "started" : "queued"}. You can keep using the app while it runs.`,
       );
       onChanged();
     } catch (e) {
@@ -32,26 +32,33 @@ export function CardDataCard({ cards, onChanged }: { cards: Settings["cards"]; o
         <Text as="h2" size="lg" weight="bold">
           Card data
         </Text>
-        <Row gap={5} wrap>
+        <Row gap={5} wrap align="baseline">
           <Text>Scryfall bulk data</Text>
           <Text mono tone="muted">
             {cards.count.toLocaleString()} cards
           </Text>
           <Text tone="faint">refreshed {cards.updated_at ? ago(cards.updated_at) : "never"}</Text>
           <Spacer />
-          <Button size="sm" onClick={refresh} disabled={busy}>
-            {busy ? "Refreshing…" : "Refresh now"}
+          <Button size="sm" onClick={refresh} disabled={!canRefresh || busy || jobs?.active === "refresh" || jobs?.queued.includes("refresh")}>
+            {busy ? "Queuing…" : jobs?.active === "refresh" ? "Refreshing…" : "Refresh now"}
           </Button>
+          {!canRefresh && <Text size="sm" tone="muted">Admin only</Text>}
         </Row>
         <Text tone="muted" size="sm" as="p">
           {cards.prices.as_of
-            ? `${cards.prices.priced.toLocaleString()} cards have a price: the cheapest printing of each, from Scryfall's ` +
-              `prices, published ${ago(cards.prices.as_of)}. Scryfall updates them daily, and they are estimates.`
+            ? `${cards.prices.priced.toLocaleString()} priced cards · ${cards.prices.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} · ${cards.prices.currency} · ${cards.prices.as_of.slice(0,10)} · daily estimates`
             : "No prices loaded yet. Refresh to load them."}
         </Text>
+        {jobs && <Stack gap={2}>
+          {(["refresh", "backup"] as const).map(name => <Text key={name} tone={jobs[name].result === "error" ? "cut" : "muted"} size="sm">
+            {name === "refresh" ? "Card refresh" : "Backup"}: {jobs.active === name ? "running" : jobs[name].result ?? "not run yet"}
+            {jobs[name].last_run ? ` · last run ${ago(jobs[name].last_run!)}` : ""}
+            {` · next ${new Date(jobs[name].next_run).toLocaleString()}`}
+          </Text>)}
+        </Stack>}
         {busy && (
           <Text tone="muted" size="sm" role="status">
-            Downloading Scryfall's cards and every printing's price, then loading them. This can take a minute.
+            Queuing the background refresh.
           </Text>
         )}
         {result && (

@@ -6,6 +6,8 @@
   border: 1px solid transparent;
   border-radius: var(--r-lg);
   text-align: left;
+  text-decoration: none;
+  color: var(--text);
 }
 
 .entry:hover {

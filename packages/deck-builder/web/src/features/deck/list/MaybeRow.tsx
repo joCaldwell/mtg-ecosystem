@@ -1,36 +1,49 @@
+import { useId, type KeyboardEvent } from "react";
 import type { DeckCard } from "../../../api/client.ts";
-import { InlineText, ManaCost, Price, useCardHover } from "../../../mtg/index.ts";
-import { Chip } from "../../../ui/index.ts";
+import { ManaCost, Price, useCardHover, useCardInspect } from "../../../mtg/index.ts";
 import { useDeckUi } from "../DeckUi.tsx";
 import styles from "./MaybeRow.module.css";
 
-export function MaybeRow({ card, slotName, filterMatch }: { card: DeckCard; slotName: string | null; filterMatch?: boolean }) {
+export function MaybeRow({ card, filterMatch, importNote = false }: { card: DeckCard; filterMatch?: boolean; importNote?: boolean }) {
+  const noteId = useId();
   const ui = useDeckUi();
   const hover = useCardHover();
+  const inspect = useCardInspect();
   const open = ui.openCard?.oracleId === card.oracle_id;
+
+  // Maybe cards open details without joining bulk actions that assume deck
+  // membership. Main-list modifier selection keeps its existing contract.
+  function onClick() {
+    ui.openCardPanel(open ? null : { oracleId: card.oracle_id, name: card.name });
+  }
+
+  function onKeyDown(event: KeyboardEvent) {
+    if (event.key === "?") { event.preventDefault(); event.stopPropagation(); inspect(card); }
+    if (event.key === "Enter") event.stopPropagation();
+  }
 
   return (
     <div
-      className={[styles.row, filterMatch === true && styles.match, filterMatch === false && styles.muted, open && styles.open].filter(Boolean).join(" ")}
-      data-filter-match={filterMatch}
+      className={[styles.row, open && styles.open].filter(Boolean).join(" ")}
+      data-oracle-id={card.oracle_id}
     >
+      {/* Notes stay in details so row height depends only on card identity.
+          Mana, price and blank space all open the same native row button. */}
       <button
         type="button"
-        className={styles.name}
+        className={styles.hit}
+        data-filter-match={filterMatch || undefined}
+        aria-label={card.name}
+        aria-describedby={importNote ? noteId : undefined}
         aria-current={open || undefined}
-        onClick={() => ui.openCardPanel(open ? null : { oracleId: card.oracle_id, name: card.name })}
-        // Enter opens the card here; it must not also start a review.
-        onKeyDown={(e) => e.key === "Enter" && e.stopPropagation()}
+        onClick={onClick}
+        onKeyDown={onKeyDown}
         {...hover(card)}
-      >
-        {card.name}
-      </button>
-      <span className={styles.note}>
-        {card.maybe_note && <InlineText text={card.maybe_note} />}
-      </span>
-      {slotName && <Chip>{slotName}</Chip>}
-      <ManaCost cost={card.mana_cost} />
-      <Price cents={card.usd_cents} column />
+      />
+      <span className={styles.name}>{card.name}</span>
+      <span className={styles.mana}><ManaCost cost={card.mana_cost} /></span>
+      <span className={styles.price}><Price currency={card.currency} cents={card.cents} column /></span>
+      {importNote && <span id={noteId} className="visually-hidden">{card.maybe_note}</span>}
     </div>
   );
 }

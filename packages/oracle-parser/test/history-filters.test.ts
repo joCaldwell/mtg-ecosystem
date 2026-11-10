@@ -124,11 +124,12 @@ describe("damage history on objects and players", () => {
       ],
     }]);
   });
-  it("keeps historical candidate/event associations unresolved in binding analysis", () => {
+  it("binds a history filter's references and leaves its event record to the engine", () => {
     const result = parsed("Destroy target creature dealt damage by this creature this turn.");
     const graph = analyzeCardBindings({ identity: "fixture", source: { name: "Fixture", layout: "normal", type_line: "Sorcery" }, faces: [{ sourceFaceIndex: 0, result }] });
     assert.equal(graph.fullyBound, false);
-    assert.ok(graph.diagnostics.some(d => d.code === "unsupported-scope" && d.message.includes("per-candidate event role")), JSON.stringify(graph));
+    assert.equal(graph.referencesBound, true, JSON.stringify(graph.diagnostics));
+    assert.ok(graph.engineFeatures.some(need => need.feature === "event-history" && need.path.endsWith("/damageHistory")), JSON.stringify(graph.engineFeatures));
     assert.ok(graph.references.some(r => "ref" in r.expression && r.expression.ref === "target" && r.expression.selectionId === "line:0:1"));
   });
 });

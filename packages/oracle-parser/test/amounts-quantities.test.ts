@@ -80,10 +80,12 @@ describe("life quantities keep who, direction and period or event", () => {
       effects: [{ steps: [{ effect: "gain-life", who: you, amount: { amount: "product", factors: [n(2),
         { amount: "event-quantity", event: "life-change", change: "lost", who: you, scope: "contextual" }] } }] }] }]);
   });
-  it("rejects group totals, unrepresented scopes and non-scalable riders", () => {
-    for (const text of ["the total amount of life your opponents have lost this turn", "the life you lost when it entered",
-      "the life lost", "the life paid as it entered", "the amount of life each opponent lost this turn"]) noAmount(text);
-    assert.equal(parseOracleText("Whenever you lose life, sacrifice a permanent for each 1 life you lost.").ok, false);
+  it("adds a group's changes together and rejects unrepresented scopes", () => {
+    amount("the total amount of life your opponents have lost this turn", { amount: "life-change", who: { player: "each-opponent" }, change: "lost", during: "this-turn" });
+    // CR 607.2g: the life paid by the linked "as this enters" payment.
+    amount("the life paid as it entered", { amount: "entry-payment", of: { ref: "it" }, paid: "life" });
+    for (const text of ["the life you lost when it entered",
+      "the life lost", "the amount of life each opponent lost this turn"]) noAmount(text);
   });
 });
 
@@ -133,23 +135,33 @@ describe("starting life total and comparative conditions", () => {
   });
   it("rejects quantified or unknown reference players and pre-scoped nouns", () => {
     // Quantified reference players are the separate player-comparison node
-    // (conditions-w1.test.ts); they never become a count against one player.
+    // (condition-histories.test.ts); they never become a count against one player.
     for (const text of ["you control more creatures than each other player", "you control fewer creatures than an opponent",
       "you have more cards in hand than each opponent"]) {
       const parsed = parseCondition(new Cursor(lex(text)));
       assert.equal(parsed?.condition, "player-comparison", text);
     }
-    for (const text of ["you control more lands than attacking player",
-      "an opponent controls more lands you control than you", "an opponent controls more lands than"]) noCondition(text);
+    for (const text of ["an opponent controls more lands you control than you", "an opponent controls more lands than"]) noCondition(text);
   });
 });
 
 describe("coordinated 'each' nouns with one trailing qualifier are not split", () => {
+  // The union under one singular "each" is now built, so the former
+  // rejections are structural assertions that the qualifier covers both nouns
+  // (a split into "each A" plus "B <qualifier>" fails every one of them).
   it("rejects a split that would drop the qualifier from the first noun", () => {
-    for (const text of ["Destroy each artifact and creature with mana value 2.",
-      "~ deals 1 damage to each opponent and each creature and planeswalker they control.",
-      "~ deals 2 damage to each creature and planeswalker you don't control.",
-      "Exile each artifact and creature your opponents control."]) assert.equal(parseOracleText(text).ok, false, text);
+    const union = (a: string, b: string) => ({ allOf: [{ anyOf: [{ types: [a] }, { types: [b] }] }] });
+    assert.deepEqual(parsed("Destroy each artifact and creature with mana value 2."), [{ kind: "spell", effects: [{ steps: [{
+      effect: "destroy", what: { ref: "each", filter: { ...union("artifact", "creature"),
+        properties: [{ property: "mana-value", comparison: { op: "eq", value: n(2) } }] } } }] }] }]);
+    assert.deepEqual(parsed("~ deals 1 damage to each opponent and each creature and planeswalker they control."), [{ kind: "spell", effects: [{ steps: [{
+      effect: "damage", source: { ref: "self" }, amount: n(1), to: { to: "each", refs: [{ player: "each-opponent" },
+        { ref: "each", filter: { ...union("creature", "planeswalker"), controlledBy: { player: "they" } } }] } }] }] }]);
+    assert.deepEqual(parsed("~ deals 2 damage to each creature and planeswalker you don't control."), [{ kind: "spell", effects: [{ steps: [{
+      effect: "damage", source: { ref: "self" }, amount: n(2),
+      to: { to: "object", ref: { ref: "each", filter: { ...union("creature", "planeswalker"), control: "not-you" } } } }] }] }]);
+    assert.deepEqual(parsed("Exile each artifact and creature your opponents control."), [{ kind: "spell", effects: [{ steps: [{
+      effect: "exile", what: { ref: "each", filter: { ...union("artifact", "creature"), control: "opponent" } } }] }] }]);
   });
   it("keeps unqualified and separately determined lists", () => {
     assert.deepEqual(parsed("~ deals 2 damage to each creature and each player."), [{ kind: "spell", effects: [{ steps: [{

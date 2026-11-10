@@ -3,7 +3,7 @@
 // is an object count. CR 103.4, 107.1–107.3, 119.1–119.4, 120.3–120.4,
 // 120.10, 608.2h and 700.5.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-import type { Amount, Color, EventQuantity, ObjectRef, PlayerRef } from "../ast.ts";
+import type { Amount, ChosenValueRef, Color, EventQuantity, ObjectRef, PlayerRef } from "../ast.ts";
 import type { Cursor } from "./cursor.ts";
 import { COLORS } from "../vocab.ts";
 
@@ -12,6 +12,7 @@ export interface QuantityGrammar {
   parsePlayerRef(c: Cursor): PlayerRef | null;
   parsePossessivePlayer(c: Cursor): PlayerRef | null;
   isPluralPlayerRef(ref: PlayerRef): boolean;
+  parseChosenColor?(c: Cursor): ChosenValueRef<"color"> | null;
 }
 
 type LifeChange = "gained" | "lost";
@@ -25,12 +26,15 @@ function color(c: Cursor): Color | null {
 }
 
 /** CR 700.5 defines devotion only to one color or to a pair of colors.
- * Faction names, "hybrid", and a contextual "that color" are not colors here
- * and stay rejected instead of becoming an unqualified symbol count. */
+ * Faction names and "hybrid" are not colors here and stay rejected instead of
+ * becoming an unqualified symbol count. "That color" / "the chosen color" is
+ * the one color an earlier instruction of this ability chose (608.2c). */
 function parseDevotion(c: Cursor, g: QuantityGrammar): Amount | null {
   return c.attempt((c): Amount | null => {
     const who = g.parsePossessivePlayer(c);
     if (!who || g.isPluralPlayerRef(who) || !c.words("devotion", "to")) return null;
+    const chosen = g.parseChosenColor?.(c);
+    if (chosen) return { amount: "devotion", who, colors: chosen };
     const first = color(c);
     if (!first) return c.fail("color");
     const second = c.attempt(c => c.word("and") !== null ? color(c) : null);
@@ -72,12 +76,27 @@ function parseLifeSubject(c: Cursor, g: QuantityGrammar): PlayerRef | null {
  * event. Life paid or lost to damage is life lost (CR 119.2–119.4). */
 function parseLifeTail(c: Cursor, g: QuantityGrammar): Amount | null {
   return c.attempt((c): Amount | null => {
+    // "the life paid as it entered" (CR 607.2g).
+    const entry = c.attempt((c): Amount | null => {
+      if (!c.words("paid", "as")) return null;
+      const of = g.parseObjectRef(c);
+      return of && (of.ref === "self" || of.ref === "this" || of.ref === "it") && c.word("entered") !== null
+        ? { amount: "entry-payment", of, paid: "life" } : null;
+    });
+    if (entry) return entry;
     const passive = c.word("gained", "lost") as LifeChange | null;
     if (passive) {
       if (c.words("this", "way")) return { amount: "event-quantity", event: "life-change", change: passive, scope: "this-way" };
       if (c.words("by", "all", "players", "this", "turn"))
         return { amount: "life-change", who: "all-players-combined", change: passive, during: "this-turn" };
       return null;
+    }
+    // "Your opponents have lost this turn": all of their life changes over
+    // the turn added together, like the other history totals.
+    const opponents = c.attempt(c => c.words("your", "opponents", "have") ? true : null);
+    if (opponents) {
+      const change = c.word("gained", "lost") as LifeChange | null;
+      return change && c.words("this", "turn") ? { amount: "life-change", who: { player: "each-opponent" }, change, during: "this-turn" } : null;
     }
     const who = parseLifeSubject(c, g);
     const change = who && c.word("gained", "lost") as LifeChange | null;
@@ -124,14 +143,51 @@ function parseDamageTail(c: Cursor, g: QuantityGrammar, measure: "dealt" | "exce
   });
 }
 
+/** "{E} paid this way": the energy counters actually paid in the payment the
+ * same instruction sequence offered (CR 107.14, 608.2h). */
+function parseEnergyPaid(c: Cursor): Amount | null {
+  return c.attempt((c): Amount | null => {
+    const symbol = c.peek();
+    if (symbol?.kind !== "symbol" || symbol.value !== "E") return null;
+    c.pos++;
+    return c.words("paid", "this", "way") ? { amount: "event-quantity", event: "energy-paid", scope: "this-way" } : null;
+  });
+}
+
+/** "mana [that player] paid this way": the mana actually paid in the stated
+ * payment of the same instruction sequence (CR 118.1, 608.2h), summed over
+ * every payer unless one player is named. */
+function parseManaPaid(c: Cursor, g: QuantityGrammar): Amount | null {
+  return c.attempt((c): Amount | null => {
+    if (c.word("mana") === null) return null;
+    const who = c.isWord("paid") ? null : parseLifeSubject(c, g);
+    if (!c.words("paid", "this", "way")) return null;
+    return { amount: "event-quantity", event: "mana-paid", ...(who ? { who } : {}), scope: "this-way" };
+  });
+}
+
 /** Definite quantity in amount position: "the [total] [amount of] life …" or
  * "the [amount of] [excess] damage …". */
 function parseDefiniteQuantity(c: Cursor, g: QuantityGrammar): Amount | null {
   return c.attempt((c): Amount | null => {
+    const start = c.pos;
+    // "that excess damage" has no printed scope; its antecedent event is the
+    // one an earlier clause of the sentence tested (CR 120.4a, 120.10).
+    if (c.words("that", "excess", "damage") && endsQuantity(c)) return { amount: "event-quantity", event: "damage", measure: "excess", scope: "contextual" };
+    // "that damage": likewise the damage dealt in that event (CR 120.3).
+    // A following "from"/"without" belongs to the enclosing description
+    // ("… with mana value less than or equal to that damage from your hand").
+    if (c.words("that", "damage") && (endsQuantity(c) || c.isWord("from", "without")))
+      return { amount: "event-quantity", event: "damage", measure: "dealt", scope: "contextual" };
+    c.pos = start;
     if (c.word("the") === null) return null;
     // Every quantity here already is the total of its matching events.
     c.word("total");
-    c.words("amount", "of");
+    const amountOf = c.words("amount", "of");
+    const energy = amountOf ? parseEnergyPaid(c) : null;
+    if (energy) return energy;
+    const mana = amountOf ? parseManaPaid(c, g) : null;
+    if (mana) return mana;
     if (c.word("life") !== null) return parseLifeTail(c, g);
     const excess = c.word("excess") !== null;
     if (c.word("damage") === null) return null;
@@ -139,11 +195,30 @@ function parseDefiniteQuantity(c: Cursor, g: QuantityGrammar): Amount | null {
   });
 }
 
+/** CR 700.8a: "creature(s) in your party" (after "the number of" / "for
+ * each"). The game computes the size of the party, from zero to four, taking
+ * the highest result (700.8b); it is not a count of the Clerics, Rogues,
+ * Warriors and Wizards the player controls, and no creatures are chosen. */
+export function parsePartySize(c: Cursor, unit: "singular" | "plural"): Amount | null {
+  return c.attempt((c): Amount | null =>
+    c.words(unit === "singular" ? "creature" : "creatures", "in", "your", "party") ? { amount: "party-size", who: { player: "you" } } : null);
+}
+
 /** Unit after "for each": "1 life you lost", "1 life lost this way". The
  * resulting amount multiplies one instruction's quantity; it never repeats
  * the instruction as separate events. */
 export function parseUnitQuantity(c: Cursor, g: QuantityGrammar): Amount | null {
   return c.attempt((c): Amount | null => {
+    const energy = parseEnergyPaid(c);
+    if (energy) return energy;
+    const party = parsePartySize(c, "singular");
+    if (party) return party;
+    // CR 701.22a: each card the scry action looked at.
+    if (c.words("card", "looked", "at", "while", "scrying", "this", "way")) return { amount: "event-quantity", event: "scry-looked-at", scope: "this-way" };
+    // CR 705.2: "flip you won" / "flip you win" counts the flips the flipper
+    // won in the coin-flip instruction this refers back to.
+    if (c.words("flip", "you", "won") || c.words("flip", "you", "win"))
+      return { amount: "event-quantity", event: "coin-flip", result: "win", who: { player: "you" }, scope: "contextual" };
     if (c.number() !== 1 || c.word("life") === null) return null;
     return parseLifeTail(c, g);
   });

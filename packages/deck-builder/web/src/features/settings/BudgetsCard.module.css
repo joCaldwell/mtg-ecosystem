@@ -3,3 +3,11 @@
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--s-5);
 }
+
+.usage { border-top: 1px solid var(--line); }
+.usage > summary { cursor: pointer; color: var(--text-soft); padding-block: var(--s-4); }
+.usage th[scope="row"] { color: var(--text-soft); font-size: var(--text-md); font-weight: 400; letter-spacing: normal; text-transform: none; overflow-wrap: anywhere; }
+.usage td { text-align: right; }
+@media (max-width: 1099px) {
+  .usage > summary { min-height: var(--tap); align-content: center; }
+}

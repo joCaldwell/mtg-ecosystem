@@ -26,6 +26,9 @@
   text-align: right;
 }
 
+/* The same green and check as an on-target slot header in the list. */
+.onTarget { display: inline-flex; align-items: center; gap: var(--s-1); }
+
 .confirm {
   padding-top: 0;
 }
@@ -34,10 +37,4 @@
   border-bottom: 0;
 }
 
-.visuallyHidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-}
+.table .targetHint { color: var(--muted); font-size: var(--text-xs); text-align: right; text-transform: none; letter-spacing: normal; }

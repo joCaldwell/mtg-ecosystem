@@ -13,10 +13,13 @@ import { CARD_TYPES, canonicalSubtypeName, singularize } from "../vocab.ts";
 import { Cursor } from "./cursor.ts";
 import { parseLandPlayEffect } from "./casting-rules.ts";
 import { parsePermissionRider } from "./permission-riders.ts";
+import { parseCopyResultRef } from "./card-copy.ts";
+import { isPluralObjectRef } from "./quantified-selections.ts";
 import { parseCostList } from "./costs.ts";
 import { parseKeywordLine } from "./keywords.ts";
 import {
-  parseAmount, parseCondition, parseDuration, parseObjectRef, parsePlayerRef, parseZoneRef,
+  parseAmount, parseCondition, parseDuration, parseFilter, parseObjectRef, parsePlayerRef, parseResumedFilterQualifiers,
+  parseZoneRef,
 } from "./refs.ts";
 
 export interface PlayInstructionOptions {
@@ -40,6 +43,7 @@ function joinConditions(a: Condition | undefined, b: Condition): Condition {
 function sentenceBoundary(c: Cursor): boolean {
   const next = c.peek(1);
   if (c.isWord("and") && next?.kind === "punct" && next.value === "/") return false;
+  if (c.isWord("or") && next?.kind === "word" && !next.possessive && ["cast", "play"].includes(next.value)) return true;
   return c.done() || c.isPunct(".") || c.isPunct(",") || c.isWord("and", "then", "if", "unless");
 }
 
@@ -190,7 +194,9 @@ function parseManaPayment(c: Cursor, who: PlayerRef): CardPlayInstruction["manaP
     let mode: "any-color" | "any-type";
     if (c.words("mana", "of", "any", "type", "can", "be", "spent")) mode = "any-type";
     else {
-      const actor = parsePlayerRef(c);
+      // Curse of Hospitality: "that creature's controller may play that card
+      // and they may spend mana …": "they" resumes the permitted player.
+      const actor = who.player !== "you" && c.word("they") !== null ? who : parsePlayerRef(c);
       if (!actor || JSON.stringify(actor) !== JSON.stringify(who) ||
           !c.words("may", "spend", "mana", "as", "though", "it", "were", "mana", "of", "any")) return null;
       const word = c.word("color", "type");
@@ -203,15 +209,48 @@ function parseManaPayment(c: Cursor, who: PlayerRef): CardPlayInstruction["manaP
   });
 }
 
+/** Glamdring: "a spell from your hand with mana value …". A "with"
+ * qualifier printed after the source zone restricts the same candidates. A
+ * description with several head nouns is left alone (the late qualifier's
+ * scope over them is not stated); adjective alternatives on one head
+ * ("an instant or sorcery spell") stay conjunctive with it. */
+function parseResumedWithQualifiers(c: Cursor, what: ObjectRef): ObjectRef | null {
+  if ((what.ref !== "filter" && what.ref !== "each") || what.filter.anyOf) return null;
+  const { allOf, ...head } = what.filter;
+  const start = c.pos;
+  const filter = parseResumedFilterQualifiers(c, head);
+  if (c.pos === start) return null;
+  if (allOf) filter.allOf = [...allOf, ...(filter.allOf ?? [])];
+  return { ...what, filter };
+}
+
 function parsePlay(c: Cursor, options: PlayInstructionOptions): ParsedPlay | null {
   return c.attempt((c): ParsedPlay | null => {
     const leadingDuration = options.leadingDuration ?? c.attempt((c) => {
       const duration = parseDuration(c);
       return duration && c.punct(",") ? duration : null;
     });
+    // "During any turn you attacked with a Rogue, …": the permission has no
+    // end (CR 611.2a) and can be used only while that is true of the turn.
+    const turnCondition = leadingDuration || options.optionalConsumed ? null : c.attempt((c): Condition | null => {
+      if (!c.words("during", "any", "turn")) return null;
+      const comma = c.tokens.findIndex((token, index) => index >= c.pos && token.kind === "punct" && token.value === ",");
+      if (comma < 0) return null;
+      const word = (value: string): Token => ({ kind: "word", value, raw: value, possessive: false });
+      const clause = new Cursor([...c.tokens.slice(c.pos, comma), word("this"), word("turn")]);
+      const condition = parseCondition(clause);
+      // Summon: Brynhildr: "During any turn you put a lore counter on this
+      // Saga" is the same kind of recurring test of the current turn.
+      if (!condition || !clause.done() || !(condition.condition === "attacked" || condition.condition === "player-action-history")
+          || condition.during !== "this-turn") return null;
+      c.pos = comma + 1;
+      return condition;
+    });
     let optional = options.optionalConsumed === true;
     let who: PlayerRef = { player: "you" };
-    const explicitPlayer = c.attempt((c) => {
+    const explicitPlayer = c.attempt((c): PlayerRef | null => {
+      // "Any player may": every player has the permission; nobody is chosen.
+      if (c.words("any", "player", "may")) return { player: "each-player" };
       const player = parsePlayerRef(c);
       if (!player || c.word("may") === null) return null;
       return player;
@@ -220,16 +259,21 @@ function parsePlay(c: Cursor, options: PlayInstructionOptions): ParsedPlay | nul
     const action = c.word("cast", "play");
     if (!action) return null;
     const referenceHead = c.peek();
-    const ref = parseEligibleCardRef(c);
+    // CR 707.12: a copy of a card is cast, never played as a land.
+    const ref = (action === "cast" ? parseCopyResultRef(c) : null) ?? parseEligibleCardRef(c);
     if (!ref) return null;
     const { what, from, fromAmong } = separateSource(ref);
     const instruction: CardPlayInstruction = { who, action: action as "cast" | "play", what,
       ...(from ? { from } : {}), ...(fromAmong ? { fromAmong } : {}) };
     let duration = leadingDuration ?? undefined;
+    if (turnCondition) {
+      instruction.condition = turnCondition;
+      duration = { duration: "rest-of-game" };
+    }
     for (;;) {
       if (!instruction.from && !instruction.fromAmong && c.word("from") !== null) {
         if (c.word("among") !== null) {
-          const pool = parseObjectRef(c);
+          const pool = parseCopyResultRef(c) ?? parseObjectRef(c);
           if (!pool) return null;
           instruction.fromAmong = pool;
         } else {
@@ -250,9 +294,29 @@ function parsePlay(c: Cursor, options: PlayInstructionOptions): ParsedPlay | nul
           continue;
         }
       }
+      if (instruction.from && c.isWord("with")) {
+        const resumed = parseResumedWithQualifiers(c, instruction.what);
+        if (resumed) { instruction.what = resumed; continue; }
+      }
       if (!instruction.alternativeCost && c.words("without", "paying")) {
         if (!parseManaCostPhrase(c)) return null;
         instruction.alternativeCost = { cost: "without-mana-cost" };
+        continue;
+      }
+      if (!instruction.usingKeyword && c.isWord("using")) {
+        const keyword = c.attempt((c) => {
+          if (!c.words("using", "its")) return null;
+          const name = c.word("blitz", "mutate", "bestow", "warp");
+          return name && c.word("ability") !== null ? name as NonNullable<CardPlayInstruction["usingKeyword"]> : null;
+        });
+        // Only a card's own keyword ability can be named, and it supplies
+        // the alternative cost itself.
+        if (!keyword || instruction.alternativeCost || (what.ref !== "self" && what.ref !== "this")) return null;
+        instruction.usingKeyword = keyword;
+        continue;
+      }
+      if (!instruction.asAdventure && action === "cast" && c.words("as", "an", "adventure")) {
+        instruction.asAdventure = true;
         continue;
       }
       if (c.isWord("by")) {
@@ -310,7 +374,12 @@ function parsePlay(c: Cursor, options: PlayInstructionOptions): ParsedPlay | nul
       // Brainstealer Dragon / Valakut Exploration: each card's permission
       // ends when that card leaves exile, independently of the other cards.
       // Do not let a plural pronoun become an all-cards-still-exiled guard.
-      if (matches) durationScope = "each-permitted-card";
+      // Elder Brain: "spells from among the exiled cards for as long as they
+      // remain exiled": "they" is the plural pool every permitted card is in.
+      const among = instruction.fromAmong;
+      const pool = what.ref === "each" && !!among && ["that", "related", "them"].includes(among.ref)
+        && !("filter" in among && among.filter.cls !== "card") && isPluralObjectRef(among) && bound.ref === "them";
+      if (matches || pool) durationScope = "each-permitted-card";
       else if (bound.ref === "it" || bound.ref === "them") return c.fail("unambiguous permitted-card lifetime");
     }
     return { instruction, optional, ...(duration ? { duration } : {}), ...(durationScope ? { durationScope } : {}) };
@@ -334,25 +403,107 @@ function parseCoordinatedPlays(c: Cursor, options: PlayInstructionOptions): Pars
       results.push(next);
       return true;
     })) { /* each explicit cast/play verb keeps its own typed action */ }
-    const last = results[results.length - 1];
-    for (const result of results.slice(0, -1)) {
-      // Future Sight: the shared final source qualifies both playing lands
-      // and casting spells. A mana/timing alteration concerns spells only.
-      if (!result.instruction.from && last.instruction.from) result.instruction.from = last.instruction.from;
-      if (!result.instruction.fromAmong && last.instruction.fromAmong) result.instruction.fromAmong = last.instruction.fromAmong;
-      if (!result.duration && last.duration) result.duration = last.duration;
-      if (result.duration && result.instruction.what.ref === "filter") {
-        result.instruction.useLimit = { maximum: result.instruction.what.count, period: "permission" };
-      }
-      if (last.instruction.condition) result.instruction.condition = joinConditions(result.instruction.condition, last.instruction.condition);
-      if (result.instruction.action === "cast") {
-        if (!result.instruction.alternativeCost && last.instruction.alternativeCost) result.instruction.alternativeCost = last.instruction.alternativeCost;
-        if (!result.instruction.additionalCosts && last.instruction.additionalCosts) result.instruction.additionalCosts = last.instruction.additionalCosts;
-        if (!result.instruction.timing && last.instruction.timing) result.instruction.timing = last.instruction.timing;
-        if (!result.instruction.manaPayment && last.instruction.manaPayment) result.instruction.manaPayment = last.instruction.manaPayment;
-      }
-    }
+    shareFinalQualifiers(results);
     return results;
+  });
+}
+
+/** Future Sight: a source, lifetime, condition or casting alteration stated
+ * once after the last verb qualifies every coordinated play (CR 608.2c). */
+function shareFinalQualifiers(results: ParsedPlay[]): void {
+  const last = results[results.length - 1];
+  for (const result of results.slice(0, -1)) {
+    // Future Sight: the shared final source qualifies both playing lands
+    // and casting spells. A mana/timing alteration concerns spells only.
+    if (!result.instruction.from && last.instruction.from) result.instruction.from = last.instruction.from;
+    if (!result.instruction.fromAmong && last.instruction.fromAmong) result.instruction.fromAmong = last.instruction.fromAmong;
+    if (!result.duration && last.duration) {
+      result.duration = last.duration;
+      // The shared lifetime has the same per-card scope for every play.
+      if (last.durationScope && JSON.stringify(result.instruction.fromAmong) === JSON.stringify(last.instruction.fromAmong))
+        result.durationScope = last.durationScope;
+    }
+    if (result.duration && result.instruction.what.ref === "filter") {
+      result.instruction.useLimit = { maximum: result.instruction.what.count, period: "permission" };
+    }
+    if (last.instruction.condition) result.instruction.condition = joinConditions(result.instruction.condition, last.instruction.condition);
+    if (result.instruction.action === "cast") {
+      if (!result.instruction.alternativeCost && last.instruction.alternativeCost) result.instruction.alternativeCost = last.instruction.alternativeCost;
+      if (!result.instruction.additionalCosts && last.instruction.additionalCosts) result.instruction.additionalCosts = last.instruction.additionalCosts;
+      if (!result.instruction.timing && last.instruction.timing) result.instruction.timing = last.instruction.timing;
+      if (!result.instruction.manaPayment && last.instruction.manaPayment) result.instruction.manaPayment = last.instruction.manaPayment;
+    }
+  }
+}
+
+/** "play a land or cast a spell from among …": each use is exactly one of
+ * the printed actions; trailing qualifiers are shared as for "and". */
+function parseAlternativePlays(c: Cursor, options: PlayInstructionOptions): ParsedPlay[] | null {
+  return c.attempt((c) => {
+    const first = parsePlay(c, options);
+    if (!first) return null;
+    const results = [first];
+    while (c.attempt((c) => {
+      if (c.word("or") === null || !c.isWord("cast", "play")) return null;
+      const next = parsePlay(c, { optionalConsumed: first.optional, leadingDuration: options.leadingDuration });
+      if (!next) return null;
+      results.push(next);
+      return true;
+    })) { /* each explicit cast/play verb keeps its own typed action */ }
+    if (results.length < 2) return null;
+    shareFinalQualifiers(results);
+    return results;
+  });
+}
+
+/** "The next sorcery spell you cast this turn can be cast as though it had
+ * flash." CR 611.2a: a continuous effect for the printed period that applies
+ * to one spell, the next matching one. The noun phrase between "next" and
+ * "you cast" is the complete spell description. */
+function parseNextSpellPermission(c: Cursor): Effect[] | null {
+  return c.attempt((c): Effect[] | null => {
+    if (!c.words("the", "next")) return null;
+    const start = c.pos;
+    const end = c.tokens.findIndex((token, index) => index > start && token.kind === "word" && !token.possessive && token.value === "you");
+    if (end < 0) return null;
+    const nominal = new Cursor(c.tokens.slice(start, end));
+    const filter = parseFilter(nominal);
+    if (!filter || !nominal.done()) return null;
+    c.pos = end + 1;
+    const action = c.word("cast", "play") as "cast" | "play" | null;
+    if (!action || filter.cls !== (action === "cast" ? "spell" : "card") || !c.words("this", "turn")) return null;
+    // Eye of Ojer Taq prints the linked-choice qualifier after the period.
+    if (c.words("of", "the", "chosen", "type")) {
+      if (filter.chosenType) return null;
+      filter.chosenType = { choice: "chosen-type" };
+    }
+    if (!c.words("can", "be") || c.word(action === "cast" ? "cast" : "played") === null) return null;
+    const permission: CardPlayInstruction = { who: { player: "you" }, action, what: { ref: "each", filter }, occurrence: { next: true } };
+    if (c.words("as", "though", "it", "had", "flash")) permission.timing = "as-though-flash";
+    else if (c.words("without", "paying", "its", "mana", "cost")) permission.alternativeCost = { cost: "without-mana-cost" };
+    else return null;
+    if (!sentenceBoundary(c)) return c.fail("complete next-spell permission");
+    return [{ effect: "grant-play-permission", permission, duration: { duration: "this-turn" } }];
+  });
+}
+
+/** "You may look at and play those cards for as long as they remain exiled":
+ * one sentence grants two permissions about the same cards for the same
+ * period. CR 406.3: looking at a card exiled face down needs permission, and
+ * 406.3b a face-down card can be cast only while it may be looked at. */
+function parseLookAndPlay(c: Cursor, options: PlayInstructionOptions): Effect[] | null {
+  return c.attempt((c): Effect[] | null => {
+    if (!options.optionalConsumed && !c.words("you", "may")) return null;
+    if (!c.words("look", "at", "and") || !c.isWord("play", "cast")) return null;
+    const result = parsePlay(c, { ...options, optionalConsumed: true });
+    if (!result?.duration) return null;
+    const what = result.instruction.what;
+    if (what.ref !== "that" && what.ref !== "it" && what.ref !== "them") return null;
+    const scope = result.durationScope ? { durationScope: result.durationScope } : {};
+    return [
+      { effect: "grant-look-permission", permission: { who: result.instruction.who, what: [what], timing: "any-time" }, duration: result.duration, ...scope },
+      { effect: "grant-play-permission", permission: result.instruction, duration: result.duration, ...scope },
+    ];
   });
 }
 
@@ -363,6 +514,8 @@ export function parsePlayInstruction(c: Cursor, options: PlayInstructionOptions 
   return c.attempt((c) => {
     const landPlays = parseLandPlayEffect(c, options);
     if (landPlays) return landPlays;
+    const nextSpell = options.optionalConsumed || options.leadingDuration ? null : parseNextSpellPermission(c);
+    if (nextSpell) return nextSpell;
     const coordinated = c.attempt((c): Effect[] | null => {
       const results = parseCoordinatedPlays(c, options);
       if (!results || results.length < 2 || results.some(result => !result.optional || !result.duration)) return null;
@@ -370,6 +523,29 @@ export function parsePlayInstruction(c: Cursor, options: PlayInstructionOptions 
         ...(result.durationScope ? { durationScope: result.durationScope } : {}) }));
     });
     if (coordinated) return coordinated;
+    const lookAndPlay = parseLookAndPlay(c, options);
+    if (lookAndPlay) return lookAndPlay;
+    // "You may play lands and cast spells from among cards exiled this way":
+    // without a duration these are immediate plays, and the source stated
+    // once after the last verb limits every coordinated play (CR 608.2c).
+    const immediate = c.attempt((c): Effect[] | null => {
+      const results = parseCoordinatedPlays(c, options);
+      if (!results || results.length < 2 || results.some(result => result.duration)) return null;
+      return results.map(result => playCardEffect(result.instruction, result.optional));
+    });
+    if (immediate) return immediate;
+    // "You may play a land … or cast a spell …": CR 608.2d, the player
+    // performs at most one of the printed actions. A lasting grant of such
+    // a choice is not represented.
+    const alternatives = c.attempt((c): Effect[] | null => {
+      const results = parseAlternativePlays(c, options);
+      if (!results || results.some(result => result.duration || !result.optional)) return null;
+      const who = results[0].instruction.who;
+      if (results.some(result => JSON.stringify(result.instruction.who) !== JSON.stringify(who))) return null;
+      return [{ effect: "choice", who, options: results.map(result => playCardEffect(result.instruction, false)), optional: true,
+        ...(who.player !== "you" ? { decidedBy: who } : {}) }];
+    });
+    if (alternatives) return alternatives;
     const result = parsePlay(c, options);
     if (!result) return null;
     if (result.duration) {
@@ -377,8 +553,15 @@ export function parsePlayInstruction(c: Cursor, options: PlayInstructionOptions 
       return [{ effect: "grant-play-permission", permission: result.instruction, duration: result.duration,
         ...(result.durationScope ? { durationScope: result.durationScope } : {}) }];
     }
-    return [{ effect: "play-card", instruction: result.instruction, ...(result.optional ? { optional: true as const } : {}) }];
+    return [playCardEffect(result.instruction, result.optional)];
   });
+}
+
+/** "[Player] may cast …": a player other than you decides whether their own
+ * optional play happens (EffectBase.decidedBy). */
+function playCardEffect(instruction: CardPlayInstruction, optional: boolean | undefined): Effect {
+  return { effect: "play-card", instruction, ...(optional ? { optional: true as const } : {}),
+    ...(optional && instruction.who.player !== "you" ? { decidedBy: instruction.who } : {}) };
 }
 
 /** Chiss-Goria: the later sentence modifies the spell cast under the granted
@@ -396,7 +579,10 @@ export function parsePermissionSpellAbilities(c: Cursor, permission: CardPlayIns
       || (what.ref === "related" && what.number === "singular")
       || ((what.ref === "filter" || what.ref === "target" || what.ref === "from-pool")
         && what.count.amount === "fixed" && what.count.value === 1);
-    if (!singular || !c.words("if", "you", "do") || !c.punct(",") || !c.words("it", "has")) return null;
+    if (!singular) return null;
+    // Durnan of the Yawning Portal: "That spell has undaunted." names the
+    // spell cast with the permission directly; same rider, no "If you do".
+    if (!c.words("that", "spell", "has") && !(c.words("if", "you", "do") && c.punct(",") && c.words("it", "has"))) return null;
     // parseKeywordLine requires the complete remaining input. Do not assign
     // unknown following instructions to either resolution or later casting.
     const spellAbilities = parseKeywordLine(c);
@@ -410,6 +596,11 @@ export function parsePermissionSpellAbilities(c: Cursor, permission: CardPlayIns
  * sets describe a static permission (Gravecrawler, Omniscience, Yeva). */
 export function parsePlayPermissionStatic(c: Cursor): StaticEffect | null {
   return parseStaticPermission(c, true);
+}
+
+/** The permission and its riders, leaving any following sentence unread. */
+export function parsePlayPermissionStaticPrefix(c: Cursor): StaticEffect | null {
+  return parseStaticPermission(c, false);
 }
 
 /** Classification guard only: an unrepresented rider must not cause a static
@@ -441,11 +632,12 @@ function parseStaticPermission(c: Cursor, complete: boolean): StaticEffect | nul
       if (!value || !c.punct(",")) return null;
       condition = joinConditions(condition, value);
     }
-    const results = parseCoordinatedPlays(c, {});
+    // A once-per-turn bound on a choice between actions is shared, not
+    // multiplied into one use for each action (Hauken's Insight).
+    const alternatives = useLimit ? parseAlternativePlays(c, {}) : null;
+    const results = alternatives ?? parseCoordinatedPlays(c, {});
     if (!results || results.some(result => !result.optional)) return null;
-    // A once-per-turn bound on a coordinated choice must be shared, not
-    // incorrectly multiplied into one use for each action (Hauken's Insight).
-    if (results.length > 1 && useLimit) return null;
+    if (results.length > 1 && useLimit && !alternatives) return null;
     const effects: Extract<StaticEffect, { static: "play-permission" }>[] = [];
     for (const result of results) {
       const permission = result.instruction;
@@ -454,22 +646,29 @@ function parseStaticPermission(c: Cursor, complete: boolean): StaticEffect | nul
       const linkedSet = permission.what.ref === "related" && permission.what.relation.relation === "linked-exile";
       if (!ownCard && !wholeSet && !linkedSet && !useLimit) return null;
       if (!permission.from && !permission.fromAmong && !linkedSet && !permission.alternativeCost && !permission.timing) return null;
+      // A per-card lifetime over a resolution's pool is not a static condition.
+      if (result.durationScope && wholeSet) return null;
       let guard = condition;
       if (result.duration) {
         if (result.duration.duration !== "as-long-as") return null;
         guard = joinConditions(guard, result.duration.condition);
       }
       if (guard) permission.condition = joinConditions(permission.condition, guard);
-      if (useLimit) permission.useLimit = useLimit;
+      if (useLimit && !alternatives) permission.useLimit = useLimit;
       effects.push({ static: "play-permission", permission });
     }
     c.punct(".");
     for (;;) {
-      const permissions = parsePermissionRider(c, effects.map(effect => effect.permission), { allowIfYouDo: false });
+      // "If you do, it enters …" needs the one card "it" can be: this card.
+      const ownCard = effects.length === 1 && ["self", "this"].includes(effects[0].permission.what.ref);
+      // A choice is used for one card at a time, which "it" then names.
+      const permissions = parsePermissionRider(c, effects.map(effect => effect.permission),
+        alternatives ? { allowIfYouDo: true, choice: true } : { allowIfYouDo: ownCard });
       if (!permissions) break;
       effects.forEach((effect, index) => { effect.permission = permissions[index]; });
     }
     if (complete && !c.done()) return c.fail("complete static cast/play permission");
+    if (alternatives && useLimit) return { static: "play-permission-choice", permissions: effects.map(effect => effect.permission), useLimit };
     return effects.length === 1 ? effects[0] : { static: "group", effects };
   });
 }

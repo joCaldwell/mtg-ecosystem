@@ -26,6 +26,9 @@ export interface CardFace {
   loyalty?: string | null;
 }
 export interface TableCard extends CardFace {
+  image_small?: string | null;
+  image_normal?: string | null;
+  image_art_crop?: string | null;
   oracle_id: string;
   faces: CardFace[];
 }

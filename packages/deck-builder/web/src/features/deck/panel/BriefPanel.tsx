@@ -1,12 +1,12 @@
 // The Brief tab (spec §6): the owner's document about what the deck is for.
 // Agents read it every session and can only propose edits to it, which show
-// up in place under the section they concern. Legacy briefs are read-only.
+// up in place under the section they concern. Archived briefs are read-only.
 
 import { useState } from "react";
 import { api, type DocumentEdit, type Engine } from "../../../api/client.ts";
 import { useInbox } from "../../../app/Inbox.tsx";
 import { Button, ConfirmDialog, Eyebrow, Text } from "../../../ui/index.ts";
-import { DocumentEditCard } from "../../rulings/index.ts";
+import { DocumentEditCard } from "../../decisions/index.ts";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
 import { BriefField } from "./BriefField.tsx";
 import { EngineCard } from "./EngineCard.tsx";
@@ -21,14 +21,14 @@ export function BriefPanel() {
   const { deckId, run, apply } = useDeck();
   const inbox = useInbox();
   const { brief, document_edits: edits } = state;
-  const readOnly = state.deck.category === "legacy";
+  const readOnly = state.deck.category === "archived";
 
   const [form, setForm] = useState<EngineForm>(null);
   const [removing, setRemoving] = useState<Engine | null>(null);
 
   const pending = (kinds: DocumentEdit["kind"][]) =>
     edits
-      .filter((e) => kinds.includes(e.kind))
+      .filter((e) => e.group_id == null && kinds.includes(e.kind))
       .map((e) => (
         <DocumentEditCard
           key={e.id}
@@ -46,6 +46,8 @@ export function BriefPanel() {
 
   return (
     <>
+      {edits.filter(e => e.group_id === e.id).map(edit => <DocumentEditCard key={edit.id} edit={edit}
+        onRuled={r => { apply(r); inbox.apply(r.inbox); }} />)}
       <BriefField
         readOnly={readOnly}
         title="Thesis"
@@ -70,15 +72,14 @@ export function BriefPanel() {
         <div className={styles.head}>
           <Eyebrow>Engines</Eyebrow>
           {!form && !readOnly && (
-            <Button size="sm" variant="ghost" onClick={() => setForm({})}>
+            <Button size="sm" reach onClick={() => setForm({})}>
               Add an engine
             </Button>
           )}
         </div>
         {brief.engines.length === 0 && !form && (
           <Text tone="muted" size="sm" as="p">
-            No engines named yet. An engine is a combo or plan the deck is built around; its pieces are checked
-            against the list.
+            No engines yet
           </Text>
         )}
         {brief.engines.map((engine) =>
@@ -97,9 +98,7 @@ export function BriefPanel() {
         {pending(["engine_set", "engine_remove"])}
       </section>
 
-      <Text tone="faint" size="xs" as="p">
-        {readOnly ? "This archived brief is read-only." : "The brief is yours. Agents read it every session and can only propose edits to it."}
-      </Text>
+      {readOnly && <Text tone="faint" size="xs" as="p">This archived brief is read-only.</Text>}
 
       {removing && (
         <ConfirmDialog

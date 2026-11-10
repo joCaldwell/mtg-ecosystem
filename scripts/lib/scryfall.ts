@@ -15,6 +15,9 @@ export interface ScryfallCard extends CardFace {
   games?: string[];
   border_color: string;
   security_stamp?: string | null;
+  /** Format → "legal" | "not_legal" | "restricted" | "banned"
+   * (https://scryfall.com/docs/api/cards, "Legalities"). */
+  legalities?: Record<string, string>;
 }
 
 function record(value: unknown): value is Record<string, unknown> {

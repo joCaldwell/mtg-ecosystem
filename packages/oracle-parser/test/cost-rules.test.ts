@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parseOracleText } from "../src/index.ts";
 
-// Wave-1 cost-rules constructs. Wordings follow cards verified in the cached
+// Wordings follow cards verified in the cached
 // Scryfall corpus (Sewer Rats, Skinshifter, Nykthos Paragon, Deadly Alliance,
 // Monk Class, Sage of the Beyond, Catalyst Stone, Armor Wars, Hardened
 // Berserker, the Kamigawa Marches, Arena of Glory, Scaled Nurturer, Delighted

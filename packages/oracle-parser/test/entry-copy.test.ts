@@ -122,9 +122,12 @@ describe('entry copy replacements', () => {
       start + ", except it's a Wall in addition to its other types and has defender. When you do, tap the copied creature.",
       'You may have this creature enter as a copy of two creatures on the battlefield.',
       'You may have this creature enter as a copy of target creature.',
-      'You may have this creature enter as a copy of any creature card in a graveyard that was put there from the battlefield this turn.',
       start + ', except it has flying and a mystery ability.',
     ]) assert.equal(parseOracleText(text).ok, false, text);
+    // The card's own move into that graveyard is now a represented filter
+    // predicate (ObjectFilter.zoneChangeHistory), so this model is complete.
+    assert.deepEqual(one('You may have this creature enter as a copy of any creature card in a graveyard that was put there from the battlefield this turn.'), staticAbility(base({
+      ...graveyard, zoneChangeHistory: { event: 'put-into-zone', to: { zone: 'graveyard', owner: 'any' }, from: { zone: 'battlefield' }, during: 'this-turn' } })));
   });
   it('rolls back unsupported tails and refuses to certify unresolved copy scopes', () => {
     const c = new Cursor(lex(start + ", except it's a creature if you control an artifact."));

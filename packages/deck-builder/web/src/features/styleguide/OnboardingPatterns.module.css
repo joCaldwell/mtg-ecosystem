@@ -1,0 +1,2 @@
+/* Holds the open Explainer's popover so it does not cover the next example. */
+.openExplainer { min-height: calc(var(--s-8) * 6); }

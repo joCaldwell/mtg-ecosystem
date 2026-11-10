@@ -1,6 +1,41 @@
 .page {
-  display: flex;
+  /* Essential workspace metadata stays readable without expanding desktop rows. */
+  --text-xs: var(--text-sm);
+  --deck-column-min: var(--deck-editor-column-min);
+  position: relative;
+  overflow: auto;
+  overflow-anchor: none;
+  scrollbar-width: none;
+  display: block;
   flex: 1;
-  flex-direction: column;
   min-height: 0;
+}
+
+/* Tablet sizing is a viewport contract, including freshly imported decks. */
+@media (max-width: 1099px) {
+  /* The window scrolls: a revealed row or the maybe list lands below the
+     sticky navigation bar and the active-filter row (CardRow, MaybeList). */
+  .page {
+    --deck-column-min: var(--deck-reader-column-min);
+    --deck-scroll-heading-space: 0px;
+    --deck-review-space: 0px;
+    --deck-sticky-offset: calc(var(--tablet-bar-outer-h) + var(--deck-scroll-heading-space) + var(--deck-review-space));
+    --list-scroll-offset: calc(var(--deck-sticky-offset) + var(--tap) + var(--s-4));
+  }
+  .page[data-scrolled-heading] { --deck-scroll-heading-space: var(--deck-scroll-heading-h); }
+  .page[data-reviewing] { --deck-review-space: var(--tablet-review-h); }
+  .page :is(button, select, input) { min-height: var(--tap); }
+}
+
+/* Scroll-linked opacity overlaps the two headers before the hero leaves.
+   Inert switches only at the completed fold; there is no timed animation. */
+.compact { position: sticky; top: 0; height: 0; z-index: var(--z-sticky); opacity: var(--deck-compact-opacity, 0); pointer-events: none; }
+.page[data-compact="true"] .compact { pointer-events: auto; }
+.page [data-deck-hero] > * > header { opacity: calc(1 - var(--deck-compact-opacity, 0)); }
+.workspace { display: flex; flex-direction: column; height: var(--deck-workspace-h); min-height: 0; }
+.scrollTail { height: var(--deck-fold-room, 0px); pointer-events: none; }
+@media (max-width: 1099px) {
+  .page { overflow: visible; }
+  .compact, .scrollTail { display: none; }
+  .workspace { height: auto; }
 }

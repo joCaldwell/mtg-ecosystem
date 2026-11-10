@@ -5,25 +5,37 @@
 // (declared combat actions), 608.2i (history), 700.4 (dies), and 119:
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 
-import type { Amount, Comparison, Condition, Cost, CounterSpec, ObjectFilter, ObjectRef, PhaseName, PlayerRef, ZoneRef } from "../ast.ts";
+import type { Amount, Comparison, Condition, Cost, CounterSpec, GroupConstraint, ObjectFilter, ObjectRef, PhaseName, PlayerRef, ZoneRef } from "../ast.ts";
 import { Cursor } from "./cursor.ts";
 import { isManaSymbol } from "../symbols.ts";
 import { parseKeywordName } from "./keywords.ts";
 import { parseDiceCondition } from "./dice.ts";
 import { parseAggregateCount } from "./aggregates.ts";
-import { parseControlledSubset } from "./selection-constraints.ts";
+import { parseControlledSubset, parseGroupConstraint } from "./selection-constraints.ts";
 import { parseCharacteristicRelationCondition } from "./characteristic-relations.ts";
 import { parseCurrentPhaseCondition } from "./temporal.ts";
 import { parsePutActionOutcome } from "./action-outcomes.ts";
+import { parseEventOutcome } from "./event-outcomes.ts";
 import { parseDesignationCondition } from "./condition-designations.ts";
 import { parseLinkedCondition } from "./condition-links.ts";
 import { parsePlayerCondition } from "./condition-players.ts";
 import { parseComparativeCondition } from "./comparatives.ts";
+import { parseEventCondition } from "./condition-events.ts";
+import { parsePairedCondition } from "./soulbond.ts";
+import { parseMostCommonColorCondition } from "./color-majority.ts";
+import { parseExcludedOrigin } from "./zone-origins.ts";
+import { parseCastOrdinal } from "./cast-ordinals.ts";
+import { parseFirstEvent } from "./event-firsts.ts";
+import { parseAttributeComparison } from "./attribute-comparisons.ts";
+import { parseGraveyardPosition } from "./graveyard-position.ts";
 
 export interface ConditionGrammar {
   /** In an unless clause, bare present-tense actions describe optional
    * payments now (CR 118.12a), not a historical condition. */
   purpose?: "unless";
+  /** Set for conditions of resolving instructions only: a "this way" outcome
+   * test looks back at an earlier instruction of the same sequence. */
+  outcomes?: true;
   parseAmount(c: Cursor): Amount | null;
   parseComparison(c: Cursor): Comparison | null;
   parseCount(c: Cursor): Amount | null;
@@ -32,6 +44,7 @@ export interface ConditionGrammar {
   parseObjectRef(c: Cursor): ObjectRef | null;
   parsePlayerRef(c: Cursor): PlayerRef | null;
   parsePossessivePlayer?(c: Cursor): PlayerRef | null;
+  parsePossessiveObject?(c: Cursor): ObjectRef | null;
   parseZoneRef(c: Cursor): ZoneRef | null;
   /** Existing atomic condition productions; must not recurse to this entry. */
   parseAtomic(c: Cursor): Condition | null;
@@ -146,7 +159,14 @@ function parseZoneState(c: Cursor, g: ConditionGrammar): Condition | null {
     if (c.word("in", "on") === null) return null;
     const zone = g.parseZoneRef(c);
     if (!zone || zone.position || (["hand", "library", "graveyard"].includes(zone.zone) && zone.owner === undefined)) return null;
-    return negated({ condition: "is-filter", what, filter: { zone } }, negate);
+    // "in the command zone or on the battlefield": membership of either zone.
+    // Only a repeated preposition marks a second zone (Eminence).
+    const second = c.attempt((c): ZoneRef | null => {
+      if (c.word("or") === null || c.word("in", "on") === null) return null;
+      const other = g.parseZoneRef(c);
+      return other && !other.position && !(["hand", "library", "graveyard"].includes(other.zone) && other.owner === undefined) ? other : null;
+    });
+    return negated({ condition: "is-filter", what, filter: second ? { anyOf: [{ zone }, { zone: second }] } : { zone } }, negate);
   });
 }
 
@@ -164,6 +184,18 @@ function parsePersonalZoneCount(c: Cursor, g: ConditionGrammar): Condition | nul
     const owner = of.zone.owner;
     if (owner === "your" ? who.player !== "you" : owner === "their" ? who.player === "you" : owner !== undefined) return null;
     return { condition: "count", of: { ...of, zone: { ...of.zone, owner: who } }, comparison };
+  });
+}
+
+/** "You own a card in exile": exile is a shared zone (CR 406.1), so the
+ * cards counted are those in it that the player owns (108.3). */
+function parseOwnedInExile(c: Cursor, g: ConditionGrammar): Condition | null {
+  return c.attempt(c => {
+    if (!c.words("you", "own")) return null;
+    const comparison = c.word("a", "an") !== null ? { op: "ge" as const, value: one } : parseComparison(c, g);
+    const of = comparison && g.parseFilter(c);
+    if (!of || !comparison || of.cls !== "card" || of.zone?.zone !== "exile" || of.zone.owner || of.zone.position || of.own || of.ownedBy) return null;
+    return { condition: "count", of: { ...of, own: "you" }, comparison };
   });
 }
 
@@ -190,9 +222,15 @@ function hasZone(filter: ObjectFilter): boolean {
 function parseCopularZoneCount(c: Cursor, g: ConditionGrammar): Condition | null {
   return c.attempt(c => {
     // "An artifact card is in your graveyard" is existential, not exactly one.
-    const comparison = c.word("a", "an") !== null ? { op: "ge" as const, value: one } : parseComparison(c, g);
+    const existential = c.word("a", "an") !== null;
+    const comparison = existential ? { op: "ge" as const, value: one } : parseComparison(c, g);
     const of = comparison && g.parseFilter(c);
     if (!of || !comparison || hasZone(of) || c.word("are", "is") === null) return null;
+    // "Four or more creatures are attacking": the current number of
+    // attacking creatures (CR 506.4), as "there are … attacking creatures".
+    // Existential "a creature is attacking" keeps its status condition.
+    if (!existential && !of.status && c.word("attacking") !== null && !c.isWord("you", "a", "an", "that", "this", "planeswalkers", "battles", "it", "them"))
+      return { condition: "count", of: { ...of, status: ["attacking"] }, comparison };
     if (c.words("on", "the", "battlefield")) return { condition: "count", of: { ...of, zone: { zone: "battlefield" } }, comparison };
     if (c.word("in") === null) return null;
     const zone = g.parseZoneRef(c);
@@ -209,7 +247,14 @@ function parseCountersOn(c: Cursor, g: ConditionGrammar): Condition | null {
     const comparison = c.word("a", "an") !== null ? { op: "ge" as const, value: one } : parseComparison(c, g);
     if (!comparison || (comparison.op === "eq" && !explicit)) return null;
     const counter = c.isWord("counter", "counters") ? "any" : g.parseCounterSpec(c);
-    if (!counter || c.word("counter", "counters") === null || c.word("on") === null) return null;
+    if (!counter || c.word("counter", "counters") === null) return null;
+    // "Counters among permanents you control" is the total over that group
+    // (CR 122.1), the same value "the number of counters among" states.
+    if (c.word("among") !== null) {
+      const on = g.parseObjectRef(c);
+      return on && (on.ref === "each" || on.ref === "all") ? { condition: "compare", value: { amount: "counter-count", counter, on }, comparison } : null;
+    }
+    if (c.word("on") === null) return null;
     const what = parseHistoricalObject(c, g);
     if (!what || what.ref === "them" || (what.ref === "that" && what.plural)) return null;
     return { condition: "is-filter", what, filter: { counterConstraints: [{ counter, comparison }] } };
@@ -256,6 +301,12 @@ function parseHistoryPeriod(c: Cursor): "this-turn" | "this-combat" | null {
   });
 }
 
+/** "Last turn" is the whole turn before the current one, whoever's it was;
+ * it is not "your last turn" or "since your last turn". */
+function parseLookbackPeriod(c: Cursor): "this-turn" | "this-combat" | "last-turn" | null {
+  return c.attempt(c => c.words("last", "turn") && !c.isWord("ended") ? "last-turn" as const : null) ?? parseHistoryPeriod(c);
+}
+
 function parseHistoricalObject(c: Cursor, g: ConditionGrammar): ObjectRef | null {
   return c.attempt(c => {
     const what = g.parseObjectRef(c);
@@ -273,24 +324,50 @@ function parsePastNegation(c: Cursor): boolean {
 
 function parseCombatHistory(c: Cursor, g: ConditionGrammar): Condition | null {
   return c.attempt(c => {
+    // CR 508.1b: passive "you've been attacked this step" (declared as an attacker's target).
+    if (c.words("you've", "been", "attacked", "this", "step")) return { condition: "was-attacked", who: { player: "you" }, during: "this-step" };
     const player = c.attempt((c): Condition | null => {
       const who = c.word("you've") !== null ? { player: "you" as const } : g.parsePlayerRef(c);
       if (!who) return null;
       const negate = parsePastNegation(c);
       if (c.word("attacked", ...(negate ? ["attack"] : [])) === null) return null;
       let withFilter: ObjectFilter | undefined;
+      let groupConstraints: GroupConstraint[] | undefined;
+      let attackerCount: Comparison | undefined;
       if (c.word("with") !== null) {
-        c.word("a", "an");
+        const article = c.word("a", "an") !== null;
+        // "attacked with three or more creatures": a count of the attackers (CR 508.1a).
+        const count = article || negate ? null : c.attempt(c => {
+          const comparison = parseComparison(c, g);
+          return comparison && (comparison.op === "ge" || comparison.op === "gt" || comparison.op === "le") ? comparison : null;
+        });
+        if (count) attackerCount = count;
         const filter = g.parseFilter(c);
         if (!filter) return null;
         withFilter = filter;
+        // "attacked with creatures with total power 6 or greater" (pack
+        // tactics): a total over the creatures attacked with, not each one.
+        const total = !article && !negate && c.isWord("with") ? parseGroupConstraint(c, c => parseComparison(c, g)) : null;
+        if (total?.constraint === "attribute-sum") groupConstraints = [total];
+        else if (total) return null;
       }
       const during = parseHistoryPeriod(c);
-      return during && negated({ condition: "attacked", who, during, ...(withFilter ? { with: withFilter } : {}) }, negate);
+      return during && negated({ condition: "attacked", who, during, ...(withFilter ? { with: withFilter } : {}),
+        ...(attackerCount ? { count: attackerCount } : {}),
+        ...(groupConstraints ? { groupConstraints } : {}) }, negate);
     });
     if (player) return player;
     const what = parseHistoricalObject(c, g);
     if (!what) return null;
+    const passive = c.attempt((c): Condition | null => {
+      const copula = c.word("was", "wasn't");
+      if (!copula) return null;
+      const negate = copula === "wasn't" || c.word("not") !== null;
+      if (c.word("blocked") === null) return null;
+      const during = parseHistoryPeriod(c);
+      return during && negated({ condition: "combat-action-history", what, action: "was-blocked", during }, negate);
+    });
+    if (passive) return passive;
     const negate = parsePastNegation(c);
     const verb = c.word("attacked", "blocked", ...(negate ? ["attack", "block"] : []));
     if (!verb) return null;
@@ -312,7 +389,11 @@ function parseCombatHistory(c: Cursor, g: ConditionGrammar): Condition | null {
         second = parsed.action;
       }
     }
-    const during = parseHistoryPeriod(c);
+    const during = parseHistoryPeriod(c) ?? c.attempt(c => {
+      if (c.word("during") === null) return null;
+      const lastTurnOf = parseHistoryOwner(c, g);
+      return lastTurnOf && c.words("last", "turn") ? { lastTurnOf } : null;
+    });
     if (!during) return null;
     const first: Condition = { condition: "combat-action-history", what, action, during };
     return negated(second ? { condition: join === "and" ? "all-of" : "any-of", conditions: [first,
@@ -371,7 +452,8 @@ function parseManaSpent(c: Cursor, g: ConditionGrammar): Condition | null {
       if (!comparison) return null;
       const type = c.word("colored", "white", "blue", "black", "red", "green", "colorless", "snow");
       if (c.word("mana") === null) return null;
-      const mana: ManaHistory["mana"] = type as Exclude<ManaHistory["mana"], "any"> | null ?? "any";
+      const sameColor = !type && c.words("of", "the", "same", "color");
+      const mana: ManaHistory["mana"] = sameColor ? "same-color" : type as Exclude<ManaHistory["mana"], "any" | "same-color"> | null ?? "any";
       requirements.push({ mana, comparison });
       if (c.word("from") !== null) {
         c.word("a", "an");
@@ -407,14 +489,17 @@ function parseDamageRecipient(c: Cursor, g: ConditionGrammar): PlayerRef | Objec
 }
 
 function parseDamageQuantity(c: Cursor, g: ConditionGrammar): {
-  comparison: Comparison; quantity: "positive-event" | "total"; damage?: "combat" | "noncombat";
+  comparison: Comparison; quantity: "positive-event" | "total"; damage?: "combat" | "noncombat"; excess?: true;
 } | null {
   return c.attempt(c => {
     const comparison = parseComparison(c, g);
+    // CR 120.10: "excess damage" is a property of a damage event to a
+    // creature, planeswalker or battle; only the bare existential form.
+    const excess = !comparison && c.word("excess") !== null;
     const damage = c.word("combat", "noncombat") as "combat" | "noncombat" | null;
     if (c.word("damage") === null) return null;
     return { comparison: comparison ?? { op: "gt", value: zero }, quantity: comparison ? "total" : "positive-event",
-      ...(damage ? { damage } : {}) };
+      ...(damage ? { damage } : {}), ...(excess ? { excess: true as const } : {}) };
   });
 }
 
@@ -468,8 +553,11 @@ function parseDamageHistory(c: Cursor, g: ConditionGrammar): Condition | null {
       }
     }
     let during: History["during"] | null = null;
-    for (let part = 0; part < 2; part++) {
-      if (!during && c.isWord("this")) during = parseHistoryPeriod(c);
+    // "Hasn't dealt damage yet": no period, the source's whole existence as
+    // this object (CR 400.7). Only the printed negative active form.
+    if (source && negate && quantity.quantity === "positive-event" && !quantity.damage && !to && c.word("yet") !== null) during = "object-lifetime";
+    for (let part = 0; part < 2 && during !== "object-lifetime"; part++) {
+      if (!during && c.isWord("this", "last")) during = parseLookbackPeriod(c);
       else if (!source && c.word("by") !== null) {
         const object = g.parseObjectRef(c);
         if (!object || object.ref === "each" || object.ref === "them" ||
@@ -477,7 +565,7 @@ function parseDamageHistory(c: Cursor, g: ConditionGrammar): Condition | null {
         source = object;
       } else break;
     }
-    if (!during) return null;
+    if (!during || (quantity.excess && (!to || "player" in to))) return null;
     return negated({ condition: "damage-history", ...quantity, ...(source ? { source } : {}), ...(to ? { to } : {}), during }, negate);
   });
 }
@@ -515,7 +603,8 @@ function parseCastObjectHistory(c: Cursor, g: ConditionGrammar): Condition | nul
       }
     }
     let from: ZoneRef | undefined;
-    if (c.word("from") !== null) {
+    const notFrom = parseExcludedOrigin(c, g.parseZoneRef);
+    if (!notFrom && c.word("from") !== null) {
       const origin = g.parseZoneRef(c);
       if (!origin) return null;
       from = origin;
@@ -532,7 +621,7 @@ function parseCastObjectHistory(c: Cursor, g: ConditionGrammar): Condition | nul
       if (!phase) return null;
       when = { phase, whose };
     }
-    return negated({ condition: "was-cast", what, ...(by ? { by } : {}), ...(from ? { from } : {}), ...(when ? { when } : {}) }, negate);
+    return negated({ condition: "was-cast", what, ...(by ? { by } : {}), ...(from ? { from } : {}), ...(notFrom ? { notFrom } : {}), ...(when ? { when } : {}) }, negate);
   });
 }
 
@@ -619,7 +708,7 @@ function parseZoneHistory(c: Cursor, g: ConditionGrammar): Condition | null {
       if (controllerAtMove || !controller || c.word("control") === null) return null;
       controllerAtMove = controller;
     }
-    const during = parseHistoryPeriod(c);
+    const during = parseLookbackPeriod(c);
     return during && negated({ condition: "zone-change-history", event, subject, ...(from ? { from } : {}), ...(to ? { to } : {}),
       ...(controllerAtMove ? { controllerAtMove } : {}), during }, negate);
   });
@@ -669,8 +758,9 @@ function parseLifeHistory(c: Cursor, g: ConditionGrammar): Condition | null {
       alternative = other;
     }
     const comparison = c.isWord("life") ? { op: "gt" as const, value: zero } : parseComparison(c, g);
-    if (!comparison || c.word("life") === null || !c.words("this", "turn")) return null;
-    const during = "this-turn" as const;
+    if (!comparison || c.word("life") === null) return null;
+    const during = c.words("this", "turn") ? "this-turn" as const : c.words("last", "turn") ? "last-turn" as const : null;
+    if (!during) return null;
     const condition: Condition = { condition: "life-change", who: subject.who, change, comparison, during };
     return negated(alternative ? { condition: join === "and" ? "all-of" : "any-of", conditions: [condition,
       { condition: "life-change", who: subject.who, change: alternative, comparison, during },
@@ -678,17 +768,35 @@ function parseLifeHistory(c: Cursor, g: ConditionGrammar): Condition | null {
   });
 }
 
+/** "You've paid or lost four or more {E} this turn" (CR 107.14): the energy
+ * counters paid or lost, compared as a number. */
+function parseEnergyHistory(c: Cursor, g: ConditionGrammar): Condition | null {
+  return c.attempt(c => {
+    if (!c.words("you've", "paid", "or", "lost")) return null;
+    const comparison = parseComparison(c, g);
+    const symbol = c.peek();
+    if (!comparison || symbol?.kind !== "symbol" || symbol.value !== "E") return null;
+    c.pos++;
+    if (!c.words("this", "turn")) return null;
+    return { condition: "compare", value: { amount: "energy-paid-or-lost", who: { player: "you" }, during: "this-turn" }, comparison };
+  });
+}
+
 function parseCastHistory(c: Cursor, g: ConditionGrammar): Condition | null {
   return c.attempt(c => {
     const passive = c.attempt((c): Condition | null => {
       const exact = c.isWord("no", "exactly");
-      const comparison = parseComparison(c, g);
+      // "a spell was warped this turn": at least one such spell (CR 702.185c).
+      const comparison = c.word("a") !== null ? { op: "ge" as const, value: one } : parseComparison(c, g);
       if (comparison?.op === "eq" && !exact) return null;
       const what = comparison && g.parseFilter(c);
-      if (!comparison || !what || what.cls !== "spell" || hasFilterZone(what) ||
-          c.word("was", "were") === null || c.word("cast") === null) return null;
+      if (!comparison || !what || what.cls !== "spell" || hasFilterZone(what) || c.word("was", "were") === null) return null;
+      // CR 702.185c: "a spell was warped this turn" — cast for its warp cost.
+      const verb = c.word("cast", "warped");
+      if (!verb) return null;
       const during = c.words("this", "turn") ? "this-turn" : c.words("last", "turn") ? "last-turn" : null;
-      return during && { condition: "cast-count", who: "all-players-combined", what, comparison, during };
+      return during && { condition: "cast-count", who: "all-players-combined",
+        what: verb === "warped" ? { ...what, castForKeywordCost: "warp" } : what, comparison, during };
     });
     if (passive) return passive;
     const subject = parseHistorySubject(c, g);
@@ -723,6 +831,29 @@ function parseCastHistory(c: Cursor, g: ConditionGrammar): Condition | null {
     const during = c.words("this", "turn") ? "this-turn" : c.words("last", "turn") ? "last-turn" : null;
     if (!during) return null;
     return negated({ condition: "cast-count", who: subject.who, what, comparison, during, ...(from ? { from } : {}) }, subject.negate);
+  });
+}
+
+/** "You've cast both a creature spell and a noncreature spell this turn":
+ * one spell of each kind. Only kinds that no single spell can both match
+ * (a card type and its negation) make two independent counts exact. */
+function parseCastPair(c: Cursor, g: ConditionGrammar): Condition | null {
+  return c.attempt(c => {
+    if (c.word("you've") === null || c.word("cast") === null) return null;
+    c.word("both");
+    const kinds: ObjectFilter[] = [];
+    for (const join of [null, "and"] as const) {
+      if (join && c.word(join) === null) return null;
+      if (c.word("a", "an") === null) return null;
+      const what = g.parseFilter(c);
+      if (!what || what.cls !== "spell" || hasFilterZone(what)) return null;
+      kinds.push(what);
+    }
+    const [first, second] = kinds;
+    const disjoint = first.types?.some(type => second.nonTypes?.includes(type)) || second.types?.some(type => first.nonTypes?.includes(type));
+    if (!disjoint || !c.words("this", "turn")) return null;
+    return { condition: "all-of", conditions: kinds.map(what =>
+      ({ condition: "cast-count", who: { player: "you" }, what, comparison: { op: "ge", value: one }, during: "this-turn" })) };
   });
 }
 
@@ -772,18 +903,20 @@ function parseAtom(c: Cursor, g: ConditionGrammar): Condition | null {
   const comparative = parseComparativeCondition(c, g);
   if (comparative) return comparative;
   const own = parseDesignationCondition(c, g) ?? parseLinkedCondition(c, g) ?? parsePlayerCondition(c, g)
-    ?? parseDescended(c) ?? parseNoAttackers(c);
+    ?? parseDescended(c) ?? parseNoAttackers(c) ?? parseEventCondition(c, g) ?? parseCastOrdinal(c, g) ?? parseFirstEvent(c, g);
   if (own) return own;
+  const paired = parsePairedCondition(c, g) ?? parseMostCommonColorCondition(c, g);
+  if (paired) return paired;
   const subset = parseControlledSubset(c, g);
   if (subset) return subset;
   const dice = parseDiceCondition(c, g);
   if (dice) return dice;
   const aggregate = parseAggregateCondition(c, g) ?? parsePlayerCounters(c, g);
   if (aggregate) return aggregate;
-  return parsePutActionOutcome(c, g) ?? parseCharacteristicRelationCondition(c, g) ?? parseSearchHistory(c, g) ?? parseZoneState(c, g) ?? parseKicked(c, g) ?? parseHandCount(c, g) ?? parsePersonalZoneCount(c, g) ?? parseZoneSize(c, g) ?? parseCopularZoneCount(c, g) ?? parseQualifiedCount(c, g)
+  return parsePutActionOutcome(c, g) ?? parseEventOutcome(c, g) ?? parseAttributeComparison(c, g) ?? parseGraveyardPosition(c, g) ?? parseCharacteristicRelationCondition(c, g) ?? parseSearchHistory(c, g) ?? parseZoneState(c, g) ?? parseKicked(c, g) ?? parseHandCount(c, g) ?? parsePersonalZoneCount(c, g) ?? parseOwnedInExile(c, g) ?? parseZoneSize(c, g) ?? parseCopularZoneCount(c, g) ?? parseQualifiedCount(c, g)
     ?? parseHasKeyword(c, g) ?? parseManaSpent(c, g) ?? parseDamageHistory(c, g)
     ?? parseCombatHistory(c, g) ?? parseCastObjectHistory(c, g) ?? parseZoneHistory(c, g)
-    ?? parseLifeHistory(c, g) ?? parseCastHistory(c, g) ?? g.parseAtomic(c);
+    ?? parseLifeHistory(c, g) ?? parseEnergyHistory(c, g) ?? parseCastPair(c, g) ?? parseCastHistory(c, g) ?? g.parseAtomic(c);
 }
 
 /** Repeated complete clauses can form an unambiguous boolean expression.

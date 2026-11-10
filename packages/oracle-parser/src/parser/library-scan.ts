@@ -33,11 +33,24 @@ export function parseLibraryScan(c: Cursor, g: Grammar): Effect[] | null {
     if (!who || !c.words('cards', 'from', 'the', 'top', 'of')) return null;
     const library = g.zone(c);
     if (!library || library.zone !== 'library' || !library.owner || library.position || c.word('until') === null) return null;
-    const repeated = g.player(c);
-    if (!repeated || !sameActor(who, repeated) || c.word(operation, `${operation}s`) === null) return null;
-    const count = g.count(c);
+    // Passive stop condition: "until four land cards are revealed" names the
+    // same stopping point as "until you reveal four land cards".
+    const passive = c.attempt(c => {
+      const count = g.count(c);
+      const matching = count && g.filter(c);
+      if (!matching || c.word('is', 'are') === null || c.word(operation === 'reveal' ? 'revealed' : 'exiled') === null) return null;
+      return { count, matching };
+    });
+    let count: Amount | null;
+    let matching: ObjectFilter | null;
+    if (passive) ({ count, matching } = passive);
+    else {
+      const repeated = g.player(c);
+      if (!repeated || !sameActor(who, repeated) || c.word(operation, `${operation}s`) === null) return null;
+      count = g.count(c);
+      matching = count && g.filter(c);
+    }
     if (!count || (count.amount !== 'x' && (count.amount !== 'fixed' || count.value < 0))) return null;
-    const matching = g.filter(c);
     if (!matching || matching.cls !== 'card' || describesAnotherPool(matching)) return null;
     return [{ effect: 'scan-library', who, operation, library, until: { count, matching } }];
   });

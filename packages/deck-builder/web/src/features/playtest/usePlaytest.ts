@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useLive } from "../../api/live.tsx";
 import { api } from "../../api/client.ts";
 import type {
   Mode,
@@ -16,6 +17,7 @@ const EMPTY_UI: Ui = {
 /** Serialize writes against the latest server version. Drafts are independent
  * of returned game frames so a delayed response never overwrites newer typing. */
 export function usePlaytest(deckId: number) {
+  const live = useLive({ resources: ["playtest"], deckId });
   const [view, setView] = useState<PlaytestView | null>(null),
     current = useRef<PlaytestView | null>(null);
   const [ui, setUi] = useState<Ui>(EMPTY_UI),
@@ -189,6 +191,7 @@ export function usePlaytest(deckId: number) {
       }
     };
   }, [reload, persistUi]);
+  useEffect(() => { if (live) void reload(); }, [live, reload]);
   const start = (mode: Mode, replace = false) =>
     enqueue(async () => {
       if (draftTimer.current) {
@@ -220,13 +223,14 @@ export function usePlaytest(deckId: number) {
         }
       }
     });
-  const act = (action: PlaytestAction) =>
-    enqueue(async () => {
+  /** Resolves to the table the action produced, or null if it failed. */
+  const act = async (action: PlaytestAction) => {
+    let applied: PlaytestView | null = null;
+    const ok = await enqueue(async () => {
       const s = current.current?.session;
       if (!s) return;
-      apply(
-        (await api.playtestAction(deckId, s.id, s.version, action)).playtest,
-      );
+      applied = (await api.playtestAction(deckId, s.id, s.version, action)).playtest;
+      apply(applied);
       const next = {
         ...uiRef.current,
         selected: uiRef.current.selected.filter(
@@ -240,6 +244,8 @@ export function usePlaytest(deckId: number) {
       };
       setLocal(next);
     });
+    return ok ? (applied as PlaytestView | null) : null;
+  };
   const saveObservation = async () => {
     const s = current.current?.session;
     if (!s) return false;

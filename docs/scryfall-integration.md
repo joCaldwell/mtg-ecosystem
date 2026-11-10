@@ -36,12 +36,19 @@ Downloaded bulk files, temporary files, and generated reports are ignored.
 ## Evaluation
 
 `npm run validate` reads the existing cache; it does not fetch newer data.
+Validation and `npm run archive-parser` also require the frozen
+`.scryfall-cache/paper-printing-evidence.json`; `npm run ingest` does not create
+it. To set it up from a frozen `default_cards` JSONL download and bulk manifest,
+follow the [printing-evidence instructions](oracle_parser.md#development-and-verification).
 `npm run validate -- --json` emits a reproducible machine-readable report with
 corpus hash, parser revision/source hash, exclusions, full failure examples,
 and per-card acceptance/AST hashes.
 
-The scope excludes digital-only cards, silver borders, acorn stamps, and token,
-double-faced token, emblem, art-series, planar, vanguard, and scheme layouts.
+The scope requires an eligible nonsilver, nonacorn paper printing of the Oracle
+identity, established by the source record or frozen printing evidence. The
+representative printing's `digital` flag alone does not establish eligibility.
+It also excludes token, double-faced token, emblem, art-series, planar,
+vanguard, and scheme layouts.
 Other unsupported mechanics count as failures. This scope intentionally does
 not equate an entire Un-set with silver/acorn status. The scope identifier is
 versioned so denominator changes are visible.

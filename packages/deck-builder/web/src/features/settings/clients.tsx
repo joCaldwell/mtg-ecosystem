@@ -4,7 +4,7 @@
 
 import type { ReactNode } from "react";
 
-export type ClientId = "claude-code" | "codex" | "chatgpt" | "http" | "stdio";
+export type ClientId = "claude-code" | "claude-code-oauth" | "codex" | "chatgpt" | "claude-ai" | "http" | "stdio";
 
 export type Part = { prose: ReactNode } | { code: string; label: string };
 
@@ -12,6 +12,7 @@ export interface Client {
   id: ClientId;
   label: string;
   parts: Part[];
+  permissions?: Part[];
 }
 
 const Code = ({ children }: { children: ReactNode }) => <code>{children}</code>;
@@ -26,12 +27,23 @@ export function clientConfigs(url: string, token: string, stdio: string | undefi
   const clients: Client[] = [
     {
       id: "claude-code",
-      label: "Claude Code",
+      label: "Claude Code · personal token",
       parts: [
         {
           label: "Claude Code command",
-          code: `claude mcp add --transport http deck-builder ${url}/claude-code --header "Authorization: Bearer ${token}"`,
+          // Keep the bearer out of argv/history/config. The client expands the
+          // literal environment reference when it connects (vendor docs in ops).
+          code: [
+            "printf 'Paste the token from Settings: '",
+            "read -rs DECKBUILDER_TOKEN",
+            "printf '\\n'",
+            "export DECKBUILDER_TOKEN",
+            `claude mcp add-json deck-builder '${JSON.stringify({ type: "http", url: `${url}/claude-code`, headers: { Authorization: "Bearer ${DECKBUILDER_TOKEN}" } })}'`,
+            "# Launch Claude Code from this environment; keep the variable set.",
+          ].join("\n"),
         },
+      ],
+      permissions: [
         {
           prose: (
             <>
@@ -48,7 +60,7 @@ export function clientConfigs(url: string, token: string, stdio: string | undefi
     },
     {
       id: "codex",
-      label: "Codex",
+      label: "Codex · personal token",
       parts: [
         {
           prose: (
@@ -72,54 +84,26 @@ export function clientConfigs(url: string, token: string, stdio: string | undefi
     },
   ];
 
-  if (stdio) {
-    clients.push({
-      id: "chatgpt",
-      label: "ChatGPT (web, phone)",
-      parts: [
-        {
-          prose: (
-            <>
-              ChatGPT's servers cannot reach an app that only listens on this machine. OpenAI's Secure MCP Tunnel is
-              the supported way through: a small program you run here that connects out to OpenAI, so nothing is
-              opened to the internet. It needs an OpenAI Platform organization with Tunnels enabled, a tunnel id and a
-              runtime API key from <Code>platform.openai.com/settings/organization/tunnels</Code>, and the{" "}
-              <Code>tunnel-client</Code> program from there. These commands follow OpenAI's guide and have not been
-              run against this app; what you say to ChatGPT about your decks then passes through OpenAI, as anything
-              said to ChatGPT does.
-            </>
-          ),
-        },
-        {
-          label: "tunnel-client commands",
-          code: [
-            'export CONTROL_PLANE_API_KEY="sk-..."',
-            "tunnel-client init \\",
-            "  --sample sample_mcp_stdio_local \\",
-            "  --profile deck-builder \\",
-            "  --tunnel-id <your tunnel id> \\",
-            `  --mcp-command "${stdio} --name chatgpt"`,
-            "tunnel-client doctor --profile deck-builder --explain",
-            "tunnel-client run --profile deck-builder",
-          ].join("\n"),
-        },
-        {
-          prose: (
-            <>
-              Then in ChatGPT, open Settings → Connectors, choose <strong>Connection: Tunnel</strong> and pick the
-              tunnel. Keep <Code>tunnel-client run</Code> and this app running while you use it.
-            </>
-          ),
-        },
-      ],
-    });
+  if (!stdio) {
+    // Verified 2026-10-25 against code.claude.com/docs/en/mcp and
+    // developers.openai.com/api/docs/mcp (remote connectors use OAuth).
+    clients.splice(1, 0, { id: "claude-code-oauth", label: "Claude Code · OAuth", parts: [
+      { prose: <>Run this without a token. Open Claude Code’s /mcp menu and choose Authenticate, then sign in and approve deck-builder access.</> },
+      { label: "Claude Code OAuth", code: `claude mcp add --transport http deck-builder-oauth ${url}` },
+    ], permissions: clients[0].permissions });
+    clients.push({ id: "claude-ai", label: "Claude.ai · OAuth", parts: [
+      { prose: <>In Claude.ai, open Settings → Connectors → Add custom connector. Enter this hosted URL, then choose Connect. Sign in with your deck-builder account and approve access. A public HTTPS address is required.</> },
+      { label: "Claude.ai connector URL", code: url },
+    ] }, { id: "chatgpt", label: "ChatGPT · OAuth", parts: [
+      { prose: <>In ChatGPT, enable developer mode in Settings → Apps, then create an app with this MCP URL and OAuth authentication. Connect, sign in and approve deck-builder access. Your plan or workspace must allow custom apps; a public HTTPS address is required.</> },
+      { label: "ChatGPT MCP URL", code: url },
+    ] });
   }
 
   clients.push({
     id: "http",
     label: "Other (URL and headers)",
     parts: [
-      { prose: <>Any client that takes a URL and headers.</> },
       {
         label: "HTTP configuration",
         code: JSON.stringify(
@@ -144,7 +128,7 @@ export function clientConfigs(url: string, token: string, stdio: string | undefi
           prose: (
             <>
               For a client that only launches a command. The command is a pipe to this running app, so the app must be
-              started first. It reads the token from the app's data folder.
+              started first. In local mode it reads data/stdio-token, preserved from the previous token on upgrade. For a new token, save it in a private file and add --token-file /private/path/to/token (or set DECKBUILDER_TOKEN_FILE).
             </>
           ),
         },

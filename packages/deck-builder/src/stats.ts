@@ -1,8 +1,9 @@
+import type { Actor } from "./actor.ts";
 // Player statistics (spec §3, §10.3): what the owner builds, computed across
 // their Paper decks. "The owner has three Golgari decks" is a query, never a
 // memory — so the app answers it here, and the playbook forbids storing it.
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "./sqlite.ts";
 import { getDeck, listDecks } from "./deck/service.ts";
 
 const COLOR_ORDER = ["W", "U", "B", "R", "G"];
@@ -50,10 +51,10 @@ export interface PlayerStats {
   families: number;
 }
 
-export function playerStats(db: DatabaseSync, opts: { reusedLimit?: number } = {}): PlayerStats {
-  const allDecks = listDecks(db);
+export function playerStats(db: Database, actor: Actor, opts: { reusedLimit?: number } = {}): PlayerStats {
+  const allDecks = listDecks(db, actor);
   const roster = allDecks.filter((d) => d.category === "paper");
-  const views = roster.map((d) => getDeck(db, d.id));
+  const views = roster.map((d) => getDeck(db, actor, d.id));
   const filled = views.filter((v) => v.computed.card_count > 0);
 
   // A fork carries its parent's list, so counting both would report the same

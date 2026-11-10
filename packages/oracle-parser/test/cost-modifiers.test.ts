@@ -234,12 +234,27 @@ describe("casting and activation cost adjustments", () => {
   });
 
   it("rejects unsupported qualifiers instead of accepting a cost prefix", () => {
+    // The target-count multiplier (CR 601.2c/f) now represents this
+    // wording completely, so its former rejection became a structural check.
+    modifier("This spell costs {1} less to cast for each target beyond the first.", {
+      static: "cost-modification", scope: thisSpell, change: reduceOne,
+      multiplier: { amount: "target-count", of: { ref: "this", noun: "spell" }, beyond: 1 },
+    });
+    // "unless they're mana abilities" is the same exemption as "that
+    // aren't mana abilities" (Zirda), so its former rejection became a structural check.
+    modifier("Activated abilities cost {1} less to activate unless they're mana abilities.", {
+      static: "cost-modification", scope: { action: "activate", abilities: { ref: "each", filter: { cls: "ability", manaAbility: false } } },
+      change: reduceOne,
+    });
+    // "unless they're mana abilities" excludes mana abilities from the
+    // adjusted group (CR 605.1a), as "that aren't mana abilities" does.
+    modifier("Activated abilities cost {1} less to activate unless they're mana abilities.", {
+      static: "cost-modification", scope: { action: "activate", abilities: { ref: "each", filter: { cls: "ability", manaAbility: false } } }, change: reduceOne,
+    });
     for (const text of [
-      "This spell costs {1} less to cast for each target beyond the first.",
       "This spell costs {1} less to cast if invented condition.",
       "This spell costs {T} less to cast.",
       "This spell costs {2} more to cast. This effect reduces only the amount of colored mana you pay.",
-      "Activated abilities cost {1} less to activate unless they're mana abilities.",
       "Equip abilities you activate cost {1} less to activate until end of turn.",
       "Triggered abilities you activate cost {1} less to activate.",
       "Flying abilities you activate cost {1} less to activate.",

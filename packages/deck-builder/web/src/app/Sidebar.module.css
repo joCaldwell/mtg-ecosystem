@@ -2,32 +2,34 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--line);
-  background: var(--surface);
+  border-right: 1px solid var(--sidebar-line);
+  background: var(--sidebar-bg);
 }
 
+/* The drawer draws its own edge. */
+.inDrawer { border-right: 0; }
+
+/* Inline, the mark sits on the wordmark's baseline at its cap height. */
 .brand {
   display: flex;
   align-items: center;
   gap: var(--s-4);
-  padding: var(--s-6) var(--s-6) var(--s-5);
+  min-height: var(--tablet-bar-h);
+  padding: var(--s-4) var(--s-5) var(--s-4) calc(var(--s-5) + var(--s-4));
+  color: var(--text);
+  font-size: var(--text-lg);
   font-weight: 650;
   letter-spacing: -0.01em;
 }
 
-.mark {
-  width: var(--s-6);
-  height: var(--s-6);
-  border-radius: var(--r-sm);
-  background: linear-gradient(135deg, var(--mana-u) 0 33%, var(--mana-b-ring) 33% 66%, var(--mana-r) 66%);
-}
+.mark { margin-inline-end: var(--s-3); }
 
 .nav,
 .decks {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding: 0 var(--s-4);
+  padding: 0 var(--s-5);
 }
 
 .decks {
@@ -41,7 +43,8 @@
   display: flex;
   align-items: center;
   gap: var(--s-4);
-  padding: var(--s-2) var(--s-4);
+  min-height: var(--h-lg);
+  padding: var(--s-3) var(--s-4);
   border-radius: var(--r-md);
   color: var(--muted);
 }
@@ -58,16 +61,70 @@
   color: var(--text);
 }
 
+.end .inboxBadge,
+.waitingBadge {
+  background: var(--agent);
+  color: var(--bg);
+}
+
+/* A deck's waiting count, at the row's end like the Inbox's. */
+.waiting {
+  display: inline-flex;
+  flex: none;
+  order: 1;
+  margin-left: var(--s-1);
+}
+
 .end {
   margin-left: auto;
 }
 
-.heading {
-  padding: var(--s-6) var(--s-6) var(--s-2);
+.divider {
+  flex: none;
+  margin: var(--s-4) var(--s-5);
+  border-top: 1px solid var(--line);
 }
 
 .decks a.fork {
-  padding-left: var(--s-7);
+  padding-left: calc(var(--s-7) - var(--s-2));
+}
+
+/* Deck rows keep main's room for names: the thumbnail replaces the dot and
+   the gaps and padding give back what it takes. */
+.decks a {
+  gap: var(--s-3);
+  padding-inline: var(--s-4);
+}
+
+.decks a .shared,
+.decks a .lifecycle {
+  margin-left: var(--s-1);
+}
+
+.lead {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--art-thumb);
+  height: var(--art-thumb);
+  flex: none;
+}
+
+.thumb {
+  opacity: var(--art-thumb-opacity);
+}
+
+.decks a:hover .thumb,
+.decks a.current .thumb {
+  opacity: 1;
+}
+
+/* Waiting on the owner: the violet dot sits on the thumbnail's corner. */
+.thumb + .pending {
+  position: absolute;
+  right: calc(var(--s-1) * -1);
+  bottom: calc(var(--s-1) * -1);
+  box-shadow: 0 0 0 var(--s-1) var(--sidebar-bg);
 }
 
 .name {
@@ -78,17 +135,29 @@
   white-space: nowrap;
 }
 
-.draft {
-  color: var(--warn);
-  font-size: var(--text-2xs);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+.lifecycle {
+  flex: none;
+  font-size: var(--text-xs);
+}
+
+.lifecycle[data-lifecycle="paper"] {
+  color: var(--lifecycle-paper);
+}
+
+.lifecycle[data-lifecycle="theorycrafted"] {
+  color: var(--lifecycle-theorycrafted);
+}
+
+.lifecycle[data-lifecycle="archived"] {
+  color: var(--lifecycle-archived);
 }
 
 .presence {
   display: grid;
-  gap: var(--s-3);
-  padding: var(--s-5) var(--s-6);
+  grid-template-rows: repeat(2, calc(var(--tap) / 2));
+  flex: none;
+  min-width: 0;
+  padding: var(--s-5);
   border-top: 1px solid var(--line);
   font-size: var(--text-sm);
 }
@@ -110,17 +179,73 @@
 .when {
   flex: none;
   color: var(--faint);
+  white-space: nowrap;
 }
 
 .focus {
-  padding: var(--s-3) var(--s-4);
-  border: 1px dashed var(--line-strong);
-  border-radius: var(--r-md);
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
   color: var(--muted);
   line-height: 1.35;
+  white-space: nowrap;
 }
 
-.focus b {
+.focus > span { flex: none; }
+.focusDeck {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--text);
   font-weight: 550;
+}
+
+/* Shared decks (spec §18.2): a quiet glyph, grey because sharing is not one of the colour meanings. */
+.shared {
+  display: inline-flex;
+  flex: none;
+  color: var(--faint);
+}
+
+@media (max-width: 959px) {
+  .sidebar { width: 100%; flex: 1; }
+  .nav a, .decks a { min-height: var(--tap); }
+}
+
+.brandName { flex: 1; white-space: nowrap; }
+.toggle { flex: none; margin-left: auto; }
+.presenceText { display: flex; align-items: baseline; flex: 1; min-width: 0; white-space: nowrap; }
+.agent { min-width: 0; }
+
+/* The desktop rail keeps every link; accessible names and titles survive
+   the hidden text, including deck names and the inbox's count. */
+/* The rail stacks the mark above the expand button. */
+.collapsed .brand { flex-direction: column; justify-content: center; gap: var(--s-3); padding-inline: 0; }
+.collapsed .brandName { flex: none; line-height: 1; }
+.collapsed .mark { --brand-mark-h: var(--brand-mark-rail); margin: 0; vertical-align: top; }
+.collapsed .toggle { margin: 0; }
+.collapsed .nav a, .collapsed .decks a { justify-content: center; position: relative; padding-inline: 0; min-height: var(--tap); }
+.collapsed .label, .collapsed .name, .collapsed .lifecycle, .collapsed .shared, .collapsed .waiting, .collapsed .presenceText { display: none; }
+.collapsed .end { position: absolute; top: 0; right: 0; }
+.collapsed .presence { justify-items: center; }
+.collapsed .who { grid-row: 1 / -1; justify-content: center; }
+
+/* A deferred or failed thumbnail still has a visible rail target. */
+.thumb + .fallback { position: absolute; }
+.thumb:has([data-loaded]):not(:has([data-failed])) + .fallback { visibility: hidden; }
+
+/* Larger desktop collections are searchable without leaving the current deck.
+   These controls are absent from the compact rail and the tablet drawer. */
+.filter { padding: 0 var(--s-5) var(--s-4); }
+.noMatches { display: grid; gap: var(--s-4); padding: var(--s-4); color: var(--muted); font-size: var(--text-sm); }
+.noMatches button { justify-self: start; color: var(--text); text-decoration: underline; text-underline-offset: var(--s-1); }
+@media not all and (max-width: 1099px) {
+  .sidebar:not(.collapsed) .decks a { position: relative; flex: none; display: grid; grid-template-columns: var(--art-thumb) minmax(0, 1fr) auto auto; gap: 0 var(--s-3); padding-block: var(--s-2); }
+  .sidebar:not(.collapsed) .waiting { grid-column: 4; grid-row: 1 / span 2; align-self: center; margin-left: 0; }
+  .sidebar:not(.collapsed) .lead { grid-column: 1; grid-row: 1 / span 2; align-self: center; }
+  .sidebar:not(.collapsed) .name { grid-column: 2; grid-row: 1; white-space: normal; overflow-wrap: anywhere; }
+  .sidebar:not(.collapsed) .shared { grid-column: 3; grid-row: 1; margin-left: 0; }
+  .sidebar:not(.collapsed) .lifecycle { grid-column: 2 / 4; grid-row: 2; margin-left: 0; }
 }

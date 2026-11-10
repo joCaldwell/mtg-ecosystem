@@ -1,15 +1,21 @@
+import { withReadContext } from "../read-context.ts";
+import { priceResolver } from "../prices.ts";
+import type { Actor } from "../actor.ts";
 // Text for agents (spec §10.2): compact, meant to be read, grouped the way
 // the deck is organized. No JSON blobs and no ids the agent will not need.
 // Counts are always the app's, stated outright, so the reader never counts.
 
-import type { DatabaseSync } from "node:sqlite";
+import type { Database } from "../sqlite.ts";
 import type { CardRow, ResolutionFailure } from "../cards.ts";
 import type { ActivityEntry } from "../activity.ts";
-import { getPower, profileLines, targetText } from "../deck/power.ts";
+import { type BracketMapping, getPower, profileLines, targetText } from "../deck/power.ts";
+import { deckTokens, type DeckToken } from "../deck/tokens.ts";
+import type { tokenStatus } from "../token-catalog.ts";
+import type { PublicDeckState } from "../state.ts";
 import { getBrief } from "../deck/brief.ts";
 import { type Finding, checkDeck } from "../deck/checks.ts";
 import type { DeckComparison } from "../deck/fork.ts";
-import { type CardRuling, type LogEntry, listLog } from "../deck/log.ts";
+import { type CardDecision, type LogEntry, listLog } from "../deck/log.ts";
 import { type ProposalView, listProposals } from "../deck/proposals.ts";
 import {
   type ComputedState,
@@ -17,10 +23,11 @@ import {
   type DeckSummary,
   type DeckView,
   getDeck,
+  requireDeck,
 } from "../deck/service.ts";
 import { type DocumentEditView, listDocumentEdits } from "../documents.ts";
 import { type LoadedScope, type MemoryView, loadScope } from "../memory.ts";
-import { type CostEstimate, formatUsd } from "../prices.ts";
+import { type CostEstimate, type Currency, type PriceMetadata, formatPrice } from "../prices.ts";
 import type { PlayerStats } from "../stats.ts";
 
 // The corner stat as the card prints it: power/toughness, or loyalty.
@@ -40,30 +47,30 @@ const indent = (text: string, by = "    ") =>
 
 // Spec §4.4: a card's price is the cheapest printing's, and is part of how
 // the card is shown everywhere. A card with no price shows none.
-function priceTag(usdCents: number | null, quantity = 1): string {
-  if (usdCents == null) return "";
-  return ` · ${formatUsd(usdCents)}${quantity > 1 ? " each" : ""}`;
+function priceTag(cents: number | null | undefined, quantity = 1, currency: Currency = "USD"): string {
+  if (cents == null) return "";
+  return ` · ${formatPrice(cents, currency)}${quantity > 1 ? " each" : ""}`;
 }
 
-/** "$412.37 at the cheapest printing of each card (Scryfall prices of 2026-10-11); 2 cards have no price and are not counted". */
-function costPhrase(cost: CostEstimate & { as_of: string | null }): string {
+/** Amount and unpriced count; source/date appears once in the response. */
+function costPhrase(cost: CostEstimate & PriceMetadata): string {
   const missing = cost.unpriced
     ? `; ${cost.unpriced} card${cost.unpriced === 1 ? " has" : "s have"} no price and ${cost.unpriced === 1 ? "is" : "are"} not counted`
     : "";
-  return `${formatUsd(cost.usd_cents)} at the cheapest printing of each card (Scryfall prices of ${cost.as_of!.slice(0, 10)})${missing}`;
+  return `${formatPrice(cost.cents, cost.currency)} at the cheapest printing of each card${missing}`;
 }
 
 /** One card: name, cost, type, stats, price; oracle text beneath when asked. */
 export function cardLine(
   c: Pick<
     CardRow,
-    "name" | "mana_cost" | "type_line" | "oracle_text" | "power" | "toughness" | "loyalty" | "usd_cents"
+    "name" | "mana_cost" | "type_line" | "oracle_text" | "power" | "toughness" | "loyalty" | "cents" | "currency"
   >,
   opts: { text?: boolean; quantity?: number; suffix?: string } = {},
 ): string {
   const qty = opts.quantity && opts.quantity > 1 ? `${opts.quantity}x ` : "";
   const cost = c.mana_cost ? ` ${c.mana_cost}` : "";
-  const head = `- ${qty}${c.name}${cost} — ${c.type_line}${statline(c)}${priceTag(c.usd_cents, opts.quantity)}${opts.suffix ?? ""}`;
+  const head = `- ${qty}${c.name}${cost} — ${c.type_line}${statline(c)}${priceTag(c.cents, opts.quantity, c.currency)}${opts.suffix ?? ""}`;
   return opts.text === false || !c.oracle_text ? head : `${head}\n${indent(c.oracle_text)}`;
 }
 
@@ -73,7 +80,7 @@ function range(min: number | null, max: number | null): string {
   return min != null ? `target ${min}+` : `target up to ${max}`;
 }
 
-// ---------- memories and rulings, as they attach to other things ----------
+// ---------- memories and decisions, as they attach to other things ----------
 
 export function memoryLine(m: MemoryView): string {
   const where = m.scope === "global" ? "global" : `deck "${m.deck_name}"`;
@@ -83,7 +90,7 @@ export function memoryLine(m: MemoryView): string {
   return `- memory #${m.id} (${flags.join(", ")}): ${m.text}`;
 }
 
-export function rulingLine(r: CardRuling): string {
+export function decisionLine(r: CardDecision): string {
   const what =
     r.kind === "reject"
       ? `the owner rejected ${r.action === "add" ? "adding" : "cutting"} it`
@@ -95,8 +102,8 @@ export function rulingLine(r: CardRuling): string {
             ? `${r.action === "add" ? "added" : "cut"} by an import`
             : `${r.action === "add" ? "added" : r.action === "cut" ? "cut" : "role changed"} directly by ${r.author}`;
   const where = r.from_deck ? `in "${r.from_deck}", which this deck was forked from` : `at revision ${r.revision}`;
-  const parts = [`- ruling #${r.log_id} ${where}: ${what}`];
-  if (r.ruling_reason) parts.push(`the owner's reason: "${r.ruling_reason}"`);
+  const parts = [`- decision #${r.log_id} ${where}: ${what}`];
+  if (r.decision_reason) parts.push(`the owner's reason: "${r.decision_reason}"`);
   if (r.reason && r.kind !== "edit") parts.push(`it was proposed because: "${r.reason}"`);
   if (r.undone) parts.push("(later undone)");
   return parts.join(" — ");
@@ -105,7 +112,7 @@ export function rulingLine(r: CardRuling): string {
 /** The context the app attaches to a card wherever it appears (spec §7.2, §8.3). */
 export interface CardContext {
   memories?: MemoryView[];
-  rulings?: CardRuling[];
+  decisions?: CardDecision[];
   /** Other decks holding the card; only present when the call asked for it (§4.2). */
   myDecks?: string[];
   /** "in the deck" / "on the maybe list", when a deck was named. */
@@ -117,7 +124,7 @@ export function cardWithContext(card: CardRow, ctx: CardContext = {}, text = tru
   const notes: string[] = [];
   if (card.commander_legality !== "legal")
     notes.push(`- ${card.commander_legality.replace("_", " ")} in Commander`);
-  for (const r of ctx.rulings ?? []) notes.push(rulingLine(r));
+  for (const r of ctx.decisions ?? []) notes.push(decisionLine(r));
   for (const m of ctx.memories ?? []) notes.push(memoryLine(m));
   if (ctx.myDecks?.length) notes.push(`- in your decks: ${ctx.myDecks.join(", ")}`);
   if (notes.length) lines.push(indent(notes.join("\n"), "  "));
@@ -142,32 +149,45 @@ export const DECK_SECTIONS = [
   "power",
   "list",
   "maybe",
+  "tokens",
   "state",
   "checks",
   "memories",
   "proposals",
-  "rulings",
+  "decisions",
 ] as const;
 export type DeckSection = (typeof DECK_SECTIONS)[number];
 
-function header(view: DeckView): string {
+function header(view: { deck: DeckView["deck"]; computed: { card_count: number; cost: PriceMetadata } }): string {
   const d = view.deck;
   const bits = [
     `lifecycle ${d.category}`,
     `revision ${d.revision}`,
+    `edit version ${d.edit_version}`,
     `identity ${d.color_identity || (d.ci_mask === 0 ? "colourless" : "none yet (no commander)")}`,
     `${view.computed.card_count}/100 cards`,
   ];
   if (d.parent) bits.push(`forked from deck ${d.parent.id} "${d.parent.name}"`);
-  const rule = d.category === "legacy"
-    ? "Legacy: read-only. View, export or fork it; only the owner can restore it."
+  else if (d.upstream) bits.push(`forked from ${d.upstream.owner_handle}/${d.upstream.name} (shared deck ${d.upstream.slug})`);
+  if (d.visibility !== "private") bits.push(`${d.visibility}, link /d/${d.slug}`);
+  const rule = d.category === "archived"
+    ? "Archived: read-only. View, export or fork it; only the owner can restore it."
     : (d.category === "paper"
       ? "Paper: change its cards only with propose_changes."
       : "Theorycrafted: edit its cards directly with edit_cards.") + " Brief and power target changes always require proposals.";
-  return `# Deck ${d.id} "${d.name}" — ${bits.join(" · ")}\n${rule}`;
+  return `# Deck ${d.id} "${d.name}" — ${bits.join(" · ")}\n${rule}\n${priceSourceLine(view.computed.cost)}`;
 }
 
-export function stateLines(view: DeckView): string {
+function compactHeader(db: Database, actor: Actor, deckId: number): string {
+  const deck = requireDeck(db, actor, deckId);
+  const { n } = db.prepare("SELECT COALESCE(SUM(quantity),0) n FROM deck_cards WHERE deck_id=? AND maybe=0 AND role<>'companion'").get(deckId) as { n: number };
+  const parent = deck.parent_id == null ? null : db.prepare("SELECT id,name FROM decks WHERE id=? AND user_id=?").get(deck.parent_id, actor.user_id) as { id: number; name: string } | undefined;
+  return header({ deck: { ...deck, publish_decisions: !!deck.publish_decisions, parent: parent ?? null,
+    upstream: deck.parent_slug && deck.parent_owner_handle ? { slug: deck.parent_slug, owner_handle: deck.parent_owner_handle, name: deck.parent_name ?? "" } : null },
+    computed: { card_count: n, cost: priceResolver(db, actor) } });
+}
+
+export function stateLines(view: Pick<DeckView, "slots" | "computed">): string {
   const c = view.computed;
   const lines = [
     `- Cards: ${c.card_count}/100 (${countPhrase(c)})`,
@@ -175,16 +195,28 @@ export function stateLines(view: DeckView): string {
       c.average_mana_value == null ? "n/a" : c.average_mana_value.toFixed(2)
     }`,
     `- Curve (mana value: cards): ${Object.entries(c.curve).map(([b, n]) => `${b}: ${n}`).join(", ")}`,
-    `- Coloured pips in costs: ${
+    `- Legacy raw colour-letter count, all printed faces including flexible alternatives: ${
       Object.entries(c.pips).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(", ") || "none"
     }`,
   ];
+  const mana = c.mana;
+  const face = mana.first_face;
+  const manaColors = ["W", "U", "B", "R", "G"] as const;
+  const manaTypes = [...manaColors, "C"] as const;
+  lines.push(`- Mana comparison, first printed face (fixed cost symbols / recognized land copies / other permanent copies): ${manaColors.map(color => `${color} ${face.costs.fixed_symbols[color]}/${face.sources.land.by_type[color]}/${face.sources.nonland.by_type[color]}`).join("; ")}`);
+  lines.push(`- Separate mana options: flexible costs ${Object.entries(face.costs.flexible_symbols).map(([symbol, count]) => `${symbol} ×${count}`).join(", ") || "none"}; any-colour sources ${face.sources.land.any_color_copies} land / ${face.sources.nonland.any_color_copies} other; C sources ${face.sources.land.by_type.C} land / ${face.sources.nonland.by_type.C} other.`);
+  if (face.costs.generic_units || face.costs.snow_symbols || face.costs.fixed_symbols.C || Object.values(face.costs.variable_symbols).some(Boolean) || face.costs.no_printed_cost_nonland_copies) lines.push(`- Other first-face cost counts: generic units ${face.costs.generic_units}; fixed C ${face.costs.fixed_symbols.C}; snow ${face.costs.snow_symbols}; variable symbols ${Object.entries(face.costs.variable_symbols).map(([symbol, count]) => `${symbol} ${count}`).join(", ")}; no printed nonland cost ${face.costs.no_printed_cost_nonland_copies}.`);
+  lines.push(`- Mana-source coverage: ${mana.coverage.recognized_source_copies} recognized (${mana.coverage.partial_source_copies} partial), ${mana.coverage.unresolved_source_copies} unresolved, ${mana.coverage.no_supported_source_pattern_copies} without a supported pattern; ${mana.coverage.cost_issue_copies} copies with cost issues.`);
+  if (mana.coverage.other_face_copies > 0) lines.push(`- Other printed faces, separately (not simultaneous): ${manaTypes.map(color => `${color} ${mana.other_faces.costs.fixed_symbols[color]}/${mana.other_faces.sources.land.by_type[color]}/${mana.other_faces.sources.nonland.by_type[color]}`).join("; ")}; generic ${mana.other_faces.costs.generic_units}, snow ${mana.other_faces.costs.snow_symbols}, variables ${Object.entries(mana.other_faces.costs.variable_symbols).map(([symbol, count]) => `${symbol} ${count}`).join(", ")}, flexible ${Object.entries(mana.other_faces.costs.flexible_symbols).map(([symbol, count]) => `${symbol} ×${count}`).join(", ") || "none"}; any-colour sources ${mana.other_faces.sources.land.any_color_copies} land / ${mana.other_faces.sources.nonland.any_color_copies} other.`);
+  lines.push("- The mana comparison counts printed symbols and narrow direct tap-source patterns, not available mana or casting odds. It keeps flexible costs, any-colour output and other faces separate; multicolour source rows overlap. Conditional, spell, fetch and granted production is not resolved.");
   // Nothing to say until prices have been loaded once.
   if (c.cost.as_of) lines.push(`- Estimated cost: ${costPhrase(c.cost)}`);
   if (c.pending.adds || c.pending.cuts)
     lines.push(
-      `- Awaiting the owner's ruling: +${c.pending.adds} / −${c.pending.cuts}; if all were accepted the deck would be ${c.pending.projected_count}/100`,
+      `- Awaiting the owner's decision: +${c.pending.adds} / −${c.pending.cuts}; if all were accepted the deck would be ${c.pending.projected_count}/100`,
     );
+  if ((c.pending.adds || c.pending.cuts) && c.cost.as_of)
+    lines.push(`- Estimated cost if accepted: ${formatPrice(c.pending.projected_cost.cents, c.cost.currency)} (${c.pending.cost_delta.cents >= 0 ? "+" : "−"}${formatPrice(Math.abs(c.pending.cost_delta.cents), c.cost.currency)}); ${c.pending.projected_cost.unpriced} unpriced cards.`);
   if (view.slots.length) {
     lines.push(`- Slots:`);
     for (const s of c.slot_deltas) {
@@ -218,10 +250,10 @@ export function findingLines(findings: Finding[]): string {
 }
 
 /** One line after a write: the numbers an agent would otherwise go and count. */
-export function afterWrite(db: DatabaseSync, deckId: number): string {
-  const view = getDeck(db, deckId);
+export function afterWrite(db: Database, actor: Actor, deckId: number): string {
+  const view = getDeck(db, actor, deckId);
   const c = view.computed;
-  const problems = checkDeck(db, deckId);
+  const problems = checkDeck(db, actor, deckId);
   const off = c.slot_deltas
     .filter((s) => s.status === "under" || s.status === "over")
     .map((s) => `${s.name} ${s.status} by ${Math.abs(s.delta)}`);
@@ -237,7 +269,7 @@ export function afterWrite(db: DatabaseSync, deckId: number): string {
     .join("\n");
 }
 
-function listSection(view: DeckView, withText: boolean): string {
+function listSection(view: Pick<DeckView, "cards" | "slots" | "tags" | "computed">, withText: boolean): string {
   const tagName = new Map(view.tags.map((t) => [t.id, t.name]));
   const slotName = new Map(view.slots.map(s => [s.id, s.name]));
   const line = (c: DeckCardView) => {
@@ -284,6 +316,14 @@ function listSection(view: DeckView, withText: boolean): string {
   return [`## List`, ...vocab, ...groups].join("\n\n");
 }
 
+export function tokenLines(view: { tokens: DeckToken[]; tokens_status: ReturnType<typeof tokenStatus> }): string {
+  const heading = `## Tokens and emblems (${view.tokens.length} types; maybe list excluded)`;
+  if (!view.tokens_status.ready) return `${heading}\nToken data is not ready; refresh card data first.`;
+  const note = `Scryfall related tokens as of ${view.tokens_status.as_of?.slice(0, 10)}; includes copy markers and conditional effects. This is a reference list, not a prediction of quantities.`;
+  return [heading, note, ...view.tokens.map(t => `- ${t.name}${t.power != null && t.toughness != null ? ` ${t.power}/${t.toughness}` : ""} — ${t.type_line}${t.colors ? ` (${t.colors})` : ""}; from ${t.producer_count}: ${t.made_by.map(c => c.name).join("; ")}${t.oracle_text ? `\n${indent(t.oracle_text)}` : ""}`),
+    ...(!view.tokens.length ? ["(no related tokens or emblems)"] : [])].join("\n");
+}
+
 export function renderScope(loaded: LoadedScope, label: string): string {
   if (!loaded.memories.length && !loaded.omitted) return `(no ${label} memories yet)`;
   const lines = loaded.memories.map(memoryLine);
@@ -301,7 +341,7 @@ export function proposalLines(proposals: ProposalView[], edits: DocumentEditView
   for (const p of proposals) {
     const pending = p.items.filter((i) => i.status === "pending");
     if (!pending.length) continue;
-    lines.push(`- proposal #${p.id} by ${p.author}${p.summary ? `: ${p.summary}` : ""}`);
+    lines.push(`- proposal #${p.id} by ${p.author}${p.summary ? `: ${p.summary}` : ""} [current; based on r${p.base_revision ?? "unknown"}${p.stale ? "; stale" : ""}]`);
     for (const i of pending)
       lines.push(
         `  - ${i.action} ${i.card_name}${i.to_maybe ? ", moving it to the maybe list" : ""}${i.secondary_slot_names.length ? ` [secondary slots: ${i.secondary_slot_names.join(", ")}]` : ""}${i.group_id ? ` (group "${i.group_id}")` : ""}: ${i.reason}`,
@@ -309,9 +349,9 @@ export function proposalLines(proposals: ProposalView[], edits: DocumentEditView
   }
   for (const e of edits)
     lines.push(
-      `- proposed ${e.kind === "profile" ? "profile" : `brief (${e.kind.replace("_", " ")})`} edit #${e.id} by ${e.author}: ${e.reason}`,
+      `- proposed ${e.kind === "profile" ? "profile" : `brief (${e.kind.replace("_", " ")})`} edit #${e.id} by ${e.author}: ${e.reason} [current${e.group_id ? `; approval group #${e.group_id}` : ""}; based on r${e.base_revision ?? "unknown"}${e.stale ? "; stale" : ""}]`,
     );
-  return lines.join("\n") || "(nothing is awaiting the owner's ruling)";
+  return lines.join("\n") || "(nothing is awaiting the owner's decision)";
 }
 
 export function logLines(entries: LogEntry[]): string {
@@ -325,10 +365,10 @@ export function logLines(entries: LogEntry[]): string {
       const verb =
         e.kind === "accept" ? "ACCEPTED" : e.kind === "reject" ? "REJECTED" : e.kind.toUpperCase();
       let line = `${head.join(" · ")} — ${verb}: ${e.summary}`;
-      if (e.ruling_reason) line += ` — the owner's reason: "${e.ruling_reason}"`;
+      if (e.decision_reason) line += ` — the owner's reason: "${e.decision_reason}"`;
       if (e.undone_by) line += ` (undone by #${e.undone_by})`;
       if (e.reviewed_at == null) line += " [unreviewed]";
-      // The cards of a ruling carry the proposer's reasons; a long batch is
+      // The cards of a decision carry the proposer's reasons; a long batch is
       // already summarized and is not repeated card by card.
       const cards =
         e.kind === "accept" || e.kind === "reject" || e.cards.length <= 6
@@ -345,58 +385,115 @@ export function logLines(entries: LogEntry[]): string {
 }
 
 export function renderDeck(
-  db: DatabaseSync,
+  db: Database, actor: Actor,
   deckId: number,
   sections: readonly DeckSection[] = DECK_SECTIONS,
   withText = true,
 ): string {
-  const view = getDeck(db, deckId);
-  const want = new Set(sections);
-  const out: string[] = [header(view)];
+  return withReadContext(() => {
+    const want = new Set(sections);
+    // Brief, memory, power, proposal and history reads need only a small header.
+    // Materialize the list/computed composite only when those sections need it.
+    const needsView = ["list", "maybe", "state", "checks"].some(section => want.has(section as DeckSection));
+    const view = needsView ? getDeck(db, actor, deckId) : null;
+    const out: string[] = [view ? header(view) : compactHeader(db, actor, deckId)];
 
-  if (want.has("brief")) {
-    const brief = getBrief(db, deckId);
-    const engines = brief.engines.map((e) => {
-      const pieces = e.pieces
-        .map((p) => `${p.name}${p.in_deck ? "" : " (NOT in the deck)"}${p.note ? ` — ${p.note}` : ""}`)
-        .join("; ");
-      return `- ${e.name}: ${e.description || "(no description)"}\n  pieces: ${pieces || "(none listed)"}`;
-    });
-    out.push(
-      `## Brief (the owner's document)\n### Thesis\n${brief.thesis || "(not written yet)"}\n### Constraints\n${
-        brief.constraints_md || "(none recorded)"
-      }\n### Engines\n${engines.join("\n") || "(none defined)"}`,
-    );
-  }
-  if (want.has("power")) out.push(renderPower(getPower(db, deckId)));
-  if (want.has("list")) out.push(listSection(view, withText));
-  if (want.has("maybe")) {
-    const maybe = view.cards.filter((c) => c.maybe);
-    if (maybe.length)
+    if (want.has("brief")) {
+      const brief = getBrief(db, actor, deckId);
+      const engines = brief.engines.map((e) => {
+        const pieces = e.pieces
+          .map((p) => `${p.name}${p.in_deck ? "" : " (NOT in the deck)"}${p.note ? ` — ${p.note}` : ""}`)
+          .join("; ");
+        return `- ${e.name}: ${e.description || "(no description)"}\n  pieces: ${pieces || "(none listed)"}`;
+      });
       out.push(
-        `## Maybe list (${maybe.length}; outside the 100)\n` +
-          maybe
-            .map(c => cardLine(c, { text: withText, suffix: [
-              c.slot_id == null ? "" : `  [primary slot: ${view.slots.find(s => s.id === c.slot_id)?.name}]`,
-              c.secondary_slot_ids.length ? `  [secondary slots: ${c.secondary_slot_ids.map(id => view.slots.find(s => s.id === id)?.name).join(", ")}]` : "",
-              c.maybe_note ? `  — ${c.maybe_note}` : "",
-            ].join("") }))
-            .join("\n"),
+        `## Brief (the owner's document)\n### Thesis\n${brief.thesis || "(not written yet)"}\n### Constraints\n${
+          brief.constraints_md || "(none recorded)"
+        }\n### Engines\n${engines.join("\n") || "(none defined)"}`,
       );
+    }
+    if (want.has("power")) out.push(renderPower(getPower(db, actor, deckId)));
+    if (want.has("list")) out.push(listSection(view!, withText));
+    if (want.has("tokens")) out.push(tokenLines(deckTokens(db, actor, deckId)));
+    if (want.has("maybe")) {
+      const maybe = view!.cards.filter((c) => c.maybe);
+      if (maybe.length)
+        out.push(
+          `## Maybe list (${maybe.length}; outside the 100)\n` +
+            maybe
+              .map(c => cardLine(c, { text: withText, suffix: [
+                c.slot_id == null ? "" : `  [primary slot: ${view!.slots.find(s => s.id === c.slot_id)?.name}]`,
+                c.secondary_slot_ids.length ? `  [secondary slots: ${c.secondary_slot_ids.map(id => view!.slots.find(s => s.id === id)?.name).join(", ")}]` : "",
+                c.maybe_note ? `  — ${c.maybe_note}` : "",
+              ].join("") }))
+              .join("\n"),
+        );
+    }
+    if (want.has("state")) out.push(`## Computed state (the app's counts; do not recount)\n${stateLines(view!)}`);
+    if (want.has("checks")) out.push(`## Checks\n${findingLines(checkDeck(db, actor, deckId))}`);
+    if (want.has("memories"))
+      out.push(`## Memories for this deck\n${renderScope(loadScope(db, actor, "deck", deckId), "deck")}`);
+    if (want.has("proposals"))
+      out.push(
+        `## Awaiting the owner's decision\n${proposalLines(
+          listProposals(db, actor, { deckId, status: "open" }),
+          listDocumentEdits(db, actor, { deckId, status: "pending" }),
+        )}`,
+      );
+    if (want.has("decisions"))
+      out.push(`## Recent decisions and changes (newest first)\n${logLines(listLog(db, actor, { deckId, limit: 15 }))}`);
+    return out.join("\n\n");
+  });
+}
+
+/** A shared deck as its viewers may read it (spec §18.7): PublicDeckState only. */
+export function renderPublicDeck(shared: PublicDeckState, sections: readonly DeckSection[] = DECK_SECTIONS, withText = true): string {
+  const d = shared.deck;
+  const want = new Set(sections);
+  const bits = [
+    `lifecycle ${d.category}`,
+    `identity ${d.color_identity || "none yet (no commander)"}`,
+    `${shared.computed.card_count}/100 cards`,
+  ];
+  if (d.parent) bits.push(`forked from ${d.parent.owner_handle}/${d.parent.name}`);
+  const out = [
+    `# Shared deck ${d.slug} "${d.name}" — ${bits.join(" · ")}\n` +
+      `${d.visibility === "public" ? "Public deck" : `Shared deck (${d.visibility})`} owned by ${d.owner.handle}; read-only. Nothing here can be changed. To build on it, fork it with fork_deck (deck: "${d.slug}"); ` +
+      `the fork is the principal's own Theorycrafted deck and starts without memories or decisions. compare_decks takes it as other.`,
+  ];
+  if (want.has("brief")) {
+    const engines = shared.engines.map((e) =>
+      `- ${e.name}: ${e.description || "(no description)"}\n  pieces: ${e.pieces.map((p) => `${p.name}${p.in_deck ? "" : " (NOT in the deck)"}${p.note ? ` — ${p.note}` : ""}`).join("; ") || "(none listed)"}`);
+    out.push(`## Brief (the owner's document)\n### Thesis\n${shared.brief.thesis || "(not written yet)"}\n### Constraints\n${shared.brief.constraints_md || "(none recorded)"}\n### Engines\n${engines.join("\n") || "(none defined)"}`);
   }
-  if (want.has("state")) out.push(`## Computed state (the app's counts; do not recount)\n${stateLines(view)}`);
-  if (want.has("checks")) out.push(`## Checks\n${findingLines(checkDeck(db, deckId))}`);
-  if (want.has("memories"))
-    out.push(`## Memories for this deck\n${renderScope(loadScope(db, "deck", deckId), "deck")}`);
-  if (want.has("proposals"))
-    out.push(
-      `## Awaiting the owner's ruling\n${proposalLines(
-        listProposals(db, { deckId, status: "open" }),
-        listDocumentEdits(db, { deckId, status: "pending" }),
-      )}`,
-    );
-  if (want.has("rulings"))
-    out.push(`## Recent rulings and changes (newest first)\n${logLines(listLog(db, { deckId, limit: 15 }))}`);
+  if (want.has("power")) {
+    const p = shared.power;
+    const mapping = (m: BracketMapping) => `Suggested bracket: ${m.bracket == null ? "Undetermined" : `${m.bracket} — ${m.name}`}${m.provisional ? " (provisional)" : ""}`;
+    out.push([
+      "## Power — target and the owner's assessment",
+      "### Target",
+      p.target ? `${profileLines(p.target.profile).join("\n")}\nGame Changers: ${p.target.game_changers_max == null ? "No limit set" : `at most ${p.target.game_changers_max}`}${p.target.notes ? `\n${p.target.notes}` : ""}\n${mapping(p.target.mapping)}` : "Not set.",
+      "### The owner's latest assessment",
+      p.latest_owner_assessment
+        ? `${p.latest_owner_assessment.confidence}, evidence: ${p.latest_owner_assessment.evidence}${p.latest_owner_assessment.stale ? " — the list has changed since" : ""}\n${profileLines(p.latest_owner_assessment.profile).join("\n")}\nReasoning: ${p.latest_owner_assessment.notes}\n${mapping(p.latest_owner_assessment.mapping)}`
+        : "Not assessed by the owner.",
+    ].join("\n"));
+  }
+  if (want.has("list")) out.push(listSection(shared, withText));
+  if (want.has("tokens")) out.push(tokenLines(shared));
+  if (want.has("maybe")) {
+    const maybe = shared.cards.filter((c) => c.maybe);
+    if (maybe.length) out.push(`## Maybe list (${maybe.length}; outside the 100)\n${maybe.map((c) => cardLine(c, { text: withText })).join("\n")}`);
+  }
+  // The cost line names the store and date (D18), priced for this viewer; nothing is pending here.
+  if (want.has("state")) out.push(`## Computed state (the app's counts; do not recount)\n${stateLines(shared)}`);
+  if (want.has("checks")) out.push(`## Checks\n${findingLines(shared.checks)}`);
+  if (want.has("decisions"))
+    out.push(`## The owner's published decisions (newest first)\n${shared.decisions
+      ? shared.decisions.slice(0, 15).map((e) => `- ${e.at.slice(0, 10)} ${e.kind} by the ${e.by}: ${e.summary}${e.reason ? ` — reason: ${e.reason}` : ""}`).join("\n") || "(none)"
+      : "(the owner has not published this deck's decisions)"}`);
+  if (want.has("memories") || want.has("proposals"))
+    out.push("Memories and proposals belong to the deck's owner and are never shared.");
   return out.join("\n\n");
 }
 
@@ -435,8 +532,9 @@ export function rosterLines(decks: DeckSummary[]): string {
         `lifecycle ${d.category}`,
       ];
       if (d.parent_name) bits.push(`fork of "${d.parent_name}"`);
+      if (d.visibility !== "private") bits.push(d.visibility);
       const waiting = d.pending_items + d.pending_document_edits;
-      if (waiting) bits.push(`${waiting} awaiting ruling`);
+      if (waiting) bits.push(`${waiting} awaiting decision`);
       return `- deck ${d.id} "${d.name}" — ${bits.join(" · ")}`;
     })
     .join("\n");
@@ -461,10 +559,12 @@ export function renderCompare(d: DeckComparison): string {
     list
       .map((c) => `- ${c.quantity > 1 ? `${c.quantity}x ` : ""}${c.name}${c.mana_cost ? ` ${c.mana_cost}` : ""} — ${c.type_line}${c.role !== "card" ? ` (${c.role})` : ""}`)
       .join("\n") || "(none)";
+  const other = d.b.id != null
+    ? `deck ${d.b.id} "${d.b.name}" (rev ${d.b.revision}, ${d.b.card_count} cards)`
+    : `${d.b.owner_handle}'s shared deck ${d.b.slug} "${d.b.name}" (${d.b.card_count} cards)`;
   const out = [
     `# Deck ${d.a.id} "${d.a.name}" (rev ${d.a.revision}, ${d.a.card_count} cards) compared with ` +
-      `deck ${d.b.id} "${d.b.name}" (rev ${d.b.revision}, ${d.b.card_count} cards)` +
-      (d.b_is_parent ? " — its parent" : ""),
+      other + (d.b_is_parent ? " — its parent" : ""),
     `${d.shared_count} cards are in both. Maybe lists are not compared.`,
     `## Only in "${d.a.name}" (${d.only_in_a.length})\n${cards(d.only_in_a)}`,
     `## Only in "${d.b.name}" (${d.only_in_b.length})\n${cards(d.only_in_b)}`,
@@ -515,4 +615,9 @@ export function renderStats(s: PlayerStats): string {
 
 export function renderActivity(entries: ActivityEntry[]): string {
   return entries.map((e) => `- ${e.ts} ${e.actor} ${e.action}: ${e.summary}`).join("\n") || "(none)";
+}
+
+/** One source/date line per agent response; card lines stay compact. */
+export function priceSourceLine(price: PriceMetadata): string {
+  return `Prices: ${price.store === "tcgplayer" ? "TCGplayer" : "Cardmarket"} (${price.currency}), Scryfall daily estimates as of ${price.as_of?.slice(0,10) ?? "unknown (not loaded)"}.`;
 }

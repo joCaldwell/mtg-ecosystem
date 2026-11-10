@@ -2,6 +2,20 @@ import type { ScryfallCard } from "../src/ingest.ts";
 
 export const FIXTURES: ScryfallCard[] = [
   {
+    oracle_id: "id-relentless-rats", name: "Relentless Rats", mana_cost: "{1}{B}{B}", cmc: 3,
+    type_line: "Creature — Rat",
+    oracle_text: "This creature gets +1/+1 for each other creature on the battlefield named Relentless Rats.\nA deck can have any number of cards named Relentless Rats.",
+    power: "2", toughness: "2", colors: ["B"], color_identity: ["B"],
+    layout: "normal", legalities: { commander: "legal" },
+  },
+  {
+    oracle_id: "id-squadron-hawk", name: "Squadron Hawk", mana_cost: "{1}{W}", cmc: 2,
+    type_line: "Creature — Bird",
+    oracle_text: "Flying\nWhen this creature enters, you may search your library for up to three cards named Squadron Hawk, reveal them, put them into your hand, then shuffle.",
+    power: "1", toughness: "1", colors: ["W"], color_identity: ["W"],
+    layout: "normal", legalities: { commander: "legal" },
+  },
+  {
     oracle_id: "id-llanowar", name: "Llanowar Elves", mana_cost: "{G}", cmc: 1,
     type_line: "Creature — Elf Druid", oracle_text: "{T}: Add {G}.",
     power: "1", toughness: "1", colors: ["G"], color_identity: ["G"],

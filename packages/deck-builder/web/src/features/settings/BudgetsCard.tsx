@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type Settings } from "../../api/client.ts";
-import { Box, Button, ErrorNote, Field, Row, Stack, Text, TextField } from "../../ui/index.ts";
+import { Box, Button, ErrorNote, Field, Row, Stack, Table, Text, TextField } from "../../ui/index.ts";
 import styles from "./BudgetsCard.module.css";
 
 // The server's own bounds (setBudgets in memory.ts); stated here so a bad value is caught before the request.
@@ -10,7 +10,7 @@ const MAX = 20000;
 const valid = (s: string) => /^\d+$/.test(s.trim()) && Number(s) >= MIN && Number(s) <= MAX;
 
 /** How much memory an agent is handed without asking (spec §7.4), in estimated tokens. */
-export function BudgetsCard({ budgets, onSaved }: { budgets: Settings["budgets"]; onSaved: () => void }) {
+export function BudgetsCard({ budgets, usage, onSaved }: { budgets: Settings["budgets"]; usage: Settings["memory_usage"]; onSaved: () => void }) {
   const [global, setGlobal] = useState(String(budgets.global));
   const [deck, setDeck] = useState(String(budgets.deck));
   const [busy, setBusy] = useState(false);
@@ -50,11 +50,10 @@ export function BudgetsCard({ budgets, onSaved }: { budgets: Settings["budgets"]
           Memory budgets
         </Text>
         <Text tone="muted" size="sm">
-          When a scope outgrows its budget the newest memories load, the oldest are found by search only, and the
-          agent is told to consolidate.
+          Estimated tokens; newest memories load first. Omitted notes stay searchable.
         </Text>
         <div className={styles.fields}>
-          <Field label="Global memories" hint="Estimated tokens loaded at session start.">
+          <Field label="Global limit (tokens)">
             <TextField
               inputMode="numeric"
               value={global}
@@ -65,7 +64,7 @@ export function BudgetsCard({ budgets, onSaved }: { budgets: Settings["budgets"]
               }}
             />
           </Field>
-          <Field label="Per deck" hint="Estimated tokens loaded with each deck.">
+          <Field label="Per-deck limit (tokens)">
             <TextField
               inputMode="numeric"
               value={deck}
@@ -93,6 +92,17 @@ export function BudgetsCard({ budgets, onSaved }: { budgets: Settings["budgets"]
             </Text>
           )}
         </Row>
+        <details className={styles.usage}>
+          <summary>Memory usage by deck</summary>
+          <Table aria-label="Memory usage">
+            <thead><tr><th scope="col">Scope</th><th scope="col">Loaded / limit</th><th scope="col">Omitted</th></tr></thead>
+            <tbody>{usage.map(scope => <tr key={scope.deck_id ?? "global"}>
+              <th scope="row">{scope.name}</th>
+              <td><Text mono size="sm">{scope.used.toLocaleString()} / {scope.budget.toLocaleString()}</Text></td>
+              <td><Text mono size="sm" tone={scope.omitted > 0 ? "warn" : "muted"}>{scope.omitted}</Text></td>
+            </tr>)}</tbody>
+          </Table>
+        </details>
       </Stack>
     </Box>
   );

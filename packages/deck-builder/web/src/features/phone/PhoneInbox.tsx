@@ -1,0 +1,44 @@
+import { useVoice } from "../../app/Preferences.tsx";
+// The inbox on a phone: card proposals open their deck, where each change is
+// drawn in place; brief and profile edits are ruled right here as diffs.
+
+import { useState } from "react";
+import { useInbox } from "../../app/Inbox.tsx";
+import { navigate } from "../../app/routes.ts";
+import { EmptyState, Loading } from "../../ui/index.ts";
+import { InboxEntry, inboxEntries } from "../inbox/index.ts";
+import { DocumentEditCard } from "../decisions/index.ts";
+import styles from "./PhoneInbox.module.css";
+
+export function PhoneInbox() {
+  const voice = useVoice();
+  const { inbox, apply } = useInbox();
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  if (!inbox) return <Loading />;
+  const entries = inboxEntries(inbox);
+  return (
+    <div className={styles.page}>
+      <h1 className={styles.title}>Inbox</h1>
+      {entries.length === 0 ? (
+        <EmptyState title="Nothing is waiting on you">{voice("There are no proposed changes to review. Open a deck to read its list and decisions.", "Ask your agent for changes; what it proposes appears here without a reload.")}</EmptyState>
+      ) : (
+        <ul className={styles.list}>
+          {entries.map((entry) => (
+            <li key={entry.key} className={styles.item}>
+              <InboxEntry
+                entry={entry}
+                selected={openKey === entry.key}
+                onSelect={() => entry.type === "proposal"
+                  ? navigate({ page: "deck", deckId: entry.proposal.deck_id, review: true, proposal: entry.proposal.id })
+                  : setOpenKey(openKey === entry.key ? null : entry.key)}
+              />
+              {entry.type === "edit" && openKey === entry.key && (
+                <DocumentEditCard edit={entry.edit} showDeck onRuled={(result) => { apply(result.inbox); setOpenKey(null); }} />
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}

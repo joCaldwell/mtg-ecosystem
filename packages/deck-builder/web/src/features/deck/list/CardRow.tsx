@@ -4,7 +4,8 @@
 
 import type { KeyboardEvent, MouseEvent } from "react";
 import type { CardMark } from "../../../domain/marks.ts";
-import { ManaCost, Price, useCardHover, type CardInfo } from "../../../mtg/index.ts";
+import { ManaCost, Price, useCardHover, useCardInspect, type CardInfo } from "../../../mtg/index.ts";
+import { useDeckList } from "../DeckListStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import { Mark } from "./Mark.tsx";
 import styles from "./CardRow.module.css";
@@ -20,7 +21,7 @@ export interface CardRowProps {
   bold?: boolean;
   /** The row belongs to the decision under the review cursor. */
   current?: boolean;
-  /** Undefined without filters; false keeps the row visible with muted styling. */
+  /** Drawn because it matches the active filter (nonmatches are not drawn). */
   filterMatch?: boolean;
   /** Purpose metadata, distinct from sourcing/status tags. */
   purpose?: string;
@@ -28,11 +29,13 @@ export interface CardRowProps {
 
 export function CardRow({ card, quantity = 1, change, mark, bold, current, filterMatch, purpose }: CardRowProps) {
   const ui = useDeckUi();
+  const { readOnly } = useDeckList();
   const hover = useCardHover();
+  const inspect = useCardInspect();
   const selected = ui.selected.includes(card.oracle_id);
   const open = ui.openCard?.oracleId === card.oracle_id;
-  // Proposed adds are not in the deck, so there is nothing to select.
-  const selectable = change !== "add";
+  // Proposed adds are not in the deck, and a read-only list has no selection.
+  const selectable = change !== "add" && !readOnly;
 
   function onClick(e: MouseEvent) {
     if (selectable && (e.ctrlKey || e.metaKey || e.shiftKey)) ui.toggleSelected(card.oracle_id);
@@ -42,14 +45,13 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
   // Enter on a focused row opens the card; it must not also reach the screen's
   // own Enter shortcut, which starts a review.
   function onKeyDown(e: KeyboardEvent) {
+    if (e.key === "?") { e.preventDefault(); e.stopPropagation(); inspect(card); }
     if (e.key === "Enter") e.stopPropagation();
   }
 
   const sign = change === "cut" ? "−" : change === "add" ? "+" : quantity > 1 ? quantity : "";
   const cls = [
     styles.row,
-    filterMatch === true && styles.match,
-    filterMatch === false && styles.muted,
     change === "cut" && styles.cut,
     change === "add" && styles.add,
     selected && styles.selected,
@@ -65,7 +67,8 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
       type="button"
       className={cls}
       data-current={current || undefined}
-      data-filter-match={filterMatch}
+      data-oracle-id={card.oracle_id}
+      data-filter-match={filterMatch || undefined}
       aria-current={open || undefined}
       onClick={onClick}
       onKeyDown={onKeyDown}
@@ -76,16 +79,16 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
         <span>{card.name}</span>
         {purpose && <span className={styles.purpose}>{purpose}</span>}
       </span>
-      {(mark?.memories || mark?.rulings) && (
+      {(mark?.memories || mark?.decisions) && (
         <span className={styles.marks}>
           {!!mark?.memories && <Mark kind="memory" />}
-          {!!mark?.rulings && <Mark kind="ruling" />}
+          {!!mark?.decisions && <Mark kind="decision" />}
         </span>
       )}
-      <span className={styles.cost}>
+      <span className={styles.cost} title="Inspect card · ? on a focused row" onClick={(e) => { e.stopPropagation(); inspect(card); }}>
         <ManaCost cost={card.mana_cost} />
       </span>
-      <Price cents={card.usd_cents} column />
+      <span className={styles.price}><Price currency={card.currency} cents={card.cents} column /></span>
     </button>
   );
 }

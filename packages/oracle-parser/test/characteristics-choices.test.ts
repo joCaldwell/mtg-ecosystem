@@ -127,7 +127,11 @@ describe('resolving statements that an object is or has a characteristic (611.2e
         statedAs: 'is', duration: { duration: 'as-long-as', condition: { condition: 'is-filter', what: { ref: 'it' },
           filter: { counterConstraints: [{ counter: { type: 'flood' }, comparison: { op: 'ge', value: n(1) } }] } } } })]]);
     fails('Target creature is a green Frog until end of turn.');
-    fails('Destroy target creature. It has flying and is an Angel in addition to its other types.');
+    // A verb coordinated with "and" shares the preceding step's subject (Valkyrie's Call).
+    assert.deepEqual(steps('Return target creature card from your graveyard to the battlefield. It has flying and is an Angel in addition to its other types.', 'Sorcery'), [
+      [{ effect: 'move-zone', what: target({ cls: 'card', types: ['creature'], zone: { zone: 'graveyard', owner: 'your' } }), to: { zone: 'battlefield' } }],
+      [{ effect: 'gain-abilities', what: { ref: 'it' }, abilities: [{ gained: 'keyword', keyword: { keyword: 'flying' } }] },
+        change({ ref: 'it' }, [{ modifier: 'types', change: { subtypes: [{ family: 'creature', operation: 'add', types: ['Angel'] }] } }], { statedAs: 'is' })]]);
     fails('Whenever a creature dies, return it to the battlefield under your control at the beginning of the next end step. That creature is a black Zombie in addition to its other colors and types.', 'Enchantment');
   });
 });

@@ -7,14 +7,15 @@ interface CardLookupApi {
   lookup: Lookup;
   /** Put already-known cards (the open deck's, say) in the cache so hovering them needs no request. */
   prime: (cards: CardInfo[]) => void;
+  clear: () => void;
 }
 
 const key = (name: string) => name.trim().toLowerCase();
 
 // Outside a provider nothing can be resolved: names stay plain text.
-const NONE: CardLookupApi = { lookup: async () => null, prime: () => {} };
+const NONE: CardLookupApi = { lookup: async () => null, prime: () => {}, clear: () => {} };
 
-const Ctx = createContext<CardLookupApi>(NONE);
+const Ctx = /* @__PURE__ */ createContext<CardLookupApi>(NONE);
 
 /**
  * Wraps `lookup` in an in-memory cache keyed by lowercased name. The promise
@@ -27,6 +28,7 @@ export function CardLookupProvider({ lookup, children }: { lookup: Lookup; child
 
   const api = useMemo<CardLookupApi>(
     () => ({
+      clear: () => cache.current.clear(),
       lookup: (name) => {
         const k = key(name);
         let hit = cache.current.get(k);

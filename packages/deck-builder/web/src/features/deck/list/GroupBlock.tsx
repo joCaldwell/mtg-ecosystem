@@ -1,15 +1,17 @@
 // One heading and its rows. In review mode the group also draws the cards
-// the pending proposals would add, after its own rows.
+// the pending proposals would add, after its own rows. While a filter is
+// active it draws only its matching rows, and nothing when none match.
 
 import type { ReactNode } from "react";
 import type { DeckCard, ProposalItem } from "../../../api/client.ts";
+import { filterGroup, type DeckFilterMatches } from "../../../domain/deckSearch.ts";
 import type { GroupStatus } from "../../../domain/grouping.ts";
 import type { CardMark } from "../../../domain/marks.ts";
 import type { GroupCost } from "../../../domain/price.ts";
 import { CardRow } from "./CardRow.tsx";
 import { GroupHeader } from "./GroupHeader.tsx";
 import styles from "./GroupBlock.module.css";
-import { useDeckState } from "../DeckStore.tsx";
+import { useDeckList } from "../DeckListStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 
 // A group this long would leave the other columns empty if it stayed whole,
@@ -29,8 +31,8 @@ export interface GroupBlockProps {
   cards: DeckCard[];
   secondaryCards?: DeckCard[];
   commandZoneCards?: DeckCard[];
-  matchingCards?: ReadonlySet<string>;
-  matchingAdds?: ReadonlySet<number>;
+  /** The active filter, if any; unfiltered when omitted or inactive. */
+  filter?: DeckFilterMatches;
   /** Pending adds, drawn only while reviewing. */
   adds?: ProposalItem[];
   /** oracle_ids with a pending cut, drawn only while reviewing. */
@@ -43,19 +45,27 @@ export interface GroupBlockProps {
   empty?: ReactNode;
 }
 
-export function GroupBlock({ cards, secondaryCards = [], commandZoneCards = [], matchingCards, matchingAdds, adds = [], cuts, current, marks, bold, empty, ...head }: GroupBlockProps) {
-  const { slots } = useDeckState();
+export function GroupBlock({ cards: allCards, secondaryCards = [], commandZoneCards = [], filter, adds: allAdds = [], cuts, current, marks, bold, empty, ...head }: GroupBlockProps) {
+  const { slots } = useDeckList().state;
   const showPrimary = useDeckUi().groupBy === "slot";
   const slotName = (id: number) => slots.find(s => s.id === id)?.name ?? "";
+  const filtered = filter?.active ? filterGroup({ cards: allCards, adds: allAdds }, filter, cuts) : undefined;
+  if (filtered === null) return null;
+  const { cards, adds } = filtered ?? { cards: allCards, adds: allAdds };
+  // Contributors are drawn in their own primary group when they match.
+  const contributors = !filtered;
+  const long = cards.length + adds.length > LONG_GROUP;
   return (
-    <section className={`${styles.group} ${cards.length + adds.length > LONG_GROUP ? styles.long : ""}`}>
-      <GroupHeader {...head} />
+    // A long group may cross columns; DeckList names it again at the top of
+    // each column it continues into (data-continues, useContinuedGroups).
+    <section className={`${styles.group} ${long ? styles.long : ""}`} data-continues={long ? head.title : undefined}>
+      <GroupHeader {...head} matched={filtered?.matched} />
       {cards.map((c) => (
         <CardRow
           key={c.oracle_id}
           card={c}
           purpose={showPrimary && c.role !== "card" && c.slot_id != null ? `Primary: ${slotName(c.slot_id)}` : undefined}
-          filterMatch={matchingCards?.has(c.oracle_id)}
+          filterMatch={!!filtered}
           quantity={c.quantity}
           change={cuts?.has(c.oracle_id) ? "cut" : undefined}
           mark={marks.get(c.oracle_id)}
@@ -67,29 +77,29 @@ export function GroupBlock({ cards, secondaryCards = [], commandZoneCards = [], 
         <CardRow
           key={`add-${item.id}`}
           card={{ ...item, name: item.card_name }}
-          filterMatch={matchingAdds?.has(item.id)}
+          filterMatch={!!filtered}
           change="add"
           mark={marks.get(item.oracle_id)}
           current={current.has(item.oracle_id)}
         />
       ))}
-      {commandZoneCards.length > 0 && (
+      {contributors && commandZoneCards.length > 0 && (
         <details className={styles.secondary}>
           <summary>Primary contributors in the command zone</summary>
           {commandZoneCards.map(c => (
             <CardRow key={`command-${c.oracle_id}`} card={c} quantity={c.quantity} purpose="Primary purpose · command zone"
-              filterMatch={matchingCards?.has(c.oracle_id)} change={cuts?.has(c.oracle_id) ? "cut" : undefined}
+              change={cuts?.has(c.oracle_id) ? "cut" : undefined}
               mark={marks.get(c.oracle_id)} current={current.has(c.oracle_id)} />
           ))}
         </details>
       )}
-      {secondaryCards.length > 0 && (
+      {contributors && secondaryCards.length > 0 && (
         <details className={styles.secondary}>
           <summary>{head.primaryCount} primary · {head.secondaryCount} secondary {head.secondaryCount === 1 ? "contributor" : "contributors"}</summary>
           {secondaryCards.map(c => (
             <CardRow key={`secondary-${c.oracle_id}`} card={c} quantity={c.quantity}
               purpose={c.slot_id == null ? "Secondary purpose · no primary slot" : `Secondary purpose · primary: ${slotName(c.slot_id)}`}
-              filterMatch={matchingCards?.has(c.oracle_id)} change={cuts?.has(c.oracle_id) ? "cut" : undefined}
+              change={cuts?.has(c.oracle_id) ? "cut" : undefined}
               mark={marks.get(c.oracle_id)} current={current.has(c.oracle_id)} />
           ))}
         </details>

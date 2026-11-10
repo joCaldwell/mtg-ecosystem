@@ -90,6 +90,7 @@ const VERBS: Record<string, { action: PlayerHistoryAction["action"]; tense: Tens
   committed: { action: "commit-crime", tense: ["past", "perfect"] }, commit: { action: "commit-crime", tense: ["base"] },
   scried: { action: "scry", tense: ["past", "perfect"] }, scry: { action: "scry", tense: ["base"] },
   surveilled: { action: "surveil", tense: ["past", "perfect"] }, surveil: { action: "surveil", tense: ["base"] },
+  activated: { action: "activate", tense: ["past", "perfect"] }, activate: { action: "activate", tense: ["base"] },
 };
 
 function parseVerb(c: Cursor, tense: Tense): PlayerHistoryAction["action"] | null {
@@ -143,6 +144,9 @@ function parsePlayerActionHistory(c: Cursor, g: ConditionGrammar): Condition | n
     } else if (action === "draw") {
       const comparison = parseCounted(c, g);
       result = comparison && c.word("card", "cards") !== null ? history({ action }, comparison) : null;
+    } else if (action === "put-counters") {
+      // Counter histories have their own recipient grammar (condition-events.ts).
+      return null;
     } else {
       const comparison = parseCounted(c, g);
       const what = comparison && g.parseFilter(c);
@@ -151,6 +155,7 @@ function parsePlayerActionHistory(c: Cursor, g: ConditionGrammar): Condition | n
       // would describe some different event.
       if ((action === "discard" || action === "cycle") && what.cls !== "card") return null;
       if (action === "create-token" && what.cls !== "token") return null;
+      if ((action === "activate") !== (what.cls === "ability")) return null;
       if (action === "sacrifice" && (what.cls === "card" || what.cls === "spell" || what.cls === "ability")) return null;
       result = history({ action, what }, comparison);
     }
@@ -158,6 +163,19 @@ function parsePlayerActionHistory(c: Cursor, g: ConditionGrammar): Condition | n
   });
 }
 
+/** "You have two or more opponents" (CR 102.2–102.3) counts players. A bare
+ * number does not say whether more opponents qualify. */
+function parseOpponentCount(c: Cursor, g: ConditionGrammar): Condition | null {
+  return c.attempt((c): Condition | null => {
+    const who = g.parsePlayerRef(c);
+    if (!who || c.word("have", "has") === null) return null;
+    const explicit = c.isWord("exactly");
+    const comparison = g.parseComparison(c);
+    if (!comparison || (comparison.op === "eq" && !explicit) || c.word("opponent", "opponents") === null) return null;
+    return { condition: "opponent-count", who, comparison };
+  });
+}
+
 export function parsePlayerCondition(c: Cursor, g: ConditionGrammar): Condition | null {
-  return parsePlayerComparison(c, g) ?? parseOpponentsControl(c, g) ?? parsePlayerActionHistory(c, g);
+  return parsePlayerComparison(c, g) ?? parseOpponentsControl(c, g) ?? parseOpponentCount(c, g) ?? parsePlayerActionHistory(c, g);
 }

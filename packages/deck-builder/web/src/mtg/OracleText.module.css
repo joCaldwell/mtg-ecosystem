@@ -2,8 +2,6 @@
   --size: var(--oracle-size, var(--text-md));
   --sym-size: calc(var(--size) * 1.15);
   --sym-gap: calc(var(--s-1) / 2);
-  display: grid;
-  gap: var(--s-2);
   padding-left: var(--s-5);
   border-left: 2px solid var(--line-strong);
   color: var(--text-soft);
@@ -18,6 +16,11 @@
 
 .line {
   margin: 0;
+}
+
+/* Block flow, not a grid: rules text can wrap around a floated picture. */
+.line + .line {
+  margin-top: var(--s-2);
 }
 
 .reminder {

@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { Zone } from "../../api/client.ts";
 import { ZONE_LABELS } from "../../domain/table.ts";
 import { ManaCost } from "../../mtg/index.ts";
-import { Button, Select, TextField } from "../../ui/index.ts";
+import { Button, Icon, IconButton, Select, TextField } from "../../ui/index.ts";
 import type { PlaytestController } from "./usePlaytest.ts";
 import styles from "./ZoneViewer.module.css";
 export function ZoneViewer({
@@ -49,21 +49,19 @@ export function ZoneViewer({
     >
       <header className={styles.header}>
         <h2>
-          {ZONE_LABELS[zone]} · {order.length}
+          {ZONE_LABELS[zone]} <span className={styles.mono}>{order.length}</span>
         </h2>
         {zone === "library" && (
           <>
             <Select
               aria-label="Library viewer mode"
+              options={[{ value: "top", label: "Ordered top cards" }, { value: "search", label: "Search whole library" }]}
               value={kind}
-              onChange={(e) => {
-                setKind(e.target.value as "top" | "search");
+              onChange={(value) => {
+                setKind(value as "top" | "search");
                 setSelected([]);
               }}
-            >
-              <option value="top">Ordered top cards</option>
-              <option value="search">Search whole library</option>
-            </Select>
+            />
             {kind === "top" && (
               <TextField
                 type="number"
@@ -83,9 +81,9 @@ export function ZoneViewer({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <Button size="sm" onClick={() => c.editUi({ viewer: null })}>
-          Close
-        </Button>
+        <IconButton label="Close viewer" onClick={() => c.editUi({ viewer: null })}>
+          <Icon name="close" />
+        </IconButton>
       </header>
       <div className={styles.list}>
         {visible.map((id) => {
@@ -143,6 +141,7 @@ export function ZoneViewer({
                     size="sm"
                     disabled={busy || !playing || order.indexOf(id) === 0}
                     aria-label={`Move ${card.name} earlier in library`}
+                    className={styles.reorder}
                     onClick={() =>
                       onMove([id], "library", undefined, order.indexOf(id) - 1)
                     }
@@ -155,6 +154,7 @@ export function ZoneViewer({
                       busy || !playing || order.indexOf(id) === order.length - 1
                     }
                     aria-label={`Move ${card.name} later in library`}
+                    className={styles.reorder}
                     onClick={() =>
                       onMove([id], "library", undefined, order.indexOf(id) + 1)
                     }
@@ -166,18 +166,21 @@ export function ZoneViewer({
             </div>
           );
         })}
-        {!visible.length && <p>No cards match this view.</p>}
+        {!visible.length && (
+          <p className={styles.empty}>
+            {order.length ? "No cards match this view." : `${ZONE_LABELS[zone]} is empty.`}
+          </p>
+        )}
       </div>
       <footer className={styles.footer}>
-        <span>
-          {chosen.length} selected · library order is never sorted by search
-        </span>
+        <span className={styles.selectedCount}>{chosen.length} selected</span>
         <Button size="sm" onClick={() => setSelected(visible)}>
           Select visible
         </Button>
         <Button size="sm" onClick={() => setSelected([])}>
           Clear
         </Button>
+        <span className={styles.moveLabel}>Move to</span>
         {(
           [
             "hand",

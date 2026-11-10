@@ -17,7 +17,7 @@
   background: var(--agent-bg);
 }
 
-/* A ruling row brings its own padding and rule for use in a list; inside a
+/* A decision row brings its own padding and rule for use in a list; inside a
    tinted line it would be a box in a box. */
 .line > div {
   padding: 0;

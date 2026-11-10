@@ -3,7 +3,7 @@
 // neither resolving instructions nor battlefield statics, so each complete
 // sentence is matched as a whole and anything else stays unparsed.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-import type { ObjectRef, StaticEffect } from "../ast.ts";
+import type { ObjectRef, Sentence, StaticEffect } from "../ast.ts";
 import { wordNumber } from "../vocab.ts";
 import type { Cursor } from "./cursor.ts";
 import { parseObjectRef } from "./refs.ts";
@@ -32,6 +32,21 @@ function parseBeginOnBattlefield(c: Cursor): StaticEffect | null {
   });
 }
 
+/** CR 103.6b: "You may reveal this card from your opening hand. If you do,
+ * <instructions>." The instructions run only when the card was revealed. */
+function parseRevealFromOpeningHand(c: Cursor, parseBody: (c: Cursor) => Sentence[] | null): StaticEffect | null {
+  return c.attempt((c): StaticEffect | null => {
+    if (!c.words("you", "may", "reveal")) return null;
+    const what = parseSource(c);
+    if (!what || !c.words("from", "your", "opening", "hand") || !c.punct(".")) return null;
+    if (!c.words("if", "you", "do") || !c.punct(",")) return null;
+    c.pregame = true;
+    let effects: Sentence[] | null;
+    try { effects = parseBody(c); } finally { c.pregame = false; }
+    return effects && c.done() ? { static: "opening-hand-action", what, who: { player: "you" }, action: "reveal", effects } : null;
+  });
+}
+
 /** CR 100.2a / 113.6n: a named exception to the four-copy limit. */
 function parseDeckCopyLimit(c: Cursor): StaticEffect | null {
   return c.attempt((c): StaticEffect | null => {
@@ -53,6 +68,6 @@ function parseDeckCopyLimit(c: Cursor): StaticEffect | null {
   });
 }
 
-export function parsePregameRule(c: Cursor): StaticEffect | null {
-  return parseBeginOnBattlefield(c) ?? parseDeckCopyLimit(c);
+export function parsePregameRule(c: Cursor, parseBody: (c: Cursor) => Sentence[] | null): StaticEffect | null {
+  return parseBeginOnBattlefield(c) ?? parseRevealFromOpeningHand(c, parseBody) ?? parseDeckCopyLimit(c);
 }

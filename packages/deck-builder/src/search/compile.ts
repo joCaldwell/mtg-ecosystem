@@ -7,6 +7,7 @@ export interface Compiled {
 
 export interface CompileContext {
   deckId?: number;
+  prices?: { USD: string; EUR: string };
 }
 
 const COLOR_BIT: Record<string, number> = { w: 1, u: 2, b: 4, r: 8, g: 16 };
@@ -178,13 +179,16 @@ function compileFilter(key: string, op: Op, value: string, ctx: CompileContext):
     // Scryfall compares each printing's price; a card here has one price, its
     // cheapest printing's (spec §4.4), so this is Scryfall's `cheapest:usd`
     // view of the same filter. A card with no price matches no comparison.
-    // Source: https://scryfall.com/docs/syntax, "USD/EUR/TIX prices".
-    case "usd": {
+    // Verified 2026-10-25: https://scryfall.com/docs/syntax#prices documents
+    // usd/eur numeric comparisons and cheapest:usd / cheapest:eur. The
+    // actor-scoped expressions come only from priceResolver (D18).
+    case "usd": case "eur": {
       if (!/^\d+(\.\d+)?$/.test(value))
-        throw new SearchError(`Expected a dollar amount for 'usd', got '${value}' (for example usd<=2 or usd>0.50)`);
+        throw new SearchError(`Expected an amount for '${key}', got '${value}' (for example usd<=2 or usd>0.50)`);
+      if (!ctx.prices) throw new SearchError("Price comparisons require the caller's price context");
       const sqlOp = op === ":" ? "=" : op;
       return {
-        sql: `oracle_id IN (SELECT oracle_id FROM card_prices WHERE usd_cents ${sqlOp} ?)`,
+        sql: `(${ctx.prices[key === "usd" ? "USD" : "EUR"]} IS NOT NULL AND ${ctx.prices[key === "usd" ? "USD" : "EUR"]} ${sqlOp} ?)`,
         params: [Math.round(Number(value) * 100)],
       };
     }
@@ -220,7 +224,7 @@ function compileFilter(key: string, op: Op, value: string, ctx: CompileContext):
 
     default:
       throw new SearchError(
-        `Unsupported search key '${key}'. Supported: t, o, fo, cmc/mv, c, id, pow, tou, loy, usd, is, f, banned`,
+        `Unsupported search key '${key}'. Supported: t, o, fo, cmc/mv, c, id, pow, tou, loy, usd, eur, is, f, banned`,
       );
   }
 }

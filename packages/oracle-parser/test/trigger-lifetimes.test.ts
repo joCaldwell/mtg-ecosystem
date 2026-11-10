@@ -347,10 +347,19 @@ describe("delayed event lifetime and occurrence", () => {
       assert.equal(c.pos, 0, text);
       assert.equal(parseOracleText(text).ok, false, text);
     }
-    for (const text of ["Whenever a creature dies, draw a card.", "At the beginning of your next end step, draw a card."]) {
+    for (const text of ["Whenever a creature dies, draw a card."]) {
       const c = new Cursor(lex(text));
       assert.equal(parseDelayedSpellPrefix(c, { modalOptions: [] }, parseSentences), null, text);
       assert.equal(c.pos, 0, text);
     }
+    // An explicit "next" is a complete delayed-trigger lifetime (one
+    // trigger at the next such step, CR 603.7b), so this spell line is now
+    // represented instead of rejected (Glorious End, the Pact cycle).
+    const next = new Cursor(lex("At the beginning of your next end step, draw a card."));
+    assert.deepEqual(parseDelayedSpellPrefix(next, { modalOptions: [] }, parseSentences), [{
+      effect: "create-delayed-trigger", trigger: { trigger: "phase", phase: "end-step", whose: "your" },
+      occurrence: "next", nextOnly: true, targets: "delayed-ability", effects: [{ steps: [draw] }],
+    }]);
+    assert.equal(next.done(), true);
   });
 });

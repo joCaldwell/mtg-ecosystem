@@ -166,9 +166,15 @@ describe("historical conditions retain event and time scope", () => {
         { condition: "life-change", who: you, change: "lost", comparison: { op: "gt", value: fixed(0) }, during: "this-turn" },
       ],
     });
-    unsupported("you gained life last turn");
+    // The previous turn is now a represented lookback window.
+    assert.deepEqual(condition("you gained life last turn"), {
+      condition: "life-change", who: you, change: "gained", comparison: { op: "gt", value: fixed(0) }, during: "last-turn",
+    });
     unsupported("you gained 3 or more life");
-    unsupported("your team gained life this turn");
+    // "your team" (CR 102.4) is now a represented player reference.
+    assert.deepEqual(condition("your team gained life this turn"), {
+      condition: "life-change", who: { player: "your-team" }, change: "gained", comparison: { op: "gt", value: fixed(0) }, during: "this-turn",
+    });
   });
 
   it("retains spell characteristics, counts, and the historical casting zone", () => {

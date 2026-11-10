@@ -6,7 +6,7 @@
 import type { Amount, ChosenValueRef, Color, GainedAbility, ObjectRef, StaticModifier, SubtypeFamily, TypeChange } from '../ast.ts';
 import { CARD_TYPES, COLORS, SUPERTYPES, canonicalSubtypeName, singularize } from '../vocab.ts';
 import { Cursor } from './cursor.ts';
-import { parseAmount, parseFilter } from './refs.ts';
+import { parseAmount, parseAmountAdjustment, parseFilter } from './refs.ts';
 
 type AbilityParser = (c: Cursor) => GainedAbility[] | null;
 const FAMILY_NAMES: Partial<Record<SubtypeFamily, string>> = {
@@ -52,6 +52,18 @@ export function parseStaticBasePt(c: Cursor): { power: Amount; toughness: Amount
     if (!power || !c.punct('/')) return null;
     const toughness = parseAmount(c);
     return toughness ? { power, toughness } : null;
+  });
+}
+
+/** "[~'s power is equal to N] and its toughness is equal to that number
+ * plus 1": one characteristic-defining ability with two values (CR 604.3,
+ * 613.4a). "That number" is the power value stated in the same sentence, so
+ * the toughness repeats that expression instead of a contextual reference. */
+export function parseCoordinatedCdaToughness(c: Cursor, power: Amount): Amount | null {
+  return c.attempt(c => {
+    if (!c.words("and", "its", "toughness", "is", "equal", "to")) return null;
+    if (c.words("that", "number")) return parseAmountAdjustment(c, structuredClone(power));
+    return parseAmount(c);
   });
 }
 
@@ -188,12 +200,27 @@ export function parseCharacteristicModifiers(c: Cursor, _what: ObjectRef, parseA
       }
       if (addTypes && !cardTypes.length && !subtypes.size && !allSubtypes && !chosenSubtype && !supertypes.length || addColors && !colors) return null;
     }
+    // CR 205.1a: "and [it] loses all other card types" restates that the
+    // stated card type replaces the others, which is what setting means; it
+    // contradicts a retained type (205.1b). "…and abilities" additionally
+    // removes every ability this effect doesn't itself grant (613.1f).
+    const othersLost = c.attempt(c => {
+      c.punct(',');
+      if (c.word('and') === null) return null;
+      c.word('it', 'they');
+      if (c.word('loses', 'lose') === null || !c.words('all', 'other', 'card', 'types')) return null;
+      return { abilities: c.words('and', 'abilities') };
+    });
     if (retainedTypes(c, verb === 'are' || verb === "aren't")) addTypes = true;
+    if (othersLost && (!cardTypes.length || addTypes || also || negative || noLonger
+      || cardTypes.includes('artifact') && cardTypes.includes('creature') || othersLost.abilities && !abilities)) return null;
     // "Also" is currently represented only for types. It must not silently
     // turn an additional color into a color replacement.
     if (also && colors) return null;
     if ((negative || noLonger) && (colors || stats || abilities || allSubtypes || chosenSubtype || also || addTypes || addColors)) return null;
     const removing = negative || noLonger;
+    // Scryfall ruling (Tezzeret, Agent of Bolas): an artifact that "becomes an
+    // artifact creature" retains its other types, subtypes and supertypes.
     const artifactCreature = cardTypes.includes('artifact') && cardTypes.includes('creature');
     const change: TypeChange = {};
     if (cardTypes.length) change.cardTypes = { operation: removing ? 'remove' : addTypes || artifactCreature ? 'add' : 'set', types: cardTypes };
@@ -214,6 +241,7 @@ export function parseCharacteristicModifiers(c: Cursor, _what: ObjectRef, parseA
     if (stats) modifiers.push({ modifier: 'base-pt', ...stats,
       ...(stats.power.amount !== 'fixed' || stats.toughness.amount !== 'fixed' ? { valueScope: 'each-affected-object' as const } : {}) });
     if (abilities) modifiers.push({ modifier: 'abilities', abilities });
+    if (othersLost?.abilities) modifiers.push({ modifier: 'lose-abilities', removal: { removal: 'all-other', than: 'abilities-granted-by-this-effect' } });
     return modifiers.length ? modifiers : null;
   });
 }

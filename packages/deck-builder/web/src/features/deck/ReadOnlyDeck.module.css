@@ -1,0 +1,101 @@
+/* The list beside a column of what the deck is for; one column on a phone.
+   The page scrolls as a whole: nothing inside it has its own scroll. */
+.root {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--panel-w);
+  gap: var(--s-7);
+  align-items: start;
+  padding: var(--s-6);
+}
+
+.list {
+  min-width: 0;
+}
+
+.listHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+  margin-bottom: var(--s-4);
+}
+
+.aside {
+  display: grid;
+  gap: var(--s-7);
+  min-width: 0;
+}
+
+.section {
+  display: grid;
+  gap: var(--s-4);
+  min-width: 0;
+}
+
+.power {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-5);
+}
+
+.details > summary {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.decisions {
+  display: grid;
+  gap: var(--s-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.decision {
+  display: grid;
+  gap: var(--s-2);
+  padding-bottom: var(--s-5);
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+
+.decisionHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-4);
+}
+
+@media (max-width: 719px) {
+  .body {
+    grid-template-columns: minmax(0, 1fr);
+    padding: var(--s-5) var(--s-4);
+  }
+  .list { scroll-margin-top: calc(var(--phone-bar-h) + var(--deck-scroll-heading-h)); }
+}
+
+/* Owner phone references decorate their text, including proposal names and
+   linked prose. Shared pages retain their own presentation. */
+@media (max-width: 719px) {
+  .root[data-owner-deck] [data-card-ref] {
+    --card-ref-hit-pad: calc((var(--tap) - 1em * var(--leading)) / 2 + var(--s-1) / 2);
+    display: inline-block;
+    min-height: 0;
+    padding-block: var(--card-ref-hit-pad);
+    margin-block: calc(-1 * var(--card-ref-hit-pad));
+    line-height: inherit;
+    border-bottom: 0;
+    text-decoration: underline dotted;
+    text-decoration-color: var(--faint);
+    text-underline-offset: var(--s-1);
+  }
+  .root[data-owner-deck] [data-card-ref]:hover { text-decoration-color: var(--sel); }
+}

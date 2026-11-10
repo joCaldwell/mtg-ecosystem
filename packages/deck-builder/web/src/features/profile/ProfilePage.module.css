@@ -1,10 +1,6 @@
 /* The document reads as a page: bordered, with prose leading, at reading width (prototype .doc). */
 .doc {
   max-width: var(--measure);
-  padding: var(--s-6) var(--s-7);
-  border: 1px solid var(--line);
-  border-radius: var(--r-xl);
-  background: var(--surface);
   line-height: var(--leading-prose);
 }
 
@@ -17,8 +13,27 @@
 
 .meter {
   flex: 1;
+  /* The row aligns text baselines (the count is monospaced); the bar centres. */
+  align-self: center;
 }
 
 .count {
   flex: none;
 }
+
+.profile { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; gap: var(--s-6); }
+.pending { display: grid; gap: var(--s-5); min-width: 0; padding-top: var(--s-6); }
+
+.card {
+  min-width: 0;
+  padding: var(--s-6) var(--s-7);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background: var(--surface);
+}
+
+@media (pointer: coarse) and (max-width: 1099px) {
+  .card button { min-height: var(--tap); }
+}
+
+@media (max-width: 1099px) { .profile { grid-template-columns: minmax(0, 1fr); } .pending { padding-top: 0; } }

@@ -1,0 +1,37 @@
+.eyebrow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2) var(--s-5);
+  color: var(--faint);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.parts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-1) var(--s-3);
+  min-width: 0;
+}
+
+.parts > :not(:first-child)::before {
+  content: "·";
+  margin-right: var(--s-3);
+  color: var(--faint);
+}
+
+.agent {
+  color: var(--agent);
+}
+
+/* Review's "2 of 3": where this proposal sits in the queue, kept apart. */
+.counter {
+  flex: none;
+  margin-left: auto;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  white-space: nowrap;
+}

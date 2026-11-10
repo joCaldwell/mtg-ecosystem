@@ -23,7 +23,7 @@ describe('otherwise branches preserve the tested outcome', () => {
     assert.deepEqual(abilities("When this creature dies, reveal the top card of your library. You may put that card onto the battlefield if it's a permanent card with mana value 3 or less. Otherwise, put that card into your hand.", 'Creature — Eldrazi'), [{
       kind: 'triggered', trigger: { trigger: 'dies', what: { ref: 'this', noun: 'creature' } }, effects: [reveal, {
         condition: { condition: 'is-filter', what: itRef, filter: { cls: 'card', permanent: true, properties: [{ property: 'mana-value', comparison: { op: 'le', value: n(3) } }] } },
-        conditionKind: 'if', steps: [{ effect: 'move-zone', what: thatCard, to: { zone: 'battlefield' }, optional: true }],
+        conditionKind: 'if', conditionPosition: 'after', steps: [{ effect: 'move-zone', what: thatCard, to: { zone: 'battlefield' }, optional: true }],
         otherwise: { on: 'action-not-performed', steps: [{ effect: 'move-zone', what: thatCard, to: { zone: 'hand', owner: 'your' } }] },
       }],
     }]);
@@ -46,7 +46,7 @@ describe('otherwise branches preserve the tested outcome', () => {
           { effect: 'search', who: you, zones: { selection: 'all', of: [{ zone: 'library', owner: 'your' }] }, for: { ref: 'filter', filter: { supertypes: ['basic'], types: ['land'], cls: 'card' }, count: n(1) } },
           { effect: 'reveal', who: you, what: itRef },
         ] },
-        { condition: { condition: 'control', who: you, what: { ref: 'filter', filter: { types: ['land'], name: { name: 'literal', value: 'Wastes' } }, count: n(1) } }, conditionKind: 'if',
+        { condition: { condition: 'control', who: you, what: { ref: 'filter', filter: { types: ['land'], name: { name: 'literal', value: 'Wastes' } }, count: n(1) } }, conditionKind: 'if', conditionPosition: 'after',
           steps: [{ effect: 'move-zone', what: thatCard, to: { zone: 'battlefield' }, tapped: true, optional: true }],
           otherwise: { on: 'action-not-performed', steps: [{ effect: 'move-zone', what: thatCard, to: { zone: 'hand', owner: 'your' } }] },
         },

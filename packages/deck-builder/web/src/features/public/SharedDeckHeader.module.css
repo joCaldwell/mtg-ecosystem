@@ -1,0 +1,69 @@
+/* The name sits right at the art's lower edge, the largest thing on the page;
+   lifecycle, visibility and colours follow it. */
+.text { display: grid; gap: var(--s-4); padding: var(--s-4) var(--s-6) var(--s-6); }
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-4);
+}
+
+.visibility {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.title {
+  font-size: var(--text-display);
+  font-weight: 600;
+  line-height: var(--leading-display);
+  overflow-wrap: anywhere;
+}
+
+.byline,
+.commanders {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.handle,
+.bracket {
+  color: var(--faint);
+}
+
+.bracket {
+  font-family: var(--font-mono);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-4);
+}
+
+/* Desktop uses the normal button height; a finger still gets a full target. */
+@media (pointer: coarse) {
+  .actions > * {
+    min-height: var(--tap);
+  }
+}
+
+@media (max-width: 719px) {
+  .commanders button {
+    min-height: var(--tap);
+  }
+  .text {
+    padding: var(--s-4) var(--s-4) var(--s-5);
+  }
+  .title {
+    font-size: var(--text-xl);
+  }
+  .actions > * {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}

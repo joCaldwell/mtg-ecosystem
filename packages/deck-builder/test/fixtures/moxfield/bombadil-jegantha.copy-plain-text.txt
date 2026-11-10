@@ -1,0 +1,104 @@
+1 An Offer You Can't Refuse
+1 Anguished Unmaking
+1 Arid Mesa
+1 Assassin's Trophy
+1 Azusa's Many Journeys
+1 Battle for Bretagard
+1 Beast Within
+1 Binding the Old Gods
+1 Birth of the Imperium
+1 Bloom Tender
+1 Boseiju, Who Endures
+1 Brago, King Eternal
+1 Breeding Pool
+1 City of Brass
+1 Command Tower
+1 Cyclonic Rift
+1 Dance of the Manse
+1 Dovin's Veto
+1 Elspeth's Nightmare
+1 Enchantress's Presence
+1 Exotic Orchard
+1 Fable of the Mirror-Breaker
+1 Faeburrow Elder
+1 Femeref Enchantress
+1 Field of the Dead
+1 Forest
+1 Generous Gift
+1 Ghen, Arcanum Weaver
+1 Glissa Sunslayer
+1 Godless Shrine
+1 Goldberry, River-Daughter
+1 Hall of Heliod's Generosity
+1 Hallowed Fountain
+1 Hex Parasite
+1 Hidetsugu Consumes All
+1 Historian's Boon
+1 In the Darkness Bind Them
+1 Indatha Triome
+1 Inventive Iteration
+1 Island
+1 Jetmir's Garden
+1 Jhoira, Weatherlight Captain
+1 Jugan Defends the Temple
+1 Jukai Naturalist
+1 Mana Confluence
+1 Mana Crypt
+1 Marsh Flats
+1 Michiko's Reign of Truth
+1 Misty Rainforest
+1 Mountain
+1 Murmuring Bosk
+1 Nesting Grounds
+1 Overgrown Tomb
+1 Plains
+1 Prismatic Vista
+1 Raffine's Tower
+1 Reflecting Pool
+1 Resurgent Belief
+1 Sacred Foundry
+1 Sanctum Weaver
+1 Satsuki, the Living Lore
+1 Satyr Enchanter
+1 Scalding Tarn
+1 Scholar of New Horizons
+1 Scroll of Isildur
+1 Setessan Champion
+1 Shigeki, Jukai Visionary
+1 Showdown of the Skalds
+1 Smothering Tithe
+1 Snow-Covered Forest
+1 Snow-Covered Plains
+1 Sol Ring
+1 Song of Eärendil
+1 Spara's Headquarters
+1 Sterling Grove
+1 Stomping Ground
+1 Strip Mine
+1 Swamp
+1 Swan Song
+1 Swords to Plowshares
+1 Sythis, Harvest's Hand
+1 Teferi's Protection
+1 Temple Garden
+1 The Bath Song
+1 The Eldest Reborn
+1 The Fall of Lord Konda
+1 The First Iroan Games
+1 The Horus Heresy
+1 The Kami War
+1 The Restoration of Eiganjo
+1 The Weatherseed Treaty
+1 The World Tree
+1 Thrull Parasite
+1 Toxic Deluge
+1 Verdant Catacombs
+1 Waking the Trolls
+1 War of the Last Alliance
+1 Weaver of Harmony
+1 Zagoth Triome
+
+SIDEBOARD:
+1 Jegantha, the Wellspring
+
+1 Tom Bombadil

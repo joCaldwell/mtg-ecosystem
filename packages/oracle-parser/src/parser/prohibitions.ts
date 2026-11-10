@@ -37,7 +37,15 @@ function parseWindow(c: Cursor): ProhibitionWindow | null {
     if (c.words("during", "your", "turn")) return { during: "turn", whose: { player: "you" } };
     if (c.word("during") === null) return null;
     const whose = parsePossessivePlayer(c);
-    if (!whose || isTargetedPlayerRef(whose) || !c.words("next", "turn")) return null;
+    if (!whose || isTargetedPlayerRef(whose)) return null;
+    if (c.isWord("first")) {
+      // "first, second, or third turns" lists consecutive turns from the first.
+      const ordinals = c.attempt(c => c.words("first") && c.punct(",") && c.words("second") && c.punct(",") && c.words("or", "third") ? 3 : null);
+      const count = ordinals ?? c.attempt(c => c.word("first") !== null ? c.number() : null);
+      if (!count || c.word("turns") === null || !c.words("of", "the", "game")) return null;
+      return { during: "first-turns", whose, count };
+    }
+    if (!c.words("next", "turn")) return null;
     return { during: "next-turn", whose };
   });
 }
@@ -66,6 +74,14 @@ function parseSourceQuery(c: Cursor): ObjectRef | null {
   });
 }
 
+/** "with {T} in their costs" / "with {T} in its cost" after "activated abilities". */
+function parseTapInCost(c: Cursor): true | null {
+  return c.attempt(c => {
+    if (c.word("with") === null || c.peek()?.kind !== "symbol" || c.symbol() !== "T") return null;
+    return c.words("in", "their", "costs") || c.words("in", "its", "cost") ? true : null;
+  });
+}
+
 function parseAbilityQuery(c: Cursor): ObjectRef | null {
   return c.attempt(c => {
     const possessed = c.attempt(c => {
@@ -84,6 +100,7 @@ function parseAbilityQuery(c: Cursor): ObjectRef | null {
       if (!kind || c.word("abilities") === null) return null;
       const filter: ObjectFilter = { cls: "ability", abilityKind: "activated", abilitySource: source,
         ...(kind === "loyalty" ? { loyaltyAbility: true } : {}) };
+      if (kind === "activated" && parseTapInCost(c)) filter.tapInCost = true;
       return { ref: "each" as const, filter };
     });
     if (possessed) return possessed;
@@ -226,13 +243,41 @@ function parseDamageRule(c: Cursor): GameProhibition | null {
   });
 }
 
+/** "Spells and abilities your opponents control can't cause you to sacrifice
+ * permanents.": a prohibition on what those effects make the player do. */
+function parseCausedAction(c: Cursor): GameProhibition | null {
+  return c.attempt((c): GameProhibition | null => {
+    const by = parseObjectRef(c);
+    if (!by || by.ref !== "each" || !isSpellOrAbilityQuery(by.filter) || !c.words("can't", "cause")) return null;
+    const who = parsePlayerRef(c);
+    if (!who || isTargetedPlayerRef(who) || c.word("to") === null) return null;
+    const actions: ("sacrifice" | "exile")[] = [];
+    do {
+      const action = c.word("sacrifice", "exile") as "sacrifice" | "exile" | null;
+      if (!action || actions.includes(action)) return null;
+      actions.push(action);
+    } while (c.word("or") !== null);
+    const what = parseObjectRef(c);
+    if (!what || what.ref !== "each" || hasTarget(what)) return null;
+    return { prohibition: "caused-action", who, actions, what, by: by.filter };
+  });
+}
+
+function isSpellOrAbilityQuery(filter: ObjectFilter): boolean {
+  if (filter.cls === "spell" || filter.cls === "ability") return true;
+  return filter.allOf?.length === 1 && !!filter.allOf[0].anyOf?.length
+    && filter.allOf[0].anyOf.every(option => (option.cls === "spell" || option.cls === "ability") && Object.keys(option).length === 1);
+}
+
 function parseRules(c: Cursor): Parsed | null {
   return c.attempt(c => {
     let window = parseWindow(c);
     if (window && !c.punct(",")) return null;
     let rules: Rule[];
     const damage = parseDamageRule(c);
+    const caused = damage ? null : parseCausedAction(c);
     if (damage) rules = [{ prohibition: damage }];
+    else if (caused) rules = [{ prohibition: caused }];
     else {
       const passive = c.attempt(c => {
         const query = parseAbilityQuery(c);

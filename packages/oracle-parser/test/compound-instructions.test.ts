@@ -111,8 +111,15 @@ describe('optional resolution payments', () => {
     }]);
   });
   it('rejects incomplete or unsupported payments', () => {
-    for (const text of ['Sacrifice this creature unless you pay.', 'Counter target spell unless its controller discards.', 'Sacrifice this creature unless you pay {T}.', 'Sacrifice this creature unless you pay {1} for each creature you control.'])
+    for (const text of ['Sacrifice this creature unless you pay.', 'Counter target spell unless its controller discards.', 'Sacrifice this creature unless you pay {T}.'])
       assert.equal(parseOracleText(text).ok, false, text);
+    // A multiplied mana payment is now represented (pays.multiplier),
+    // so this former rejection is a structural assertion.
+    assert.deepEqual(effects('Sacrifice this creature unless you pay {1} for each creature you control.'), [{
+      steps: [{ effect: 'sacrifice', who: { player: 'you' }, what: { ref: 'this', noun: 'creature' } }],
+      condition: { condition: 'pays', who: { player: 'you' }, cost: [{ cost: 'mana', symbols: ['1'] }],
+        multiplier: { amount: 'count', of: { types: ['creature'], control: 'you' } } }, conditionKind: 'unless',
+    }]);
   });
 });
 

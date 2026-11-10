@@ -1,20 +1,74 @@
+/* One label column and one field edge for every row. Controls stand a size
+   taller here than in the list: this is the card's own form. */
+.form {
+  --h-md: var(--h-lg);
+  display: grid;
+  gap: var(--s-6);
+}
+
 .kv {
+  grid-template-columns: var(--card-label-w) minmax(0, 1fr);
   align-items: start;
-  gap: var(--s-4) var(--s-5);
+  gap: var(--s-4);
+}
+
+.place {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-4);
+  padding-top: var(--s-6);
+  border-top: 1px solid var(--line);
+}
+.copies { display: flex; flex: none; align-items: center; gap: var(--s-3); color: var(--text-soft); }
+.copies > :last-child { color: var(--text); }
+
+.kv dt,
+.kv dd {
+  display: flex;
+  align-items: center;
+  min-height: var(--h-md);
 }
 
 .kv dt {
-  padding-top: var(--s-2);
+  color: var(--text-soft);
+}
+
+.kv dd > * {
+  width: 100%;
+}
+
+/* Nothing to line up with a control: rows close up and values can wrap. */
+.readOnly .kv {
+  gap: var(--s-3) var(--s-4);
+}
+
+.readOnly .kv :is(dt, dd) {
+  min-height: 0;
+  align-items: start;
 }
 
 .tags {
   display: flex;
   flex-direction: column;
-  gap: var(--s-2);
+  align-items: flex-start;
+  gap: var(--s-3);
   min-width: 0;
 }
 
-.quantity {
-  width: calc(var(--s-8) * 2);
-  font-family: var(--font-mono);
+.tags > div { width: 100%; }
+
+.board { display: flex; max-width: 100%; }
+.board > button { min-width: 0; padding: 0 var(--s-3); }
+
+/* The narrowest panel gives each field its full width, label above. */
+@container (max-width: 379px) {
+  .kv { grid-template-columns: minmax(0, 1fr); row-gap: var(--s-2); }
+  .kv dt, .kv dd { min-height: 0; }
+  .kv dd + dt { margin-top: var(--s-3); }
+}
+
+@media (max-width: 1099px) {
+  .kv dt, .kv dd { min-height: var(--tap); }
+  .board { height: auto; }
 }

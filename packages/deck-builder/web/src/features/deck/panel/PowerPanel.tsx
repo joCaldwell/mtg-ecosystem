@@ -5,7 +5,7 @@ import { bracketLabel, powerRows } from "../../../domain/power.ts";
 import { ago } from "../../../domain/time.ts";
 import { CardRef, RichText } from "../../../mtg/index.ts";
 import { Button, Eyebrow, Row, Stack, Text } from "../../../ui/index.ts";
-import { DocumentEditCard } from "../../rulings/index.ts";
+import { DocumentEditCard } from "../../decisions/index.ts";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
 import { PowerEditor } from "./PowerEditor.tsx";
 import { PowerMapping } from "./PowerMapping.tsx";
@@ -17,22 +17,21 @@ export function PowerPanel() {
   const { deckId, run, apply } = useDeck();
   const inbox = useInbox();
   const [editing, setEditing] = useState<"target" | "assessment" | null>(null);
-  const readOnly = deck.category === "legacy";
+  const readOnly = deck.category === "archived";
   const a = power.assessment;
   const t = power.target;
   return <>
     <Stack gap={4}>
-      <Row justify="between"><Eyebrow>Deck power</Eyebrow><Button size="sm" variant="ghost" disabled={readOnly} onClick={() => setEditing("assessment")}>{a ? "Reassess" : "Assess deck"}</Button></Row>
+      <Row justify="between"><Eyebrow>Deck power</Eyebrow><Button size="sm" reach disabled={readOnly} onClick={() => setEditing("assessment")}>{a ? "Reassess" : "Assess deck"}</Button></Row>
       <div className={styles.summary}>
         <Stack gap={2}><Text size="xs" tone="muted">Current assessment</Text><Text size="xl" mono tone={a?.stale ? "warn" : "soft"}>{a ? bracketLabel(a.mapping) : "Not assessed"}</Text>
-          {a && <Text size="xs" tone={a.owner_touched ? "muted" : "agent"}>{a.author} · r{a.revision} · {ago(a.created_at)}</Text>}
+          {a && <Text title={`Assessed at r${a.revision}`} size="xs" tone={a.owner_touched ? "muted" : "agent"}>{a.author_display ?? a.author} · {ago(a.created_at)}</Text>}
         </Stack>
         <Stack gap={2}><Text size="xs" tone="muted">Target</Text><Text size="xl" mono>{t ? bracketLabel(t.mapping) : "Not set"}</Text>
-          <Button size="sm" variant="ghost" disabled={readOnly} onClick={() => setEditing("target")}>{t ? "Edit target" : "Set target"}</Button>
-          {t && <Text size="xs" tone={t.author === "owner" ? "muted" : "agent"}>{t.author} · {ago(t.updated_at)}</Text>}
+          <Button size="sm" reach disabled={readOnly} onClick={() => setEditing("target")}>{t ? "Edit target" : "Set target"}</Button>
+          {t && <Text size="xs" tone={t.author_via === "ui" ? "muted" : "agent"}>{t.author_display ?? t.author} · {ago(t.updated_at)}</Text>}
         </Stack>
       </div>
-      <Text size="sm" tone="muted">A profile describes how the deck plays. The bracket is a suggested translation for pregame discussion; “?” marks gaps or conflicts.</Text>
       {a?.stale && <Text as="p" tone="warn" role="status">Cards changed since r{a.revision}. This assessment needs review before comparing it with the target.</Text>}
       {a && <Text size="sm" tone="muted">{a.confidence === "tentative" ? "Tentative" : "Supported by evidence"} · {a.evidence === "list" ? "list analysis" : a.evidence === "goldfish" ? "goldfishing" : "actual games"}</Text>}
     </Stack>
@@ -57,13 +56,13 @@ export function PowerPanel() {
     {state.document_edits.filter(e => e.kind === "power_target").map(edit => <DocumentEditCard key={edit.id} edit={edit} onRuled={r => { apply(r); inbox.apply(r.inbox); }} />)}
     {power.history.length > 1 && <details className={styles.details}><summary>Previous assessments</summary><Stack gap={5}>
       {power.history.slice(1).map(old => <Stack key={old.id} gap={2}>
-        <Text size="sm" tone={old.owner_touched ? "muted" : "agent"}>{old.author} · r{old.revision} · {bracketLabel(old.mapping)} · {old.confidence} · {old.evidence} · {ago(old.created_at)}</Text>
+        <Text title={`Assessed at r${old.revision}`} size="sm" tone={old.owner_touched ? "muted" : "agent"}>{old.author_display ?? old.author} · {bracketLabel(old.mapping)} · {old.confidence} · {old.evidence} · {ago(old.created_at)}</Text>
         <details><summary>View this assessment</summary><Stack gap={2}>{powerRows({ ...power, assessment: old }).map(row => <Text key={row.field} size="sm" tone="muted">{row.field}: {row.current}</Text>)}</Stack></details>
         <RichText text={old.notes} />
       </Stack>)}
     </Stack></details>}
-    <Stack gap={3}><Text as="p" size="xs" tone="faint">{readOnly ? "Legacy decks are read-only." : "Agents propose target changes for your approval."} Assessments are attributed estimates; your corrections take precedence.</Text>
-      {t && !readOnly && <Button size="sm" variant="ghost" onClick={() => void run(() => api.setPowerTarget(deckId, null))}>Clear target</Button>}
+    <Stack gap={3}>
+      {t && !readOnly && <Button size="sm" onClick={() => void run(() => api.setPowerTarget(deckId, null))}>Clear target</Button>}
     </Stack>
     {editing && !readOnly && <PowerEditor kind={editing} power={power} revision={deck.revision} onClose={() => setEditing(null)} />}
   </>;

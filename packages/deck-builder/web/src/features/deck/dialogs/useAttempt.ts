@@ -5,9 +5,11 @@
 import { useCallback, useState } from "react";
 import type { Envelope } from "../../../api/client.ts";
 import { useDeck } from "../DeckStore.tsx";
+import { useSaveStatusReport } from "./saveStatus.ts";
 
 export function useAttempt() {
   const { apply } = useDeck();
+  const report = useSaveStatusReport();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -28,11 +30,16 @@ export function useAttempt() {
   /** Like attempt, and lands the returned deck state in the store. */
   const mutate = useCallback(
     async <T extends Envelope>(fn: () => Promise<T>): Promise<T | null> => {
-      const result = await attempt(fn);
+      report("saving");
+      let failure: string | undefined;
+      const result = await attempt(async () => {
+        try { return await fn(); } catch (e: unknown) { failure = e instanceof Error ? e.message : String(e); throw e; }
+      });
       if (result) apply(result);
+      report(result ? "saved" : failure === undefined ? "idle" : "failed", failure);
       return result;
     },
-    [attempt, apply],
+    [attempt, apply, report],
   );
 
   return { error, setError, busy, attempt, mutate };

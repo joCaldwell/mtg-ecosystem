@@ -5,7 +5,17 @@ import type { Amount, Cost, ObjectRef } from "../ast.ts";
 import type { Cursor } from "./cursor.ts";
 import { parseAmount, parseCounterSpec, parseObjectRef, parseObjectSelection, parseZoneRef } from "./refs.ts";
 
+import { parseBeholdCost } from "./behold.ts";
+import { parseCostMultiplier } from "./cost-modifiers.ts";
+import { parseStatedPayment } from "./amount-payments.ts";
+import { parseManaCostPayment } from "./mana-cost-payments.ts";
 import { isManaSymbol } from "../symbols.ts";
+import { parsePaidLifeContinuation } from "./paid-costs.ts";
+
+/** Scaled payments ("Pay {1} for each +1/+1 counter on this creature") exist
+ * only in an activated ability's cost list; a resolving or declaration
+ * payment states its multiple differently. Set only by parseActivationCostList. */
+let allowScaledPayments = false;
 
 /** A run of `{…}` symbols → mana / tap / untap / energy cost items. */
 export function parseSymbolCosts(c: Cursor): Cost[] | null {
@@ -48,12 +58,34 @@ function parsePaymentObjects(c: Cursor): ObjectRef | null {
   });
 }
 
+/** After "pay": a number of energy counters stated in words. CR 107.14: the
+ * {E} symbol is the unit, so "any amount of {E}" and "one or more {E}" are
+ * numbers the payer chooses, and "an amount of {E} equal to ..." is computed. */
+export function parseEnergyPayment(c: Cursor): Cost | null {
+  return c.attempt((c): Cost | null => {
+    const energy = (c: Cursor) => { const symbol = c.peek(); return symbol?.kind === "symbol" && symbol.value === "E" && c.symbol() !== null; };
+    let amount: Amount | null;
+    if (c.words("any", "amount", "of")) amount = { amount: "chosen", minimum: 0 };
+    else if (c.words("one", "or", "more")) amount = { amount: "chosen", minimum: 1 };
+    else if (c.words("an", "amount", "of")) {
+      if (!energy(c) || !c.words("equal", "to")) return null;
+      amount = parseAmount(c);
+      return amount && { cost: "energy", amount };
+    } else amount = parseAmount(c);
+    return amount && energy(c) ? { cost: "energy", amount } : null;
+  });
+}
+
 /** One non-symbol cost item: "Pay 2 life", "Sacrifice a creature", … */
 function parseActionCost(c: Cursor): Cost | null {
   return c.attempt((c): Cost | null => {
     if (c.word("pay") !== null) {
       const symbols = c.attempt(parseSymbolCosts);
-      if (symbols) return symbols.length === 1 ? symbols[0] : c.fail("single payment cost");
+      if (symbols) {
+        if (symbols.length !== 1) return c.fail("single payment cost");
+        const multiplier = allowScaledPayments && symbols[0].cost === "mana" ? parseCostMultiplier(c) : null;
+        return multiplier ? { ...symbols[0], multiplier } as Cost : symbols[0];
+      }
       // CR 107.1a, 119.4: the stated rounding is part of the amount paid.
       const half = c.attempt((c): Cost | null => {
         if (!c.words("half", "your", "life")) return null;
@@ -63,18 +95,20 @@ function parseActionCost(c: Cursor): Cost | null {
           round: round as "up" | "down" } } : null;
       });
       if (half) return half;
-      const amount = parseAmount(c);
-      if (!amount) return null;
       // CR 107.14: "Pay six {E}" and "Pay X {E}" remove that many
       // energy counters; the printed single symbol is a unit, not a count.
       // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-      const energySymbol = c.peek();
-      if (energySymbol?.kind === "symbol" && energySymbol.value === "E") {
-        c.symbol();
-        return { cost: "energy", amount };
-      }
+      const energy = parseEnergyPayment(c);
+      if (energy) return energy;
+      const stated = parseStatedPayment(c);
+      if (stated) return stated;
+      const manaCost = parseManaCostPayment(c);
+      if (manaCost) return manaCost;
+      const amount = parseAmount(c);
+      if (!amount) return null;
       if (c.word("life") === null) return null;
-      return { cost: "pay-life", amount };
+      const multiplier = allowScaledPayments ? parseCostMultiplier(c) : null;
+      return { cost: "pay-life", amount, ...(multiplier ? { multiplier } : {}) };
     }
     if (c.word("sacrifice") !== null) {
       const what = parsePaymentObjects(c);
@@ -122,6 +156,12 @@ function parseActionCost(c: Cursor): Cost | null {
       const what = parsePaymentObjects(c);
       return what && { cost: "exert", what };
     }
+    // CR 701.3d: "Unattach ~" in an ability an Equipment grants; the name
+    // means that Equipment, not the creature with the ability (201.5a).
+    if (c.word("unattach") !== null) {
+      const what = parsePaymentObjects(c);
+      return what && (what.ref === "self" || what.ref === "this") ? { cost: "unattach", what } : null;
+    }
     if (c.word("mill") !== null) {
       const amount = parseAmount(c);
       return amount && c.word("card", "cards") !== null ? { cost: "mill", amount } : null;
@@ -162,11 +202,21 @@ function parseActionCost(c: Cursor): Cost | null {
       return from && { cost: "remove-counters", counter, count, from, ...(distributed ? { distributed: true } : {}) };
     }
     if (c.word("put") !== null) {
-      const count = parseAmount(c);
-      const counter = parseCounterSpec(c);
-      if (!count || !counter || c.word("counter", "counters") === null || c.word("on") === null) return null;
-      const on = parseObjectRef(c);
-      return on && { cost: "put-counters", counter, count, on };
+      const counters = c.attempt((c): Cost | null => {
+        const count = parseAmount(c);
+        const counter = parseCounterSpec(c);
+        if (!count || !counter || c.word("counter", "counters") === null || c.word("on") === null) return null;
+        const on = parseObjectRef(c);
+        return on && { cost: "put-counters", counter, count, on };
+      });
+      if (counters) return counters;
+      // CR 400.3: the stated destination is part of the payment; only the
+      // graveyard and a stated end of a library are accepted.
+      const what = parsePaymentObjects(c);
+      if (!what || !("filter" in what) || what.ref === "each" || c.word("into", "on") === null) return null;
+      const to = parseZoneRef(c);
+      if (!to || !(to.zone === "graveyard" ? !to.position : to.zone === "library" && !!to.position && !to.depth)) return null;
+      return { cost: "move-zone", what, to };
     }
     // Preserve keyword-action identity: these actions may trigger abilities
     // even when their underlying payment resembles ordinary exile or mana.
@@ -175,6 +225,7 @@ function parseActionCost(c: Cursor): Cost | null {
       const amount = parseAmount(c);
       return amount && { cost: "collect-evidence", amount };
     }
+    if (c.isWord("behold")) return parseBeholdCost(c);
     if (c.word("forage") !== null) return { cost: "forage" };
     if (c.word("blight") !== null) {
       const amount = parseAmount(c);
@@ -222,12 +273,16 @@ function parseConjunctiveCosts(c: Cursor): Cost[] | null {
       const symbols = c.attempt(parseSymbolCosts);
       if (symbols) costs.push(...symbols);
       else {
+        const paid = c.isWord("pay");
         const action = parseActionCost(c);
         if (!action) return costs.length ? c.fail("cost after separator") : null;
         costs.push(action);
+        const life = paid && action.cost === "mana" ? parsePaidLifeContinuation(c) : null;
+        if (life) costs.push(life);
         if (action.cost === "sacrifice") costs.push(...parseSharedSacrifices(c));
       }
-      if (c.isPunct(",")) {
+      // ", where X is …" defines X for the enclosing instruction.
+      if (c.isPunct(",") && !(c.peek(1)?.kind === "word" && (c.peek(1) as { value: string }).value === "where")) {
         c.punct(",");
         c.word("and");
         continue;
@@ -240,6 +295,13 @@ function parseConjunctiveCosts(c: Cursor): Cost[] | null {
     }
     return costs.length ? costs : null;
   });
+}
+
+/** The cost list before the colon of an activated ability. */
+export function parseActivationCostList(c: Cursor): Cost[] | null {
+  const previous = allowScaledPayments;
+  allowScaledPayments = true;
+  try { return parseCostList(c); } finally { allowScaledPayments = previous; }
 }
 
 /** Alternatives preserve grouped payments: paying mana OR discarding is not

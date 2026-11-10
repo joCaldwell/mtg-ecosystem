@@ -162,8 +162,6 @@ describe("sentences that qualify every use of a play permission", () => {
 
   it("rejects riders it cannot attach faithfully", () => {
     for (const text of [
-      // The pinned regression: a static permission followed by "If you do".
-      "You may cast this card from your graveyard. If you do, it enters with a finality counter on it.",
       // The noun must be guaranteed by the permission or the rider's filter.
       "You may cast artifact spells from your graveyard. If you cast a spell this way, that creature enters tapped.",
       // A filtered rider cannot become a permission-wide payment rule.
@@ -173,6 +171,15 @@ describe("sentences that qualify every use of a play permission", () => {
       "You may cast spells from the top of your library. If you cast a spell this way, draw a card.",
       "You may cast spells from the top of your library. If you cast it any time a sorcery couldn't have been cast, the controller of the permanent it becomes sacrifices it at the beginning of the next cleanup step.",
     ]) rejected(text, "Enchantment");
+    // Formerly rejected here as "the pinned regression": a static permission
+    // for this one card followed by "If you do, it enters with …" is now that
+    // permission's entry rider (CR 614.1c, 614.12).
+    assert.deepEqual(ability("You may cast this card from your graveyard. If you do, it enters with a finality counter on it.", "Creature — Zombie Warrior"), {
+      kind: "static", effect: { static: "play-permission", permission: { who: you, action: "cast", what: { ref: "this", noun: "card" },
+        from: { zone: "graveyard", owner: "your" }, riders: [{ rider: "entry", counters: [{ count: one, counter: { type: "finality" } }] }] } } });
+    // Any other consequence of using a static permission stays rejected.
+    rejected("You may cast this card from your graveyard. If you do, draw a card.", "Creature — Zombie Warrior");
+    rejected("You may cast creature spells from your graveyard. If you do, it enters with a finality counter on it.", "Enchantment");
     // An outcome-dependent instruction after a lasting permission stays rejected.
     rejected("Exile the top card of your library. You may play that card this turn. If you do, draw a card.", "Sorcery");
     rejected("Exile the top card of your library. You may play that card this turn. If you don't, draw a card.", "Sorcery");

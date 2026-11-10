@@ -15,6 +15,15 @@ build step — Node ≥ 23 runs the `.ts` sources directly (imports use explicit
 mode rejects them). The previous ANTLR/antlr4ts pipeline was audited and
 replaced on 2026-08-01; see the git history if you need the archaeology.
 
+## 📍 Status
+
+Parsing is at its target (92.27% of Commander-legal cards); reference binding
+is at 23,395 cards with all references bound and 21,998 fully bound. What is
+still unfinished — an independent audit of the binding rules, the remaining
+reference gaps by group, engine features, the paused parsing tail, and Card IR
+emission — is listed in
+[docs/oracle-parser-checkpoint.md](../../docs/oracle-parser-checkpoint.md#what-remains).
+
 ## 🧠 Architecture
 
 ```
@@ -58,13 +67,23 @@ From the repo root:
 *   `npm run ingest` — cache Scryfall bulk data to `.scryfall-cache/`.
 *   `npm run validate` — acceptance scoreboard for the cached corpus. Reports
     corpus/source hashes, Git revision, a versioned scope and exclusions,
-    card/block acceptance, and failure-location groups with complete examples.
+    card/block acceptance (also for the Commander-legal subset, the current
+    coverage target), and failure-location groups with complete examples.
     `npm run validate -- --json` includes per-card AST hashes for comparison.
     Empty text is valid; missing face text fails. The historical 33% cards /
     53% lines baseline used a different denominator and is not a target.
+*   `npm run archive-parser` — rebuild `generated/oracle-ast.jsonl` from the
+    cached corpus, with verified source snapshots, ASTs, and reference bindings.
 *   `npm run build-ir` — deliberately fails. Bulk per-set emission
     remains unimplemented; executable catalog compilation exists in the Rust
     engine package. Acceptance percentage alone does not justify emission.
+
+Local reports and archives are snapshots, not live parser results. Before using
+one to assess current support, compare its `parser.sourceSha256` with
+`sourceIdentity()` from `scripts/validate-parser.ts`, and check its corpus hash
+and scope. Rebuild stale results with the commands above. Files named
+`parser-98-*` and checkpoint audit files are historical evidence; they do not
+describe the current parser. See [the checkpoint history](../../docs/oracle-parser-checkpoint.md).
 
 ## 🔄 Development loop: correctness before coverage
 

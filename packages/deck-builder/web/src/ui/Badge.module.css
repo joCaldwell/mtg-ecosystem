@@ -9,8 +9,8 @@
 }
 
 .agent {
-  background: var(--agent-bg);
-  color: var(--agent);
+  background: var(--agent);
+  color: var(--bg);
 }
 
 .warn {

@@ -19,11 +19,16 @@ export const LEGACY_SCOPE = "paper-non-silver-non-acorn-v1";
 export const sha256 = (text: string | Buffer): string => createHash("sha256").update(text).digest("hex");
 
 export function emptyBindingSummary() {
-  return { cardsAnalyzed: 0, cardsFullyBound: 0, obligations: 0, bound: 0, unresolved: 0, diagnostics: {} as Record<string, number> };
+  return { cardsAnalyzed: 0, cardsFullyBound: 0, cardsReferencesBound: 0, obligations: 0, bound: 0, unresolved: 0,
+    diagnostics: {} as Record<string, number>, engineFeatures: {} as Record<string, number> };
 }
 export function addBindingSummary(summary: ReturnType<typeof emptyBindingSummary>, analysis: CardBindingAnalysis): void {
   summary.cardsAnalyzed++;
   if (analysis.fullyBound) summary.cardsFullyBound++;
+  if (analysis.referencesBound) summary.cardsReferencesBound++;
+  // Cards whose references are bound, by the engine feature they still need.
+  if (analysis.referencesBound) for (const feature of new Set(analysis.engineFeatures.map(need => need.feature)))
+    summary.engineFeatures[feature] = (summary.engineFeatures[feature] ?? 0) + 1;
   summary.obligations += analysis.counts.obligations;
   summary.bound += analysis.counts.bound;
   summary.unresolved += analysis.counts.unresolved;
@@ -57,9 +62,11 @@ export function evaluateCorpus(cards: ScryfallCard[], options: { parser?: typeof
     unique.set(key, card);
   }
   let cardsOk = 0, linesChecked = 0, linesOk = 0;
+  // The current coverage target counts only cards legal in Commander.
+  const commanderLegal = { cardsChecked: 0, cardsOk: 0 };
   const bindingSummary = emptyBindingSummary();
   const failures = new Map<string, { count: number; examples: { name: string; text: string; error: string }[] }>();
-  const outcomes: Record<string, { name: string; ok: boolean; astSha256?: string; referencesFullyBound: boolean; bindingSha256: string }> = {};
+  const outcomes: Record<string, { name: string; ok: boolean; astSha256?: string; referencesFullyBound: boolean; referencesBound: boolean; bindingSha256: string }> = {};
   for (const [id, card] of [...unique].sort(([a], [b]) => a.localeCompare(b))) {
     const faces = card.card_faces ?? [card];
     let ok = true;
@@ -97,14 +104,15 @@ export function evaluateCorpus(cards: ScryfallCard[], options: { parser?: typeof
       }
     }
     if (ok) cardsOk++;
+    if (card.legalities?.commander === "legal") { commanderLegal.cardsChecked++; if (ok) commanderLegal.cardsOk++; }
     const binding = analyzeCardBindings({ identity: id, source: card, faces: bindingFaces });
     addBindingSummary(bindingSummary, binding);
     outcomes[id] = { name: card.name, ok, ...(ok ? { astSha256: sha256(JSON.stringify(ast)) } : {}),
-      referencesFullyBound: binding.fullyBound, bindingSha256: sha256(JSON.stringify(binding)) };
+      referencesFullyBound: binding.fullyBound, referencesBound: binding.referencesBound, bindingSha256: sha256(JSON.stringify(binding)) };
   }
   return {
     scope: SCOPE, paperEvidence: evidence.fingerprint, inputRecords: cards.length, excluded,
-    cardsChecked: unique.size, cardsOk, linesChecked, linesOk, bindingSummary,
+    cardsChecked: unique.size, cardsOk, commanderLegal, linesChecked, linesOk, bindingSummary,
     failures: [...failures].map(([key, group]) => ({ key, ...group }))
       .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key)),
     outcomes,
@@ -147,8 +155,11 @@ function main() {
   console.log(`Source SHA-256 (includes working changes): ${report.parser.sourceSha256}`);
   console.log(`Scope: ${report.scope}; excluded records: ${JSON.stringify(report.excluded)}`);
   console.log(`Cards accepted: ${report.cardsOk}/${report.cardsChecked} (${percent(report.cardsOk, report.cardsChecked)})`);
+  console.log(`Commander-legal cards accepted: ${report.commanderLegal.cardsOk}/${report.commanderLegal.cardsChecked} (${percent(report.commanderLegal.cardsOk, report.commanderLegal.cardsChecked)})`);
   console.log(`Ability blocks accepted: ${report.linesOk}/${report.linesChecked} (${percent(report.linesOk, report.linesChecked)})`);
   console.log(`Reference analysis fully bound: ${report.bindingSummary.cardsFullyBound}/${report.cardsChecked}; unresolved obligations: ${report.bindingSummary.unresolved}`);
+  console.log(`References bound: ${report.bindingSummary.cardsReferencesBound}/${report.cardsChecked}; awaiting engine features: ${
+    Object.entries(report.bindingSummary.engineFeatures).map(([feature, count]) => `${feature} ${count}`).join(", ") || "none"}`);
   console.log("Acceptance is not semantic correctness; run npm run check in oracle-parser.");
   for (const group of report.failures.slice(0, 20)) {
     console.log(`\n${group.count} failures ${group.key}`);

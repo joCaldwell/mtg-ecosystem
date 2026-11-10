@@ -8,7 +8,7 @@ export interface AnnotatedResult {
   onMaybe: boolean;
   /** A pending proposal item names this card. */
   proposed: "add" | "cut" | null;
-  /** The most recent "reject" log entry containing the card; reason is the owner's ruling_reason. */
+  /** The most recent "reject" log entry containing the card; reason is the owner's decision_reason. */
   lastRejection: { revision: number; reason: string } | null;
   memories: number;
   /** Legal in Commander. The card data also holds digital-only rebalanced cards, which are not. */
@@ -35,7 +35,7 @@ export function annotateResults(
     if (entry.kind !== "reject" || entry.undone_by != null) continue;
     for (const c of entry.cards)
       if (!rejection.has(c.oracle_id))
-        rejection.set(c.oracle_id, { revision: entry.revision, reason: entry.ruling_reason });
+        rejection.set(c.oracle_id, { revision: entry.revision, reason: entry.decision_reason });
   }
 
   const annotated = results.map((card) => {

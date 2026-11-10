@@ -2,27 +2,41 @@
 
 Open a deck and choose **Playtest**, or navigate to `#/deck/<id>/playtest`.
 The first version implements the [approved requirements](playtester-design-brief.md)
-inside the standalone deck-builder. Target: 2560×1440 and larger monitors, at
-100% scaling and zoom. The checked usable viewport reserves room for browser
-chrome. Mobile layout, rules automation, multiplayer and completed-game history
-remain outside this version.
+inside the standalone deck-builder. It was designed for 2560×1440 and larger
+monitors at 100% scaling and zoom, and adapts to smaller ones: the inspector
+narrows with the window, short windows keep the hand to one scrolling row,
+windows under 960px stack the inspector below the table, and phones scroll the
+table as one page under a sticky action bar. Rules automation, multiplayer and
+completed-game history remain outside this version.
 
 ## Using the table
 
-Playtesting hides the app's deck sidebar to give the table more space. Use Deck
-overview in the header to return to the deck and restore normal navigation.
-The right bar keeps Draw and Next turn visible above the card inspector, with
-Undo/Redo and a More menu for drawing several cards, shuffling, untapping,
-tokens, deck observations and a new opening test. Save status stays beside
-those controls. Quiet zone controls above the battlefield open its viewers
-and remain drag-and-drop targets.
+Playtesting hides the app's deck sidebar to give the table more space. The back
+arrow in the bar returns to the deck and restores normal navigation. One bar
+holds the deck name and tested revision, turn and life, and the turn's actions:
+Draw, Next turn, Untap all, Shuffle, Undo/Redo and a More menu for drawing
+several cards, tokens, a random number roller, deck observations and a new
+game. Turn actions appear once a hand is kept. Save status ends the
+bar. The commander and companion zones sit on the table beside the battlefield
+as card rails, so commanders can be read and dragged without opening a viewer;
+other zones are tabs with counts above the battlefield that open their viewers
+and remain drag-and-drop targets. The right panel is the card inspector.
 
-Start a Commander or practice opening sequence. Commander redraws draw seven,
+There is no separate start screen. Opening a deck with no saved game shows the
+empty table under a New game dialog: the deck, its commanders and revision, and
+a choice of Commander mulligans or Practice redraws. Closing it returns to the
+deck. New game in the More menu opens the same dialog over the current table;
+there it states that starting replaces the table and its undo history, and its
+start button is red. A saved table that cannot be read opens the dialog with
+the error, a retry, and the same replacement warning.
+
+An opening prompt between the
+bar and the table shows the mulligan count, the cards chosen to bottom in
+order, the mode, Mulligan and Keep. Commander redraws draw seven,
 with the first mulligan free; later hands require ordered bottom selections.
 Practice redraws have no penalty. Keep advances to turn one without drawing.
-Changing mode starts a fresh opening sequence. A new opening test asks before
-replacing the current game and retains an unfinished observation with its
-original tested revision.
+Changing mode starts a fresh opening sequence. A new game retains an unfinished
+observation with its original tested revision.
 
 Click or Enter/Space on a card selects and pins it. Shift/Ctrl/Cmd-click toggles
 individual instances into a selection. Hover/focus displays rules immediately.
@@ -70,9 +84,16 @@ its attachments; game undo restores those relationships.
 | U | Untap the battlefield |
 | N | Untap and advance the turn; draw separately |
 | T | Toggle selected battlefield objects' tapped state |
+| R | Open the random number roller |
 | Z / Shift-Z | Game undo / redo |
 | Ctrl/Cmd-Z / Ctrl/Cmd-Shift-Z | Game undo / redo |
 | Escape | Close a viewer or clear selection |
+
+The random number roller picks a uniform whole number between a lower and an
+upper bound, both included, for dice and "choose at random" effects. Bounds
+may be negative, up to one billion in magnitude, and are kept as a browser
+preference. Rolls and the last few results stay in the browser: they are not
+saved with the session, and game undo never rerolls them.
 
 Shortcuts stand down in editable fields and modal dialogs. Routine controls
 remain visible. Game undo retains up to 100 action frames, including exact

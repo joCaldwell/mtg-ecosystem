@@ -2,6 +2,9 @@
 // durations, conditions, counters. Everything here is strictly typed and
 // backtracking — a function either returns a complete node or null.
 
+import { parseLabeledPlayers } from "./friend-or-foe.ts";
+import { parseDefiniteDescription } from "./definite-refs.ts";
+import { parseIndependentFilterList } from "./filter-lists.ts";
 import type {
   Amount, Color, CombatDefender, Comparison, Condition, CounterSpec, Duration, GroupConstraint, ObjectFilter,
   ObjectRef, ObjectRelation, PlayerFilter, PlayerRef, PropertyConstraint, TargetSelection, ZoneRef,
@@ -15,20 +18,53 @@ import { isManaSymbol } from "../symbols.ts";
 import { Cursor } from "./cursor.ts";
 import { parseCharacteristicRelationQualifier } from "./characteristic-relations.ts";
 import { parseConditionExpression } from "./conditions.ts";
+import { parseAttachmentCondition } from "./attachment-conditions.ts";
+import { parseBaseStatQualifier } from "./base-stats.ts";
 import { parseBlockHistoryQualifier, parseCombatActionHistoryPredicate, parseDamageHistoryPredicate } from "./history-filters.ts";
 import { parseDiceResultAmount } from "./dice.ts";
 import { hasCombatHistory, parseAggregateAmount } from "./aggregates.ts";
-import { parseQuantity } from "./quantities.ts";
+import { parsePartySize, parseQuantity } from "./quantities.ts";
+import { parseManaSymbolCount } from "./mana-symbol-counts.ts";
+import { parseUnlockedDoorCount } from "./rooms.ts";
+import { parseCountersPutRelation, parseDevouredRelation, parseKickCount } from "./history-units.ts";
+import { parseAttackedPlayerCountAmount, parseOpponentCountAmount } from "./player-counts.ts";
+import { parsePlayerExtremum } from "./player-extrema.ts";
 import { parseComparativePlayerQualifier } from "./comparatives.ts";
+import { parseDefiniteMostPlayer, parseMostPlayerQualifier } from "./player-most.ts";
+import { parsePaidCosts } from "./paid-costs.ts";
+import { parsePastControlQualifier } from "./past-control.ts";
 import { parseGroupConstraint, validSelectionCount } from "./selection-constraints.ts";
 import { parseCardExtraction as parseCardExtractionReference } from "./card-selections.ts";
-import { parseBareTargets, parseEachOf, parseTheOther } from "./quantified-selections.ts";
+import { isPluralObjectRef, parseBareTargets, parseEachOf, parseTheOther } from "./quantified-selections.ts";
+import { parseExceptFor, parseOtherThanDescriptions } from "./filter-exceptions.ts";
+import { barePluralPair } from "./plural-nouns.ts";
+import { parseHistoryUnit, parseTimesCastUnit } from "./history-amounts.ts";
 import { parseVoteCountAmount, parseVoteLeaders } from "./votes.ts";
 import { parseSpeedAmount } from "./keyword-actions.ts";
+import { deferredHalf } from "./half-amounts.ts";
+import { parseConditionDifference } from "./condition-differences.ts";
+import { insideEmblem } from "./emblem-scope.ts";
 // Keyword-name matching is invoked only while parsing, after module setup.
 // The shared registry also supplies keywords.ts; no duplicate keyword list.
-import { parseKeywordName } from "./keywords.ts";
-import { parseOrThatObjectsController, parseOrThatPlayer } from "./player-refs.ts";
+import { parseKeywordName, parseLandwalkName } from "./keywords.ts";
+import { parseEachOtherPlayer, parseOrThatObjectsController, parseOrThatPlayer, parseRelationalPlayer } from "./player-refs.ts";
+import { parseNegatedPredicate } from "./negated-predicates.ts";
+import { parseChosenColorRef, parseChosenNameQualifier, parseThatChoiceQualifier, parseValueOfChoiceQualifier } from "./choices.ts";
+import { parseColorSetPredicate } from "./color-predicates.ts";
+import { parseComparativeAttribute, parseSameController } from "./implicit-comparisons.ts";
+import { parseZoneChangeRelation } from "./zone-history.ts";
+import { parseCostTapperQualifier } from "./cost-tappers.ts";
+import { parseParityQualifier } from "./parity.ts";
+import { parseNumberOfSelection } from "./counted-selections.ts";
+import { parseGraveyardTopCards } from "./graveyard-order.ts";
+import { parseAllZoneUnion } from "./zone-unions.ts";
+import { parsePooledFilter } from "./pooled-counts.ts";
+import { parsePileRef } from "./piles.ts";
+import { parsePrecedingActionQualifier } from "./player-actors.ts";
+import { parseZoneChangeHistoryQualifier } from "./zone-history-filters.ts";
+import { parseEventResultPlayerQualifier, parseSearchedPlayerQualifier } from "./event-outcomes.ts";
+import { parseVotedForQualifier } from "./votes.ts";
+import { parseStickerKind } from "./stickers.ts";
 
 /** Mint an identity from the actual target word, never the cursor offset of a
  * sliced phrase or the structure of its filter. CR 601.2c distinguishes target
@@ -99,10 +135,11 @@ function parseAmountTerm(c: Cursor): Amount | null {
     if (c.words("half")) {
       const of = parseAmountTerm(c);
       if (!of) return null;
-      c.punct(",");
-      // CR 107.1: fractions must not acquire an invented rounding rule.
-      // Oracle instructions state the direction when division can occur.
-      if (!c.words("rounded")) return null;
+      // CR 107.1a: fractions must not acquire an invented rounding rule.
+      // Oracle instructions state the direction when division can occur;
+      // when it follows the whole instruction the step resolves it.
+      const stated = c.attempt(c => { c.punct(","); return c.words("rounded") ? true : null; });
+      if (!stated) return deferredHalf(of);
       const round = c.word("up", "down") as "up" | "down" | null;
       if (!round) return null;
       return { amount: "half", of, round };
@@ -118,24 +155,59 @@ function parseAmountTerm(c: Cursor): Amount | null {
     if (voteCount) return voteCount;
     const diceResult = parseDiceResultAmount(c);
     if (diceResult) return diceResult;
+    const difference = parseConditionDifference(c);
+    if (difference) return difference;
     if (c.words("that", "number")) return { amount: "that-number" };
-    const quantity = parseQuantity(c, { parseObjectRef, parsePlayerRef, parsePossessivePlayer, isPluralPlayerRef });
+    const chosenNumber = c.attempt((c): Amount | null => {
+      if (c.word("the") === null) return null;
+      const last = c.word("last") !== null;
+      return c.words("chosen", "number") ? { amount: "chosen-number", which: last ? "last-chosen" : "chosen" } : null;
+    });
+    if (chosenNumber) return chosenNumber;
+    const quantity = parseQuantity(c, { parseObjectRef, parsePlayerRef, parsePossessivePlayer, isPluralPlayerRef, parseChosenColor: c => parseChosenColorRef(c, parseFilter) });
     if (quantity) return quantity;
     const attr = c.attempt(parseAttributeAmount);
     if (attr) return attr;
     const extremum = parseAttributeExtremum(c);
     if (extremum) return extremum;
+    const opponentCount = parseOpponentCountAmount(c, { parsePlayerRef, isPluralPlayerRef, parsePlayerQualifiers });
+    if (opponentCount) return opponentCount;
+    const attackedPlayers = parseAttackedPlayerCountAmount(c);
+    if (attackedPlayers) return attackedPlayers;
+    const playerExtremum = parsePlayerExtremum(c, { parseFilter });
+    if (playerExtremum) return playerExtremum;
     const aggregate = parseAggregateAmount(c, { parseObjectRef });
     if (aggregate) return aggregate;
-    if (c.attempt((c) => (c.words("the", "number", "of") ? true : null))) {
+    // "The total number of" counts one pooled set ("cards in all players'
+    // hands"); the pooling is stated by the counted description itself.
+    if (c.attempt((c) => (c.words("the", "number", "of") || c.words("the", "total", "number", "of") ? true : null))) {
+      const kicks = parseKickCount(c, parseObjectRef);
+      if (kicks) return kicks;
+      const party = parsePartySize(c, "plural");
+      if (party) return party;
+      const symbols = parseManaSymbolCount(c, parseFilter);
+      if (symbols) return symbols;
+      const doors = parseUnlockedDoorCount(c);
+      if (doors) return doors;
+      if (c.words("cards", "looked", "at", "while", "scrying", "this", "way")) return { amount: "event-quantity", event: "scry-looked-at", scope: "this-way" };
       const counters = c.attempt((c): Amount | null => {
         // Counter kinds are distinct from the number of counters (CR 122.1).
         if (c.isWord("different", "kinds", "types", "each", "of")) return null;
         const counter = c.isWord("counter", "counters") ? "any" : parseCounterSpec(c);
         if (!counter || c.word("counter", "counters") === null) return null;
+        if (c.words("removed", "this", "way")) return { amount: "event-quantity", event: "counter-removal", counter, scope: "this-way" };
         if (c.word("on") !== null) {
           const on = parsePlayerRef(c) ?? parseObjectRef(c);
+          // Counters exist on permanents and players; a following zone phrase
+          // qualifies the enclosing selection, never this counted object.
+          if (on && "ref" in on && on.ref === "that" && on.filter.zone) return c.fail("counted object without a zone qualifier");
           return on && { amount: "counter-count", counter, on };
+        }
+        // "Counters among permanents you control": the same total as the
+        // counters on them; "among" always ranges over a group.
+        if (c.word("among") !== null) {
+          const on = parseObjectRef(c);
+          return on && isPluralObjectRef(on) ? { amount: "counter-count", counter, on } : null;
         }
         // CR 122.1: player counters belong to that player, including
         // experience, poison, and energy counters. "Have" is current state;
@@ -146,6 +218,9 @@ function parseAmountTerm(c: Cursor): Amount | null {
         return on && !isPluralPlayerRef(on) && c.word("have", "has") !== null ? { amount: "counter-count", counter, on } : null;
       });
       if (counters) return counters;
+      // "The number of spells you've cast this turn": completed actions.
+      const history = parseHistoryUnit(c) ?? parseTimesCastUnit(c, true, { ref: "it" });
+      if (history) return history;
       const of = parseFilter(c);
       if (!of || hasCombatHistory(of)) return null;
       return { amount: "count", of };
@@ -167,8 +242,12 @@ function parseAttributeExtremum(c: Cursor): Extract<Amount, { amount: "attribute
     if (!adjective) return null;
     const attribute = c.words("mana", "value") ? "mana-value" : c.word("power", "toughness");
     if (attribute !== "mana-value" && attribute !== "power" && attribute !== "toughness") return null;
-    if (c.word("among") === null) return null;
-    const among = parseFilter(c);
+    // "The greatest mana value of a commander you own" is the extremum over the
+    // objects that description matches, like "among commanders you own".
+    const viaAmong = c.word("among") !== null;
+    if (!viaAmong && !c.words("of", "a") && !c.words("of", "an")) return null;
+    const first = parseFilter(c);
+    const among = first && viaAmong ? (parsePooledFilter(c, first, parseFilter, false) ?? first) : first;
     return among && { amount: "attribute-extremum", extremum: adjective === "greatest" || adjective === "highest" ? "maximum" : "minimum", attribute, among };
   });
 }
@@ -199,7 +278,7 @@ export function parsePossessiveObject(c: Cursor): ObjectRef | null {
     const subject = new Cursor(tokens);
     const of = parseObjectRef(subject);
     if (!of || !subject.done()) return null;
-    const singular = of.ref === "this" || of.ref === "enchanted" || of.ref === "equipped"
+    const singular = of.ref === "this" || of.ref === "enchanted" || of.ref === "equipped" || of.ref === "amassed-army"
       || (of.ref === "that" && !of.plural && head.value === singularize(head.value))
       || (of.ref === "related" && of.number === "singular")
       || (of.ref === "target" && of.count.amount === "fixed" && of.count.value === 1 && !of.upTo
@@ -219,13 +298,29 @@ function parseAttributeAmount(c: Cursor): Amount | null {
       return of && c.words("life", "total") ? { amount: "life-total" as const, of } : null;
     });
     if (life) return life;
+    // "the power of the exiled card" states the same value as "the exiled
+    // card's power"; only one singular object has a single such value.
+    const stated = c.attempt((c): Amount | null => {
+      if (c.word("the") === null) return null;
+      const attribute = c.words("mana", "value") ? "mana-value" : (c.word("power", "toughness") as "power" | "toughness" | null);
+      if (!attribute || c.word("of") === null) return null;
+      const of = parseObjectRef(c);
+      const singular = of && (of.ref === "self" || of.ref === "it" || of.ref === "this" || of.ref === "enchanted" || of.ref === "equipped" || of.ref === "amassed-army"
+        || (of.ref === "that" && !of.plural) || ((of.ref === "related" || of.ref === "choice-result") && of.number === "singular")
+        || (of.ref === "target" && of.count.amount === "fixed" && of.count.value === 1 && !of.upTo));
+      return of && singular ? { amount: "attribute", of, attribute } : null;
+    });
+    if (stated) return stated;
     const of = parsePossessiveObject(c);
     if (!of) return null;
-    const attr = c.words("mana", "value")
+    // CR 208.4b: "its base power" ignores effects and counters that only modify it.
+    const base = c.word("base") !== null;
+    const stat = !base && c.words("mana", "value")
       ? "mana-value"
       : (c.word("power", "toughness") as "power" | "toughness" | null);
-    if (!attr) return null;
-    return { amount: "attribute", of, attribute: attr };
+    if (!stat) return null;
+    const attribute = base ? (stat === "power" ? "base-power" : stat === "toughness" ? "base-toughness" : null) : stat;
+    return attribute && { amount: "attribute", of, attribute };
   });
 }
 
@@ -242,8 +337,27 @@ export function parseEqualTo(c: Cursor): Amount | null {
 // ---------------------------------------------------------------------------
 
 /** "3 or greater", "2 or less", "X", "less than 4", "exactly 2" */
+/** An unrounded "half X" compared against: the exact half (CR 107.1a
+ * concerns generated numbers; a comparison generates none). A stated
+ * rounding keeps the ordinary amount. */
+function parseExactHalf(c: Cursor): Amount | null {
+  return c.attempt((c): Amount | null => {
+    if (c.word("half") === null) return null;
+    const of = parseAmountTerm(c);
+    if (!of || c.attempt(c => c.punct(",") && c.isWord("rounded") ? true : null) || c.isWord("rounded", "plus", "minus")) return null;
+    return { amount: "half", of, round: "exact" };
+  });
+}
+
 export function parseComparison(c: Cursor): Comparison | null {
   return c.attempt((c): Comparison | null => {
+    const half = c.attempt((c): Comparison | null => {
+      const op = c.words("less", "than", "or", "equal", "to") ? "le" : c.words("greater", "than", "or", "equal", "to") ? "ge"
+        : c.words("less", "than") ? "lt" : c.words("greater", "than") ? "gt" : null;
+      const value = op && parseExactHalf(c);
+      return value ? { op, value } : null;
+    });
+    if (half) return half;
     if (c.words("at", "least")) {
       const value = parseAmount(c);
       return value && { op: "ge", value };
@@ -290,6 +404,8 @@ export function parseComparison(c: Cursor): Comparison | null {
 // Zones
 // ---------------------------------------------------------------------------
 
+const PLURAL_PERSONAL_ZONES: Record<string, string> = { hand: "hands", graveyard: "graveyards", library: "libraries" };
+
 /** "the battlefield", "your graveyard", "its owner's hand", "a graveyard" … */
 export function parseZoneRef(c: Cursor): ZoneRef | null {
   return c.attempt((c): ZoneRef | null => {
@@ -334,6 +450,10 @@ export function parseZoneRef(c: Cursor): ZoneRef | null {
       if (!targeted || (targeted.player !== "target-player" && targeted.player !== "target-opponent")) return null;
       owner = targeted;
     }
+    // "a player's graveyard": whichever player's it is (CR 400.1); a later
+    // "that player" is that owner, so the player stays a named participant.
+    else if (c.attempt((c) => (c.word("a") !== null && c.possessive("player") !== null ? true : null)))
+      owner = { player: "a-player" };
     else if (c.word("a", "an", "any") !== null) owner = "any";
     else if (c.word("the") !== null) owner = undefined;
     const zoneWord = c.anyWord();
@@ -353,7 +473,7 @@ function parseQuantifiedPersonalZone(c: Cursor): ZoneRef | null {
   return c.attempt((c): ZoneRef | null => {
     let owner: ZoneRef["owner"];
     let plural: boolean;
-    if (c.word("all") !== null) { owner = "all-players"; plural = true; }
+    if (c.word("all") !== null) { owner = c.possessive("opponents") !== null ? "all-opponents" : (c.possessive("players"), "all-players"); plural = true; }
     else if (c.word("each") !== null) { owner = "each-player"; plural = false; }
     else if (c.words("a", "single")) { owner = "any-single"; plural = false; }
     else if (c.word("your") !== null && c.possessive("opponents") !== null) { owner = "all-opponents"; plural = true; }
@@ -504,6 +624,9 @@ function nominalOrScope(c: Cursor, previous: { cls: NominalClass; word: string }
   if (["a", "an", "another", "other", "colorless", "multicolored", "monocolored", "activated", "triggered", "static", "mana", "loyalty"].includes(first.value)
     || COLORS.has(first.value) || SUPERTYPES.has(first.value) || STATUS_WORDS.has(first.value)
     || first.value.startsWith("non")) return "branch";
+  // "permanent or suspended card": the status of a card (CR 702.62b).
+  const afterFirst = c.peek(afterJoin + 1);
+  if (first.value === "suspended" && afterFirst?.kind === "word" && (afterFirst.value === "card" || afterFirst.value === "cards")) return "branch";
   const nouns: { cls: NominalClass; word: string }[] = [];
   for (let offset = afterJoin; ; offset++) {
     const token = c.peek(offset);
@@ -525,7 +648,30 @@ function hasFilterScope(filter: ObjectFilter, key: "zone" | "control" | "control
     || (filter.anyOf ?? []).some(term => hasFilterScope(term, key));
 }
 
-function joinFilterBranches(first: ObjectFilter, second: ObjectFilter): ObjectFilter | null {
+/** "an artifact or non-Aura enchantment card from your graveyard", "a Dragon
+ * creature card or an Ugin planeswalker card from your graveyard": the card
+ * head and the zone phrase close the whole coordinated description, so each
+ * alternative is a card in that zone. Only plain characteristic words may
+ * precede the closing phrase; any other trailing qualifier ("with mana value
+ * 3 or less") stays unsupported because its reach is not stated. */
+const SHARED_CARD_KEYS = new Set(["types", "subtypes", "nonTypes", "nonSubtypes", "supertypes", "nonSupertypes", "colors", "nonColors", "cls", "zone"]);
+function shareClosingCardZone(first: ObjectFilter, second: ObjectFilter): ObjectFilter {
+  if (second.cls !== "card" || !second.zone || first.zone || (first.cls !== undefined && first.cls !== "card")) return first;
+  const plain = (filter: ObjectFilter, ignore: string[]) => Object.keys(filter).every(key => SHARED_CARD_KEYS.has(key) || ignore.includes(key));
+  if (!plain(first, ["other"]) || !plain(second, [])) return first;
+  return { ...first, cls: "card", zone: second.zone };
+}
+
+function joinFilterBranches(first: ObjectFilter, second: ObjectFilter, articled = false): ObjectFilter | null {
+  // "a Mount creature card or a Plains card from among them": the pool a
+  // selection is made from is the source of every alternative, exactly as
+  // in "an Aura or Equipment card from among them" (CR 608.2c).
+  const pooled = hoistSelectionPool(first, [second], articled);
+  if (pooled) {
+    const joined = joinFilterBranches(first, pooled.members[0]);
+    return joined && { ...joined, fromAmong: pooled.fromAmong };
+  }
+  first = shareClosingCardZone(first, second);
   // "legendary creatures or artifact creatures you control" does not state
   // unambiguously whether the final control restriction covers both branches.
   // Do not turn it into either unrestricted legendary creatures or a shared
@@ -539,18 +685,41 @@ function joinFilterBranches(first: ObjectFilter, second: ObjectFilter): ObjectFi
   return { ...(other ? { other } : {}), anyOf: [term, second] };
 }
 
+/** The last alternative's trailing "from among …" pool, removed from it,
+ * when no other alternative names a pool of its own. */
+export function hoistSelectionPool(first: ObjectFilter, members: ObjectFilter[], articled = false): { fromAmong: ObjectRef; members: ObjectFilter[] } | null {
+  const last = members.at(-1)!;
+  if (!last.fromAmong || hasFilterScope(first, "fromAmong") || members.slice(0, -1).some(member => hasFilterScope(member, "fromAmong"))) return null;
+  const { fromAmong, ...rest } = last;
+  if (hasFilterScope(rest, "fromAmong")) return null;
+  // Without its own article, a last alternative's postnominal qualifier
+  // ("land and/or legendary permanent cards with mana value X or less")
+  // may describe every alternative; that scope stays unsupported.
+  if (!articled && (Object.keys(rest) as (keyof ObjectFilter)[]).some(key => !PRENOMINAL_KEYS.has(key))) return null;
+  return { fromAmong, members: [...members.slice(0, -1), rest] };
+}
+const PRENOMINAL_KEYS = new Set<keyof ObjectFilter>(["cls", "types", "subtypes", "supertypes", "colors", "nonColors", "colorless", "multicolored",
+  "monocolored", "nonTypes", "nonSubtypes", "nonSupertypes", "nonToken", "status", "permanent", "allOf"]);
+
 /** CR 113.3, 605.1 and 606.1: ability category, mana-ability status,
  * loyalty-ability status, and source identity are separate constraints. */
-function parseAbilityHead(c: Cursor): ObjectFilter | null {
+export function parseAbilityHead(c: Cursor): ObjectFilter | null {
   return c.attempt(c => {
     const f: ObjectFilter = { cls: "ability" };
     const mana = c.word("mana", "nonmana", "non-mana");
     if (mana) f.manaAbility = mana === "mana";
     // CR 702.142a, 702.177a, 702.49, 702.193: abilities named by their keyword.
-    const keyword = mana ? null : c.word("boast", "exhaust", "ninjutsu", "power-up");
+    // 702.107 outlast, 702.128 embalm, 702.129 eternalize.
+    const keywords = ["boast", "exhaust", "ninjutsu", "power-up", "outlast", "embalm", "eternalize"];
+    const keyword = mana ? null : c.word(...keywords);
     if (keyword) {
+      // "an eternalize or embalm ability": either keyword's ability.
+      const alternatives = [keyword];
+      for (let next = c.attempt(c => c.word("or") !== null ? c.word(...keywords) : null); next; next = c.attempt(c => c.word("or") !== null ? c.word(...keywords) : null))
+        alternatives.push(next);
       if (c.word("ability", "abilities") === null) return null;
-      f.abilityKeyword = keyword;
+      if (alternatives.length === 1) f.abilityKeyword = keyword;
+      else f.anyOf = alternatives.map(abilityKeyword => ({ abilityKeyword }));
       return f;
     }
     const kind = c.word("activated", "triggered", "static");
@@ -609,7 +778,7 @@ function parseRelationObject(c: Cursor): ObjectRef | null {
 /** The relation is directed from each matching object to the referenced
  * object(s); a filter/set operand means at least one member must be related.
  * CR 701.3/303.4 (attachment), 509.1g-h (blocking vs being blocked). */
-function parseObjectRelationPredicate(c: Cursor): ObjectFilter | null {
+export function parseObjectRelationPredicate(c: Cursor): ObjectFilter | null {
   return c.attempt(c => {
     if (c.words("attached", "to")) {
       const attachedTo = parsePlayerRef(c) ?? parseRelationObject(c);
@@ -619,6 +788,8 @@ function parseObjectRelationPredicate(c: Cursor): ObjectFilter | null {
       // CR 508.1b / 506.4c: the player or permanent each matching creature
       // is attacking; printed alternatives are retained separately.
       const defender = (c: Cursor): CombatDefender | null => c.attempt((c): CombatDefender | null => {
+        // "attacking one of your opponents": whichever single opponent it attacks.
+        if (c.words("one", "of", "your", "opponents")) return { defender: "player", who: { player: "an-opponent" } };
         const who = parsePlayerRef(c);
         if (who) return isPluralPlayerRef(who) ? null : { defender: "player", who };
         const what = parseRelationObject(c);
@@ -668,19 +839,42 @@ function parseObjectRelationPredicate(c: Cursor): ObjectFilter | null {
  * "instant or sorcery card in your graveyard", "Elves you control", …
  * Consumes at least one nominal (type/class/subtype) or fails.
  */
+const OUTLAW_TYPES = ["Assassin", "Mercenary", "Pirate", "Rogue", "Warlock"];
+
 export function parseFilter(c: Cursor): ObjectFilter | null {
   return parseFilterExpression(c, false);
 }
 
+/** Filter governed by one singular "each" ("each creature and planeswalker
+ * your opponents control", "for each Aura and Equipment attached to it").
+ * The single determiner covers both singular nouns, so they are one union of
+ * candidates and the trailing qualifiers restrict every member; an object
+ * that is both is still one object (CR 608.2c). Only bare nouns coordinate
+ * this way: a prenominal modifier on either noun leaves its scope open. */
+export function parseEachFilter(c: Cursor): ObjectFilter | null {
+  return parseFilterExpression(c, false, true);
+}
+
+/** "for each A you control and each B card in your graveyard" as one count
+ * over two pools that cannot overlap (see pooled-counts.ts). */
+export function parsePooledEachFilter(c: Cursor): ObjectFilter | null {
+  return c.attempt((c): ObjectFilter | null => {
+    const first = parseEachFilter(c);
+    return first && (parsePooledFilter(c, first, parseEachFilter, true) ?? first);
+  });
+}
+
 /** A relative predicate may be adjective-only ("that's white or blue").
  * Ordinary object selections still require a noun. */
-function parseFilterExpression(c: Cursor, predicate: boolean): ObjectFilter | null {
+function parseFilterExpression(c: Cursor, predicate: boolean, eachUnion = false, listItem = false): ObjectFilter | null {
   return c.attempt((c): ObjectFilter | null => {
     const filterStart = c.pos;
     const repeated = parseRepeatedCardUnionHead(c) ?? parseMixedCardAttributeUnionHead(c);
     const f: ObjectFilter = repeated ?? {};
     let sawNominal = !!repeated;
     let independentAlternative = false;
+    let creatureTail: ObjectFilter | null = null;
+    let exiledPrefix = false;
 
     const addColor = (color: Color) => {
       (f.colors ??= []).push(color);
@@ -705,6 +899,18 @@ function parseFilterExpression(c: Cursor, predicate: boolean): ObjectFilter | nu
         break;
       }
       const t = c.peek();
+      // "target 1/1 creature": exactly that power and toughness (CR 208.1).
+      if (t?.kind === "number" && !sawNominal && c.pos === filterStart && isTargetWord(c.tokens[filterStart - 1])) {
+        const stats = c.attempt((c): PropertyConstraint[] | null => {
+          const power = c.number();
+          if (power === null || !c.punct("/")) return null;
+          const toughness = c.number();
+          if (toughness === null || !c.isWord("creature", "creatures")) return null;
+          return [{ property: "power", comparison: { op: "eq", value: { amount: "fixed", value: power } } },
+            { property: "toughness", comparison: { op: "eq", value: { amount: "fixed", value: toughness } } }];
+        });
+        if (stats) { f.properties = stats; continue; }
+      }
       if (!t || t.kind !== "word" || t.possessive) break;
       const v = t.value;
 
@@ -715,6 +921,12 @@ function parseFilterExpression(c: Cursor, predicate: boolean): ObjectFilter | nu
       if (sawNominal && ["enchanted", "equipped"].includes(v) && following?.kind === "word"
         && (following.value === "player" || following.possessive)) break;
       if (sawNominal && v === "other" && following?.kind === "word" && following.value === "than") break;
+      // "creatures tapped this way" names what an instruction tapped, not
+      // creatures that are currently tapped.
+      if (sawNominal && v === "tapped" && following?.kind === "word" && following.value === "this") {
+        const way = c.peek(2);
+        if (way?.kind === "word" && way.value === "way") break;
+      }
 
       if (sawNominal && (v === "blocking" || v === "blocked" || v === "attacking")) {
         // A postnominal blocking relation carries an object operand. The
@@ -743,6 +955,21 @@ function parseFilterExpression(c: Cursor, predicate: boolean): ObjectFilter | nu
         sawNominal = true;
         continue;
       }
+      // CR 701.54b: Ring-bearer is a designation, not a type.
+      if (v === "ring-bearer" || v === "ring-bearers") {
+        c.pos++;
+        f.ringBearer = true;
+        sawNominal = true;
+        continue;
+      }
+      // CR 123.4: "stickered" describes an object with a sticker on it now.
+      if (v === "stickered" && following?.kind === "word" && !following.possessive) {
+        const nominal = classifyNominal(following.value, following.raw);
+        if (!nominal || nominal.cls === "player") return c.fail("stickered object");
+        c.pos++;
+        f.sticker = "any";
+        continue;
+      }
       if (SUPERTYPES.has(v)) {
         c.pos++;
         (f.supertypes ??= []).push(v);
@@ -754,10 +981,47 @@ function parseFilterExpression(c: Cursor, predicate: boolean): ObjectFilter | nu
         (f.allOf ??= []).push({ anyOf: [{ supertypes: ["legendary"] }, { types: ["artifact"] }, { subtypes: ["Saga"] }] });
         continue;
       }
+      // CR 700.12: an outlaw has the Assassin, Mercenary, Pirate, Rogue
+      // and/or Warlock creature type; the bare noun is a permanent (700.12a).
+      if (v === "outlaw" || v === "outlaws" || v === "non-outlaw") {
+        c.pos++;
+        if (v === "non-outlaw") { (f.nonSubtypes ??= []).push(...OUTLAW_TYPES); continue; }
+        (f.allOf ??= []).push({ anyOf: OUTLAW_TYPES.map(subtype => ({ subtypes: [subtype] })) });
+        const head = c.peek();
+        const nominal = v === "outlaw" && head?.kind === "word" && !head.possessive ? classifyNominal(head.value, head.raw) : null;
+        if (!nominal || nominal.cls === "player") {
+          if (f.cls && f.cls !== "permanent") return c.fail("an outlaw permanent");
+          f.cls = "permanent";
+          sawNominal = true;
+        }
+        continue;
+      }
       // CR 702.33d: a kicked spell.
       if (v === "kicked" && following?.kind === "word" && !following.possessive && (following.value === "spell" || following.value === "spells")) {
         c.pos++;
         f.kicked = true;
+        continue;
+      }
+      // "exiled cards", "face-up exiled cards you own": cards in exile (CR 406.1).
+      // Only cards are exiled in this sense; "exiled creatures" would need
+      // another reading, so a non-card noun fails below.
+      // A bare "exiled cards", or one after a definite or demonstrative
+      // determiner ("those exiled cards"), names the result of an earlier
+      // exile, which is another reference.
+      const determiner = c.tokens[filterStart - 1];
+      const definite = determiner?.kind !== "word"
+        || ["the", "those", "these", "that", "this", "its", "their"].includes(determiner.value);
+      if (v === "exiled" && !sawNominal && !definite && !f.zone && following?.kind === "word" && !following.possessive) {
+        c.pos++;
+        f.zone = { zone: "exile" };
+        exiledPrefix = true;
+        continue;
+      }
+      // CR 702.62b: a suspended card is in exile, has suspend and has a time
+      // counter on it; a defined state of a card, like the condition status.
+      if (v === "suspended" && following?.kind === "word" && !following.possessive && (following.value === "card" || following.value === "cards")) {
+        c.pos++;
+        (f.status ??= []).push("suspended");
         continue;
       }
       if (STATUS_WORDS.has(v)) {
@@ -817,6 +1081,19 @@ function parseFilterExpression(c: Cursor, predicate: boolean): ObjectFilter | nu
         const rest = v.startsWith("non-") ? v.slice(4) : v.slice(3);
         const restSingular = singularize(rest);
         if (CARD_TYPES.has(restSingular)) {
+          // "a noncreature or Dragon spell": either test, then the shared head.
+          const union = c.attempt((c): ObjectFilter | null => {
+            c.pos++;
+            if (c.word("or") === null) return null;
+            const alternative = c.peek();
+            const nominal = alternative?.kind === "word" && !alternative.possessive ? classifyNominal(alternative.value, alternative.raw) : null;
+            const head = c.peek(1);
+            const sharedHead = head?.kind === "word" && !head.possessive ? classifyNominal(head.value, head.raw) : null;
+            if (!nominal || (nominal.cls !== "type" && nominal.cls !== "subtype") || sharedHead?.cls !== "class") return null;
+            c.pos++;
+            return { anyOf: [{ nonTypes: [restSingular] }, nominal.cls === "type" ? { types: [nominal.word] } : { subtypes: [nominal.word] }] };
+          });
+          if (union) { (f.allOf ??= []).push(union); continue; }
           c.pos++;
           (f.nonTypes ??= []).push(restSingular);
           continue;
@@ -829,6 +1106,20 @@ function parseFilterExpression(c: Cursor, predicate: boolean): ObjectFilter | nu
         if (SUPERTYPES.has(rest)) {
           c.pos++;
           (f.nonSupertypes ??= []).push(rest);
+          continue;
+        }
+        // "nonattacking", "nonblocking": not attacking/blocking now (CR 506.4),
+        // the same test as "that isn't attacking".
+        if (rest === "attacking" || rest === "blocking") {
+          c.pos++;
+          (f.nonStatus ??= []).push(rest);
+          continue;
+        }
+        // CR 506.4: "nonattacking" / "nonblocking" — not an attacking
+        // (blocking) creature; no printed antonym status exists.
+        if (rest === "attacking" || rest === "blocking") {
+          c.pos++;
+          (f.nonStatus ??= []).push(rest);
           continue;
         }
         if (v.startsWith("non-") && canonicalSubtypeName(t.raw.slice(4))) {
@@ -845,6 +1136,7 @@ function parseFilterExpression(c: Cursor, predicate: boolean): ObjectFilter | nu
       }
       const nominal = classifyNominal(v, t.raw);
       if (nominal) {
+        creatureTail = null;
         // "player" only heads a filter when part of an or-union
         // ("target player or planeswalker") — bare players are PlayerRefs.
         if (nominal.cls === "player") {
@@ -896,8 +1188,13 @@ function parseFilterExpression(c: Cursor, predicate: boolean): ObjectFilter | nu
             const after = c.peek(1);
             const head = after?.kind === "word" && !after.possessive ? classifyNominal(after.value, after.raw) : null;
             const sharedHead = head?.cls === "class" || (nominal.cls === "subtype" && head?.cls === "type");
-            const plural = t.value !== nominal.word.toLowerCase() && nt.value !== n2.word.toLowerCase();
-            if (!sharedHead && !plural) return null;
+            // A modifier before the first noun ("Artifact creatures and Heroes")
+            // may or may not reach the second; only "other" is known to.
+            const plural = Object.keys(f).every(key => key === "other") && barePluralPair(t, nominal.word, nt, n2.word, c.tokens[filterStart - 1]);
+            const singularUnion = eachUnion && Object.keys(f).every(key => key === "other")
+              && [nominal, n2].every(noun => noun.cls === "type" || noun.cls === "subtype")
+              && t.value === nominal.word.toLowerCase() && nt.value === n2.word.toLowerCase();
+            if (!sharedHead && !plural && !singularUnion) return null;
           }
           c.pos++;
           alternatives.push(n2);
@@ -927,8 +1224,16 @@ function parseFilterExpression(c: Cursor, predicate: boolean): ObjectFilter | nu
           if (alternatives.length !== 2 || alternatives.every(n => n.cls === "player")) return c.fail("simple object-or-player union");
           alternatives.forEach(record);
         } else {
-          (f.allOf ??= []).push({ anyOf: alternatives.map(n =>
-            n.cls === "type" ? { types: [n.word] } : n.cls === "class" ? { cls: n.word as ObjectFilter["cls"] } : { subtypes: [n.word] }) });
+          const branches = alternatives.map((n): ObjectFilter =>
+            n.cls === "type" ? { types: [n.word] } : n.cls === "class" ? { cls: n.word as ObjectFilter["cls"] } : { subtypes: [n.word] });
+          (f.allOf ??= []).push({ anyOf: branches });
+          // "artifact, enchantment, or creature with flying": a keyword or
+          // power/toughness test after bare card types that end in "creature"
+          // describes the creature alternative only (Broken Wings can destroy
+          // any artifact or enchantment). A following shared head noun
+          // ("… cards") cancels this.
+          creatureTail = alternatives.every(n => n.cls === "type") && alternatives.at(-1)!.word === "creature"
+            && alternatives.slice(0, -1).every(n => n.word !== "creature") ? branches.at(-1)! : null;
         }
         continue outer;
       }
@@ -936,6 +1241,7 @@ function parseFilterExpression(c: Cursor, predicate: boolean): ObjectFilter | nu
       break;
     }
 
+    if (exiledPrefix && f.cls !== "card") return c.fail("exiled cards");
     const hasAdjective = f.colors || f.nonColors || f.colorless || f.multicolored || f.monocolored
       || f.supertypes || f.nonSupertypes || f.nonTypes || f.nonSubtypes || f.nonToken || f.status
       || f.allOf;
@@ -947,9 +1253,16 @@ function parseFilterExpression(c: Cursor, predicate: boolean): ObjectFilter | nu
     for (;;) {
       const qualifier = c.attempt(c => {
         // A connector belongs here only if a complete qualifier follows.
-        const conjunction = c.word("and") !== null;
+        const connector = c.word("and", "or");
+        const conjunction = connector === "and";
+        // "creatures you control each with power greater than …": a filter
+        // already tests each object, so the distributive "each" adds nothing.
+        const next = c.peek(1);
+        if (!connector && c.isWord("each") && next?.kind === "word" && next.value === "with") c.pos++;
         const result = parseFilterQualifier(c, f);
         if (!result) return null;
+        // "... on the battlefield or in the command zone": "or" joins only a second zone.
+        if (connector === "or" && !(Object.keys(result).length === 1 && result.zone && f.zone)) return null;
         if (conjunction) {
           // "...and you control a Mountain" is another condition, whereas
           // "...and that player controls" qualifies this same object.
@@ -961,28 +1274,59 @@ function parseFilterExpression(c: Cursor, predicate: boolean): ObjectFilter | nu
       if (!qualifier) break;
       qualified = true;
       const keys = Object.keys(qualifier) as (keyof ObjectFilter)[];
+      const creatureOnly = keys.length === 1 && (keys[0] === "withAbility" || keys[0] === "withoutAbility"
+        || (keys[0] === "properties" && qualifier.properties!.every(property => property.property !== "mana-value")));
+      if (creatureTail && creatureOnly) { Object.assign(creatureTail, qualifier); creatureTail = null; continue; }
+      creatureTail = null;
+      if (keys.length === 1 && qualifier.zone && f.zone) {
+        // No object is in two zones at once: "cards you own in exile and in
+        // your graveyard" counts the cards in either zone (Crackling Drake).
+        (f.allOf ??= []).push({ anyOf: [{ zone: f.zone }, { zone: qualifier.zone }] });
+        delete f.zone;
+        continue;
+      }
       if ((qualifier.otherThan && f.other) || keys.some(key => f[key] !== undefined)) (f.allOf ??= []).push(qualifier);
       else Object.assign(f, qualifier);
     }
 
+    if (listItem) return f;
+    if (!predicate) {
+      const listed = parseIndependentFilterList(c, f, { item: c => parseFilterExpression(c, false, false, true), scoped: hasFilterScope, hoist: hoistSelectionPool });
+      if (listed) return listed;
+    }
     // Independently repeated noun phrases retain their own qualifiers. The
     // earlier nominal OR handles shared suffixes ("instant or sorcery card").
     // Do not interpret general AND as intersection: it can enumerate sets.
     if (qualified || independentAlternative || predicate) {
+      // "that's an instant card, a sorcery card, or a land card": a comma list
+      // of predicate descriptions that ends with its own "or" (an unterminated
+      // list stays unsupported).
+      const listed = predicate && !independentAlternative ? c.attempt((c): ObjectFilter | null => {
+        if (!c.punct(",") || c.word("a", "an") === null) return null;
+        const rest = parseFilterExpression(c, true);
+        return rest?.anyOf && Object.keys(rest).length === 1 ? rest : null;
+      }) : null;
+      if (listed) {
+        const { other, ...term } = f;
+        return { ...(other ? { other } : {}), anyOf: [term, ...listed.anyOf!] };
+      }
       const alternative = c.attempt(c => {
         if (independentAlternative) c.punct(",");
         const join = parseLogicalJoin(c);
         if (join !== "or" && join !== "and-or") return null;
         if (join === "and-or" && c.isWord("a", "an", "another")) return null;
-        c.word("a", "an");
-        return parseFilterExpression(c, predicate);
+        const articled = c.word("a", "an") !== null;
+        const filter = parseFilterExpression(c, predicate);
+        return filter && { filter, articled };
       });
-      if (alternative) return joinFilterBranches(f, alternative) ?? c.fail("explicit scope for alternative filter qualifiers");
+      if (alternative) return joinFilterBranches(f, alternative.filter, alternative.articled) ?? c.fail("explicit scope for alternative filter qualifiers");
       if (independentAlternative) return c.fail("complete alternative filter");
     }
     return f;
   });
 }
+
+const PERSONAL_ZONE_WORDS = new Set(["hand", "graveyard", "library", "hands", "graveyards", "libraries"]);
 
 function parseFilterQualifier(c: Cursor, head: ObjectFilter): ObjectFilter | null {
   return c.attempt((c): ObjectFilter | null => {
@@ -994,6 +1338,14 @@ function parseFilterQualifier(c: Cursor, head: ObjectFilter): ObjectFilter | nul
     if (blockHistory) return head.combatHistory ? null : blockHistory;
     const damageHistory = parseDamageHistoryPredicate(c, { parseRelationObject, parsePlayerRef });
     if (damageHistory) return { damageHistory };
+    const zoneHistory = parseZoneChangeHistoryQualifier(c, head, { parseZoneRef, parsePossessivePlayer });
+    if (zoneHistory) return zoneHistory;
+    const pastControl = parsePastControlQualifier(c, head, { parsePlayerRef, parseQualifier: parseFilterQualifier });
+    if (pastControl) return pastControl;
+    const costTapper = parseCostTapperQualifier(c, parseObjectRef);
+    if (costTapper) return head.relation ? null : costTapper;
+    const parity = parseParityQualifier(c);
+    if (parity) return head.parity ? null : parity;
     const predicate = c.attempt(c => {
       if (c.word("that's") === null && !c.words("that", "is") && !c.words("that", "are")) return null;
       if (c.word("both") !== null) {
@@ -1001,10 +1353,14 @@ function parseFilterQualifier(c: Cursor, head: ObjectFilter): ObjectFilter | nul
         const both = parseFilterExpression(c, true);
         return both && Object.keys(both).length === 1 && both.colors?.length === 2 ? both : null;
       }
+      const colorSet = parseColorSetPredicate(c);
+      if (colorSet) return colorSet;
       c.word("a", "an");
       return parseObjectRelationPredicate(c) ?? parseFilterExpression(c, true);
     });
     if (predicate) return predicate;
+    const negatedPredicate = parseNegatedPredicate(c, c => parseFilterExpression(c, true));
+    if (negatedPredicate) return negatedPredicate;
     const relation = parseObjectRelationPredicate(c);
     if (relation) return relation;
     const otherThan = c.attempt(c => {
@@ -1016,6 +1372,16 @@ function parseFilterQualifier(c: Cursor, head: ObjectFilter): ObjectFilter | nul
         || (ref.ref === "that" && !ref.plural)) ? ref : null;
     });
     if (otherThan) return { otherThan };
+    // CR 702.167c: "an exiled card used to craft it" (the zone came from the prenominal "exiled").
+    const craftMaterial = c.attempt((c): ObjectFilter | null => {
+      if (head.cls !== "card" || head.zone?.zone !== "exile" || head.zone.owner !== undefined || !c.words("used", "to", "craft")) return null;
+      const of = parseObjectRef(c);
+      return of ? { relation: { relation: "craft-material", of } } : null;
+    });
+    if (craftMaterial) return craftMaterial;
+    const otherThanKinds = parseOtherThanDescriptions(c, parseFilter);
+    // Excluding the very type being selected would select nothing.
+    if (otherThanKinds) return otherThanKinds.nonTypes?.some(type => head.types?.includes(type)) ? c.fail("excluded kind that is not part of the selection") : otherThanKinds;
     if (head.cls === "ability") {
       const abilitySource = c.attempt(c => {
         const connector = c.word("of", "from");
@@ -1058,9 +1424,33 @@ function parseFilterQualifier(c: Cursor, head: ObjectFilter): ObjectFilter | nul
       return { choice: "chosen-type" as const, ...(kind ? { kind } : {}) };
     });
     if (chosenType) return { chosenType };
+    const valueOfChoice = parseValueOfChoiceQualifier(c);
+    if (valueOfChoice) return { valueOfChoice };
+    const thatChoice = parseThatChoiceQualifier(c, parseFilter);
+    if (thatChoice) return thatChoice;
+    const chosenName = parseChosenNameQualifier(c, parseFilter, "with");
+    if (chosenName) return { chosenName };
+    // CR 115.9c: "a single creature" restates the one-target requirement
+    // that "targets only" already carries.
+    const targetsOnly = c.attempt((c): ObjectRef | PlayerRef | null => {
+      if (c.word("that") === null || c.word("target", "targets") === null || c.word("only") === null) return null;
+      const single = c.attempt(c => c.words("a", "single") ? parseFilter(c) : null);
+      if (single) return { ref: "filter", filter: single, count: { amount: "fixed", value: 1 } };
+      return c.attempt(parsePlayerRef) ?? parseObjectRef(c);
+    });
+    if (targetsOnly) return { targetsOnly };
+    if ((head.cls === "spell" || head.cls === "ability" || head.allOf?.some(part => part.anyOf?.some(branch => branch.cls === "spell" || branch.cls === "ability")))
+        && c.words("with", "a", "single", "target")) return { singleTarget: true };
     const targets = c.attempt(c => {
       if (c.word("that") === null || c.word("target", "targets") === null) return null;
-      return c.attempt(parsePlayerRef) ?? parseObjectRef(c);
+      // "targets one or more creatures": the matching targets number one or
+      // more; a following "that many" / "those" counts them (CR 115.1).
+      const some = c.attempt((c): ObjectRef | null => {
+        if (!c.words("one", "or", "more")) return null;
+        const filter = parseFilter(c);
+        return filter && { ref: "filter", filter, count: { amount: "chosen", minimum: 1 } };
+      });
+      return some ?? c.attempt(parsePlayerRef) ?? parseObjectRef(c);
     });
     if (targets) return { targets };
     const cast = c.attempt(c => {
@@ -1071,18 +1461,46 @@ function parseFilterQualifier(c: Cursor, head: ObjectFilter): ObjectFilter | nul
       return { by, ...(from ? { from } : {}) };
     });
     if (cast) return { cast };
+    if (c.words("not", "named")) {
+      const name = c.peek();
+      if (name?.kind !== "card-name") return null;
+      c.pos++;
+      return { notName: { name: "literal", value: name.value } };
+    }
     if (c.word("named") !== null) {
       const name = c.peek();
       if (name?.kind !== "card-name") return null;
       c.pos++;
       return { name: { name: "literal", value: name.value } };
     }
+    // Control (CR 108.4) and ownership (108.3) are independent; "but" joins
+    // the two requirements on the same object.
+    if (c.words("you", "control", "but", "don't", "own")) return { control: "you", own: "not-you" };
+    if (c.words("you", "own", "but", "don't", "control")) return { own: "you", control: "not-you" };
+    // "you (both) own and control": both requirements, "both" only stresses it.
+    if (c.words("you", "own", "and", "control") || c.words("you", "both", "own", "and", "control")) return { own: "you", control: "you" };
     if (c.words("you", "control")) return { control: "you" };
+    // "creatures you controlled as you cast this spell": the past tense is
+    // control at that moment. The enclosing definition must consume and
+    // record the moment (Sentence.bindings asOf), or the line fails.
+    if (c.attempt(c => {
+      if (!c.words("you", "controlled")) return null;
+      const moment = c.tokens.slice(c.pos, c.pos + 5).map(t => t.kind === "word" ? t.value : "").join(" ");
+      return moment === "as you cast this spell" || moment === "as you activate this ability" ? true : null;
+    })) return { control: "you" };
     if (c.words("you", "don't", "control")) return { control: "not-you" };
     if (c.words("an", "opponent", "controls") || c.words("your", "opponents", "control")) return { control: "opponent" };
-    if (c.words("that", "player", "controls")) return { control: "that-player" };
+    if (c.words("that", "player", "controls") || c.words("that", "opponent", "controls")) return { control: "that-player" };
     if (c.words("you", "own")) return { own: "you" };
     if (c.words("you", "don't", "own")) return { own: "not-you" };
+    // CR 123.4: "with a sticker on it" is a stickered object; a named kind
+    // requires at least one sticker of that kind (123.1).
+    const sticker = c.attempt(c => {
+      if (c.word("with") === null) return null;
+      const kind = parseStickerKind(c);
+      return kind && c.word("on") !== null && c.word("it", "them") !== null ? kind : null;
+    });
+    if (sticker) return { sticker };
     // "with {X} in its mana cost" (CR 107.3, 202.1).
     const manaCostContains = c.attempt(c => {
       if (c.word("with") === null) return null;
@@ -1092,20 +1510,33 @@ function parseFilterQualifier(c: Cursor, head: ObjectFilter): ObjectFilter | nul
       return c.words("in", "its", "mana", "cost") || c.words("in", "their", "mana", "costs") ? [token.value] : null;
     });
     if (manaCostContains) return { manaCostContains };
+    // CR 102.4: "creatures your team controls".
+    if (c.words("your", "team", "controls")) return { controlledBy: { player: "your-team" } };
     const controlledBy = c.attempt(c => {
       const who = parsePlayerRef(c);
       if (!who || c.word("control", "controls") === null) return null;
       return who;
     });
     if (controlledBy) return { controlledBy };
+    // CR 108.3: the owner is fixed, whoever controls the object and whatever
+    // zone it is in. "An opponent" / "your opponents" is any opponent of yours.
+    if (c.words("an", "opponent", "owns") || c.words("your", "opponents", "own")) return { own: "opponent" };
+    const ownedBy = c.attempt(c => {
+      const who = parsePlayerRef(c);
+      if (!who || c.word("own", "owns") === null) return null;
+      return who;
+    });
+    if (ownedBy) return { ownedBy };
     const fromAmong = c.attempt(c => {
       if (!c.words("from", "among")) return null;
       return parseObjectRef(c);
     });
     if (fromAmong) return { fromAmong };
     if (c.words("from", "outside", "the", "game")) return { outsideGame: true };
+    let preposition: string | null = null;
     const zone = c.attempt(c => {
-      if (c.word("in", "from") === null) return null;
+      preposition = c.word("in", "from");
+      if (preposition === null) return null;
       return parseZoneRef(c);
     });
     if (zone) {
@@ -1116,10 +1547,28 @@ function parseFilterQualifier(c: Cursor, head: ObjectFilter): ObjectFilter | nul
         const join = parseLogicalJoin(c);
         if (join !== "or" && join !== "and-or") return null;
         const second = c.word("hand", "graveyard", "library") as "hand" | "graveyard" | "library" | null;
-        if (!second || second === zone.zone || c.isWord("or", "and") || c.isPunct("/")) return null;
+        // A following "and"/"or" that adds a third zone is not a two-zone
+        // union; one that starts the next verb ("… or graveyard and exile it")
+        // ends the zone phrase.
+        const after = c.peek(1);
+        const more = c.isWord("or", "and") && after?.kind === "word" && PERSONAL_ZONE_WORDS.has(after.value);
+        if (!second || second === zone.zone || more || c.isPunct("/")) return null;
         return { zone: second, owner: zone.owner };
       });
-      return alternative ? { anyOf: [{ zone }, { zone: alternative }] } : { zone };
+      if (alternative) return { anyOf: [{ zone }, { zone: alternative }] };
+      // "in graveyards and libraries": ownerless plural zones joined by and/or
+      // (members of either zone, whoever owns them; CR 400.1).
+      const pooled = c.attempt((c): ZoneRef | null => {
+        if (preposition !== "in") return null;
+        const previous = c.tokens[c.pos - 1];
+        if (zone.owner || zone.position || previous?.kind !== "word" || previous.value !== PLURAL_PERSONAL_ZONES[zone.zone]) return null;
+        if (c.word("and", "or") === null) return null;
+        const word = c.word(...Object.values(PLURAL_PERSONAL_ZONES));
+        const second = Object.keys(PLURAL_PERSONAL_ZONES).find(key => PLURAL_PERSONAL_ZONES[key] === word);
+        if (!second || second === zone.zone || c.isWord("and", "or") || c.isPunct("/")) return null;
+        return { zone: second as ZoneRef["zone"] };
+      });
+      return pooled ? { anyOf: [{ zone }, { zone: pooled }] } : { zone };
     }
     const fromPool = c.attempt(c => {
       if (c.word("from") === null) return null;
@@ -1128,12 +1577,55 @@ function parseFilterQualifier(c: Cursor, head: ObjectFilter): ObjectFilter | nul
       return null;
     });
     if (fromPool) return { fromAmong: fromPool };
+    // "in the pile of their choice" / "from the chosen pile" (CR 700.3b).
+    const inPile = c.attempt(c => c.word("in", "from") !== null ? parsePileRef(c, parsePossessivePlayer) : null);
+    if (inPile) return { fromAmong: inPile };
     if (c.words("on", "the", "battlefield")) return { zone: { zone: "battlefield" } };
     if (c.words("that", "aren't", "on", "the", "battlefield") || c.words("that", "isn't", "on", "the", "battlefield"))
       return { outsideZone: { zone: "battlefield" } };
+    // "with power or toughness 4 or greater": either value satisfies the
+    // one stated comparison.
+    const eitherStat = c.attempt((c): ObjectFilter | null => {
+      if (!c.words("with", "power", "or", "toughness")) return null;
+      const comparison = parseComparison(c);
+      return comparison && { anyOf: [{ properties: [{ property: "power", comparison }] },
+        { properties: [{ property: "toughness", comparison: structuredClone(comparison) }] }] };
+    });
+    if (eitherStat) return eitherStat;
+    // "an ability … without {T} in its activation cost" (CR 107.5).
+    if (head.cls === "ability") {
+      const tapSymbolInCost = c.attempt(c => {
+        const preposition = c.word("with", "without");
+        return preposition && c.symbol() === "T" && c.words("in", "its", "activation", "cost") ? preposition === "with" : null;
+      });
+      if (tapSymbolInCost !== null) return { tapSymbolInCost };
+    }
+    const baseStat = parseBaseStatQualifier(c, parseComparison);
+    if (baseStat) return baseStat;
+    // CR 715.1: an Adventurer card has an Adventure (a second set of
+    // characteristics); "has an Adventure" tests for that.
+    if (c.words("that", "has", "an", "adventure") || c.words("that", "have", "an", "adventure") || c.words("with", "an", "adventure")) return { adventure: true };
+    const comparative = parseComparativeAttribute(c, { parseObjectRef });
+    if (comparative) return comparative;
+    const sameController = parseSameController(c);
+    if (sameController) return sameController;
+    const tied = parseTiedExtremum(c, head);
+    if (tied) return tied;
     const property = parsePropertyConstraint(c);
+    // "a creature with the greatest power among creatures that player
+    // controls" is one of those creatures, not any creature with that power.
+    if (property && poolMembers.has(property)) {
+      const value = property.comparison.value as Extract<Amount, { amount: "attribute-extremum" }>;
+      return { properties: [property], allOf: [structuredClone(value.among)] };
+    }
     if (property) return { properties: [property] };
-    const eventRelation = parseObjectRelation(c);
+    // "cards exiled this way that weren't cast" leaves "this way" to the
+    // preceding participle; the cast meant is the same one.
+    if (c.words("not", "cast", "this", "way") || c.words("that", "weren't", "cast", "this", "way")
+      || c.words("that", "wasn't", "cast", "this", "way") || c.words("that", "weren't", "cast")) return { notCastThisWay: true };
+    const zoneChange = parseZoneChangeRelation(c, parseZoneRef);
+    if (zoneChange) return { relation: zoneChange };
+    const eventRelation = parseObjectRelation(c) ?? parseDevouredRelation(c, parseObjectRef) ?? parseCountersPutRelation(c, parseCounterSpec);
     if (eventRelation) return { relation: eventRelation };
     return parseCounterConstraint(c) ?? parseAbilityConstraint(c, head.cls === "spell");
   });
@@ -1144,7 +1636,11 @@ function parseFilterQualifier(c: Cursor, head: ObjectFilter): ObjectFilter | nul
  * https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt */
 function parseCounterConstraint(c: Cursor, predicate = false): ObjectFilter | null {
   return c.attempt(c => {
-    const connector = predicate ? c.word("has", "have", "had") : c.word("with", "without");
+    // "that has a +1/+1 counter on it" / "that doesn't have …" restate
+    // "with" / "without" as a relative clause.
+    const connector = predicate ? c.word("has", "have", "had") : c.word("with", "without")
+      ?? (c.words("that", "has") || c.words("that", "have") ? "with" : null)
+      ?? (c.words("that", "doesn't", "have") || c.words("that", "don't", "have") ? "without" : null);
     if (!connector) return null;
     const absence = connector === "without" || c.word("no") !== null;
     let comparison: Comparison;
@@ -1156,7 +1652,14 @@ function parseCounterConstraint(c: Cursor, predicate = false): ObjectFilter | nu
     } else if (c.word("a", "an", "any") !== null) {
       comparison = { op: "ge", value: { amount: "fixed", value: 1 } };
     } else {
-      comparison = parseComparison(c) ?? { op: "ge", value: { amount: "fixed", value: 1 } };
+      // A bare plural P/T kind ("-1/-1 counters") must not start a number.
+      const start = c.pos;
+      const bareKind = c.attempt(c => {
+        const spec = parseCounterSpec(c);
+        return spec && "type" in spec && spec.type.includes("/") && c.isWord("counters") ? true : null;
+      });
+      c.pos = start;
+      comparison = (bareKind ? null : parseComparison(c)) ?? { op: "ge", value: { amount: "fixed", value: 1 } };
     }
     // Parity and counter-kind cardinality require different semantic nodes.
     if (c.isWord("odd", "even", "different", "kinds", "types", "each", "of", "more", "fewer", "less", "at", "least", "most")) return null;
@@ -1176,9 +1679,10 @@ function parseAbilityConstraint(c: Cursor, spellHead = false): ObjectFilter | nu
     // "a spell that has convoke" states the same test as "with convoke".
     const mode = c.word("with", "without") ?? (spellHead && c.words("that", "has") ? "with" : null);
     if (!mode) return null;
+    if (mode === "with" && c.words("no", "abilities")) return { hasAbilities: false };
     // "with a morph ability" / "with morph abilities" name the keyword ability.
     const indefinite = c.word("a", "an") !== null;
-    const first = parseKeywordName(c);
+    const first = parseKeywordName(c) ?? parseLandwalkName(c)?.name ?? null;
     if (!first) return null;
     const noun = c.word("ability", "abilities");
     if (indefinite && noun !== "ability") return null;
@@ -1190,7 +1694,7 @@ function parseAbilityConstraint(c: Cursor, spellHead = false): ObjectFilter | nu
         const lexical = parseLogicalJoin(c);
         const connector = lexical === "and-or" ? "or" : lexical;
         if (!comma && !connector) return null;
-        const name = parseKeywordName(c);
+        const name = parseKeywordName(c) ?? parseLandwalkName(c)?.name ?? null;
         return name && { connector, name };
       });
       if (!next) break;
@@ -1208,19 +1712,60 @@ function parseAbilityConstraint(c: Cursor, spellHead = false): ObjectFilter | nu
   });
 }
 
+/** Constraints stated as "with the greatest power among <pool>": the object
+ * is a member of that pool, unlike "power less than the greatest power". */
+const poolMembers = new WeakSet<PropertyConstraint>();
+
+/** "the creature with the greatest power or tied for the greatest power":
+ * every creature whose power equals the greatest power among all creatures
+ * (CR 107.2; the tie clause admits each tied creature, which the plain
+ * value comparison already does). Only the bare creature head names the
+ * compared set unambiguously. */
+function parseTiedExtremum(c: Cursor, head: ObjectFilter): ObjectFilter | null {
+  return c.attempt((c): ObjectFilter | null => {
+    if (Object.keys(head).length !== 1 || head.types?.length !== 1 || head.types[0] !== "creature") return null;
+    if (!c.words("with", "the")) return null;
+    const adjective = c.word("greatest", "least");
+    const attribute = adjective && c.word("power", "toughness");
+    if (!adjective || (attribute !== "power" && attribute !== "toughness")) return null;
+    if (!c.words("or", "tied", "for", "the", adjective, attribute)) return null;
+    const value: Amount = { amount: "attribute-extremum", extremum: adjective === "greatest" ? "maximum" : "minimum", attribute, among: { types: ["creature"] } };
+    return { properties: [{ property: attribute, comparison: { op: "eq", value } }] };
+  });
+}
+
 /** "with power 2 or less", "with mana value 3 or greater" */
 function parsePropertyConstraint(c: Cursor, past = false): PropertyConstraint | null {
   return c.attempt((c): PropertyConstraint | null => {
+    // A bare "has base power 2" is a continuous effect on the subject
+    // ("target creature has base power 2 until end of turn"), not a filter.
+    const bareHas = !c.isWord("with", "of", "that");
     if (!c.words("with") && !c.words("of") && !c.words("that", "has") && !c.words("that", "have") && c.word("has", "have") === null && !(past && c.word("had") !== null)) return null;
+    if (bareHas && c.isWord("base")) return null;
     const extremum = parseAttributeExtremum(c);
-    if (extremum) return { property: extremum.attribute, comparison: { op: "eq", value: extremum } };
+    if (extremum) {
+      const constraint: PropertyConstraint = { property: extremum.attribute, comparison: { op: "eq", value: extremum } };
+      poolMembers.add(constraint);
+      return constraint;
+    }
+    // "with that spell's mana value": equal to that one object's value,
+    // the same constraint as "with mana value equal to that spell's mana value".
+    const shared = c.tokens[c.pos - 1]?.kind === "word" && (c.tokens[c.pos - 1] as { value: string }).value === "with" ? c.attempt((c): PropertyConstraint | null => {
+      const of = parsePossessiveObject(c);
+      const property = of && (c.words("mana", "value") ? "mana-value" : c.word("power", "toughness") as "power" | "toughness" | null);
+      return of && property ? { property, comparison: { op: "eq", value: { amount: "attribute", of, attribute: property } } } : null;
+    }) : null;
+    if (shared) return shared;
     let property: PropertyConstraint["property"];
-    if (c.words("mana", "value")) property = "mana-value";
+    const base = c.word("base") !== null;
+    if (!base && c.words("mana", "value")) property = "mana-value";
     else {
       const w = c.word("power", "toughness");
       if (!w) return null;
-      property = w as "power" | "toughness";
+      property = base ? (w === "power" ? "base-power" : "base-toughness") : w as "power" | "toughness";
     }
+    // "base power and toughness" without the N/N form is not one comparison.
+    if (base && c.isWord("and")) return null;
     const comparison = parseComparison(c);
     if (!comparison) return null;
     return { property, comparison };
@@ -1240,14 +1785,17 @@ export function isTargetedPlayerRef(ref: PlayerRef): boolean {
 }
 export function isPluralPlayerRef(ref: PlayerRef): boolean {
   if (ref.player === "group") return true;
+  if ((ref.player === "target-player" || ref.player === "target-opponent") && ref.count) return true;
   return ref.player === "filtered" ? isPluralPlayerRef(ref.base)
-    : ref.player === "each-player" || ref.player === "each-opponent";
+    : ref.player === "each-player" || ref.player === "each-opponent" || ref.player === "those-players";
 }
 
-/** Each candidate supplies the hand/life/control subject. Event outcomes
- * ("who didn't discard this way") require a result scope and stay unsupported. */
-function parsePlayerQualifier(c: Cursor): PlayerFilter | null {
+/** Each candidate supplies the hand/life/control subject, and is the actor
+ * of an event outcome ("who didn't discard a card this way"). */
+function parsePlayerQualifier(c: Cursor, base?: PlayerRef): PlayerFilter | null {
   return c.attempt(c => {
+    const most = parseMostPlayerQualifier(c, { parseFilter }, base);
+    if (most) return most;
     const damageHistory = c.attempt(c => {
       const history = parseDamageHistoryPredicate(c, { parseRelationObject, parsePlayerRef });
       return history?.role === "recipient" ? history : null;
@@ -1258,8 +1806,35 @@ function parsePlayerQualifier(c: Cursor): PlayerFilter | null {
       if (c.isWord("with", "who")) return null;
       return otherThan && { otherThan };
     }
+    // "Each opponent attacking that player" (CR 506.2, 508.1b).
+    if (c.word("attacking") !== null) {
+      const attackingPlayer = parsePlayerBase(c);
+      return attackingPlayer && ["you", "that-player", "enchanted-player"].includes(attackingPlayer.player) ? { attackingPlayer } : null;
+    }
     const comparative = parseComparativePlayerQualifier(c, { parseAmount, parseCount, parseFilter, parsePlayerRef });
     if (comparative) return comparative;
+    const precedingAction = parsePrecedingActionQualifier(c);
+    if (precedingAction) return precedingAction;
+    const eventResults = parseEventResultPlayerQualifier(c, { parseComparison, parseFilter, parseObjectRef });
+    if (eventResults) return eventResults;
+    const searched = parseSearchedPlayerQualifier(c, parseZoneRef);
+    if (searched) return searched;
+    const votedFor = parseVotedForQualifier(c, { parsePlayerRef });
+    if (votedFor) return votedFor;
+    // CR 119.3: "who lost life this turn" is any life-loss event that turn.
+    const lifeChange = c.attempt(c => {
+      if (c.word("who") === null) return null;
+      const change = c.word("gained", "lost");
+      return change && c.words("life", "this", "turn") ? { lifeChange: { change: change as "gained" | "lost", during: "this-turn" as const } } : null;
+    });
+    if (lifeChange) return lifeChange;
+    // "who doesn't control an Elf" is "who controls no Elves".
+    const controlsNone = c.attempt(c => {
+      if (c.word("who") === null || c.word("doesn't", "don't") === null || c.word("control") === null || c.word("a", "an") === null) return null;
+      const filter = parseFilter(c);
+      return filter && { controls: { filter, comparison: { op: "eq" as const, value: { amount: "fixed" as const, value: 0 } } } };
+    });
+    if (controlsNone) return controlsNone;
     const controls = c.attempt(c => {
       if (c.word("who") === null || c.word("control", "controls") === null) return null;
       let comparison: Comparison | null;
@@ -1288,23 +1863,38 @@ function parsePlayerQualifier(c: Cursor): PlayerFilter | null {
   });
 }
 
+/** Every eligibility clause after a player noun; null when there is none. */
+export function parsePlayerQualifiers(c: Cursor, base?: PlayerRef): PlayerFilter | null {
+  const filter: PlayerFilter = {};
+  for (;;) {
+    const qualifier = c.attempt(c => {
+      c.word("and");
+      return parsePlayerQualifier(c, base);
+    });
+    if (!qualifier) break;
+    const keys = Object.keys(qualifier) as (keyof PlayerFilter)[];
+    if (keys.some(key => filter[key] !== undefined)) (filter.allOf ??= []).push(qualifier);
+    else Object.assign(filter, qualifier);
+  }
+  return Object.keys(filter).length ? filter : null;
+}
+
 export function parsePlayerRef(c: Cursor): PlayerRef | null {
   return c.attempt(c => {
-    const base = parsePlayerBase(c);
+    const labeled = parseLabeledPlayers(c);
+    if (labeled) return labeled;
+    const other = parseEachOtherPlayer(c);
+    const base = other?.base ?? parsePlayerBase(c);
     if (!base) return null;
-    const filter: PlayerFilter = {};
-    for (;;) {
-      const qualifier = c.attempt(c => {
-        c.word("and");
-        return parsePlayerQualifier(c);
-      });
-      if (!qualifier) break;
-      const keys = Object.keys(qualifier) as (keyof PlayerFilter)[];
-      if (keys.some(key => filter[key] !== undefined)) (filter.allOf ??= []).push(qualifier);
-      else Object.assign(filter, qualifier);
-    }
-    return Object.keys(filter).length ? { player: "filtered", base, filter } : base;
+    const filter = parsePlayerQualifiers(c, base);
+    if (other) return { player: "filtered", base, filter: { ...other.filter, ...filter } };
+    return filter ? { player: "filtered", base, filter } : base;
   });
+}
+
+/** "target opponent chosen at random": the game picks the target (CR 601.2c). */
+function randomTarget(c: Cursor): { random?: true } {
+  return c.words("chosen", "at", "random") ? { random: true } : {};
 }
 
 function parsePlayerBase(c: Cursor): PlayerRef | null {
@@ -1313,23 +1903,55 @@ function parsePlayerBase(c: Cursor): PlayerRef | null {
     const chosen = parseChosenPlayer(c);
     if (chosen) return chosen;
     if (c.words("a", "player")) return { player: "a-player" };
+    if (c.words("your", "team")) return { player: "your-team" };
     if (c.words("each", "player")) return { player: "each-player" };
     if (c.words("each", "opponent")) return { player: "each-opponent" };
-    if (c.words("target", "player")) return { player: "target-player", ...targetSelectionProvenance(target) };
-    if (c.words("target", "opponent")) return { player: "target-opponent", ...targetSelectionProvenance(target) };
+    // "each of your opponents" / "one of your opponents": the same players as
+    // "each opponent" / "an opponent" (CR 102.2-3).
+    if (c.words("each", "of", "your", "opponents")) return { player: "each-opponent" };
+    if (c.words("one", "of", "your", "opponents")) return { player: "an-opponent" };
+    if (c.words("target", "player")) return { player: "target-player", ...randomTarget(c), ...targetSelectionProvenance(target) };
+    if (c.words("target", "opponent")) return { player: "target-opponent", ...randomTarget(c), ...targetSelectionProvenance(target) };
+    // "another target player": one more target word whose player differs from
+    // a contrasted one (an earlier target, the trigger's player). The contrast
+    // stays unresolved, exactly as PlayerFilter.other. A bare "another player"
+    // keeps the readings of its own contexts (see parseTriggerPlayer).
+    if (c.isWord("another") && c.peek(1)?.kind === "word" && (c.peek(1) as { value: string }).value === "target") {
+      c.pos++;
+      const targetWord = c.peek();
+      c.pos++;
+      const noun = c.word("player", "opponent");
+      if (!noun) return null;
+      return { player: "filtered", base: { player: noun === "player" ? "target-player" : "target-opponent", ...targetSelectionProvenance(targetWord) }, filter: { other: true } };
+    }
     if (c.words("an", "opponent")) return { player: "an-opponent" };
     if (c.words("that", "player")) return parseOrThatObjectsController(c, parsePossessiveObject) ?? { player: "that-player" };
+    // "that opponent" is the same contextual reference as "that player"; its
+    // antecedent was introduced as an opponent (CR 102.2–3), nothing more.
+    if (c.words("that", "opponent")) return { player: "that-player" };
+    const definite = parseDefiniteMostPlayer(c, { parseFilter });
+    if (definite) return definite;
+    if (c.words("those", "players")) return { player: "those-players" };
     if (c.words("the", "player")) {
       // Definite descriptions such as "the player with the most life" are
       // not this bare contextual reference and must retain their qualifier.
       if (c.isWord("who", "whose", "with", "to")) return null;
       return { player: "the-player" };
     }
+    // CR 725.1: the player who is the monarch.
+    if (c.words("the", "monarch")) return { player: "the-monarch" };
     if (c.word("they") !== null) return { player: "they" };
     if (c.words("defending", "player")) return { player: "defending-player" };
+    // CR 506.2: the active player during the combat phase.
+    if (c.words("the", "attacking", "player") || c.words("that", "attacking", "player") || c.words("attacking", "player"))
+      return { player: "attacking-player" };
     // CR 303.4b,e: an enchanted player is not this Aura's controller.
-    if (c.words("enchanted", "player")) return { player: "enchanted-player" };
+    // "Enchant opponent" (a separate line) already restricts what the Aura can
+    // enchant, so "enchanted opponent" is the same player as "enchanted player".
+    if (c.words("enchanted", "player") || c.words("enchanted", "opponent")) return { player: "enchanted-player" };
     if (c.word("you") !== null) return { player: "you" };
+    const relational = parseRelationalPlayer(c, parseObjectRef);
+    if (relational) return relational;
     const of = parsePossessiveObject(c);
     if (of) {
       const relation = c.word("controller", "owner");
@@ -1365,6 +1987,8 @@ export function parseCardExtraction(c: Cursor): ObjectRef | null {
   return parseCardExtractionReference(c, { parseSelection: parseObjectSelection });
 }
 
+const isTargetWord = (token: Token | undefined) => token?.kind === "word" && !token.possessive && token.value === "target";
+
 export function parseObjectRef(c: Cursor): ObjectRef | null {
   return parseObjectRefInternal(c, false);
 }
@@ -1375,6 +1999,12 @@ function parseSelectionFilter(c: Cursor, enabled: boolean): { filter: ObjectFilt
     if (!filter) return null;
     if (!enabled) return { filter };
     const groupConstraints: GroupConstraint[] = [];
+    // "controlled by the same opponent": each is controlled by an opponent,
+    // and one player controls them all.
+    if (!filter.control && !filter.controlledBy && c.words("controlled", "by", "the", "same", "opponent")) {
+      filter.control = "opponent";
+      groupConstraints.push({ constraint: "same-controller" });
+    }
     for (;;) {
       const group = c.attempt(c => {
         c.word("and");
@@ -1409,12 +2039,49 @@ function parseSelectionFilter(c: Cursor, enabled: boolean): { filter: ObjectFilt
   });
 }
 
+/** Postfix qualifiers printed after a phrase that interrupts a description
+ * ("a creature of their choice with flying"). They restrict the same
+ * candidates as qualifiers printed directly after the noun. A description
+ * with alternative branches is left alone: the scope of a late qualifier
+ * over its branches is not stated. */
+export function parseResumedFilterQualifiers(c: Cursor, filter: ObjectFilter): ObjectFilter {
+  if (filter.anyOf || filter.allOf) return filter;
+  const result = structuredClone(filter);
+  for (;;) {
+    const qualifier = parseFilterQualifier(c, result);
+    if (!qualifier) return result;
+    const keys = Object.keys(qualifier) as (keyof ObjectFilter)[];
+    if ((qualifier.otherThan && result.other) || keys.some(key => result[key] !== undefined)) (result.allOf ??= []).push(qualifier);
+    else Object.assign(result, qualifier);
+  }
+}
+
+/** "of an opponent's choice", "of their choice", "of that player's choice"
+ * after a target: another player chooses it (CR 601.2c, 603.3d). Your own
+ * choice is the default and never printed this way. */
+function parseTargetChooser(c: Cursor): PlayerRef | null {
+  return c.attempt(c => {
+    if (c.word("of") === null) return null;
+    const chooser = parsePossessivePlayer(c);
+    if (!chooser || c.word("choice") === null) return null;
+    return chooser.player === "an-opponent" || chooser.player === "they" || chooser.player === "that-player" ? chooser : null;
+  });
+}
+
 function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
   return c.attempt((c): ObjectRef | null => {
     const eachOf = parseEachOf(c, c => parseObjectRefInternal(c, groups));
     if (eachOf) return eachOf;
     const leaders = parseVoteLeaders(c, parseFilter);
     if (leaders) return leaders;
+    // "Either of them" selects one member of the established pair or group,
+    // exactly as "one of them" does.
+    const either = c.attempt((c): ObjectRef | null => {
+      if (!c.words("either", "of")) return null;
+      const pool = parseObjectRef(c);
+      return pool && isPluralObjectRef(pool) ? { ref: "from-pool", pool, count: { amount: "fixed", value: 1 } } : null;
+    });
+    if (either) return either;
     const selection = c.attempt((c): ObjectRef | null => {
       const upTo = c.words("up", "to");
       const count = parseAmount(c);
@@ -1432,6 +2099,8 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
       return of && { ref: "rest", of };
     });
     if (rest) return rest;
+    // CR 701.47c: the Army chosen by the preceding amass.
+    if (c.words("the", "amassed", "army") || c.words("the", "army", "you", "amassed")) return { ref: "amassed-army" };
     const other = groups ? parseTheOther(c) : null;
     if (other) return other;
     const owned = c.attempt((c): ObjectRef | null => {
@@ -1456,6 +2125,8 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
     // "All graveyards" as an object is every card in each player's graveyard,
     // the same set as "each player's graveyard" (CR 400.1, 404.1).
     if (c.words("all", "graveyards")) return { ref: "zone-cards", zone: "graveyard", owner: { player: "each-player" } };
+    if (c.attempt(c => c.word("all") !== null && c.possessive("opponents") !== null && c.word("graveyards") !== null ? true : null))
+      return { ref: "zone-cards", zone: "graveyard", owner: { player: "each-opponent" } };
     const chosen = parseChosenObjectRef(c);
     if (chosen) return chosen;
     const related = parseRelatedRef(c);
@@ -1471,6 +2142,21 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
       return { ref: "library-cards", position: position as "top" | "bottom", count, of };
     });
     if (library) return library;
+    // "cards equal to its power from the top of its owner's library": the top
+    // N cards of that library (CR 401.1), the amount fixed as it resolves.
+    const equalCount = c.attempt((c): ObjectRef | null => {
+      if (c.word("cards") === null) return null;
+      const count = parseEqualTo(c);
+      if (!count || !c.words("from", "the", "top", "of")) return null;
+      const of = parseZoneRef(c);
+      if (of?.zone !== "library" || of.position) return null;
+      return { ref: "library-cards", position: "top", count, of };
+    });
+    if (equalCount) return equalCount;
+    const graveyardTop = parseGraveyardTopCards(c, { parseAmount, parseFilter, parseZoneRef });
+    if (graveyardTop) return graveyardTop;
+    const pile = parsePileRef(c, parsePossessivePlayer);
+    if (pile) return pile;
     if (c.selfref()) return { ref: "self" };
     if (c.word("it", "itself") !== null) return { ref: "it" };
     if (c.word("them", "they") !== null) return { ref: "them" };
@@ -1478,7 +2164,11 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
     const anyTarget = c.attempt((c): ObjectRef | null => {
       if (c.word("any") === null) return null;
       const token = c.peek();
-      return c.word("target") !== null ? { ref: "any-target", ...targetSelectionProvenance(token) } : null;
+      if (c.word("target") === null) return null;
+      const chosenBy = parseTargetChooser(c);
+      // CR 115.4: "any target that isn't a Dragon" excludes matching objects.
+      const excluding = !chosenBy ? c.attempt(c => c.words("that", "isn't") && c.word("a", "an") !== null ? parseFilter(c) : null) : null;
+      return { ref: "any-target", ...(chosenBy ? { chosenBy } : {}), ...(excluding ? { excluding } : {}), ...targetSelectionProvenance(token) };
     });
     if (anyTarget) return anyTarget;
 
@@ -1487,7 +2177,8 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
         ? { amount: "chosen", minimum: 0 }
         : c.words("one", "or", "two")
           ? { amount: "chosen", minimum: 1, maximum: { amount: "fixed", value: 2 } }
-          : groups && c.words("one", "or", "more") ? { amount: "chosen", minimum: 1 } : null;
+          : (groups || isTargetWord(c.peek(3)) || isTargetWord(c.peek(4)) && c.peek(3)?.kind === "word" && (c.peek(3) as { value: string }).value === "other") && c.words("one", "or", "more")
+            ? { amount: "chosen", minimum: 1 } : null;
       if (!count) return null;
       const pluralTarget = c.peek();
       if (c.word("targets") !== null) return { ref: "any-target", count, ...targetSelectionProvenance(pluralTarget) };
@@ -1508,6 +2199,7 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
       // Explicit source nouns can be subtypes too: "this Siege", "this
       // Case", or "this Saga". Require a closed, singular subtype, never an
       // arbitrary prose word or a plural selector (CR 201.5 / 205.3).
+      if (noun.value === "emblem") return insideEmblem() ? { ref: "this", noun: "emblem" } : null;
       const subtype = canonicalSubtypeName(noun.raw);
       if (!THIS_NOUNS.has(noun.value) && (!subtype || noun.value !== subtype.toLowerCase())) return null;
       return { ref: "this", noun: noun.value };
@@ -1525,11 +2217,26 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
       return { ref: "that", filter, ...(word === "those" ? { plural: true } : {}) };
     });
     if (thatRef) return thatRef;
+    // "Whenever enchanted creature deals damage to a creature, destroy the
+    // other creature": one definite participant of the event, contrasted with
+    // another one; "other" stays the unresolved lexical contrast.
+    const theOther = c.attempt((c): ObjectRef | null => {
+      if (!c.words("the", "other")) return null;
+      const filter = parseFilter(c);
+      const noun = c.tokens[c.pos - 1];
+      if (!filter || noun?.kind !== "word" || singularize(noun.value) !== noun.value) return null;
+      if (Object.keys(filter).some(key => key !== "types" && key !== "subtypes" && key !== "cls") || filter.other) return null;
+      return { ref: "that", filter: { ...filter, other: true } };
+    });
+    if (theOther) return theOther;
 
     const targetRef = c.attempt((c): ObjectRef | null => {
       const another = c.word("another") !== null;
       const upTo = c.words("up", "to");
-      const count = c.attempt(parseCount) ?? { amount: "fixed" as const, value: 1 };
+      // "Up to that many target ...": the count is the symbolic anaphoric amount
+      // (a repeated payment's count, the previous instruction's number).
+      const thatMany = upTo ? c.attempt((c): Amount | null => c.words("that", "many") ? { amount: "that-much" } : null) : null;
+      const count: Amount = thatMany ?? c.attempt(parseCount) ?? { amount: "fixed", value: 1 };
       const other = c.word("other") !== null;
       const token = c.peek();
       if (c.word("target") === null) return null;
@@ -1537,7 +2244,15 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
       if (!selected || !validSelectionCount(count)) return null;
       if (another || other) selected.filter.other = true;
       if (another && (upTo || count.amount !== "fixed" || count.value !== 1)) return null;
-      return { ref: "target", ...selected, count, ...(upTo ? { upTo: true } : {}), ...targetSelectionProvenance(token) };
+      // "up to four target cards from a player's graveyard": one player's
+      // graveyard holds every target, as "from a single graveyard" says.
+      const zone = selected.filter.zone;
+      const owner = zone?.owner;
+      if (zone && typeof owner === "object" && owner !== null && "player" in owner && owner.player === "a-player"
+        && (upTo || count.amount !== "fixed" || count.value !== 1)) selected.filter.zone = { ...zone, owner: "any-single" };
+      const chosenBy = !selected.groupConstraints ? parseTargetChooser(c) : null;
+      if (chosenBy) selected.filter = parseResumedFilterQualifiers(c, selected.filter);
+      return { ref: "target", ...selected, count, ...(upTo ? { upTo: true } : {}), ...(chosenBy ? { chosenBy } : {}), ...targetSelectionProvenance(token) };
     });
     if (targetRef) return targetRef;
     const bareTargets = parseBareTargets(c, c => {
@@ -1550,9 +2265,9 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
 
     const eachRef = c.attempt((c): ObjectRef | null => {
       if (c.word("each") === null) return null;
-      const filter = parseFilter(c);
+      const filter = parseEachFilter(c);
       if (!filter) return null;
-      return { ref: "each", filter };
+      return { ref: "each", filter: parseExceptFor(c, filter, parseFilter) ?? filter };
     });
     if (eachRef) return eachRef;
 
@@ -1561,15 +2276,17 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
       c.word("the");
       const filter = parseFilter(c);
       if (!filter) return null;
-      return { ref: "all", filter };
+      return { ref: "all", filter: parseAllZoneUnion(c, filter) ?? parseExceptFor(c, filter, parseFilter) ?? filter };
     });
     if (allRef) return allRef;
 
     const equippedRef = c.attempt((c): ObjectRef | null => {
-      const kind = c.word("equipped", "enchanted");
+      const kind = c.word("equipped", "enchanted", "fortified");
       if (!kind) return null;
       const noun = c.anyWord();
       if (!noun) return null;
+      // CR 301.6: a Fortification is attached to a land.
+      if (kind === "fortified") return noun.value === "land" ? { ref: "fortified", noun: "land" } : null;
       const subtype = canonicalSubtypeName(noun.raw);
       // "enchanted Forest" denotes this Aura's attached object (303.4b),
       // whereas "enchanted Forests" is a filter over multiple objects.
@@ -1577,6 +2294,20 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
       return { ref: kind as "equipped" | "enchanted", noun: noun.value };
     });
     if (equippedRef) return equippedRef;
+
+    const numberOf = parseNumberOfSelection(c, { parseFilter, parseEqualTo });
+    if (numberOf) return numberOf;
+
+    // CR 107.1a: "half the creatures they control, rounded down" selects a
+    // half-sized subset of that set; the rounding is stated by the step.
+    const halfRef = c.attempt((c): ObjectRef | null => {
+      if (!c.words("half", "the")) return null;
+      const selected = parseSelectionFilter(c, groups);
+      if (!selected || selected.groupConstraints) return null;
+      const count = deferredHalf({ amount: "count", of: structuredClone(selected.filter) });
+      return count && { ref: "filter", ...selected, count };
+    });
+    if (halfRef) return halfRef;
 
     const countedRef = c.attempt((c): ObjectRef | null => {
       const upTo = c.words("up", "to");
@@ -1589,6 +2320,9 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
       return { ref: "filter", ...selected, count, ...(upTo ? { upTo: true } : {}) };
     });
     if (countedRef) return countedRef;
+
+    const definite = parseDefiniteDescription(c, { parseFilter, number: relatedNumber });
+    if (definite) return definite;
 
     // Bare plural filter: "creatures you control" — semantically "each".
     const bare = parseFilter(c);
@@ -1609,7 +2343,7 @@ export function parsePossessivePlayer(c: Cursor): PlayerRef | null {
       return relation ? { player: relation as "controller" | "owner", of } : null;
     });
     if (dependent) return dependent;
-    if (c.attempt(c => c.word("enchanted") !== null && c.possessive("player") !== null ? true : null))
+    if (c.attempt(c => c.word("enchanted") !== null && c.possessive("player", "opponent") !== null ? true : null))
       return { player: "enchanted-player" };
     if (c.attempt(c => c.word("defending") !== null && c.possessive("player") !== null ? true : null))
       return { player: "defending-player" };
@@ -1621,7 +2355,7 @@ export function parsePossessivePlayer(c: Cursor): PlayerRef | null {
       if (c.possessive("opponent") !== null) return { player: "target-opponent", ...targetSelectionProvenance(target) };
       return null;
     }
-    if (c.word("that") !== null && c.possessive("player") !== null) return { player: "that-player" };
+    if (c.word("that") !== null && c.possessive("player", "opponent") !== null) return { player: "that-player" };
     if (c.word("the") !== null && c.possessive("player") !== null) return { player: "the-player" };
     if (c.word("an") !== null && c.possessive("opponent") !== null) return { player: "an-opponent" };
     if (c.word("each") !== null) {
@@ -1647,6 +2381,15 @@ function parseChosenPlayer(c: Cursor, possessive = false): PlayerRef | null {
 const RESULT_EVENTS = {
   exiled: "exile", sacrificed: "sacrifice", discarded: "discard", revealed: "reveal", destroyed: "destroy",
 } as const;
+/** Participles that name an event result only with an explicit "this way"
+ * link: tapped is otherwise a status and returned/drawn have no bare
+ * definite form ("the tapped creature" is a current-state description). */
+const LINKED_RESULT_EVENTS = {
+  tapped: "tap", returned: "return", countered: "counter", milled: "mill", drawn: "draw", chosen: "choose",
+} as const;
+/** "The milled card(s)" does have a bare definite form: milled is never a
+ * status, so it can only name the cards a mill just moved (CR 701.17a). */
+const DEFINITE_RESULT_EVENTS = { ...RESULT_EVENTS, milled: "mill" } as const;
 
 /** CR 607.1–2: "exiled with" is an explicit link, not an arbitrary object in
  * exile. Bare definite result references can be linked or within the same
@@ -1656,13 +2399,26 @@ function parseObjectRelation(c: Cursor): ObjectRelation | null {
   return c.attempt(c => {
     const who = parsePlayerRef(c);
     const event = c.word("exiled", "sacrificed", "discarded", "revealed", "destroyed") as keyof typeof RESULT_EVENTS | null;
-    if (!event) return null;
+    if (!event && !who && c.words("created", "with")) {
+      // CR 607.2c: linked to the token-making ability printed on the source.
+      const source = parseObjectRef(c);
+      return source && { relation: "linked-creation", source };
+    }
+    if (!event) {
+      const linked = c.word("tapped", "returned", "countered", "milled", "drawn", "chosen") as keyof typeof LINKED_RESULT_EVENTS | null;
+      if (!linked || !c.words("this", "way")) return null;
+      return { relation: "event-result", event: LINKED_RESULT_EVENTS[linked], scope: "this-way", ...(who ? { who } : {}) };
+    }
     let relation: ObjectRelation;
     if (c.words("this", "way")) relation = { relation: "event-result", event: RESULT_EVENTS[event], scope: "this-way" };
     else if (event === "exiled" && c.word("with") !== null) {
       const source = parseObjectRef(c);
       if (!source) return null;
       relation = { relation: "linked-exile", source };
+    } else if (event === "exiled" && c.words("used", "to", "craft")) {
+      const of = parseObjectRef(c);
+      if (!of) return null;
+      relation = { relation: "craft-material", of };
     } else return null;
     if (who) relation.who = who;
     if (c.words("this", "turn")) relation.period = "this-turn";
@@ -1681,6 +2437,12 @@ function relatedNumber(c: Cursor, start: number, end: number): "singular" | "plu
     const nominal = classifyNominal(token.value, token.raw);
     if (nominal && nominal.cls !== "player") {
       number = token.value === nominal.word.toLowerCase() ? "singular" : "plural";
+    } else if (number && (token.value === "and" || token.value === "or")) {
+      // "instant and sorcery cards": a coordinated prenominal list; the
+      // number is that of the head noun after it. Without a following
+      // nominal the coordination belongs to the outer sentence.
+      const next = c.tokens[pos + 1];
+      if (next?.kind !== "word" || next.possessive || !classifyNominal(next.value, next.raw)) break;
     } else if (!COLORS.has(token.value) && !SUPERTYPES.has(token.value) && !STATUS_WORDS.has(token.value)
       && !["other", "nonland", "noncreature", "nontoken", "colorless", "multicolored", "monocolored"].includes(token.value)) break;
   }
@@ -1707,16 +2469,31 @@ function parseChosenObjectRef(c: Cursor): ObjectRef | null {
 function parseRelatedRef(c: Cursor): ObjectRef | null {
   return c.attempt(c => {
     const definite = c.word("the") !== null;
-    const event = definite ? c.word("exiled", "sacrificed", "discarded", "revealed", "destroyed") as keyof typeof RESULT_EVENTS | null : null;
+    // "all revealed cards": every card of that event result, i.e. the same
+    // set as the plural definite form. "All exiled cards" is not accepted
+    // here: it describes cards currently in exile, whatever exiled them.
+    const all = !definite && c.attempt(c => c.word("all") !== null && c.isWord("revealed") ? true : null) === true;
+    // "those exiled cards" / "that exiled card": the demonstrative names the
+    // same event result as the definite article; its number must agree.
+    const demonstrative = definite || all ? null : c.attempt(c => {
+      const word = c.word("those", "that");
+      return word && c.isWord("exiled", "revealed") ? word : null;
+    });
+    const event = definite || all || demonstrative ? c.word("exiled", "sacrificed", "discarded", "revealed", "destroyed") as keyof typeof DEFINITE_RESULT_EVENTS | null
+      ?? (definite ? c.word("milled") as "milled" | null : null) : null;
     const start = c.pos;
     const parsed = parseFilter(c);
     if (!parsed) return null;
     const number = relatedNumber(c, start, c.pos);
-    if (!number) return null;
+    if (!number || (all && number !== "plural")) return null;
+    if (demonstrative && (demonstrative === "those") !== (number === "plural")) return null;
     if (event) {
       // A second explicit relation would need its own separately bound scope.
       if (parsed.relation) return null;
-      return { ref: "related", number, filter: parsed, relation: { relation: "event-result", event: RESULT_EVENTS[event], scope: "contextual" } };
+      // CR 702.167c: "the exiled cards used to craft it" are the craft materials.
+      const craft = event === "exiled" ? c.attempt(c => c.words("used", "to", "craft") ? parseObjectRef(c) : null) : null;
+      if (craft) return { ref: "related", number, filter: parsed, relation: { relation: "craft-material", of: craft } };
+      return { ref: "related", number, filter: parsed, relation: { relation: "event-result", event: DEFINITE_RESULT_EVENTS[event], scope: "contextual" } };
     }
     if (!parsed.relation) return null;
     const { relation, ...filter } = parsed;
@@ -1728,8 +2505,25 @@ function parseRelatedRef(c: Cursor): ObjectRef | null {
 // Durations
 // ---------------------------------------------------------------------------
 
+/** "during its controller's next turn" / "during your next combat phase":
+ * the rule applies only while that player's next turn or combat phase is
+ * taking place. */
+export function parseNextPeriodOf(c: Cursor): Duration | null {
+  return c.attempt((c): Duration | null => {
+    if (c.word("during") === null) return null;
+    const who = parsePossessivePlayer(c);
+    if (!who || c.word("next") === null) return null;
+    if (c.word("turn") !== null) return { duration: "during-next-turn-of", who };
+    if (c.word("combat") === null) return null;
+    c.word("phase");
+    return { duration: "during-next-combat-of", who };
+  });
+}
+
 export function parseDuration(c: Cursor): Duration | null {
   return c.attempt((c): Duration | null => {
+    const nextOf = parseNextPeriodOf(c);
+    if (nextOf) return nextOf;
     // CR 611.2a and 511.2 distinguish beginning an end step, ending combat,
     // and cleanup of the next turn; these boundaries must not be collapsed.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -1737,12 +2531,26 @@ export function parseDuration(c: Cursor): Duration | null {
       return { duration: "end-of-your-next-turn" };
     if (c.words("until", "your", "next", "end", "step") || c.words("until", "the", "beginning", "of", "your", "next", "end", "step"))
       return { duration: "your-next-end-step" };
-    if (c.words("until", "your", "next", "upkeep")) return { duration: "your-next-upkeep" };
+    if (c.words("until", "your", "next", "upkeep") || c.words("until", "the", "beginning", "of", "your", "next", "upkeep")) return { duration: "your-next-upkeep" };
+    const untilEvent = c.attempt((c): Duration | null => {
+      if (c.word("until") === null) return null;
+      if (c.words("you", "exile", "another", "card", "with")) {
+        const source = parseObjectRef(c);
+        return source && (source.ref === "self" || source.ref === "this")
+          ? { duration: "until-next-linked-exile", who: { player: "you" }, source } : null;
+      }
+      const what = parseObjectRef(c);
+      if (!what || (what.ref !== "self" && what.ref !== "this") || !c.words("is", "cast", "from")) return null;
+      const from = parseZoneRef(c);
+      return from && { duration: "until-cast", what, from };
+    });
+    if (untilEvent) return untilEvent;
     if (c.words("until", "end", "of", "combat")) return { duration: "end-of-combat" };
     if (c.words("until", "end", "of", "turn")) return { duration: "end-of-turn" };
     if (c.words("until", "your", "next", "turn")) return { duration: "your-next-turn" };
     if (c.words("this", "turn")) return { duration: "this-turn" };
     if (c.words("this", "combat")) return { duration: "this-combat" };
+    if (c.words("for", "the", "rest", "of", "the", "game")) return { duration: "rest-of-game" };
     if (c.words("for", "as", "long", "as") || c.words("as", "long", "as")) {
       const condition = parseCondition(c);
       if (!condition) return null;
@@ -1756,11 +2564,18 @@ export function parseDuration(c: Cursor): Duration | null {
 // Conditions
 // ---------------------------------------------------------------------------
 
-export function parseCondition(c: Cursor, options?: { purpose?: "unless" }): Condition | null {
+/** "a blue permanent": one unqualified indefinite object, nothing more. A
+ * disjunction ("a Plains or an Island and a Swamp") has no unambiguous grouping. */
+function isSingleIndefinite(ref: ObjectRef): boolean {
+  return ref.ref === "filter" && ref.count.amount === "fixed" && ref.count.value === 1 && Object.keys(ref).length === 3
+    && !JSON.stringify(ref.filter).includes('"anyOf"');
+}
+
+export function parseCondition(c: Cursor, options?: { purpose?: "unless"; outcomes?: true }): Condition | null {
   return parseConditionExpression(c, {
     ...options,
     parseAmount, parseComparison, parseCount, parseCounterSpec, parseFilter, parseObjectRef,
-    parsePlayerRef, parsePossessivePlayer, parseZoneRef, parseAtomic: parseAtomicCondition,
+    parsePlayerRef, parsePossessivePlayer, parsePossessiveObject, parseZoneRef, parseAtomic: parseAtomicCondition,
   });
 }
 
@@ -1776,6 +2591,12 @@ function parseAtomicCondition(c: Cursor): Condition | null {
     const compared = c.attempt((c): Condition | null => {
       const value = parseAmount(c);
       if (!value || c.word("is", "are") === null) return null;
+      // "~'s power is odd": the object's characteristic has that parity, the
+      // same test as "with odd power" (zero is even).
+      const parity = value.amount === "attribute" && (value.attribute === "power" || value.attribute === "mana-value")
+        ? c.word("odd", "even") as "odd" | "even" | null : null;
+      if (parity && value.amount === "attribute")
+        return { condition: "is-filter", what: value.of, filter: { parity: { property: value.attribute as "power" | "mana-value", parity } } };
       const comparison = parseComparison(c);
       return comparison ? { condition: "compare", value, comparison } : null;
     });
@@ -1787,6 +2608,14 @@ function parseAtomicCondition(c: Cursor): Condition | null {
       return what ? { condition: "not", of: { condition: "control", who, what } } : null;
     });
     if (doesNotControl) return doesNotControl;
+    // "your library has no cards in it" is "there are no cards in your
+    // library", as in the replacement-condition grammar.
+    const emptyLibrary = c.attempt((c): Condition | null => {
+      const zone = parseZoneRef(c);
+      return zone?.zone === "library" && !zone.position && c.words("has", "no", "cards", "in", "it")
+        ? { condition: "count", of: { cls: "card", zone }, comparison: { op: "eq", value: { amount: "fixed", value: 0 } } } : null;
+    });
+    if (emptyLibrary) return emptyLibrary;
     const counted = c.attempt((c): Condition | null => {
       if (!c.words("there", "are") && !c.words("there", "is")) return null;
       const comparison = parseComparison(c);
@@ -1796,6 +2625,15 @@ function parseAtomicCondition(c: Cursor): Condition | null {
     });
     if (counted) return counted;
     if (c.words("you", "do", "so") || c.words("you", "do")) return { condition: "you-do" };
+    const notCast = c.attempt((c): Condition | null => {
+      if (!c.words("you", "don't", "cast")) return null;
+      const what = parseObjectRef(c);
+      if (!what) return null;
+      // "this way" restates the scope the node already fixes.
+      c.words("this", "way");
+      return { condition: "not-cast", who: { player: "you" }, what, scope: "preceding-instruction" };
+    });
+    if (notCast) return notCast;
     if (c.words("you", "don't")) return { condition: "you-dont" };
     if (c.words("it's", "your", "turn")) return { condition: "your-turn" };
     if (c.words("it's", "not", "your", "turn")) return { condition: "not-your-turn" };
@@ -1805,10 +2643,21 @@ function parseAtomicCondition(c: Cursor): Condition | null {
       let who: PlayerRef | null = null;
       if (c.word("you") !== null) who = { player: "you" };
       else if (c.words("an", "opponent")) who = { player: "an-opponent" };
+      // "As long as any player controls a black permanent": some player does.
+      else if (c.words("any", "player")) who = { player: "a-player" };
       else if (c.words("that", "player")) who = { player: "that-player" };
       else if (c.words("defending", "player")) who = { player: "defending-player" };
+      else if (c.words("your", "team")) who = { player: "your-team" };
+      // "no opponent controls a white creature": no opponent controls one.
+      const none = !who && c.words("no", "opponent");
+      if (none) who = { player: "an-opponent" };
       if (!who) return null;
       if (c.word("control", "controls") === null) return null;
+      if (none) {
+        if (!c.isWord("a", "an")) return null;
+        const what = parseObjectRef(c);
+        return what?.ref === "filter" ? { condition: "not", of: { condition: "control", who, what } } : null;
+      }
       const counted = c.attempt((c): Condition | null => {
         const comparison = parseComparison(c);
         if (!comparison || comparison.op === "eq") return null;
@@ -1816,8 +2665,28 @@ function parseAtomicCondition(c: Cursor): Condition | null {
         return of ? { condition: "control-count", who, of, comparison } : null;
       });
       if (counted) return counted;
-      const what = parseObjectRef(c);
+      // "the creature with the greatest power or tied for the greatest
+      // power": the tie clause makes the definite article claim no
+      // uniqueness, so controlling any creature with that power suffices.
+      const tied = c.attempt((c): ObjectRef | null => {
+        if (c.word("the") === null) return null;
+        const start = c.pos;
+        const filter = parseFilter(c);
+        const words = c.tokens.slice(start, c.pos);
+        if (!filter || Object.keys(filter).join() !== "types,properties" || filter.properties?.length !== 1
+          || !words.some(token => token.kind === "word" && token.value === "tied")) return null;
+        return { ref: "filter", filter, count: { amount: "fixed", value: 1 } };
+      });
+      const what = tied ?? parseObjectRef(c);
       if (!what) return null;
+      // "you control a blue permanent and a black permanent": each
+      // existence is tested on its own, so one blue-black permanent satisfies both.
+      const also = !tied && isSingleIndefinite(what) ? c.attempt(c => {
+        if (c.word("and") === null || !c.isWord("a", "an")) return null;
+        const second = parseObjectRef(c);
+        return second && isSingleIndefinite(second) ? second : null;
+      }) : null;
+      if (also) return { condition: "all-of", conditions: [{ condition: "control", who, what }, { condition: "control", who: structuredClone(who), what: also }] };
       return { condition: "control", who, what };
     });
     if (control) return control;
@@ -1828,7 +2697,11 @@ function parseAtomicCondition(c: Cursor): Condition | null {
       // Only an already identified object has an earlier existence to ask
       // about; "controlled a creature" would be a history of some period.
       const what = parseObjectRef(c);
-      if (!what || !(what.ref === "it" || (what.ref === "that" && !what.plural))) return null;
+      if (!what) return null;
+      // Faerie Fencing: "if you controlled a Faerie as you cast this spell"
+      // asks about control at that moment (CR 601.2), not on resolution.
+      if (c.words("as", "you", "cast", "this", "spell")) return { condition: "control", who, what, asOf: "casting" };
+      if (!(what.ref === "it" || (what.ref === "that" && !what.plural))) return null;
       return { condition: "control", who, what, time: "previous" };
     });
     if (controlled) return controlled;
@@ -1857,6 +2730,8 @@ function parseAtomicCondition(c: Cursor): Condition | null {
       const who: PlayerRef | null = c.words("any", "player") ? { player: "a-player" } : parsePlayerRef(c);
       if (!who) return null;
       if (c.word("pays") === null) return null;
+      const paid = parsePaidCosts(c);
+      if (paid) return { condition: "pays", who, cost: paid };
       // Mana symbols or "N life".
       const symbols: string[] = [];
       let s;
@@ -1883,7 +2758,8 @@ function parseAtomicCondition(c: Cursor): Condition | null {
       c.pos += offset;
       const previous = c.isWord("had");
       const property = parsePropertyConstraint(c, true);
-      const filter = property ? { properties: [property] } : parseCounterConstraint(c, true);
+      const chosenName = property ? null : parseChosenNameQualifier(c, parseFilter, "have");
+      const filter = property ? { properties: [property] } : chosenName ? { chosenName } : parseCounterConstraint(c, true);
       if (!filter) return null;
       return { condition: "is-filter", what, filter, ...(previous ? { time: "previous" as const } : {}) };
     });
@@ -1897,7 +2773,17 @@ function parseAtomicCondition(c: Cursor): Condition | null {
       if (!what || !subject.done()) return null;
       c.pos += offset + 1;
       const filter = parseCounterConstraint(c, true);
-      return filter && { condition: "not", of: { condition: "is-filter", what, filter } };
+      if (!filter) return null;
+      // A bare "they" does not say whether it denotes objects or a player.
+      // Counter kinds only players can have (CR 122.1) settle it; any other
+      // kind on a bare plural pronoun stays unsupported instead of guessing.
+      if (what.ref === "them") {
+        const constraint = filter.counterConstraints?.[0];
+        const playerOnly = constraint && constraint.counter !== "any" && ["rad", "poison", "energy", "experience", "ticket"].includes(constraint.counter.type);
+        if (!constraint || !playerOnly) return c.fail("subject of a counter test");
+        return { condition: "not", of: { condition: "player-counters", who: { player: "they" }, counter: constraint.counter, comparison: constraint.comparison } };
+      }
+      return { condition: "not", of: { condition: "is-filter", what, filter } };
     });
     if (lacksCounters) return lacksCounters;
 
@@ -1911,6 +2797,9 @@ function parseAtomicCondition(c: Cursor): Condition | null {
       return comparison && { condition: "is-filter", what, filter: { properties: [{ property, comparison }] }, time: "previous" };
     });
     if (pastAttribute) return pastAttribute;
+
+    const attached = parseAttachmentCondition(c, { parseComparison, parseFilter, parseObjectRef, parseRelation: parseObjectRelationPredicate });
+    if (attached) return attached;
 
     const isFilter = c.attempt((c): Condition | null => {
       let what: ObjectRef | null = null;
@@ -1926,6 +2815,12 @@ function parseAtomicCondition(c: Cursor): Condition | null {
         negate = verb === "isn't" || verb === "wasn't" || c.word("not") !== null;
       }
       const wrap = (of: Condition): Condition => negate ? { condition: "not", of } : of;
+      // "A creature is attacking you": at least one matching creature attacks that
+      // player or permanent (CR 508.1b); the status node carries no defender.
+      if (!time && what.ref === "filter" && !what.upTo && what.count.amount === "fixed" && what.count.value === 1 && !what.groupConstraints) {
+        const attacking = c.attempt(c => c.isWord("attacking") ? parseObjectRelationPredicate(c) : null);
+        if (attacking) return wrap({ condition: "count", of: { ...what.filter, ...attacking }, comparison: { op: "ge", value: { amount: "fixed", value: 1 } } });
+      }
       c.word("a", "an");
       const status = c.attempt((c) => {
         const w = c.anyWord();
@@ -1933,11 +2828,37 @@ function parseAtomicCondition(c: Cursor): Condition | null {
         // CR 506.5: attacking/blocking alone is a status of its own.
         return (w.value === "attacking" || w.value === "blocking") && c.word("alone") !== null ? `${w.value}-alone` : w.value;
       });
-      if (status) return wrap({ condition: "status", what, status, ...(time ? { time } : {}) });
+      // "is attacking or blocking", "is white and untapped": further statuses
+      // joined by one connector hold of the same object, either-or ("or") or
+      // all-of ("and"). A negation distributes over "or" only ("isn't attacking
+      // or blocking" is neither), and a past status is never chained.
+      const moreStatuses = (first: Condition): Condition | null => {
+        if (time) return first;
+        const parts = [first];
+        let connector: "and" | "or" | undefined;
+        for (;;) {
+          const next = c.attempt((c): { connector: "and" | "or"; status: string } | null => {
+            const word = c.word("and", "or") as "and" | "or" | null;
+            const w = word && c.anyWord();
+            return word && w && STATUS_WORDS.has(w.value) && (!connector || connector === word) ? { connector: word, status: w.value } : null;
+          });
+          if (!next) break;
+          connector = next.connector;
+          parts.push({ condition: "status", what, status: next.status });
+        }
+        if (parts.length === 1) return first;
+        if (negate && connector === "and") return c.fail("negated status conjunction");
+        return { condition: connector === "or" ? "any-of" : "all-of", conditions: parts };
+      };
+      if (status) {
+        const chained = moreStatuses({ condition: "status", what, status, ...(time ? { time } : {}) });
+        return chained && wrap(chained);
+      }
       // A predicate may be adjective-only: "isn't legendary", "it's red".
-      const filter = parseFilter(c) ?? parseFilterExpression(c, true);
+      const filter = parseColorSetPredicate(c) ?? parseFilter(c) ?? parseFilterExpression(c, true);
       if (!filter) return null;
-      return wrap({ condition: "is-filter", what, filter, ...(time ? { time } : {}) });
+      const chained = moreStatuses({ condition: "is-filter", what, filter, ...(time ? { time } : {}) });
+      return chained && wrap(chained);
     });
     if (isFilter) return isFilter;
 
@@ -1988,7 +2909,10 @@ export function parseCounterSpec(c: Cursor): CounterSpec | null {
       if (c.isWord("counter", "counters")) break;
       const w = c.anyWord();
       if (!w) return null;
-      if (["and", "or", "a", "an", "any", "no", "different", "more", "fewer"].includes(w.value)) return null;
+      // A counter kind is a name, never a function word: "two of its
+      // counters" and "those counters" refer to counters, they do not name one.
+      if (["and", "or", "a", "an", "any", "no", "different", "more", "fewer", "of", "its", "their", "his", "her", "your",
+        "the", "this", "that", "these", "those", "each", "all", "other", "another", "on", "from", "with", "to", "target"].includes(w.value)) return null;
       words.push(w.value);
     }
     if (words.length === 0 || !c.isWord("counter", "counters")) return c.fail("counter type");

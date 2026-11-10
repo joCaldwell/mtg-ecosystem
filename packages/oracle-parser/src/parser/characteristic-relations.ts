@@ -8,6 +8,7 @@ type Parsed = { test: CharacteristicRelation } | { property: Scalar; of: ObjectR
 function characteristic(c: Cursor): SharedCharacteristic | null {
   if (c.words("creature", "type")) return "creature-type";
   if (c.words("card", "type")) return "card-type";
+  if (c.words("permanent", "type")) return "permanent-type";
   if (c.words("land", "type")) return "land-type";
   return c.word("color", "name") as "color" | "name" | null;
 }
@@ -77,12 +78,14 @@ function parseTest(c: Cursor, g: Grammar, context: "filter" | "condition"): Pars
     if (!nominal) {
       negative = c.word("doesn't", "don't") !== null || c.words("does", "not") || c.words("do", "not");
       if (c.word("share", "shares", "sharing") !== null) {
-        if (c.word("a", "an") === null) return null;
-        const property = characteristic(c);
+        // "shares one of those types with it": a card type from the preceding type list.
+        const among = !negative && c.words("one", "of", "those", "types");
+        if (!among && c.word("a", "an") === null) return null;
+        const property = among ? "card-type" : characteristic(c);
         if (!property || c.word("with") === null) return null;
         const withOperand = operand(c, g);
-        if (!withOperand) return null;
-        const test: CharacteristicRelation = { relation: "shared-value", characteristic: property, with: withOperand };
+        if (!withOperand || (among && withOperand.operand !== "object")) return null;
+        const test: CharacteristicRelation = { relation: "shared-value", characteristic: property, with: withOperand, ...(among ? { among: "those-types" as const } : {}) };
         return { test: negative ? { relation: "not", of: test } : test };
       }
       if (c.word("has", "have") === null) return null;
@@ -113,6 +116,10 @@ export function parseCharacteristicRelationQualifier(c: Cursor, g: Grammar): Obj
   return c.attempt(c => {
     const parsed = parseTest(c, g, "filter");
     if (!parsed) return null;
+    // "… that doesn't share a creature type with a creature you control from
+    // among those cards": the pool limits the outer selection, never the
+    // object it is compared with.
+    if (JSON.stringify(parsed).includes('"fromAmong"')) return c.fail("pool of the outer selection, not of the compared object");
     if ("test" in parsed) return { characteristicRelations: [parsed.test] };
     if (parsed.negated) return null;
     return { properties: [{ property: parsed.property, comparison: { op: "eq", value: { amount: "attribute", attribute: parsed.property, of: parsed.of } } }] };
@@ -136,6 +143,17 @@ export function parseCharacteristicRelationCondition(c: Cursor, g: Grammar): Con
  * parser opts into actual target/payment/resolution selections explicitly.
  * Binding and evaluation must retain the complete group's characteristic
  * sets; pairwise intersections do not prove one common value for 3+ objects. */
+/** "three or more lands with the same name": the members of the counted
+ * group all have one common value (comparison with a particular object is
+ * "the same name as ...", not this). Only quantified-group callers opt in. */
+export function parseSameValueGroupConstraint(c: Cursor): GroupConstraint | null {
+  return c.attempt(c => {
+    if (!c.words("with", "the", "same")) return null;
+    const property = characteristic(c);
+    return property && !c.isWord("as") ? { constraint: "shared-value", characteristic: property } : null;
+  });
+}
+
 export function parseSharedGroupConstraint(c: Cursor): GroupConstraint | null {
   return c.attempt(c => {
     if (!c.words("that", "share", "a")) return null;

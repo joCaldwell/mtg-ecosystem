@@ -22,6 +22,16 @@
   text-decoration: none;
 }
 
+.item {
+  display: flex;
+  gap: var(--s-3);
+}
+
+.bullet {
+  flex: none;
+  color: var(--muted);
+}
+
 .add {
   background: var(--add-bg);
 }
@@ -39,4 +49,28 @@
 
 .del .sign {
   color: var(--cut);
+}
+
+/* A folded run of unchanged lines: one quiet row that opens in place. */
+.fold + .line,
+.line + .fold,
+.fold + .fold {
+  border-top: 1px solid var(--line);
+}
+
+/* The native marker sits in the sign gutter. */
+.summary {
+  padding: var(--s-2) var(--s-5);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.summary:hover {
+  color: var(--text-soft);
+  background: var(--hover);
+}
+
+.summary:focus-visible {
+  outline-offset: -2px;
 }

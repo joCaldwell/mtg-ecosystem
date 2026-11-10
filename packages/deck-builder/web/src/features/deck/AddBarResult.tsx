@@ -49,7 +49,7 @@ export function AddBarResult({ result, id, highlighted, offerCommander, onPick, 
         <span className={styles.name}>{card.name}</span>
         <ManaCost cost={card.mana_cost} />
         <span className={styles.type}>{card.type_line}</span>
-        <Price cents={card.usd_cents} />
+        <Price currency={card.currency} cents={card.cents} />
       </span>
       <span className={styles.flags}>
         {!legal && <Chip tone="cut">not legal in Commander</Chip>}
@@ -74,6 +74,21 @@ export function AddBarResult({ result, id, highlighted, offerCommander, onPick, 
       <span className={said ? styles.said : styles.text}>
         {said ? `You said: “${said}”` : oneLine(card.oracle_text)}
       </span>
+      {/* The active result names what Enter and Shift+Enter do. A card already
+          here opens instead, so it offers that: drawn as a button, but only a
+          picture of the row's own click and Enter (an option may not contain
+          a control), so a click on it is the row's. */}
+      {highlighted && (inDeck || onMaybe) && (
+        <span className={styles.actions} aria-hidden="true">
+          <span className={styles.view}>View card</span>
+        </span>
+      )}
+      {highlighted && !inDeck && !onMaybe && (
+        <span className={styles.actions}>
+          <Button size="sm" tabIndex={-1} onClick={(e) => { e.stopPropagation(); onPick(false); }}>Add</Button>
+          <Button size="sm" tabIndex={-1} kbd="⇧↵" onClick={(e) => { e.stopPropagation(); onPick(true); }}>Add to maybe</Button>
+        </span>
+      )}
     </div>
   );
 }

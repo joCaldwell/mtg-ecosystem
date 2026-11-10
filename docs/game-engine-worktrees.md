@@ -1,10 +1,12 @@
 # Engine branch and worktree lifecycle
 
-Start dependent engine work from the latest published `feat/engine-plan`, not
-root `main`: the engine implementation has not yet been merged there. In T3,
-create a worktree with the thread/worktree tool using this local base and
-`startFromOrigin: false`. Record the base SHA and owned files with the coordinator.
-Do not create an unrelated shell worktree for a T3 thread.
+Start new independent work from current `origin/main`. The engine/platform and
+architecture work are integrated there; `feat/engine-plan` is retired. In T3,
+use the thread/worktree tool with `origin/main` and `startFromOrigin: true` for
+independent work. Dependent unpublished work uses its explicitly assigned local
+base and `startFromOrigin: false`. Record base SHA and owned files. Do not create
+an unrelated shell worktree for a T3 thread. The retirement helper defaults to
+local `main` and the live remote `origin/main` publication proof.
 
 Commit a coherent change after its focused checks, then push the checkpoint.
 Push before a handoff, a long native measurement, or ending a work session.
@@ -54,8 +56,9 @@ nine safety tests exercise clean retirement and rejection of unique commits,
 stale publication, modified/untracked/ignored files, process references,
 documented evidence, incorrect identity, protected paths and symlinks.
 
-Main integration remains a separate reviewable change. At the gardening baseline,
-main and the engine branch diverged by 205 and 249 commits respectively. Git's
-synthetic merge was conflict-free; that does not establish cross-package runtime
-compatibility. Preserve the engine checkpoint and review a dedicated merge
-before changing the default branch. Avoid force-pushing either history.
+The 2026-11-09 main integration preserves both histories: the engine branch and
+main had diverged by 205 and 249 commits at the gardening baseline. Integration
+retains newer parser/deck-builder work and the engine's current implementation.
+The former engine checkout contains historical evidence and installed dependencies;
+its path is retained as a detached evidence checkout, not an active development
+branch. Start new work from main. Never force-push either published history.

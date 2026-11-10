@@ -1,0 +1,9 @@
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-6);
+  margin-top: var(--s-2);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+.summary > span { white-space: nowrap; }

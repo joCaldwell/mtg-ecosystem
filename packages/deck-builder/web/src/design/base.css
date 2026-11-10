@@ -22,6 +22,17 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Phones and shared pages scroll the window, not a pane (app/windowScroll.ts). */
+html[data-scroll="window"],
+html[data-scroll="window"] body,
+html[data-scroll="window"] #root {
+  height: auto;
+}
+
+html[data-scroll="window"] body {
+  overflow: visible;
+}
+
 h1,
 h2,
 h3,
@@ -48,9 +59,17 @@ button:disabled {
   opacity: 0.5;
 }
 
+/* The browser's own monospace default is a Courier clone on many Linux
+   systems; code and keys use the app's one stack instead. */
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--font-mono);
+}
+
 input,
-textarea,
-select {
+textarea {
   color: inherit;
   font: inherit;
 }
@@ -74,5 +93,21 @@ a {
 ::-webkit-scrollbar-thumb {
   border: 2px solid var(--bg);
   border-radius: var(--r-md);
-  background: #2a2f36;
+  background: var(--scrollbar);
+}
+
+/* Motion conveys no required state; respect the reader's preference. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --fast: 0ms; --base: 0ms; }
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+/* Text for assistive technology only: a column header with no visible label,
+   a severity read before a message, the rest of a link's name. The one
+   shared copy; components use className="visually-hidden". */
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.skip-link { position: fixed; top: var(--s-4); left: var(--s-4); z-index: var(--z-toast); padding: var(--s-5); background: var(--raised); color: var(--text); transform: translateY(-200%); }
+.skip-link:focus { transform: none; }
+
+@media (hover: none) {
+  button, input:not([type="checkbox"]), a[role="button"] { min-height: var(--tap); }
 }

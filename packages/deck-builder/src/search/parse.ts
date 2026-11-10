@@ -124,9 +124,30 @@ function tokenize(input: string): Token[] {
   return tokens;
 }
 
-export function parse(input: string): Node {
+/** What one search may ask for. Every search runs synchronously on the one
+ * SQLite connection, so a query's size is everyone's latency (§18.6). */
+export interface QueryLimits {
+  maxLength: number;
+  maxTerms: number;
+  maxDepth: number;
+}
+/** Signed-out searches. */
+export const ANONYMOUS_QUERY_LIMITS: QueryLimits = { maxLength: 256, maxTerms: 30, maxDepth: 20 };
+/** A signed-in person or their agent. */
+export const ACCOUNT_QUERY_LIMITS: QueryLimits = { maxLength: 600, maxTerms: 50, maxDepth: 20 };
+
+export function parse(input: string, limits: QueryLimits = ACCOUNT_QUERY_LIMITS): Node {
+  if (input.length > limits.maxLength)
+    throw new SearchError(`The search is ${input.length} characters; the most is ${limits.maxLength}. Make several narrower searches.`);
   const tokens = tokenize(input);
+  const terms = tokens.filter((t) => t.t === "term").length;
+  if (terms > limits.maxTerms)
+    throw new SearchError(`The search has ${terms} terms; the most is ${limits.maxTerms}. Make several narrower searches.`);
   let pos = 0;
+  let depth = 0;
+  const deeper = () => {
+    if (++depth > limits.maxDepth) throw new SearchError(`The search nests more than ${limits.maxDepth} levels of parentheses or negation`);
+  };
 
   const peek = () => tokens[pos];
   const next = () => tokens[pos++];
@@ -152,7 +173,10 @@ export function parse(input: string): Node {
   function unary(): Node {
     if (peek()?.t === "-") {
       next();
-      return { kind: "not", child: unary() };
+      deeper();
+      const child = unary();
+      depth--;
+      return { kind: "not", child };
     }
     return primary();
   }
@@ -161,7 +185,9 @@ export function parse(input: string): Node {
     const tok = next();
     if (!tok) throw new SearchError("Unexpected end of query");
     if (tok.t === "(") {
+      deeper();
       const inner = orExpr();
+      depth--;
       if (next()?.t !== ")") throw new SearchError("Missing closing parenthesis");
       return inner;
     }

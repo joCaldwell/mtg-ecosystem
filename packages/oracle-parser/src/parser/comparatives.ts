@@ -6,6 +6,7 @@
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 import type { Amount, Comparison, Condition, ObjectFilter, PlayerFilter, PlayerRef, ZoneRef } from "../ast.ts";
 import type { Cursor } from "./cursor.ts";
+import { parseMostPredicate } from "./player-most.ts";
 
 export interface ComparativeGrammar {
   parseAmount(c: Cursor): Amount | null;
@@ -75,6 +76,9 @@ function hasScope(filter: ObjectFilter): boolean {
 /** Predicate beginning at the verb; the subject is supplied by the caller. */
 function parsePredicate(c: Cursor, g: ComparativeGrammar, subject: PlayerRef | "candidate"): Predicate | null {
   return c.attempt((c): Predicate | null => {
+    // "<player> controls the most creatures": compared with every player.
+    const most = subject === "candidate" ? null : parseMostPredicate(c, g);
+    if (most) return most;
     const verb = c.word("control", "controls", "have", "has");
     if (!verb) return null;
     if (verb.startsWith("control")) {
@@ -118,13 +122,21 @@ function parsePredicate(c: Cursor, g: ComparativeGrammar, subject: PlayerRef | "
  * quantified subject keeps its quantifier: "an opponent" is existential. */
 export function parseComparativeCondition(c: Cursor, g: ComparativeGrammar): Condition | null {
   return c.attempt((c): Condition | null => {
-    const who = g.parsePlayerRef(c);
+    // "no opponent has more life than that player": no such opponent exists,
+    // the negation of the existential "an opponent has ...".
+    const none = c.attempt((c): PlayerRef | null => {
+      if (c.word("no") === null) return null;
+      const noun = c.word("opponent", "player");
+      return noun === "opponent" ? { player: "an-opponent" } : noun === "player" ? { player: "a-player" } : null;
+    });
+    const who = none ?? g.parsePlayerRef(c);
     const predicate = who && parsePredicate(c, g, who);
     if (!who || !predicate) return null;
-    if (predicate.measure === "controls") return { condition: "control-count", who, of: predicate.filter, comparison: predicate.comparison };
-    return predicate.measure === "life"
+    const condition: Condition = predicate.measure === "controls" ? { condition: "control-count", who, of: predicate.filter, comparison: predicate.comparison }
+      : predicate.measure === "life"
       ? { condition: "life-total", who, comparison: predicate.comparison }
       : { condition: "cards-in-hand", who, comparison: predicate.comparison };
+    return none ? { condition: "not", of: condition } : condition;
   });
 }
 

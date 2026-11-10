@@ -9,49 +9,99 @@
      sel    (blue)   — the owner's own selection and keyboard focus          */
 
 :root {
-  /* Surfaces, darkest to lightest */
-  --bg: #0d0e10;
-  --surface: #141619;
-  --raised: #1a1d21;
-  --hover: #1f2328;
-  --overlay: #1d2126;
-  --line: #24282e;
-  --line-strong: #323841;
+  /* True-black canvas; opaque near-black panels keep popovers legible.
+     Modelled on pingdotgg/t3code, apps/web/src/index.css:
+     https://github.com/pingdotgg/t3code/blob/main/apps/web/src/index.css
+     html.dark[data-redesign]: neutral-950 + ~3% white for surfaces, a
+     slightly brighter selected tier, transparent white for hover/rules. */
+  --bg: #000;
+  /* The rail sits just above the canvas behind a firmer edge, so it stays
+     distinct from black pages without taking contrast from the art beside it. */
+  --sidebar-bg: #0a0a0a;
+  --sidebar-line: rgba(255, 255, 255, 0.16);
+  --surface: #111;
+  --raised: #1a1a1a;
+  --hover: rgba(255, 255, 255, 0.04);
+  --overlay: var(--surface);
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.11);
+  --line-hover: rgba(255, 255, 255, 0.18);
+  --scrollbar: rgba(255, 255, 255, 0.12);
   /* Quiet diagonal texture for cards outside the deck's 100. */
   --maybe-pattern: repeating-linear-gradient(
     135deg,
     transparent 0 10px,
     rgba(255, 255, 255, 0.012) 10px 20px
   );
-  /* Behind a dialog */
-  --scrim: rgba(13, 14, 16, 0.7);
+  /* Dim the scene with black transparency, never a grey wash. Dark enough
+     that a dense list behind a dialog does not compete with it. */
+  --scrim: rgba(0, 0, 0, 0.84);
 
-  /* Text */
-  --text: #e4e7eb;
-  --text-soft: #cfd3d9;
-  --muted: #8d949e;
-  --faint: #5c636d;
-  --filter-muted-opacity: 0.45;
+  /* Text, brightest to quietest: text > soft > muted > faint. Every tier
+     passes WCAG AA (4.5:1) for small text. WCAG 2.x sRGB luminance ratios,
+     including alpha compositing, are recorded below. Hover is 4% white
+     over the brightest base (--raised); worst tint includes TWO semantic
+     backgrounds over that hover (nested tinted controls in banners).
+                  --bg   --surface --raised  hover  --overlay  worst tint
+       text        19.26     17.32     15.96     14.39     17.32     11.51
+       soft        14.17     12.74     11.74     10.58     12.74      8.47
+       muted        9.68      8.71      8.03      7.23      8.71      5.79
+       faint        8.63      7.76      7.15      6.44      7.76      5.15
+     Muted and faint were raised on 2026-10-29 (from #a3a3a3 and #9c9c9c,
+     6.90 and 6.34:1 on --raised) after blind review read meta and
+     tertiary lines as dim grey on near-black. Faint stays one visible
+     step below muted and both well below soft, so tertiary lines still
+     read as tertiary. The dimmest grey, --disabled-ink, is for disabled
+     controls only. Re-measure if a surface or tint changes; never dim
+     readable metadata. */
+  --text: #f5f5f5;
+  --text-soft: #d4d4d4;
+  --muted: #b0b0b0;
+  --faint: #a6a6a6;
+  /* Disabled Buttons: about half the enabled label's brightness and a full
+     control border, with no fill, so an unavailable action still reads as
+     present but is never mistaken for an enabled one (5.32:1 on --bg). */
+  --disabled-ink: #808080;
+  --disabled-line: var(--line-strong);
 
-  /* Meaning. Each has a foreground, a tinted background and a border. */
+  /* Meaning. Restrained transparent tints and hairlines on black.
+     Semantic foreground minima across the same nested/hover envelope:
+       agent 4.61, add 5.92, cut 4.77, warn 5.94, sel 4.96
+     (All >= 4.5:1; borders communicate alongside words/icons.) */
   --agent: #a78bfa;
-  --agent-bg: rgba(167, 139, 250, 0.12);
-  --agent-line: rgba(167, 139, 250, 0.4);
+  --agent-bg: rgba(167, 139, 250, 0.06);
+  --agent-line: rgba(167, 139, 250, 0.32);
   --add: #57c785;
-  --add-bg: rgba(87, 199, 133, 0.1);
-  --add-line: rgba(87, 199, 133, 0.4);
-  --cut: #ef6f6a;
-  --cut-bg: rgba(239, 111, 106, 0.1);
-  --cut-line: rgba(239, 111, 106, 0.4);
+  --add-bg: rgba(87, 199, 133, 0.06);
+  --add-line: rgba(87, 199, 133, 0.32);
+  --cut: #f27d78;
+  --cut-bg: rgba(242, 125, 120, 0.06);
+  --cut-line: rgba(242, 125, 120, 0.32);
   --warn: #e2a84b;
-  --warn-bg: rgba(226, 168, 75, 0.12);
-  --warn-line: rgba(226, 168, 75, 0.4);
+  --warn-bg: rgba(226, 168, 75, 0.06);
+  --warn-line: rgba(226, 168, 75, 0.32);
   --sel: #6aa3ff;
-  --sel-bg: rgba(106, 163, 255, 0.14);
-  --sel-line: rgba(106, 163, 255, 0.45);
+  --sel-bg: rgba(106, 163, 255, 0.06);
+  --sel-line: rgba(106, 163, 255, 0.32);
 
-  /* Mana. Black is a dark disc with a pale ring so it cannot be mistaken for
-     the grey generic pip. */
+  /* One primary action colour; selection/focus share its existing blue.
+     Black ink: 8.30:1 at rest, 9.64:1 on hover. */
+  --action: var(--sel);
+  --action-hover: color-mix(in srgb, var(--action) 85%, white);
+  --action-ink: var(--bg);
+
+  /* Deck lifecycle is a state, not one of the meanings above, so its sidebar
+     labels and roster pills are grey and the word carries it (DESIGN.md). */
+  --lifecycle-paper: var(--muted);
+  --lifecycle-paper-bg: var(--raised);
+  --lifecycle-theorycrafted: var(--muted);
+  --lifecycle-theorycrafted-bg: var(--raised);
+  --lifecycle-archived: var(--muted);
+  --lifecycle-archived-bg: var(--raised);
+
+  /* Mana: the pip chart, and the plain disc a symbol shows until Scryfall's
+     SVG loads (or when it cannot). Black is a dark disc with a pale ring so
+     it cannot be mistaken for the grey generic pip. */
   --mana-w: #efe6c2;
   --mana-u: #74b0e8;
   --mana-b: #17131c;
@@ -63,14 +113,28 @@
   --mana-ink: #15171a;
 
   /* Type */
-  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-  --text-2xs: 10px;
-  --text-xs: 11px;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* One monospace stack for every number and code. The app ships no fonts,
+     so these are each platform's own UI monospace faces, best first. The
+     bare generic comes last only as a guarantee: on Linux it often resolves
+     to a Courier clone, which reads as a different typeface and sits high
+     beside the sans, so the named Linux faces come before it. */
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Cascadia Mono", "Segoe UI Mono", Consolas,
+    "Roboto Mono", "Ubuntu Mono", "DejaVu Sans Mono", "Noto Sans Mono", "Liberation Mono", monospace;
+  /* Key caps: at 10px the letters read as dim specks beside 12px labels. */
+  --text-2xs: 11px;
+  /* Labels and meta (dates, "Adding to", credits, attribution). 12px, the
+     same as --text-sm: at 11px mid-grey meta was hard to read on black. */
+  --text-xs: 12px;
   --text-sm: 12px;
   --text-md: 13px;
   --text-lg: 15px;
   --text-xl: 17px;
+  /* A shared deck's name under its art: the one display-sized title. */
+  --text-display: 28px;
+  --leading-display: 1.2;
+  /* The sign-in page's product name, the one place the wordmark leads. */
+  --text-wordmark: 24px;
   --leading: 1.45;
   --leading-prose: 1.55;
 
@@ -95,19 +159,241 @@
   --h-sm: 22px;
   --h-md: 26px;
   --h-lg: 30px;
+  /* The card and token panels' "← Back": a comfortable pointer target. */
+  --h-back: 32px;
   --row: 24px;
+  /* A row's memory/decision marker: big enough to read as a shape beside 13px text. */
+  --row-mark: 7px;
+  /* A long group's name repeated at the top of each column it continues into
+     (GroupBlock): the room reserved there, a group header's full height
+     (GroupHeader: its 1.17em line, bottom padding, rule and margin). */
+  --group-cont-h: calc(var(--text-md) * 1.17 * var(--leading) + var(--s-2) + 1px + var(--s-1));
+  --mana-list-size: 16px;
+  /* Touch: the smallest thing a finger is asked to hit (DESIGN.md, narrow screens). */
+  --tap: 44px;
+  /* The dropdown chevron (ui/Chevron), and the gap from it to its trigger's edge. */
+  --chevron-size: 14px;
+  --chevron-inset: var(--s-4);
+  --stepper-input-w: calc(var(--s-8) * 2);
+  --card-copies-input-w: calc(3ch + var(--s-5) * 2);
+  /* The brand mark (app/BrandMark): as tall as its wordmark's capitals, and
+     a fixed size where it stands alone in the collapsed rail. */
+  --brand-mark-h: 1cap;
+  --brand-mark-rail: 16px;
+  /* A colour identity's mana symbols: smaller than a cost. */
+  --identity-pip: 12px;
 
   /* Layout */
+  --drawer-w: 320px;
+  --sheet-content-h: 68dvh;
   --sidebar-w: 216px;
+  --sidebar-rail-w: 64px;
   --panel-w: 392px;
+  /* Card details: the picture's cap, and the form's one label column. */
+  --card-image-max: 280px;
+  --card-label-w: 92px;
+  --deck-reader-column-min: 250px;
+  --deck-column-min: var(--deck-reader-column-min);
+  --deck-editor-column-min: 300px;
+  /* Room for "$999.99" right-aligned, and a gap so pips never touch a price. */
+  --price-column-min: 7ch;
+  --price-gap: var(--s-3);
+  --mana-list-gap: 1px;
   /* The deck's side panel can be dragged between these, and never so wide
      that the list beside it has less than --list-w-min. */
   --panel-w-min: 340px;
   --panel-w-max: 640px;
   --list-w-min: 360px;
+  /* Very wide windows widen the panel's default toward --panel-w-wide, so the
+     brief and proposals are not set in a narrow column beside a half-empty
+     list. Fluid, because the only width queries allowed are the three
+     breakpoints: 24vw passes --panel-w at about 1630 px (1440 px keeps it),
+     is about 460 px at 1920 px and reaches --panel-w-wide at about 2330 px. */
+  --panel-w-wide: 560px;
+  --panel-grow: 24vw;
   --measure: 720px;
+  /* One and a half measures: wide enough for a table, narrow enough to read. */
+  --measure-wide: calc(var(--measure) * 1.5);
+  /* The inbox's proposal detail: the changes, impact and decision row stay
+     together instead of spreading across a wide window. */
+  --inbox-detail-w: 780px;
+  /* A public profile's centred column: three roster cards across. */
+  --public-profile-w: 1100px;
+  /* Application page frame; prose keeps its own shorter reading measure. */
+  --page-wide: 1440px;
+  --stats-column-min: 280px;
+  /* Deck Stats charts: independent of collection-wide summary layouts. */
+  --deck-mana-donut: 112px;
+  --deck-curve-bar-height: 112px;
+  --deck-curve-height: 152px;
+  --stats-identity-min: 208px;
+  /* One "Planeswalker  0.3" pair in the averages' type counts. */
+  --stats-type-min: 152px;
+  --settings-card-min: 440px;
+  /* Memories' filter row: the scope select's stable width, and the search's
+     width before the row wraps. */
+  --memories-scope-w: 280px;
+  --memories-search-min: 240px;
+  /* The share dialog's link field before its buttons wrap below it. */
+  --share-link-min: 240px;
+  /* A toast's message beside its actions before they wrap below it. */
+  --toast-message-min: 10ch;
+  --toolbar-add-w: 300px;
+  /* The add field's results: wide enough for the key hints and the colour
+     scope on one footer line. */
+  --add-drop-min-w: 460px;
+  --toolbar-search-max: 400px;
+  --toolbar-tags-w: 140px;
+  --toolbar-search-min: 160px;
+  /* Shared pages and the phone view (spec §18.5, §11.2). The phone breakpoint
+     itself is PHONE_MAX_WIDTH in app/breakpoints.ts: media queries cannot
+     read a custom property. */
+  --public-w: 1240px;
+  /* Very wide windows widen the shared page toward --public-wide, so the list
+     gets a third column. Fluid, because the only width queries allowed are the
+     three breakpoints: 62.5vw passes --public-w just above 1980 px and reaches
+     --public-wide at 2560 px. */
+  --public-wide: 1600px;
+  --public-grow: 62.5vw;
+  /* D21 art. Overlays derive from --bg, so a palette change carries them.
+     Showcase and backdrop bands reach --art-overlay-text where content starts; the
+     credit pill uses the same overlay. Over pure white art the pill and the
+     text below a band measure >= 6.97:1; muted credit 7.58:1
+     (WCAG 2.x sRGB, 94% black over white; DESIGN.md, Art). */
+  --art-overlay-top: color-mix(in srgb, var(--bg) 30%, transparent);
+  --art-overlay-text: color-mix(in srgb, var(--bg) 94%, transparent);
+  --art-aspect: 626 / 457;
+  --art-position: center 35%;
+  /* The gallery uses its own lighter, eased scrims. Pure-white worst case,
+     without blur: title at >=58% black 4.88:1 (--text), commander at >=64%
+     4.53:1 (--text-soft), metadata at >=74% 6.75:1 (--text-soft), amber
+     4.73:1. Credits at full opacity share that 6.75:1 floor. The violet fill with black ink
+     is 7.72:1, independent of art. Controls use a separate 64% scrim; their blur is optional. */
+  --text-deck-title: 21px;
+  --text-deck-phone: 14px;
+  --text-deck-meta: 14px;
+  --deck-meta-symbol-ring: 1px;
+  /* Black's collection bar is a solid charcoal, distinct from its track. */
+  --collection-mana-b: color-mix(in srgb, var(--mana-b) 55%, var(--mana-b-ring));
+  --tracking-deck-title: -0.02em;
+  --focus-width: 2px;
+  --art-gallery-motion: 400ms;
+  --art-gallery-zoom: 1.035;
+  --art-gallery-highlight: color-mix(in srgb, var(--text) 8%, transparent);
+  --art-caption-fade: 104px;
+  --art-caption-gradient: linear-gradient(to bottom,
+    transparent 0,
+    color-mix(in srgb, var(--bg) 6%, transparent) 16px,
+    color-mix(in srgb, var(--bg) 20%, transparent) 40px,
+    color-mix(in srgb, var(--bg) 39%, transparent) 64px,
+    color-mix(in srgb, var(--bg) 54%, transparent) 88px,
+    color-mix(in srgb, var(--bg) 58%, transparent) var(--art-caption-fade),
+    color-mix(in srgb, var(--bg) 64%, transparent) calc(var(--art-caption-fade) + 24px),
+    color-mix(in srgb, var(--bg) 74%, transparent) calc(var(--art-caption-fade) + 44px),
+    color-mix(in srgb, var(--bg) 74%, transparent) 100%);
+  /* Credits are intentionally barely visible at rest (owner direction). */
+  --art-gallery-credit-opacity: 0.22;
+  --art-control-blur: 8px;
+  --art-control-bg: color-mix(in srgb, var(--bg) 64%, transparent);
+  --art-control-hover: color-mix(in srgb, var(--bg) 74%, transparent);
+  --art-control-pressed: color-mix(in srgb, var(--bg) 82%, transparent);
+  --art-gallery-line: color-mix(in srgb, var(--text) 55%, transparent);
+  --deck-waiting-bg: var(--agent);
+  --deck-waiting-ink: var(--bg);
+  /* Only My decks expands after 2200px. Three columns at every desktop
+     width avoid a 4+2 roster, and cap the largest tile near the native crop. */
+  --decks-page-expand-at: 2200px;
+  --decks-page-wide: 1940px;
+  --decks-page-fluid: calc(var(--page-wide) + (100vw - var(--decks-page-expand-at)) * 2);
+  --stats-figure: 32px;
+  --stats-type-pair: 184px;
+  --stats-slot-pair: 360px;
+  --stats-panel-bg: color-mix(in srgb, var(--surface) 65%, var(--bg));
+  /* Editor art stays near the crops' native resolution. The blurred wash
+     supplies colour outside this frame; only the wash is enlarged. */
+  --art-editor-h: clamp(200px, 26.667vh, 240px);
+  --art-editor-tablet-h: 180px;
+  --art-editor-phone-h: 224px;
+  --art-editor-compact-h: 56px;
+  --art-editor-width: 626px;
+  --art-editor-pair-width: 760px;
+  --art-editor-blur: 34px;
+  --art-editor-wash-opacity: 0.2;
+  --art-editor-title: 36px;
+  --art-editor-title-tablet: 30px;
+  --art-editor-title-phone: 26px;
+  --art-editor-leading: 1.15;
+  --art-editor-tracking: -0.03em;
+  --art-editor-rename-w: 420px;
+  --art-editor-text-width: 72%;
+  --art-editor-mask: linear-gradient(90deg, transparent,
+    rgb(0 0 0 / 0.15) 10%, rgb(0 0 0 / 0.5) 25%, black 47%);
+  /* Leave the exposed painting vivid. This canvas fade ends before the
+     right-hand art; content-sized scrims below carry the text contrast. */
+  --art-editor-scrim: linear-gradient(90deg,
+    color-mix(in srgb, var(--bg) 92%, transparent),
+    color-mix(in srgb, var(--bg) 88%, transparent) 37%,
+    color-mix(in srgb, var(--bg) 35%, transparent) 57%,
+    transparent 75%);
+  --art-editor-bottom: linear-gradient(to bottom,
+    transparent 55%, color-mix(in srgb, var(--bg) 8%, transparent) 75%,
+    color-mix(in srgb, var(--bg) 32%, transparent));
+  /* The 64% black floor covers each text block, not the whole header.
+     On pure white: --text-soft 4.53:1, --text 6.15:1. Extra space outside
+     the text supplies eased fades without moving content or touch targets. */
+  --art-editor-text-fade: 104px;
+  --art-editor-text-feather: 24px;
+  --art-editor-text-scrim: linear-gradient(90deg,
+    color-mix(in srgb, var(--bg) 64%, transparent) calc(100% - 104px),
+    color-mix(in srgb, var(--bg) 54%, transparent) calc(100% - 80px),
+    color-mix(in srgb, var(--bg) 32%, transparent) calc(100% - 48px),
+    color-mix(in srgb, var(--bg) 10%, transparent) calc(100% - 24px),
+    transparent);
+  --art-editor-text-mask: linear-gradient(to bottom,
+    transparent, rgb(0 0 0 / 0.2) 6px, rgb(0 0 0 / 0.7) 16px,
+    black var(--art-editor-text-feather),
+    black calc(100% - var(--art-editor-text-feather)),
+    rgb(0 0 0 / 0.7) calc(100% - 16px),
+    rgb(0 0 0 / 0.2) calc(100% - 6px), transparent);
+  --art-editor-bottom-inset: 20px;
+  --art-editor-tint: 12%;
+  --art-banner-space: 0px;
+  --art-showcase-space: 176px;
+  --art-showcase-phone-space: 112px;
+  --art-backdrop-space: 160px;
+  --art-backdrop-phone-space: 112px;
+  /* Sidebar thumbnails sit in the icon column; quieter until current or hovered. */
+  --art-thumb: 16px;
+  --art-thumb-opacity: 0.7;
+  --deck-card-min: 300px;
+  /* Review's blank end, so a proposal near the end can scroll to the top. */
+  --review-scroll-tail: 50vh;
+  --identity-stripe-h: 2px;
+  --identity-opacity: 0.6;
+  --identity-w: var(--mana-w);
+  --identity-u: var(--mana-u);
+  /* Black's own ring is nearly white; on a 2px stripe beside white it needs
+     the darker half of the pip. */
+  --identity-b: color-mix(in srgb, var(--mana-b-ring) 50%, var(--mana-b));
+  --identity-r: var(--mana-r);
+  --identity-g: var(--mana-g);
+  --identity-grey: var(--line-strong);
+  --phone-bar-h: 48px;
+  --tablet-bar-h: 48px;
+  /* Actual tablet navigation includes a touch target, padding and divider.
+     The minimum above is also used by the desktop brand row. */
+  --tablet-bar-outer-h: max(var(--tablet-bar-h), calc(var(--tap) + var(--s-2) * 2 + 1px));
+  --tablet-review-h: calc(var(--tap) + var(--s-2) * 2 + 1px);
+  --deck-scroll-heading-h: var(--tap);
+  --sheet-max-h: 86dvh;
+  /* The card picture in CardSheet: beside the text, and alone on a phone. */
+  --sheet-image-w: 200px;
+  --sheet-image-w-phone: 260px;
 
-  /* Elevation and stacking */
+  /* Elevation and stacking, lowest first. A popover opened inside a dialog is
+     portalled into that dialog (ui/Popover.tsx), so it stacks within the
+     dialog's own layer and needs no higher value. Hover cards sit above
+     everything a pointer can be over; toasts above them. */
   --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);
   --z-sticky: 5;
   --z-pop: 30;
@@ -115,30 +401,42 @@
   --z-hover: 60;
   --z-toast: 80;
 
-  /* Motion */
+  /* Motion. Both drop to 0 under reduced motion (base.css). */
   --fast: 120ms;
+  --base: 200ms;
+  /* A review decision that just became current flashes its rows once.
+     Reduced motion drops the animation; the static cursor outline remains. */
+  --flash: 1200ms;
 }
 
 /* Approved playtester extensions: rules remain readable at desktop 100% zoom. */
 :root {
   --text-rules: 15px;
-  --text-playtest-setup: 24px;
+  --text-random-result: 32px;
+  --text-hud: 18px;
   --leading-rules: 1.6;
-  --rules-measure: 60ch;
+  /* The table shares the black canvas; near-black cards lift off it. */
+  --table-bg: var(--bg);
   --text-card-w: 264px;
-  --compact-card-w: 248px;
-  --compact-card-min-h: 114px;
-  --tap-control-size: 44px;
-  --tap-control-icon-size: 24px;
-  --inspection-w: 432px;
-  --battlefield-row-min: 148px;
+  --compact-card-w: 208px;
+  --compact-card-min-h: 88px;
+  --tap-control-size: 28px;
+  --tap-control-icon-size: 16px;
+  --inspection-w: 400px;
+  /* The panel never takes more than this share of a narrow window. */
+  --inspection-share: 34vw;
+  --battlefield-row-min: 104px;
   --zone-header-h: 36px;
-  --empty-row-h: 92px;
-  --playtest-table-min: 1500px;
-  --playtest-hand-min: 270px;
-  --playtest-preview-w: 410px;
-  --playtest-drawer-h: 58%;
-  --playtest-opening-board: 130px;
+  --empty-row-h: 64px;
+  --playtest-hand-min: 220px;
+  --playtest-hand-max: 46dvh;
+  /* Window height kept clear of the hand while a zone viewer is open: bar,
+     zone strip and five viewer rows with their controls. */
+  --playtest-viewer-reserve: 540px;
+  --playtest-preview-w: 380px;
+  --playtest-drawer-h: 72%;
+  --playtest-number-w: 64px;
+  --hand-card-min-w: 196px;
+  --hand-card-max-w: 300px;
+  --playtest-stacked-table-h: 86dvh;
 }
-
-:root { --playtest-number-w: 56px; --playtest-drawer-top: 62px; --hand-card-min-w: 228px; --hand-card-max-w: 320px; }
