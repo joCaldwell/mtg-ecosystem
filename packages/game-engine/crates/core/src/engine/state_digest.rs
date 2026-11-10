@@ -129,7 +129,7 @@ pub(super) fn write_state<W: Write>(state: &State, writer: &mut W) -> Result<(),
     // History clones share immutable chunks. Clear only these cloned histories
     // before Value conversion; the real histories and their caches are untouched.
     let mut skeleton = state.clone();
-    for knowledge in &mut skeleton.visibility {
+    for knowledge in &mut skeleton.knowledge.visibility {
         knowledge.history.clear();
     }
     let value = serde_json::to_value(&skeleton).map_err(|e| e.to_string())?;
@@ -147,11 +147,13 @@ pub(super) fn write_state<W: Write>(state: &State, writer: &mut W) -> Result<(),
             let rows = value
                 .as_array()
                 .ok_or("canonical visibility array invariant")?;
-            if rows.len() != state.visibility.len() {
+            if rows.len() != state.knowledge.visibility.len() {
                 return Err("canonical visibility length invariant".into());
             }
             raw(writer, b"[")?;
-            for (index, (row, knowledge)) in rows.iter().zip(&state.visibility).enumerate() {
+            for (index, (row, knowledge)) in
+                rows.iter().zip(&state.knowledge.visibility).enumerate()
+            {
                 if index != 0 {
                     raw(writer, b",")?;
                 }
@@ -322,10 +324,14 @@ mod tests {
         // Numeric keys 1,2,10,100 must follow JSON lexical ordering, not numeric
         // BTreeMap order. Non-ASCII, control/quote/backslash escaping is exact.
         for i in 0..70 {
-            let mut view = game.state.visibility[0].history.last().unwrap().to_public();
+            let mut view = game.state.knowledge.visibility[0]
+                .history
+                .last()
+                .unwrap()
+                .to_public();
             view.objects[0].oracle_id = format!("\"\\\n\u{0000}é🦀/{i}");
             view.players[0].life = Quantity::from(-(i + 1));
-            game.state.visibility[0].history.push_public(view);
+            game.state.knowledge.visibility[0].history.push_public(view);
         }
         check(&game);
         let mut bytes = vec![];
@@ -336,7 +342,10 @@ mod tests {
             71
         );
         assert_eq!(game.trace, trace);
-        assert_eq!(game.state.visibility[1], original.visibility[1]);
+        assert_eq!(
+            game.state.knowledge.visibility[1],
+            original.knowledge.visibility[1]
+        );
         let before = game.state.clone();
         check(&game);
         assert_eq!(game.state, before);
@@ -358,7 +367,7 @@ mod tests {
         let _ = game.advance(Budget::unlimited());
         // Serialization-domain fixture: make every formerly skipped Knowledge
         // field present, without making invalid metadata into a restored game.
-        let mut value = serde_json::to_value(&game.state.visibility[0]).unwrap();
+        let mut value = serde_json::to_value(&game.state.knowledge.visibility[0]).unwrap();
         value["effect_handles"] =
             serde_json::json!([[{"effect":"resolved","id":2},"effect\\handle"]]);
         value["next_effect_handle"] = 3.into();
@@ -368,8 +377,8 @@ mod tests {
         value["next_trigger_handle"] = 11.into();
         value["ability_handles"] = serde_json::json!({"2":"ability2","10":"ability10"});
         value["next_ability_handle"] = 11.into();
-        game.state.visibility[0] = serde_json::from_value(value).unwrap();
-        game.state.effects.push(ResolvedEffect {
+        game.state.knowledge.visibility[0] = serde_json::from_value(value).unwrap();
+        game.state.rules.effects.push(ResolvedEffect {
             id: EffectId(2),
             origin: EffectOrigin {
                 mode: Some(1),
@@ -387,9 +396,9 @@ mod tests {
             expires_in_cleanup_of_turn: 10,
             kind: ResolvedEffectKind::PreventCombatDamage,
         });
-        game.state.next_effect_id = 3;
-        game.state.next_trigger_id = 11;
-        game.state.next_damage_transaction_id = 8;
+        game.state.rules.next_effect_id = 3;
+        game.state.rules.next_trigger_id = 11;
+        game.state.rules.next_damage_transaction_id = 8;
         check(&game);
     }
     #[test]

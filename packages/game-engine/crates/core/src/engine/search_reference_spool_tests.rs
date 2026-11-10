@@ -314,7 +314,7 @@ fn bytes(write: impl FnOnce(&mut dyn Write) -> Result<(), String>) -> Vec<u8> {
     out
 }
 fn public() -> PermittedView {
-    match_root().state.visibility[0]
+    match_root().state.knowledge.visibility[0]
         .history
         .last()
         .unwrap()
@@ -329,11 +329,20 @@ fn search_spool_every_prefix_and_result_matches_full_old_vec_and_generic_actual_
         sampling_seed: "spool:雪\n\u{0}".into(),
     };
     let mut work = game.start_work(query.clone()).unwrap();
-    let mut reference = Reference::new(&work, &directory).unwrap();
+    let mut reference = Reference::new(&game, &work, &directory).unwrap();
+    scratch(&directory, &mut reference, &work.data).unwrap();
+    assert!(!reference.resume(&game, Budget::new(1)).unwrap());
+    let QueryResult::Incomplete {
+        work: initialized, ..
+    } = game.resume_work(work, Budget::new(1))
+    else {
+        panic!("initialization must remain incomplete");
+    };
+    work = initialized;
     let mut checkpoints = 0;
     loop {
         // Independent full original array retained ONLY in this bounded test.
-        let old = game.state.visibility[0]
+        let old = game.state.knowledge.visibility[0]
             .history
             .iter()
             .take(reference.history.len())
@@ -375,7 +384,7 @@ fn search_spool_every_prefix_and_result_matches_full_old_vec_and_generic_actual_
         scratch(&directory, &mut reference, &work.data).unwrap();
         if reference.history.len() == 1 || (reference.history.len() == 2 && checkpoints == 1) {
             let saved = game.save_work(&work).unwrap();
-            let meta = serde_json::json!({"work_version":15,"build_id":BUILD_ID,"catalog_digest":game.prepared.catalog_digest,"state_sha256":game.state_digest().unwrap(),"data":reference.data().unwrap()});
+            let meta = serde_json::json!({"work_version":16,"build_id":BUILD_ID,"catalog_digest":game.prepared.catalog_digest,"state_sha256":game.state_digest().unwrap(),"data":reference.data().unwrap()});
             assert_eq!(
                 bytes(
                     |out| replaced(&meta, &["data", "task", "history"], out, &mut |out| {
@@ -396,7 +405,7 @@ fn search_spool_every_prefix_and_result_matches_full_old_vec_and_generic_actual_
             QueryResult::Complete(QueryValue::SearchContext(context)) => {
                 assert!(done);
                 assert!(checkpoints >= 2);
-                let old = game.state.visibility[0]
+                let old = game.state.knowledge.visibility[0]
                     .history
                     .iter()
                     .map(|v| v.to_public())

@@ -86,7 +86,7 @@ impl Game {
         f
     }
     pub(super) fn reserved_mana_source(&self, source: ObjectId) -> bool {
-        let mut f = &self.state.frame;
+        let mut f = &self.state.rules.frame;
         while let Frame::ManaAbility { activation } = f {
             if activation.source == source {
                 return true;
@@ -152,7 +152,7 @@ impl Game {
         if activation.ability.costs.mana.is_none() {
             self.pay_mana_ability(activation, BTreeMap::new())
         } else {
-            self.state.frame = Frame::ManaAbility {
+            self.state.rules.frame = Frame::ManaAbility {
                 activation: Box::new(activation),
             };
             Ok(())
@@ -161,7 +161,7 @@ impl Game {
     pub(super) fn permanent_mana_request(&self, a: &ManaActivation) -> Result<Request, String> {
         Ok(match a.stage {
             ManaStage::Payment => Request::Mana {
-                decision_id: self.state.revision,
+                decision_id: self.state.rules.revision,
                 player: a.player,
                 cost: a
                     .ability
@@ -171,7 +171,7 @@ impl Game {
                     .ok_or("missing mana ability cost")?,
             },
             ManaStage::Spend => Request::SpendMana {
-                decision_id: self.state.revision,
+                decision_id: self.state.rules.revision,
                 player: a.player,
                 cost: a
                     .ability
@@ -179,10 +179,10 @@ impl Game {
                     .mana
                     .clone()
                     .ok_or("missing mana ability cost")?,
-                available: self.state.players[a.player.0 as usize].mana.clone(),
+                available: self.state.rules.players[a.player.0 as usize].mana.clone(),
             },
             ManaStage::Color => Request::ManaColor {
-                decision_id: self.state.revision,
+                decision_id: self.state.rules.revision,
                 player: a.player,
                 colors: self.mana_colors(a.player, &a.ability.production),
             },
@@ -222,6 +222,7 @@ impl Game {
     pub(super) fn permanent_mana_step(&mut self, mut a: ManaActivation) -> Result<(), String> {
         let input = self
             .state
+            .rules
             .pending
             .take()
             .ok_or("missing mana ability input")?;
@@ -238,7 +239,7 @@ impl Game {
                 } else {
                     a.receipts
                         .push(self.activate_intrinsic_mana(&input, object)?);
-                    self.state.frame = Frame::ManaAbility {
+                    self.state.rules.frame = Frame::ManaAbility {
                         activation: Box::new(a),
                     };
                 }
@@ -250,9 +251,9 @@ impl Game {
                     .mana
                     .as_ref()
                     .ok_or("missing nested mana cost")?;
-                if self.payment_pool(a.player, cost).is_ok() {
+                if self.can_pay(a.player, cost)? {
                     a.stage = ManaStage::Spend;
-                    self.state.frame = Frame::ManaAbility {
+                    self.state.rules.frame = Frame::ManaAbility {
                         activation: Box::new(a),
                     };
                 } else {
@@ -279,7 +280,7 @@ impl Game {
         spending: BTreeMap<Color, Quantity>,
     ) -> Result<(), String> {
         // No costs are paid until the nested payment succeeds (601.2g-h).
-        let pool = &self.state.players[a.player.0 as usize].mana;
+        let pool = &self.state.rules.players[a.player.0 as usize].mana;
         let mut receipt = PermanentManaUndo {
             player: a.player,
             source: self.object_before(a.source)?,
@@ -308,10 +309,11 @@ impl Game {
                 cause.clone(),
             )?;
         }
-        let first_trigger = self.state.next_trigger_id;
+        let first_trigger = self.state.rules.next_trigger_id;
         self.pay_permanent_source_costs(a.source, a.player, &a.ability.costs, cause)?;
         receipt.cost_triggers = self
             .state
+            .rules
             .pending_triggers
             .iter()
             .filter(|t| t.id.0 >= first_trigger)
@@ -325,7 +327,7 @@ impl Game {
             }
             _ => {
                 a.stage = ManaStage::Color;
-                self.state.frame = Frame::ManaAbility {
+                self.state.rules.frame = Frame::ManaAbility {
                     activation: Box::new(a),
                 };
                 Ok(())
@@ -422,13 +424,13 @@ impl Game {
             Frame::Mana { cast } => cast.mana_activations.extend(receipts),
             Frame::Priority => {
                 if retained {
-                    self.state.passes.clear();
+                    self.state.rules.passes.clear();
                 }
             }
             _ => return Err("invalid mana continuation".into()),
         }
-        self.state.frame = resume;
-        if matches!(self.state.frame, Frame::Priority) {
+        self.state.rules.frame = resume;
+        if matches!(self.state.rules.frame, Frame::Priority) {
             self.stabilize()?;
         }
         Ok(())
@@ -453,7 +455,7 @@ impl Game {
             self.commit(
                 proposed,
                 BatchCause::ManaActivation {
-                    decision_id: self.state.revision,
+                    decision_id: self.state.rules.revision,
                     player,
                     source: r.object,
                 },
@@ -468,7 +470,7 @@ impl Game {
         if !self.is_live(r.player) {
             return Err("departed mana reversal payer".into());
         }
-        let pool = &mut self.state.players[r.player.0 as usize].mana;
+        let pool = &mut self.state.rules.players[r.player.0 as usize].mana;
         for (c, n) in &r.produced {
             let v = pool.get_mut(c).ok_or("missing produced mana")?;
             if *v < *n {
@@ -488,6 +490,7 @@ impl Game {
             if r.sacrificed {
                 let now = self
                     .state
+                    .rules
                     .objects
                     .get(&r.source.object.card)
                     .ok_or("missing sacrificed source")?;
@@ -504,7 +507,7 @@ impl Game {
                 {
                     return Err("sacrificed mana source changed".into());
                 }
-                self.state.objects.insert(
+                self.state.rules.objects.insert(
                     r.source.object.card,
                     Object {
                         attached_to: None,
@@ -522,6 +525,7 @@ impl Game {
             } else {
                 let o = self
                     .state
+                    .rules
                     .objects
                     .get_mut(&r.source.object.card)
                     .ok_or("missing surviving mana source")?;
@@ -532,6 +536,7 @@ impl Game {
             }
         }
         self.state
+            .rules
             .pending_triggers
             .retain(|t| !r.cost_triggers.contains(&t.id));
         Ok(EventOutcome::PermanentManaReversed {
@@ -540,7 +545,7 @@ impl Game {
         })
     }
     pub(super) fn revalidate_mana_departure(&mut self) -> Result<(), String> {
-        let mut f = &self.state.frame;
+        let mut f = &self.state.rules.frame;
         let mut invalid = false;
         while let Frame::ManaAbility { activation: a } = f {
             invalid |= !self.is_live(a.player)
@@ -558,12 +563,12 @@ impl Game {
             f = &a.resume;
         }
         if let Frame::Mana { cast } = f {
-            invalid |= self.state.stack.last().is_none_or(|top| {
+            invalid |= self.state.rules.stack.last().is_none_or(|top| {
                 top.id != cast.stack_id || self.announced_target_legality(top).iter().any(|v| !*v)
             });
         }
         if invalid {
-            while let Frame::ManaAbility { activation } = self.state.frame.clone() {
+            while let Frame::ManaAbility { activation } = self.state.rules.frame.clone() {
                 let mut a = *activation;
                 if let Some(receipt) = a.paid.take() {
                     a.receipts.push(ManaActivationUndo {
@@ -583,13 +588,15 @@ impl Game {
                         Frame::ManaAbility { activation } => {
                             activation.receipts.append(&mut a.receipts)
                         }
-                        Frame::Priority if !a.receipts.is_empty() => self.state.passes.clear(),
+                        Frame::Priority if !a.receipts.is_empty() => {
+                            self.state.rules.passes.clear()
+                        }
                         _ => {}
                     }
                 }
-                self.state.frame = *a.resume;
+                self.state.rules.frame = *a.resume;
             }
-            self.state.pending = None;
+            self.state.rules.pending = None;
         }
         Ok(())
     }

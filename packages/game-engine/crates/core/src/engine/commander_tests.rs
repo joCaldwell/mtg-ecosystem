@@ -100,7 +100,7 @@ fn command_casts_charge_exact_tax_and_failed_cast_reverses_original_zone() {
     settle(&mut g);
     assert_eq!(g.object_id(CardId(0)), Some(original));
     assert_eq!(
-        g.state.objects[&CardId(0)].zone,
+        g.state.rules.objects[&CardId(0)].zone,
         Zone::Command { owner: PlayerId(0) }
     );
     assert_eq!(
@@ -125,7 +125,7 @@ fn command_casts_charge_exact_tax_and_failed_cast_reverses_original_zone() {
     answer(&mut g, Response::FinishMana { undo_mana: true });
     settle(&mut g);
     assert_eq!(g.object_id(CardId(0)), Some(returned));
-    assert!(!g.state.objects[&CardId(2)].tapped);
+    assert!(!g.state.rules.objects[&CardId(2)].tapped);
     assert_eq!(
         g.commander_ledger().tax(CardId(0), PlayerId(0)).unwrap(),
         Quantity::from(2)
@@ -156,7 +156,7 @@ fn declined_hand_replacement_allows_untaxed_hand_cast_and_scoped_owner_choice() 
     assert!(
         g.respond(
             PlayerId(1),
-            g.state.revision,
+            g.state.rules.revision,
             Response::CommanderReturn { to_command: true }
         )
         .is_err()
@@ -231,18 +231,18 @@ fn lethal_combat_enters_graveyard_then_fresh_sba_choice_is_consumed_once() {
             answer(&mut g, Response::Pass);
         }
         assert_eq!(
-            g.state.objects[&CardId(0)].zone,
+            g.state.rules.objects[&CardId(0)].zone,
             Zone::Graveyard { owner: PlayerId(0) }
         );
         assert_eq!(
-            g.state.objects[&CardId(14)].zone,
+            g.state.rules.objects[&CardId(14)].zone,
             Zone::Graveyard { owner: PlayerId(1) }
         );
-        assert!(g.state.commander_returns.is_empty());
+        assert!(g.state.rules.commander_returns.is_empty());
         answer(&mut g, Response::CommanderReturn { to_command });
         assert!(matches!(settle(&mut g), Request::Priority { .. }));
         assert_eq!(
-            g.state.objects[&CardId(0)].zone,
+            g.state.rules.objects[&CardId(0)].zone,
             if to_command {
                 Zone::Command { owner: PlayerId(0) }
             } else {
@@ -269,21 +269,21 @@ fn departure_exile_chooses_owner_and_owner_departure_never_resurrects_commander(
         answer(&mut g, Response::CommanderReturn { to_command });
         settle(&mut g);
         assert_eq!(
-            g.state.objects[&CardId(0)].zone,
+            g.state.rules.objects[&CardId(0)].zone,
             if to_command {
                 Zone::Command { owner: PlayerId(0) }
             } else {
                 Zone::Exile
             }
         );
-        assert!(g.state.commander_returns.is_empty());
+        assert!(g.state.rules.commander_returns.is_empty());
     }
     let mut g = game(ScenarioConfig::commander_exile());
     g.concede(PlayerId(1)).unwrap();
     settle(&mut g);
     g.concede(PlayerId(0)).unwrap();
     settle(&mut g);
-    assert!(!g.state.objects.contains_key(&CardId(0)));
+    assert!(!g.state.rules.objects.contains_key(&CardId(0)));
     assert!(g.commander_ledger().history(CardId(0)).is_some());
 }
 #[test]
@@ -321,8 +321,8 @@ fn commander_damage_uses_the_ledger_in_earliest_commander_catalog() {
     assert_eq!(commander_damage.len(), 1);
     assert_eq!(commander_damage[0].commander, CardId(0));
     assert_eq!(commander_damage[0].current, Quantity::from(2));
-    assert_eq!(g.state.players[1].life, Quantity::from(38));
-    assert_eq!(g.state.players[2].life, Quantity::from(38));
+    assert_eq!(g.state.rules.players[1].life, Quantity::from(38));
+    assert_eq!(g.state.rules.players[2].life, Quantity::from(38));
 }
 #[test]
 fn exact_commander_profiles_reject_changes_and_cross_catalog_admission() {
@@ -361,6 +361,7 @@ fn commander_metadata_and_continuations_cannot_be_forged() {
         match mutation {
             0 => snapshot
                 .state
+                .rules
                 .commanders
                 .records
                 .get_mut(&CardId(0))
@@ -371,18 +372,20 @@ fn commander_metadata_and_continuations_cannot_be_forged() {
             1 => {
                 snapshot
                     .state
+                    .rules
                     .commander_returns
                     .insert(g.object_id(CardId(0)).unwrap());
                 None
             }
             2 => {
-                if let Frame::CommanderReturn { destination, .. } = &mut snapshot.state.frame {
+                if let Frame::CommanderReturn { destination, .. } = &mut snapshot.state.rules.frame
+                {
                     *destination = Zone::Exile;
                 }
                 None
             }
             _ => {
-                if let Frame::CommanderReturn { continuation, .. } = &mut snapshot.state.frame
+                if let Frame::CommanderReturn { continuation, .. } = &mut snapshot.state.rules.frame
                     && let CommanderContinuation::SpellMove { frame, .. } = continuation.as_mut()
                 {
                     frame.cursor = 1;

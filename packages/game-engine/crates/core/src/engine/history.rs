@@ -81,6 +81,13 @@ impl<T> History<T> {
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &T> + ExactSizeIterator {
         (0..self.len).map(|i| &self[i])
     }
+    /// Compare an imported transcript without materializing this shared log.
+    pub(super) fn is_prefix_of(&self, other: &[T]) -> bool
+    where
+        T: PartialEq,
+    {
+        self.len <= other.len() && self.iter().zip(other).all(|(a, b)| a == b)
+    }
     pub fn contains(&self, value: &T) -> bool
     where
         T: PartialEq,

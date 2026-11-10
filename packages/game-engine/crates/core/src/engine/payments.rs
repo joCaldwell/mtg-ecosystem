@@ -1,27 +1,47 @@
 use super::*;
 
+/// Lack of funds is an ordinary casting outcome; corrupt inputs are not.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum PaymentError {
+    InsufficientMana,
+    Invariant(&'static str),
+}
+impl From<PaymentError> for String {
+    fn from(error: PaymentError) -> Self {
+        match error {
+            PaymentError::InsufficientMana => "insufficient mana".into(),
+            PaymentError::Invariant(reason) => reason.into(),
+        }
+    }
+}
+
 impl Game {
+    pub(super) fn can_pay(&self, player: PlayerId, cost: &ManaCost) -> Result<bool, String> {
+        match self.payment_pool(player, cost) {
+            Ok(_) => Ok(true),
+            Err(PaymentError::InsufficientMana) => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     pub(super) fn finish_mana_frame(&self, cast: Casting) -> Result<Frame, String> {
         let stack = self.top()?;
-        Ok(
-            if self
-                .payment_pool(stack.controller, &stack.total_cost)
-                .is_ok()
-            {
-                Frame::SpendMana { cast }
-            } else {
-                Frame::Payment { cast }
-            },
-        )
+        Ok(if self.can_pay(stack.controller, &stack.total_cost)? {
+            Frame::SpendMana { cast }
+        } else {
+            Frame::Payment { cast }
+        })
     }
 
     pub(super) fn spend_mana_request(&self) -> Result<Request, String> {
         let stack = self.top()?;
         Ok(Request::SpendMana {
-            decision_id: self.state.revision,
+            decision_id: self.state.rules.revision,
             player: stack.controller,
             cost: stack.total_cost.clone(),
-            available: self.state.players[stack.controller.0 as usize].mana.clone(),
+            available: self.state.rules.players[stack.controller.0 as usize]
+                .mana
+                .clone(),
         })
     }
 
@@ -53,6 +73,7 @@ impl Game {
         }
         let mut remaining = self
             .state
+            .rules
             .players
             .get(player.0 as usize)
             .ok_or("missing paying player")?
@@ -87,14 +108,19 @@ impl Game {
     }
 
     pub(super) fn spend_mana_step(&mut self, mut cast: Casting) -> Result<(), String> {
-        let input = self.state.pending.take().ok_or("missing spending input")?;
+        let input = self
+            .state
+            .rules
+            .pending
+            .take()
+            .ok_or("missing spending input")?;
         let Response::SpendMana { spending } = input.response else {
             return Err("mana spending response/frame invariant".into());
         };
         self.validate_spending(input.player, &spending)?;
         cast.spending = Some(spending);
         if self.invocation_sacrifice_filter(self.top()?).is_some() {
-            self.state.frame = Frame::SacrificeCost { cast };
+            self.state.rules.frame = Frame::SacrificeCost { cast };
             Ok(())
         } else {
             self.payment_step(cast)
@@ -104,7 +130,7 @@ impl Game {
     pub(super) fn payment_step(&mut self, cast: Casting) -> Result<(), String> {
         let stack = self.top()?.clone();
         let cost = stack.total_cost.clone();
-        if self.payment_pool(stack.controller, &cost).is_err() {
+        if !self.can_pay(stack.controller, &cost)? {
             let undo = cast.undo_mana;
             self.reverse_cast(cast, "insufficient mana", undo)?;
             self.stabilize()?;
@@ -141,19 +167,24 @@ impl Game {
                     stack_id: stack.id,
                     player: stack.controller,
                     source: stack.source,
-                    decision_id: self.state.revision,
+                    decision_id: self.state.rules.revision,
                     ability,
                 },
             )?;
         }
         self.pay_sacrifice_cost(&stack, cast.sacrifice)?;
-        self.state.stack.last_mut().ok_or("missing stack")?.paid = Some(cost);
+        self.state
+            .rules
+            .stack
+            .last_mut()
+            .ok_or("missing stack")?
+            .paid = Some(cost);
         if stack.kind.is_spell() {
             self.record_event(Event::SpellCast {
                 stack_id: cast.stack_id,
             })?;
             self.collect_cast_triggers(&stack)?;
-            self.state.commanders.record_cast(
+            self.state.rules.commanders.record_cast(
                 stack.source.card,
                 stack.controller,
                 stack.cast_from,
@@ -166,8 +197,8 @@ impl Game {
                 ability: *ability,
             })?;
         }
-        self.state.priority = stack.controller;
-        self.state.frame = Frame::Priority;
+        self.state.rules.priority = stack.controller;
+        self.state.rules.frame = Frame::Priority;
         self.stabilize()
     }
 }

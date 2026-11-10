@@ -85,7 +85,7 @@ fn settle(g: &mut Game) -> Request {
         match g.advance(Budget::new(1)) {
             Advance::AwaitingDecision(r) => return r,
             Advance::Suspended { .. } => (),
-            other => panic!("step witness at {:?}: {other:?}", g.state.frame),
+            other => panic!("step witness at {:?}: {other:?}", g.state.rules.frame),
         }
     }
     panic!("step witness budget")
@@ -118,7 +118,7 @@ fn recover(g: &Game) {
     let replayed = Game::replay_to(
         g.prepared.as_ref().clone(),
         &g.replay_journal(),
-        Some(g.state.rule_steps),
+        Some(g.state.rules.rule_steps),
         g.trace.mode,
     )
     .unwrap();
@@ -128,7 +128,7 @@ fn recover(g: &Game) {
 fn to_step(g: &mut Game, number: u64, step: TurnStep) {
     for _ in 0..500 {
         let _ = settle(g);
-        if g.state.turn.number == number && g.state.turn.step == step {
+        if g.state.rules.turn.number == number && g.state.rules.turn.step == step {
             return;
         }
         passive(g);
@@ -207,6 +207,7 @@ fn fund(g: &mut Game) {
     let player = settle(g).player();
     let lands = g
         .state
+        .rules
         .objects
         .values()
         .filter(|o| {
@@ -266,30 +267,30 @@ fn d2cc_archived_student_actual_paid_cast_no_self_or_entry_trigger_all_traces() 
             mode,
         );
         cast(&mut g, 0);
-        assert_eq!(g.state.next_trigger_id, 0);
+        assert_eq!(g.state.rules.next_trigger_id, 0);
         resolve(&mut g);
-        assert!(g.state.stack.is_empty());
+        assert!(g.state.rules.stack.is_empty());
         cast(&mut g, 1);
-        assert_eq!(g.state.stack.len(), 2);
-        assert!(g.state.stack[0].kind.is_spell());
-        assert_eq!(g.state.next_trigger_id, 1);
+        assert_eq!(g.state.rules.stack.len(), 2);
+        assert!(g.state.rules.stack[0].kind.is_spell());
+        assert_eq!(g.state.rules.next_trigger_id, 1);
         recover(&g);
         let StackKind::Triggered {
             event: TriggerOccurrenceId::Cast(id),
             witness: TriggerEventWitness::SpellCast { cast },
             ..
-        } = &g.state.stack[1].kind
+        } = &g.state.rules.stack[1].kind
         else {
             panic!("cast evidence")
         };
-        assert_eq!(id.cast, g.state.stack[0].id);
+        assert_eq!(id.cast, g.state.rules.stack[0].id);
         assert_eq!(cast.caster, PlayerId(0));
-        assert_eq!(cast.spell.object, g.state.stack[0].source);
+        assert_eq!(cast.spell.object, g.state.rules.stack[0].source);
         assert_eq!(cast.cast_from, Zone::Hand { owner: PlayerId(0) });
         resolve(&mut g);
-        assert_eq!(g.state.players[0].life, 42.into());
+        assert_eq!(g.state.rules.players[0].life, 42.into());
         resolve(&mut g);
-        assert_eq!(g.state.next_trigger_id, 1);
+        assert_eq!(g.state.rules.next_trigger_id, 1);
         recover(&g);
     }
 }
@@ -329,15 +330,15 @@ fn d2cc_archived_enchantment_combined_types_wrong_type_and_caster_all_traces() {
                 priority(&mut g, who);
             }
             cast(&mut g, 2);
-            assert_eq!(g.state.next_trigger_id, if expected { 2 } else { 0 });
+            assert_eq!(g.state.rules.next_trigger_id, if expected { 2 } else { 0 });
             recover(&g);
             if expected {
-                let n = g.state.libraries[&PlayerId(0)].len();
+                let n = g.state.rules.libraries[&PlayerId(0)].len();
                 resolve(&mut g);
                 resolve(&mut g);
-                assert_eq!(g.state.players[0].life, 41.into());
-                assert_eq!(g.state.libraries[&PlayerId(0)].len(), n - 1);
-                assert_eq!(g.state.tokens.len(), 1);
+                assert_eq!(g.state.rules.players[0].life, 41.into());
+                assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), n - 1);
+                assert_eq!(g.state.rules.tokens.len(), 1);
                 recover(&g);
             }
         }
@@ -361,9 +362,9 @@ fn d2cc_archived_archer_damage_each_opponent_and_source_owner_departure_all_trac
         placed(&mut g);
         recover(&g);
         resolve(&mut g);
-        assert_eq!(g.state.players[0].life, 40.into());
-        assert_eq!(g.state.players[1].life, 39.into());
-        assert_eq!(g.state.players[3].life, 39.into());
+        assert_eq!(g.state.rules.players[0].life, 40.into());
+        assert_eq!(g.state.rules.players[1].life, 39.into());
+        assert_eq!(g.state.rules.players[3].life, 39.into());
         recover(&g);
     }
 }
@@ -394,22 +395,23 @@ fn d2cc_synthetic_nonactive_flash_caster_apnap_order_and_actor_binding_all_trace
         let mut g = Game::with_trace(p, mode);
         priority(&mut g, 3);
         cast(&mut g, 3);
-        assert_eq!(g.state.active, Some(PlayerId(0)));
+        assert_eq!(g.state.rules.active, Some(PlayerId(0)));
         assert_eq!(
             g.state
+                .rules
                 .stack
                 .iter()
                 .map(|s| s.controller)
                 .collect::<Vec<_>>(),
             vec![PlayerId(3), PlayerId(0), PlayerId(1), PlayerId(2)]
         );
-        for s in &g.state.stack[1..] {
+        for s in &g.state.rules.stack[1..] {
             assert_eq!(s.kind.event_player().unwrap(), Some(PlayerId(3)));
         }
         recover(&g);
         resolve(&mut g);
-        assert_eq!(g.state.players[3].life, 42.into());
-        assert_eq!(g.state.players[0].life, 40.into());
+        assert_eq!(g.state.rules.players[3].life, 42.into());
+        assert_eq!(g.state.rules.players[0].life, 40.into());
         recover(&g);
     }
 }
@@ -427,8 +429,8 @@ fn d2cc_synthetic_same_controller_order_and_independent_opponent_predicate() {
     synthetic_relation(&mut p, CasterRelation::Opponent, TypePredicate::Any {});
     let mut g = Game::new(p);
     cast(&mut g, 3);
-    assert_eq!(g.state.stack.len(), 2);
-    assert_eq!(g.state.stack[1].controller, PlayerId(1));
+    assert_eq!(g.state.rules.stack.len(), 2);
+    assert_eq!(g.state.rules.stack[1].controller, PlayerId(1));
     recover(&g);
     let mut p = g.prepared.as_ref().clone();
     synthetic_relation(&mut p, CasterRelation::Controller, TypePredicate::Any {});
@@ -447,7 +449,7 @@ fn d2cc_synthetic_same_controller_order_and_independent_opponent_predicate() {
     );
     placed(&mut g);
     assert_eq!(
-        g.state.stack[1..]
+        g.state.rules.stack[1..]
             .iter()
             .map(|s| match s.kind {
                 StackKind::Triggered { trigger_id, .. } => trigger_id,
@@ -511,7 +513,7 @@ fn d2cc_synthetic_runtime_boolean_combined_type_positive_and_negative() {
         synthetic_relation(&mut p, CasterRelation::Controller, predicate);
         let mut g = Game::new(p);
         cast(&mut g, 1);
-        assert_eq!(g.state.next_trigger_id, u64::from(expected));
+        assert_eq!(g.state.rules.next_trigger_id, u64::from(expected));
         recover(&g);
     }
 }
@@ -542,17 +544,18 @@ fn d2cc_no_cast_on_land_mana_activation_unpaid_reversal_or_departing_caster() {
             let mut g = Game::with_trace(p, mode);
             answer(&mut g, Response::PlayLand { card: CardId(2) });
             settle(&mut g);
-            assert_eq!(g.state.next_trigger_id, 0);
+            assert_eq!(g.state.rules.next_trigger_id, 0);
             let land = g.object_id(CardId(2)).unwrap();
             answer(&mut g, Response::ActivateMana { object: land });
             settle(&mut g);
-            assert_eq!(g.state.next_trigger_id, 0);
+            assert_eq!(g.state.rules.next_trigger_id, 0);
             let mut branch = Game::with_trace(g.prepared.as_ref().clone(), mode);
             let original = branch.object_id(CardId(1)).unwrap();
             answer(&mut branch, Response::Cast { card: CardId(1) });
             assert!(matches!(settle(&mut branch), Request::Mana { .. }));
             let other = branch
                 .state
+                .rules
                 .objects
                 .values()
                 .find(|o| {
@@ -566,7 +569,7 @@ fn d2cc_no_cast_on_land_mana_activation_unpaid_reversal_or_departing_caster() {
             answer(&mut branch, Response::ActivateMana { object: other });
             answer(&mut branch, Response::FinishMana { undo_mana: undo });
             settle(&mut branch);
-            assert_eq!(branch.state.next_trigger_id, 0);
+            assert_eq!(branch.state.rules.next_trigger_id, 0);
             assert_eq!(branch.object_id(CardId(1)).unwrap(), original);
             assert_eq!(branch.current(other).unwrap().tapped, !undo);
             assert!(
@@ -581,7 +584,7 @@ fn d2cc_no_cast_on_land_mana_activation_unpaid_reversal_or_departing_caster() {
             settle(&mut g);
             g.concede(PlayerId(0)).unwrap();
             placed(&mut g);
-            assert_eq!(g.state.next_trigger_id, 0);
+            assert_eq!(g.state.rules.next_trigger_id, 0);
             recover(&g);
         }
     }
@@ -610,9 +613,9 @@ fn d2cc_no_cast_on_nonmana_activated_invocation_or_its_resolution() {
     answer(&mut g, Response::ActivateAbility { object, ability: 0 });
     fund(&mut g);
     placed(&mut g);
-    assert_eq!(g.state.next_trigger_id, 0);
+    assert_eq!(g.state.rules.next_trigger_id, 0);
     resolve(&mut g);
-    assert_eq!(g.state.next_trigger_id, 0);
+    assert_eq!(g.state.rules.next_trigger_id, 0);
     recover(&g);
 }
 #[test]
@@ -638,11 +641,11 @@ fn d2cc_command_origin_success_tax_and_unpaid_command_reversal() {
     synthetic_relation(&mut p, CasterRelation::Controller, TypePredicate::Any {});
     let mut g = Game::new(p);
     cast(&mut g, 1);
-    let first = g.state.stack[0].source;
+    let first = g.state.rules.stack[0].source;
     let StackKind::Triggered {
         witness: TriggerEventWitness::SpellCast { cast },
         ..
-    } = &g.state.stack[1].kind
+    } = &g.state.rules.stack[1].kind
     else {
         panic!("command cast")
     };
@@ -676,9 +679,9 @@ fn d2cc_command_origin_success_tax_and_unpaid_command_reversal() {
     assert_eq!(cost.generic, 5.into());
     answer(&mut g, Response::FinishMana { undo_mana: true });
     settle(&mut g);
-    assert_eq!(g.state.next_trigger_id, 1);
+    assert_eq!(g.state.rules.next_trigger_id, 1);
     assert_eq!(
-        g.state.objects[&CardId(1)].zone,
+        g.state.rules.objects[&CardId(1)].zone,
         Zone::Command { owner: PlayerId(0) }
     );
     recover(&g);
@@ -705,7 +708,7 @@ fn d2cc_source_controller_owner_actor_departures_pending_and_placed_all_traces()
                 answer(&mut g, Response::Cast { card: CardId(1) });
                 fund(&mut g);
                 if pending {
-                    pass_until(&mut g, |g| !g.state.pending_triggers.is_empty());
+                    pass_until(&mut g, |g| !g.state.rules.pending_triggers.is_empty());
                 } else {
                     placed(&mut g);
                 }
@@ -713,11 +716,17 @@ fn d2cc_source_controller_owner_actor_departures_pending_and_placed_all_traces()
                 g.concede(PlayerId(departing)).unwrap();
                 placed(&mut g);
                 recover(&g);
-                let trigger_count = g.state.stack.iter().filter(|s| !s.kind.is_spell()).count();
+                let trigger_count = g
+                    .state
+                    .rules
+                    .stack
+                    .iter()
+                    .filter(|s| !s.kind.is_spell())
+                    .count();
                 assert_eq!(trigger_count, usize::from(departing != 1));
                 if departing != 1 {
                     resolve(&mut g);
-                    assert_eq!(g.state.players[1].life, 42.into());
+                    assert_eq!(g.state.rules.players[1].life, 42.into());
                     recover(&g);
                 }
             }
@@ -741,13 +750,13 @@ fn d2cc_cast_witness_pending_placed_resolving_fragmented_restore_and_coherent_fo
         let (mut pending, mut placed, mut resolving) = (false, false, false);
         for _ in 0..100 {
             recover(&g);
-            pending |= !g.state.pending_triggers.is_empty();
-            placed |= g.state.stack.len() == 2;
-            resolving |= matches!(g.state.frame, Frame::Resolve { .. });
-            if !g.state.pending_triggers.is_empty() || g.state.stack.len() == 2 {
+            pending |= !g.state.rules.pending_triggers.is_empty();
+            placed |= g.state.rules.stack.len() == 2;
+            resolving |= matches!(g.state.rules.frame, Frame::Resolve { .. });
+            if !g.state.rules.pending_triggers.is_empty() || g.state.rules.stack.len() == 2 {
                 let mut s: serde_json::Value =
                     serde_json::from_str(&g.snapshot().unwrap()).unwrap();
-                let w = if !g.state.pending_triggers.is_empty() {
+                let w = if !g.state.rules.pending_triggers.is_empty() {
                     &mut s["state"]["pending_triggers"][0]["witness"]
                 } else {
                     &mut s["state"]["stack"][1]["kind"]["witness"]
@@ -763,7 +772,7 @@ fn d2cc_cast_witness_pending_placed_resolving_fragmented_restore_and_coherent_fo
                 structural.validate_trigger_state().unwrap();
                 assert!(Game::restore(g.prepared.as_ref().clone(), &s.to_string()).is_err());
             }
-            if g.state.players[0].life == 42.into() && g.state.stack.len() == 1 {
+            if g.state.rules.players[0].life == 42.into() && g.state.rules.stack.len() == 1 {
                 break;
             }
             match g.advance(Budget::new(1)) {
@@ -773,7 +782,7 @@ fn d2cc_cast_witness_pending_placed_resolving_fragmented_restore_and_coherent_fo
             }
         }
         assert!(pending && placed && resolving);
-        assert_eq!(g.state.next_trigger_id, 1);
+        assert_eq!(g.state.rules.next_trigger_id, 1);
         recover(&g);
     }
 }
@@ -806,7 +815,7 @@ fn d2cc_counter_original_preserves_cast_trigger_counter_trigger_preserves_spell(
             );
             let mut g = Game::with_trace(p, mode);
             cast(&mut g, 1);
-            let target = g.state.stack[usize::from(trigger)].id;
+            let target = g.state.rules.stack[usize::from(trigger)].id;
             priority(&mut g, 2);
             answer(&mut g, Response::Cast { card: CardId(2) });
             answer(
@@ -820,14 +829,14 @@ fn d2cc_counter_original_preserves_cast_trigger_counter_trigger_preserves_spell(
             recover(&g);
             resolve(&mut g);
             recover(&g);
-            assert_eq!(g.state.stack.len(), 1);
-            assert_eq!(g.state.stack[0].kind.is_spell(), trigger);
+            assert_eq!(g.state.rules.stack.len(), 1);
+            assert_eq!(g.state.rules.stack[0].kind.is_spell(), trigger);
             resolve(&mut g);
             assert_eq!(
-                g.state.players[1].life,
+                g.state.rules.players[1].life,
                 if trigger { 40.into() } else { 42.into() }
             );
-            assert_eq!(g.state.next_trigger_id, 1);
+            assert_eq!(g.state.rules.next_trigger_id, 1);
             recover(&g);
         }
     }
@@ -852,9 +861,9 @@ fn d2cc_cast_collection_id_and_retained_history_faults_rollback_payment() {
             // boundary isolates failure after payment staging, without a huge game.
             if history {
                 let charge = g.history_charge();
-                g.state.retained_auxiliary_charge += capacities::HISTORY_LIMIT - charge;
+                g.state.rules.retained_auxiliary_charge += capacities::HISTORY_LIMIT - charge;
             } else {
-                g.state.next_trigger_id = u64::MAX;
+                g.state.rules.next_trigger_id = u64::MAX;
             }
             let before = g.state.clone();
             let trace = g.trace.clone();
@@ -866,8 +875,8 @@ fn d2cc_cast_collection_id_and_retained_history_faults_rollback_payment() {
                 ));
             }
             let mut actual = g.state.clone();
-            actual.frame = before.frame.clone();
-            actual.typed_fault = before.typed_fault.clone();
+            actual.rules.frame = before.rules.frame.clone();
+            actual.rules.typed_fault = before.rules.typed_fault.clone();
             assert_eq!(actual, before);
             assert_eq!(g.trace, trace);
         }
@@ -888,14 +897,15 @@ fn d2cc_stack_capacity_fault_at_cast_collection_preserves_payment_and_tax() {
     let mut g = Game::with_trace(p, TraceMode::Off);
     answer(&mut g, Response::Cast { card: CardId(1) });
     fund(&mut g);
-    pass_until(&mut g, |g| !g.state.pending_triggers.is_empty());
-    let t = g.state.pending_triggers[0].clone();
+    pass_until(&mut g, |g| !g.state.rules.pending_triggers.is_empty());
+    let t = g.state.rules.pending_triggers[0].clone();
     // Private synthetic saturation of the common mechanical bound; the source
     // program and successful payment path are the same as reachable casts.
     let mut fresh = Game::with_trace(g.prepared.as_ref().clone(), TraceMode::Off);
     // Synthetic prior completed command cast makes the unchanged tax nonzero.
     fresh
         .state
+        .rules
         .commanders
         .record_cast(CardId(1), PlayerId(0), Zone::Command { owner: PlayerId(0) })
         .unwrap();
@@ -915,27 +925,28 @@ fn d2cc_stack_capacity_fault_at_cast_collection_preserves_payment_and_tax() {
     );
     fresh
         .state
+        .rules
         .pending_triggers
         .resize(capacities::STACK_LIMIT - 1, t);
-    let mana = fresh.state.players[0].mana.clone();
-    let batches = fresh.state.next_batch_id;
-    let next_id = fresh.state.next_trigger_id;
+    let mana = fresh.state.rules.players[0].mana.clone();
+    let batches = fresh.state.rules.next_batch_id;
+    let next_id = fresh.state.rules.next_trigger_id;
     let trace = fresh.trace.clone();
     let journal = fresh.replay_journal();
-    let charges = fresh.state.retained_auxiliary_charge;
-    let commanders = fresh.state.commanders.clone();
+    let charges = fresh.state.rules.retained_auxiliary_charge;
+    let commanders = fresh.state.rules.commanders.clone();
     assert!(matches!(fresh.advance(Budget::new(1)), Advance::Fault(_)));
     assert!(
         matches!(fresh.typed_fault(),Some(RuleFault::StackCapacityExceeded {requested,..}) if *requested==capacities::STACK_LIMIT+1)
     );
-    assert_eq!(fresh.state.players[0].mana, mana);
-    assert!(fresh.state.stack[0].paid.is_none());
-    assert_eq!(fresh.state.next_batch_id, batches);
-    assert_eq!(fresh.state.next_trigger_id, next_id);
+    assert_eq!(fresh.state.rules.players[0].mana, mana);
+    assert!(fresh.state.rules.stack[0].paid.is_none());
+    assert_eq!(fresh.state.rules.next_batch_id, batches);
+    assert_eq!(fresh.state.rules.next_trigger_id, next_id);
     assert_eq!(fresh.trace, trace);
     assert_eq!(fresh.replay_journal(), journal);
-    assert_eq!(fresh.state.retained_auxiliary_charge, charges);
-    assert_eq!(fresh.state.commanders, commanders);
+    assert_eq!(fresh.state.rules.retained_auxiliary_charge, charges);
+    assert_eq!(fresh.state.rules.commanders, commanders);
     assert_eq!(
         fresh
             .commander_ledger()
@@ -1019,13 +1030,13 @@ fn d2cc_actor_commander_draw_suspension_departure_and_decline_all_traces() {
                 answer(&mut g, Response::CommanderReturn { to_command: false });
             }
             placed(&mut g);
-            assert_eq!(g.state.players[1].life, 43.into());
+            assert_eq!(g.state.rules.players[1].life, 43.into());
             if !departure {
                 assert_eq!(
-                    g.state.objects[&commander].zone,
+                    g.state.rules.objects[&commander].zone,
                     Zone::Hand { owner: PlayerId(0) }
                 );
-                assert_eq!(g.state.libraries[&PlayerId(0)].len(), 6);
+                assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), 6);
             }
             recover(&g);
         }
@@ -1094,12 +1105,12 @@ fn d2cc_exact_source_incarnation_after_bounce_flash_recast() {
     resolve(&mut g);
     let successor = g.object_id(CardId(0)).unwrap();
     assert_ne!(original, successor);
-    assert_eq!(g.state.next_trigger_id, 1);
+    assert_eq!(g.state.rules.next_trigger_id, 1);
     recover(&g);
     resolve(&mut g);
-    assert_eq!(g.state.players[0].life, 42.into());
+    assert_eq!(g.state.rules.players[0].life, 42.into());
     assert_eq!(
-        g.state.objects[&successor.card].plus_one_counters,
+        g.state.rules.objects[&successor.card].plus_one_counters,
         Quantity::zero()
     );
     recover(&g);
@@ -1147,7 +1158,7 @@ fn d2cc_d2cb_status_tap_then_untap_current_and_cached_resolution_forgery() {
         }
         pass_until(
             &mut g,
-            |g| matches!(&g.state.frame,Frame::Resolve {frame} if frame.condition_check.is_some()),
+            |g| matches!(&g.state.rules.frame,Frame::Resolve {frame} if frame.condition_check.is_some()),
         );
         recover(&g);
         let mut s: serde_json::Value = serde_json::from_str(&g.snapshot().unwrap()).unwrap();
@@ -1156,7 +1167,7 @@ fn d2cc_d2cb_status_tap_then_untap_current_and_cached_resolution_forgery() {
         check["passed"] = false.into();
         s["state_sha256"] = digest(&s["state"]).unwrap().into();
         let forged: Snapshot = serde_json::from_value(s.clone()).unwrap();
-        let Frame::Resolve { frame } = &forged.state.frame else {
+        let Frame::Resolve { frame } = &forged.state.rules.frame else {
             panic!("cached frame")
         };
         g.validate_condition_cache(frame).unwrap();
@@ -1215,9 +1226,9 @@ fn d2cc_archived_kambal_frozen_opponent_actor_life_and_departure() {
             }
             recover(&g);
             resolve(&mut g);
-            assert_eq!(g.state.players[1].life, 42.into());
+            assert_eq!(g.state.rules.players[1].life, 42.into());
             if !leave {
-                assert_eq!(g.state.players[0].life, 38.into());
+                assert_eq!(g.state.rules.players[0].life, 38.into());
             }
             recover(&g);
         }
@@ -1268,7 +1279,10 @@ fn d2cc_archived_targeted_counter_program_and_instant_or_sorcery_source_counter(
     placed(&mut g);
     recover(&g);
     resolve(&mut g);
-    assert_eq!(g.state.objects[&CardId(1)].plus_one_counters, 1.into());
+    assert_eq!(
+        g.state.rules.objects[&CardId(1)].plus_one_counters,
+        1.into()
+    );
     recover(&g);
     let mut g = Game::new(prepared(
         &[
@@ -1289,7 +1303,10 @@ fn d2cc_archived_targeted_counter_program_and_instant_or_sorcery_source_counter(
     fund(&mut g);
     placed(&mut g);
     resolve(&mut g);
-    assert_eq!(g.state.objects[&CardId(0)].plus_one_counters, 1.into());
+    assert_eq!(
+        g.state.rules.objects[&CardId(0)].plus_one_counters,
+        1.into()
+    );
     recover(&g);
 }
 #[test]
@@ -1308,12 +1325,12 @@ fn d2cc_archived_sythis_cast_matching_own_types_functions_only_after_entry() {
         cast(&mut g, 0);
         // Sythis itself is an enchantment spell. Its ordinary ability functions
         // only on the battlefield, so this matching self cast does not trigger.
-        assert_eq!(g.state.next_trigger_id, 0);
+        assert_eq!(g.state.rules.next_trigger_id, 0);
         recover(&g);
         resolve(&mut g);
-        assert_eq!(g.state.next_trigger_id, 0);
+        assert_eq!(g.state.rules.next_trigger_id, 0);
         cast(&mut g, 1);
-        assert_eq!(g.state.next_trigger_id, 1);
+        assert_eq!(g.state.rules.next_trigger_id, 1);
         recover(&g);
     }
 }

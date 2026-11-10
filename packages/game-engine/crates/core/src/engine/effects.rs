@@ -161,6 +161,7 @@ impl Game {
         {
             for source in self
                 .state
+                .rules
                 .objects
                 .values()
                 .filter(|s| s.zone == Zone::Battlefield && s.controller == o.controller)
@@ -190,7 +191,7 @@ impl Game {
                 }
             }
         }
-        for e in &self.state.effects {
+        for e in &self.state.rules.effects {
             if let ResolvedEffectKind::PumpSet {
                 targets,
                 power,
@@ -222,6 +223,7 @@ impl Game {
     }
     pub(super) fn static_damage_effects(&self) -> Vec<EffectKey> {
         self.state
+            .rules
             .objects
             .values()
             .filter(|o| o.zone == Zone::Battlefield)
@@ -240,7 +242,7 @@ impl Game {
             .collect()
     }
     pub(super) fn live_effect_keys(&self) -> Vec<EffectKey> {
-        self.state.effects.iter().filter(|e|!matches!(&e.kind,ResolvedEffectKind::PreventNextDamage{remaining,..} if *remaining<=Quantity::zero())).map(|e|EffectKey::Resolved{id:e.id}).chain(self.static_damage_effects()).collect()
+        self.state.rules.effects.iter().filter(|e|!matches!(&e.kind,ResolvedEffectKind::PreventNextDamage{remaining,..} if *remaining<=Quantity::zero())).map(|e|EffectKey::Resolved{id:e.id}).chain(self.static_damage_effects()).collect()
     }
     pub(super) fn execute_effect_instruction(
         &mut self,
@@ -285,7 +287,7 @@ impl Game {
                     .get(target_slot as usize)
                     .copied()
                     .unwrap_or(false)
-                    || !self.target_legal(target)
+                    || !self.is_battlefield_creature(target)
                 {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
@@ -350,7 +352,7 @@ impl Game {
         };
         let effect = ResolvedEffect {
             target_handles,
-            id: EffectId(self.state.next_effect_id),
+            id: EffectId(self.state.rules.next_effect_id),
             origin: EffectOrigin {
                 mode: frame.spell.mode,
                 stack_id: frame.spell.id,
@@ -360,7 +362,7 @@ impl Game {
                 cursor: frame.cursor,
                 source_block: block,
             },
-            expires_in_cleanup_of_turn: self.state.turn.number,
+            expires_in_cleanup_of_turn: self.state.rules.turn.number,
             kind,
         };
         let actual = self.commit(
@@ -428,8 +430,8 @@ impl Game {
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
-        self.state.damage_choices.clear();
-        self.state.player_damage_choices.clear();
+        self.state.rules.damage_choices.clear();
+        self.state.rules.player_damage_choices.clear();
         self.begin_damage(
             DamageKind::Combat,
             entries,
@@ -539,13 +541,14 @@ impl Game {
         {
             return Err("invalid prepared damage group".into());
         }
-        let id = DamageTransactionId(self.state.next_damage_transaction_id);
-        self.state.next_damage_transaction_id = self
+        let id = DamageTransactionId(self.state.rules.next_damage_transaction_id);
+        self.state.rules.next_damage_transaction_id = self
             .state
+            .rules
             .next_damage_transaction_id
             .checked_add(1)
             .ok_or("damage transaction limit")?;
-        self.state.frame = Frame::DamageEffects {
+        self.state.rules.frame = Frame::DamageEffects {
             transaction: DamageTransaction {
                 allocation_groups: vec![],
                 id,
@@ -560,7 +563,7 @@ impl Game {
     }
     pub(super) fn damage_transaction(&self) -> Result<&DamageTransaction, String> {
         if let Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } =
-            &self.state.frame
+            &self.state.rules.frame
         {
             Ok(transaction)
         } else {
@@ -571,7 +574,7 @@ impl Game {
         match recipient {
             DamageRecipient::Player { player } => self.is_live(*player).then_some(*player),
             DamageRecipient::Creature { object } => self
-                .target_legal(*object)
+                .is_battlefield_creature(*object)
                 .then(|| self.current(*object).ok().map(|o| o.controller))
                 .flatten(),
         }
@@ -612,6 +615,7 @@ impl Game {
             }
             EffectKey::Resolved { id } => match &self
                 .state
+                .rules
                 .effects
                 .iter()
                 .find(|e| e.id == *id)
@@ -647,13 +651,13 @@ impl Game {
     pub(super) fn damage_effect_group(
         &self,
     ) -> Result<Option<(PlayerId, TargetEntity, Vec<DamageEffectCandidate>)>, String> {
-        let Frame::DamageEffects { transaction: tx } = &self.state.frame else {
+        let Frame::DamageEffects { transaction: tx } = &self.state.rules.frame else {
             return Ok(None);
         };
-        let mut order = self.state.original_seating.clone();
+        let mut order = self.state.rules.original_seating.clone();
         let anchor = order
             .iter()
-            .position(|p| *p == self.state.turn_owner)
+            .position(|p| *p == self.state.rules.turn_owner)
             .ok_or("missing APNAP anchor")?;
         order.rotate_left(anchor);
         let mut recipients: Vec<_> = tx
@@ -708,7 +712,7 @@ impl Game {
     fn automatic_pair(&self, pairs: &[DamageEffectCandidate]) -> bool {
         pairs.len() == 1
             || (pairs.iter().all(|p| p.effect == pairs[0].effect)
-                && !matches!(&pairs[0].effect,EffectKey::Resolved{id} if self.state.effects.iter().any(|e|e.id==*id&&matches!(e.kind,ResolvedEffectKind::PreventNextDamage{..}))))
+                && !matches!(&pairs[0].effect,EffectKey::Resolved{id} if self.state.rules.effects.iter().any(|e|e.id==*id&&matches!(e.kind,ResolvedEffectKind::PreventNextDamage{..}))))
     }
     pub(super) fn damage_effect_request(&self) -> Result<Option<Request>, String> {
         let Some((player, recipient, candidates)) = self.damage_effect_group()? else {
@@ -718,7 +722,7 @@ impl Game {
             return Ok(None);
         }
         Ok(Some(Request::DamageEffect {
-            decision_id: self.state.revision,
+            decision_id: self.state.rules.revision,
             player,
             recipient,
             candidates,
@@ -751,11 +755,12 @@ impl Game {
     pub(super) fn damage_effect_step(&mut self) -> Result<(), String> {
         if let Some((_, _, pairs)) = self.damage_effect_group()? {
             let pair = if self.automatic_pair(&pairs) {
-                self.state.pending = None;
+                self.state.rules.pending = None;
                 pairs[0].clone()
             } else {
                 let input = self
                     .state
+                    .rules
                     .pending
                     .take()
                     .ok_or("missing damage effect choice")?;
@@ -767,7 +772,7 @@ impl Game {
             };
             let tx = self.damage_transaction()?.clone();
             if self.needs_allocation(&tx, &pair.effect) {
-                self.state.frame = Frame::DamageAllocation {
+                self.state.rules.frame = Frame::DamageAllocation {
                     transaction: tx,
                     effect: pair.effect,
                 };
@@ -798,8 +803,8 @@ impl Game {
         Ok(())
     }
     pub(super) fn revalidate_damage_departure(&mut self) -> Result<(), String> {
-        if let Frame::DamageEffects { .. } | Frame::DamageAllocation { .. } = self.state.frame
-            && let Some(input) = &self.state.pending
+        if let Frame::DamageEffects { .. } | Frame::DamageAllocation { .. } = self.state.rules.frame
+            && let Some(input) = &self.state.rules.pending
         {
             let valid = match &input.response {
                 Response::DamageAllocation { allocations } => self
@@ -811,7 +816,7 @@ impl Game {
                 _ => false,
             };
             if !valid {
-                self.state.pending = None;
+                self.state.rules.pending = None;
             }
         }
         Ok(())
@@ -822,21 +827,21 @@ impl Game {
     ) -> Result<EventOutcome, String> {
         match event {
             ProposedEvent::CreateEffect { effect } => {
-                if self.state.effects.len() >= self.effect_limit() {
+                if self.state.rules.effects.len() >= self.effect_limit() {
                     return Err(self.capacity_error(RuleFault::EffectCapacityExceeded {
                         capacity: self.effect_limit(),
-                        requested: self.state.effects.len() + 1,
+                        requested: self.state.rules.effects.len() + 1,
                     }));
                 }
-                if effect.id != EffectId(self.state.next_effect_id)
-                    || self.state.effects.len() >= self.effect_limit()
-                    || effect.expires_in_cleanup_of_turn != self.state.turn.number
+                if effect.id != EffectId(self.state.rules.next_effect_id)
+                    || self.state.rules.effects.len() >= self.effect_limit()
+                    || effect.expires_in_cleanup_of_turn != self.state.rules.turn.number
                     || effect.origin.controller.0 >= 4
                     || effect.origin.source_handles.len() != 4
                 {
                     return Err("invalid effect creation identity".into());
                 }
-                let Frame::Resolve { frame } = &self.state.frame else {
+                let Frame::Resolve { frame } = &self.state.rules.frame else {
                     return Err("effect outside resolving instruction".into());
                 };
                 if frame.spell.mode != effect.origin.mode
@@ -913,7 +918,7 @@ impl Game {
                     ) => {
                         frame.spell.targets.get(*target_slot as usize) == Some(target)
                             && frame.legal_targets.get(*target_slot as usize) == Some(&true)
-                            && self.target_legal(*target)
+                            && self.is_battlefield_creature(*target)
                             && power == p
                             && toughness == t
                             && *source_block == effect.origin.source_block
@@ -981,12 +986,13 @@ impl Game {
                 if !valid || !valid_handles || !valid_target_handles {
                     return Err("invalid continuous effect facts".into());
                 }
-                self.state.next_effect_id = self
+                self.state.rules.next_effect_id = self
                     .state
+                    .rules
                     .next_effect_id
                     .checked_add(1)
                     .ok_or("effect identity limit")?;
-                self.state.effects.push(*effect.clone());
+                self.state.rules.effects.push(*effect.clone());
                 Ok(EventOutcome::EffectCreated {
                     effect: effect.clone(),
                 })
@@ -1020,6 +1026,7 @@ impl Game {
                 {
                     let e = self
                         .state
+                        .rules
                         .effects
                         .iter_mut()
                         .find(|e| e.id == *id)
@@ -1030,7 +1037,7 @@ impl Game {
                     };
                     *remaining = after.clone();
                 }
-                let Frame::DamageEffects { transaction: tx } = &mut self.state.frame else {
+                let Frame::DamageEffects { transaction: tx } = &mut self.state.rules.frame else {
                     return Err("missing damage frame".into());
                 };
                 let d = tx
@@ -1052,16 +1059,17 @@ impl Game {
             } => self.apply_damage_allocation(*transaction, effect, allocations),
             ProposedEvent::CommitDamage { transaction } => self.commit_actual_damage(*transaction),
             ProposedEvent::CleanupEffects => {
-                let expired = self.state.effects.iter().map(|e| e.id).collect();
+                let expired = self.state.rules.effects.iter().map(|e| e.id).collect();
                 let previous = self
                     .state
+                    .rules
                     .objects
                     .values()
                     .filter(|o| o.marked_damage > Quantity::zero())
                     .map(|o| (o.id, o.marked_damage.clone()))
                     .collect();
-                self.state.effects.clear();
-                for o in self.state.objects.values_mut() {
+                self.state.rules.effects.clear();
+                for o in self.state.rules.objects.values_mut() {
                     o.marked_damage = Quantity::zero();
                 }
                 Ok(EventOutcome::EffectsCleaned { expired, previous })
@@ -1070,7 +1078,7 @@ impl Game {
         }
     }
     fn commit_actual_damage(&mut self, id: DamageTransactionId) -> Result<EventOutcome, String> {
-        if !matches!(self.state.frame, Frame::DamageEffects { .. }) {
+        if !matches!(self.state.rules.frame, Frame::DamageEffects { .. }) {
             return Err("damage commit while allocation incomplete".into());
         }
         let tx = self.damage_transaction()?.clone();
@@ -1098,6 +1106,7 @@ impl Game {
                     if tx.kind == DamageKind::Combat
                         && self
                             .state
+                            .rules
                             .commanders
                             .history(d.source.object.card)
                             .is_some()
@@ -1125,13 +1134,14 @@ impl Game {
         for ((kind, id), amount) in totals {
             let (recipient, previous, current) = if kind == 0 {
                 let player = PlayerId(id as u8);
-                let x = &mut self.state.players[player.0 as usize].life;
+                let x = &mut self.state.rules.players[player.0 as usize].life;
                 let before = x.clone();
                 x.subtract(&amount);
                 (DamageRecipient::Player { player }, before, x.clone())
             } else {
                 let o = self
                     .state
+                    .rules
                     .objects
                     .get_mut(&CardId(id))
                     .ok_or("missing final damage object")?;
@@ -1153,12 +1163,14 @@ impl Game {
         for ((commander, recipient), amount) in commanders {
             let previous = self
                 .state
+                .rules
                 .commanders
                 .history(commander)
                 .and_then(|h| h.combat_damage.get(&recipient))
                 .cloned()
                 .unwrap_or_default();
             self.state
+                .rules
                 .commanders
                 .record_damage(commander, recipient, true, &amount)?;
             let mut current = previous.clone();
@@ -1183,20 +1195,20 @@ impl Game {
     }
     pub(super) fn validate_effect_state(&self) -> Result<(), String> {
         let mut ids = BTreeSet::new();
-        if self.state.effects.len() > self.effect_limit() {
+        if self.state.rules.effects.len() > self.effect_limit() {
             return Err("effect capacity".into());
         }
-        for e in &self.state.effects {
+        for e in &self.state.rules.effects {
             if !ids.insert(e.id)
-                || e.id.0 >= self.state.next_effect_id
+                || e.id.0 >= self.state.rules.next_effect_id
                 || e.origin.controller.0 >= 4
-                || e.expires_in_cleanup_of_turn != self.state.turn.number
+                || e.expires_in_cleanup_of_turn != self.state.rules.turn.number
                 || e.origin.source_handles.len() != 4
-                || !self.state.cards.contains_key(&e.origin.source.card)
+                || !self.state.rules.cards.contains_key(&e.origin.source.card)
             {
                 return Err("effect state identity invariant".into());
             }
-            if e.origin.stack_id.0 >= self.state.next_stack_id {
+            if e.origin.stack_id.0 >= self.state.rules.next_stack_id {
                 return Err("effect origin stack identity invariant".into());
             }
             let programs = self.origin_programs(&e.origin)?;
@@ -1266,7 +1278,7 @@ impl Game {
                             && toughness == t
                             && *source_block == e.origin.source_block
                             && e.target_handles.len() == 4
-                            && self.state.cards.contains_key(&target.card)
+                            && self.state.rules.cards.contains_key(&target.card)
                             && self.definition(target.card)?.characteristics.kind
                                 == CardKind::Creature
                     }
@@ -1291,7 +1303,7 @@ impl Game {
                                 }
                                 TargetEntity::Object { object } => {
                                     e.target_handles.len() == 4
-                                        && self.state.cards.contains_key(&object.card)
+                                        && self.state.rules.cards.contains_key(&object.card)
                                         && self.definition(object.card)?.characteristics.kind
                                             == CardKind::Creature
                                 }
@@ -1307,7 +1319,7 @@ impl Game {
         if let Frame::DamageAllocation {
             transaction,
             effect,
-        } = &self.state.frame
+        } = &self.state.rules.frame
         {
             let EffectKey::Resolved { id } = effect else {
                 return Err("allocation requires finite effect identity".into());
@@ -1315,7 +1327,7 @@ impl Game {
             let Some(ResolvedEffect {
                 kind: ResolvedEffectKind::PreventNextDamage { remaining, .. },
                 ..
-            }) = self.state.effects.iter().find(|e| e.id == *id)
+            }) = self.state.rules.effects.iter().find(|e| e.id == *id)
             else {
                 return Err("allocation requires live shield".into());
             };
@@ -1331,10 +1343,10 @@ impl Game {
         if let Frame::DamageEffects { transaction: tx }
         | Frame::DamageAllocation {
             transaction: tx, ..
-        } = &self.state.frame
+        } = &self.state.rules.frame
         {
             self.validate_damage_transaction(tx)?;
-            if tx.id.0 >= self.state.next_damage_transaction_id
+            if tx.id.0 >= self.state.rules.next_damage_transaction_id
                 || tx.entries.is_empty()
                 || tx.entries.len() > self.damage_limit()
                 || tx.applications.len()
@@ -1352,7 +1364,7 @@ impl Game {
                     || d.controller.0 >= 4
                     || d.source.controller.0 >= 4
                     || unique.len() != d.applied.len()
-                    || !self.state.cards.contains_key(&d.source.object.card)
+                    || !self.state.rules.cards.contains_key(&d.source.object.card)
                 {
                     return Err("prepared damage invariant".into());
                 }
@@ -1472,7 +1484,7 @@ impl Game {
             .map(|tx| tx.entries.iter().map(|d| (tx.id, d.id)).collect::<Vec<_>>())
             .unwrap_or_default();
         for v in 0..4 {
-            let k = &mut self.state.visibility[v];
+            let k = &mut self.state.knowledge.visibility[v];
             k.effect_handles.retain(|(key, _)| keys.contains(key));
             k.damage_handles.retain(|(key, _)| damages.contains(key));
             for key in &keys {
@@ -1504,6 +1516,7 @@ impl Game {
         key: &EffectKey,
     ) -> Result<EffectHandle, String> {
         self.state
+            .knowledge
             .visibility
             .get(viewer.0 as usize)
             .and_then(|k| {
@@ -1528,6 +1541,7 @@ impl Game {
             EffectKey::Resolved { id } => {
                 let e = self
                     .state
+                    .rules
                     .effects
                     .iter()
                     .find(|e| e.id == *id)
@@ -1550,6 +1564,7 @@ impl Game {
             },
             oracle_id: self
                 .state
+                .rules
                 .cards
                 .get(&source.card)
                 .ok_or("missing physical effect source")?
@@ -1570,6 +1585,7 @@ impl Game {
         };
         let e = self
             .state
+            .rules
             .effects
             .iter()
             .find(|e| e.id == *id)
@@ -1677,6 +1693,7 @@ impl Game {
             EffectKey::Static { .. } => DamageEffectKind::DoubleDamage,
             EffectKey::Resolved { id } => match self
                 .state
+                .rules
                 .effects
                 .iter()
                 .find(|e| e.id == id)
@@ -1694,6 +1711,7 @@ impl Game {
             effect: self.effect_handle(viewer, &pair.effect)?,
             damage: self
                 .state
+                .knowledge
                 .visibility
                 .get(viewer.0 as usize)
                 .and_then(|k| {
@@ -1717,6 +1735,7 @@ impl Game {
             },
             damage_oracle_id: self
                 .state
+                .rules
                 .cards
                 .get(&d.source.object.card)
                 .ok_or("missing physical damage source")?
@@ -1739,6 +1758,7 @@ impl Game {
     ) -> Result<(EffectKey, DamageId), String> {
         let k = self
             .state
+            .knowledge
             .visibility
             .get(viewer.0 as usize)
             .ok_or("invalid viewer")?;
@@ -1804,7 +1824,7 @@ impl Game {
                     .damage_limit()
                     .saturating_mul(self.effect_limit().saturating_add(2))
             || tx.allocation_groups.len() > self.effect_limit()
-            || tx.id.0 >= self.state.next_damage_transaction_id
+            || tx.id.0 >= self.state.rules.next_damage_transaction_id
         {
             return Err("damage transaction resource/identity invariant".into());
         }
@@ -1817,6 +1837,7 @@ impl Game {
         for (i, d) in tx.entries.iter().enumerate() {
             let physical = self
                 .state
+                .rules
                 .cards
                 .get(&d.source.object.card)
                 .ok_or("missing damage physical source")?;
@@ -2018,6 +2039,7 @@ impl Game {
                 EffectKey::Resolved { id } => {
                     let e = self
                         .state
+                        .rules
                         .effects
                         .iter()
                         .find(|e| e.id == *id)
@@ -2092,7 +2114,7 @@ impl Game {
             let Some(ResolvedEffect {
                 kind: ResolvedEffectKind::PreventNextDamage { remaining, .. },
                 ..
-            }) = self.state.effects.iter().find(|e| e.id == id)
+            }) = self.state.rules.effects.iter().find(|e| e.id == id)
             else {
                 return Err("missing allocated shield".into());
             };

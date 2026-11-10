@@ -152,7 +152,7 @@ fn mana_validation_sidecar_recovers_and_activation_invalidates_queries() {
     };
     let saved = game.save_work(&work).unwrap();
     let saved_value: serde_json::Value = serde_json::from_str(&saved).unwrap();
-    assert_eq!(saved_value["work_version"], 15);
+    assert_eq!(saved_value["work_version"], 16);
     let restored = Game::restore(prepared, &game.snapshot().unwrap()).unwrap();
     let restored_work = restored.restore_work(&saved).unwrap();
     assert!(matches!(

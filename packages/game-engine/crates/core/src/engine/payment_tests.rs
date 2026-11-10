@@ -120,14 +120,14 @@ fn casting_mana_is_a_saved_decision_before_atomic_payment_in_all_trace_modes() {
     for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
         let mut game = Game::with_trace(prepared(), mode);
         announce(&mut game, 0);
-        assert!(game.state.stack[0].paid.is_none());
-        assert!(game.state.players[0].mana.is_empty());
-        let Frame::Mana { cast } = &game.state.frame else {
+        assert!(game.state.rules.stack[0].paid.is_none());
+        assert!(game.state.rules.players[0].mana.is_empty());
+        let Frame::Mana { cast } = &game.state.rules.frame else {
             panic!()
         };
         assert!(cast.mana_activations.is_empty());
         activate(&mut game, 0, land(0));
-        let Frame::Mana { cast } = &game.state.frame else {
+        let Frame::Mana { cast } = &game.state.rules.frame else {
             panic!()
         };
         assert_eq!(cast.mana_activations.len(), 1);
@@ -144,7 +144,7 @@ fn casting_mana_is_a_saved_decision_before_atomic_payment_in_all_trace_modes() {
             Advance::AwaitingDecision(Request::SpendMana { .. })
         ));
         recover(&game);
-        assert!(game.state.stack[0].paid.is_none());
+        assert!(game.state.rules.stack[0].paid.is_none());
         assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::from(1)));
         input(
             &mut game,
@@ -160,8 +160,8 @@ fn casting_mana_is_a_saved_decision_before_atomic_payment_in_all_trace_modes() {
                 ..
             })
         ));
-        assert!(game.state.stack[0].paid.is_some());
-        assert!(game.state.objects[&land(0)].tapped);
+        assert!(game.state.rules.stack[0].paid.is_some());
+        assert!(game.state.rules.objects[&land(0)].tapped);
         assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::from(0)));
         let replay = Game::replay_with_trace(prepared(), &game.replay_journal(), mode).unwrap();
         assert_eq!(replay.state, game.state);
@@ -180,10 +180,10 @@ fn affordable_spell_still_offers_mana_and_extra_mana_remains_after_payment() {
     // CR 601.2g gives a chance to activate even when the initial pool suffices.
     activate(&mut game, 0, extra);
     finish(&mut game, 0, true);
-    assert!(game.state.objects[&extra].tapped);
-    assert!(game.state.objects[&land(0)].tapped);
+    assert!(game.state.rules.objects[&extra].tapped);
+    assert!(game.state.rules.objects[&land(0)].tapped);
     assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::from(1)));
-    assert!(game.state.stack[0].paid.is_some());
+    assert!(game.state.rules.stack[0].paid.is_some());
 }
 
 #[test]
@@ -196,20 +196,20 @@ fn failed_payment_can_undo_or_keep_casting_mana_without_undoing_floated_mana() {
         let object = game.object_id(extra).unwrap();
         input(&mut game, 1, Response::ActivateMana { object });
         let _ = settle(&mut game);
-        let before_pool = game.state.players[1].mana.clone();
+        let before_pool = game.state.rules.players[1].mana.clone();
         announce(&mut game, 1);
         activate(&mut game, 1, land(1));
         finish(&mut game, 1, undo_mana);
-        assert_eq!(game.state.stack.len(), 1);
+        assert_eq!(game.state.rules.stack.len(), 1);
         assert_eq!(game.object_id(spell(1)).unwrap().incarnation, 0);
         assert_eq!(
             game.zone(game.object_id(spell(1)).unwrap()),
             Some(Zone::Hand { owner: PlayerId(1) })
         );
-        assert!(game.state.objects[&extra].tapped);
-        assert_eq!(game.state.objects[&land(1)].tapped, !undo_mana);
+        assert!(game.state.rules.objects[&extra].tapped);
+        assert_eq!(game.state.rules.objects[&land(1)].tapped, !undo_mana);
         if undo_mana {
-            assert_eq!(game.state.players[1].mana, before_pool);
+            assert_eq!(game.state.rules.players[1].mana, before_pool);
         } else {
             assert_eq!(game.mana(PlayerId(1), Color::G), Some(Quantity::from(2)));
         }
@@ -227,12 +227,12 @@ fn only_undone_mana_activations_restore_the_prior_pass_round() {
         activate(&mut game, 1, land(1));
         finish(&mut game, 1, undo_mana);
         assert_eq!(
-            game.state.passes,
+            game.state.rules.passes,
             if undo_mana { vec![PlayerId(0)] } else { vec![] }
         );
-        assert_eq!(game.state.priority, PlayerId(1));
+        assert_eq!(game.state.rules.priority, PlayerId(1));
         if undo_mana {
-            assert!(game.state.players[1].mana.is_empty());
+            assert!(game.state.rules.players[1].mana.is_empty());
         }
     }
 }
@@ -312,9 +312,9 @@ fn unrelated_departure_preserves_mana_stage_and_target_departure_undoes_only_cas
             ..
         })
     ));
-    assert!(game.state.objects[&land(0)].tapped);
+    assert!(game.state.rules.objects[&land(0)].tapped);
     assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::from(1)));
-    let departed = game.state.players[3].last_known.clone();
+    let departed = game.state.rules.players[3].last_known.clone();
     game.concede(PlayerId(1)).unwrap();
     assert!(matches!(
         settle(&mut game),
@@ -323,11 +323,11 @@ fn unrelated_departure_preserves_mana_stage_and_target_departure_undoes_only_cas
             ..
         })
     ));
-    assert!(game.state.stack.is_empty());
+    assert!(game.state.rules.stack.is_empty());
     assert_eq!(game.object_id(spell(0)).unwrap().incarnation, 0);
-    assert!(!game.state.objects[&land(0)].tapped);
-    assert!(game.state.players[0].mana.is_empty());
-    assert_eq!(game.state.players[3].last_known, departed);
+    assert!(!game.state.rules.objects[&land(0)].tapped);
+    assert!(game.state.rules.players[0].mana.is_empty());
+    assert_eq!(game.state.rules.players[3].last_known, departed);
     assert!(game.object_id(CardId(2)).is_none());
     let replay = Game::replay(prepared(), &game.replay_journal()).unwrap();
     assert_eq!(replay.state, game.state);
@@ -349,7 +349,7 @@ fn payer_departure_retains_last_known_mana_and_does_not_reverse_foreign_lands() 
         })
     ));
     assert_eq!(
-        game.state.players[0]
+        game.state.rules.players[0]
             .last_known
             .as_ref()
             .unwrap()
@@ -362,7 +362,7 @@ fn payer_departure_retains_last_known_mana_and_does_not_reverse_foreign_lands() 
         game.zone(game.object_id(borrowed).unwrap()),
         Some(Zone::Exile)
     );
-    assert!(game.state.stack.is_empty());
+    assert!(game.state.rules.stack.is_empty());
     assert!(game.object_id(spell(0)).is_none());
 }
 
@@ -383,12 +383,12 @@ fn vanished_mana_source_is_not_resurrected_when_target_departure_reverses_cast()
     ));
     assert!(game.object_id(borrowed).is_none());
     assert!(game.object_id(CardId(2)).is_none());
-    assert!(game.state.players[0].mana.is_empty());
+    assert!(game.state.rules.players[0].mana.is_empty());
     assert_eq!(
         game.zone(game.object_id(spell(0)).unwrap()),
         Some(Zone::Hand { owner: PlayerId(0) })
     );
-    assert_eq!(game.state.players[1].status, PlayerStatus::Left);
+    assert_eq!(game.state.rules.players[1].status, PlayerStatus::Left);
 }
 
 #[test]
@@ -399,7 +399,7 @@ fn accepted_activation_is_discarded_when_departure_removes_its_source_before_exe
     announce(&mut game, 0);
     let object = game.object_id(borrowed).unwrap();
     input(&mut game, 0, Response::ActivateMana { object });
-    assert!(game.state.pending.is_some());
+    assert!(game.state.rules.pending.is_some());
     game.concede(PlayerId(3)).unwrap();
     assert!(matches!(
         settle(&mut game),
@@ -408,17 +408,17 @@ fn accepted_activation_is_discarded_when_departure_removes_its_source_before_exe
             ..
         })
     ));
-    assert!(game.state.pending.is_none());
+    assert!(game.state.rules.pending.is_none());
     assert!(game.object_id(borrowed).is_none());
-    assert!(game.state.players[0].mana.is_empty());
-    let Frame::Mana { cast } = &game.state.frame else {
+    assert!(game.state.rules.players[0].mana.is_empty());
+    let Frame::Mana { cast } = &game.state.rules.frame else {
         panic!()
     };
     assert!(cast.mana_activations.is_empty());
-    assert!(game.state.stack[0].paid.is_none());
+    assert!(game.state.rules.stack[0].paid.is_none());
     activate(&mut game, 0, land(0));
     finish(&mut game, 0, true);
-    assert!(game.state.stack[0].paid.is_some());
+    assert!(game.state.rules.stack[0].paid.is_some());
 }
 
 #[test]
@@ -453,10 +453,10 @@ fn reversal_preserves_a_preexisting_zero_mana_entry() {
     activate(&mut game, 0, second_land);
     finish(&mut game, 0, false);
     assert_eq!(
-        game.state.players[0].mana.get(&Color::U),
+        game.state.rules.players[0].mana.get(&Color::U),
         Some(&Quantity::from(0))
     );
-    let before = game.state.players[0].mana.clone();
+    let before = game.state.rules.players[0].mana.clone();
     input(&mut game, 0, Response::Cast { card: second_spell });
     let target = game.object_id(CardId(2)).unwrap();
     input(
@@ -468,14 +468,14 @@ fn reversal_preserves_a_preexisting_zero_mana_entry() {
     );
     let _ = settle(&mut game);
     activate(&mut game, 0, third_land);
-    let Frame::Mana { cast } = &game.state.frame else {
+    let Frame::Mana { cast } = &game.state.rules.frame else {
         panic!()
     };
     assert!(!cast.mana_activations[0].mana_was_absent);
     finish(&mut game, 0, true);
-    assert_eq!(game.state.players[0].mana, before);
-    assert!(!game.state.objects[&third_land].tapped);
-    assert_eq!(game.state.stack.len(), 1);
+    assert_eq!(game.state.rules.players[0].mana, before);
+    assert!(!game.state.rules.objects[&third_land].tapped);
+    assert_eq!(game.state.rules.stack.len(), 1);
     assert_eq!(
         game.zone(game.object_id(second_spell).unwrap()),
         Some(Zone::Hand { owner: PlayerId(0) })
@@ -490,7 +490,7 @@ fn restore_rejects_rehashed_forged_casting_mana_receipts() {
     let snapshot = game.snapshot().unwrap();
     for mutation in 0..7 {
         let mut saved: Snapshot = strict_read(&snapshot).unwrap();
-        let Frame::Mana { cast } = &mut saved.state.frame else {
+        let Frame::Mana { cast } = &mut saved.state.rules.frame else {
             panic!()
         };
         match mutation {
@@ -515,27 +515,31 @@ fn departing_caster_keeps_mana_action_and_requires_a_fresh_lower_spell_pass_roun
     finish(&mut game, 0, false);
     input(&mut game, 0, Response::Pass);
     let _ = settle(&mut game);
-    assert_eq!(game.state.passes, vec![PlayerId(0)]);
+    assert_eq!(game.state.rules.passes, vec![PlayerId(0)]);
     announce(&mut game, 1);
     activate(&mut game, 1, land(1));
     game.concede(PlayerId(1)).unwrap();
     let _ = settle(&mut game);
-    assert!(game.state.passes.is_empty());
-    assert_eq!(game.state.stack.len(), 1);
-    assert_eq!(game.state.priority, PlayerId(2));
+    assert!(game.state.rules.passes.is_empty());
+    assert_eq!(game.state.rules.stack.len(), 1);
+    assert_eq!(game.state.rules.priority, PlayerId(2));
     assert_eq!(
-        game.state.players[1].last_known.as_ref().unwrap().mana[&Color::U],
+        game.state.rules.players[1]
+            .last_known
+            .as_ref()
+            .unwrap()
+            .mana[&Color::U],
         Quantity::from(1)
     );
     for player in [2, 3] {
         input(&mut game, player, Response::Pass);
     }
     let _ = settle(&mut game);
-    assert_eq!(game.state.stack.len(), 1);
-    assert_eq!(game.state.priority, PlayerId(0));
+    assert_eq!(game.state.rules.stack.len(), 1);
+    assert_eq!(game.state.rules.priority, PlayerId(0));
     input(&mut game, 0, Response::Pass);
     let _ = settle(&mut game);
-    assert!(game.state.stack.is_empty());
+    assert!(game.state.rules.stack.is_empty());
     assert!(game.object_id(CardId(2)).is_none());
     let replay = Game::replay(prepared(), &game.replay_journal()).unwrap();
     assert_eq!(replay.state, game.state);

@@ -29,7 +29,7 @@ fn settle(game: &mut Game) -> Advance {
 fn input(game: &mut Game, response: Response) {
     let finish = matches!(response, Response::FinishMana { .. });
     let Advance::AwaitingDecision(request) = settle(game) else {
-        panic!("missing decision at {:?}", game.state.frame)
+        panic!("missing decision at {:?}", game.state.rules.frame)
     };
     let response = if matches!(response, Response::Pass) {
         match &request {
@@ -57,7 +57,7 @@ fn until(game: &mut Game, number: u64, step: TurnStep) {
     for _ in 0..180 {
         let result = settle(game);
         assert!(matches!(result, Advance::AwaitingDecision(_)), "{result:?}");
-        if game.state.turn.number == number && game.state.turn.step == step {
+        if game.state.rules.turn.number == number && game.state.rules.turn.step == step {
             return;
         }
         input(game, Response::Pass);
@@ -89,22 +89,22 @@ fn cast_bears(game: &mut Game) {
     }
     input(game, Response::FinishMana { undo_mana: true });
     assert!(matches!(settle(game), Advance::AwaitingDecision(_)));
-    assert_eq!(game.state.stack.len(), 1);
-    assert!(game.state.stack[0].targets.is_empty());
-    assert!(game.state.stack[0].paid.is_some());
+    assert_eq!(game.state.rules.stack.len(), 1);
+    assert!(game.state.rules.stack[0].targets.is_empty());
+    assert!(game.state.rules.stack[0].paid.is_some());
 }
 
 fn resolve_bears(game: &mut Game) {
     for player in 0..4 {
-        assert_eq!(game.state.priority, PlayerId(player));
+        assert_eq!(game.state.rules.priority, PlayerId(player));
         pass(game);
         if player < 3 {
-            assert_eq!(game.state.stack.len(), 1);
+            assert_eq!(game.state.rules.stack.len(), 1);
         }
     }
-    assert!(game.state.stack.is_empty());
-    assert_eq!(game.state.turn.step, TurnStep::PostcombatMain);
-    assert_eq!(game.state.priority, PlayerId(0));
+    assert!(game.state.rules.stack.is_empty());
+    assert_eq!(game.state.rules.turn.step, TurnStep::PostcombatMain);
+    assert_eq!(game.state.rules.priority, PlayerId(0));
     assert_eq!(
         game.zone(game.object_id(CardId(2)).unwrap()),
         Some(Zone::Battlefield)
@@ -146,11 +146,11 @@ fn observe(game: &Game, player: PlayerId) -> Observation {
 #[test]
 fn complete_turn_loop_preserves_exact_permanents_draws_timing_and_replay() {
     let mut game = Game::new(prepared());
-    assert_eq!(game.state.turn.number, 1);
-    assert_eq!(game.state.turn.step, TurnStep::PostcombatMain);
+    assert_eq!(game.state.rules.turn.number, 1);
+    assert_eq!(game.state.rules.turn.step, TurnStep::PostcombatMain);
     play(&mut game, 1);
-    assert_eq!(game.state.turn.lands_played, 1);
-    assert!(game.state.stack.is_empty());
+    assert_eq!(game.state.rules.turn.lands_played, 1);
+    assert!(game.state.rules.stack.is_empty());
     reject(
         &mut game,
         PlayerId(0),
@@ -172,24 +172,24 @@ fn complete_turn_loop_preserves_exact_permanents_draws_timing_and_replay() {
             && matches!(movement.destination, Zone::Graveyard { .. })
     )));
     until(&mut game, 5, TurnStep::PrecombatMain);
-    assert_eq!(game.state.turn.lands_played, 0);
+    assert_eq!(game.state.rules.turn.lands_played, 0);
     play(&mut game, 3);
     reject(
         &mut game,
         PlayerId(0),
         Response::PlayLand { card: CardId(4) },
     );
-    assert_eq!(game.state.turn.lands_played, 1);
-    assert_eq!(game.state.active, Some(PlayerId(0)));
-    assert_eq!(game.state.priority, PlayerId(0));
+    assert_eq!(game.state.rules.turn.lands_played, 1);
+    assert_eq!(game.state.rules.active, Some(PlayerId(0)));
+    assert_eq!(game.state.rules.priority, PlayerId(0));
     for card in [0, 1, 2, 3] {
-        let object = &game.state.objects[&CardId(card)];
+        let object = &game.state.rules.objects[&CardId(card)];
         assert_eq!(object.zone, Zone::Battlefield);
         assert!(!object.tapped);
         assert_eq!(object.controller, PlayerId(0));
     }
     for (card, owner) in [(4, 0), (5, 1), (6, 2), (7, 3)] {
-        let object = &game.state.objects[&CardId(card)];
+        let object = &game.state.rules.objects[&CardId(card)];
         assert_eq!(
             object.zone,
             Zone::Hand {
@@ -200,11 +200,12 @@ fn complete_turn_loop_preserves_exact_permanents_draws_timing_and_replay() {
     }
     assert!(
         game.state
+            .rules
             .players
             .iter()
             .all(|p| p.mana.is_empty() && p.life == Quantity::from(40))
     );
-    assert!(game.state.stack.is_empty());
+    assert!(game.state.rules.stack.is_empty());
     let replay = Game::replay(prepared(), &game.replay_journal()).unwrap();
     assert_eq!(replay.state, game.state);
     assert_eq!(replay.trace, game.trace);
@@ -231,7 +232,7 @@ fn lands_and_creatures_reject_nonactive_timing_stack_and_wrong_source() {
     for _ in 0..3 {
         pass(&mut game);
     }
-    assert_eq!(game.state.turn.step, TurnStep::End);
+    assert_eq!(game.state.rules.turn.step, TurnStep::End);
     reject(
         &mut game,
         PlayerId(0),
@@ -252,7 +253,7 @@ fn lands_and_creatures_reject_nonactive_timing_stack_and_wrong_source() {
     pass(&mut game);
     pass(&mut game);
     pass(&mut game);
-    assert_eq!(game.state.priority, PlayerId(0));
+    assert_eq!(game.state.rules.priority, PlayerId(0));
     reject(&mut game, PlayerId(0), Response::Cast { card: CardId(2) });
     reject(
         &mut game,
@@ -263,7 +264,7 @@ fn lands_and_creatures_reject_nonactive_timing_stack_and_wrong_source() {
     let mut game = Game::new(prepared());
     // Pay with private pre-floated mana to leave the land allowance unused.
     // No synthetic setup is admitted by production admission.
-    game.state.players[0]
+    game.state.rules.players[0]
         .mana
         .insert(Color::G, Quantity::from(2));
     let request = game.decision_for(PlayerId(0)).unwrap().unwrap();
@@ -304,14 +305,14 @@ fn land_limit_spans_both_mains_and_special_action_resets_passes() {
     // P1 receives priority again after the other three have passed only after
     // an action, so exercise the normal special action and subsequent pass round.
     play(&mut game, 5);
-    assert!(game.state.passes.is_empty());
-    assert_eq!(game.state.priority, PlayerId(1));
-    assert_eq!(game.state.turn.lands_played, 1);
+    assert!(game.state.rules.passes.is_empty());
+    assert_eq!(game.state.rules.priority, PlayerId(1));
+    assert_eq!(game.state.rules.turn.lands_played, 1);
     until(&mut game, 2, TurnStep::PostcombatMain);
-    assert_eq!(game.state.turn.lands_played, 1);
-    assert_eq!(game.state.turn.number, 2);
+    assert_eq!(game.state.rules.turn.lands_played, 1);
+    assert_eq!(game.state.rules.turn.number, 2);
     until(&mut game, 3, TurnStep::PrecombatMain);
-    assert_eq!(game.state.turn.lands_played, 0);
+    assert_eq!(game.state.rules.turn.lands_played, 0);
 }
 
 #[test]
@@ -337,18 +338,18 @@ fn unpayable_targetless_creature_reversal_keeps_or_undoes_only_casting_mana() {
             settle(&mut game),
             Advance::AwaitingDecision(Request::Priority { .. })
         ));
-        assert!(game.state.stack.is_empty());
+        assert!(game.state.rules.stack.is_empty());
         assert_eq!(game.object_id(CardId(2)).unwrap().incarnation, 0);
         assert_eq!(
             game.zone(game.object_id(CardId(2)).unwrap()),
             Some(Zone::Hand { owner: PlayerId(0) })
         );
-        assert_eq!(game.state.objects[&CardId(0)].tapped, !undo_mana);
+        assert_eq!(game.state.rules.objects[&CardId(0)].tapped, !undo_mana);
         assert_eq!(
             game.mana(PlayerId(0), Color::G),
             Some(Quantity::from(i64::from(!undo_mana)))
         );
-        assert_eq!(game.state.turn.lands_played, 0);
+        assert_eq!(game.state.rules.turn.lands_played, 0);
         let replay = Game::replay(prepared(), &game.replay_journal()).unwrap();
         assert_eq!(replay.state, game.state);
     }
@@ -367,8 +368,8 @@ fn mana_empties_at_step_end_and_untap_and_draw_offer_no_early_priority() {
         },
     );
     until(&mut game, 1, TurnStep::End);
-    assert!(game.state.players[0].mana.is_empty());
-    assert!(game.state.objects[&CardId(0)].tapped);
+    assert!(game.state.rules.players[0].mana.is_empty());
+    assert!(game.state.rules.objects[&CardId(0)].tapped);
     until(&mut game, 2, TurnStep::Upkeep);
     assert_eq!(
         game.zone(game.object_id(CardId(5)).unwrap()),
@@ -380,7 +381,7 @@ fn mana_empties_at_step_end_and_untap_and_draw_offer_no_early_priority() {
         Some(Zone::Hand { owner: PlayerId(1) })
     );
     until(&mut game, 5, TurnStep::Upkeep);
-    assert!(!game.state.objects[&CardId(0)].tapped);
+    assert!(!game.state.rules.objects[&CardId(0)].tapped);
     assert_eq!(
         game.zone(game.object_id(CardId(4)).unwrap()),
         Some(Zone::Library { owner: PlayerId(0) })
@@ -391,7 +392,7 @@ fn mana_empties_at_step_end_and_untap_and_draw_offer_no_early_priority() {
     for _ in 0..4 {
         pass(&mut game);
     }
-    assert_eq!(game.state.turn.step, TurnStep::PrecombatMain);
+    assert_eq!(game.state.rules.turn.step, TurnStep::PrecombatMain);
     assert_eq!(
         game.zone(game.object_id(CardId(2)).unwrap()),
         Some(Zone::Battlefield)
@@ -412,21 +413,21 @@ fn queued_departures_preserve_accepted_land_and_cast_or_remove_departing_actor()
             assert!(game.decision_for(PlayerId(0)).unwrap().is_none());
             let result = settle(&mut game);
             assert!(matches!(result, Advance::AwaitingDecision(_)));
-            assert!(game.state.pending.is_none());
+            assert!(game.state.rules.pending.is_none());
             assert_eq!(game.journal().len(), 1);
             if departed == PlayerId(0) {
                 assert!(game.object_id(CardId(1)).is_none());
                 assert!(game.object_id(CardId(2)).is_none());
-                assert!(game.state.stack.is_empty());
-                assert_eq!(game.state.active, None);
-                assert_eq!(game.state.turn.number, 1);
-                assert_eq!(game.state.turn_owner, PlayerId(0));
+                assert!(game.state.rules.stack.is_empty());
+                assert_eq!(game.state.rules.active, None);
+                assert_eq!(game.state.rules.turn.number, 1);
+                assert_eq!(game.state.rules.turn_owner, PlayerId(0));
             } else if matches!(response, Response::PlayLand { .. }) {
                 assert_eq!(
                     game.zone(game.object_id(CardId(1)).unwrap()),
                     Some(Zone::Battlefield)
                 );
-                assert_eq!(game.state.turn.lands_played, 1);
+                assert_eq!(game.state.rules.turn.lands_played, 1);
             } else {
                 assert!(matches!(
                     result,
@@ -447,17 +448,17 @@ fn departing_last_unpassed_player_resolves_without_a_redundant_pass() {
     for _ in 0..3 {
         pass(&mut game);
     }
-    assert_eq!(game.state.priority, PlayerId(3));
+    assert_eq!(game.state.rules.priority, PlayerId(3));
     game.concede(PlayerId(3)).unwrap();
     let _ = settle(&mut game);
-    assert!(game.state.stack.is_empty());
+    assert!(game.state.rules.stack.is_empty());
     assert_eq!(
         game.zone(game.object_id(CardId(2)).unwrap()),
         Some(Zone::Battlefield)
     );
-    assert_eq!(game.state.priority, PlayerId(0));
-    assert_eq!(game.state.turn.step, TurnStep::PostcombatMain);
-    assert_eq!(game.state.turn.lands_played, 1);
+    assert_eq!(game.state.rules.priority, PlayerId(0));
+    assert_eq!(game.state.rules.turn.step, TurnStep::PostcombatMain);
+    assert_eq!(game.state.rules.turn.lands_played, 1);
 }
 
 #[test]
@@ -465,15 +466,15 @@ fn absent_active_turn_finishes_before_next_live_turn_and_queued_winner_precedes_
     let mut game = Game::new(prepared());
     game.concede(PlayerId(0)).unwrap();
     let _ = settle(&mut game);
-    assert_eq!(game.state.active, None);
-    assert_eq!(game.state.turn.number, 1);
-    assert_eq!(game.state.turn.step, TurnStep::PostcombatMain);
-    assert_eq!(game.state.priority, PlayerId(1));
+    assert_eq!(game.state.rules.active, None);
+    assert_eq!(game.state.rules.turn.number, 1);
+    assert_eq!(game.state.rules.turn.step, TurnStep::PostcombatMain);
+    assert_eq!(game.state.rules.priority, PlayerId(1));
     until(&mut game, 1, TurnStep::End);
-    assert_eq!(game.state.active, None);
+    assert_eq!(game.state.rules.active, None);
     until(&mut game, 2, TurnStep::Upkeep);
-    assert_eq!(game.state.active, Some(PlayerId(1)));
-    assert_eq!(game.state.turn_owner, PlayerId(1));
+    assert_eq!(game.state.rules.active, Some(PlayerId(1)));
+    assert_eq!(game.state.rules.turn_owner, PlayerId(1));
     assert_eq!(
         game.zone(game.object_id(CardId(5)).unwrap()),
         Some(Zone::Library { owner: PlayerId(1) })
@@ -495,8 +496,8 @@ fn absent_active_turn_finishes_before_next_live_turn_and_queued_winner_precedes_
             winner: PlayerId(0)
         }
     );
-    assert_eq!(game.state.turn.number, 1);
-    assert_eq!(game.state.turn.step, TurnStep::PostcombatMain);
+    assert_eq!(game.state.rules.turn.number, 1);
+    assert_eq!(game.state.rules.turn.step, TurnStep::PostcombatMain);
     assert_eq!(
         Game::replay(prepared(), &game.replay_journal())
             .unwrap()
@@ -527,7 +528,7 @@ fn public_land_queries_recover_and_handles_tokens_and_receipts_expire() {
     let saved = game.save_work(&work).unwrap();
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(&saved).unwrap()["work_version"],
-        15
+        16
     );
     let restored = Game::restore(prepared(), &game.snapshot().unwrap()).unwrap();
     let recovered_work = restored.restore_work(&saved).unwrap();
@@ -645,12 +646,12 @@ fn scheduler_snapshot_rejects_rehashed_forged_turn_land_and_frame_facts() {
     for mutation in 0..5 {
         let mut saved: Snapshot = strict_read(&snapshot).unwrap();
         match mutation {
-            0 => saved.state.turn.number += 1,
-            1 => saved.state.turn.step = TurnStep::PrecombatMain,
-            2 => saved.state.turn.lands_played = 0,
-            3 => saved.state.frame = Frame::EnterStep,
+            0 => saved.state.rules.turn.number += 1,
+            1 => saved.state.rules.turn.step = TurnStep::PrecombatMain,
+            2 => saved.state.rules.turn.lands_played = 0,
+            3 => saved.state.rules.frame = Frame::EnterStep,
             _ => {
-                saved.state.objects.get_mut(&CardId(4)).unwrap().zone =
+                saved.state.rules.objects.get_mut(&CardId(4)).unwrap().zone =
                     Zone::Hand { owner: PlayerId(0) }
             }
         }
@@ -680,7 +681,7 @@ fn creature_combat_and_empty_library_are_explicit_recoverable_faults() {
         pass(&mut game);
     }
     assert!(matches!(settle(&mut game), Advance::AwaitingDecision(_)));
-    assert_eq!(game.state.players[1].status, PlayerStatus::Left);
+    assert_eq!(game.state.rules.players[1].status, PlayerStatus::Left);
     recover(&game);
 }
 
@@ -733,23 +734,23 @@ fn scripted_response(game: &Game, request: &Request) -> Response {
 
     if let Request::Mana { .. } = request {
         for card in [CardId(0), CardId(1)] {
-            let object = &game.state.objects[&card];
+            let object = &game.state.rules.objects[&card];
             if !object.tapped {
                 return Response::ActivateMana { object: object.id };
             }
         }
         return Response::FinishMana { undo_mana: true };
     }
-    if game.state.turn.number == 1 && request.player() == PlayerId(0) {
-        if matches!(game.state.objects[&CardId(1)].zone, Zone::Hand { .. }) {
+    if game.state.rules.turn.number == 1 && request.player() == PlayerId(0) {
+        if matches!(game.state.rules.objects[&CardId(1)].zone, Zone::Hand { .. }) {
             return Response::PlayLand { card: CardId(1) };
         }
-        if matches!(game.state.objects[&CardId(2)].zone, Zone::Hand { .. }) {
+        if matches!(game.state.rules.objects[&CardId(2)].zone, Zone::Hand { .. }) {
             return Response::Cast { card: CardId(2) };
         }
     }
-    if game.state.turn.number == 5
-        && game.state.turn.step == TurnStep::PrecombatMain
+    if game.state.rules.turn.number == 5
+        && game.state.rules.turn.step == TurnStep::PrecombatMain
         && request.player() == PlayerId(0)
     {
         return Response::PlayLand { card: CardId(3) };
@@ -767,9 +768,9 @@ fn run_script(mode: TraceMode, budget: u64, recover_each: bool) -> Game {
         match outcome {
             Advance::Suspended { .. } => continue,
             Advance::AwaitingDecision(request) => {
-                if game.state.turn.number == 5
-                    && game.state.turn.step == TurnStep::PrecombatMain
-                    && game.state.turn.lands_played == 1
+                if game.state.rules.turn.number == 5
+                    && game.state.rules.turn.step == TurnStep::PrecombatMain
+                    && game.state.rules.turn.lands_played == 1
                 {
                     return game;
                 }
@@ -811,26 +812,26 @@ fn concessions_at_each_casting_and_scheduler_stage_remain_recoverable() {
     for _ in 0..6000 {
         // Distinct pending/automatic stages for each step; one representative
         // seat rotation suffices here, with all four possible departing seats.
-        let frame = serde_json::to_value(&game.state.frame).unwrap();
+        let frame = serde_json::to_value(&game.state.rules.frame).unwrap();
         let key = format!(
             "{:?}/{}/{:?}",
-            game.state.turn.step,
+            game.state.rules.turn.step,
             frame["stage"],
-            game.state.pending.as_ref().map(|p| &p.response)
+            game.state.rules.pending.as_ref().map(|p| &p.response)
         );
         samples
             .entry(key)
             .or_insert_with(|| game.snapshot().unwrap());
         match game.advance(Budget::new(1)) {
             Advance::Suspended { .. } => {
-                if matches!(game.state.frame, Frame::EnterStep | Frame::Transition) {
+                if matches!(game.state.rules.frame, Frame::EnterStep | Frame::Transition) {
                     for player in 0..4 {
                         assert!(game.decision_for(PlayerId(player)).unwrap().is_none());
                     }
                 }
             }
             Advance::AwaitingDecision(request) => {
-                if game.state.turn.number == 3 {
+                if game.state.rules.turn.number == 3 {
                     break;
                 }
                 let response = scripted_response(&game, &request);
@@ -887,10 +888,10 @@ fn zero_budget_and_forks_leave_pending_land_and_turn_work_independent() {
         Some(Zone::Battlefield)
     );
     assert!(fork.object_id(CardId(1)).is_none());
-    assert_eq!(game.state.active, Some(PlayerId(0)));
-    assert_eq!(fork.state.active, None);
-    assert_eq!(game.state.turn.lands_played, 1);
-    assert_eq!(fork.state.turn.lands_played, 0);
+    assert_eq!(game.state.rules.active, Some(PlayerId(0)));
+    assert_eq!(fork.state.rules.active, None);
+    assert_eq!(game.state.rules.turn.lands_played, 1);
+    assert_eq!(fork.state.rules.turn.lands_played, 0);
 }
 
 #[test]
@@ -933,6 +934,7 @@ fn generic_cleanup_discard_and_ordered_library_draw_are_available() {
             ));
             assert_eq!(
                 game.state
+                    .rules
                     .objects
                     .values()
                     .filter(|o| o.zone == Zone::Hand { owner: PlayerId(0) })
@@ -943,6 +945,7 @@ fn generic_cleanup_discard_and_ordered_library_draw_are_available() {
             assert!(matches!(outcome, Advance::AwaitingDecision(_)));
             assert_eq!(
                 game.state
+                    .rules
                     .objects
                     .values()
                     .filter(|o| o.zone == Zone::Library { owner: PlayerId(1) })
@@ -982,6 +985,6 @@ fn land_movement_and_counting_batch_failure_is_atomic() {
     );
     assert!(result.is_err());
     assert_eq!(game.snapshot().unwrap(), before);
-    assert_eq!(game.state.turn.lands_played, 0);
+    assert_eq!(game.state.rules.turn.lands_played, 0);
     assert_eq!(game.object_id(CardId(1)).unwrap().incarnation, 0);
 }

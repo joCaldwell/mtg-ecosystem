@@ -37,7 +37,7 @@ fn answer(game: &mut Game, response: Response) {
 #[test]
 fn simultaneous_all_player_loss_is_draw_without_intermediate_winner() {
     let mut g = game();
-    for p in &mut g.state.players {
+    for p in &mut g.state.rules.players {
         p.life = Quantity::zero();
     }
     g.stabilize().unwrap();
@@ -240,10 +240,15 @@ fn overlapping_clear_damage_composition_and_invalid_aggregate_roll_back_atomical
 #[test]
 fn cleanup_sba_exception_grants_priority_then_repeats_cleanup_and_clears_damage() {
     let mut g = game();
-    g.state.turn.step = TurnStep::Cleanup;
-    g.state.frame = Frame::CleanupClear;
-    g.state.players[1].life = Quantity::zero();
-    g.state.objects.get_mut(&CardId(0)).unwrap().marked_damage = Quantity::from(1);
+    g.state.rules.turn.step = TurnStep::Cleanup;
+    g.state.rules.frame = Frame::CleanupClear;
+    g.state.rules.players[1].life = Quantity::zero();
+    g.state
+        .rules
+        .objects
+        .get_mut(&CardId(0))
+        .unwrap()
+        .marked_damage = Quantity::from(1);
     assert!(matches!(
         g.advance(Budget::unlimited()),
         Advance::AwaitingDecision(Request::Priority {
@@ -251,8 +256,11 @@ fn cleanup_sba_exception_grants_priority_then_repeats_cleanup_and_clears_damage(
             ..
         })
     ));
-    assert!(g.state.cleanup_repeat);
-    assert_eq!(g.state.objects[&CardId(0)].marked_damage, Quantity::zero());
+    assert!(g.state.rules.cleanup_repeat);
+    assert_eq!(
+        g.state.rules.objects[&CardId(0)].marked_damage,
+        Quantity::zero()
+    );
     for _ in 0..3 {
         answer(&mut g, Response::Pass);
     }
@@ -263,8 +271,8 @@ fn cleanup_sba_exception_grants_priority_then_repeats_cleanup_and_clears_damage(
             ..
         })
     ));
-    assert_eq!(g.state.turn.number, 2);
-    assert_eq!(g.state.turn.step, TurnStep::Upkeep);
+    assert_eq!(g.state.rules.turn.number, 2);
+    assert_eq!(g.state.rules.turn.step, TurnStep::Upkeep);
     assert_eq!(
         g.events()
             .iter()
@@ -283,26 +291,41 @@ fn cleanup_sba_exception_grants_priority_then_repeats_cleanup_and_clears_damage(
 fn control_change_and_reentry_reset_readiness_even_before_untap_processing() {
     let mut g = game();
     let a = object(&g, 0);
-    g.state.control_effects.push(ControlEffect {
+    g.state.rules.control_effects.push(ControlEffect {
         id: 0,
         object: a,
         controller: PlayerId(1),
         source: ControlSource::Persistent,
     });
-    g.state.objects.get_mut(&CardId(0)).unwrap().controller = PlayerId(1);
-    g.state.objects.get_mut(&CardId(0)).unwrap().attack_ready = true;
+    g.state
+        .rules
+        .objects
+        .get_mut(&CardId(0))
+        .unwrap()
+        .controller = PlayerId(1);
+    g.state
+        .rules
+        .objects
+        .get_mut(&CardId(0))
+        .unwrap()
+        .attack_ready = true;
     g.apply_departure(PlayerId(1)).unwrap();
     assert_eq!(g.current(a).unwrap().controller, PlayerId(0));
     assert!(!g.current(a).unwrap().attack_ready);
     let moved = g.move_object(a, Zone::Hand { owner: PlayerId(0) }).unwrap();
     let entered = g.move_object(moved.successor, Zone::Battlefield).unwrap();
     assert!(!g.current(entered.successor).unwrap().attack_ready);
-    g.state.turn.step = TurnStep::Cleanup;
-    g.state.turn_owner = PlayerId(3);
-    g.state.frame = Frame::Transition;
+    g.state.rules.turn.step = TurnStep::Cleanup;
+    g.state.rules.turn_owner = PlayerId(3);
+    g.state.rules.frame = Frame::Transition;
     g.transition_turn_step().unwrap();
     assert!(g.current(entered.successor).unwrap().attack_ready);
-    g.state.objects.get_mut(&CardId(0)).unwrap().attack_ready = false;
+    g.state
+        .rules
+        .objects
+        .get_mut(&CardId(0))
+        .unwrap()
+        .attack_ready = false;
     g.enter_turn_step().unwrap();
     assert!(!g.current(entered.successor).unwrap().attack_ready);
 }
@@ -332,15 +355,15 @@ fn zero_power_has_no_positive_damage_occurrence_and_empty_attack_skips_damage() 
         .characteristics
         .power = Some(Quantity::zero());
     let a = object(&g, 0);
-    g.state.combat = vec![Attacker {
+    g.state.rules.combat = vec![Attacker {
         attacker: a,
         defender: PlayerId(1),
         blocked: false,
         blockers: vec![],
     }];
-    g.state.frame = Frame::Damage;
+    g.state.rules.frame = Frame::Damage;
     g.advance(Budget::unlimited());
-    assert_eq!(g.state.players[1].life, Quantity::from(2));
+    assert_eq!(g.state.rules.players[1].life, Quantity::from(2));
     assert!(!g.events().iter().any(|e| matches!(
         e,
         Event::Committed {
@@ -352,7 +375,7 @@ fn zero_power_has_no_positive_damage_occurrence_and_empty_attack_skips_damage() 
 #[test]
 fn nonactive_priority_mana_and_cast_completion_retain_priority_through_stabilization() {
     let mut g = game();
-    g.state.priority = PlayerId(3);
+    g.state.rules.priority = PlayerId(3);
     g.refresh_visibility().unwrap();
     let mana = object(&g, 6);
     answer(&mut g, Response::ActivateMana { object: mana });
@@ -385,8 +408,13 @@ fn simultaneous_losers_remove_all_owned_objects_before_control_restoration() {
     let mut g = game();
     let owned = object(&g, 3);
     let survivor = object(&g, 0);
-    g.state.objects.get_mut(&CardId(0)).unwrap().controller = PlayerId(1);
-    g.state.control_effects = vec![
+    g.state
+        .rules
+        .objects
+        .get_mut(&CardId(0))
+        .unwrap()
+        .controller = PlayerId(1);
+    g.state.rules.control_effects = vec![
         ControlEffect {
             id: 0,
             object: survivor,
@@ -400,8 +428,8 @@ fn simultaneous_losers_remove_all_owned_objects_before_control_restoration() {
             source: ControlSource::Persistent,
         },
     ];
-    g.state.players[1].life = Quantity::zero();
-    g.state.players[2].life = Quantity::zero();
+    g.state.rules.players[1].life = Quantity::zero();
+    g.state.rules.players[2].life = Quantity::zero();
     g.stabilize().unwrap();
     g.advance(Budget::new(1));
     assert_eq!(g.current(survivor).unwrap().controller, PlayerId(0));
@@ -437,7 +465,7 @@ fn last_unpassed_departure_during_stabilization_advances_without_redundant_pass(
             required_minimum: 1
         }
     );
-    assert!(matches!(g.state.frame, Frame::Stabilize { .. }));
+    assert!(matches!(g.state.rules.frame, Frame::Stabilize { .. }));
     g.concede(PlayerId(3)).unwrap();
     assert_eq!(
         g.advance(Budget::new(1)),
@@ -455,7 +483,7 @@ fn last_unpassed_departure_during_stabilization_advances_without_redundant_pass(
         panic!("expected next step priority")
     };
     assert_eq!(g.turn().step, TurnStep::BeginningCombat);
-    assert!(g.state.passes.is_empty());
+    assert!(g.state.rules.passes.is_empty());
 }
 
 #[test]
@@ -472,7 +500,7 @@ fn oversized_public_declarations_reject_before_handle_conversion() {
     };
     let before = g.state_digest().unwrap();
     let oversized = PlayerResponse::Attackers {
-        attacks: vec![(candidates[0].clone(), PlayerId(1)); g.state.objects.len() + 1],
+        attacks: vec![(candidates[0].clone(), PlayerId(1)); g.state.rules.objects.len() + 1],
     };
     assert!(matches!(
         g.check_player_response(PlayerId(0), token, oversized, Budget::unlimited()),
@@ -484,11 +512,16 @@ fn oversized_public_declarations_reject_before_handle_conversion() {
 #[test]
 fn turn_start_consumes_control_history_facts_and_rejects_simultaneous_object_writes() {
     let mut g = game();
-    g.state.turn.step = TurnStep::Cleanup;
-    g.state.turn_owner = PlayerId(3);
-    g.state.frame = Frame::Transition;
+    g.state.rules.turn.step = TurnStep::Cleanup;
+    g.state.rules.turn_owner = PlayerId(3);
+    g.state.rules.frame = Frame::Transition;
     let a = object(&g, 0);
-    g.state.objects.get_mut(&CardId(0)).unwrap().attack_ready = false;
+    g.state
+        .rules
+        .objects
+        .get_mut(&CardId(0))
+        .unwrap()
+        .attack_ready = false;
     let (next, owner) = g.next_turn_state().unwrap();
     let before = g.snapshot().unwrap();
     assert!(
@@ -538,14 +571,27 @@ fn hidden_library_order_and_opponent_hand_do_not_change_public_projection() {
     let mut right = left.fork();
     right
         .state
+        .rules
         .libraries
         .get_mut(&PlayerId(0))
         .unwrap()
         .reverse();
-    let a = right.state.cards[&CardId(18)].oracle_id.clone();
-    let b = right.state.cards[&CardId(19)].oracle_id.clone();
-    right.state.cards.get_mut(&CardId(18)).unwrap().oracle_id = b;
-    right.state.cards.get_mut(&CardId(19)).unwrap().oracle_id = a;
+    let a = right.state.rules.cards[&CardId(18)].oracle_id.clone();
+    let b = right.state.rules.cards[&CardId(19)].oracle_id.clone();
+    right
+        .state
+        .rules
+        .cards
+        .get_mut(&CardId(18))
+        .unwrap()
+        .oracle_id = b;
+    right
+        .state
+        .rules
+        .cards
+        .get_mut(&CardId(19))
+        .unwrap()
+        .oracle_id = a;
     right.refresh_visibility().unwrap();
     let QueryResult::Complete(QueryValue::Observation(a)) =
         left.observe(PlayerId(0), Budget::unlimited())

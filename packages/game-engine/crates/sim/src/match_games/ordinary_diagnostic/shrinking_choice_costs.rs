@@ -619,14 +619,14 @@ fn branch(
         {
             return Err("required branch action incomplete".into());
         }
-        let delta = &g.journal()[initial..];
+        let delta = g.journal().iter().skip(initial);
         if delta.len() != m.counts.submitted_inputs
             || m.counts.validated_inputs != delta.len()
             || m.counts.consumed_inputs != delta.len()
         {
             return Err("accepted/committed processing counts differ".into());
         }
-        for (i, input) in delta.iter().enumerate() {
+        for (i, input) in delta.enumerate() {
             let expected = mtg_core::CoreInputIdentity::Decision {
                 journal_ordinal: (initial + i) as u64,
                 decision_id: input.decision_id,
@@ -646,7 +646,7 @@ fn branch(
     })();
     match result {
         Ok(()) => Ok(Branch {
-            delta_journal: g.journal()[initial..].to_vec(),
+            delta_journal: g.journal().iter().skip(initial).cloned().collect(),
             game: g,
             meter: m,
         }),

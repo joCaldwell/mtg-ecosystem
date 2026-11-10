@@ -82,18 +82,18 @@ fn d2cb_archived_mine_cast_normal_draw_then_actor_extra_draw_all_traces() {
         g.complete_test_mana();
         resolve(&mut g);
         to_step(&mut g, 2, TurnStep::Upkeep);
-        assert_eq!(g.state.next_trigger_id, 0, "wrong step");
-        let before = g.state.libraries[&PlayerId(1)].len();
+        assert_eq!(g.state.rules.next_trigger_id, 0, "wrong step");
+        let before = g.state.rules.libraries[&PlayerId(1)].len();
         // Fragment across matching, normal entry and automatic placement.
         for _ in 0..4 {
             answer(&mut g, Response::Pass);
         }
-        pass_until(&mut g, |g| matches!(g.state.frame, Frame::EnterStep));
-        assert_eq!(g.state.pending_triggers.len(), 1);
-        assert_eq!(g.state.libraries[&PlayerId(1)].len(), before);
+        pass_until(&mut g, |g| matches!(g.state.rules.frame, Frame::EnterStep));
+        assert_eq!(g.state.rules.pending_triggers.len(), 1);
+        assert_eq!(g.state.rules.libraries[&PlayerId(1)].len(), before);
         recover(&g);
         placed(&mut g);
-        assert_eq!(g.state.libraries[&PlayerId(1)].len(), before - 1);
+        assert_eq!(g.state.rules.libraries[&PlayerId(1)].len(), before - 1);
         let StackKind::Triggered {
             witness:
                 TriggerEventWitness::StepBegan {
@@ -101,15 +101,15 @@ fn d2cb_archived_mine_cast_normal_draw_then_actor_extra_draw_all_traces() {
                     ..
                 },
             ..
-        } = &g.state.stack[0].kind
+        } = &g.state.rules.stack[0].kind
         else {
             panic!("actor")
         };
         assert_eq!(*actor, PlayerId(1));
-        assert_eq!(g.state.stack[0].controller, PlayerId(0));
+        assert_eq!(g.state.rules.stack[0].controller, PlayerId(0));
         recover(&g);
         resolve(&mut g);
-        assert_eq!(g.state.libraries[&PlayerId(1)].len(), before - 2);
+        assert_eq!(g.state.rules.libraries[&PlayerId(1)].len(), before - 2);
         recover(&g);
         if mode == TraceMode::Detailed {
             let checks = g
@@ -150,28 +150,28 @@ fn d2cb_synthetic_status_collection_and_resolution_use_departure_lki_all_traces(
                 tap(&mut g, 0, 1);
             }
             to_step(&mut g, 1, TurnStep::Draw);
-            assert_eq!(g.state.stack.len(), usize::from(!before_collection));
+            assert_eq!(g.state.rules.stack.len(), usize::from(!before_collection));
             if before_collection {
                 recover(&g);
                 continue;
             }
-            let n = g.state.libraries[&PlayerId(0)].len();
+            let n = g.state.rules.libraries[&PlayerId(0)].len();
             if after_collection {
                 tap(&mut g, 0, 1);
             }
             if leave {
                 g.concede(PlayerId(2)).unwrap();
                 placed(&mut g);
-                assert!(!g.state.objects.contains_key(&CardId(0)));
+                assert!(!g.state.rules.objects.contains_key(&CardId(0)));
             }
             recover(&g);
             // Passing after a retained mana action includes the remaining living seats.
-            while !g.state.stack.is_empty() {
+            while !g.state.rules.stack.is_empty() {
                 passive(&mut g);
             }
             let _ = settle(&mut g);
             assert_eq!(
-                g.state.libraries[&PlayerId(0)].len(),
+                g.state.rules.libraries[&PlayerId(0)].len(),
                 n - usize::from(!after_collection)
             );
             recover(&g);
@@ -203,12 +203,12 @@ fn d2cb_archived_seizan_ordered_life_and_two_draws_before_sbas() {
             recover(&g);
             resolve(&mut g);
             assert_eq!(g.is_live(PlayerId(0)), life > 2 && library >= 2);
-            assert_eq!(g.state.players[1].life, 40.into());
+            assert_eq!(g.state.rules.players[1].life, 40.into());
             if g.is_live(PlayerId(0)) {
-                assert_eq!(g.state.libraries[&PlayerId(0)].len(), library - 2);
+                assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), library - 2);
             } else {
                 assert_eq!(
-                    g.state.players[0].last_known.as_ref().unwrap().life,
+                    g.state.rules.players[0].last_known.as_ref().unwrap().life,
                     Quantity::from(life - 2)
                 );
             }
@@ -258,23 +258,25 @@ fn d2cb_actor_controller_owner_departures_remain_distinct() {
             });
             let mut g = Game::with_trace(p, mode);
             to_step(&mut g, 1, TurnStep::Draw);
-            let n = g.state.libraries[&PlayerId(1)].len();
+            let n = g.state.rules.libraries[&PlayerId(1)].len();
             g.concede(PlayerId(departing)).unwrap();
             placed(&mut g);
             recover(&g);
-            while !g.state.stack.is_empty() {
+            while !g.state.rules.stack.is_empty() {
                 passive(&mut g);
             }
             let _ = settle(&mut g);
             if departing != 1 {
-                assert_eq!(g.state.players[1].life, 43.into());
+                assert_eq!(g.state.rules.players[1].life, 43.into());
                 assert_eq!(
-                    g.state.libraries[&PlayerId(1)].len(),
+                    g.state.rules.libraries[&PlayerId(1)].len(),
                     n,
                     "never redirect actor draw"
                 );
             } else {
-                assert!(g.state.stack.is_empty() && g.state.pending_triggers.is_empty());
+                assert!(
+                    g.state.rules.stack.is_empty() && g.state.rules.pending_triggers.is_empty()
+                );
             }
             recover(&g);
         }
@@ -318,10 +320,11 @@ fn d2cb_synthetic_absent_actor_upkeep_draw_end_and_multiple_controller_apnap() {
                 BeginningStep::End => TurnStep::End,
             };
             to_step(&mut g, 1, runtime);
-            assert_eq!(g.state.active, None);
-            assert_eq!(g.state.turn_owner, PlayerId(0));
+            assert_eq!(g.state.rules.active, None);
+            assert_eq!(g.state.rules.turn_owner, PlayerId(0));
             assert_eq!(
                 g.state
+                    .rules
                     .stack
                     .iter()
                     .map(|s| s.controller)
@@ -329,13 +332,13 @@ fn d2cb_synthetic_absent_actor_upkeep_draw_end_and_multiple_controller_apnap() {
                 vec![PlayerId(1), PlayerId(2), PlayerId(3)]
             );
             recover(&g);
-            while !g.state.stack.is_empty() {
+            while !g.state.rules.stack.is_empty() {
                 passive(&mut g);
             }
             let _ = settle(&mut g);
             for i in 1..4 {
-                assert_eq!(g.state.players[i].life, 41.into());
-                assert_eq!(g.state.libraries[&PlayerId(i as u8)].len(), 8);
+                assert_eq!(g.state.rules.players[i].life, 41.into());
+                assert_eq!(g.state.rules.libraries[&PlayerId(i as u8)].len(), 8);
             }
             recover(&g);
         }
@@ -385,7 +388,7 @@ fn bounce_recast(g: &mut Game) {
     g.complete_test_mana();
     resolve(g);
     assert_eq!(
-        g.state.objects[&CardId(0)].zone,
+        g.state.rules.objects[&CardId(0)].zone,
         Zone::Hand { owner: PlayerId(0) }
     );
     recover(g);
@@ -402,7 +405,7 @@ fn d2cb_synthetic_reentry_never_overwrites_old_incarnation_status() {
         for old_tapped in [false, true] {
             let mut g = Game::with_trace(synthetic_flash_reentry(MINE, true), mode);
             to_step(&mut g, 1, TurnStep::Draw);
-            let n = g.state.libraries[&PlayerId(0)].len();
+            let n = g.state.rules.libraries[&PlayerId(0)].len();
             if old_tapped {
                 tap(&mut g, 0, 0);
             }
@@ -410,11 +413,11 @@ fn d2cb_synthetic_reentry_never_overwrites_old_incarnation_status() {
             if !old_tapped {
                 tap(&mut g, 0, 0);
             }
-            assert_eq!(g.state.stack.len(), 1);
+            assert_eq!(g.state.rules.stack.len(), 1);
             recover(&g);
             resolve(&mut g);
             assert_eq!(
-                g.state.libraries[&PlayerId(0)].len(),
+                g.state.rules.libraries[&PlayerId(0)].len(),
                 n - usize::from(!old_tapped)
             );
             recover(&g);
@@ -428,8 +431,11 @@ fn d2cb_synthetic_fretwork_reentry_preserves_loss_without_successor_counter() {
         to_step(&mut g, 1, TurnStep::Upkeep);
         bounce_recast(&mut g);
         resolve(&mut g);
-        assert_eq!(g.state.objects[&CardId(0)].plus_one_counters, 0.into());
-        assert_eq!(g.state.players[0].life, 39.into());
+        assert_eq!(
+            g.state.rules.objects[&CardId(0)].plus_one_counters,
+            0.into()
+        );
+        assert_eq!(g.state.rules.players[0].life, 39.into());
         recover(&g);
     }
 }
@@ -483,12 +489,12 @@ fn d2cb_archived_mine_actor_commander_draw_continuation_and_empty_library() {
             answer(&mut g, Response::CommanderReturn { to_command: true });
             placed(&mut g);
             assert_eq!(
-                g.state.objects[&commander].zone,
+                g.state.rules.objects[&commander].zone,
                 Zone::Command { owner: PlayerId(0) }
             );
-            assert_eq!(g.state.libraries[&PlayerId(0)].len(), 6);
+            assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), 6);
             assert_eq!(
-                g.state.players[0].life,
+                g.state.rules.players[0].life,
                 if id == SEIZAN { 38.into() } else { 40.into() }
             );
             recover(&g);
@@ -525,7 +531,7 @@ fn d2cb_synthetic_hand_empty_composes_with_step_trigger_and_keeps_old_shape() {
         p.profile_digest = digest(&p.config).unwrap();
         let mut g = Game::new(p);
         to_step(&mut g, 1, TurnStep::Draw);
-        assert_eq!(g.state.stack.len(), usize::from(empty));
+        assert_eq!(g.state.rules.stack.len(), usize::from(empty));
         recover(&g);
         if empty {
             resolve(&mut g);
@@ -622,7 +628,7 @@ fn d2cb_archived_direct_untargeted_self_damage_regression() {
         to_step(&mut g, 1, TurnStep::Upkeep);
         recover(&g);
         resolve(&mut g);
-        assert_eq!(g.state.players[0].life, 39.into());
+        assert_eq!(g.state.rules.players[0].life, 39.into());
         recover(&g);
     }
 }
@@ -646,17 +652,17 @@ fn d2cb_fragmented_match_placement_and_resolution_cache_restore_all_traces() {
             let mut cached = false;
             for _ in 0..100 {
                 recover(&g);
-                pending |= !g.state.pending_triggers.is_empty();
-                if matches!(&g.state.frame,Frame::Resolve {frame} if frame.condition_check.is_some())
+                pending |= !g.state.rules.pending_triggers.is_empty();
+                if matches!(&g.state.rules.frame,Frame::Resolve {frame} if frame.condition_check.is_some())
                 {
                     cached = true;
                 }
                 match g.advance(Budget::new(1)) {
                     Advance::Suspended { .. } => (),
                     Advance::AwaitingDecision(_)
-                        if g.state.next_trigger_id > 0
-                            && g.state.stack.is_empty()
-                            && g.state.pending_triggers.is_empty() =>
+                        if g.state.rules.next_trigger_id > 0
+                            && g.state.rules.stack.is_empty()
+                            && g.state.rules.pending_triggers.is_empty() =>
                     {
                         break;
                     }
@@ -677,8 +683,8 @@ fn d2cb_source_status_collection_failure_rolls_back_atomic_evidence() {
             prepared(&[(MINE, 2, 1, Zone::Battlefield)], TurnStep::Upkeep),
             mode,
         );
-        g.state.frame = Frame::Transition;
-        g.state.next_trigger_id = u64::MAX;
+        g.state.rules.frame = Frame::Transition;
+        g.state.rules.next_trigger_id = u64::MAX;
         let before = g.fork();
         let token = g.state_token.clone();
         assert!(g.transition_turn_step().is_err());
@@ -700,16 +706,16 @@ fn d2cb_synthetic_tapped_predicate_and_hand_recheck_after_normal_draw() {
         let mut g = Game::with_trace(p, mode);
         tap(&mut g, 0, 1);
         to_step(&mut g, 1, TurnStep::Draw);
-        assert_eq!(g.state.stack.len(), 1);
+        assert_eq!(g.state.rules.stack.len(), 1);
         g.concede(PlayerId(2)).unwrap();
         placed(&mut g);
         recover(&g);
-        let n = g.state.libraries[&PlayerId(0)].len();
-        while !g.state.stack.is_empty() {
+        let n = g.state.rules.libraries[&PlayerId(0)].len();
+        while !g.state.rules.stack.is_empty() {
             passive(&mut g);
         }
         let _ = settle(&mut g);
-        assert_eq!(g.state.libraries[&PlayerId(0)].len(), n - 1);
+        assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), n - 1);
         recover(&g);
         let mut p = prepared(&[(MINE, 0, 0, Zone::Battlefield)], TurnStep::Upkeep);
         edit(&mut p, MINE, |d| {
@@ -717,11 +723,15 @@ fn d2cb_synthetic_tapped_predicate_and_hand_recheck_after_normal_draw() {
         });
         let mut g = Game::with_trace(p, mode);
         to_step(&mut g, 1, TurnStep::Draw);
-        assert_eq!(g.state.stack.len(), 1, "empty hand at actual collection");
-        assert_eq!(g.state.libraries[&PlayerId(0)].len(), 7);
+        assert_eq!(
+            g.state.rules.stack.len(),
+            1,
+            "empty hand at actual collection"
+        );
+        assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), 7);
         resolve(&mut g);
         assert_eq!(
-            g.state.libraries[&PlayerId(0)].len(),
+            g.state.rules.libraries[&PlayerId(0)].len(),
             7,
             "normal draw makes resolution check false"
         );

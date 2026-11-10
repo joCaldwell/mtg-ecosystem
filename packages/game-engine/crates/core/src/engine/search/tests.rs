@@ -24,8 +24,8 @@ fn root(takes: u8) -> Game {
                 player: PlayerId(0),
                 ..
             }
-        ) && game.state.turn.step == TurnStep::PrecombatMain
-            && game.state.passes.is_empty()
+        ) && game.state.rules.turn.step == TurnStep::PrecombatMain
+            && game.state.rules.passes.is_empty()
         {
             return game;
         }
@@ -287,6 +287,7 @@ fn paid_opening_capture_world_projection_namespace_and_independent_hidden_origin
     // unobserved state changes. It is never exported as a real restore origin.
     other
         .state
+        .rules
         .match_state
         .as_mut()
         .unwrap()
@@ -294,6 +295,7 @@ fn paid_opening_capture_world_projection_namespace_and_independent_hidden_origin
         .word_position = RngPosition(12345);
     other
         .state
+        .rules
         .libraries
         .get_mut(&PlayerId(1))
         .unwrap()
@@ -425,7 +427,11 @@ fn survivors_and_public_reversal_memories_are_owner_scoped() {
     // replaying a different owner's private hand/history. Two owners' same
     // Oracle are separate constraints, even though the public decks are equal.
     let mut game = root(0);
-    let mut view = game.state.visibility[0].history.last().unwrap().to_public();
+    let mut view = game.state.knowledge.visibility[0]
+        .history
+        .last()
+        .unwrap()
+        .to_public();
     for owner in [PlayerId(1), PlayerId(3)] {
         view.objects.push(VisibleObject {
             attached_to: None,
@@ -454,7 +460,7 @@ fn survivors_and_public_reversal_memories_are_owner_scoped() {
             tapped: false,
         });
     }
-    game.state.visibility[0].history.push_public(view);
+    game.state.knowledge.visibility[0].history.push_public(view);
     // Synthetic permitted-history domain fixture tests inference only; no fake
     // capture can be injected through the public API or real snapshot restore.
     let c = capture(&game);

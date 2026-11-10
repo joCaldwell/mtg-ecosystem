@@ -132,7 +132,7 @@ fn check(g: &Game) {
         g.trace.mode,
     )
     .unwrap();
-    if matches!(g.state.frame, Frame::Fault { .. }) {
+    if matches!(g.state.rules.frame, Frame::Fault { .. }) {
         let _ = replayed.advance(Budget::new(1));
     }
     assert_eq!(replayed.state, g.state);
@@ -183,6 +183,7 @@ fn pay_proposal(g: &mut Game, targets: Vec<TargetEntity>, stack_target: Option<S
                 } else {
                     let land = g
                         .state
+                        .rules
                         .objects
                         .values()
                         .filter(|o| {
@@ -225,7 +226,7 @@ fn pay_proposal(g: &mut Game, targets: Vec<TargetEntity>, stack_target: Option<S
                 Response::SpendMana { spending }
             }
             Request::StackTargets { .. } => Response::StackTargets {
-                entries: vec![stack_target.unwrap_or(g.state.stack[0].id)],
+                entries: vec![stack_target.unwrap_or(g.state.rules.stack[0].id)],
             },
             Request::Priority { .. } => break,
             x => panic!("cast request {x:?}"),
@@ -272,8 +273,8 @@ fn resolve_with(g: &mut Game, targets: Vec<TargetEntity>, mut inspect: impl FnMu
             Advance::Suspended { .. } => {}
             Advance::AwaitingDecision(r) => {
                 if matches!(r, Request::Priority { .. })
-                    && g.state.stack.is_empty()
-                    && g.state.pending_triggers.is_empty()
+                    && g.state.rules.stack.is_empty()
+                    && g.state.rules.pending_triggers.is_empty()
                 {
                     return;
                 }
@@ -297,9 +298,10 @@ fn target(o: ObjectId) -> Vec<TargetEntity> {
 }
 fn token_objects(g: &Game) -> Vec<ObjectId> {
     g.state
+        .rules
         .objects
         .values()
-        .filter(|o| g.state.tokens.contains_key(&o.id.card))
+        .filter(|o| g.state.rules.tokens.contains_key(&o.id.card))
         .map(|o| o.id)
         .collect()
 }
@@ -433,7 +435,7 @@ fn equip_sorcery_timing_re_equip_and_equipment_survives_creature_bounce() {
         assert!(equipment.attached_to.is_some());
         cast(g, 3, target(object(g, 2)));
         assert_eq!(g.zone(object(g, 0)), Some(Zone::Battlefield));
-        assert_eq!(g.state.objects[&CardId(0)].attached_to, None);
+        assert_eq!(g.state.rules.objects[&CardId(0)].attached_to, None);
     });
 }
 #[test]
@@ -474,7 +476,7 @@ fn auras_attach_and_sba_on_bounce_tuck_destruction_and_mass_destruction() {
                 Some(Zone::Graveyard { owner: PlayerId(0) })
             );
             assert_eq!(g.zone(object(g, 3)), Some(Zone::Battlefield));
-            assert_eq!(g.state.objects[&CardId(3)].attached_to, None);
+            assert_eq!(g.state.rules.objects[&CardId(3)].attached_to, None);
         });
     }
 }
@@ -548,7 +550,7 @@ fn aura_target_leaving_before_resolution_does_not_trigger_rancor() {
             g.zone(object(g, 0)),
             Some(Zone::Graveyard { owner: PlayerId(0) })
         );
-        assert!(g.state.stack.is_empty());
+        assert!(g.state.rules.stack.is_empty());
     });
 }
 #[test]
@@ -571,6 +573,7 @@ fn rancor_returns_after_bounce_and_its_return_can_be_stifled() {
                 for _ in 0..100 {
                     let r = request(g);
                     if g.state
+                        .rules
                         .stack
                         .last()
                         .is_some_and(|e| matches!(e.kind, StackKind::Triggered { .. }))
@@ -660,9 +663,9 @@ fn granted_lifelink_lki_survives_the_damage_source_leaving() {
         priority_for(g, 1);
         announce(g, 2, target(object(g, 1)));
         resolve(g, vec![]);
-        assert_eq!(g.state.players[0].life, Quantity::from(42));
-        assert_eq!(g.state.players[2].life, Quantity::from(38));
-        assert_eq!(g.state.objects[&CardId(0)].attached_to, None);
+        assert_eq!(g.state.rules.players[0].life, Quantity::from(42));
+        assert_eq!(g.state.rules.players[2].life, Quantity::from(38));
+        assert_eq!(g.state.rules.objects[&CardId(0)].attached_to, None);
     });
 }
 
@@ -740,13 +743,16 @@ fn warhammer_lifelink_trample_furnace_and_first_strike() {
             }
             answer(g, automatic(&r, &[]));
         }
-        assert_eq!(g.state.players[0].life, Quantity::from(50));
-        assert_eq!(g.state.players[1].life, Quantity::from(38));
+        assert_eq!(g.state.rules.players[0].life, Quantity::from(50));
+        assert_eq!(g.state.rules.players[1].life, Quantity::from(38));
         assert_eq!(
             g.zone(object(g, 1)),
             Some(Zone::Graveyard { owner: PlayerId(1) })
         );
-        assert_eq!(g.state.objects[&CardId(0)].marked_damage, Quantity::zero());
+        assert_eq!(
+            g.state.rules.objects[&CardId(0)].marked_damage,
+            Quantity::zero()
+        );
     });
 }
 #[test]
@@ -766,9 +772,9 @@ fn losing_granted_reach_after_declaration_keeps_the_legal_block() {
         request(g);
         assert!(!g.has_keyword(object(g, 1), KeywordAbility::Reach));
         assert!(!g.can_block(object(g, 1), object(g, 0)));
-        assert_eq!(g.state.combat[0].blockers, vec![object(g, 1)]);
+        assert_eq!(g.state.rules.combat[0].blockers, vec![object(g, 1)]);
         reach(g, TurnStep::EndCombat);
-        assert_eq!(g.state.players[2].life, Quantity::from(40));
+        assert_eq!(g.state.rules.players[2].life, Quantity::from(40));
     });
 }
 #[test]
@@ -855,8 +861,8 @@ fn simultaneous_departure_preserves_granted_damage_source_lki() {
         request(g);
         g.concede(PlayerId(2)).unwrap();
         resolve(g, vec![]);
-        assert_eq!(g.state.players[0].life, Quantity::from(41));
-        assert_eq!(g.state.players[1].life, Quantity::from(39));
+        assert_eq!(g.state.rules.players[0].life, Quantity::from(41));
+        assert_eq!(g.state.rules.players[1].life, Quantity::from(39));
     });
 }
 // PRIVATE INJECTED DOMAIN, deliberately outside natural match reachability:
@@ -889,8 +895,8 @@ fn private_pacifism_after_attack_or_block_preserves_combat_and_damage() {
             )
             .unwrap();
             assert!(g.has_restriction(enchanted, CreatureRestriction::CantAttackOrBlock));
-            assert_eq!(g.state.combat[0].attacker, object(&g, 0));
-            assert_eq!(g.state.combat[0].blockers, vec![object(&g, 1)]);
+            assert_eq!(g.state.rules.combat[0].attacker, object(&g, 0));
+            assert_eq!(g.state.rules.combat[0].blockers, vec![object(&g, 1)]);
             let snapshot = g.snapshot().unwrap();
             let prefix = g.journal().len();
             // This test-only fixture is outside accepted-input reachability.
@@ -902,7 +908,7 @@ fn private_pacifism_after_attack_or_block_preserves_combat_and_damage() {
             let (mut replay, _) = Game::read_snapshot(p.clone(), &snapshot).unwrap();
             assert_eq!(replay.state, g.state);
             reach(&mut g, TurnStep::EndCombat);
-            for input in &g.journal()[prefix..] {
+            for input in g.journal().iter().skip(prefix) {
                 assert!(matches!(
                     replay.advance(Budget::unlimited()),
                     Advance::AwaitingDecision(_)
@@ -922,7 +928,7 @@ fn private_pacifism_after_attack_or_block_preserves_combat_and_damage() {
                 g.zone(object(&g, 1)),
                 Some(Zone::Graveyard { owner: PlayerId(1) })
             );
-            assert_eq!(g.state.players[1].life, Quantity::from(40));
+            assert_eq!(g.state.rules.players[1].life, Quantity::from(40));
             let d = g.state_digest().unwrap();
             if let Some(old) = &baseline {
                 assert_eq!(&d, old);
@@ -939,7 +945,7 @@ fn pacifism_owner_concession_restores_next_declaration_eligibility() {
     traces(prepared(&rows), |g| {
         for _ in 0..300 {
             let r = request(g);
-            if g.state.active == Some(PlayerId(1))
+            if g.state.rules.active == Some(PlayerId(1))
                 && g.turn().step == TurnStep::PrecombatMain
                 && matches!(r, Request::Priority { .. })
             {
@@ -995,9 +1001,9 @@ fn advance_after_concession(g: &mut Game) {
         match g.advance(Budget::unlimited()) {
             Advance::AwaitingDecision(r) => {
                 if matches!(r, Request::Priority { .. })
-                    && g.state.stack.is_empty()
-                    && g.state.pending_triggers.is_empty()
-                    && !matches!(g.state.frame, Frame::DamageEffects { .. })
+                    && g.state.rules.stack.is_empty()
+                    && g.state.rules.pending_triggers.is_empty()
+                    && !matches!(g.state.rules.frame, Frame::DamageEffects { .. })
                 {
                     return;
                 }
@@ -1097,7 +1103,7 @@ fn aura_owner_concession_during_noncombat_damage_effect_choice_keeps_frozen_fact
         }
         answer(g, automatic(&r, &[]));
         assert!(
-            !g.state.stack.is_empty(),
+            !g.state.rules.stack.is_empty(),
             "damage effect choice not reached"
         );
     }

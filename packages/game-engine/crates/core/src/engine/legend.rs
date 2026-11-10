@@ -8,6 +8,7 @@ impl Game {
         let mut by_name: BTreeMap<(PlayerId, String), Vec<ObjectId>> = BTreeMap::new();
         for object in self
             .state
+            .rules
             .objects
             .values()
             .filter(|o| o.zone == Zone::Battlefield)
@@ -24,19 +25,20 @@ impl Game {
             .into_iter()
             .filter(|(_, ids)| ids.len() > 1)
             .collect::<Vec<_>>();
-        groups
-            .sort_by_key(|((p, name), _)| ((p.0 + 4 - self.state.turn_owner.0) % 4, name.clone()));
+        groups.sort_by_key(|((p, name), _)| {
+            ((p.0 + 4 - self.state.rules.turn_owner.0) % 4, name.clone())
+        });
         Ok(groups.into_iter().map(|(_, ids)| ids).collect())
     }
     pub(super) fn legend_request(&self) -> Result<Option<Request>, String> {
-        let Frame::LegendRule { groups, kept, .. } = &self.state.frame else {
+        let Frame::LegendRule { groups, kept, .. } = &self.state.rules.frame else {
             return Ok(None);
         };
         let Some(candidates) = groups.get(kept.len()) else {
             return Ok(None);
         };
         Ok(Some(Request::LegendRule {
-            decision_id: self.state.revision,
+            decision_id: self.state.rules.revision,
             player: self.current(candidates[0])?.controller,
             candidates: candidates.clone(),
             previous_choices: kept.clone(),
@@ -64,18 +66,23 @@ impl Game {
             resume,
             groups,
             mut kept,
-        } = self.state.frame.clone()
+        } = self.state.rules.frame.clone()
         else {
             return Err("legend frame".into());
         };
         if kept.len() < groups.len() {
-            let input = self.state.pending.take().ok_or("missing legend choice")?;
+            let input = self
+                .state
+                .rules
+                .pending
+                .take()
+                .ok_or("missing legend choice")?;
             self.validate_legend_response(input.player, &input.response)?;
             let Response::LegendRule { keep } = input.response else {
                 return Err("legend response".into());
             };
             kept.push(keep);
-            self.state.frame = Frame::LegendRule {
+            self.state.rules.frame = Frame::LegendRule {
                 resume,
                 groups,
                 kept,
@@ -97,7 +104,7 @@ impl Game {
             resume,
             groups,
             kept,
-        } = &self.state.frame
+        } = &self.state.rules.frame
             && (!matches!(resume.as_ref(), Frame::Stabilize { .. })
                 || *groups != self.legend_groups()?
                 || groups.is_empty()

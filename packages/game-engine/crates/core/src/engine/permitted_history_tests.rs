@@ -11,7 +11,7 @@ fn fixture() -> PermittedView {
     );
     // Generic public serde is deliberately independent of stored to_public().
     serde_json::from_value(
-        serde_json::to_value(g.state.visibility[0].history.last().unwrap()).unwrap(),
+        serde_json::to_value(g.state.knowledge.visibility[0].history.last().unwrap()).unwrap(),
     )
     .unwrap()
 }

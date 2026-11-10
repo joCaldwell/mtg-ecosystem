@@ -89,7 +89,7 @@ fn settle(g: &mut Game) -> Request {
         match g.advance(Budget::new(1)) {
             Advance::AwaitingDecision(r) => return r,
             Advance::Suspended { .. } => (),
-            other => panic!("step witness at {:?}: {other:?}", g.state.frame),
+            other => panic!("step witness at {:?}: {other:?}", g.state.rules.frame),
         }
     }
     panic!("step witness budget")
@@ -122,7 +122,7 @@ fn recover(g: &Game) {
     let replayed = Game::replay_to(
         g.prepared.as_ref().clone(),
         &g.replay_journal(),
-        Some(g.state.rule_steps),
+        Some(g.state.rules.rule_steps),
         g.trace.mode,
     )
     .unwrap();
@@ -132,7 +132,7 @@ fn recover(g: &Game) {
 fn to_step(g: &mut Game, number: u64, step: TurnStep) {
     for _ in 0..500 {
         let _ = settle(g);
-        if g.state.turn.number == number && g.state.turn.step == step {
+        if g.state.rules.turn.number == number && g.state.rules.turn.step == step {
             return;
         }
         passive(g);
@@ -213,6 +213,7 @@ fn fund(g: &mut Game) {
     let player = settle(g).player();
     let lands = g
         .state
+        .rules
         .objects
         .values()
         .filter(|o| {
@@ -262,10 +263,12 @@ fn declare(g: &mut Game, attacks: &[(u32, u8)]) {
     answer(g, Response::Attackers { attacks });
 }
 fn damage_boundary(g: &mut Game) {
-    pass_until(g, |g| matches!(g.state.frame, Frame::DamageEffects { .. }));
+    pass_until(g, |g| {
+        matches!(g.state.rules.frame, Frame::DamageEffects { .. })
+    });
 }
 fn pending(g: &mut Game) {
-    pass_until(g, |g| !g.state.pending_triggers.is_empty());
+    pass_until(g, |g| !g.state.rules.pending_triggers.is_empty());
 }
 fn named(name: &str) -> String {
     catalog()
@@ -277,12 +280,12 @@ fn named(name: &str) -> String {
         .clone()
 }
 fn library(g: &Game, player: u8) -> usize {
-    g.state.libraries[&PlayerId(player)].len()
+    g.state.rules.libraries[&PlayerId(player)].len()
 }
 fn witness(g: &Game) -> TriggerEventWitness {
     // Pending fields stay private: the wire shape is itself part of the test.
     serde_json::from_value(
-        serde_json::to_value(&g.state.pending_triggers[0]).unwrap()["witness"].clone(),
+        serde_json::to_value(&g.state.rules.pending_triggers[0]).unwrap()["witness"].clone(),
     )
     .unwrap()
 }
@@ -300,9 +303,9 @@ fn d2ce_seven_complete_sources_ir_to_runtime_all_traces() {
             let n = library(&g, 0);
             declare(&mut g, &[(0, 1)]);
             pending(&mut g);
-            assert_eq!(g.state.pending_triggers.len(), 1);
+            assert_eq!(g.state.rules.pending_triggers.len(), 1);
             if source == CAPTAIN {
-                assert_eq!(g.state.turn.step, TurnStep::FirstStrikeDamage);
+                assert_eq!(g.state.rules.turn.step, TurnStep::FirstStrikeDamage);
             }
             let d = actual(&g);
             assert_eq!(d.source.object, object(&g, 0));
@@ -323,11 +326,11 @@ fn d2ce_seven_complete_sources_ir_to_runtime_all_traces() {
             recover(&g);
             resolve(&mut g);
             recover(&g);
-            assert_eq!(g.state.next_trigger_id, 1);
+            assert_eq!(g.state.rules.next_trigger_id, 1);
             if [DRIDER, CAPTAIN].contains(&source) {
                 assert_eq!(library(&g, 0), n);
-                assert_eq!(g.state.tokens.len(), 1);
-                let token = g.state.tokens.keys().next().unwrap();
+                assert_eq!(g.state.rules.tokens.len(), 1);
+                let token = g.state.rules.tokens.keys().next().unwrap();
                 let fact = g.object_before(g.object_id(*token).unwrap()).unwrap();
                 assert_eq!(fact.controller, PlayerId(0));
                 assert_eq!(
@@ -343,7 +346,7 @@ fn d2ce_seven_complete_sources_ir_to_runtime_all_traces() {
                 assert_eq!(library(&g, 0), n - 1);
             }
             assert_eq!(
-                g.state.players[0].life,
+                g.state.rules.players[0].life,
                 if source == SHRINEKEEPER {
                     41.into()
                 } else {
@@ -370,21 +373,21 @@ fn d2ce_distinct_sources_same_player_and_first_double_strike_commits() {
             declare(&mut g, &[(0, 1), (1, 1)]);
             pending(&mut g);
             if double {
-                assert_eq!(g.state.pending_triggers.len(), 1);
+                assert_eq!(g.state.rules.pending_triggers.len(), 1);
                 let first = witness(&g);
                 placed(&mut g);
                 resolve(&mut g);
                 pending(&mut g);
-                assert_eq!(g.state.pending_triggers.len(), 2);
+                assert_eq!(g.state.rules.pending_triggers.len(), 2);
                 assert_ne!(first, witness(&g));
             } else {
-                assert_eq!(g.state.pending_triggers.len(), 2);
+                assert_eq!(g.state.rules.pending_triggers.len(), 2);
             }
             placed(&mut g);
-            while !g.state.stack.is_empty() {
+            while !g.state.rules.stack.is_empty() {
                 resolve(&mut g);
             }
-            assert_eq!(g.state.next_trigger_id, if double { 3 } else { 2 });
+            assert_eq!(g.state.rules.next_trigger_id, if double { 3 } else { 2 });
             recover(&g);
         }
     }
@@ -440,7 +443,9 @@ fn d2ce_partial_full_prevention_zero_and_doubling_actual_amount() {
             // Fox has power two in the pinned source. Shield/Furnace order
             // is a real affected-player decision, with recovery at that choice.
             for _ in 0..150 {
-                if !g.state.pending_triggers.is_empty() || g.state.players[1].life < 40.into() {
+                if !g.state.rules.pending_triggers.is_empty()
+                    || g.state.rules.players[1].life < 40.into()
+                {
                     break;
                 }
                 match g.advance(Budget::new(1)) {
@@ -463,19 +468,24 @@ fn d2ce_partial_full_prevention_zero_and_doubling_actual_amount() {
                     x => panic!("{x:?}"),
                 }
                 if prevent == 2
-                    && matches!(g.state.frame, Frame::Priority)
-                    && g.state.turn.step == TurnStep::CombatDamage
+                    && matches!(g.state.rules.frame, Frame::Priority)
+                    && g.state.rules.turn.step == TurnStep::CombatDamage
                 {
                     break;
                 }
             }
             if prevent == 2 {
-                assert_eq!(g.state.next_trigger_id, 0);
-                assert_eq!(g.state.players[1].life, 40.into());
+                assert_eq!(g.state.rules.next_trigger_id, 0);
+                assert_eq!(g.state.rules.players[1].life, 40.into());
             } else {
-                assert_eq!(g.state.pending_triggers.len(), 1);
+                assert_eq!(g.state.rules.pending_triggers.len(), 1);
                 let d = actual(&g);
-                let expected = 40 - g.state.players[1].life.to_string().parse::<i64>().unwrap();
+                let expected = 40
+                    - g.state.rules.players[1]
+                        .life
+                        .to_string()
+                        .parse::<i64>()
+                        .unwrap();
                 assert_eq!(d.amount, expected.into());
                 assert!(d.amount > Quantity::zero());
                 placed(&mut g);
@@ -489,7 +499,7 @@ fn d2ce_partial_full_prevention_zero_and_doubling_actual_amount() {
         let mut g = Game::with_trace(p, mode);
         declare(&mut g, &[(0, 1)]);
         to_step(&mut g, 1, TurnStep::PostcombatMain);
-        assert_eq!(g.state.next_trigger_id, 0);
+        assert_eq!(g.state.rules.next_trigger_id, 0);
         recover(&g);
     }
 }
@@ -538,7 +548,7 @@ fn d2ce_trample_split_lethal_source_observed_before_sba_and_separate_lki() {
         );
         pending(&mut g);
         let frozen = witness(&g);
-        assert_eq!(g.state.pending_triggers.len(), 1);
+        assert_eq!(g.state.rules.pending_triggers.len(), 1);
         assert_eq!(actual(&g).amount, 1.into());
         assert_eq!(g.current(original).unwrap().marked_damage, 2.into());
         assert_eq!(actual(&g).source.marked_damage, 0.into());
@@ -593,8 +603,8 @@ fn d2ce_exact_source_noncombat_and_life_loss_never_trigger() {
         );
         placed(&mut g);
         resolve(&mut g);
-        assert_eq!(g.state.players[1].life, 39.into());
-        assert_eq!(g.state.next_trigger_id, 0);
+        assert_eq!(g.state.rules.players[1].life, 39.into());
+        assert_eq!(g.state.rules.next_trigger_id, 0);
         recover(&g);
         answer(&mut g, Response::Cast { card: CardId(1) });
         answer(
@@ -606,7 +616,7 @@ fn d2ce_exact_source_noncombat_and_life_loss_never_trigger() {
         fund(&mut g);
         placed(&mut g);
         resolve(&mut g);
-        assert_eq!(g.state.next_trigger_id, 0);
+        assert_eq!(g.state.rules.next_trigger_id, 0);
         recover(&g);
     }
 }
@@ -624,18 +634,18 @@ fn d2ce_pending_placed_resolving_recovery_and_coherent_forgery() {
         let (mut pending_seen, mut placed_seen, mut resolving_seen) = (false, false, false);
         for _ in 0..180 {
             recover(&g);
-            pending_seen |= !g.state.pending_triggers.is_empty();
-            placed_seen |= !g.state.stack.is_empty();
-            resolving_seen |= matches!(g.state.frame, Frame::Resolve { .. });
+            pending_seen |= !g.state.rules.pending_triggers.is_empty();
+            placed_seen |= !g.state.rules.stack.is_empty();
+            resolving_seen |= matches!(g.state.rules.frame, Frame::Resolve { .. });
             let mut s: serde_json::Value = serde_json::from_str(&g.snapshot().unwrap()).unwrap();
             let mut paths = vec![];
-            for i in 0..g.state.pending_triggers.len() {
+            for i in 0..g.state.rules.pending_triggers.len() {
                 paths.push(format!("/state/pending_triggers/{i}/witness"));
             }
-            for i in 0..g.state.stack.len() {
+            for i in 0..g.state.rules.stack.len() {
                 paths.push(format!("/state/stack/{i}/kind/witness"));
             }
-            if matches!(g.state.frame, Frame::Resolve { .. }) {
+            if matches!(g.state.rules.frame, Frame::Resolve { .. }) {
                 paths.push("/state/frame/frame/spell/kind/witness".into());
             }
             if !paths.is_empty() {
@@ -686,7 +696,7 @@ fn d2ce_pending_placed_resolving_recovery_and_coherent_forgery() {
                         let mut structural = g.fork();
                         structural.state = decoded.state;
                         structural.validate_trigger_state().unwrap();
-                        if let Frame::Resolve { frame } = &structural.state.frame {
+                        if let Frame::Resolve { frame } = &structural.state.rules.frame {
                             structural.validate_resolving(frame).unwrap();
                         }
                     }
@@ -717,7 +727,7 @@ fn d2ce_pending_placed_resolving_recovery_and_coherent_forgery() {
             }
         }
         assert!(pending_seen && placed_seen && resolving_seen);
-        assert_eq!(g.state.next_trigger_id, 2);
+        assert_eq!(g.state.rules.next_trigger_id, 2);
         recover(&g);
     }
 }
@@ -780,7 +790,7 @@ fn d2ce_owner_controller_recipient_departures_pending_and_placed_all_traces() {
                 g.concede(PlayerId(departing)).unwrap();
                 placed(&mut g);
                 recover(&g);
-                assert_eq!(g.state.stack.len(), usize::from(departing != 0));
+                assert_eq!(g.state.rules.stack.len(), usize::from(departing != 0));
                 if departing != 0 {
                     assert!(
                         matches!(&g.top().unwrap().kind,StackKind::Triggered {witness,..} if witness==&frozen)
@@ -816,10 +826,10 @@ fn d2ce_stifle_counters_invocation_without_refunding_combat_damage() {
         fund(&mut g);
         placed(&mut g);
         resolve(&mut g);
-        assert!(g.state.stack.is_empty());
+        assert!(g.state.rules.stack.is_empty());
         assert_eq!(library(&g, 0), n);
-        assert_eq!(g.state.players[1].life, 38.into());
-        assert_eq!(g.state.next_trigger_id, 1);
+        assert_eq!(g.state.rules.players[1].life, 38.into());
+        assert_eq!(g.state.rules.next_trigger_id, 1);
         recover(&g);
     }
 }
@@ -855,8 +865,8 @@ fn d2ce_legacy_actual_members_any_player_and_combat_duplicate_atomic_rejection()
             BatchCause::Fixture,
         )
         .unwrap();
-        assert_eq!(g.state.pending_triggers.len(), 2);
-        assert_eq!(g.state.players[0].life, 37.into());
+        assert_eq!(g.state.rules.pending_triggers.len(), 2);
+        assert_eq!(g.state.rules.players[0].life, 37.into());
         assert!(matches!(
             witness(&g),
             TriggerEventWitness::DamageDealt {
@@ -917,7 +927,7 @@ fn d2ce_legacy_damage_capacity_boundary_typed_fault_and_atomic_preservation() {
             g.current(target).unwrap().marked_damage,
             (capacity as i64).into()
         );
-        assert!(g.state.pending_triggers.is_empty());
+        assert!(g.state.rules.pending_triggers.is_empty());
         assert!(g.typed_fault().is_none());
         for legacy in [true, false] {
             let mut overflow = g.fork();
@@ -947,7 +957,7 @@ fn d2ce_legacy_damage_capacity_boundary_typed_fault_and_atomic_preservation() {
                 requested: capacity + 1,
             };
             assert_eq!(overflow.typed_fault(), Some(&expected));
-            before.typed_fault = Some(expected);
+            before.rules.typed_fault = Some(expected);
             assert_eq!(overflow.state, before);
             assert_eq!(overflow.trace, trace);
             assert_eq!(overflow.replay_journal(), journal);
@@ -1011,8 +1021,8 @@ fn d2ce_repeated_noncombat_and_direct_life_events_do_not_restrict_or_trigger() {
         },
     )
     .unwrap();
-    assert_eq!(g.state.players[1].life, 36.into());
-    assert_eq!(g.state.next_trigger_id, 0);
+    assert_eq!(g.state.rules.players[1].life, 36.into());
+    assert_eq!(g.state.rules.next_trigger_id, 0);
 }
 #[test]
 fn d2ce_departure_before_commit_does_not_observe_absent_source() {
@@ -1022,7 +1032,7 @@ fn d2ce_departure_before_commit_does_not_observe_absent_source() {
         damage_boundary(&mut g);
         g.concede(PlayerId(2)).unwrap();
         to_step(&mut g, 1, TurnStep::PostcombatMain);
-        assert_eq!(g.state.next_trigger_id, 0);
+        assert_eq!(g.state.rules.next_trigger_id, 0);
         recover(&g);
     }
 }
@@ -1044,20 +1054,21 @@ fn d2ce_commit_faults_roll_back_life_commander_ids_pending_trace_journal_and_cha
             declare(&mut g, &[(0, 1), (1, 1), (2, 1)]);
             damage_boundary(&mut g);
             if fault == "trigger_id" {
-                g.state.next_trigger_id = u64::MAX;
+                g.state.rules.next_trigger_id = u64::MAX;
             }
             if fault == "batch_id" {
-                g.state.next_batch_id = u64::MAX;
+                g.state.rules.next_batch_id = u64::MAX;
             }
             if fault == "history" {
                 let n = g.history_charge();
-                g.state.retained_auxiliary_charge += capacities::HISTORY_LIMIT - n;
+                g.state.rules.retained_auxiliary_charge += capacities::HISTORY_LIMIT - n;
             }
             if fault == "stack" {
                 let mut sample = g.fork();
                 pending(&mut sample);
-                let t = sample.state.pending_triggers[0].clone();
+                let t = sample.state.rules.pending_triggers[0].clone();
                 g.state
+                    .rules
                     .pending_triggers
                     .resize(capacities::STACK_LIMIT - 1, t);
             }
@@ -1069,8 +1080,8 @@ fn d2ce_commit_faults_roll_back_life_commander_ids_pending_trace_journal_and_cha
                 "{fault}"
             );
             let mut after = g.state.clone();
-            after.frame = before.frame.clone();
-            after.typed_fault = before.typed_fault.clone();
+            after.rules.frame = before.rules.frame.clone();
+            after.rules.typed_fault = before.rules.typed_fault.clone();
             assert_eq!(after, before, "{fault}");
             assert_eq!(g.trace, trace);
             assert_eq!(g.replay_journal(), journal);
@@ -1129,7 +1140,7 @@ fn d2ce_multi_source_finite_shield_allocation_restore_and_no_recollection() {
         declare(&mut g, &[(0, 1), (1, 1)]);
         let mut allocation_seen = false;
         for _ in 0..150 {
-            if !g.state.pending_triggers.is_empty() {
+            if !g.state.rules.pending_triggers.is_empty() {
                 break;
             }
             match g.advance(Budget::new(1)) {
@@ -1187,15 +1198,15 @@ fn d2ce_multi_source_finite_shield_allocation_restore_and_no_recollection() {
             }
         }
         assert!(allocation_seen);
-        assert_eq!(g.state.pending_triggers.len(), 1);
+        assert_eq!(g.state.rules.pending_triggers.len(), 1);
         assert_eq!(actual(&g).source.object.card, CardId(0));
         assert_eq!(actual(&g).amount, 1.into());
-        assert_eq!(g.state.players[1].life, 39.into());
+        assert_eq!(g.state.rules.players[1].life, 39.into());
         recover(&g);
         placed(&mut g);
         recover(&g);
         resolve(&mut g);
-        assert_eq!(g.state.next_trigger_id, 1);
+        assert_eq!(g.state.rules.next_trigger_id, 1);
         recover(&g);
     }
 }
@@ -1244,7 +1255,7 @@ fn d2ce_sba_deaths_join_damage_invocation_in_common_apnap_placement() {
             },
         );
         pending(&mut g);
-        assert_eq!(g.state.pending_triggers.len(), 1);
+        assert_eq!(g.state.rules.pending_triggers.len(), 1);
         let mut order_players = vec![];
         for _ in 0..20 {
             recover(&g);
@@ -1268,6 +1279,7 @@ fn d2ce_sba_deaths_join_damage_invocation_in_common_apnap_placement() {
         assert_eq!(order_players, vec![PlayerId(3)]); // controller 0 has just one automatic placement
         assert_eq!(
             g.state
+                .rules
                 .stack
                 .iter()
                 .map(|s| s.controller)
@@ -1284,15 +1296,15 @@ fn d2ce_preparation_transaction_id_fault_rolls_back_choices_and_every_id() {
     for mode in modes() {
         let mut g = Game::with_trace(prepared(&[(FOX, 0, 0, Zone::Battlefield)]), mode);
         declare(&mut g, &[(0, 1)]);
-        pass_until(&mut g, |g| matches!(g.state.frame, Frame::Damage));
-        g.state.next_damage_transaction_id = u64::MAX;
+        pass_until(&mut g, |g| matches!(g.state.rules.frame, Frame::Damage));
+        g.state.rules.next_damage_transaction_id = u64::MAX;
         let before = g.state.clone();
         let trace = g.trace.clone();
         let journal = g.replay_journal();
         assert!(matches!(g.advance(Budget::new(1)), Advance::Fault(_)));
         let mut after = g.state.clone();
-        after.frame = before.frame.clone();
-        after.typed_fault = before.typed_fault.clone();
+        after.rules.frame = before.rules.frame.clone();
+        after.rules.typed_fault = before.rules.typed_fault.clone();
         assert_eq!(after, before);
         assert_eq!(g.trace, trace);
         assert_eq!(g.replay_journal(), journal);

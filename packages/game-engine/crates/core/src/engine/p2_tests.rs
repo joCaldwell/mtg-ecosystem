@@ -63,9 +63,9 @@ fn execution_budget_partitions_and_every_suspended_boundary_restore_exactly() {
         let mut suspensions = 0;
         loop {
             let before = game.state_digest().unwrap();
-            if game.state.pending.is_some()
+            if game.state.rules.pending.is_some()
                 || matches!(
-                    game.state.frame,
+                    game.state.rules.frame,
                     Frame::Payment { .. } | Frame::Resolve { .. }
                 )
             {
@@ -183,7 +183,8 @@ fn player_types_hide_other_hands_and_library_identities_and_frames() {
     }
     // Test-only privacy fixture; no library gameplay or new configuration is
     // admitted. Even its owner cannot see a hidden library's card identity.
-    game.state.objects.get_mut(&CardId(1)).unwrap().zone = Zone::Library { owner: PlayerId(0) };
+    game.state.rules.objects.get_mut(&CardId(1)).unwrap().zone =
+        Zone::Library { owner: PlayerId(0) };
     game.refresh_visibility().unwrap();
     let o = observe(&game, PlayerId(0));
     assert_eq!(o.view.players[0].library_count, 1);
@@ -193,14 +194,14 @@ fn player_types_hide_other_hands_and_library_identities_and_frames() {
 fn identical_permitted_histories_produce_identical_contexts_with_different_hidden_ids() {
     let original = Game::new(prepared());
     let mut other = original.fork();
-    let physical = other.state.cards.remove(&CardId(1)).unwrap();
-    let mut object = other.state.objects.remove(&CardId(1)).unwrap();
+    let physical = other.state.rules.cards.remove(&CardId(1)).unwrap();
+    let mut object = other.state.rules.objects.remove(&CardId(1)).unwrap();
     object.id = ObjectId {
         card: CardId(99),
         incarnation: 42,
     };
-    other.state.cards.insert(CardId(99), physical);
-    other.state.objects.insert(CardId(99), object);
+    other.state.rules.cards.insert(CardId(99), physical);
+    other.state.rules.objects.insert(CardId(99), object);
     other.refresh_visibility().unwrap();
     assert_ne!(
         original.state_digest().unwrap(),
@@ -346,12 +347,12 @@ fn query_work_invalidates_during_automatic_execution_even_without_input_revision
         game.advance(Budget::new(1)),
         Advance::Suspended { .. }
     ));
-    let revision = game.state.revision;
+    let revision = game.state.rules.revision;
     let QueryResult::Incomplete { work, .. } = game.observe(PlayerId(0), Budget::new(1)) else {
         panic!("missing work")
     };
     let _ = game.advance(Budget::new(1));
-    assert_eq!(game.state.revision, revision);
+    assert_eq!(game.state.rules.revision, revision);
     assert!(matches!(
         game.resume_work(work, Budget::unlimited()),
         QueryResult::Rejected(QueryRejection::StaleOrForeignWork)

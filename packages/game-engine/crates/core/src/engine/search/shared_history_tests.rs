@@ -25,7 +25,7 @@ fn root() -> Game {
                 ..
             }
         ) && g.turn().step == TurnStep::PrecombatMain
-            && g.state.passes.is_empty()
+            && g.state.rules.passes.is_empty()
         {
             return g;
         }
@@ -56,7 +56,7 @@ fn complete(g: &Game) -> SearchCapture {
     }
 }
 fn old_history(g: &Game) -> Vec<PermittedView> {
-    g.state.visibility[0]
+    g.state.knowledge.visibility[0]
         .history
         .iter()
         .map(|view| serde_json::from_value(serde_json::to_value(view).unwrap()).unwrap())
@@ -143,7 +143,8 @@ fn shared_capture_full_old_owned_wire_hash_and_one_object_unit_partition_are_unc
     }
     let old = old_history(&g);
     let scan_units = old.iter().map(|v| v.objects.len() as u64 + 1).sum::<u64>();
-    let total = query_units + g.state.visibility[0].own_knowledge.len() as u64 + scan_units + 1;
+    let total =
+        query_units + g.state.knowledge.visibility[0].own_knowledge.len() as u64 + scan_units + 1;
     for quantum in [1, 64, u64::MAX] {
         let mut outcome = g.capture_search(PlayerId(0), Budget::new(0));
         let mut supplied = 0_u64;
@@ -180,6 +181,7 @@ fn shared_capture_contains_no_hidden_state_and_survives_original_history_cow() {
     // setup seed or restorable real origin. Existing capture inputs stay equal.
     hidden
         .state
+        .rules
         .match_state
         .as_mut()
         .unwrap()
@@ -187,6 +189,7 @@ fn shared_capture_contains_no_hidden_state_and_survives_original_history_cow() {
         .word_position = RngPosition(12345);
     hidden
         .state
+        .rules
         .libraries
         .get_mut(&PlayerId(1))
         .unwrap()
@@ -198,7 +201,7 @@ fn shared_capture_contains_no_hidden_state_and_survives_original_history_cow() {
     assert_eq!(paired.sampler_identity(), c.sampler_identity());
     assert_old_capture(&hidden, &paired);
     let mut edited = g.fork();
-    edited.state.visibility[0].history[0].update_public(|v| v.turn.number += 123);
+    edited.state.knowledge.visibility[0].history[0].update_public(|v| v.turn.number += 123);
     assert_ne!(complete(&edited).context_id(), c.context_id());
     assert_eq!(canonical(c.data()).unwrap(), bytes);
     drop(edited);
@@ -228,7 +231,7 @@ fn shared_capture_still_rejects_foreign_history_viewers_and_stale_or_foreign_wor
         CaptureOutcome::Rejected(SearchRejection::StaleWork)
     ));
     let mut bad = root();
-    bad.state.visibility[0].history[0].update_public(|v| v.viewer = PlayerId(3));
+    bad.state.knowledge.visibility[0].history[0].update_public(|v| v.viewer = PlayerId(3));
     assert!(matches!(
         bad.capture_search(PlayerId(0), Budget::unlimited()),
         CaptureOutcome::Rejected(SearchRejection::UnsupportedHistory(_))

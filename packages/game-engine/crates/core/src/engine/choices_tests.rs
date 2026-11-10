@@ -18,7 +18,7 @@ fn seed(
     cursor: u32,
     kind: ResolvedEffectKind,
 ) -> EffectId {
-    let id = EffectId(g.state.next_effect_id);
+    let id = EffectId(g.state.rules.next_effect_id);
     let source = object(g, source);
     let source_handles = g.capture_trigger_source_handles(source).unwrap();
     let target_handles = match &kind {
@@ -27,9 +27,9 @@ fn seed(
         }
         _ => vec![],
     };
-    g.state.next_effect_id += 1;
-    g.state.next_stack_id = 1;
-    g.state.effects.push(ResolvedEffect {
+    g.state.rules.next_effect_id += 1;
+    g.state.rules.next_stack_id = 1;
+    g.state.rules.effects.push(ResolvedEffect {
         id,
         origin: EffectOrigin {
             mode,
@@ -40,7 +40,7 @@ fn seed(
             cursor,
             source_block: cursor,
         },
-        expires_in_cleanup_of_turn: g.state.turn.number,
+        expires_in_cleanup_of_turn: g.state.rules.turn.number,
         kind,
         target_handles,
     });
@@ -88,7 +88,10 @@ fn allocation() -> (Game, EffectKey) {
         .collect();
     g.prepare_combat_damage(damage).unwrap();
     g.damage_effect_step().unwrap();
-    assert!(matches!(g.state.frame, Frame::DamageAllocation { .. }));
+    assert!(matches!(
+        g.state.rules.frame,
+        Frame::DamageAllocation { .. }
+    ));
     (g, effect)
 }
 #[test]
@@ -138,7 +141,7 @@ fn modal_origin_selects_only_its_source_program_and_exact_budget() {
             remaining: 3.into(),
         },
     );
-    let e = g.state.effects.iter().find(|e| e.id == id).unwrap();
+    let e = g.state.rules.effects.iter().find(|e| e.id == id).unwrap();
     assert_eq!(g.shield_limit(e).unwrap(), 3.into());
     let mut wrong = e.clone();
     wrong.origin.mode = Some(0);
@@ -184,11 +187,12 @@ fn intervening_match_uses_common_lookback_and_never_retroactively_triggers() {
     assert!(
         !simultaneous
             .state
+            .rules
             .pending_triggers
             .iter()
             .any(|t| t.source == bouncer)
     );
-    assert_eq!(simultaneous.state.next_trigger_id, 2);
+    assert_eq!(simultaneous.state.rules.next_trigger_id, 2);
     assert!(simultaneous.events().iter().any(|e|matches!(e,Event::TriggerConditionChecked{source,stage:InterveningStage::Match{..},check,..} if *source==bouncer&&matches!(check, InterveningCheck::ControllerHandEmpty { hand_count:1, passed:false, .. }))));
     let mut ordered = g;
     ordered
@@ -204,12 +208,13 @@ fn intervening_match_uses_common_lookback_and_never_retroactively_triggers() {
         .unwrap();
     let trigger = ordered
         .state
+        .rules
         .pending_triggers
         .iter()
         .find(|t| t.source == bouncer)
         .unwrap();
     assert!(trigger.match_condition.as_ref().unwrap().passed());
-    assert_eq!(ordered.state.next_trigger_id, 3);
+    assert_eq!(ordered.state.rules.next_trigger_id, 3);
 }
 #[test]
 fn allocation_requires_complete_forced_vector_and_rejects_atomically() {
@@ -271,7 +276,7 @@ fn allocation_requires_complete_forced_vector_and_rejects_atomically() {
     assert!(
         matches!(out,EventOutcome::DamageEffectAllocated{applications,..} if applications.iter().map(|a|a.prevented.to_string()).collect::<Vec<_>>()==["1","2"])
     );
-    assert_eq!(g.state.players[0].life, 40.into());
+    assert_eq!(g.state.rules.players[0].life, 40.into());
     g.validate_damage_transaction(g.damage_transaction().unwrap())
         .unwrap();
 }
@@ -292,10 +297,10 @@ fn every_integral_split_is_supported_and_prefix_vector_is_proved() {
             BatchCause::Fixture,
         )
         .unwrap();
-        let Frame::DamageAllocation { transaction, .. } = g.state.frame.clone() else {
+        let Frame::DamageAllocation { transaction, .. } = g.state.rules.frame.clone() else {
             panic!()
         };
-        g.state.frame = Frame::DamageEffects { transaction };
+        g.state.rules.frame = Frame::DamageEffects { transaction };
         let expected = [Quantity::from(3 - first), Quantity::from(first)];
         assert_eq!(
             g.damage_transaction()
@@ -309,7 +314,7 @@ fn every_integral_split_is_supported_and_prefix_vector_is_proved() {
         let baseline = g.state.clone();
         for mutant in 0..5 {
             g.state = baseline.clone();
-            let Frame::DamageEffects { transaction } = &mut g.state.frame else {
+            let Frame::DamageEffects { transaction } = &mut g.state.rules.frame else {
                 panic!()
             };
             let record = &mut transaction.allocation_groups[0];
@@ -371,7 +376,7 @@ fn allocation_late_failure_rolls_back_budget_and_every_application() {
 }
 fn answer(g: &mut Game, response: Response) {
     let Advance::AwaitingDecision(request) = g.advance(Budget::unlimited()) else {
-        panic!("missing decision at {:?}", g.state.frame)
+        panic!("missing decision at {:?}", g.state.rules.frame)
     };
     g.respond(request.player(), request.decision_id(), response)
         .unwrap();

@@ -46,7 +46,7 @@ impl Game {
         let Some(ResolvedEffect {
             kind: ResolvedEffectKind::PreventNextDamage { target, remaining },
             ..
-        }) = self.state.effects.iter().find(|e| e.id == *id)
+        }) = self.state.rules.effects.iter().find(|e| e.id == *id)
         else {
             return Err("missing allocation shield".into());
         };
@@ -91,7 +91,7 @@ impl Game {
         let Frame::DamageAllocation {
             transaction,
             effect,
-        } = &self.state.frame
+        } = &self.state.rules.frame
         else {
             return Ok(None);
         };
@@ -101,7 +101,7 @@ impl Game {
             return Ok(None);
         };
         Ok(Some(Request::DamageAllocation {
-            decision_id: self.state.revision,
+            decision_id: self.state.rules.revision,
             player,
             recipient,
             effect: effect.clone(),
@@ -148,17 +148,18 @@ impl Game {
         let Frame::DamageAllocation {
             transaction,
             effect,
-        } = self.state.frame.clone()
+        } = self.state.rules.frame.clone()
         else {
             return Err("allocation frame invariant".into());
         };
         if self.damage_allocation_request()?.is_none() {
-            self.state.pending = None;
-            self.state.frame = Frame::DamageEffects { transaction };
+            self.state.rules.pending = None;
+            self.state.rules.frame = Frame::DamageEffects { transaction };
             return Ok(());
         }
         let input = self
             .state
+            .rules
             .pending
             .take()
             .ok_or("missing allocation vector")?;
@@ -175,10 +176,10 @@ impl Game {
             },
             transaction.cause,
         )?;
-        let Frame::DamageAllocation { transaction, .. } = self.state.frame.clone() else {
+        let Frame::DamageAllocation { transaction, .. } = self.state.rules.frame.clone() else {
             return Err("allocation event changed frame".into());
         };
-        self.state.frame = Frame::DamageEffects { transaction };
+        self.state.rules.frame = Frame::DamageEffects { transaction };
         Ok(())
     }
     pub(super) fn apply_damage_allocation(
@@ -190,7 +191,7 @@ impl Game {
         let Frame::DamageAllocation {
             transaction: tx,
             effect: selected,
-        } = &self.state.frame
+        } = &self.state.rules.frame
         else {
             return Err("allocation outside selected shield frame".into());
         };
@@ -244,14 +245,14 @@ impl Game {
         let Some(ResolvedEffect {
             kind: ResolvedEffectKind::PreventNextDamage { remaining, .. },
             ..
-        }) = self.state.effects.iter_mut().find(|e| e.id == *id)
+        }) = self.state.rules.effects.iter_mut().find(|e| e.id == *id)
         else {
             return Err("missing allocated shield".into());
         };
         *remaining = next_budget;
         let Frame::DamageAllocation {
             transaction: tx, ..
-        } = &mut self.state.frame
+        } = &mut self.state.rules.frame
         else {
             return Err("missing allocation transaction".into());
         };
@@ -296,6 +297,7 @@ impl Game {
             },
             oracle_id: self
                 .state
+                .rules
                 .cards
                 .get(&d.source.object.card)
                 .ok_or("missing allocation source card")?
@@ -325,6 +327,7 @@ impl Game {
         damage: DamageId,
     ) -> Result<DamageHandle, String> {
         self.state
+            .knowledge
             .visibility
             .get(viewer.0 as usize)
             .and_then(|k| {
@@ -342,6 +345,7 @@ impl Game {
     ) -> Result<DamageId, String> {
         let id = self.damage_transaction()?.id;
         self.state
+            .knowledge
             .visibility
             .get(viewer.0 as usize)
             .and_then(|k| {
@@ -366,6 +370,7 @@ impl Game {
         };
         let effect = self
             .state
+            .rules
             .effects
             .iter()
             .find(|e| e.id == id)

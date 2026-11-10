@@ -365,13 +365,14 @@ fn prepare(case: RootCase) -> Result<Root, String> {
             assert_eq!(game.live_players().len(), case.living);
             game.validate_state()?;
             assert_eq!(
-                game.state.cards.len(),
+                game.state.rules.cards.len(),
                 400,
                 "departed physical facts retained"
             );
             if case.family == Family::Dense {
                 assert_eq!(
                     game.state
+                        .rules
                         .objects
                         .values()
                         .filter(|o| o.zone == Zone::Battlefield)
@@ -393,7 +394,7 @@ fn prepare(case: RootCase) -> Result<Root, String> {
         let response = choose(&catalog, &o, mulligans, lands)?;
         accept(&mut game, &o, response, &mut counts)?;
         if counts.submits.is_multiple_of(64) {
-            println!("LEGAL_BRANCH_ROOT_PROGRESS={}",canonical(&serde_json::json!({"case":case,"accepted_inputs":counts.submits,"work":counts,"P0_main_visits":visits,"living":game.live_players().len(),"current_battlefield":game.state.objects.values().filter(|o|o.zone==Zone::Battlefield).count(),"history_lengths":game.state.visibility.iter().map(|k|k.history.len()).collect::<Vec<_>>(),"pending_input_may_not_yet_be_consumed":game.state.pending.is_some()})).unwrap());
+            println!("LEGAL_BRANCH_ROOT_PROGRESS={}",canonical(&serde_json::json!({"case":case,"accepted_inputs":counts.submits,"work":counts,"P0_main_visits":visits,"living":game.live_players().len(),"current_battlefield":game.state.rules.objects.values().filter(|o|o.zone==Zone::Battlefield).count(),"history_lengths":game.state.knowledge.visibility.iter().map(|k|k.history.len()).collect::<Vec<_>>(),"pending_input_may_not_yet_be_consumed":game.state.rules.pending.is_some()})).unwrap());
         }
     }
     Err("legal root fixed input bound exceeded; no replacementseed".into())
@@ -501,7 +502,7 @@ fn write_branch(
     let _ = timed(samples, "advance_first_write", Some(index), || {
         ready(g, work, 64)
     })?;
-    if g.state.pending.is_some() {
+    if g.state.rules.pending.is_some() {
         return Err("advance returned withunconsumed acceptedinput".into());
     }
     stages.fully_advanced += 1;
@@ -563,7 +564,7 @@ fn prove_root_and_reference_with_profile(
             accept(&mut copy, &obs, same.response, &mut work)?;
             let _ = ready(&mut copy, &mut work, quantum)?;
             assert_eq!(copy.journal().len(), before_inputs + 1);
-            assert!(copy.state.pending.is_none());
+            assert!(copy.state.rules.pending.is_none());
             assert_ne!(
                 copy.state, game.state,
                 "firstwrite mustchange actualState evenwhenPass"
@@ -722,7 +723,7 @@ fn sweep(
                         branches[index].journal().len(),
                         root.game.journal().len() + 1
                     );
-                    assert!(branches[index].state.pending.is_none());
+                    assert!(branches[index].state.rules.pending.is_none());
                     stages.verified += 1;
                     progress(
                         rep,
@@ -953,7 +954,7 @@ fn legal_branch_host_diagnostic() {
     if let Some(mut profile) = profile.take() {
         profile.finish(true).unwrap();
     }
-    println!("LEGAL_BRANCH_ROOT_PROOF={}",canonical(&serde_json::json!({"case":case,"visits":root.visits,"setup_accepted":root.accepted,"setup_work":root.setup,"physical_config_cards":root.game.prepared.config.cards.len(),"physical_card_facts":root.game.state.cards.len(),"current_objects":root.game.state.objects.len(),"battlefield":root.game.state.objects.values().filter(|o|o.zone==Zone::Battlefield).count(),"history_entries":root.game.state.visibility.iter().map(|k|k.history.len()).collect::<Vec<_>>(),"own_knowledge_action_counts":root.game.state.visibility.iter().map(|k|k.own_knowledge.len()).collect::<Vec<_>>(),"living_players":root.game.live_players(),"profile_digest":root.game.prepared.profile_digest,"raw_journal":root.game.replay_journal(),"root_state_sha256":expected.root_sha,"firstwrite_state_sha256":expected.after_sha,"actual_response":expected.action.response,"all_fullbytes_query_partition_restore_replay_checks":true})).unwrap());
+    println!("LEGAL_BRANCH_ROOT_PROOF={}",canonical(&serde_json::json!({"case":case,"visits":root.visits,"setup_accepted":root.accepted,"setup_work":root.setup,"physical_config_cards":root.game.prepared.config.cards.len(),"physical_card_facts":root.game.state.rules.cards.len(),"current_objects":root.game.state.rules.objects.len(),"battlefield":root.game.state.rules.objects.values().filter(|o|o.zone==Zone::Battlefield).count(),"history_entries":root.game.state.knowledge.visibility.iter().map(|k|k.history.len()).collect::<Vec<_>>(),"own_knowledge_action_counts":root.game.state.knowledge.visibility.iter().map(|k|k.own_knowledge.len()).collect::<Vec<_>>(),"living_players":root.game.live_players(),"profile_digest":root.game.prepared.profile_digest,"raw_journal":root.game.replay_journal(),"root_state_sha256":expected.root_sha,"firstwrite_state_sha256":expected.after_sha,"actual_response":expected.action.response,"all_fullbytes_query_partition_restore_replay_checks":true})).unwrap());
     let mut rows = vec![];
     for repetition in 0..6 {
         for requested in [64, 256, 1024, 10000] {
@@ -973,7 +974,7 @@ mod oracle {
             serde_json::to_writer(out, value).unwrap();
         }
         let mut skeleton = state.clone();
-        for k in &mut skeleton.visibility {
+        for k in &mut skeleton.knowledge.visibility {
             k.history.clear();
         }
         let value = serde_json::to_value(&skeleton).unwrap();
@@ -993,9 +994,11 @@ mod oracle {
             }
             visibility_seen = true;
             let rows = value.as_array().unwrap();
-            assert_eq!(rows.len(), state.visibility.len());
+            assert_eq!(rows.len(), state.knowledge.visibility.len());
             out.write_all(b"[").unwrap();
-            for (index, (row, knowledge)) in rows.iter().zip(&state.visibility).enumerate() {
+            for (index, (row, knowledge)) in
+                rows.iter().zip(&state.knowledge.visibility).enumerate()
+            {
                 if index != 0 {
                     out.write_all(b",").unwrap();
                 }
@@ -1254,7 +1257,7 @@ fn accounting_pending_pass() -> Game {
     let request = ready(&mut game, &mut setup, u64::MAX).unwrap();
     let observation = observe(&game, request.player(), &mut setup).unwrap();
     accept(&mut game, &observation, PlayerResponse::Pass, &mut setup).unwrap();
-    assert!(game.state.pending.is_some());
+    assert!(game.state.rules.pending.is_some());
     game
 }
 #[test]
@@ -1282,14 +1285,14 @@ fn legal_ready_counts_all_committed_steps_across_successful_budget_partitions() 
 #[test]
 fn legal_ready_counts_committed_prefix_when_later_step_faults() {
     let mut game = accounting_pending_pass();
-    game.state.rule_steps = u64::MAX - 1;
+    game.state.rules.rule_steps = u64::MAX - 1;
     let before = game.rule_boundary();
     let mut work = Counts::default();
     assert!(ready(&mut game, &mut work, u64::MAX).is_err());
     assert_eq!(work.advance_calls, 1);
     assert_eq!(work.rule_steps, 1);
     assert_eq!(work.rule_steps, game.rule_boundary() - before);
-    assert!(game.state.pending.is_none());
+    assert!(game.state.rules.pending.is_none());
 }
 
 #[test]

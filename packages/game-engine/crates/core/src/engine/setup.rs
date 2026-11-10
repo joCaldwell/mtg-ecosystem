@@ -220,16 +220,29 @@ impl Game {
     }
     fn opening(&self) -> Result<&OpeningSetup, String> {
         self.state
+            .rules
             .match_state
             .as_ref()
             .and_then(|s| s.setup.as_ref())
             .ok_or_else(|| "missing opening setup".into())
     }
     pub(super) fn setup_automatic(&self) -> bool {
-        matches!(self.state.frame, Frame::Setup) && !matches!(self.setup_request(), Ok(Some(_)))
+        if !matches!(self.state.rules.frame, Frame::Setup) {
+            return false;
+        }
+        let Ok(setup) = self.opening() else {
+            return true;
+        };
+        match &setup.phase {
+            SetupPhase::Declare { players } => !players
+                .iter()
+                .any(|p| self.is_live(*p) && !setup.players[p.0 as usize].kept),
+            SetupPhase::Bottom { players } => !players.iter().any(|p| self.is_live(*p)),
+            _ => true,
+        }
     }
     pub(super) fn visible_setup(&self) -> Option<VisibleSetup> {
-        let s = self.state.match_state.as_ref()?.setup.as_ref()?;
+        let s = self.state.rules.match_state.as_ref()?.setup.as_ref()?;
         let phase = match s.phase {
             SetupPhase::Declare { .. } => VisibleSetupPhase::Declare,
             SetupPhase::Bottom { .. } => VisibleSetupPhase::Bottom,
@@ -251,7 +264,7 @@ impl Game {
         })
     }
     pub(super) fn setup_request(&self) -> Result<Option<Request>, String> {
-        if !matches!(self.state.frame, Frame::Setup) {
+        if !matches!(self.state.rules.frame, Frame::Setup) {
             return Ok(None);
         }
         let s = self.opening()?;
@@ -263,7 +276,7 @@ impl Game {
                 .map(|player| {
                     let n = s.players[player.0 as usize].mulligans_taken;
                     Request::Mulligan {
-                        decision_id: self.state.revision,
+                        decision_id: self.state.rules.revision,
                         player,
                         mulligans_taken: n,
                         bottom_if_mulligan: n,
@@ -275,7 +288,7 @@ impl Game {
                 .copied()
                 .find(|p| self.is_live(*p))
                 .map(|player| Request::BottomOpening {
-                    decision_id: self.state.revision,
+                    decision_id: self.state.rules.revision,
                     player,
                     count: usize::from(
                         s.players[player.0 as usize]
@@ -284,6 +297,7 @@ impl Game {
                     ),
                     candidates: self
                         .state
+                        .rules
                         .objects
                         .values()
                         .filter(|o| o.zone == (Zone::Hand { owner: player }))
@@ -436,6 +450,7 @@ impl Game {
                 SetupPhase::Finish => {}
             }
             self.state
+                .rules
                 .match_state
                 .as_mut()
                 .ok_or("missing match state")?
@@ -455,7 +470,12 @@ impl Game {
             SetupPhase::Draw { players, .. } => SetupAction::Draw { player: players[0] },
             SetupPhase::Return { players } => SetupAction::Return { player: players[0] },
             SetupPhase::Declare { .. } | SetupPhase::Bottom { .. } => {
-                let input = self.state.pending.take().ok_or("missing opening input")?;
+                let input = self
+                    .state
+                    .rules
+                    .pending
+                    .take()
+                    .ok_or("missing opening input")?;
                 self.validate_setup_response(input.player, &input.response)?;
                 match input.response {
                     Response::Mulligan { take } => SetupAction::Declare {
@@ -477,7 +497,7 @@ impl Game {
                 proposed: ProposedEvent::Setup { action },
             },
         )?;
-        if matches!(self.state.frame, Frame::Setup) {
+        if matches!(self.state.rules.frame, Frame::Setup) {
             self.normalize_setup()?;
         }
         Ok(())
@@ -486,7 +506,7 @@ impl Game {
         &mut self,
         action: &SetupAction,
     ) -> Result<SetupOutcome, String> {
-        if !matches!(self.state.frame, Frame::Setup) {
+        if !matches!(self.state.rules.frame, Frame::Setup) {
             return Err("setup event outside setup".into());
         }
         let mut s = self.opening()?.clone();
@@ -499,6 +519,7 @@ impl Game {
             ) if players.first() == Some(player) && i == index && *index > 0 => {
                 let library = self
                     .state
+                    .rules
                     .libraries
                     .get_mut(player)
                     .ok_or("missing shuffle library")?;
@@ -507,6 +528,7 @@ impl Game {
                 }
                 let random = &mut self
                     .state
+                    .rules
                     .match_state
                     .as_mut()
                     .ok_or("missing match random")?
@@ -541,12 +563,14 @@ impl Game {
             ) if players.first() == Some(player) && *remaining > 0 => {
                 let card = *self
                     .state
+                    .rules
                     .libraries
                     .get(player)
                     .and_then(|l| l.first())
                     .ok_or("opening draw missing card")?;
                 let object = self
                     .state
+                    .rules
                     .objects
                     .get(&card)
                     .ok_or("opening draw missing object")?
@@ -574,6 +598,7 @@ impl Game {
             {
                 let hand = self
                     .state
+                    .rules
                     .objects
                     .values()
                     .filter(|o| o.zone == (Zone::Hand { owner: *player }))
@@ -657,12 +682,13 @@ impl Game {
                     .setup_order()
                     .first()
                     .ok_or("no surviving opening player")?;
-                self.state.active = Some(player);
-                self.state.turn_owner = player;
-                self.state.priority = player;
-                self.state.turn.step = TurnStep::Untap;
-                self.state.frame = Frame::EnterStep;
+                self.state.rules.active = Some(player);
+                self.state.rules.turn_owner = player;
+                self.state.rules.priority = player;
+                self.state.rules.turn.step = TurnStep::Untap;
+                self.state.rules.frame = Frame::EnterStep;
                 self.state
+                    .rules
                     .match_state
                     .as_mut()
                     .ok_or("missing match state")?
@@ -674,6 +700,7 @@ impl Game {
             _ => return Err("setup event does not match durable phase".into()),
         };
         self.state
+            .rules
             .match_state
             .as_mut()
             .ok_or("missing match state")?
@@ -684,7 +711,7 @@ impl Game {
         self.normalize_setup()
     }
     pub(super) fn validate_match_state(&self) -> Result<(), String> {
-        match (&self.prepared.match_config, &self.state.match_state) {
+        match (&self.prepared.match_config, &self.state.rules.match_state) {
             (None, None) => Ok(()),
             (Some(config), Some(s)) => {
                 if s.random.version != 1
@@ -696,7 +723,7 @@ impl Game {
                 }
                 if let Some(setup) = &s.setup {
                     if !matches!(
-                        self.state.frame,
+                        self.state.rules.frame,
                         Frame::Setup | Frame::Fault { .. } | Frame::Finished { .. }
                     ) || setup.round > 8
                         || setup.players.iter().any(|p| p.mulligans_taken > 8)
@@ -734,7 +761,7 @@ impl Game {
                             return Err("snapshot opening seats".into());
                         }
                     }
-                } else if matches!(self.state.frame, Frame::Setup) {
+                } else if matches!(self.state.rules.frame, Frame::Setup) {
                     return Err("snapshot missing opening state".into());
                 }
                 Ok(())

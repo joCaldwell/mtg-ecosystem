@@ -112,7 +112,7 @@ fn check(g: &Game) {
         g.trace.mode,
     )
     .unwrap();
-    if matches!(g.state.frame, Frame::Fault { .. }) {
+    if matches!(g.state.rules.frame, Frame::Fault { .. }) {
         let _ = replayed.advance(Budget::new(1));
     }
     assert_eq!(replayed.state, g.state);
@@ -172,7 +172,7 @@ fn sol_ring_pays_generic_and_artifact_casts_normally() {
             mana(g, 0);
             assert!(matches!(request(g), Request::Mana { .. }));
             assert_eq!(g.mana(PlayerId(0), Color::C), Some(2.into()));
-            assert_eq!(g.state.stack.len(), 1);
+            assert_eq!(g.state.rules.stack.len(), 1);
             finish(g, false);
             spend(g, &[(Color::C, 2)]);
             pass(g, 4);
@@ -205,7 +205,7 @@ fn commander_identity_colors_and_birds_five_colors_are_controller_choices() {
                     assert!(g.decision_for(PlayerId(1)).unwrap().is_none());
                     choose(g, colors[0]);
                     let _ = request(g);
-                    assert!(g.state.stack.is_empty());
+                    assert!(g.state.rules.stack.is_empty());
                     assert_eq!(g.mana(PlayerId(0), colors[0]), Some(1.into()));
                 },
             );
@@ -217,7 +217,7 @@ fn commander_identity_colors_and_birds_five_colors_are_controller_choices() {
         assert!(
             matches!(request(g),Request::ManaColor {colors,..} if colors==vec![Color::W,Color::U,Color::B,Color::R,Color::G])
         );
-        let revision = g.state.revision;
+        let revision = g.state.rules.revision;
         assert!(
             g.respond(
                 PlayerId(0),
@@ -258,7 +258,7 @@ fn signet_nested_payment_cast_and_lifo_undo_preserve_exact_pool_and_sources() {
                 let _ = request(g);
                 assert_eq!(g.mana(PlayerId(0), Color::G), Some(1.into()));
                 assert_eq!(g.mana(PlayerId(0), Color::B), Some(1.into()));
-                assert_eq!(g.state.stack.len(), 1);
+                assert_eq!(g.state.rules.stack.len(), 1);
                 check(g);
                 finish(g, undo);
                 let _ = request(g);
@@ -267,7 +267,7 @@ fn signet_nested_payment_cast_and_lifo_undo_preserve_exact_pool_and_sources() {
                     Some(Zone::Hand { owner: PlayerId(0) })
                 );
                 if undo {
-                    assert!(g.state.players[0].mana.is_empty());
+                    assert!(g.state.rules.players[0].mana.is_empty());
                     assert!(
                         !g.current(object(g, 0)).unwrap().tapped
                             && !g.current(object(g, 1)).unwrap().tapped
@@ -312,13 +312,13 @@ fn signet_nested_payment_cast_and_lifo_undo_preserve_exact_pool_and_sources() {
 fn cancelled_unfunded_nested_payment_has_no_source_side_effects() {
     traces(prepared(&[("Golgari Signet", 0, false)]), |g| {
         reach(g, TurnStep::PrecombatMain);
-        let before = g.state.players[0].mana.clone();
+        let before = g.state.rules.players[0].mana.clone();
         mana(g, 0);
         let _ = request(g);
         check(g);
         finish(g, true);
         let _ = request(g);
-        assert_eq!(g.state.players[0].mana, before);
+        assert_eq!(g.state.rules.players[0].mana, before);
         assert!(!g.current(object(g, 0)).unwrap().tapped);
     });
 }
@@ -346,7 +346,7 @@ fn llanowar_tap_ability_waits_until_next_turn_and_mana_empties_each_step() {
             );
             for _ in 0..400 {
                 let r = request(g);
-                if g.state.turn_owner == PlayerId(0)
+                if g.state.rules.turn_owner == PlayerId(0)
                     && g.turn().number > 1
                     && g.turn().step == TurnStep::PrecombatMain
                     && matches!(r, Request::Priority { .. })
@@ -366,7 +366,7 @@ fn llanowar_tap_ability_waits_until_next_turn_and_mana_empties_each_step() {
             let _ = request(g);
             assert_eq!(g.mana(PlayerId(0), Color::G), Some(1.into()));
             reach(g, TurnStep::BeginningCombat);
-            assert!(g.state.players[0].mana.is_empty());
+            assert!(g.state.rules.players[0].mana.is_empty());
         },
     );
 }
@@ -407,7 +407,7 @@ fn sphere_and_mind_stone_draw_use_stack_and_survive_murder_response() {
                     g.zone(object(g, 0)),
                     Some(Zone::Graveyard { owner: PlayerId(0) })
                 );
-                assert_eq!(g.state.stack.len(), 1);
+                assert_eq!(g.state.rules.stack.len(), 1);
                 check(g);
                 pass(g, 1);
                 answer(g, Response::Cast { card: CardId(2) });
@@ -430,6 +430,7 @@ fn sphere_and_mind_stone_draw_use_stack_and_survive_murder_response() {
                 );
                 let before = g
                     .state
+                    .rules
                     .objects
                     .values()
                     .filter(|o| o.zone == Zone::Hand { owner: PlayerId(0) })
@@ -437,13 +438,14 @@ fn sphere_and_mind_stone_draw_use_stack_and_survive_murder_response() {
                 pass(g, 4);
                 assert_eq!(
                     g.state
+                        .rules
                         .objects
                         .values()
                         .filter(|o| o.zone == Zone::Hand { owner: PlayerId(0) })
                         .count(),
                     before + 1
                 );
-                assert!(g.state.stack.is_empty());
+                assert!(g.state.rules.stack.is_empty());
             },
         );
     }
@@ -556,7 +558,7 @@ fn signet_undo_preserves_floated_colorless_mana_and_exact_nested_spending() {
                 finish(g, true);
                 let _ = request(g);
                 assert_eq!(
-                    g.state.players[0].mana,
+                    g.state.rules.players[0].mana,
                     BTreeMap::from([(Color::C, 2.into())])
                 );
                 assert!(g.current(object(g, 0)).unwrap().tapped);
@@ -646,12 +648,12 @@ fn nested_payment_concessions_preserve_live_payer_and_departed_last_known_facts(
                 check(g);
                 if payer_leaves {
                     assert_eq!(
-                        g.state.players[0].mana,
+                        g.state.rules.players[0].mana,
                         BTreeMap::from([(Color::G, 1.into())])
                     );
                     assert_eq!(
-                        g.state.players[0].last_known.as_ref().unwrap().mana,
-                        g.state.players[0].mana
+                        g.state.rules.players[0].last_known.as_ref().unwrap().mana,
+                        g.state.rules.players[0].mana
                     );
                 } else {
                     finish(g, false);
@@ -659,7 +661,7 @@ fn nested_payment_concessions_preserve_live_payer_and_departed_last_known_facts(
                     let _ = request(g);
                     finish(g, true);
                     let _ = request(g);
-                    assert!(g.state.players[0].mana.is_empty());
+                    assert!(g.state.rules.players[0].mana.is_empty());
                 }
             },
         );
@@ -696,7 +698,7 @@ fn nested_and_completed_mana_receipt_forgery_fails_replay_proof() {
     let _ = request(&mut g);
     let snapshot = g.snapshot().unwrap();
     let mut forged: Snapshot = strict_read(&snapshot).unwrap();
-    let Frame::ManaAbility { activation } = &mut forged.state.frame else {
+    let Frame::ManaAbility { activation } = &mut forged.state.rules.frame else {
         panic!()
     };
     activation.source.incarnation += 1;
@@ -708,7 +710,7 @@ fn nested_and_completed_mana_receipt_forgery_fails_replay_proof() {
     let snapshot = g.snapshot().unwrap();
     for mutation in 0..4 {
         let mut forged: Snapshot = strict_read(&snapshot).unwrap();
-        let Frame::Mana { cast } = &mut forged.state.frame else {
+        let Frame::Mana { cast } = &mut forged.state.rules.frame else {
             panic!()
         };
         let receipt = cast

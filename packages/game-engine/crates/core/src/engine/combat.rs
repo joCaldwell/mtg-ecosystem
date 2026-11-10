@@ -56,8 +56,8 @@ pub struct CommanderDamageResult {
 
 impl Game {
     pub(super) fn combat_decision_player(&self) -> Option<PlayerId> {
-        match &self.state.frame {
-            Frame::Attackers => self.state.active,
+        match &self.state.rules.frame {
+            Frame::Attackers => self.state.rules.active,
             Frame::Blockers { remaining } => remaining.first().copied(),
             Frame::DamageChoice { source } => self.current(*source).ok().map(|o| o.controller),
             Frame::Discard { player, .. } => Some(*player),
@@ -66,12 +66,13 @@ impl Game {
     }
     pub(super) fn creatures(&self, player: PlayerId, attacking: bool) -> Vec<ObjectId> {
         self.state
+            .rules
             .objects
             .values()
             .filter(|o| {
                 o.controller == player
                     && !o.tapped
-                    && self.target_legal(o.id)
+                    && self.is_battlefield_creature(o.id)
                     && !self.has_restriction(o.id, CreatureRestriction::CantAttackOrBlock)
                     && (attacking || !self.has_restriction(o.id, CreatureRestriction::CantBlock))
                     && (!attacking
@@ -83,6 +84,7 @@ impl Game {
     }
     fn hand(&self, player: PlayerId) -> Vec<ObjectId> {
         self.state
+            .rules
             .objects
             .values()
             .filter(|o| o.zone == (Zone::Hand { owner: player }))
@@ -99,6 +101,7 @@ impl Game {
     }
     fn recipients(&self, source: ObjectId) -> Vec<ObjectId> {
         self.state
+            .rules
             .combat
             .iter()
             .find(|a| a.attacker == source)
@@ -109,8 +112,8 @@ impl Game {
         let Some(player) = self.combat_decision_player() else {
             return Ok(None);
         };
-        let decision_id = self.state.revision;
-        Ok(Some(match &self.state.frame {
+        let decision_id = self.state.rules.revision;
+        Ok(Some(match &self.state.rules.frame {
             Frame::Attackers => Request::Attackers {
                 decision_id,
                 player,
@@ -127,6 +130,7 @@ impl Game {
                 candidates: self.creatures(player, false),
                 attackers: self
                     .state
+                    .rules
                     .combat
                     .iter()
                     .filter(|a| a.defender == player)
@@ -175,10 +179,10 @@ impl Game {
             Response::Discard { objects } => objects.len(),
             _ => 0,
         };
-        if size > self.state.objects.len() {
+        if size > self.state.rules.objects.len() {
             return Err("oversized complete declaration".into());
         }
-        match (&self.state.frame, response) {
+        match (&self.state.rules.frame, response) {
             (Frame::Attackers, Response::Attackers { attacks }) => {
                 let eligible = self.creatures(player, true);
                 let mut seen = BTreeSet::new();
@@ -197,6 +201,7 @@ impl Game {
                         || !self.can_block(*b, *a)
                         || !self
                             .state
+                            .rules
                             .combat
                             .iter()
                             .any(|x| x.attacker == *a && x.defender == player)
@@ -204,7 +209,13 @@ impl Game {
                     return Err("invalid complete block declaration".into());
                 }
                 // CR509.1b/702.111b: restrictions apply to the whole declaration.
-                for a in self.state.combat.iter().filter(|a| a.defender == player) {
+                for a in self
+                    .state
+                    .rules
+                    .combat
+                    .iter()
+                    .filter(|a| a.defender == player)
+                {
                     if self.has_keyword(a.attacker, KeywordAbility::Menace)
                         && blocks.iter().filter(|(_, x)| *x == a.attacker).count() == 1
                     {
@@ -276,6 +287,7 @@ impl Game {
     pub(super) fn remove_from_combat(&mut self, object: ObjectId) {
         let orphaned = self
             .state
+            .rules
             .combat
             .iter()
             .filter(|a| a.attacker == object)
@@ -285,38 +297,45 @@ impl Game {
                     || self.has_keyword(*b, KeywordAbility::DoubleStrike)
             })
             .collect::<Vec<_>>();
-        self.state.orphan_first_strike_blockers.extend(orphaned);
-        self.state.orphan_first_strike_blockers.remove(&object);
-        self.state.combat.retain(|a| a.attacker != object);
-        for a in &mut self.state.combat {
+        self.state
+            .rules
+            .orphan_first_strike_blockers
+            .extend(orphaned);
+        self.state
+            .rules
+            .orphan_first_strike_blockers
+            .remove(&object);
+        self.state.rules.combat.retain(|a| a.attacker != object);
+        for a in &mut self.state.rules.combat {
             a.blockers.retain(|b| *b != object);
         }
-        self.state.damage_choices.remove(&object);
-        self.state.player_damage_choices.remove(&object);
+        self.state.rules.damage_choices.remove(&object);
+        self.state.rules.player_damage_choices.remove(&object);
     }
     pub(super) fn grant_turn_priority(&mut self) -> Result<(), String> {
-        if matches!(self.state.frame, Frame::Finished { .. } | Frame::Draw) {
+        if matches!(self.state.rules.frame, Frame::Finished { .. } | Frame::Draw) {
             return Ok(());
         }
-        self.state.priority = self
+        self.state.rules.priority = self
             .state
+            .rules
             .active
-            .or_else(|| self.next_live(self.state.turn_owner))
+            .or_else(|| self.next_live(self.state.rules.turn_owner))
             .ok_or("no priority recipient")?;
-        self.state.frame = Frame::Priority;
+        self.state.rules.frame = Frame::Priority;
         self.stabilize()
     }
     pub(super) fn schedule_stabilization(&mut self, resume: Frame, cleanup: bool) {
-        self.state.frame = Frame::Stabilize {
+        self.state.rules.frame = Frame::Stabilize {
             resume: Box::new(resume),
             cleanup,
             changed: false,
         };
     }
     pub(super) fn combat_step(&mut self) -> Result<(), String> {
-        match self.state.frame.clone() {
+        match self.state.rules.frame.clone() {
             Frame::Attackers => {
-                let input = self.state.pending.take().ok_or("missing attackers")?;
+                let input = self.state.rules.pending.take().ok_or("missing attackers")?;
                 self.validate_combat_response(input.player, &input.response)?;
                 let Response::Attackers { attacks } = input.response else {
                     return Err("attack response".into());
@@ -328,7 +347,7 @@ impl Game {
                 self.grant_turn_priority()?;
             }
             Frame::Blockers { mut remaining } => {
-                let input = self.state.pending.take().ok_or("missing blockers")?;
+                let input = self.state.rules.pending.take().ok_or("missing blockers")?;
                 self.validate_combat_response(input.player, &input.response)?;
                 let Response::Blockers { blocks } = input.response else {
                     return Err("block response".into());
@@ -344,19 +363,20 @@ impl Game {
                 if remaining.is_empty() {
                     self.grant_turn_priority()?;
                 } else {
-                    self.state.frame = Frame::Blockers { remaining };
+                    self.state.rules.frame = Frame::Blockers { remaining };
                 }
             }
             Frame::DamageChoice { source } => {
                 let input = self
                     .state
+                    .rules
                     .pending
                     .take()
                     .ok_or("missing damage assignment")?;
                 self.validate_combat_response(input.player, &input.response)?;
                 let assignments = match input.response {
                     Response::Damage { assignments } => {
-                        self.state.player_damage_choices.remove(&source);
+                        self.state.rules.player_damage_choices.remove(&source);
                         assignments
                     }
                     Response::TrampleDamage {
@@ -365,19 +385,20 @@ impl Game {
                         amount,
                     } => {
                         self.state
+                            .rules
                             .player_damage_choices
                             .insert(source, (player, amount));
                         assignments
                     }
                     _ => return Err("damage response".into()),
                 };
-                self.state.damage_choices.insert(source, assignments);
-                self.state.frame = Frame::Damage;
+                self.state.rules.damage_choices.insert(source, assignments);
+                self.state.rules.frame = Frame::Damage;
                 self.assign_damage()?;
             }
             Frame::Damage => self.assign_damage()?,
             Frame::Discard { player, .. } => {
-                let input = self.state.pending.take().ok_or("missing discard")?;
+                let input = self.state.rules.pending.take().ok_or("missing discard")?;
                 self.validate_combat_response(input.player, &input.response)?;
                 let Response::Discard { objects } = input.response else {
                     return Err("discard response".into());
@@ -394,7 +415,7 @@ impl Game {
                             .collect(),
                     },
                 )?;
-                self.state.frame = Frame::CleanupClear;
+                self.state.rules.frame = Frame::CleanupClear;
             }
             Frame::CleanupClear => {
                 self.commit(ProposedEvent::CleanupEffects, BatchCause::Cleanup)?;
@@ -412,10 +433,17 @@ impl Game {
     /// CR510.4/702.7b/702.4b: actual first/double strike determines the extra step.
     pub(super) fn first_strikers(&self) -> BTreeSet<ObjectId> {
         self.state
+            .rules
             .combat
             .iter()
             .flat_map(|a| std::iter::once(a.attacker).chain(a.blockers.iter().copied()))
-            .chain(self.state.orphan_first_strike_blockers.iter().copied())
+            .chain(
+                self.state
+                    .rules
+                    .orphan_first_strike_blockers
+                    .iter()
+                    .copied(),
+            )
             .filter(|o| {
                 self.has_keyword(*o, KeywordAbility::FirstStrike)
                     || self.has_keyword(*o, KeywordAbility::DoubleStrike)
@@ -423,15 +451,16 @@ impl Game {
             .collect()
     }
     fn assigns_in_damage_step(&self, object: ObjectId) -> bool {
-        if self.state.turn.step == TurnStep::FirstStrikeDamage {
-            self.state.first_strike_participants.contains(&object)
+        if self.state.rules.turn.step == TurnStep::FirstStrikeDamage {
+            self.state.rules.first_strike_participants.contains(&object)
         } else {
-            !self.state.first_strike_participants.contains(&object)
+            !self.state.rules.first_strike_participants.contains(&object)
                 || self.has_keyword(object, KeywordAbility::DoubleStrike)
         }
     }
     pub(super) fn trample_player(&self, source: ObjectId) -> Option<PlayerId> {
         self.state
+            .rules
             .combat
             .iter()
             .find(|a| a.attacker == source)
@@ -452,12 +481,12 @@ impl Game {
         remaining.subtract(&self.current(blocker)?.marked_damage);
         // A blocker cannot block several attackers in the admitted pool. Still
         // account for other source assignments in the complete step (702.19b).
-        for a in self.state.combat.iter().filter(|a| {
+        for a in self.state.rules.combat.iter().filter(|a| {
             a.attacker != source
                 && a.blockers.contains(&blocker)
                 && self.assigns_in_damage_step(a.attacker)
         }) {
-            let amount = if let Some(choice) = self.state.damage_choices.get(&a.attacker) {
+            let amount = if let Some(choice) = self.state.rules.damage_choices.get(&a.attacker) {
                 choice
                     .iter()
                     .find(|(o, _)| *o == blocker)
@@ -482,31 +511,37 @@ impl Game {
     }
     fn assign_damage(&mut self) -> Result<(), String> {
         let mut damage = vec![];
-        for a in self.state.combat.clone() {
+        for a in self.state.rules.combat.clone() {
             let power = self.power(a.attacker)?;
             let controller = self.current(a.attacker)?.controller;
             if self.assigns_in_damage_step(a.attacker) && power > Quantity::zero() {
                 if a.blockers.len() > 1
                     || (!a.blockers.is_empty() && self.trample_player(a.attacker).is_some())
                 {
-                    let choice = self.state.damage_choices.get(&a.attacker).filter(|v| {
-                        self.validate_split(
-                            a.attacker,
-                            v,
-                            self.state
-                                .player_damage_choices
-                                .get(&a.attacker)
-                                .map(|(p, n)| (*p, n)),
-                        )
-                        .is_ok()
-                    });
+                    let choice = self
+                        .state
+                        .rules
+                        .damage_choices
+                        .get(&a.attacker)
+                        .filter(|v| {
+                            self.validate_split(
+                                a.attacker,
+                                v,
+                                self.state
+                                    .rules
+                                    .player_damage_choices
+                                    .get(&a.attacker)
+                                    .map(|(p, n)| (*p, n)),
+                            )
+                            .is_ok()
+                        });
                     let Some(choice) = choice else {
-                        self.state.damage_choices.remove(&a.attacker);
-                        self.state.frame = Frame::DamageChoice { source: a.attacker };
+                        self.state.rules.damage_choices.remove(&a.attacker);
+                        self.state.rules.frame = Frame::DamageChoice { source: a.attacker };
                         return Ok(());
                     };
                     if let Some((player, amount)) =
-                        self.state.player_damage_choices.get(&a.attacker)
+                        self.state.rules.player_damage_choices.get(&a.attacker)
                         && *amount > Quantity::zero()
                     {
                         damage.push(DamageOccurrence {
@@ -562,8 +597,8 @@ impl Game {
         if !damage.is_empty() {
             return self.prepare_combat_damage(damage);
         }
-        self.state.damage_choices.clear();
-        self.state.player_damage_choices.clear();
+        self.state.rules.damage_choices.clear();
+        self.state.rules.player_damage_choices.clear();
         self.grant_turn_priority()
     }
     fn stabilization_wave(
@@ -583,7 +618,7 @@ impl Game {
     ) -> Result<(), String> {
         let groups = self.legend_groups()?;
         if kept.is_none() && !groups.is_empty() {
-            self.state.frame = Frame::LegendRule {
+            self.state.rules.frame = Frame::LegendRule {
                 resume: Box::new(Frame::Stabilize {
                     resume: Box::new(resume),
                     cleanup,
@@ -597,9 +632,10 @@ impl Game {
         let mut occurrences = vec![];
         for o in self
             .state
+            .rules
             .objects
             .values()
-            .filter(|o| self.target_legal(o.id))
+            .filter(|o| self.is_battlefield_creature(o.id))
         {
             let toughness = self
                 .characteristics(o.id)?
@@ -638,7 +674,7 @@ impl Game {
                     occurrences.push(ProposedEvent::Move {
                         object: *object,
                         destination: Zone::Graveyard {
-                            owner: self.state.cards[&object.card].owner,
+                            owner: self.state.rules.cards[&object.card].owner,
                         },
                     });
                 }
@@ -648,10 +684,11 @@ impl Game {
         // triggers using lookback. Ceasing is its own next SBA wave.
         occurrences.extend(
             self.state
+                .rules
                 .objects
                 .values()
                 .filter(|o| {
-                    self.state.tokens.contains_key(&o.id.card) && o.zone != Zone::Battlefield
+                    self.state.rules.tokens.contains_key(&o.id.card) && o.zone != Zone::Battlefield
                 })
                 .map(|o| ProposedEvent::CeaseToken { object: o.id }),
         );
@@ -659,12 +696,18 @@ impl Game {
             .live_players()
             .into_iter()
             .filter_map(|p| {
-                let x = &self.state.players[p.0 as usize];
+                let x = &self.state.rules.players[p.0 as usize];
                 if x.life <= Quantity::zero() {
                     Some((p, PlayerLossReason::Life))
                 } else if x.failed_draw {
                     Some((p, PlayerLossReason::FailedDraw))
-                } else if self.state.commanders.combat_loss_candidates().contains(&p) {
+                } else if self
+                    .state
+                    .rules
+                    .commanders
+                    .combat_loss_candidates()
+                    .contains(&p)
+                {
                     Some((p, PlayerLossReason::CommanderDamage))
                 } else {
                     None
@@ -690,26 +733,28 @@ impl Game {
         if occurrences.is_empty() && losses.is_empty() {
             debug_assert!(
                 self.state
+                    .rules
                     .objects
                     .values()
                     .all(|o| o.zone != Zone::Battlefield || !o.deathtouch_damage)
             );
-            self.state.frame = if cleanup && changed {
-                self.state.cleanup_repeat = true;
+            self.state.rules.frame = if cleanup && changed {
+                self.state.rules.cleanup_repeat = true;
                 Frame::Priority
             } else {
                 resume
             };
-            if cleanup && changed && matches!(self.state.frame, Frame::Priority) {
-                self.state.priority = self
+            if cleanup && changed && matches!(self.state.rules.frame, Frame::Priority) {
+                self.state.rules.priority = self
                     .state
+                    .rules
                     .active
-                    .or_else(|| self.next_live(self.state.turn_owner))
+                    .or_else(|| self.next_live(self.state.rules.turn_owner))
                     .ok_or("no stabilization priority")?;
             }
-            if matches!(self.state.frame, Frame::Priority)
-                && self.state.pending.is_none()
-                && self.state.pending_concessions.is_empty()
+            if matches!(self.state.rules.frame, Frame::Priority)
+                && self.state.rules.pending.is_none()
+                && self.state.rules.pending_concessions.is_empty()
                 && self.all_live_passed()
             {
                 self.begin_resolution()?;
@@ -735,7 +780,7 @@ impl Game {
                 return Ok(());
             }
         }
-        self.state.frame = Frame::Stabilize {
+        self.state.rules.frame = Frame::Stabilize {
             resume: Box::new(resume),
             cleanup,
             changed: true,
@@ -745,16 +790,16 @@ impl Game {
     pub(super) fn finish_if_ended(&mut self) -> Result<bool, String> {
         match self.live_players().as_slice() {
             [] => {
-                self.state.pending = None;
-                self.state.frame = Frame::Draw;
+                self.state.rules.pending = None;
+                self.state.rules.frame = Frame::Draw;
                 self.record_event(Event::GameDrawn)?;
                 Ok(true)
             }
             [winner] => {
                 let winner = *winner;
-                self.state.pending = None;
-                self.state.frame = Frame::Finished { winner };
-                self.state.priority = winner;
+                self.state.rules.pending = None;
+                self.state.rules.frame = Frame::Finished { winner };
+                self.state.rules.priority = winner;
                 self.record_event(Event::GameWon { winner })?;
                 Ok(true)
             }
@@ -762,8 +807,8 @@ impl Game {
         }
     }
     pub(super) fn revalidate_combat_departure(&mut self) -> Result<(), String> {
-        match self.state.frame.clone() {
-            Frame::Attackers if self.state.active.is_none() => self.grant_turn_priority()?,
+        match self.state.rules.frame.clone() {
+            Frame::Attackers if self.state.rules.active.is_none() => self.grant_turn_priority()?,
             Frame::Blockers { remaining } => {
                 let remaining = remaining
                     .into_iter()
@@ -772,7 +817,7 @@ impl Game {
                 if remaining.is_empty() {
                     self.grant_turn_priority()?;
                 } else {
-                    self.state.frame = Frame::Blockers { remaining };
+                    self.state.rules.frame = Frame::Blockers { remaining };
                 }
             }
             Frame::DamageChoice { source }
@@ -781,29 +826,31 @@ impl Game {
                         && (self.recipients(source).is_empty()
                             || self.trample_player(source).is_none())) =>
             {
-                self.state.pending = None;
-                self.state.frame = Frame::Damage;
+                self.state.rules.pending = None;
+                self.state.rules.frame = Frame::Damage;
             }
             Frame::Discard { player, .. } if !self.is_live(player) => {
-                self.state.pending = None;
-                self.state.frame = Frame::CleanupClear;
+                self.state.rules.pending = None;
+                self.state.rules.frame = Frame::CleanupClear;
             }
             _ => {}
         }
         if self
             .state
+            .rules
             .pending
             .as_ref()
             .is_some_and(|p| self.validate_response(p.player, &p.response).is_err())
         {
-            self.state.pending = None;
+            self.state.rules.pending = None;
         }
         Ok(())
     }
     pub(super) fn validate_combat_state(&self) -> Result<(), String> {
-        for (p, library) in &self.state.libraries {
+        for (p, library) in &self.state.rules.libraries {
             let actual = self
                 .state
+                .rules
                 .objects
                 .values()
                 .filter(|o| o.zone == (Zone::Library { owner: *p }))
@@ -817,6 +864,7 @@ impl Game {
         }
         if self
             .state
+            .rules
             .objects
             .values()
             .any(|o| o.marked_damage.is_negative())

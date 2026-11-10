@@ -21,10 +21,11 @@ fn answer(g: &mut Game, response: Response) {
 }
 fn named(g: &Game, name: &str, seat: u8) -> ObjectId {
     g.state
+        .rules
         .objects
         .values()
         .find(|o| {
-            g.state.cards[&o.id.card].owner == PlayerId(seat)
+            g.state.rules.cards[&o.id.card].owner == PlayerId(seat)
                 && g.definition(o.id.card).unwrap().name == name
         })
         .unwrap_or_else(|| panic!("{name} seat {seat}"))
@@ -98,7 +99,7 @@ fn main_for(g: &mut Game, seat: u8) {
         let r = request(g);
         if matches!(r, Request::Priority { .. })
             && r.player() == PlayerId(seat)
-            && g.state.active == Some(PlayerId(seat))
+            && g.state.rules.active == Some(PlayerId(seat))
             && g.turn().step == TurnStep::PrecombatMain
         {
             return;
@@ -122,7 +123,7 @@ fn priority(g: &mut Game, seat: u8) {
 fn settle(g: &mut Game) {
     for _ in 0..2000 {
         let r = request(g);
-        if matches!(r, Request::Priority { .. }) && g.state.stack.is_empty() {
+        if matches!(r, Request::Priority { .. }) && g.state.rules.stack.is_empty() {
             return;
         }
         let a = auto(g, &r);
@@ -160,6 +161,7 @@ fn pay(g: &mut Game, target: Option<TargetEntity>, sacrifice: Option<ObjectId>) 
                 } else {
                     let o = g
                         .state
+                        .rules
                         .objects
                         .values()
                         .find(|o| {
@@ -169,7 +171,7 @@ fn pay(g: &mut Game, target: Option<TargetEntity>, sacrifice: Option<ObjectId>) 
                                     == CardKind::Land
                                 && cost.colored.iter().any(|c| {
                                     g.mana_abilities(o.id).unwrap().contains(c)
-                                        && g.state.players[r.player().0 as usize]
+                                        && g.state.rules.players[r.player().0 as usize]
                                             .mana
                                             .get(c)
                                             .cloned()
@@ -181,7 +183,7 @@ fn pay(g: &mut Game, target: Option<TargetEntity>, sacrifice: Option<ObjectId>) 
                                 })
                         })
                         .or_else(|| {
-                            g.state.objects.values().find(|o| {
+                            g.state.rules.objects.values().find(|o| {
                                 o.controller == r.player()
                                     && g.validate_mana_activation(r.player(), o.id).is_ok()
                                     && g.definition(o.id.card).unwrap().characteristics.kind
@@ -293,9 +295,9 @@ fn cast(g: &mut Game, name: &str, seat: u8, target: Option<TargetEntity>, sac: O
         let cost = g
             .casting_cost(o.card, PlayerId(seat), g.current(o).unwrap().zone)
             .unwrap();
-        let mut funds = g.state.players[seat as usize].mana.clone();
+        let mut funds = g.state.rules.players[seat as usize].mana.clone();
         for land in
-            g.state.objects.values().filter(|o| {
+            g.state.rules.objects.values().filter(|o| {
                 o.controller == PlayerId(seat) && !o.tapped && o.zone == Zone::Battlefield
             })
         {
@@ -349,12 +351,13 @@ fn player(p: u8) -> Option<TargetEntity> {
 }
 fn tokens(g: &Game, seat: u8, subtype: &str) -> Vec<ObjectId> {
     g.state
+        .rules
         .objects
         .values()
         .filter(|o| {
             o.zone == Zone::Battlefield
                 && o.controller == PlayerId(seat)
-                && g.state.tokens.contains_key(&o.id.card)
+                && g.state.rules.tokens.contains_key(&o.id.card)
                 && g.definition(o.id.card)
                     .unwrap()
                     .characteristics
@@ -476,21 +479,22 @@ fn natural(label: &str, rows: &[(&str, u8)], colors: [u8; 4], run: impl Fn(&mut 
     for _ in 0..20000 {
         let r = request(&mut base);
         let ready = wanted.iter().all(|id| {
-            base.state.objects[id].zone
+            base.state.rules.objects[id].zone
                 == Zone::Hand {
-                    owner: base.state.cards[id].owner,
+                    owner: base.state.rules.cards[id].owner,
                 }
         });
         let mana_ready = (0..4).all(|seat| {
             colors[seat] != 1
                 || [FOREST, SWAMP].iter().all(|id| {
                     base.state
+                        .rules
                         .objects
                         .values()
                         .filter(|o| {
                             o.zone == Zone::Battlefield
                                 && o.controller == PlayerId(seat as u8)
-                                && base.state.cards[&o.id.card].oracle_id == *id
+                                && base.state.rules.cards[&o.id.card].oracle_id == *id
                         })
                         .count()
                         >= 2
@@ -499,18 +503,19 @@ fn natural(label: &str, rows: &[(&str, u8)], colors: [u8; 4], run: impl Fn(&mut 
         if ready
             && mana_ready
             && base.turn().number >= 33
-            && base.state.active == Some(PlayerId(0))
+            && base.state.rules.active == Some(PlayerId(0))
             && base.turn().step == TurnStep::PrecombatMain
             && matches!(r, Request::Priority { .. })
         {
             break;
         }
         let response = if matches!(r, Request::Priority { .. })
-            && base.state.active == Some(r.player())
+            && base.state.rules.active == Some(r.player())
             && base.turn().step == TurnStep::PrecombatMain
-            && base.state.turn.lands_played == 0
+            && base.state.rules.turn.lands_played == 0
         {
             base.state
+                .rules
                 .objects
                 .values()
                 .find(|o| {
@@ -527,7 +532,7 @@ fn natural(label: &str, rows: &[(&str, u8)], colors: [u8; 4], run: impl Fn(&mut 
     assert!(
         wanted
             .iter()
-            .all(|id| matches!(base.state.objects[id].zone, Zone::Hand { .. })),
+            .all(|id| matches!(base.state.rules.objects[id].zone, Zone::Hand { .. })),
         "witness cards drawn"
     );
     let journal = base.replay_journal();
@@ -664,16 +669,17 @@ fn sacrifice_rites_cost_token_two_draws_two_payoffs_and_uncastable_without_creat
             let token = tokens(g, 1, "Soldier")[0];
             let life = g
                 .state
+                .rules
                 .players
                 .iter()
                 .map(|p| p.life.clone())
                 .collect::<Vec<_>>();
-            let library = g.state.libraries[&PlayerId(1)].len();
+            let library = g.state.rules.libraries[&PlayerId(1)].len();
             main_for(g, 1);
             announce(g, "Village Rites", 1, None, Some(token));
             assert!(g.current(token).is_err() || g.zone(token) != Some(Zone::Battlefield));
             settle(g);
-            assert_eq!(g.state.libraries[&PlayerId(1)].len(), library - 2);
+            assert_eq!(g.state.rules.libraries[&PlayerId(1)].len(), library - 2);
             for (p, l) in life.iter().enumerate() {
                 let mut e = l.clone();
                 if p == 1 {
@@ -681,7 +687,7 @@ fn sacrifice_rites_cost_token_two_draws_two_payoffs_and_uncastable_without_creat
                 } else {
                     e.subtract(&2.into());
                 }
-                assert_eq!(g.state.players[p].life, e);
+                assert_eq!(g.state.rules.players[p].life, e);
             }
         },
     );
@@ -716,7 +722,7 @@ fn sacrifice_feeder_self_no_counter_cannot_block_and_bloodthrone_cleanup() {
             settle(g);
             let vampire = named(g, "Bloodthrone Vampire", 1);
             assert_eq!(g.characteristics(vampire).unwrap().power, Some(3.into()));
-            let before = g.state.players[0].life.clone();
+            let before = g.state.rules.players[0].life.clone();
             loop {
                 let r = request(g);
                 if matches!(r, Request::Attackers { .. }) && r.player() == PlayerId(1) {
@@ -743,7 +749,7 @@ fn sacrifice_feeder_self_no_counter_cannot_block_and_bloodthrone_cleanup() {
             }
             let mut expected = before;
             expected.subtract(&3.into());
-            assert_eq!(g.state.players[0].life, expected);
+            assert_eq!(g.state.rules.players[0].life, expected);
             main_for(g, 2);
             assert_eq!(g.characteristics(vampire).unwrap().power, Some(1.into()));
         },
@@ -758,13 +764,13 @@ fn sacrifice_costly_plunder_ring_and_bone_splinters_illegal_target_keeps_cost() 
         |g| {
             cast(g, "Sol Ring", 1, None, None);
             let ring = named(g, "Sol Ring", 1);
-            let n = g.state.libraries[&PlayerId(1)].len();
+            let n = g.state.rules.libraries[&PlayerId(1)].len();
             cast(g, "Costly Plunder", 1, None, Some(ring));
             assert!(matches!(
                 g.zone(named(g, "Sol Ring", 1)),
                 Some(Zone::Graveyard { .. })
             ));
-            assert_eq!(g.state.libraries[&PlayerId(1)].len(), n - 2);
+            assert_eq!(g.state.rules.libraries[&PlayerId(1)].len(), n - 2);
         },
     );
     natural(
@@ -816,7 +822,7 @@ fn sacrifice_fling_frozen_equipment_power_furnace_and_paid_cost_snapshot() {
             settle(g);
             cast(g, "Furnace of Rath", 3, None, None);
             assert_eq!(g.characteristics(goblin).unwrap().power, Some(3.into()));
-            let life = g.state.players[0].life.clone();
+            let life = g.state.rules.players[0].life.clone();
             announce(g, "Fling", 3, player(0), Some(goblin));
             check(g);
             assert_eq!(
@@ -832,9 +838,10 @@ fn sacrifice_fling_frozen_equipment_power_furnace_and_paid_cost_snapshot() {
             settle(g);
             let mut expected = life;
             expected.subtract(&6.into());
-            assert_eq!(g.state.players[0].life, expected);
+            assert_eq!(g.state.rules.players[0].life, expected);
             assert!(
                 g.state
+                    .rules
                     .commanders
                     .records
                     .values()
@@ -846,7 +853,7 @@ fn sacrifice_fling_frozen_equipment_power_furnace_and_paid_cost_snapshot() {
 fn settle_forced(g: &mut Game, seat: u8, victim: ObjectId) {
     for _ in 0..2000 {
         let r = request(g);
-        if matches!(r, Request::Priority { .. }) && g.state.stack.is_empty() {
+        if matches!(r, Request::Priority { .. }) && g.state.rules.stack.is_empty() {
             return;
         }
         let a = if matches!(r, Request::ForcedSacrifice { .. }) && r.player() == PlayerId(seat) {
@@ -996,27 +1003,28 @@ fn sacrifice_midnight_nontoken_own_death_and_conceded_opponent_payoffs() {
             priority(g, 1);
             let before = g
                 .state
+                .rules
                 .players
                 .iter()
                 .map(|p| p.life.clone())
                 .collect::<Vec<_>>();
-            let lib = g.state.libraries[&PlayerId(1)].len();
+            let lib = g.state.rules.libraries[&PlayerId(1)].len();
             let token = tokens(g, 1, "Soldier")[0];
             activate(g, "Carrion Feeder", 1, None, Some(token));
             settle(g);
-            assert_eq!(g.state.libraries[&PlayerId(1)].len(), lib);
+            assert_eq!(g.state.rules.libraries[&PlayerId(1)].len(), lib);
             let mut expected = before[0].clone();
             expected.subtract(&4.into());
-            assert_eq!(g.state.players[0].life, expected);
-            assert_eq!(g.state.players[2].life, before[2]);
-            let ownlife = g.state.players[1].life.clone();
+            assert_eq!(g.state.rules.players[0].life, expected);
+            assert_eq!(g.state.rules.players[2].life, before[2]);
+            let ownlife = g.state.rules.players[1].life.clone();
             let reaper = named(g, "Midnight Reaper", 1);
             activate(g, "Carrion Feeder", 1, None, Some(reaper));
             settle(g);
-            assert_eq!(g.state.libraries[&PlayerId(1)].len(), lib - 1);
+            assert_eq!(g.state.rules.libraries[&PlayerId(1)].len(), lib - 1);
             let mut expected = ownlife;
             expected.add(&1.into());
-            assert_eq!(g.state.players[1].life, expected); // three gains minus doubled Reaper damage
+            assert_eq!(g.state.rules.players[1].life, expected); // three gains minus doubled Reaper damage
         },
     );
 }
@@ -1082,6 +1090,7 @@ fn sacrifice_elder_response_to_murder_search_and_stifle_keep_paid_source_gone() 
                 let elder = named(g, "Sakura-Tribe Elder", 1);
                 let lands = g
                     .state
+                    .rules
                     .objects
                     .values()
                     .filter(|o| o.zone == Zone::Battlefield && o.controller == PlayerId(1))
@@ -1098,13 +1107,17 @@ fn sacrifice_elder_response_to_murder_search_and_stifle_keep_paid_source_gone() 
                 ));
                 let after = g
                     .state
+                    .rules
                     .objects
                     .values()
                     .filter(|o| o.zone == Zone::Battlefield && o.controller == PlayerId(1))
                     .count();
                 assert_eq!(after, lands - 1 + usize::from(!stifle));
                 if !stifle {
-                    assert_eq!(g.state.match_state.as_ref().unwrap().library_shuffles[1], 1);
+                    assert_eq!(
+                        g.state.rules.match_state.as_ref().unwrap().library_shuffles[1],
+                        1
+                    );
                 }
             },
         );
@@ -1134,12 +1147,12 @@ fn sacrifice_mogg_arsonist_optional_and_siege_goblin_filter() {
             ] {
                 cast(g, n, 3, None, None);
             }
-            let life = g.state.players[0].life.clone();
+            let life = g.state.rules.players[0].life.clone();
             activate(g, "Mogg Fanatic", 3, player(0), None);
             settle(g);
             let mut e = life;
             e.subtract(&2.into());
-            assert_eq!(g.state.players[0].life, e); // one damage and one Artist trigger
+            assert_eq!(g.state.rules.players[0].life, e); // one damage and one Artist trigger
             let arsonist = named(g, "Goblin Arsonist", 3);
             activate(g, "Goblin Bombardment", 3, player(0), Some(arsonist));
             loop {
@@ -1157,9 +1170,9 @@ fn sacrifice_mogg_arsonist_optional_and_siege_goblin_filter() {
             check(&declined);
             answer(g, Response::OptionalEffect { perform: true });
             settle(g);
-            let mut expected = declined.state.players[0].life.clone();
+            let mut expected = declined.state.rules.players[0].life.clone();
             expected.subtract(&1.into());
-            assert_eq!(g.state.players[0].life, expected);
+            assert_eq!(g.state.rules.players[0].life, expected);
             let token = tokens(g, 3, "Goblin")[0];
             activate(g, "Siege-Gang Commander", 3, player(0), Some(token));
             settle(g);
@@ -1229,7 +1242,7 @@ fn sacrifice_commander_graveyard_death_then_command_return_and_exile_is_not_deat
                 g.zone(named(g, "Yargle and Multani", 1)),
                 Some(Zone::Command { .. })
             ));
-            let before = g.state.players[0].life.clone();
+            let before = g.state.rules.players[0].life.clone();
             cast(
                 g,
                 "Swords to Plowshares",
@@ -1237,7 +1250,7 @@ fn sacrifice_commander_graveyard_death_then_command_return_and_exile_is_not_deat
                 obj(named(g, "Carrion Feeder", 1)),
                 None,
             );
-            assert_eq!(g.state.players[0].life, before);
+            assert_eq!(g.state.rules.players[0].life, before);
             if g.trace.mode == TraceMode::Detailed {
                 let source = named(g, "Blood Artist", 1).card;
                 assert_eq!(
@@ -1315,7 +1328,7 @@ fn double_strike_in_sacrifice_profile() {
         let ace = named(g, "Fencing Ace", 0);
         let turn = g.turn().number;
         to_attackers(g, 0, ace, turn);
-        let life = g.state.players[1].life.clone();
+        let life = g.state.rules.players[1].life.clone();
         answer(
             g,
             Response::Attackers {
@@ -1341,7 +1354,7 @@ fn double_strike_in_sacrifice_profile() {
         let mut expected = life;
         expected.subtract(&2.into());
         assert_eq!(
-            g.state.players[1].life, expected,
+            g.state.rules.players[1].life, expected,
             "double strike dealt damage once"
         );
         assert!(saw_first_strike_step, "no first-strike damage step");

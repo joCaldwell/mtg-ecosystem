@@ -124,6 +124,7 @@ fn check(g: &Game) {
     assert_eq!(replayed.trace(), g.trace());
     assert!(
         g.state
+            .rules
             .objects
             .values()
             .all(|o| o.zone != Zone::Battlefield || !o.deathtouch_damage)
@@ -168,6 +169,7 @@ fn cast(g: &mut Game, id: u32, targets: Vec<TargetEntity>) {
                 } else {
                     let land = g
                         .state
+                        .rules
                         .objects
                         .values()
                         .find(|o| {
@@ -206,7 +208,7 @@ fn cast(g: &mut Game, id: u32, targets: Vec<TargetEntity>) {
         };
         g.respond(r.player(), r.decision_id(), response).unwrap();
     }
-    while !g.state.stack.is_empty() {
+    while !g.state.rules.stack.is_empty() {
         answer(g, Response::Pass);
         request(g);
     }
@@ -270,7 +272,7 @@ fn flying_reach_defender_and_vigilance_declarations() {
                 }
                 reach(g, TurnStep::CombatDamage);
                 assert_eq!(
-                    g.state.players[1].life,
+                    g.state.rules.players[1].life,
                     Quantity::from(if legal { 40 } else { 36 })
                 );
             },
@@ -332,8 +334,8 @@ fn freshly_cast_haste_attacks_but_other_creature_waits() {
                 answer(g, Response::Pass);
             }
             reach(g, TurnStep::CombatDamage);
-            assert_eq!(g.state.players[0].life, 41.into());
-            assert_eq!(g.state.players[1].life, 39.into());
+            assert_eq!(g.state.rules.players[0].life, 41.into());
+            assert_eq!(g.state.rules.players[1].life, 39.into());
         },
     );
 }
@@ -374,7 +376,7 @@ fn deathtouch_and_lifelink_use_actual_damage_after_fog_and_healer() {
                             }],
                         },
                     );
-                    while !g.state.stack.is_empty() {
+                    while !g.state.rules.stack.is_empty() {
                         answer(g, Response::Pass);
                         request(g);
                     }
@@ -402,7 +404,10 @@ fn deathtouch_and_lifelink_use_actual_damage_after_fog_and_healer() {
                     },
                 );
                 reach(g, TurnStep::CombatDamage);
-                assert_eq!(g.state.players[1].life, Quantity::from(40 + expected_gain));
+                assert_eq!(
+                    g.state.rules.players[1].life,
+                    Quantity::from(40 + expected_gain)
+                );
                 assert_eq!(
                     g.zone(object(g, 0)),
                     Some(if dead {
@@ -477,8 +482,8 @@ fn lifelink_sources_gain_separately_and_deathtouch_blocker_destroys_attacker() {
                 },
             );
             reach(g, TurnStep::CombatDamage);
-            assert_eq!(g.state.players[0].life, 43.into());
-            assert_eq!(g.state.players[1].life, 39.into());
+            assert_eq!(g.state.rules.players[0].life, 43.into());
+            assert_eq!(g.state.rules.players[1].life, 39.into());
             assert_eq!(
                 g.zone(object(g, 1)),
                 Some(Zone::Graveyard { owner: PlayerId(0) })
@@ -546,12 +551,12 @@ fn fresh_tap_cost_requires_continuous_control_or_haste() {
                     );
                     request(g);
                     assert!(g.current(h).unwrap().tapped);
-                    while !g.state.stack.is_empty() {
+                    while !g.state.rules.stack.is_empty() {
                         answer(g, Response::Pass);
                         request(g);
                     }
                     assert!(
-                        g.state.effects.iter().any(|e| matches!(
+                        g.state.rules.effects.iter().any(|e| matches!(
                             e.kind,
                             ResolvedEffectKind::PreventNextDamage { .. }
                         ))
@@ -604,9 +609,10 @@ fn lifelink_and_commander_damage_remain_distinct_in_both_combat_paths() {
                 },
             );
             reach(g, TurnStep::CombatDamage);
-            assert_eq!(g.state.players[1].life, 24.into());
+            assert_eq!(g.state.rules.players[1].life, 24.into());
             assert_eq!(
                 g.state
+                    .rules
                     .commanders
                     .history(commander.card)
                     .unwrap()
@@ -645,7 +651,7 @@ fn healer_fully_prevented_deathtouch_never_marks_or_destroys() {
                     }],
                 },
             );
-            while !g.state.stack.is_empty() {
+            while !g.state.rules.stack.is_empty() {
                 answer(g, Response::Pass);
                 request(g);
             }
@@ -673,7 +679,7 @@ fn healer_fully_prevented_deathtouch_never_marks_or_destroys() {
             reach(g, TurnStep::CombatDamage);
             assert_eq!(g.zone(a), Some(Zone::Battlefield));
             assert_eq!(g.current(a).unwrap().marked_damage, 0.into());
-            assert_eq!(g.state.players[0].life, 42.into());
+            assert_eq!(g.state.rules.players[0].life, 42.into());
         },
     );
 }
@@ -754,10 +760,10 @@ fn two_life_defender_survives_simultaneous_three_damage_and_two_lifelink() {
         }
         answer(g, Response::Blockers { blocks: vec![] });
         reach(g, TurnStep::CombatDamage);
-        assert_eq!(g.state.players[1].life, 2.into());
+        assert_eq!(g.state.rules.players[1].life, 2.into());
         for _ in 0..300 {
             let r = request(g);
-            if matches!(r, Request::Attackers { .. }) && g.state.active == Some(PlayerId(0)) {
+            if matches!(r, Request::Attackers { .. }) && g.state.rules.active == Some(PlayerId(0)) {
                 break;
             }
             let response = match r {
@@ -767,7 +773,7 @@ fn two_life_defender_survives_simultaneous_three_damage_and_two_lifelink() {
             };
             g.respond(r.player(), r.decision_id(), response).unwrap();
         }
-        assert_eq!(g.state.active, Some(PlayerId(0)));
+        assert_eq!(g.state.rules.active, Some(PlayerId(0)));
         answer(
             g,
             Response::Attackers {
@@ -788,7 +794,7 @@ fn two_life_defender_survives_simultaneous_three_damage_and_two_lifelink() {
             },
         );
         reach(g, TurnStep::CombatDamage);
-        assert_eq!(g.state.players[1].life, 1.into());
+        assert_eq!(g.state.rules.players[1].life, 1.into());
         assert!(g.is_live(PlayerId(1)));
     });
 }
@@ -827,7 +833,7 @@ fn assigned_departed_combat_source_uses_keyword_lki() {
         );
         // Stop at the actual assignment boundary, not at a fabricated ledger.
         for _ in 0..100 {
-            if matches!(g.state.frame, Frame::DamageEffects { .. }) {
+            if matches!(g.state.rules.frame, Frame::DamageEffects { .. }) {
                 break;
             }
             match g.advance(Budget::new(1)) {
@@ -838,11 +844,11 @@ fn assigned_departed_combat_source_uses_keyword_lki() {
                 x => panic!("{x:?}"),
             }
         }
-        assert!(matches!(g.state.frame, Frame::DamageEffects { .. }));
+        assert!(matches!(g.state.rules.frame, Frame::DamageEffects { .. }));
         g.concede(PlayerId(2)).unwrap();
         reach(g, TurnStep::CombatDamage);
         assert!(g.object_id(CardId(0)).is_none());
-        assert_eq!(g.state.players[0].life, 42.into());
+        assert_eq!(g.state.rules.players[0].life, 42.into());
         assert_eq!(
             g.zone(object(g, 1)),
             Some(Zone::Graveyard { owner: PlayerId(1) })
@@ -895,12 +901,12 @@ fn noncombat_departed_source_lifelink_and_deathtouch_both_damage_paths() {
             assert!(g.current(object(g, 0)).unwrap().tapped);
             g.concede(PlayerId(2)).unwrap();
             request(g);
-            while !g.state.stack.is_empty() {
+            while !g.state.rules.stack.is_empty() {
                 answer(g, Response::Pass);
                 request(g);
             }
             assert!(g.object_id(CardId(0)).is_none());
-            assert_eq!(g.state.players[0].life, 41.into());
+            assert_eq!(g.state.rules.players[0].life, 41.into());
             assert_eq!(
                 g.zone(object(g, 1)),
                 Some(Zone::Graveyard { owner: PlayerId(1) })
@@ -927,6 +933,6 @@ fn lifelink_beneficiary_is_the_source_controller_not_invocation_controller() {
         .unwrap();
     assert_eq!(gains.len(), 1);
     assert_eq!(gains[0].player, PlayerId(0));
-    assert_eq!(g.state.players[0].life, 42.into());
-    assert_eq!(g.state.players[1].life, 40.into());
+    assert_eq!(g.state.rules.players[0].life, 42.into());
+    assert_eq!(g.state.rules.players[1].life, 40.into());
 }

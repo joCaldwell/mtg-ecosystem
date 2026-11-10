@@ -80,6 +80,7 @@ impl Game {
             object,
             owner: self
                 .state
+                .rules
                 .cards
                 .get(&object.card)
                 .ok_or("missing source card")?
@@ -103,15 +104,15 @@ impl Game {
     }
     pub(super) fn retain_source_facts(&mut self, fact: &ObjectBefore) {
         let object = fact.object;
-        for trigger in &mut self.state.pending_triggers {
+        for trigger in &mut self.state.rules.pending_triggers {
             if trigger.source == object {
                 trigger.source_facts = fact.clone();
             }
         }
-        for entry in &mut self.state.stack {
+        for entry in &mut self.state.rules.stack {
             update_entry(entry, fact);
         }
-        update_frame(&mut self.state.frame, fact);
+        update_frame(&mut self.state.rules.frame, fact);
     }
     pub(super) fn source_facts(&self, entry: &StackInstance) -> Result<ObjectBefore, String> {
         self.object_before(entry.source).or_else(|_| {
@@ -151,7 +152,7 @@ impl Game {
     pub(super) fn entity_legal(&self, target: TargetEntity) -> bool {
         match target {
             TargetEntity::Player { player } => self.is_live(player),
-            TargetEntity::Object { object } => self.target_legal(object),
+            TargetEntity::Object { object } => self.is_battlefield_creature(object),
         }
     }
     pub(super) fn eligible_entities(&self) -> Vec<TargetEntity> {
@@ -160,10 +161,11 @@ impl Game {
             .map(|player| TargetEntity::Player { player })
             .chain(
                 self.state
+                    .rules
                     .objects
                     .values()
                     .filter(|o| {
-                        self.target_legal(o.id)
+                        self.is_battlefield_creature(o.id)
                             && self
                                 .top()
                                 .is_ok_and(|e| self.targetable_by(o.id, e.controller))
@@ -191,7 +193,12 @@ impl Game {
         Ok(())
     }
     pub(super) fn bind_entity_targets(&mut self, cast: Casting) -> Result<(), String> {
-        let input = self.state.pending.take().ok_or("missing entity targets")?;
+        let input = self
+            .state
+            .rules
+            .pending
+            .take()
+            .ok_or("missing entity targets")?;
         let Response::EntityTargets { entities } = input.response else {
             return Err("entity target response invariant".into());
         };
@@ -211,13 +218,14 @@ impl Game {
             .collect::<Result<Vec<_>, _>>()?;
         let top = self
             .state
+            .rules
             .stack
             .last_mut()
             .ok_or("missing targeted invocation")?;
         top.entity_targets = entities;
         top.announced_entity_targets = announced;
         if cast.origin.is_spell() {
-            self.state.frame = Frame::Mana { cast };
+            self.state.rules.frame = Frame::Mana { cast };
         } else {
             self.complete_targeted_activation(cast, input.decision_id)?;
         }
@@ -237,11 +245,11 @@ impl Game {
                 ActivationCost::SacrificePermanent { mana: None, .. } => {
                     let mut cast = cast;
                     cast.spending = Some(BTreeMap::new());
-                    self.state.frame = Frame::SacrificeCost { cast };
+                    self.state.rules.frame = Frame::SacrificeCost { cast };
                     return Ok(());
                 }
                 ActivationCost::SacrificePermanent { mana: Some(_), .. } => {
-                    self.state.frame = Frame::Mana { cast };
+                    self.state.rules.frame = Frame::Mana { cast };
                     return Ok(());
                 }
                 ActivationCost::SacrificeSource => {
@@ -280,6 +288,7 @@ impl Game {
             },
         )?;
         self.state
+            .rules
             .stack
             .last_mut()
             .ok_or("missing activated invocation")?
@@ -290,8 +299,8 @@ impl Game {
             player: entry.controller,
             ability,
         })?;
-        self.state.priority = entry.controller;
-        self.state.frame = Frame::Priority;
+        self.state.rules.priority = entry.controller;
+        self.state.rules.frame = Frame::Priority;
         self.stabilize()
     }
     pub(super) fn validate_damage_bindings(&self, entry: &StackInstance) -> Result<(), String> {
@@ -317,6 +326,7 @@ impl Game {
                 .ok_or("snapshot missing source facts")?;
             let card = self
                 .state
+                .rules
                 .cards
                 .get(&entry.source.card)
                 .ok_or("snapshot unknown source")?;
@@ -344,7 +354,9 @@ impl Game {
                 })
                 || entry.entity_targets.iter().any(|t| match t {
                     TargetEntity::Player { player } => player.0 >= 4,
-                    TargetEntity::Object { object } => !self.state.cards.contains_key(&object.card),
+                    TargetEntity::Object { object } => {
+                        !self.state.rules.cards.contains_key(&object.card)
+                    }
                 })
             {
                 return Err("snapshot entity binding invariant".into());
@@ -506,6 +518,7 @@ impl Game {
         }
         let source_card = self
             .state
+            .rules
             .cards
             .get(&damage.source.object.card)
             .ok_or("unknown damage source card")?;
@@ -514,9 +527,10 @@ impl Game {
         }
         let bound = self
             .state
+            .rules
             .stack
             .iter()
-            .chain(resolving_entry(&self.state.frame))
+            .chain(resolving_entry(&self.state.rules.frame))
             .any(|entry| {
                 entry.source == damage.source.object
                     && entry.controller == damage.controller
@@ -541,17 +555,18 @@ impl Game {
                 if !self.is_live(player) {
                     return Err("departed damage recipient".into());
                 }
-                let life = &mut self.state.players[player.0 as usize].life;
+                let life = &mut self.state.rules.players[player.0 as usize].life;
                 let previous = life.clone();
                 life.subtract(&damage.amount);
                 (previous, life.clone())
             }
             DamageRecipient::Creature { object } => {
-                if !self.target_legal(object) {
+                if !self.is_battlefield_creature(object) {
                     return Err("invalid creature damage recipient".into());
                 }
                 let o = self
                     .state
+                    .rules
                     .objects
                     .get_mut(&object.card)
                     .ok_or("missing damage object")?;

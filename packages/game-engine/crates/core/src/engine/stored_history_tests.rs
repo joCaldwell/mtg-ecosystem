@@ -9,7 +9,11 @@ fn public_fixture() -> PermittedView {
         )
         .unwrap(),
     );
-    game.state.visibility[0].history.last().unwrap().to_public()
+    game.state.knowledge.visibility[0]
+        .history
+        .last()
+        .unwrap()
+        .to_public()
 }
 fn row_pointer(row: &StoredObject) -> usize {
     Arc::as_ptr(&row.0) as usize
@@ -350,8 +354,8 @@ fn real_state_wire_hash_and_owned_search_export_stay_complete_after_sharing() {
             .unwrap();
     }
     assert!(reached_priority, "fixed bounded priority drain exhausted");
-    assert!(matches!(game.state.frame, Frame::Priority));
-    assert!(game.state.pending.is_none());
+    assert!(matches!(game.state.rules.frame, Frame::Priority));
+    assert!(game.state.rules.pending.is_none());
     let expected = canonical(&game.state).unwrap();
     let mut actual = vec![];
     state_digest::write_state(&game.state, &mut actual).unwrap();
@@ -370,7 +374,7 @@ fn real_state_wire_hash_and_owned_search_export_stay_complete_after_sharing() {
             QueryResult::Complete(_) => panic!("context returned wrong query variant"),
         }
     };
-    let public = game.state.visibility[0]
+    let public = game.state.knowledge.visibility[0]
         .history
         .iter()
         .map(StoredPermittedView::to_public)
@@ -382,7 +386,7 @@ fn real_state_wire_hash_and_owned_search_export_stay_complete_after_sharing() {
     );
     assert_eq!(
         canonical(&context.permitted_history).unwrap(),
-        canonical(&game.state.visibility[0].history).unwrap()
+        canonical(&game.state.knowledge.visibility[0].history).unwrap()
     );
 }
 #[test]
@@ -530,11 +534,12 @@ fn reflexive_stored_history_matches_public_deep_oracle_for_metadata_rows_order_a
         )
         .unwrap(),
     );
-    game.state.visibility[0].history = history.clone();
+    game.state.knowledge.visibility[0].history = history.clone();
     let mut branch = game.fork();
     assert!(game.state == branch.state);
     let before = canonical(&game.state).unwrap();
-    branch.state.visibility[0].history[96].mutate_object(0, |row| row.tapped = !row.tapped);
+    branch.state.knowledge.visibility[0].history[96]
+        .mutate_object(0, |row| row.tapped = !row.tapped);
     assert!(game.state != branch.state);
     assert_eq!(canonical(&game.state).unwrap(), before);
     for state in [&game.state, &branch.state] {
@@ -583,7 +588,7 @@ fn reflexive_history_real_legal_firstwrites_keep_parent_siblings_and_partition_o
         }
     }
     let request = priority.expect("bounded legal opening reaches Priority");
-    assert!(root.state.pending.is_none());
+    assert!(root.state.rules.pending.is_none());
     let before = canonical(&root.state).unwrap();
     let sibling = root.fork();
     let mut advanced = vec![];
@@ -604,11 +609,17 @@ fn reflexive_history_real_legal_firstwrites_keep_parent_siblings_and_partition_o
                 other => panic!("firstwrite advance:{other:?}"),
             }
         }
-        assert!(ready && branch.state.pending.is_none());
+        assert!(ready && branch.state.rules.pending.is_none());
         assert!(branch.state != root.state);
         assert_eq!(canonical(&root.state).unwrap(), before);
         assert!(sibling.state == root.state);
-        for (actual, untouched) in branch.state.visibility.iter().zip(&root.state.visibility) {
+        for (actual, untouched) in branch
+            .state
+            .knowledge
+            .visibility
+            .iter()
+            .zip(&root.state.knowledge.visibility)
+        {
             let owned_actual = actual
                 .history
                 .iter()
@@ -1042,9 +1053,9 @@ fn stored_collections_warm_sibling_late_mutations_preserve_full_state_bytes() {
         .unwrap(),
     );
     // Full serialization-domain State oracle, deliberately not admitted/replayed facts.
-    game.state.visibility[0].history = history.clone();
+    game.state.knowledge.visibility[0].history = history.clone();
     let mut sibling = game.fork();
-    sibling.state.visibility[0].history = branch;
+    sibling.state.knowledge.visibility[0].history = branch;
     assert!(game.state != sibling.state);
     for state in [&game.state, &sibling.state] {
         let generic = canonical(state).unwrap();
@@ -1056,7 +1067,7 @@ fn stored_collections_warm_sibling_late_mutations_preserve_full_state_bytes() {
             sha256(generic.as_bytes())
         );
     }
-    assert_views(&game.state.visibility[0].history, &public);
+    assert_views(&game.state.knowledge.visibility[0].history, &public);
 }
 // Explicit allocation-capacity mechanism accounting only; no estimated RSS,
 // allocator headers, nested row/string/map payloads or process-fit claim.

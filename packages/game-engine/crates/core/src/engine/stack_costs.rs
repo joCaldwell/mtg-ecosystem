@@ -31,9 +31,10 @@ impl Game {
         let source_handles = (0..4)
             .map(|viewer| self.handle_for(PlayerId(viewer), object))
             .collect::<Result<Vec<_>, _>>()?;
-        let id = StackId(self.state.next_stack_id);
-        self.state.next_stack_id = self
+        let id = StackId(self.state.rules.next_stack_id);
+        self.state.rules.next_stack_id = self
             .state
+            .rules
             .next_stack_id
             .checked_add(1)
             .ok_or("stack ID resource limit")?;
@@ -59,7 +60,7 @@ impl Game {
             .program
             .targets
             .is_empty();
-        self.state.stack.push(StackInstance {
+        self.state.rules.stack.push(StackInstance {
             x: None,
             death_controller: None,
             sacrificed: None,
@@ -102,11 +103,11 @@ impl Game {
                 spending: None,
                 stack_id: id,
                 original_object: object,
-                prior_passes: self.state.passes.clone(),
+                prior_passes: self.state.rules.passes.clone(),
                 mana_activations: vec![],
                 undo_mana: false,
             };
-            self.state.frame = if matches!(
+            self.state.rules.frame = if matches!(
                 self.definition(object.card)?.activated[ability as usize]
                     .program
                     .targets[0]
@@ -118,28 +119,28 @@ impl Game {
                 Frame::EntityTargets { cast }
             };
         } else if mana {
-            self.state.frame = Frame::Mana {
+            self.state.rules.frame = Frame::Mana {
                 cast: Casting {
                     sacrifice: None,
                     origin: AnnouncementOrigin::Activated,
                     spending: None,
                     stack_id: id,
                     original_object: object,
-                    prior_passes: self.state.passes.clone(),
+                    prior_passes: self.state.rules.passes.clone(),
                     mana_activations: vec![],
                     undo_mana: false,
                 },
             };
         } else if chosen {
             // CR 602.2b/601.2g-h: no mana opportunity for a cost with no mana.
-            self.state.frame = Frame::SacrificeCost {
+            self.state.rules.frame = Frame::SacrificeCost {
                 cast: Casting {
                     sacrifice: None,
                     origin: AnnouncementOrigin::Activated,
                     spending: Some(BTreeMap::new()),
                     stack_id: id,
                     original_object: object,
-                    prior_passes: self.state.passes.clone(),
+                    prior_passes: self.state.rules.passes.clone(),
                     mana_activations: vec![],
                     undo_mana: false,
                 },
@@ -185,10 +186,10 @@ impl Game {
                 player,
                 ability,
             })?;
-            self.state.priority = player;
+            self.state.rules.priority = player;
             self.stabilize()?;
         }
-        self.state.passes.clear();
+        self.state.rules.passes.clear();
         Ok(())
     }
     pub(super) fn validate_activated_entry(
@@ -215,7 +216,7 @@ impl Game {
                 colored: vec![],
             },
         };
-        let announcing = match self.underlying_mana_frame(&self.state.frame) {
+        let announcing = match self.underlying_mana_frame(&self.state.rules.frame) {
             Frame::Targets { cast }
             | Frame::EntityTargets { cast }
             | Frame::Mana { cast }
@@ -225,7 +226,7 @@ impl Game {
                 cast.stack_id == entry.id && cast.origin == AnnouncementOrigin::Activated
             }
             _ => matches!(
-                self.state.frame,
+                self.state.rules.frame,
                 Frame::Fault { .. } | Frame::Finished { .. }
             ),
         };
@@ -264,7 +265,7 @@ impl Game {
         self.validate_damage_bindings(entry)?;
         let x_spell = self.definition(entry.source.card)?.x_mana_cost && entry.kind.is_spell();
         let announcing =
-            matches!(&self.state.frame,Frame::AnnounceX {cast} if cast.stack_id==entry.id);
+            matches!(&self.state.rules.frame,Frame::AnnounceX {cast} if cast.stack_id==entry.id);
         if entry.x.as_ref().is_some_and(|q| q.is_negative())
             || (entry.x.is_some() != x_spell && !announcing)
             || (announcing && (!x_spell || entry.x.is_some()))
@@ -309,6 +310,7 @@ impl Game {
         exclude: Option<StackId>,
     ) -> Vec<StackId> {
         self.state
+            .rules
             .stack
             .iter()
             .filter(|entry| {
@@ -354,6 +356,7 @@ impl Game {
     pub(super) fn bind_stack_targets(&mut self, cast: Casting) -> Result<(), String> {
         let input = self
             .state
+            .rules
             .pending
             .take()
             .ok_or("missing stack target input")?;
@@ -371,12 +374,13 @@ impl Game {
             .collect::<Result<Vec<_>, _>>()?;
         let top = self
             .state
+            .rules
             .stack
             .last_mut()
             .ok_or("missing stack target invocation")?;
         top.stack_targets = entries;
         top.announced_stack_targets = announced;
-        self.state.frame = Frame::Mana { cast };
+        self.state.rules.frame = Frame::Mana { cast };
         Ok(())
     }
     // CR 701.6a-b/608.2b: remove precisely the bound stack object. Paid costs
@@ -400,7 +404,13 @@ impl Game {
             .unwrap_or(false)
         {
             InstructionOutcome::StackTargetIllegal { target }
-        } else if !self.state.stack.iter().any(|entry| entry.id == target) {
+        } else if !self
+            .state
+            .rules
+            .stack
+            .iter()
+            .any(|entry| entry.id == target)
+        {
             InstructionOutcome::StackObjectNoLongerPresent { target }
         } else {
             let domain = self

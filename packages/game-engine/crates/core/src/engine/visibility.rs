@@ -528,6 +528,57 @@ pub struct SearchContext {
     pub sampling_seed: String,
 }
 
+// Only the forward map is authoritative. The reverse index preserves the old
+// lexical-first lookup even for duplicate IDs in an untrusted snapshot; replay
+// still proves whether that snapshot is reachable. Every mutation invalidates
+// the derived index, and clones may share it while their maps remain unchanged.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(transparent)]
+struct ObjectHandles {
+    entries: BTreeMap<String, ObjectId>,
+    #[serde(skip)]
+    reverse: Arc<std::sync::OnceLock<BTreeMap<ObjectId, ObjectHandle>>>,
+}
+impl PartialEq for ObjectHandles {
+    fn eq(&self, other: &Self) -> bool {
+        self.entries == other.entries
+    }
+}
+impl Eq for ObjectHandles {}
+impl ObjectHandles {
+    fn handle_for(&self, object: ObjectId) -> Option<&ObjectHandle> {
+        self.reverse
+            .get_or_init(|| {
+                let mut reverse = BTreeMap::new();
+                for (handle, object) in &self.entries {
+                    reverse
+                        .entry(*object)
+                        .or_insert_with(|| ObjectHandle(handle.clone()));
+                }
+                reverse
+            })
+            .get(&object)
+    }
+    fn get(&self, handle: &str) -> Option<&ObjectId> {
+        self.entries.get(handle)
+    }
+    fn insert(&mut self, handle: String, object: ObjectId) {
+        if self.entries.insert(handle, object) != Some(object) {
+            self.reverse = Arc::default();
+        }
+    }
+    fn retain_objects(&mut self, current: &BTreeSet<ObjectId>) {
+        let previous_len = self.entries.len();
+        self.entries.retain(|_, object| current.contains(object));
+        if self.entries.len() != previous_len {
+            self.reverse = Arc::default();
+        }
+    }
+    fn objects(&self) -> BTreeSet<ObjectId> {
+        self.entries.values().copied().collect()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Knowledge {
@@ -551,7 +602,7 @@ pub(super) struct Knowledge {
     ability_handles: BTreeMap<StackId, StackHandle>,
     #[serde(default, skip_serializing_if = "is_zero")]
     next_ability_handle: u64,
-    handles: BTreeMap<String, ObjectId>,
+    handles: ObjectHandles,
     next_handle: u64,
     decision_key: Option<(u64, u8)>,
     decision_token: Option<DecisionToken>,
@@ -575,6 +626,7 @@ impl Knowledge {
 impl Game {
     pub(super) fn search_decision_token(&self, player: PlayerId) -> Result<&DecisionToken, String> {
         self.state
+            .knowledge
             .visibility
             .get(player.0 as usize)
             .and_then(|k| k.decision_token.as_ref())
@@ -587,10 +639,9 @@ impl Game {
     ) -> Result<Vec<ObjectHandle>, String> {
         let mut handles = vec![];
         for viewer in 0..4 {
-            let k = &mut self.state.visibility[viewer];
-            let handle = if let Some((handle, _)) = k.handles.iter().find(|(_, id)| **id == object)
-            {
-                ObjectHandle(handle.clone())
+            let k = &mut self.state.knowledge.visibility[viewer];
+            let handle = if let Some(handle) = k.handles.handle_for(object) {
+                handle.clone()
             } else {
                 let handle = ObjectHandle(k.scoped(format!("v{viewer}-o{}", k.next_handle)));
                 k.next_handle = k
@@ -610,6 +661,7 @@ impl Game {
         handle: &TriggerHandle,
     ) -> Result<TriggerId, String> {
         self.state
+            .knowledge
             .visibility
             .get(viewer.0 as usize)
             .and_then(|k| {
@@ -627,6 +679,7 @@ impl Game {
     ) -> Result<VisiblePendingTrigger, String> {
         let trigger = self
             .state
+            .rules
             .pending_triggers
             .iter()
             .find(|t| t.id == id)
@@ -634,6 +687,7 @@ impl Game {
         Ok(VisiblePendingTrigger {
             handle: self
                 .state
+                .knowledge
                 .visibility
                 .get(viewer.0 as usize)
                 .and_then(|k| k.trigger_handles.get(&id))
@@ -649,6 +703,7 @@ impl Game {
             },
             oracle_id: self
                 .state
+                .rules
                 .cards
                 .get(&trigger.source.card)
                 .ok_or("missing trigger physical source")?
@@ -697,10 +752,11 @@ impl Game {
         viewer: PlayerId,
         id: StackId,
     ) -> Result<StackHandle, String> {
-        if !self.state.stack.iter().any(|entry| entry.id == id) {
+        if !self.state.rules.stack.iter().any(|entry| entry.id == id) {
             return Err("stale stack identity".into());
         }
         self.state
+            .knowledge
             .visibility
             .get(viewer.0 as usize)
             .and_then(|knowledge| knowledge.ability_handles.get(&id))
@@ -713,6 +769,7 @@ impl Game {
         handle: &StackHandle,
     ) -> Result<StackId, String> {
         self.state
+            .knowledge
             .visibility
             .get(viewer.0 as usize)
             .and_then(|knowledge| {
@@ -722,18 +779,20 @@ impl Game {
                     .find(|(_, value)| *value == handle)
             })
             .map(|(id, _)| *id)
-            .filter(|id| self.state.stack.iter().any(|entry| entry.id == *id))
+            .filter(|id| self.state.rules.stack.iter().any(|entry| entry.id == *id))
             .ok_or_else(|| "stale or foreign stack handle".into())
     }
     pub(super) fn visible_player(&self, player: PlayerId) -> Result<VisiblePlayer, String> {
         let p = self
             .state
+            .rules
             .players
             .get(player.0 as usize)
             .ok_or("invalid viewer")?;
         let count = |zone| {
             u32::try_from(
                 self.state
+                    .rules
                     .objects
                     .values()
                     .filter(|o| o.zone == zone)
@@ -745,6 +804,7 @@ impl Game {
             exile: vec![],
             library_shuffles: self
                 .state
+                .rules
                 .match_state
                 .as_ref()
                 .and_then(|m| m.library_shuffles.get(player.0 as usize))
@@ -764,10 +824,11 @@ impl Game {
         id: ObjectId,
     ) -> Result<ObjectHandle, String> {
         self.state
+            .knowledge
             .visibility
             .get(viewer.0 as usize)
-            .and_then(|k| k.handles.iter().find(|(_, v)| **v == id))
-            .map(|(h, _)| ObjectHandle(h.clone()))
+            .and_then(|k| k.handles.handle_for(id))
+            .cloned()
             .ok_or_else(|| "object is not visible to this viewer".into())
     }
     pub(super) fn visible_object(
@@ -780,6 +841,7 @@ impl Game {
         }
         let physical = self
             .state
+            .rules
             .cards
             .get(&object.id.card)
             .ok_or("missing object definition")?;
@@ -791,6 +853,7 @@ impl Game {
                 .transpose()?,
             attachments: self
                 .state
+                .rules
                 .objects
                 .values()
                 .filter(|o| o.zone == Zone::Battlefield && o.attached_to == Some(object.id))
@@ -811,6 +874,7 @@ impl Game {
             .collect(),
             token: self
                 .state
+                .rules
                 .tokens
                 .get(&object.id.card)
                 .map(|t| VisibleToken {
@@ -824,7 +888,7 @@ impl Game {
             handle: self.handle_for(viewer, object.id)?,
             // Tokens have no Oracle identity. Never expose their physical IDs
             // through a synthetic Oracle string; their public row has a handle.
-            oracle_id: if self.state.tokens.contains_key(&object.id.card) {
+            oracle_id: if self.state.rules.tokens.contains_key(&object.id.card) {
                 String::new()
             } else {
                 physical.oracle_id.clone()
@@ -842,6 +906,7 @@ impl Game {
     ) -> Result<VisibleStackEntry, String> {
         let instance = self
             .state
+            .rules
             .stack
             .get(index)
             .ok_or("missing stack projection row")?;
@@ -883,6 +948,7 @@ impl Game {
                     },
                     oracle_id: self
                         .state
+                        .rules
                         .cards
                         .get(&instance.source.card)
                         .ok_or("missing triggered physical source")?
@@ -897,7 +963,7 @@ impl Game {
             } => (
                 None,
                 Some(VisibleAbility {
-                    handle: self.state.visibility[viewer.0 as usize]
+                    handle: self.state.knowledge.visibility[viewer.0 as usize]
                         .ability_handles
                         .get(&instance.id)
                         .ok_or("missing ability stack handle")?
@@ -911,6 +977,7 @@ impl Game {
                     },
                     oracle_id: self
                         .state
+                        .rules
                         .cards
                         .get(&instance.source.card)
                         .ok_or("missing ability physical source")?
@@ -983,7 +1050,9 @@ impl Game {
             return Err("invalid viewer".into());
         }
         Ok(PermittedView {
-            sacrifice_choices: if let Frame::ForcedSacrifice { choices, .. } = &self.state.frame {
+            sacrifice_choices: if let Frame::ForcedSacrifice { choices, .. } =
+                &self.state.rules.frame
+            {
                 choices
                     .iter()
                     .filter(|(p, o)| self.is_live(*p) && self.current(*o).is_ok())
@@ -996,6 +1065,7 @@ impl Game {
             effects: vec![],
             combat: self
                 .state
+                .rules
                 .combat
                 .iter()
                 .map(|a| {
@@ -1012,23 +1082,25 @@ impl Game {
                 })
                 .collect::<Result<_, String>>()?,
             viewer,
-            active: self.state.active,
-            turn_owner: self.state.turn_owner,
-            turn: self.state.turn.clone(),
+            active: self.state.rules.active,
+            turn_owner: self.state.rules.turn_owner,
+            turn: self.state.rules.turn.clone(),
             live_turn_order: self.live_players(),
             commanders: self
                 .state
+                .rules
                 .commanders
                 .records
                 .iter()
                 .enumerate()
                 .map(|(index, (card, history))| VisibleCommander {
                     designation: format!("v{}-c{index}", viewer.0),
-                    oracle_id: self.state.cards[card].oracle_id.clone(),
+                    oracle_id: self.state.rules.cards[card].oracle_id.clone(),
                     history: history.clone(),
                 })
                 .collect(),
-            priority: matches!(self.state.frame, Frame::Priority).then_some(self.state.priority),
+            priority: matches!(self.state.rules.frame, Frame::Priority)
+                .then_some(self.state.rules.priority),
             players: vec![],
             objects: vec![],
             stack: vec![],
@@ -1038,10 +1110,10 @@ impl Game {
         if viewer.0 >= 4 {
             return Err("invalid viewer".into());
         }
-        if self.state.pending.is_some() || !self.state.pending_concessions.is_empty() {
+        if self.state.rules.pending.is_some() || !self.state.rules.pending_concessions.is_empty() {
             return Ok(None);
         }
-        let token = self.state.visibility[viewer.0 as usize]
+        let token = self.state.knowledge.visibility[viewer.0 as usize]
             .decision_token
             .clone();
         let Some(token) = token else {
@@ -1072,7 +1144,7 @@ impl Game {
                 .transpose();
         }
         if matches!(
-            self.state.frame,
+            self.state.rules.frame,
             Frame::SacrificeCost { .. }
                 | Frame::ForcedSacrifice { .. }
                 | Frame::OptionalDamage { .. }
@@ -1113,7 +1185,7 @@ impl Game {
                 _ => None,
             });
         }
-        if matches!(self.state.frame, Frame::Setup) {
+        if matches!(self.state.rules.frame, Frame::Setup) {
             return Ok(match self.setup_request()? {
                 Some(Request::Mulligan {
                     player,
@@ -1161,7 +1233,7 @@ impl Game {
                 candidates: vec![],
             }));
         }
-        if let Frame::AnnounceX { .. } = self.state.frame {
+        if let Frame::AnnounceX { .. } = self.state.rules.frame {
             return Ok(
                 (self.top()?.controller == viewer).then_some(PlayerRequest::AnnounceX {
                     token,
@@ -1330,7 +1402,7 @@ impl Game {
                 candidates: vec![],
             }));
         }
-        match &self.state.frame {
+        match &self.state.rules.frame {
             Frame::EntityTargets { .. } | Frame::TriggerTargets { .. }
                 if self.top()?.controller == viewer
                     && self
@@ -1437,7 +1509,7 @@ impl Game {
                 object,
                 destination,
                 ..
-            } if self.state.cards[&object.card].owner == viewer => {
+            } if self.state.rules.cards[&object.card].owner == viewer => {
                 Ok(Some(PlayerRequest::CommanderReturn {
                     previous_choices: self.visible_commander_choices(viewer)?,
                     token,
@@ -1447,10 +1519,12 @@ impl Game {
                     destination: *destination,
                 }))
             }
-            Frame::Priority if self.state.priority == viewer => Ok(Some(PlayerRequest::Priority {
-                token,
-                player: viewer,
-            })),
+            Frame::Priority if self.state.rules.priority == viewer => {
+                Ok(Some(PlayerRequest::Priority {
+                    token,
+                    player: viewer,
+                }))
+            }
             Frame::Targets { .. } if self.top()?.controller == viewer => {
                 Ok(Some(PlayerRequest::Targets {
                     token,
@@ -1476,7 +1550,7 @@ impl Game {
         for player in 0..4 {
             view.players.push(self.visible_player(PlayerId(player))?);
         }
-        for object in self.state.objects.values() {
+        for object in self.state.rules.objects.values() {
             if let Some(o) = self.visible_object(viewer, object)? {
                 if o.zone == Zone::Exile {
                     view.players[o.owner.0 as usize]
@@ -1486,7 +1560,7 @@ impl Game {
                 view.objects.push(o);
             }
         }
-        for index in 0..self.state.stack.len() {
+        for index in 0..self.state.rules.stack.len() {
             view.stack.push(self.visible_stack(viewer, index)?);
         }
         view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
@@ -1501,26 +1575,31 @@ impl Game {
             let viewer = PlayerId(v);
             let current = self
                 .state
+                .rules
                 .objects
                 .values()
                 .filter(|o| self.visible_to(viewer, o))
                 .map(|o| o.id)
                 .collect::<Vec<_>>();
-            let mut k = self.state.visibility[v as usize].clone();
-            k.handles.retain(|_, id| current.contains(id));
+            let current_set = current.iter().copied().collect::<BTreeSet<_>>();
+            let mut k = self.state.knowledge.visibility[v as usize].clone();
+            k.handles.retain_objects(&current_set);
             let abilities = self
                 .state
+                .rules
                 .stack
                 .iter()
                 .map(|entry| entry.id)
                 .collect::<Vec<_>>();
             let triggers = self
                 .state
+                .rules
                 .pending_triggers
                 .iter()
                 .map(|t| t.id)
                 .collect::<Vec<_>>();
-            k.trigger_handles.retain(|id, _| triggers.contains(id));
+            let trigger_set = triggers.iter().copied().collect::<BTreeSet<_>>();
+            k.trigger_handles.retain(|id, _| trigger_set.contains(id));
             for id in triggers {
                 if let std::collections::btree_map::Entry::Vacant(entry) =
                     k.trigger_handles.entry(id)
@@ -1536,7 +1615,8 @@ impl Game {
                     entry.insert(handle);
                 }
             }
-            k.ability_handles.retain(|id, _| abilities.contains(id));
+            let ability_set = abilities.iter().copied().collect::<BTreeSet<_>>();
+            k.ability_handles.retain(|id, _| ability_set.contains(id));
             for id in abilities {
                 if let std::collections::btree_map::Entry::Vacant(entry) =
                     k.ability_handles.entry(id)
@@ -1556,8 +1636,9 @@ impl Game {
             // Initial/global card order is internal, but hidden rows do not
             // consume viewer counters. Equal permitted histories retain equal
             // counters even when hidden cards/IDs differ.
+            let mut known = k.handles.objects();
             for id in current {
-                if !k.handles.values().any(|existing| *existing == id) {
+                if known.insert(id) {
                     let handle = k.scoped(format!("v{v}-o{}", k.next_handle));
                     k.next_handle = k
                         .next_handle
@@ -1566,47 +1647,48 @@ impl Game {
                     k.handles.insert(handle, id);
                 }
             }
-            let key = if self.state.pending.is_some() || !self.state.pending_concessions.is_empty()
+            let key = if self.state.rules.pending.is_some()
+                || !self.state.rules.pending_concessions.is_empty()
             {
                 None
             } else if self
                 .damage_allocation_request()?
                 .is_some_and(|r| r.player() == viewer)
             {
-                Some((self.state.revision, 14))
+                Some((self.state.rules.revision, 14))
             } else if self
                 .sacrifice_request()?
                 .is_some_and(|r| r.player() == viewer)
             {
-                Some((self.state.revision, 17))
+                Some((self.state.rules.revision, 17))
             } else if self.modes_request()?.is_some_and(|r| r.player() == viewer) {
-                Some((self.state.revision, 13))
+                Some((self.state.rules.revision, 13))
             } else if self
                 .damage_effect_request()?
                 .is_some_and(|r| r.player() == viewer)
             {
-                Some((self.state.revision, 12))
+                Some((self.state.rules.revision, 12))
             } else if self
                 .trigger_request()?
                 .is_some_and(|r| r.player() == viewer)
             {
-                Some((self.state.revision, 11))
+                Some((self.state.rules.revision, 11))
             } else if self
                 .actions_request()?
                 .is_some_and(|request| request.player() == viewer)
             {
-                Some((self.state.revision, 6))
+                Some((self.state.rules.revision, 6))
             } else if self.combat_decision_player() == Some(viewer) {
-                Some((self.state.revision, 3))
+                Some((self.state.rules.revision, 3))
             } else {
-                match self.state.frame {
+                match self.state.rules.frame {
                     Frame::LegendRule { .. }
                         if self.legend_request()?.is_some_and(|r| r.player() == viewer) =>
                     {
-                        Some((self.state.revision, 19))
+                        Some((self.state.rules.revision, 19))
                     }
                     Frame::Setup if self.setup_request()?.is_some_and(|r| r.player() == viewer) => {
-                        Some((self.state.revision, 15))
+                        Some((self.state.rules.revision, 15))
                     }
                     Frame::EntityTargets { .. } | Frame::TriggerTargets { .. }
                         if self.top()?.controller == viewer
@@ -1616,10 +1698,10 @@ impl Game {
                                 .first()
                                 .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget) =>
                     {
-                        Some((self.state.revision, 10))
+                        Some((self.state.rules.revision, 10))
                     }
                     Frame::StackTargets { .. } if self.top()?.controller == viewer => {
-                        Some((self.state.revision, 9))
+                        Some((self.state.rules.revision, 9))
                     }
                     Frame::TriggerTargets { .. }
                         if self.top()?.controller == viewer
@@ -1630,30 +1712,30 @@ impl Game {
                     Frame::PlayerTargets { .. } | Frame::TriggerTargets { .. }
                         if self.top()?.controller == viewer =>
                     {
-                        Some((self.state.revision, 7))
+                        Some((self.state.rules.revision, 7))
                     }
                     Frame::ManaAbility { ref activation } if activation.player == viewer => {
-                        Some((self.state.revision, 16))
+                        Some((self.state.rules.revision, 16))
                     }
                     Frame::SpendMana { .. } if self.top()?.controller == viewer => {
-                        Some((self.state.revision, 8))
+                        Some((self.state.rules.revision, 8))
                     }
                     Frame::CommanderReturn { object, .. }
-                        if self.state.cards[&object.card].owner == viewer =>
+                        if self.state.rules.cards[&object.card].owner == viewer =>
                     {
-                        Some((self.state.revision, 4))
+                        Some((self.state.rules.revision, 4))
                     }
-                    Frame::Priority if self.state.priority == viewer => {
-                        Some((self.state.revision, 0))
+                    Frame::Priority if self.state.rules.priority == viewer => {
+                        Some((self.state.rules.revision, 0))
                     }
                     Frame::AnnounceX { .. } if self.top()?.controller == viewer => {
-                        Some((self.state.revision, 18))
+                        Some((self.state.rules.revision, 18))
                     }
                     Frame::Targets { .. } if self.top()?.controller == viewer => {
-                        Some((self.state.revision, 1))
+                        Some((self.state.rules.revision, 1))
                     }
                     Frame::Mana { .. } if self.top()?.controller == viewer => {
-                        Some((self.state.revision, 2))
+                        Some((self.state.rules.revision, 2))
                     }
                     _ => None,
                 }
@@ -1671,9 +1753,9 @@ impl Game {
                 };
                 k.decision_key = key;
             }
-            self.state.visibility[v as usize] = k;
+            self.state.knowledge.visibility[v as usize] = k;
             let view = self.permitted_view(viewer)?;
-            let history = &mut self.state.visibility[v as usize].history;
+            let history = &mut self.state.knowledge.visibility[v as usize].history;
             if !history
                 .last()
                 .is_some_and(|previous| previous.matches_public(&view))
@@ -1690,6 +1772,7 @@ impl Game {
     ) -> Result<ObjectId, String> {
         let id = *self
             .state
+            .knowledge
             .visibility
             .get(viewer.0 as usize)
             .and_then(|k| k.handles.get(&handle.0))
@@ -1720,7 +1803,7 @@ impl Game {
             PlayerResponse::StackTargets { entries } => entries.len(),
             _ => 0,
         };
-        if size > std::cmp::max(self.state.objects.len(), self.stack_limit()) {
+        if size > std::cmp::max(self.state.rules.objects.len(), self.stack_limit()) {
             return Err("oversized player declaration".into());
         }
         match response {
@@ -1880,3 +1963,7 @@ impl Game {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "visibility_index_tests.rs"]
+mod index_tests;

@@ -111,7 +111,7 @@ fn natural_commander_damage_counts_actual_hits_and_loses_at_next_sba() {
                 witnessed.push(damage.clone());
                 assert!(g.is_live(PlayerId(2)), "loss must await next SBA");
                 assert_eq!(
-                    g.state.players[2].life,
+                    g.state.rules.players[2].life,
                     if damage == Quantity::from(18) {
                         Quantity::from(22)
                     } else {
@@ -140,7 +140,7 @@ fn natural_commander_damage_counts_actual_hits_and_loses_at_next_sba() {
         }
         assert_eq!(witnessed, vec![Quantity::from(18), Quantity::from(36)]);
         assert!(!g.is_live(PlayerId(2)));
-        assert_eq!(g.state.players[2].life, Quantity::from(4));
+        assert_eq!(g.state.rules.players[2].life, Quantity::from(4));
         assert!(g.events().iter().any(|event|matches!(event,Event::PlayersLost {losses} if losses==&vec![(PlayerId(2),PlayerLossReason::CommanderDamage)])));
         recover(&g);
         settle(&mut g);
@@ -178,16 +178,16 @@ fn top_library_replacement_and_draw_replacement_are_separate_owner_choices() {
         assert!(g.resolve_handle(PlayerId(1), &handle).is_err());
         if tuck_return {
             assert_eq!(
-                g.state.libraries[&PlayerId(1)],
+                g.state.rules.libraries[&PlayerId(1)],
                 vec![CardId(10), CardId(11)]
             );
             assert_eq!(
-                g.state.objects[&CardId(4)].zone,
+                g.state.rules.objects[&CardId(4)].zone,
                 Zone::Command { owner: PlayerId(1) }
             );
         } else {
             assert_eq!(
-                g.state.libraries[&PlayerId(1)],
+                g.state.rules.libraries[&PlayerId(1)],
                 vec![CardId(4), CardId(10), CardId(11)]
             );
             for player in 0..4 {
@@ -231,11 +231,11 @@ fn top_library_replacement_and_draw_replacement_are_separate_owner_choices() {
             );
             settle(&mut g);
             assert_eq!(
-                g.state.libraries[&PlayerId(1)],
+                g.state.rules.libraries[&PlayerId(1)],
                 vec![CardId(10), CardId(11)]
             );
             assert_eq!(
-                g.state.objects[&CardId(4)].zone,
+                g.state.rules.objects[&CardId(4)].zone,
                 if draw_return {
                     Zone::Command { owner: PlayerId(1) }
                 } else {
@@ -252,23 +252,23 @@ fn ordinary_top_library_instruction_precedes_existing_order_and_draws_once() {
     let mut g = Game::new(prepared(ScenarioConfig::commander_library()));
     tuck_choice(&mut g, 16);
     assert_eq!(
-        g.state.libraries[&PlayerId(2)],
+        g.state.rules.libraries[&PlayerId(2)],
         vec![CardId(16), CardId(12), CardId(13)]
     );
     for _ in 0..1000 {
         let request = settle(&mut g);
-        if g.state.objects[&CardId(16)].zone == (Zone::Hand { owner: PlayerId(2) }) {
+        if g.state.rules.objects[&CardId(16)].zone == (Zone::Hand { owner: PlayerId(2) }) {
             break;
         }
         assert!(!matches!(request, Request::CommanderReturn { .. }));
         answer(&mut g, passive(request));
     }
     assert_eq!(
-        g.state.objects[&CardId(16)].zone,
+        g.state.rules.objects[&CardId(16)].zone,
         Zone::Hand { owner: PlayerId(2) }
     );
     assert_eq!(
-        g.state.libraries[&PlayerId(2)],
+        g.state.rules.libraries[&PlayerId(2)],
         vec![CardId(12), CardId(13)]
     );
     let event = g
@@ -340,6 +340,7 @@ fn physical_commander_history_ignores_control_zone_life_and_noncombat_changes() 
     let mut g = Game::new(p);
     let initial_ledger = g.commander_ledger().clone();
     g.state
+        .rules
         .commanders
         .record_damage(CardId(0), PlayerId(2), true, &Quantity::zero())
         .unwrap();
@@ -363,6 +364,7 @@ fn physical_commander_history_ignores_control_zone_life_and_noncombat_changes() 
     damage(&mut g, 99, 2, 10);
     assert!(g.commander_ledger().combat_loss_candidates().is_empty());
     g.state
+        .rules
         .commanders
         .record_damage(CardId(0), PlayerId(2), false, &Quantity::from(100))
         .unwrap();
@@ -374,14 +376,19 @@ fn physical_commander_history_ignores_control_zone_life_and_noncombat_changes() 
         .move_object(left.successor, Zone::Battlefield)
         .unwrap()
         .successor;
-    g.state.control_effects.push(ControlEffect {
+    g.state.rules.control_effects.push(ControlEffect {
         id: 0,
         object: returned,
         controller: PlayerId(3),
         source: ControlSource::Persistent,
     });
-    g.state.objects.get_mut(&CardId(0)).unwrap().controller = PlayerId(3);
-    g.state.players[2].life = Quantity::from(100);
+    g.state
+        .rules
+        .objects
+        .get_mut(&CardId(0))
+        .unwrap()
+        .controller = PlayerId(3);
+    g.state.rules.players[2].life = Quantity::from(100);
     damage(&mut g, 0, 2, 11);
     assert_eq!(
         g.commander_ledger().combat_loss_candidates(),
@@ -401,19 +408,24 @@ fn physical_commander_history_ignores_control_zone_life_and_noncombat_changes() 
             .combat_damage[&PlayerId(2)],
         Quantity::from(10)
     );
-    assert_eq!(g.state.players[2].life, Quantity::from(89));
-    g.state.control_effects.clear();
-    g.state.objects.get_mut(&CardId(0)).unwrap().controller = PlayerId(0);
+    assert_eq!(g.state.rules.players[2].life, Quantity::from(89));
+    g.state.rules.control_effects.clear();
+    g.state
+        .rules
+        .objects
+        .get_mut(&CardId(0))
+        .unwrap()
+        .controller = PlayerId(0);
     g.apply_departure(PlayerId(0)).unwrap();
     assert!(g.commander_ledger().history(CardId(0)).is_some());
-    assert!(!g.state.objects.contains_key(&CardId(0)));
+    assert!(!g.state.rules.objects.contains_key(&CardId(0)));
 }
 #[test]
 fn commander_and_life_loss_candidates_commit_one_simultaneous_wave() {
     let mut g = Game::new(prepared(ScenarioConfig::commander_damage()));
     damage(&mut g, 0, 1, 21);
-    g.state.players[2].life = Quantity::zero();
-    g.state.players[3].failed_draw = true;
+    g.state.rules.players[2].life = Quantity::zero();
+    g.state.rules.players[3].failed_draw = true;
     g.stabilize().unwrap();
     assert_eq!(
         g.advance(Budget::new(1)),

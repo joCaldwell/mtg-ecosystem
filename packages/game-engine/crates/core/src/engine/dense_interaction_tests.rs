@@ -174,7 +174,7 @@ fn generic_state_to<W: std::io::Write>(state: &State, out: &mut W) {
         serde_json::to_writer(out, value).unwrap();
     }
     let mut skeleton = state.clone();
-    for k in &mut skeleton.visibility {
+    for k in &mut skeleton.knowledge.visibility {
         k.history.clear();
     }
     let value = serde_json::to_value(&skeleton).unwrap();
@@ -194,9 +194,9 @@ fn generic_state_to<W: std::io::Write>(state: &State, out: &mut W) {
         }
         visibility_seen = true;
         let rows = value.as_array().unwrap();
-        assert_eq!(rows.len(), state.visibility.len());
+        assert_eq!(rows.len(), state.knowledge.visibility.len());
         out.write_all(b"[").unwrap();
-        for (index, (row, knowledge)) in rows.iter().zip(&state.visibility).enumerate() {
+        for (index, (row, knowledge)) in rows.iter().zip(&state.knowledge.visibility).enumerate() {
             if index != 0 {
                 out.write_all(b",").unwrap();
             }
@@ -238,7 +238,7 @@ fn proof_memory(phase: &str, g: &Game) {
         .lines()
         .filter(|l| l.starts_with("VmRSS:") || l.starts_with("VmHWM:"))
         .collect::<Vec<_>>();
-    println!("DENSE_INTERACTION_MEMORY={}",canonical(&serde_json::json!({"phase":phase,"kernel_counters":fields,"history_lengths":g.state.visibility.iter().map(|k|k.history.len()).collect::<Vec<_>>(),"note":"phase snapshot/cumulative HWM, not a core-only peak or allocation count"})).unwrap());
+    println!("DENSE_INTERACTION_MEMORY={}",canonical(&serde_json::json!({"phase":phase,"kernel_counters":fields,"history_lengths":g.state.knowledge.visibility.iter().map(|k|k.history.len()).collect::<Vec<_>>(),"note":"phase snapshot/cumulative HWM, not a core-only peak or allocation count"})).unwrap());
 }
 fn state_oracle_raw(state: &State) -> String {
     state_oracle_raw_keep(state, None)
@@ -507,6 +507,7 @@ fn direct_interaction_projection(g: &Game, viewer: PlayerId) -> Observation {
         .collect();
     view.objects = g
         .state
+        .rules
         .objects
         .values()
         .filter_map(|o| g.visible_object(viewer, o).unwrap())
@@ -519,7 +520,7 @@ fn direct_interaction_projection(g: &Game, viewer: PlayerId) -> Observation {
         }
     }
     view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
-    view.stack = (0..g.state.stack.len())
+    view.stack = (0..g.state.rules.stack.len())
         .map(|i| g.visible_stack(viewer, i).unwrap())
         .collect();
     view.effects = g.visible_effects(viewer).unwrap();
@@ -528,9 +529,10 @@ fn direct_interaction_projection(g: &Game, viewer: PlayerId) -> Observation {
         Some(PlayerRequest::Targets { candidates, .. }) => {
             *candidates = g
                 .state
+                .rules
                 .objects
                 .values()
-                .filter(|o| g.target_legal(o.id))
+                .filter(|o| g.is_battlefield_creature(o.id))
                 .map(|o| g.handle_for(viewer, o.id).unwrap())
                 .collect()
         }
@@ -542,9 +544,10 @@ fn direct_interaction_projection(g: &Game, viewer: PlayerId) -> Observation {
             );
             candidates.extend(
                 g.state
+                    .rules
                     .objects
                     .values()
-                    .filter(|o| g.target_legal(o.id))
+                    .filter(|o| g.is_battlefield_creature(o.id))
                     .map(|o| PlayerTargetEntity::Object {
                         object: g.handle_for(viewer, o.id).unwrap(),
                     }),
@@ -655,7 +658,7 @@ fn death_group(g: &Game, ids: &[CardId]) -> EventGroup {
             .map(|card| ProposedEvent::Move {
                 object: obj(g, *card),
                 destination: Zone::Graveyard {
-                    owner: g.state.cards[card].owner,
+                    owner: g.state.rules.cards[card].owner,
                 },
             })
             .collect(),
@@ -676,7 +679,7 @@ fn trigger_row(timed: bool, quantum: u64) -> serde_json::Value {
         {
             let receipt = receipt.unwrap();
             assert_eq!(receipt.occurrences.len(), deaths);
-            assert_eq!(g.state.pending_triggers.len(), 16 * deaths);
+            assert_eq!(g.state.rules.pending_triggers.len(), 16 * deaths);
             let pairs = g
                 .events()
                 .iter()
@@ -715,6 +718,7 @@ fn trigger_row(timed: bool, quantum: u64) -> serde_json::Value {
     let expected_order = (0..4)
         .flat_map(|p| {
             g.state
+                .rules
                 .pending_triggers
                 .iter()
                 .filter(move |t| t.controller == PlayerId(p))
@@ -761,21 +765,28 @@ fn trigger_row(timed: bool, quantum: u64) -> serde_json::Value {
         })
         .collect::<Vec<_>>();
     assert_eq!(placed, expected_order);
-    assert_eq!(g.state.stack.len(), 64);
-    let expected_lifo = g.state.stack.iter().rev().map(|s| s.id).collect::<Vec<_>>();
+    assert_eq!(g.state.rules.stack.len(), 64);
+    let expected_lifo = g
+        .state
+        .rules
+        .stack
+        .iter()
+        .rev()
+        .map(|s| s.id)
+        .collect::<Vec<_>>();
     for _ in 0..1000 {
-        if g.state.stack.is_empty() {
+        if g.state.rules.stack.is_empty() {
             break;
         }
         let r = ready(&mut g, &mut w, timed, quantum);
-        if g.state.stack.is_empty() {
+        if g.state.rules.stack.is_empty() {
             break;
         }
         assert!(matches!(r, Request::Priority { .. }));
         answer(&mut g, &mut w, timed, &r, Response::Pass);
     }
     let _ = ready(&mut g, &mut w, timed, quantum);
-    assert!(g.state.stack.is_empty());
+    assert!(g.state.rules.stack.is_empty());
     let completed = g
         .events()
         .iter()
@@ -792,7 +803,7 @@ fn trigger_row(timed: bool, quantum: u64) -> serde_json::Value {
     let counts = outcome_counts(&g);
     assert_eq!(counts["life_gained"], 64);
     assert_eq!(counts["life_lost"], 64);
-    assert!(g.state.players.iter().all(|p| p.life == 40.into()));
+    assert!(g.state.rules.players.iter().all(|p| p.life == 40.into()));
     // Same injected typed occurrence and accepted journal replay, not a claim
     // that the fixture death itself was a legal player command.
     proof_memory("after_all64_resolutions_before_oracle", &g);
@@ -849,7 +860,7 @@ fn trigger_row(timed: bool, quantum: u64) -> serde_json::Value {
             .collect(),
     };
     batch(&mut etb, &mut w, timed, enters, 4).unwrap();
-    assert_eq!(etb.state.pending_triggers.len(), 68);
+    assert_eq!(etb.state.rules.pending_triggers.len(), 68);
     let etb_pairs = etb
         .events()
         .iter()
@@ -937,7 +948,7 @@ fn cast(g: &mut Game, w: &mut Work, timed: bool, quantum: u64, plan: CastPlan<'_
     answer(g, w, timed, &r, Response::SpendMana { spending });
     let r = ready(g, w, timed, quantum);
     assert!(matches!(r, Request::Priority { .. }));
-    assert!(g.state.stack.last().unwrap().paid.is_some());
+    assert!(g.state.rules.stack.last().unwrap().paid.is_some());
 }
 fn resolve(
     g: &mut Game,
@@ -948,7 +959,7 @@ fn resolve(
 ) {
     for _ in 0..1000 {
         let r = ready(g, w, timed, quantum);
-        if g.state.stack.is_empty() {
+        if g.state.rules.stack.is_empty() {
             assert!(matches!(
                 r,
                 Request::Priority {
@@ -1064,7 +1075,7 @@ fn allocate_shield(
         Advance::Fault(_) | Advance::Finished { .. } | Advance::Draw
     ));
     assert_eq!(g.damage_transaction().unwrap().id, tx);
-    assert!(matches!(g.state.frame, Frame::DamageEffects { .. }));
+    assert!(matches!(g.state.rules.frame, Frame::DamageEffects { .. }));
 }
 fn damage_row(timed: bool, quantum: u64) -> serde_json::Value {
     let mut t = Table::new();
@@ -1102,7 +1113,7 @@ fn damage_row(timed: bool, quantum: u64) -> serde_json::Value {
             panic!("no sacrifice")
         });
     }
-    assert_eq!(g.state.effects.len(), 3);
+    assert_eq!(g.state.rules.effects.len(), 3);
     recover(&g);
     let baseline = g.fork();
     let portions = |state: &Game| {
@@ -1143,7 +1154,7 @@ fn damage_row(timed: bool, quantum: u64) -> serde_json::Value {
                 })
                 .map(|e| e.id)
                 .collect::<Vec<_>>();
-            let shield=baseline.state.effects.iter().find(|e|matches!(e.kind,ResolvedEffectKind::PreventNextDamage{target:TargetEntity::Player{player:p},..} if p==PlayerId(player))).unwrap().id;
+            let shield=baseline.state.rules.effects.iter().find(|e|matches!(e.kind,ResolvedEffectKind::PreventNextDamage{target:TargetEntity::Player{player:p},..} if p==PlayerId(player))).unwrap().id;
             let allocation = vec![
                 (ids[0], 1.into()),
                 (ids[1], 2.into()),
@@ -1214,7 +1225,7 @@ fn damage_row(timed: bool, quantum: u64) -> serde_json::Value {
         .unwrap();
         let expected = if shield_first { 20 } else { 29 };
         assert!(
-            branch.state.players[1..]
+            branch.state.rules.players[1..]
                 .iter()
                 .all(|p| p.life == Quantity::from(40 - expected))
         );
@@ -1286,7 +1297,7 @@ fn damage_row(timed: bool, quantum: u64) -> serde_json::Value {
             sum
         });
         assert_eq!(total, Quantity::from(expected * 3));
-        assert!(branch.state.effects.iter().all(|e|matches!(&e.kind,ResolvedEffectKind::PreventNextDamage{remaining,..} if *remaining==0.into())));
+        assert!(branch.state.rules.effects.iter().all(|e|matches!(&e.kind,ResolvedEffectKind::PreventNextDamage{remaining,..} if *remaining==0.into())));
         rows.push(serde_json::json!({"shield_first":shield_first,"damage_per_player":expected,"chooser_pair_scans":chooser_counts,"final_portions":actual_portions,"counts":outcome_counts(&branch),"state_sha256":state_oracle(&branch)}));
     }
     // Applied doubling survives the provider leaving; un-applied portions
@@ -1342,6 +1353,7 @@ fn damage_row(timed: bool, quantum: u64) -> serde_json::Value {
     }
     let shield = prefix
         .state
+        .rules
         .effects
         .iter()
         .find(|e| {
@@ -1379,7 +1391,7 @@ fn damage_row(timed: bool, quantum: u64) -> serde_json::Value {
         1,
     )
     .unwrap();
-    assert_eq!(prefix.state.players[1].life, 11.into());
+    assert_eq!(prefix.state.rules.players[1].life, 11.into());
     assert_eq!(outcome_counts(&prefix)["damage_effect_applied"], 8);
     rows.push(serde_json::json!({"prefix_provider_leaves":true,"damage_player1":29,"counts":outcome_counts(&prefix),"state_sha256":state_oracle(&prefix)}));
     // Global combat prevention preserves future finite budgets only if used
@@ -1419,6 +1431,7 @@ fn damage_row(timed: bool, quantum: u64) -> serde_json::Value {
     recover(&g);
     let id = g
         .state
+        .rules
         .effects
         .iter()
         .find(|e| matches!(e.kind, ResolvedEffectKind::PreventCombatDamage))
@@ -1444,7 +1457,7 @@ fn damage_row(timed: bool, quantum: u64) -> serde_json::Value {
                 .map(|e| e.id)
                 .collect::<Vec<_>>();
             if shield_first {
-                let shield=b.state.effects.iter().find(|e|matches!(e.kind,ResolvedEffectKind::PreventNextDamage{target:TargetEntity::Player{player},..} if player==PlayerId(p))).unwrap().id;
+                let shield=b.state.rules.effects.iter().find(|e|matches!(e.kind,ResolvedEffectKind::PreventNextDamage{target:TargetEntity::Player{player},..} if player==PlayerId(p))).unwrap().id;
                 allocate_shield(
                     &mut b,
                     &mut w,
@@ -1494,9 +1507,10 @@ fn damage_row(timed: bool, quantum: u64) -> serde_json::Value {
             1,
         )
         .unwrap();
-        assert!(b.state.players.iter().all(|p| p.life == 40.into()));
+        assert!(b.state.rules.players.iter().all(|p| p.life == 40.into()));
         let remaining = b
             .state
+            .rules
             .effects
             .iter()
             .filter_map(|e| {
@@ -1532,7 +1546,7 @@ fn damage_row(timed: bool, quantum: u64) -> serde_json::Value {
         overflow.prepare_combat_damage(ds).unwrap_err(),
         "damage capacity exceeded"
     );
-    before.typed_fault = Some(RuleFault::DamageCapacityExceeded {
+    before.rules.typed_fault = Some(RuleFault::DamageCapacityExceeded {
         capacity: capacities::DAMAGE_LIMIT,
         requested: capacities::DAMAGE_LIMIT + 1,
     });
@@ -1555,9 +1569,10 @@ fn target_row(timed: bool, quantum: u64) -> serde_json::Value {
         .map(|p| {
             initial
                 .state
+                .rules
                 .objects
                 .values()
-                .find(|o| o.controller == PlayerId(p) && initial.target_legal(o.id))
+                .find(|o| o.controller == PlayerId(p) && initial.is_battlefield_creature(o.id))
                 .unwrap()
                 .id
         })
@@ -1598,9 +1613,10 @@ fn target_row(timed: bool, quantum: u64) -> serde_json::Value {
             candidates.iter().copied().collect::<BTreeSet<_>>(),
             initial
                 .state
+                .rules
                 .objects
                 .values()
-                .filter(|o| initial.target_legal(o.id))
+                .filter(|o| initial.is_battlefield_creature(o.id))
                 .map(|o| o.id)
                 .collect()
         );
@@ -1677,10 +1693,10 @@ fn target_row(timed: bool, quantum: u64) -> serde_json::Value {
         } else {
             3
         };
-        assert_eq!(g.state.effects.len(), expected_effects);
+        assert_eq!(g.state.rules.effects.len(), expected_effects);
         for (index, target) in targets.iter().enumerate() {
             if variant == "middle_target_illegal" && index == 1 {
-                assert!(!g.target_legal(*target));
+                assert!(!g.is_battlefield_creature(*target));
                 continue;
             }
             let expected = if variant == "repeated" {
@@ -1699,6 +1715,7 @@ fn target_row(timed: bool, quantum: u64) -> serde_json::Value {
         }
         let cursors = g
             .state
+            .rules
             .effects
             .iter()
             .map(|e| e.origin.cursor)
@@ -1739,9 +1756,10 @@ fn target_row(timed: bool, quantum: u64) -> serde_json::Value {
             assert_eq!(chooser, PlayerId(player));
             let expected = initial
                 .state
+                .rules
                 .objects
                 .values()
-                .filter(|o| o.controller == chooser && initial.target_legal(o.id))
+                .filter(|o| o.controller == chooser && initial.is_battlefield_creature(o.id))
                 .map(|o| o.id)
                 .collect::<Vec<_>>();
             assert_eq!(candidates, expected);
@@ -1774,6 +1792,7 @@ fn combat_row(timed: bool, quantum: u64) -> serde_json::Value {
         .map(|p| {
             balanced
                 .state
+                .rules
                 .cards
                 .values()
                 .filter(|c| c.owner == PlayerId(p))
@@ -1790,15 +1809,17 @@ fn combat_row(timed: bool, quantum: u64) -> serde_json::Value {
     assert!(
         balanced
             .state
+            .rules
             .objects
             .keys()
-            .all(|id| balanced.state.cards[id].owner != PlayerId(1))
+            .all(|id| balanced.state.rules.cards[id].owner != PlayerId(1))
     );
     drop(balanced);
     let mut g = game_layout(t, false, true, true);
     let owned_counts = (0..4)
         .map(|p| {
             g.state
+                .rules
                 .cards
                 .values()
                 .filter(|c| c.owner == PlayerId(p))
@@ -1998,7 +2019,7 @@ fn combat_row(timed: bool, quantum: u64) -> serde_json::Value {
         ]
     );
     assert_eq!(g.live_players(), vec![PlayerId(0)]);
-    assert_eq!(g.state.players[0].life, 6.into());
+    assert_eq!(g.state.rules.players[0].life, 6.into());
     recover(&g);
     // Generic occurrence ceiling is checked before any ordered child executes.
     let mut too_many = Game::with_trace(g.prepared.as_ref().clone(), TraceMode::Detailed);
@@ -2014,7 +2035,7 @@ fn combat_row(timed: bool, quantum: u64) -> serde_json::Value {
             .collect(),
     };
     assert!(too_many.commit_batch(BatchCause::Fixture, group).is_err());
-    before.typed_fault = Some(RuleFault::EventGroupCapacityExceeded {
+    before.rules.typed_fault = Some(RuleFault::EventGroupCapacityExceeded {
         capacity: capacities::EVENT_GROUP_LIMIT,
         requested: capacities::EVENT_GROUP_LIMIT + 1,
     });

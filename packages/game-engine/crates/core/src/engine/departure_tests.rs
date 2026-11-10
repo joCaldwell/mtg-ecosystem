@@ -72,7 +72,7 @@ fn departure_revalidates_pending_priority_casts_without_losing_the_journal() {
             let mut game = Game::with_trace(prepared(false), mode);
             let original = game.object_id(CardId(1)).unwrap();
             respond(&mut game, Response::Cast { card: CardId(1) });
-            let journal = game.journal().to_vec();
+            let journal = game.journal().clone();
             recover(&game);
             game.concede(PlayerId(departing)).unwrap();
             recover(&game);
@@ -81,10 +81,10 @@ fn departure_revalidates_pending_priority_casts_without_losing_the_journal() {
 
             let outcome = game.advance(Budget::new(1));
             recover(&game);
-            assert_eq!(game.journal(), journal);
+            assert_eq!(game.journal(), &journal);
             assert_eq!(game.object_id(CardId(1)), Some(original));
             assert_eq!(game.zone(original), Some(Zone::Hand { owner: PlayerId(0) }));
-            assert!(game.state.stack.is_empty());
+            assert!(game.state.rules.stack.is_empty());
             if departing == 3 {
                 // An unrelated departure must preserve the accepted cast.
                 assert_eq!(
@@ -93,7 +93,7 @@ fn departure_revalidates_pending_priority_casts_without_losing_the_journal() {
                         required_minimum: 1
                     }
                 );
-                assert!(game.state.pending.is_some());
+                assert!(game.state.rules.pending.is_some());
                 assert!(matches!(
                     game.advance(Budget::unlimited()),
                     Advance::AwaitingDecision(Request::Targets { candidates, .. })
@@ -114,7 +114,7 @@ fn departure_revalidates_pending_priority_casts_without_losing_the_journal() {
                         ..
                     })
                 ));
-                assert!(game.state.pending.is_none());
+                assert!(game.state.rules.pending.is_none());
                 assert!(matches!(
                     observation(&game, 0).decision,
                     Some(PlayerRequest::Priority {
@@ -169,9 +169,9 @@ fn queued_departures_finish_before_empty_stack_phase_advancement() {
                     required_minimum: 1
                 }
             );
-            assert_eq!(game.state.pending_concessions.len(), remaining);
+            assert_eq!(game.state.rules.pending_concessions.len(), remaining);
             assert!(matches!(
-                game.state.frame,
+                game.state.rules.frame,
                 Frame::Priority | Frame::Stabilize { .. }
             ));
             assert!(matches!(
@@ -223,7 +223,7 @@ fn queued_departures_finish_before_resolution_target_legality_is_captured() {
             }
         );
         assert!(matches!(
-            game.state.frame,
+            game.state.rules.frame,
             Frame::Priority | Frame::Stabilize { .. }
         ));
         recover(&game);
@@ -233,11 +233,11 @@ fn queued_departures_finish_before_resolution_target_legality_is_captured() {
                 required_minimum: 1
             }
         );
-        while matches!(game.state.frame, Frame::Stabilize { .. }) {
+        while matches!(game.state.rules.frame, Frame::Stabilize { .. }) {
             let _ = game.advance(Budget::new(1));
             recover(&game);
         }
-        let Frame::Resolve { frame } = &game.state.frame else {
+        let Frame::Resolve { frame } = &game.state.rules.frame else {
             panic!("expected resolution after both departures");
         };
         assert_eq!(frame.legal_targets, vec![false]);
@@ -270,7 +270,7 @@ fn owner_departure_removes_owned_objects_but_retains_physical_and_player_history
     let original = game.object_id(CardId(2)).unwrap();
     depart(&mut game, 1);
     assert!(game.object_id(CardId(2)).is_none());
-    assert!(game.state.cards.contains_key(&CardId(2)));
+    assert!(game.state.rules.cards.contains_key(&CardId(2)));
     assert!(game.events().contains(&Event::ObjectLeftGame {
         object: original,
         owner: PlayerId(1)
@@ -282,7 +282,11 @@ fn owner_departure_removes_owned_objects_but_retains_physical_and_player_history
             .any(|e| matches!(e,Event::Committed{actual:EventOutcome::Moved{movement},..} if movement.previous==original))
     );
     assert_eq!(
-        game.state.players[1].last_known.as_ref().unwrap().life,
+        game.state.rules.players[1]
+            .last_known
+            .as_ref()
+            .unwrap()
+            .life,
         Quantity::from(40)
     );
     let view = observation(&game, 0);
@@ -300,7 +304,7 @@ fn departing_default_controller_exiles_instead_of_restoring_owner() {
     assert_eq!(object.incarnation, 1);
     assert_eq!(game.zone(object), Some(Zone::Exile));
     assert_eq!(
-        Some(game.state.cards[&object.card].owner),
+        Some(game.state.rules.cards[&object.card].owner),
         Some(PlayerId(1))
     );
     assert_eq!(
@@ -314,11 +318,12 @@ fn control_provenance_restores_remaining_grants_and_ends_static_sources_only() {
     let mut game = Game::new(prepared(false));
     let bear = game.object_id(CardId(2)).unwrap();
     game.state
+        .rules
         .objects
         .get_mut(&CardId(2))
         .unwrap()
         .default_controller = PlayerId(1);
-    game.state.control_effects = vec![
+    game.state.rules.control_effects = vec![
         ControlEffect {
             id: 1,
             object: bear,
@@ -338,7 +343,7 @@ fn control_provenance_restores_remaining_grants_and_ends_static_sources_only() {
         Some(game.current(bear).unwrap().controller),
         Some(PlayerId(3))
     );
-    assert_eq!(game.state.control_effects.len(), 1);
+    assert_eq!(game.state.rules.control_effects.len(), 1);
     game.concede(PlayerId(3)).unwrap();
     let _ = game.advance(Budget::new(1));
     assert_eq!(
@@ -348,17 +353,19 @@ fn control_provenance_restores_remaining_grants_and_ends_static_sources_only() {
     let mut static_game = Game::new(prepared(false));
     static_game
         .state
+        .rules
         .objects
         .get_mut(&CardId(2))
         .unwrap()
         .default_controller = PlayerId(1);
     static_game
         .state
+        .rules
         .objects
         .get_mut(&CardId(2))
         .unwrap()
         .controller = PlayerId(3);
-    static_game.state.control_effects = vec![
+    static_game.state.rules.control_effects = vec![
         ControlEffect {
             id: 1,
             object: bear,
@@ -383,6 +390,7 @@ fn control_provenance_restores_remaining_grants_and_ends_static_sources_only() {
     assert_eq!(
         static_game
             .state
+            .rules
             .control_effects
             .iter()
             .map(|e| e.id)
@@ -418,7 +426,7 @@ fn target_departure_reverses_unfinished_cast_without_spending_mana() {
         }
         if boundary >= 2 {
             let _ = game.advance(Budget::new(1));
-            assert!(matches!(game.state.frame, Frame::Mana { .. }));
+            assert!(matches!(game.state.rules.frame, Frame::Mana { .. }));
         }
         if boundary == 3 {
             let Advance::AwaitingDecision(r) = game.advance(Budget::unlimited()) else {
@@ -431,7 +439,7 @@ fn target_departure_reverses_unfinished_cast_without_spending_mana() {
             )
             .unwrap();
             let _ = game.advance(Budget::new(1));
-            assert!(matches!(game.state.frame, Frame::SpendMana { .. }));
+            assert!(matches!(game.state.rules.frame, Frame::SpendMana { .. }));
         }
         depart(&mut game, 1);
         assert_eq!(
@@ -440,7 +448,7 @@ fn target_departure_reverses_unfinished_cast_without_spending_mana() {
         );
         assert_eq!(game.object_id(CardId(1)).unwrap().incarnation, 0);
         assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::from(1)));
-        assert!(game.state.stack.is_empty());
+        assert!(game.state.rules.stack.is_empty());
         assert!(
             !game
                 .events()
@@ -476,12 +484,12 @@ fn source_departure_discards_casting_but_started_resolution_continues() {
                 respond(&mut game, Response::Pass);
             }
             let _ = game.advance(Budget::new(1));
-            assert!(matches!(game.state.frame, Frame::Resolve { .. }));
+            assert!(matches!(game.state.rules.frame, Frame::Resolve { .. }));
         }
         depart(&mut game, 0);
-        assert!(game.state.stack.is_empty());
+        assert!(game.state.rules.stack.is_empty());
         if boundary == 3 {
-            assert!(matches!(game.state.frame, Frame::Resolve { .. }));
+            assert!(matches!(game.state.rules.frame, Frame::Resolve { .. }));
             let _ = game.advance(Budget::unlimited());
             recover(&game);
             assert_eq!(
@@ -493,10 +501,10 @@ fn source_departure_discards_casting_but_started_resolution_continues() {
                     .iter()
                     .any(|e| matches!(e, Event::SpellCompleted { resolved: true, .. }))
             );
-            assert_eq!(game.state.priority, PlayerId(1));
+            assert_eq!(game.state.rules.priority, PlayerId(1));
         } else {
             assert!(matches!(
-                game.state.frame,
+                game.state.rules.frame,
                 Frame::Priority | Frame::Stabilize { .. }
             ));
         }
@@ -521,10 +529,10 @@ fn target_departure_after_casting_uses_resolution_legality_and_preserves_passes(
         respond(&mut game, Response::Pass);
     }
     let _ = game.advance(Budget::unlimited());
-    assert_eq!(game.state.passes, vec![PlayerId(0), PlayerId(2)]);
+    assert_eq!(game.state.rules.passes, vec![PlayerId(0), PlayerId(2)]);
     // P3 is the only remaining unpassed player; departure begins resolution.
     depart(&mut game, 3);
-    assert!(matches!(game.state.frame, Frame::Resolve { .. }));
+    assert!(matches!(game.state.rules.frame, Frame::Resolve { .. }));
     let _ = game.advance(Budget::unlimited());
     recover(&game);
     assert!(game.events().iter().any(|e| matches!(
@@ -551,11 +559,11 @@ fn mid_resolution_target_departure_keeps_captured_legality_but_skips_removed_obj
         respond(&mut game, Response::Pass);
     }
     let _ = game.advance(Budget::new(1));
-    assert!(matches!(game.state.frame, Frame::Resolve { .. }));
+    assert!(matches!(game.state.rules.frame, Frame::Resolve { .. }));
     depart(&mut game, 1);
     let _ = game.advance(Budget::new(1));
     recover(&game);
-    let Frame::Resolve { frame } = &game.state.frame else {
+    let Frame::Resolve { frame } = &game.state.rules.frame else {
         panic!("expected instruction boundary")
     };
     assert!(matches!(
@@ -706,8 +714,13 @@ fn physical_commander_designation_and_exact_history_survive_departure() {
 fn departed_default_controller_is_safe_under_a_remaining_live_grant_until_it_ends() {
     let mut game = Game::new(prepared(false));
     let bear = game.object_id(CardId(2)).unwrap();
-    game.state.objects.get_mut(&CardId(2)).unwrap().controller = PlayerId(3);
-    game.state.control_effects.push(ControlEffect {
+    game.state
+        .rules
+        .objects
+        .get_mut(&CardId(2))
+        .unwrap()
+        .controller = PlayerId(3);
+    game.state.rules.control_effects.push(ControlEffect {
         id: 1,
         object: bear,
         controller: PlayerId(3),
@@ -776,6 +789,7 @@ fn commander_and_departure_metadata_cannot_be_forged_in_rehashed_snapshots() {
         match mutation {
             0 => snapshot
                 .state
+                .rules
                 .commanders
                 .records
                 .get_mut(&CardId(3))
@@ -783,15 +797,19 @@ fn commander_and_departure_metadata_cannot_be_forged_in_rehashed_snapshots() {
                 .command_casts
                 .insert(PlayerId(0), Quantity::from(1)),
             1 => {
-                snapshot.state.players[0].last_known.as_mut().unwrap().life = Quantity::from(1);
+                snapshot.state.rules.players[0]
+                    .last_known
+                    .as_mut()
+                    .unwrap()
+                    .life = Quantity::from(1);
                 None
             }
             2 => {
-                snapshot.state.original_seating.swap(1, 2);
+                snapshot.state.rules.original_seating.swap(1, 2);
                 None
             }
             _ => {
-                snapshot.state.pending_concessions.push(PlayerId(0));
+                snapshot.state.rules.pending_concessions.push(PlayerId(0));
                 None
             }
         };

@@ -161,14 +161,14 @@ impl SampleBuildWork {
         // the explicitly reviewed fresh-origin values from Game::new: empty
         // stack/passes/effects/combat/queues/journal, zero counters, no failed
         // draws or pending fresh Commander opportunities. Setup is NOT rerun.
-        game.state.objects.clear();
-        game.state.libraries.clear();
-        game.state.active = view.active;
-        game.state.turn_owner = view.turn_owner;
-        game.state.turn = view.turn.clone();
-        game.state.priority = view.viewer;
-        game.state.frame = Frame::Priority;
-        game.state.match_state = Some(MatchState {
+        game.state.rules.objects.clear();
+        game.state.rules.libraries.clear();
+        game.state.rules.active = view.active;
+        game.state.rules.turn_owner = view.turn_owner;
+        game.state.rules.turn = view.turn.clone();
+        game.state.rules.priority = view.viewer;
+        game.state.rules.frame = Frame::Priority;
+        game.state.rules.match_state = Some(MatchState {
             library_shuffles: [0; 4],
             random: MatchRandom {
                 version: 1,
@@ -178,17 +178,19 @@ impl SampleBuildWork {
             },
             setup: None,
         });
-        for knowledge in &mut game.state.visibility {
+        for knowledge in &mut game.state.knowledge.visibility {
             *knowledge = visibility::Knowledge::default();
             // A permission namespace is public metadata, never a hash of the
             // hidden proposal/capture. Otherwise every policy view would carry
             // a hidden-world fingerprint. Executor/state brands isolate worlds.
             knowledge.namespace = Some("hypothesis-v1".into());
         }
-        game.state.visibility[view.viewer.0 as usize].own_knowledge = data.own_knowledge.clone();
+        game.state.knowledge.visibility[view.viewer.0 as usize].own_knowledge =
+            data.own_knowledge.clone();
         for row in &view.players {
             let p = game
                 .state
+                .rules
                 .players
                 .get_mut(row.player.0 as usize)
                 .ok_or_else(|| invariant("public player"))?;
@@ -205,6 +207,7 @@ impl SampleBuildWork {
             let card = CardId(u32::from(owner.0) * 100);
             let expected = game
                 .state
+                .rules
                 .cards
                 .get(&card)
                 .ok_or_else(|| invariant("public commander owner"))?;
@@ -212,12 +215,13 @@ impl SampleBuildWork {
                 return Err(invariant("public commander identity"));
             }
             game.state
+                .rules
                 .commanders
                 .records
                 .insert(card, row.history.clone());
         }
         let mut unused = BTreeMap::<_, BTreeSet<_>>::new();
-        for (id, card) in &game.state.cards {
+        for (id, card) in &game.state.rules.cards {
             unused
                 .entry((card.owner, card.oracle_id.clone()))
                 .or_default()
@@ -359,7 +363,7 @@ impl SampleBuildWork {
                 ),
                 None => (row.owner, false, false, Quantity::zero()),
             };
-            self.game.state.objects.insert(
+            self.game.state.rules.objects.insert(
                 id,
                 Object {
                     attached_to: None,
@@ -377,6 +381,7 @@ impl SampleBuildWork {
             if matches!(row.zone, Zone::Library { .. }) {
                 self.game
                     .state
+                    .rules
                     .libraries
                     .entry(row.owner)
                     .or_default()
@@ -397,7 +402,12 @@ impl SampleBuildWork {
             {
                 return Err(invalid("proposal omits live owner's physical cards"));
             }
-            self.game.state.libraries.entry(player.player).or_default();
+            self.game
+                .state
+                .rules
+                .libraries
+                .entry(player.player)
+                .or_default();
         }
         self.game.refresh_visibility().map_err(invariant)?;
         self.game.validate_state().map_err(invariant)?;

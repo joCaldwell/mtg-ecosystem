@@ -135,7 +135,7 @@ fn invalid_selections_do_not_mutate_state_receipts_or_history() {
 fn exact_large_generic_costs_never_round_or_spend_extra() {
     let mut g = game();
     let huge: Quantity = "900719925474099312345678901234567890".parse().unwrap();
-    g.state.players[0].mana = [(Color::B, huge.clone()), (Color::G, 1.into())].into();
+    g.state.rules.players[0].mana = [(Color::B, huge.clone()), (Color::G, 1.into())].into();
     let cost = ManaCost {
         generic: huge.clone(),
         colored: vec![Color::G],
@@ -291,12 +291,12 @@ fn pending_spending_survives_unrelated_departure_but_never_resurrects_a_departed
         settle(&mut g);
         if player == PlayerId(0) {
             assert!(g.object_id(CardId(0)).is_none());
-            assert!(g.state.stack.is_empty());
+            assert!(g.state.rules.stack.is_empty());
             // Departed seats retain their last-known table for diagnostics;
             // the accepted spend must neither pay nor reverse that table.
-            assert_eq!(g.state.players[0].mana, selection(4, 5));
+            assert_eq!(g.state.rules.players[0].mana, selection(4, 5));
             assert_eq!(
-                g.state.players[0].last_known.as_ref().unwrap().mana,
+                g.state.rules.players[0].last_known.as_ref().unwrap().mana,
                 selection(4, 5)
             );
             assert!(
@@ -308,8 +308,8 @@ fn pending_spending_survives_unrelated_departure_but_never_resurrects_a_departed
             );
         } else {
             assert_eq!(g.mana(PlayerId(0), Color::B), Some(2.into()));
-            assert_eq!(g.state.stack.len(), 1);
-            assert!(g.state.stack[0].paid.is_some());
+            assert_eq!(g.state.rules.stack.len(), 1);
+            assert!(g.state.rules.stack[0].paid.is_some());
         }
         let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
         assert_eq!(restored.state_digest().unwrap(), g.state_digest().unwrap());
@@ -344,12 +344,12 @@ fn targeted_player_leaving_at_accepted_spending_reverses_the_incomplete_cast() {
     );
     g.concede(PlayerId(1)).unwrap();
     settle(&mut g);
-    assert!(g.state.stack.is_empty());
+    assert!(g.state.rules.stack.is_empty());
     assert_eq!(
         g.zone(g.object_id(CardId(4)).unwrap()),
         Some(Zone::Hand { owner: PlayerId(0) })
     );
-    assert!(g.state.players[0].mana.is_empty());
+    assert!(g.state.rules.players[0].mana.is_empty());
     for card in [2, 3] {
         assert!(
             !g.current(g.object_id(CardId(card)).unwrap())

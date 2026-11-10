@@ -242,11 +242,11 @@ fn cast(game: &mut Game, work: &mut Work, rep: usize, collect: bool, plan: Cast)
     for _ in 0..1000 {
         let request = advance(game, work, rep, collect);
         assert!(matches!(request, Request::Priority { .. }));
-        if game.state.stack.is_empty() {
+        if game.state.rules.stack.is_empty() {
             assert_eq!(request.player(), PlayerId(0));
             return;
         }
-        assert!(game.state.stack.last().unwrap().paid.is_some());
+        assert!(game.state.rules.stack.last().unwrap().paid.is_some());
         answer(game, work, rep, collect, &request, Response::Pass);
     }
     panic!("finite complete-spell resolution guard")
@@ -460,7 +460,7 @@ pub(super) fn row(enabled: bool, empty_hand: bool, rep: usize, collect: bool) ->
         ] {
             cast(&mut game, &mut work, rep, collect, plan);
         }
-        assert_eq!(game.state.effects.len(), 3);
+        assert_eq!(game.state.rules.effects.len(), 3);
         assert_eq!(
             game.events()
                 .iter()
@@ -492,20 +492,21 @@ pub(super) fn row(enabled: bool, empty_hand: bool, rep: usize, collect: bool) ->
     }
     let peak_trigger_definitions = game
         .state
+        .rules
         .objects
         .values()
         .filter(|o| o.zone == Zone::Battlefield)
         .map(|o| game.definition(o.id.card).unwrap().triggered.len())
         .sum::<usize>();
     let peak_static_definitions = game.static_damage_effects().len();
-    let peak_resolved_instances = game.state.effects.len();
+    let peak_resolved_instances = game.state.rules.effects.len();
     assert_eq!(peak_trigger_definitions, if enabled { 4 } else { 0 });
     assert_eq!(peak_static_definitions, usize::from(enabled));
     assert_eq!(peak_resolved_instances, if enabled { 3 } else { 0 });
-    let before_nonmatch = game.state.pending_triggers.len();
+    let before_nonmatch = game.state.rules.pending_triggers.len();
     move_card(&mut game, &mut work, rep, collect, 15, Zone::Battlefield);
     assert_eq!(
-        game.state.pending_triggers.len(),
+        game.state.rules.pending_triggers.len(),
         before_nonmatch,
         "land ETB never matches creature triggers"
     );
@@ -558,7 +559,10 @@ pub(super) fn row(enabled: bool, empty_hand: bool, rep: usize, collect: bool) ->
         expected_pairs
     );
     assert_eq!(actual_pairs.len(), expected_pairs.len());
-    assert_eq!(game.state.pending_triggers.len(), expected_pairs.len());
+    assert_eq!(
+        game.state.rules.pending_triggers.len(),
+        expected_pairs.len()
+    );
     game.validate_trigger_state().unwrap();
     let checks = game
         .events()
@@ -586,7 +590,13 @@ pub(super) fn row(enabled: bool, empty_hand: bool, rep: usize, collect: bool) ->
         assert_eq!(checks[0].passed(), empty_hand);
     }
     let prior = canonical_state(&game.state);
-    let expired = game.state.effects.iter().map(|e| e.id).collect::<Vec<_>>();
+    let expired = game
+        .state
+        .rules
+        .effects
+        .iter()
+        .map(|e| e.id)
+        .collect::<Vec<_>>();
     let outcome = timed(
         &mut work.samples,
         collect,
@@ -604,7 +614,7 @@ pub(super) fn row(enabled: bool, empty_hand: bool, rep: usize, collect: bool) ->
         panic!("cleanup")
     };
     assert_eq!(actual, expired);
-    assert!(game.state.effects.is_empty());
+    assert!(game.state.rules.effects.is_empty());
     assert_eq!(game.characteristics(object(&game, 8)).unwrap(), base);
     assert_eq!(
         game.static_damage_effects().len(),

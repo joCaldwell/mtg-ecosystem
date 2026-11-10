@@ -51,9 +51,9 @@ impl Game {
     /// zero-based ordinal is the corresponding count minus one.
     pub fn accepted_input_counts(&self) -> Result<AcceptedInputCounts, String> {
         Ok(AcceptedInputCounts {
-            decisions: u64::try_from(self.state.journal.len())
+            decisions: u64::try_from(self.state.audit.journal.len())
                 .map_err(|_| "decision journal ordinal resource limit")?,
-            concessions: u64::try_from(self.state.external_inputs.len())
+            concessions: u64::try_from(self.state.audit.external_inputs.len())
                 .map_err(|_| "concession journal ordinal resource limit")?,
         })
     }
@@ -63,7 +63,7 @@ impl Game {
     /// branch. Earlier committed facts survive a later Fault return.
     pub fn advance_with_report(&mut self, budget: Budget) -> AdvanceReport {
         let mut processed = vec![];
-        let advance = self.advance_internal::<true>(budget, &mut processed);
+        let advance = self.advance_internal::<true, true>(budget, &mut processed);
         AdvanceReport { advance, processed }
     }
 }
@@ -77,10 +77,11 @@ impl StepInputCapture {
     pub(super) fn capture(game: &Game) -> Self {
         // Restored/admitted states bind pending to journal.last(). Do not
         // fabricate an ordinal for malformed private test/domain states.
-        let decision = game.state.pending.as_ref().and_then(|pending| {
-            (game.state.journal.last() == Some(pending)).then_some(())?;
+        let decision = game.state.rules.pending.as_ref().and_then(|pending| {
+            (game.state.audit.journal.last() == Some(pending)).then_some(())?;
             Some(CoreInputIdentity::Decision {
-                journal_ordinal: u64::try_from(game.state.journal.len().checked_sub(1)?).ok()?,
+                journal_ordinal: u64::try_from(game.state.audit.journal.len().checked_sub(1)?)
+                    .ok()?,
                 decision_id: pending.decision_id,
                 player: pending.player,
             })
@@ -88,11 +89,12 @@ impl StepInputCapture {
         // The core step first removes this queued front and applies departure.
         // Every player can concede at most once; original journal order is
         // retained even when several concessions share a decision/boundary.
-        let front = game.state.pending_concessions.first().copied();
+        let front = game.state.rules.pending_concessions.first().copied();
         let concession = front.and_then(|player| {
             Some(CoreInputIdentity::Concession {
                 concession_ordinal: u64::try_from(
                     game.state
+                        .audit
                         .external_inputs
                         .iter()
                         .position(|input| input.player == player)?,
@@ -116,20 +118,20 @@ impl StepInputCapture {
     /// revalidation can clear any nested pending choice; inspect the committed
     /// result rather than infer processing from an ordinary next request.
     pub(super) fn committed(self, game: &Game, out: &mut Vec<InputProcessingFact>) {
-        if game.state.pending.is_none()
+        if game.state.rules.pending.is_none()
             && let Some(identity) = self.decision
         {
             out.push(InputProcessingFact {
                 identity,
                 cause: self.cause,
-                boundary: game.state.rule_steps,
+                boundary: game.state.rules.rule_steps,
             });
         }
         if let Some(identity) = self.concession {
             out.push(InputProcessingFact {
                 identity,
                 cause: self.cause,
-                boundary: game.state.rule_steps,
+                boundary: game.state.rules.rule_steps,
             });
         }
     }

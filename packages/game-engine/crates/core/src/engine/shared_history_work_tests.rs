@@ -5,6 +5,7 @@ use super::*;
 #[derive(Clone, Serialize)]
 #[serde(tag = "task", rename_all = "snake_case")]
 enum OwnedTask {
+    Initialize,
     Search {
         builder: ObservationWork,
         observation: Option<Box<Observation>>,
@@ -24,12 +25,28 @@ struct OwnedContext {
 }
 impl OwnedTask {
     fn unit(&mut self, game: &Game, viewer: PlayerId, seed: &str) -> Option<OwnedContext> {
+        if matches!(self, Self::Initialize) {
+            *self = Self::Search {
+                builder: ObservationWork {
+                    cursor: 0,
+                    view: game.blank_view(viewer).unwrap(),
+                    decision: game.request_header(viewer).unwrap(),
+                },
+                observation: None,
+                history: vec![],
+                decks: vec![],
+            };
+            return None;
+        }
         let Self::Search {
             builder,
             observation,
             history,
             decks,
-        } = self;
+        } = self
+        else {
+            unreachable!()
+        };
         if observation.is_none() {
             *observation = game
                 .reference_observation_unit(builder)
@@ -37,7 +54,7 @@ impl OwnedTask {
                 .map(Box::new);
             return None;
         }
-        let original = &game.state.visibility[viewer.0 as usize].history;
+        let original = &game.state.knowledge.visibility[viewer.0 as usize].history;
         if history.len() < original.len() {
             // Generic old public-view serde is independent of stored to_public,
             // its canonical writer, and PermittedHistory's serializer.
@@ -78,26 +95,11 @@ impl OwnedTask {
     }
 }
 fn owned_from_empty(work: &Work) -> OwnedTask {
-    let Task::Search {
-        builder,
-        observation,
-        history,
-        decks,
-    } = &work.data.task
-    else {
-        panic!("search task")
-    };
-    assert!(history.is_empty());
-    assert!(observation.is_none());
-    assert!(decks.is_empty());
-    assert_eq!(builder.cursor, 0);
-    OwnedTask::Search {
-        builder: builder.clone(),
-        observation: None,
-        history: vec![],
-        decks: vec![],
-    }
+    assert!(matches!(work.data.task, Task::Initialize));
+    assert_eq!(work.data.units_done, 0);
+    OwnedTask::Initialize
 }
+
 #[test]
 fn shared_search_prefix_matches_old_owned_every_unit_and_all_budget_partitions() {
     let game = match_root();
@@ -115,8 +117,8 @@ fn shared_search_prefix_matches_old_owned_every_unit_and_all_budget_partitions()
     assert_eq!(
         total,
         game.observation_work_units(viewer).unwrap()
-            + game.state.visibility[0].history.len() as u64
-            + 5
+            + game.state.knowledge.visibility[0].history.len() as u64
+            + 6 // explicit initialization unit plus four decks and completion
     );
     for quantum in [1, 64, u64::MAX] {
         let QueryResult::Incomplete {
@@ -173,6 +175,7 @@ fn shared_search_prefix_matches_old_owned_every_unit_and_all_budget_partitions()
                     }
                     let history_len = match &next.data.task {
                         Task::Search { history, .. } => history.len(),
+                        Task::Initialize => 0,
                         _ => unreachable!(),
                     };
                     work = next;
@@ -181,7 +184,7 @@ fn shared_search_prefix_matches_old_owned_every_unit_and_all_budget_partitions()
                         assert_eq!(
                             saved,
                             canonical(&OldSaved {
-                                work_version: 15,
+                                work_version: 16,
                                 build_id: BUILD_ID,
                                 catalog_digest: &game.prepared.catalog_digest,
                                 state_sha256: &state_sha,
@@ -227,9 +230,9 @@ fn shared_search_prefix_matches_old_owned_every_unit_and_all_budget_partitions()
 fn shared_search_saved_prefix_recomputes_all_history_and_preserves_executor_authority() {
     let mut game = match_root();
     let viewer = PlayerId(0);
-    let prefix_len = game.state.visibility[0].history.len();
+    let prefix_len = game.state.knowledge.visibility[0].history.len();
     assert!(prefix_len >= 2);
-    let units = game.observation_work_units(viewer).unwrap() + prefix_len as u64;
+    let units = game.observation_work_units(viewer).unwrap() + prefix_len as u64 + 1;
     let QueryResult::Incomplete { work, .. } =
         game.search_context(viewer, "prefix-seed".into(), Budget::new(units))
     else {

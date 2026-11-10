@@ -69,17 +69,17 @@ pub struct TurnState {
 
 impl Game {
     pub fn turn(&self) -> &TurnState {
-        &self.state.turn
+        &self.state.rules.turn
     }
 
     pub(super) fn main_phase_action(&self, player: PlayerId) -> bool {
         self.is_live(player)
-            && self.state.active == Some(player)
-            && self.state.priority == player
-            && matches!(self.state.frame, Frame::Priority)
-            && self.state.stack.is_empty()
+            && self.state.rules.active == Some(player)
+            && self.state.rules.priority == player
+            && matches!(self.state.rules.frame, Frame::Priority)
+            && self.state.rules.stack.is_empty()
             && matches!(
-                self.state.turn.step,
+                self.state.rules.turn.step,
                 TurnStep::PrecombatMain | TurnStep::PostcombatMain
             )
     }
@@ -87,16 +87,21 @@ impl Game {
     // the active player's main phase with priority and an empty stack.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(super) fn validate_land_play(&self, player: PlayerId, card: CardId) -> Result<(), String> {
-        if !self.main_phase_action(player) || self.state.turn.lands_played != 0 {
+        if !self.main_phase_action(player) || self.state.rules.turn.lands_played != 0 {
             return Err(
                 "land play requires unused active-player main-phase land play and empty stack"
                     .into(),
             );
         }
-        let object = self.state.objects.get(&card).ok_or("invalid land source")?;
+        let object = self
+            .state
+            .rules
+            .objects
+            .get(&card)
+            .ok_or("invalid land source")?;
         let definition = self.definition(card)?;
         if object.zone != (Zone::Hand { owner: player })
-            || self.state.cards[&card].owner != player
+            || self.state.rules.cards[&card].owner != player
             || definition.characteristics.kind != CardKind::Land
             || !definition.capabilities.contains(&Capability::LandPlayV1)
         {
@@ -132,7 +137,7 @@ impl Game {
                 ],
             },
         )?;
-        self.state.passes.clear();
+        self.state.rules.passes.clear();
         self.stabilize()
     }
     // CR 500.5, 106.4: pools empty at each step/phase ending. CR 500-514:
@@ -141,7 +146,7 @@ impl Game {
     // turn actions, until cleanup advances to the next living seat.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(super) fn transition_turn_step(&mut self) -> Result<(), String> {
-        if !self.state.stack.is_empty() || self.state.pending.is_some() {
+        if !self.state.rules.stack.is_empty() || self.state.rules.pending.is_some() {
             return Err("unsupported phase transition boundary".into());
         }
         let (next, owner) = self.next_turn_state()?;
@@ -159,28 +164,29 @@ impl Game {
             BatchCause::TurnProgression,
             EventGroup::Ordered { children },
         )?;
-        self.state.passes.clear();
-        self.state.cleanup_repeat = false;
-        self.state.frame = Frame::EnterStep;
+        self.state.rules.passes.clear();
+        self.state.rules.cleanup_repeat = false;
+        self.state.rules.frame = Frame::EnterStep;
         Ok(())
     }
     pub(super) fn next_turn_state(&self) -> Result<(TurnState, PlayerId), String> {
-        let mut next = self.state.turn.clone();
-        next.step = if self.state.turn.step == TurnStep::DeclareAttackers
-            && (!self.state.combat_declared)
+        let mut next = self.state.rules.turn.clone();
+        next.step = if self.state.rules.turn.step == TurnStep::DeclareAttackers
+            && (!self.state.rules.combat_declared)
         {
             TurnStep::EndCombat
-        } else if self.state.turn.step == TurnStep::DeclareBlockers
+        } else if self.state.rules.turn.step == TurnStep::DeclareBlockers
             && !self.first_strikers().is_empty()
         {
             TurnStep::FirstStrikeDamage
-        } else if self.state.turn.step == TurnStep::Cleanup && self.state.cleanup_repeat {
+        } else if self.state.rules.turn.step == TurnStep::Cleanup && self.state.rules.cleanup_repeat
+        {
             TurnStep::Cleanup
         } else {
             next.step.next()
         };
-        let mut owner = self.state.turn_owner;
-        if self.state.turn.step == TurnStep::Cleanup && !self.state.cleanup_repeat {
+        let mut owner = self.state.rules.turn_owner;
+        if self.state.rules.turn.step == TurnStep::Cleanup && !self.state.rules.cleanup_repeat {
             next.number = next
                 .number
                 .checked_add(1)
@@ -191,20 +197,21 @@ impl Game {
         Ok((next, owner))
     }
     pub(super) fn enter_turn_step(&mut self) -> Result<(), String> {
-        if !self.state.stack.is_empty() || self.state.pending.is_some() {
+        if !self.state.rules.stack.is_empty() || self.state.rules.pending.is_some() {
             return Err("unsupported turn entry boundary".into());
         }
-        match self.state.turn.step {
+        match self.state.rules.turn.step {
             TurnStep::Untap => {
                 // CR 502.3-4: simultaneous untap, with no priority in this step.
                 let occurrences = self
                     .state
+                    .rules
                     .objects
                     .values()
                     .filter(|object| {
                         object.zone == Zone::Battlefield
                             && object.tapped
-                            && Some(object.controller) == self.state.active
+                            && Some(object.controller) == self.state.rules.active
                     })
                     .map(|object| ProposedEvent::Untap { object: object.id })
                     .collect::<Vec<_>>();
@@ -214,13 +221,14 @@ impl Game {
                         EventGroup::Simultaneous { occurrences },
                     )?;
                 }
-                self.state.frame = Frame::Transition;
+                self.state.rules.frame = Frame::Transition;
                 return Ok(());
             }
             TurnStep::Draw => {
-                if let Some(player) = self.state.active {
+                if let Some(player) = self.state.rules.active {
                     if let Some(card) = self
                         .state
+                        .rules
                         .libraries
                         .get(&player)
                         .and_then(|v| v.first())
@@ -243,51 +251,52 @@ impl Game {
                 }
             }
             TurnStep::BeginningCombat => {
-                self.state.combat.clear();
-                self.state.combat_declared = false;
-                self.state.first_strike_participants.clear();
-                self.state.orphan_first_strike_blockers.clear();
-                self.state.damage_choices.clear();
-                self.state.player_damage_choices.clear();
+                self.state.rules.combat.clear();
+                self.state.rules.combat_declared = false;
+                self.state.rules.first_strike_participants.clear();
+                self.state.rules.orphan_first_strike_blockers.clear();
+                self.state.rules.damage_choices.clear();
+                self.state.rules.player_damage_choices.clear();
             }
             TurnStep::DeclareAttackers => {
-                if self.state.active.is_some() {
-                    self.state.frame = Frame::Attackers;
+                if self.state.rules.active.is_some() {
+                    self.state.rules.frame = Frame::Attackers;
                     return Ok(());
                 }
             }
             TurnStep::DeclareBlockers => {
                 let remaining = (1..4)
-                    .map(|n| PlayerId((self.state.turn_owner.0 + n) % 4))
+                    .map(|n| PlayerId((self.state.rules.turn_owner.0 + n) % 4))
                     .filter(|p| {
-                        self.is_live(*p) && self.state.combat.iter().any(|a| a.defender == *p)
+                        self.is_live(*p) && self.state.rules.combat.iter().any(|a| a.defender == *p)
                     })
                     .collect::<Vec<_>>();
                 if !remaining.is_empty() {
-                    self.state.frame = Frame::Blockers { remaining };
+                    self.state.rules.frame = Frame::Blockers { remaining };
                     return Ok(());
                 }
             }
             TurnStep::FirstStrikeDamage => {
-                self.state.frame = Frame::Damage;
+                self.state.rules.frame = Frame::Damage;
                 return Ok(());
             }
             TurnStep::CombatDamage => {
-                self.state.frame = Frame::Damage;
+                self.state.rules.frame = Frame::Damage;
                 return Ok(());
             }
             TurnStep::EndCombat => {}
             TurnStep::PostcombatMain => {
-                self.state.combat.clear();
-                self.state.first_strike_participants.clear();
-                self.state.orphan_first_strike_blockers.clear();
-                self.state.damage_choices.clear();
-                self.state.player_damage_choices.clear();
+                self.state.rules.combat.clear();
+                self.state.rules.first_strike_participants.clear();
+                self.state.rules.orphan_first_strike_blockers.clear();
+                self.state.rules.damage_choices.clear();
+                self.state.rules.player_damage_choices.clear();
             }
             TurnStep::Cleanup => {
-                self.state.frame = if let Some(player) = self.state.active {
+                self.state.rules.frame = if let Some(player) = self.state.rules.active {
                     let count = self
                         .state
+                        .rules
                         .objects
                         .values()
                         .filter(|o| o.zone == (Zone::Hand { owner: player }))
@@ -361,8 +370,8 @@ mod tests {
         assert!(facts.stack_empty);
         game.concede(PlayerId(0)).unwrap();
         let _ = game.advance(Budget::new(1));
-        game.state.turn.step = TurnStep::Cleanup;
-        game.state.frame = Frame::Transition;
+        game.state.rules.turn.step = TurnStep::Cleanup;
+        game.state.rules.frame = Frame::Transition;
         let (next, owner) = game.next_turn_state().unwrap();
         let batch = game
             .commit_batch(
@@ -380,14 +389,14 @@ mod tests {
             facts.live_turn_order,
             vec![PlayerId(1), PlayerId(2), PlayerId(3)]
         );
-        assert_eq!(game.state.active, Some(PlayerId(1)));
-        assert_eq!(game.state.turn.lands_played, 0);
+        assert_eq!(game.state.rules.active, Some(PlayerId(1)));
+        assert_eq!(game.state.rules.turn.lands_played, 0);
     }
 
     #[test]
     fn failed_land_count_rolls_back_earlier_movement_and_evidence() {
         let mut game = game();
-        game.state.turn.lands_played = 1;
+        game.state.rules.turn.lands_played = 1;
         let before = game.snapshot().unwrap();
         let object = game.object_id(CardId(1)).unwrap();
         assert!(
@@ -417,12 +426,12 @@ mod tests {
     #[test]
     fn invalid_turn_transition_rolls_back_mana_and_turn_facts() {
         let mut game = game();
-        game.state.frame = Frame::Transition;
-        game.state.players[0]
+        game.state.rules.frame = Frame::Transition;
+        game.state.rules.players[0]
             .mana
             .insert(Color::G, Quantity::from(2));
         let before = game.snapshot().unwrap();
-        let mut next = game.state.turn.clone();
+        let mut next = game.state.rules.turn.clone();
         next.step = TurnStep::PrecombatMain;
         assert!(
             game.commit_batch(
@@ -446,8 +455,8 @@ mod tests {
             .is_err()
         );
         assert_eq!(game.snapshot().unwrap(), before);
-        game.state.turn.number = u64::MAX;
-        game.state.turn.step = TurnStep::Cleanup;
+        game.state.rules.turn.number = u64::MAX;
+        game.state.rules.turn.step = TurnStep::Cleanup;
         let before = game.snapshot().unwrap();
         assert!(game.transition_turn_step().is_err());
         assert_eq!(game.snapshot().unwrap(), before);
@@ -457,7 +466,7 @@ mod tests {
     fn untap_simultaneity_rejects_interacting_writes_and_keeps_pre_event_facts() {
         let mut game = game();
         let object = game.object_id(CardId(0)).unwrap();
-        game.state.objects.get_mut(&CardId(0)).unwrap().tapped = true;
+        game.state.rules.objects.get_mut(&CardId(0)).unwrap().tapped = true;
         let before = game.snapshot().unwrap();
         assert!(
             game.commit_batch(
@@ -482,6 +491,6 @@ mod tests {
             .unwrap();
         assert!(batch.before.objects[0].tapped);
         assert_eq!(batch.result(&[0]), Some(&EventOutcome::Untapped { object }));
-        assert!(!game.state.objects[&CardId(0)].tapped);
+        assert!(!game.state.rules.objects[&CardId(0)].tapped);
     }
 }

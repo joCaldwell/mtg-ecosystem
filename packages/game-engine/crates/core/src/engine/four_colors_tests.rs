@@ -132,7 +132,7 @@ fn check(g: &Game) {
         g.trace.mode,
     )
     .unwrap();
-    if matches!(g.state.frame, Frame::Fault { .. }) {
+    if matches!(g.state.rules.frame, Frame::Fault { .. }) {
         let _ = replayed.advance(Budget::new(1));
     }
     assert_eq!(replayed.state, g.state);
@@ -183,6 +183,7 @@ fn pay_proposal(g: &mut Game, targets: Vec<TargetEntity>, stack_target: Option<S
                 } else {
                     let land = g
                         .state
+                        .rules
                         .objects
                         .values()
                         .filter(|o| {
@@ -225,7 +226,7 @@ fn pay_proposal(g: &mut Game, targets: Vec<TargetEntity>, stack_target: Option<S
                 Response::SpendMana { spending }
             }
             Request::StackTargets { .. } => Response::StackTargets {
-                entries: vec![stack_target.unwrap_or(g.state.stack[0].id)],
+                entries: vec![stack_target.unwrap_or(g.state.rules.stack[0].id)],
             },
             Request::Priority { .. } => break,
             x => panic!("cast request {x:?}"),
@@ -272,8 +273,8 @@ fn resolve_with(g: &mut Game, targets: Vec<TargetEntity>, mut inspect: impl FnMu
             Advance::Suspended { .. } => {}
             Advance::AwaitingDecision(r) => {
                 if matches!(r, Request::Priority { .. })
-                    && g.state.stack.is_empty()
-                    && g.state.pending_triggers.is_empty()
+                    && g.state.rules.stack.is_empty()
+                    && g.state.rules.pending_triggers.is_empty()
                 {
                     return;
                 }
@@ -297,9 +298,10 @@ fn target(o: ObjectId) -> Vec<TargetEntity> {
 }
 fn token_objects(g: &Game) -> Vec<ObjectId> {
     g.state
+        .rules
         .objects
         .values()
-        .filter(|o| g.state.tokens.contains_key(&o.id.card))
+        .filter(|o| g.state.rules.tokens.contains_key(&o.id.card))
         .map(|o| o.id)
         .collect()
 }
@@ -480,7 +482,7 @@ fn counterspell_commander_grave_return_and_tax_survive_countering() {
     );
     traces(p, |g| {
         announce(g, 0, vec![]);
-        let original = g.state.stack[0].id;
+        let original = g.state.rules.stack[0].id;
         priority_for(g, 1);
         counter(g, 5, original);
         loop {
@@ -495,7 +497,12 @@ fn counterspell_commander_grave_return_and_tax_survive_countering() {
             Some(Zone::Graveyard { owner: PlayerId(0) })
         );
         assert_eq!(
-            g.state.commanders.history(CardId(0)).unwrap().command_casts[&PlayerId(0)],
+            g.state
+                .rules
+                .commanders
+                .history(CardId(0))
+                .unwrap()
+                .command_casts[&PlayerId(0)],
             1.into()
         );
         check(g);
@@ -503,9 +510,14 @@ fn counterspell_commander_grave_return_and_tax_survive_countering() {
         resolve(g, vec![]);
         priority_for(g, 0);
         announce(g, 0, vec![]);
-        assert_eq!(g.state.stack[0].total_cost.generic, 2.into());
+        assert_eq!(g.state.rules.stack[0].total_cost.generic, 2.into());
         assert_eq!(
-            g.state.commanders.history(CardId(0)).unwrap().command_casts[&PlayerId(0)],
+            g.state
+                .rules
+                .commanders
+                .history(CardId(0))
+                .unwrap()
+                .command_casts[&PlayerId(0)],
             2.into()
         );
     });
@@ -523,12 +535,12 @@ fn counterspell_token_spell_produces_no_tokens() {
         ]),
         |g| {
             announce(g, 0, vec![]);
-            let id = g.state.stack[0].id;
+            let id = g.state.rules.stack[0].id;
             priority_for(g, 1);
             counter(g, 3, id);
             resolve(g, vec![]);
             assert!(token_objects(g).is_empty());
-            assert!(g.state.tokens.is_empty());
+            assert!(g.state.rules.tokens.is_empty());
             assert_eq!(
                 g.zone(object(g, 0)),
                 Some(Zone::Graveyard { owner: PlayerId(0) })
@@ -572,6 +584,7 @@ fn stifle_new_enters_triggers_and_sacrificed_artifact_abilities() {
                     let r = request(g);
                     if matches!(r, Request::Priority { .. })
                         && g.state
+                            .rules
                             .stack
                             .last()
                             .is_some_and(|s| matches!(s.kind, StackKind::Triggered { .. }))
@@ -583,15 +596,15 @@ fn stifle_new_enters_triggers_and_sacrificed_artifact_abilities() {
             } else {
                 activated(g, 0, vec![]);
             }
-            let invocation = g.state.stack.last().unwrap().id;
+            let invocation = g.state.rules.stack.last().unwrap().id;
             assert!(!matches!(
-                g.state.stack.last().unwrap().kind,
+                g.state.rules.stack.last().unwrap().kind,
                 StackKind::Spell
             ));
             priority_for(g, 1);
             counter(g, 2, invocation);
             resolve(g, vec![]);
-            assert!(g.state.stack.is_empty());
+            assert!(g.state.rules.stack.is_empty());
             assert!(token_objects(g).is_empty());
             assert_eq!(
                 g.zone(object(g, 1)),
@@ -626,27 +639,27 @@ fn hapless_sacrifice_triggers_artist_and_stifle_counters_only_the_trigger() {
             );
             for _ in 0..50 {
                 let r = request(g);
-                if matches!(r, Request::Priority { .. }) && g.state.stack.len() == 2 {
+                if matches!(r, Request::Priority { .. }) && g.state.rules.stack.len() == 2 {
                     break;
                 }
                 answer(g, automatic(&r, &[]));
             }
-            let id = g.state.stack.last().unwrap().id;
+            let id = g.state.rules.stack.last().unwrap().id;
             assert!(matches!(
-                g.state.stack.last().unwrap().kind,
+                g.state.rules.stack.last().unwrap().kind,
                 StackKind::Triggered { .. }
             ));
             check(g);
             priority_for(g, 1);
             counter(g, 2, id);
             resolve(g, vec![]);
-            assert_eq!(g.state.players[0].life, 40.into());
-            assert_eq!(g.state.players[1].life, 40.into());
+            assert_eq!(g.state.rules.players[0].life, 40.into());
+            assert_eq!(g.state.rules.players[1].life, 40.into());
             assert_eq!(
                 g.zone(object(g, 0)),
                 Some(Zone::Graveyard { owner: PlayerId(0) })
             );
-            assert_eq!(g.state.libraries[&PlayerId(0)].len(), 2); // turn draw + Researcher draw
+            assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), 2); // turn draw + Researcher draw
         },
     );
 }
@@ -667,7 +680,7 @@ fn mana_abilities_never_supply_stifle_stack_targets() {
                 },
             );
             let _ = request(g);
-            assert!(g.state.stack.is_empty());
+            assert!(g.state.rules.stack.is_empty());
             let r = request(g);
             let before = g.state_digest().unwrap();
             assert!(
@@ -779,7 +792,7 @@ fn bounced_and_tucked_tokens_reach_destination_then_cease() {
             assert!(g.object_id(token.card).is_none());
             assert!(token_objects(g).is_empty());
             // Retained token identity cannot become a playable card in hand.
-            assert!(g.state.tokens.contains_key(&token.card));
+            assert!(g.state.rules.tokens.contains_key(&token.card));
             assert!(
                 !observation(g, 0)
                     .view
@@ -789,6 +802,7 @@ fn bounced_and_tucked_tokens_reach_destination_then_cease() {
             );
             assert!(
                 !g.state
+                    .rules
                     .libraries
                     .values()
                     .any(|ids| ids.contains(&token.card))
@@ -836,7 +850,7 @@ fn lightning_bolt_complete_any_target_and_furnace_doubling() {
                 let amount = if furnace { 6 } else { 3 };
                 match target_entity {
                     TargetEntity::Player { player } => assert_eq!(
-                        g.state.players[player.0 as usize].life,
+                        g.state.rules.players[player.0 as usize].life,
                         Quantity::from(40 - amount)
                     ),
                     TargetEntity::Object { object: o } => {
@@ -854,6 +868,7 @@ fn lightning_bolt_complete_any_target_and_furnace_doubling() {
                 // a commander struck by noncombat damage gains none.
                 assert!(
                     g.state
+                        .rules
                         .commanders
                         .history(CardId(4))
                         .unwrap()
@@ -869,7 +884,7 @@ fn next_own_turn(g: &mut Game) {
     for _ in 0..400 {
         let r = request(g);
         if g.turn().number > turn
-            && g.state.turn_owner == PlayerId(0)
+            && g.state.rules.turn_owner == PlayerId(0)
             && matches!(r, Request::Priority { .. })
         {
             return;
@@ -929,23 +944,25 @@ fn looter_and_azure_draw_abilities_use_the_match_stack() {
             reach(g, TurnStep::PrecombatMain);
             let hand = g
                 .state
+                .rules
                 .objects
                 .values()
                 .filter(|o| o.zone == Zone::Hand { owner: PlayerId(0) })
                 .count();
             activated(g, 0, vec![]);
-            assert_eq!(g.state.stack.len(), 1);
+            assert_eq!(g.state.rules.stack.len(), 1);
             check(g);
             resolve(g, vec![]);
             assert_eq!(
                 g.state
+                    .rules
                     .objects
                     .values()
                     .filter(|o| o.zone == Zone::Hand { owner: PlayerId(0) })
                     .count(),
                 hand + usize::from(name == "Azure Mage")
             );
-            assert_eq!(g.state.libraries[&PlayerId(0)].len(), 2);
+            assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), 2);
         });
     }
 }
@@ -1010,12 +1027,17 @@ fn furnace_first_double_strike_lifelink_and_commander_final_damage() {
                     }
                     answer(g, automatic(&r, &[]));
                 }
-                assert_eq!(!g.state.first_strike_participants.is_empty(), first);
-                assert_eq!(g.state.players[0].life, Quantity::from(life));
-                assert_eq!(g.state.players[1].life, Quantity::from(40 - damage));
+                assert_eq!(!g.state.rules.first_strike_participants.is_empty(), first);
+                assert_eq!(g.state.rules.players[0].life, Quantity::from(life));
+                assert_eq!(g.state.rules.players[1].life, Quantity::from(40 - damage));
                 if name == "Rorix Bladewing" {
                     assert_eq!(
-                        g.state.commanders.history(CardId(0)).unwrap().combat_damage[&PlayerId(1)],
+                        g.state
+                            .rules
+                            .commanders
+                            .history(CardId(0))
+                            .unwrap()
+                            .combat_damage[&PlayerId(1)],
                         12.into()
                     );
                 }
@@ -1057,7 +1079,7 @@ fn furnace_trample_assigns_lethal_before_doubling_and_deathtouch_still_kills() {
                 }
                 assert!(matches!(g.zone(object(g, 1)), Some(Zone::Graveyard { .. })));
                 assert_eq!(
-                    g.state.players[1].life,
+                    g.state.rules.players[1].life,
                     Quantity::from(if name == "Colossal Dreadmaw" { 36 } else { 40 })
                 );
                 assert_eq!(g.current(object(g, 0)).unwrap().marked_damage, 0.into());
@@ -1099,7 +1121,11 @@ fn reviewed_unsummon_blocker_attacker_stays_blocked() {
                 Some(Zone::Hand { owner: PlayerId(1) })
             );
             to_end_combat(g);
-            assert_eq!(g.state.players[1].life, Quantity::from(life), "{attacker}");
+            assert_eq!(
+                g.state.rules.players[1].life,
+                Quantity::from(life),
+                "{attacker}"
+            );
         });
     }
 }
@@ -1129,7 +1155,7 @@ fn reviewed_orphan_first_strike_blocker_after_attacker_bounced() {
             answer(g, automatic(&r, &[]));
         }
         assert!(saw_first);
-        assert_eq!(g.state.players[1].life, Quantity::from(40));
+        assert_eq!(g.state.rules.players[1].life, Quantity::from(40));
         assert_eq!(g.current(object(g, 1)).unwrap().marked_damage, 0.into());
     });
 }
@@ -1158,7 +1184,7 @@ fn reviewed_time_ebb_token_then_unsummon_response() {
             g.zone(object(g, 1)),
             Some(Zone::Graveyard { owner: PlayerId(0) })
         );
-        assert!(!matches!(g.state.frame, Frame::Fault { .. }));
+        assert!(!matches!(g.state.rules.frame, Frame::Fault { .. }));
     });
 }
 #[test]
@@ -1178,7 +1204,7 @@ fn reviewed_two_furnaces_bolt_player() {
                 player: PlayerId(1),
             }],
         );
-        assert_eq!(g.state.players[1].life, Quantity::from(28));
+        assert_eq!(g.state.rules.players[1].life, Quantity::from(28));
     });
 }
 #[test]
@@ -1203,7 +1229,7 @@ fn reviewed_night_whisper_draws_tucked_commander() {
             g.zone(object(g, 0)),
             Some(Zone::Hand { owner: PlayerId(0) })
         );
-        assert_eq!(g.state.players[0].life, Quantity::from(38));
+        assert_eq!(g.state.rules.players[0].life, Quantity::from(38));
     });
 }
 #[test]
@@ -1221,10 +1247,10 @@ fn reviewed_counterspell_on_counterspell_and_stifle_sorcerer() {
     ];
     traces(prepared(&rows), |g| {
         announce(g, 0, vec![]);
-        let bears = g.state.stack[0].id;
+        let bears = g.state.rules.stack[0].id;
         priority_for(g, 1);
         counter(g, 3, bears);
-        let first = g.state.stack[1].id;
+        let first = g.state.rules.stack[1].id;
         priority_for(g, 2);
         counter(g, 6, first);
         resolve(g, vec![]);
@@ -1251,11 +1277,11 @@ fn reviewed_stifle_sorcerer_ping_and_gravedigger_source_bounced() {
                 player: PlayerId(1),
             }],
         );
-        let id = g.state.stack[0].id;
+        let id = g.state.rules.stack[0].id;
         priority_for(g, 1);
         counter(g, 1, id);
         resolve(g, vec![]);
-        assert_eq!(g.state.players[1].life, Quantity::from(40));
+        assert_eq!(g.state.rules.players[1].life, Quantity::from(40));
         assert!(g.current(object(g, 0)).unwrap().tapped);
     });
 }
@@ -1333,7 +1359,7 @@ fn reviewed_fog_does_not_prevent_bolt() {
         answer(g, Response::Cast { card: CardId(2) });
         pay_proposal(g, vec![], None);
         resolve(g, vec![]);
-        assert_eq!(g.state.players[1].life, Quantity::from(37));
+        assert_eq!(g.state.rules.players[1].life, Quantity::from(37));
     });
 }
 #[test]
@@ -1362,7 +1388,7 @@ fn reviewed_prodigal_bounced_in_response_ping_uses_lki_with_furnace() {
             g.zone(object(g, 0)),
             Some(Zone::Hand { owner: PlayerId(0) })
         );
-        assert_eq!(g.state.players[3].life, Quantity::from(38));
+        assert_eq!(g.state.rules.players[3].life, Quantity::from(38));
     });
 }
 #[test]
@@ -1385,6 +1411,7 @@ fn reviewed_bolt_fizzles_after_target_bounced_and_stifle_orphan_trigger() {
             let r = request(g);
             if matches!(r, Request::Priority { .. })
                 && g.state
+                    .rules
                     .stack
                     .last()
                     .is_some_and(|s| matches!(s.kind, StackKind::Triggered { .. }))
@@ -1393,7 +1420,7 @@ fn reviewed_bolt_fizzles_after_target_bounced_and_stifle_orphan_trigger() {
             }
             answer(g, automatic(&r, &[]));
         }
-        let trig = g.state.stack.last().unwrap().id;
+        let trig = g.state.rules.stack.last().unwrap().id;
         let inst = object(g, 0);
         priority_for(g, 1);
         answer(g, Response::Cast { card: CardId(3) });

@@ -110,8 +110,8 @@ fn simultaneous_independent_moves_share_pre_state_and_return_actual_successors()
         );
         assert!(game.current(movement.previous).is_err());
     }
-    assert_eq!(game.state.next_batch_id, 1);
-    assert_eq!(game.state.next_event_sequence, 3);
+    assert_eq!(game.state.rules.next_batch_id, 1);
+    assert_eq!(game.state.rules.next_event_sequence, 3);
 }
 #[test]
 fn failed_children_conflicts_limits_and_overflows_roll_back_state_and_evidence() {
@@ -169,7 +169,7 @@ fn failed_children_conflicts_limits_and_overflows_roll_back_state_and_evidence()
         let token = game.state_token.clone();
         assert!(game.commit_batch(BatchCause::Fixture, group).is_err());
         let mut expected = initial.state.clone();
-        expected.typed_fault = game.state.typed_fault.clone();
+        expected.rules.typed_fault = game.state.rules.typed_fault.clone();
         assert_eq!(game.state, expected);
         assert_eq!(game.trace, initial.trace);
         assert!(Arc::ptr_eq(&token, &game.state_token));
@@ -178,9 +178,9 @@ fn failed_children_conflicts_limits_and_overflows_roll_back_state_and_evidence()
         for event_counter in [false, true] {
             let mut game = Game::with_trace(prepared(), mode);
             if event_counter {
-                game.state.next_event_sequence = u64::MAX;
+                game.state.rules.next_event_sequence = u64::MAX;
             } else {
-                game.state.next_batch_id = u64::MAX;
+                game.state.rules.next_batch_id = u64::MAX;
             }
             let state = game.state.clone();
             let trace = game.trace.clone();
@@ -190,6 +190,54 @@ fn failed_children_conflicts_limits_and_overflows_roll_back_state_and_evidence()
             );
             assert_eq!(game.state, state);
             assert_eq!(game.trace, trace);
+        }
+    }
+}
+#[test]
+fn simultaneous_prevalidation_preserves_typed_fault_and_rolls_back_everything_else() {
+    for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+        for nested in [false, true] {
+            let mut game = Game::with_trace(prepared(), mode);
+            let source = game.object_id(CardId(2)).unwrap();
+            let requested = game.damage_limit() + 1;
+            let group = EventGroup::Simultaneous {
+                occurrences: vec![ProposedEvent::CombatDamage {
+                    damage: vec![
+                        DamageOccurrence {
+                            source,
+                            controller: PlayerId(2),
+                            recipient: DamageRecipient::Player {
+                                player: PlayerId(0)
+                            },
+                            amount: Quantity::from(1),
+                        };
+                        requested
+                    ],
+                }],
+            };
+            let group = if nested {
+                EventGroup::Ordered {
+                    children: vec![leaf(mana(1)), group],
+                }
+            } else {
+                group
+            };
+            let mut expected_state = game.state.clone();
+            let expected_trace = game.trace.clone();
+            let token = game.state_token.clone();
+            let fault = RuleFault::DamageCapacityExceeded {
+                capacity: game.damage_limit(),
+                requested,
+            };
+            assert_eq!(
+                game.commit_batch(BatchCause::Fixture, group).unwrap_err(),
+                "damage capacity exceeded"
+            );
+            assert_eq!(game.typed_fault(), Some(&fault));
+            expected_state.rules.typed_fault = Some(fault);
+            assert_eq!(game.state, expected_state);
+            assert_eq!(game.trace, expected_trace);
+            assert!(Arc::ptr_eq(&token, &game.state_token));
         }
     }
 }
@@ -378,10 +426,10 @@ fn mixed_input_trace_modes_restore_every_pending_and_suspended_departure_boundar
     }
     for snapshot in boundaries {
         let saved: Snapshot = strict_read(&snapshot).unwrap();
-        let boundary = saved.state.rule_steps;
+        let boundary = saved.state.rules.rule_steps;
         let prefix = ReplayJournal {
-            decisions: saved.state.journal.clone(),
-            concessions: saved.state.external_inputs.clone(),
+            decisions: saved.state.audit.journal.iter().cloned().collect(),
+            concessions: saved.state.audit.external_inputs.iter().cloned().collect(),
         };
         let full =
             Game::replay_to(p.clone(), &prefix, Some(boundary), TraceMode::Detailed).unwrap();

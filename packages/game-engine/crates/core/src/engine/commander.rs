@@ -34,7 +34,7 @@ pub(super) enum CommanderContinuation {
 
 impl Game {
     pub(super) fn previous_commander_choices(&self) -> Vec<(ObjectId, bool)> {
-        match &self.state.frame {
+        match &self.state.rules.frame {
             Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
                 CommanderContinuation::StateBasedBatch { choices, .. }
                 | CommanderContinuation::BoardReturn { choices, .. } => choices.clone(),
@@ -54,6 +54,7 @@ impl Game {
                     designation: self.commander_designation(viewer, id.card)?,
                     owner: self
                         .state
+                        .rules
                         .cards
                         .get(&id.card)
                         .ok_or("missing commander choice card")?
@@ -70,6 +71,7 @@ impl Game {
         card: CardId,
     ) -> Result<String, String> {
         self.state
+            .rules
             .commanders
             .records
             .keys()
@@ -104,7 +106,8 @@ impl Game {
             if from != (Zone::Command { owner: caster }) {
                 return Err("unsupported command-zone casting permission".into());
             }
-            cost.generic.add(&self.state.commanders.tax(card, caster)?);
+            cost.generic
+                .add(&self.state.rules.commanders.tax(card, caster)?);
         }
         Ok(cost)
     }
@@ -113,33 +116,41 @@ impl Game {
     // Match pods preserve every simultaneous fresh opportunity and process
     // owner choices APNAP before one simultaneous move wave and trigger placement.
     pub(super) fn offer_commander_sba(&mut self, resume: Frame) -> Result<bool, String> {
-        let eligible = self.state.commander_returns.iter().copied().find(|id| {
-            self.current(*id)
-                .is_ok_and(|o| matches!(o.zone, Zone::Graveyard { .. } | Zone::Exile))
-                && self.is_live(self.state.cards[&id.card].owner)
-        });
-        if self.state.commander_returns.len() > 1 {
+        let eligible = self
+            .state
+            .rules
+            .commander_returns
+            .iter()
+            .copied()
+            .find(|id| {
+                self.current(*id)
+                    .is_ok_and(|o| matches!(o.zone, Zone::Graveyard { .. } | Zone::Exile))
+                    && self.is_live(self.state.rules.cards[&id.card].owner)
+            });
+        if self.state.rules.commander_returns.len() > 1 {
             let mut objects = self
                 .state
+                .rules
                 .commander_returns
                 .iter()
                 .copied()
                 .filter(|id| {
                     self.current(*id)
                         .is_ok_and(|o| matches!(o.zone, Zone::Graveyard { .. } | Zone::Exile))
-                        && self.is_live(self.state.cards[&id.card].owner)
+                        && self.is_live(self.state.rules.cards[&id.card].owner)
                 })
                 .collect::<Vec<_>>();
             objects.sort_by_key(|id| {
                 (
-                    (self.state.cards[&id.card].owner.0 + 4 - self.state.turn_owner.0) % 4,
+                    (self.state.rules.cards[&id.card].owner.0 + 4 - self.state.rules.turn_owner.0)
+                        % 4,
                     *id,
                 )
             });
-            self.state.commander_returns.clear();
+            self.state.rules.commander_returns.clear();
             if !objects.is_empty() {
                 let object = objects.remove(0);
-                self.state.frame = Frame::CommanderReturn {
+                self.state.rules.frame = Frame::CommanderReturn {
                     object,
                     destination: self.current(object)?.zone,
                     continuation: Box::new(CommanderContinuation::StateBasedBatch {
@@ -152,9 +163,9 @@ impl Game {
             }
             return Ok(false);
         }
-        self.state.commander_returns.clear();
+        self.state.rules.commander_returns.clear();
         if let Some(object) = eligible {
-            self.state.frame = Frame::CommanderReturn {
+            self.state.rules.frame = Frame::CommanderReturn {
                 object,
                 destination: self.current(object)?.zone,
                 continuation: Box::new(CommanderContinuation::StateBased { resume }),
@@ -171,7 +182,7 @@ impl Game {
         player: PlayerId,
         card: CardId,
     ) -> Result<bool, String> {
-        if self.state.commanders.history(card).is_none() {
+        if self.state.rules.commanders.history(card).is_none() {
             return Ok(false);
         }
         let object = self
@@ -180,7 +191,7 @@ impl Game {
         if self.current(object)?.zone != (Zone::Library { owner: player }) {
             return Err("commander draw source invariant".into());
         }
-        self.state.frame = Frame::CommanderReturn {
+        self.state.rules.frame = Frame::CommanderReturn {
             object,
             destination: Zone::Hand { owner: player },
             continuation: Box::new(CommanderContinuation::Draw { player }),
@@ -195,13 +206,14 @@ impl Game {
     ) -> Result<(), String> {
         let input = self
             .state
+            .rules
             .pending
             .take()
             .ok_or("missing commander return choice")?;
         let Response::CommanderReturn { to_command } = input.response else {
             return Err("commander return response invariant".into());
         };
-        if input.player != self.state.cards[&object.card].owner {
+        if input.player != self.state.rules.cards[&object.card].owner {
             return Err("commander return owner invariant".into());
         }
         self.resume_commander_return(object, destination, continuation, to_command)
@@ -213,7 +225,7 @@ impl Game {
         continuation: CommanderContinuation,
         to_command: bool,
     ) -> Result<(), String> {
-        let owner = self.state.cards[&object.card].owner;
+        let owner = self.state.rules.cards[&object.card].owner;
         let present = self.current(object).is_ok() && self.is_live(owner);
         let actual_destination = if to_command {
             Zone::Command { owner }
@@ -263,7 +275,7 @@ impl Game {
                     .cursor
                     .checked_add(1)
                     .ok_or("instruction cursor resource limit")?;
-                self.state.frame = Frame::Resolve { frame };
+                self.state.rules.frame = Frame::Resolve { frame };
             }
             CommanderContinuation::ResolutionDraw {
                 frame,
@@ -321,11 +333,11 @@ impl Game {
                 remaining.retain(|id| {
                     self.current(*id)
                         .is_ok_and(|o| matches!(o.zone, Zone::Graveyard { .. } | Zone::Exile))
-                        && self.is_live(self.state.cards[&id.card].owner)
+                        && self.is_live(self.state.rules.cards[&id.card].owner)
                 });
                 if !remaining.is_empty() {
                     let object = remaining.remove(0);
-                    self.state.frame = Frame::CommanderReturn {
+                    self.state.rules.frame = Frame::CommanderReturn {
                         object,
                         destination: self.current(object)?.zone,
                         continuation: Box::new(CommanderContinuation::StateBasedBatch {
@@ -339,12 +351,12 @@ impl Game {
                         .iter()
                         .filter(|(id, yes)| {
                             *yes && self.current(*id).is_ok()
-                                && self.is_live(self.state.cards[&id.card].owner)
+                                && self.is_live(self.state.rules.cards[&id.card].owner)
                         })
                         .map(|(id, _)| ProposedEvent::Move {
                             object: *id,
                             destination: Zone::Command {
-                                owner: self.state.cards[&id.card].owner,
+                                owner: self.state.rules.cards[&id.card].owner,
                             },
                         })
                         .collect::<Vec<_>>();
@@ -357,7 +369,7 @@ impl Game {
                             *changed = true;
                         }
                     }
-                    self.state.frame = resume;
+                    self.state.rules.frame = resume;
                 }
             }
             CommanderContinuation::StateBased { mut resume } => {
@@ -371,14 +383,15 @@ impl Game {
                         *changed = true;
                     }
                 }
-                self.state.frame = resume;
+                self.state.rules.frame = resume;
             }
         }
         Ok(())
     }
     pub(super) fn revalidate_commander_departure(&mut self) -> Result<(), String> {
-        self.state.commander_returns.retain(|id| {
+        self.state.rules.commander_returns.retain(|id| {
             self.state
+                .rules
                 .objects
                 .get(&id.card)
                 .is_some_and(|o| o.id == *id)
@@ -387,18 +400,18 @@ impl Game {
             object,
             destination,
             continuation,
-        } = self.state.frame.clone()
+        } = self.state.rules.frame.clone()
             && (self.current(object).is_err()
-                || !self.is_live(self.state.cards[&object.card].owner))
+                || !self.is_live(self.state.rules.cards[&object.card].owner))
         {
-            self.state.pending = None;
+            self.state.rules.pending = None;
             self.resume_commander_return(object, destination, *continuation, false)?;
         }
         Ok(())
     }
     pub(super) fn validate_commander_state(&self) -> Result<(), String> {
-        for id in &self.state.commander_returns {
-            if self.state.commanders.history(id.card).is_none()
+        for id in &self.state.rules.commander_returns {
+            if self.state.rules.commanders.history(id.card).is_none()
                 || !matches!(
                     self.current(*id)?.zone,
                     Zone::Graveyard { .. } | Zone::Exile
@@ -411,15 +424,16 @@ impl Game {
             object,
             destination,
             continuation,
-        } = &self.state.frame
+        } = &self.state.rules.frame
         {
             let owner = self
                 .state
+                .rules
                 .cards
                 .get(&object.card)
                 .ok_or("snapshot commander physical identity invariant")?
                 .owner;
-            if self.state.commanders.history(object.card).is_none() || !self.is_live(owner) {
+            if self.state.rules.commanders.history(object.card).is_none() || !self.is_live(owner) {
                 return Err("snapshot commander choice designation invariant".into());
             }
             let current = self.current(*object)?;
@@ -466,7 +480,7 @@ impl Game {
                         || *destination != expected_destination
                         || *source_block != expected_block
                         || frame.stack_id != frame.spell.id
-                        || frame.spell.id.0 >= self.state.next_stack_id
+                        || frame.spell.id.0 >= self.state.rules.next_stack_id
                         || frame.spell.paid.as_ref() != Some(&frame.spell.total_cost)
                         || frame.spell.targets.len() != program.targets.len()
                         || frame.legal_targets.len() != program.targets.len()
@@ -492,6 +506,7 @@ impl Game {
                         || *destination != (Zone::Hand { owner })
                         || self
                             .state
+                            .rules
                             .libraries
                             .get(player)
                             .and_then(|cards| cards.first())
@@ -505,12 +520,13 @@ impl Game {
                 }
                 CommanderContinuation::Draw { player } => {
                     if *player != owner
-                        || self.state.active != Some(*player)
-                        || self.state.turn.step != TurnStep::Draw
+                        || self.state.rules.active != Some(*player)
+                        || self.state.rules.turn.step != TurnStep::Draw
                         || current.zone != (Zone::Library { owner })
                         || *destination != (Zone::Hand { owner })
                         || self
                             .state
+                            .rules
                             .libraries
                             .get(player)
                             .and_then(|cards| cards.first())
@@ -542,11 +558,12 @@ impl Game {
                     for id in ids {
                         let owner = self
                             .state
+                            .rules
                             .cards
                             .get(&id.card)
                             .ok_or("snapshot commander group card")?
                             .owner;
-                        if self.state.commanders.history(id.card).is_none() {
+                        if self.state.rules.commanders.history(id.card).is_none() {
                             return Err("snapshot commander group designation".into());
                         }
                         if self.is_live(owner)
@@ -556,7 +573,7 @@ impl Game {
                         {
                             return Err("snapshot commander group incarnation".into());
                         }
-                        keys.push(((owner.0 + 4 - self.state.turn_owner.0) % 4, id));
+                        keys.push(((owner.0 + 4 - self.state.rules.turn_owner.0) % 4, id));
                     }
                     if !keys.windows(2).all(|w| w[0] < w[1]) {
                         return Err("snapshot commander group APNAP order".into());

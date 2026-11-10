@@ -73,7 +73,7 @@ fn settle(g: &mut Game) -> Request {
         match g.advance(Budget::new(1)) {
             Advance::AwaitingDecision(r) => return r,
             Advance::Suspended { .. } => (),
-            other => panic!("step witness at {:?}: {other:?}", g.state.frame),
+            other => panic!("step witness at {:?}: {other:?}", g.state.rules.frame),
         }
     }
     panic!("step witness budget")
@@ -106,7 +106,7 @@ fn recover(g: &Game) {
     let replayed = Game::replay_to(
         g.prepared.as_ref().clone(),
         &g.replay_journal(),
-        Some(g.state.rule_steps),
+        Some(g.state.rules.rule_steps),
         g.trace.mode,
     )
     .unwrap();
@@ -116,7 +116,7 @@ fn recover(g: &Game) {
 fn to_step(g: &mut Game, number: u64, step: TurnStep) {
     for _ in 0..500 {
         let _ = settle(g);
-        if g.state.turn.number == number && g.state.turn.step == step {
+        if g.state.rules.turn.number == number && g.state.rules.turn.step == step {
             return;
         }
         passive(g);
@@ -198,6 +198,7 @@ fn fund(g: &mut Game) {
     let player = settle(g).player();
     let lands = g
         .state
+        .rules
         .objects
         .values()
         .filter(|o| {
@@ -252,7 +253,7 @@ fn declare(g: &mut Game, attacks: &[(u32, u8)]) {
     answer(g, Response::Attackers { attacks });
 }
 fn library(g: &Game) -> usize {
-    g.state.libraries[&PlayerId(0)].len()
+    g.state.rules.libraries[&PlayerId(0)].len()
 }
 fn predicate(p: &mut Prepared, relation: AttackerRelation, types: TypePredicate) {
     edit(p, CAUSE, |d| {
@@ -279,18 +280,18 @@ fn d2cd_archived_whole_draw_life_keyword_programs_all_traces() {
             let before = library(&g);
             declare(&mut g, &[(0, 1)]);
             placed(&mut g);
-            assert_eq!(g.state.stack.len(), 1);
-            assert_eq!(g.state.next_trigger_id, 1);
-            assert_eq!(g.state.turn.step, TurnStep::DeclareAttackers);
+            assert_eq!(g.state.rules.stack.len(), 1);
+            assert_eq!(g.state.rules.next_trigger_id, 1);
+            assert_eq!(g.state.rules.turn.step, TurnStep::DeclareAttackers);
             assert!(g.current(object(&g, 0)).unwrap().tapped);
             recover(&g);
             resolve(&mut g);
             assert_eq!(library(&g), before - draws);
-            assert_eq!(g.state.players[0].life, life.into());
+            assert_eq!(g.state.rules.players[0].life, life.into());
             for i in 1..4 {
-                assert_eq!(g.state.players[i].life, opponent.into());
+                assert_eq!(g.state.rules.players[i].life, opponent.into());
             }
-            assert_eq!(g.state.next_trigger_id, 1);
+            assert_eq!(g.state.rules.next_trigger_id, 1);
             recover(&g);
         }
     }
@@ -309,10 +310,10 @@ fn d2cd_n_attackers_split_defenders_multiple_observers_apnap_actual_batch_member
             mode,
         );
         declare(&mut g, &[(3, 1), (4, 2)]);
-        pass_until(&mut g, |g| g.state.pending_triggers.len() == 8);
+        pass_until(&mut g, |g| g.state.rules.pending_triggers.len() == 8);
         let mut distinct = BTreeSet::new();
         let mut batch = None;
-        for t in &g.state.pending_triggers {
+        for t in &g.state.rules.pending_triggers {
             let evidence = serde_json::to_value(t).unwrap();
             let event: TriggerOccurrenceId =
                 serde_json::from_value(evidence["event"].clone()).unwrap();
@@ -350,6 +351,7 @@ fn d2cd_n_attackers_split_defenders_multiple_observers_apnap_actual_batch_member
         placed(&mut g);
         assert_eq!(
             g.state
+                .rules
                 .stack
                 .iter()
                 .map(|s| s.controller.0)
@@ -376,13 +378,13 @@ fn d2cd_n_attackers_split_defenders_multiple_observers_apnap_actual_batch_member
                 matches!(&declaration.actual,EventOutcome::AttackersDeclared {attacks} if attacks.len()==2)
             );
         }
-        while !g.state.stack.is_empty() {
+        while !g.state.rules.stack.is_empty() {
             resolve(&mut g);
         }
-        assert_eq!(g.state.players[0].life, 42.into());
-        assert_eq!(g.state.players[1].life, 42.into());
-        assert_eq!(g.state.players[3].life, 42.into());
-        assert_eq!(g.state.next_trigger_id, 8);
+        assert_eq!(g.state.rules.players[0].life, 42.into());
+        assert_eq!(g.state.rules.players[1].life, 42.into());
+        assert_eq!(g.state.rules.players[3].life, 42.into());
+        assert_eq!(g.state.rules.next_trigger_id, 8);
         recover(&g);
     }
 }
@@ -402,8 +404,8 @@ fn d2cd_empty_declaration_has_no_occurrences_and_vigilance_is_not_a_tap_trigger(
             declare(&mut g, if empty { &[] } else { &[(0, 1)] });
             placed(&mut g);
             assert!(!g.current(object(&g, 0)).unwrap().tapped);
-            assert_eq!(g.state.next_trigger_id, if empty { 0 } else { 2 });
-            assert_eq!(g.state.stack.len(), if empty { 0 } else { 2 });
+            assert_eq!(g.state.rules.next_trigger_id, if empty { 0 } else { 2 });
+            assert_eq!(g.state.rules.stack.len(), if empty { 0 } else { 2 });
             recover(&g);
         }
     }
@@ -427,6 +429,7 @@ fn d2cd_self_exact_source_other_copy_and_not_owner_or_active_player_relation() {
             placed(&mut g);
             assert_eq!(
                 g.state
+                    .rules
                     .stack
                     .iter()
                     .filter(|s| s.source.card == CardId(1))
@@ -435,6 +438,7 @@ fn d2cd_self_exact_source_other_copy_and_not_owner_or_active_player_relation() {
             );
             assert_eq!(
                 g.state
+                    .rules
                     .stack
                     .iter()
                     .filter(|s| s.source.card == CardId(2))
@@ -443,6 +447,7 @@ fn d2cd_self_exact_source_other_copy_and_not_owner_or_active_player_relation() {
             );
             assert_eq!(
                 g.state
+                    .rules
                     .stack
                     .iter()
                     .filter(|s| s.source.card == CardId(0))
@@ -523,6 +528,7 @@ fn d2cd_full_type_intersection_negation_and_explicit_or_runtime() {
             placed(&mut g);
             assert_eq!(
                 g.state
+                    .rules
                     .stack
                     .iter()
                     .filter(|s| s.source.card == CardId(0))
@@ -575,7 +581,7 @@ fn d2cd_invalid_duplicate_ineligible_declarations_are_atomic() {
             },
         );
         placed(&mut g);
-        assert_eq!(g.state.next_trigger_id, 2);
+        assert_eq!(g.state.rules.next_trigger_id, 2);
         recover(&g);
     }
 }
@@ -593,18 +599,18 @@ fn d2cd_pending_placed_resolving_restore_replay_forgery_and_independent_clone() 
         let (mut pending, mut placed, mut resolving) = (false, false, false);
         for _ in 0..150 {
             recover(&g);
-            pending |= !g.state.pending_triggers.is_empty();
-            placed |= !g.state.stack.is_empty();
-            resolving |= matches!(g.state.frame, Frame::Resolve { .. });
-            if !g.state.pending_triggers.is_empty()
-                || !g.state.stack.is_empty()
-                || matches!(g.state.frame, Frame::Resolve { .. })
+            pending |= !g.state.rules.pending_triggers.is_empty();
+            placed |= !g.state.rules.stack.is_empty();
+            resolving |= matches!(g.state.rules.frame, Frame::Resolve { .. });
+            if !g.state.rules.pending_triggers.is_empty()
+                || !g.state.rules.stack.is_empty()
+                || matches!(g.state.rules.frame, Frame::Resolve { .. })
             {
                 let mut s: serde_json::Value =
                     serde_json::from_str(&g.snapshot().unwrap()).unwrap();
-                let w = if !g.state.pending_triggers.is_empty() {
+                let w = if !g.state.rules.pending_triggers.is_empty() {
                     &mut s["state"]["pending_triggers"][0]["witness"]
-                } else if !g.state.stack.is_empty() {
+                } else if !g.state.rules.stack.is_empty() {
                     &mut s["state"]["stack"][0]["kind"]["witness"]
                 } else {
                     &mut s["state"]["frame"]["frame"]["spell"]["kind"]["witness"]
@@ -614,7 +620,7 @@ fn d2cd_pending_placed_resolving_restore_replay_forgery_and_independent_clone() 
                 w["defender_player_id"] = 3.into();
                 // A resolving entry may still be the stack top. Forge both
                 // copies coherently so top-binding is not the rejection reason.
-                if matches!(g.state.frame, Frame::Resolve { .. }) {
+                if matches!(g.state.rules.frame, Frame::Resolve { .. }) {
                     s["state"]["frame"]["frame"]["spell"]["kind"]["witness"]["defender_player_id"] =
                         3.into();
                 }
@@ -623,12 +629,12 @@ fn d2cd_pending_placed_resolving_restore_replay_forgery_and_independent_clone() 
                 let mut structural = g.fork();
                 structural.state = forged.state;
                 structural.validate_trigger_state().unwrap();
-                if let Frame::Resolve { frame } = &structural.state.frame {
+                if let Frame::Resolve { frame } = &structural.state.rules.frame {
                     structural.validate_resolving(frame).unwrap();
                 }
                 assert!(Game::restore(g.prepared.as_ref().clone(), &s.to_string()).is_err());
             }
-            if g.state.players[1].life == 41.into() {
+            if g.state.rules.players[1].life == 41.into() {
                 break;
             }
             match g.advance(Budget::new(1)) {
@@ -661,7 +667,7 @@ fn d2cd_attacker_source_owner_controller_defender_departures_all_traces() {
                 );
                 declare(&mut g, &[(1, 2)]);
                 if pending {
-                    pass_until(&mut g, |g| !g.state.pending_triggers.is_empty());
+                    pass_until(&mut g, |g| !g.state.rules.pending_triggers.is_empty());
                 } else {
                     placed(&mut g);
                 }
@@ -669,10 +675,10 @@ fn d2cd_attacker_source_owner_controller_defender_departures_all_traces() {
                 g.concede(PlayerId(departing)).unwrap();
                 placed(&mut g);
                 recover(&g);
-                assert_eq!(g.state.stack.len(), usize::from(departing != 1));
+                assert_eq!(g.state.rules.stack.len(), usize::from(departing != 1));
                 if departing != 1 {
                     resolve(&mut g);
-                    assert_eq!(g.state.players[1].life, 41.into());
+                    assert_eq!(g.state.rules.players[1].life, 41.into());
                     recover(&g);
                 }
             }
@@ -719,8 +725,8 @@ fn d2cd_attacker_source_bounce_flash_reentry_keeps_original_invocation() {
         resolve(&mut g);
         let successor = object(&g, 0);
         assert_ne!(successor, original);
-        assert_eq!(g.state.next_trigger_id, 1);
-        assert!(g.state.combat.is_empty());
+        assert_eq!(g.state.rules.next_trigger_id, 1);
+        assert!(g.state.rules.combat.is_empty());
         let StackKind::Triggered {
             witness: TriggerEventWitness::CreatureAttacked { attacker, .. },
             ..
@@ -781,7 +787,7 @@ fn d2cd_targeted_attack_damage_choice_illegal_response_and_departed_source_lki()
         let original = g.top().unwrap().source;
         g.concede(PlayerId(3)).unwrap();
         placed(&mut g);
-        assert!(!g.state.objects.contains_key(&CardId(0)));
+        assert!(!g.state.rules.objects.contains_key(&CardId(0)));
         let fact = g.top().unwrap().source_facts.clone().unwrap();
         assert_eq!(fact.object, original);
         assert!(fact.tapped);
@@ -796,8 +802,8 @@ fn d2cd_targeted_attack_damage_choice_illegal_response_and_departed_source_lki()
         assert!(!attacker.tapped);
         recover(&g);
         resolve(&mut g);
-        assert_eq!(g.state.players[2].life, 39.into());
-        assert_eq!(g.state.players[0].life, 41.into());
+        assert_eq!(g.state.rules.players[2].life, 39.into());
+        assert_eq!(g.state.rules.players[0].life, 41.into());
         recover(&g);
     }
 }
@@ -829,15 +835,15 @@ fn d2cd_illegal_target_or_stifled_attack_trigger_does_not_resolve_damage() {
                 fund(&mut g);
                 placed(&mut g);
                 resolve(&mut g);
-                assert!(g.state.stack.is_empty());
+                assert!(g.state.rules.stack.is_empty());
             } else {
                 g.concede(PlayerId(3)).unwrap();
                 placed(&mut g);
                 resolve(&mut g);
             }
-            assert_eq!(g.state.next_trigger_id, 1);
-            assert_eq!(g.state.players[2].life, 40.into());
-            assert_eq!(g.state.combat.len(), 1);
+            assert_eq!(g.state.rules.next_trigger_id, 1);
+            assert_eq!(g.state.rules.players[2].life, 40.into());
+            assert_eq!(g.state.rules.combat.len(), 1);
             recover(&g);
         }
     }
@@ -858,15 +864,15 @@ fn d2cd_no_tap_entry_or_current_attacking_status_as_occurrence() {
         // semantics: changing combat status has no trigger collector/event.
         g.commit(ProposedEvent::Tap { object: source }, BatchCause::Fixture)
             .unwrap();
-        g.state.combat.push(combat::Attacker {
+        g.state.rules.combat.push(combat::Attacker {
             attacker: source,
             defender: PlayerId(2),
             blocked: false,
             blockers: vec![],
         });
-        assert_eq!(g.state.next_trigger_id, 0);
-        assert!(g.state.pending_triggers.is_empty());
-        g.state.combat.clear();
+        assert_eq!(g.state.rules.next_trigger_id, 0);
+        assert!(g.state.rules.pending_triggers.is_empty());
+        g.state.rules.combat.clear();
         let EventOutcome::Moved { movement } = g
             .commit(
                 ProposedEvent::Move {
@@ -887,8 +893,8 @@ fn d2cd_no_tap_entry_or_current_attacking_status_as_occurrence() {
             BatchCause::Fixture,
         )
         .unwrap();
-        assert_eq!(g.state.next_trigger_id, 0);
-        assert!(g.state.pending_triggers.is_empty());
+        assert_eq!(g.state.rules.next_trigger_id, 0);
+        assert!(g.state.rules.pending_triggers.is_empty());
     }
 }
 #[test]
@@ -906,9 +912,9 @@ fn d2cd_declaration_trigger_id_and_history_fault_rollback_taps_combat_and_pendin
             // Explicit synthetic resource fault at the accepted declaration boundary.
             if history {
                 let charge = g.history_charge();
-                g.state.retained_auxiliary_charge += capacities::HISTORY_LIMIT - charge;
+                g.state.rules.retained_auxiliary_charge += capacities::HISTORY_LIMIT - charge;
             } else {
-                g.state.next_trigger_id = u64::MAX;
+                g.state.rules.next_trigger_id = u64::MAX;
             }
             let before = g.state.clone();
             let trace = g.trace.clone();
@@ -921,8 +927,8 @@ fn d2cd_declaration_trigger_id_and_history_fault_rollback_taps_combat_and_pendin
                 ));
             }
             let mut actual = g.state.clone();
-            actual.frame = before.frame.clone();
-            actual.typed_fault = before.typed_fault.clone();
+            actual.rules.frame = before.rules.frame.clone();
+            actual.rules.typed_fault = before.rules.typed_fault.clone();
             assert_eq!(actual, before);
             assert_eq!(g.trace, trace);
             assert_eq!(g.replay_journal(), journal);
@@ -937,14 +943,15 @@ fn d2cd_stack_capacity_fault_rolls_back_entire_declaration_after_first_match() {
     ]);
     let mut sample = Game::with_trace(p.clone(), TraceMode::Off);
     declare(&mut sample, &[(1, 2)]);
-    pass_until(&mut sample, |g| !g.state.pending_triggers.is_empty());
-    let trigger = sample.state.pending_triggers[0].clone();
+    pass_until(&mut sample, |g| !g.state.rules.pending_triggers.is_empty());
+    let trigger = sample.state.rules.pending_triggers[0].clone();
     for mode in modes() {
         let mut g = Game::with_trace(p.clone(), mode);
         declare(&mut g, &[(1, 2)]);
         // Leave exactly one slot: the first observer collects; the second
         // faults, proving rollback of partial IDs/pending as well as tapping.
         g.state
+            .rules
             .pending_triggers
             .resize(capacities::STACK_LIMIT - 1, trigger.clone());
         let before = g.state.clone();
@@ -955,8 +962,8 @@ fn d2cd_stack_capacity_fault_rolls_back_entire_declaration_after_first_match() {
             matches!(g.typed_fault(),Some(RuleFault::StackCapacityExceeded {requested,..}) if *requested==capacities::STACK_LIMIT+1)
         );
         let mut actual = g.state.clone();
-        actual.frame = before.frame.clone();
-        actual.typed_fault = before.typed_fault.clone();
+        actual.rules.frame = before.rules.frame.clone();
+        actual.rules.typed_fault = before.rules.typed_fault.clone();
         assert_eq!(actual, before);
         assert_eq!(g.trace, trace);
         assert_eq!(g.replay_journal(), journal);
@@ -1007,13 +1014,13 @@ fn d2cd_other_admitted_whole_sources_reuse_draw_life_and_damage_programs() {
             let before = library(&g);
             declare(&mut g, &[(0, 1)]);
             placed(&mut g);
-            assert_eq!(g.state.next_trigger_id, 1);
+            assert_eq!(g.state.rules.next_trigger_id, 1);
             recover(&g);
             resolve(&mut g);
             assert_eq!(library(&g), before - draws, "{name}");
-            assert_eq!(g.state.players[0].life, life.into(), "{name}");
+            assert_eq!(g.state.rules.players[0].life, life.into(), "{name}");
             for i in 1..4 {
-                assert_eq!(g.state.players[i].life, opponent.into(), "{name}");
+                assert_eq!(g.state.rules.players[i].life, opponent.into(), "{name}");
             }
             recover(&g);
         }
@@ -1053,7 +1060,7 @@ fn d2cd_admitted_named_sources_use_existing_resolution_start_attacking_set() {
                 .collect::<Vec<_>>();
             declare(&mut g, &[(0, 1), (1, 2)]);
             placed(&mut g);
-            assert_eq!(g.state.next_trigger_id, 1);
+            assert_eq!(g.state.rules.next_trigger_id, 1);
             recover(&g);
             resolve(&mut g);
             for n in 0..3 {

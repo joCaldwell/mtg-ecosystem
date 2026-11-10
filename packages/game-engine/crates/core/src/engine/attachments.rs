@@ -21,6 +21,7 @@ impl Game {
             return vec![];
         };
         self.state
+            .rules
             .objects
             .values()
             .filter(|o| o.zone == Zone::Battlefield)
@@ -96,6 +97,7 @@ impl Game {
     ) -> Result<(), String> {
         for o in self
             .state
+            .rules
             .objects
             .values()
             .filter(|o| o.zone == Zone::Battlefield)
@@ -103,12 +105,12 @@ impl Game {
             let subtypes = &self.definition(o.id.card)?.characteristics.subtypes;
             let legal = o
                 .attached_to
-                .is_some_and(|t| t != o.id && self.target_legal(t));
+                .is_some_and(|t| t != o.id && self.is_battlefield_creature(t));
             if subtypes == &["Aura"] && !legal {
                 occurrences.push(ProposedEvent::Move {
                     object: o.id,
                     destination: Zone::Graveyard {
-                        owner: self.state.cards[&o.id.card].owner,
+                        owner: self.state.rules.cards[&o.id.card].owner,
                     },
                 });
             } else if subtypes == &["Equipment"] && o.attached_to.is_some() && !legal {
@@ -168,7 +170,7 @@ impl Game {
                     card: source.card,
                     incarnation,
                 };
-                let owner = self.state.cards[&source.card].owner;
+                let owner = self.state.rules.cards[&source.card].owner;
                 if self
                     .current(object)
                     .is_ok_and(|o| o.zone == (Zone::Graveyard { owner }))

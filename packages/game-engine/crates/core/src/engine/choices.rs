@@ -228,7 +228,7 @@ impl Game {
         }
     }
     pub(super) fn modes_request(&self) -> Result<Option<Request>, String> {
-        if !matches!(self.state.frame, Frame::Modes { .. }) {
+        if !matches!(self.state.rules.frame, Frame::Modes { .. }) {
             return Ok(None);
         }
         let top = self.top()?;
@@ -245,7 +245,7 @@ impl Game {
             .map(|(i, _)| i as u32)
             .collect();
         Ok(Some(Request::Modes {
-            decision_id: self.state.revision,
+            decision_id: self.state.rules.revision,
             player: top.controller,
             candidates,
         }))
@@ -265,12 +265,22 @@ impl Game {
         Ok(())
     }
     pub(super) fn bind_mode(&mut self, cast: Casting) -> Result<(), String> {
-        let input = self.state.pending.take().ok_or("missing mode input")?;
+        let input = self
+            .state
+            .rules
+            .pending
+            .take()
+            .ok_or("missing mode input")?;
         let Response::Modes { mode } = input.response else {
             return Err("mode response invariant".into());
         };
         self.validate_mode(input.player, mode)?;
-        let top = self.state.stack.last_mut().ok_or("missing modal spell")?;
+        let top = self
+            .state
+            .rules
+            .stack
+            .last_mut()
+            .ok_or("missing modal spell")?;
         if top.mode.is_some() {
             return Err("mode already selected".into());
         }
@@ -282,7 +292,7 @@ impl Game {
             mode,
         })?;
         let p = self.program()?;
-        self.state.frame = if p.targets.is_empty() {
+        self.state.rules.frame = if p.targets.is_empty() {
             Frame::Mana { cast }
         } else {
             match p.targets[0].domain {
@@ -321,6 +331,7 @@ impl Game {
             InterveningCondition::ControllerHandEmpty => {
                 let hand_count = u32::try_from(
                     self.state
+                        .rules
                         .objects
                         .values()
                         .filter(|o| o.zone == Zone::Hand { owner: controller })
@@ -387,7 +398,7 @@ impl Game {
         Ok(Some(check))
     }
     pub(super) fn validate_choices_state(&self) -> Result<(), String> {
-        if let Frame::Modes { cast } = &self.state.frame {
+        if let Frame::Modes { cast } = &self.state.rules.frame {
             let top = self.top()?;
             let root = self
                 .definition(top.source.card)?
@@ -403,10 +414,11 @@ impl Game {
                 return Err("modal announcement invariant".into());
             }
         }
-        for entry in &self.state.stack {
+        for entry in &self.state.rules.stack {
             self.validate_mode_binding(entry)?;
         }
-        if let Frame::Resolve { frame } | Frame::ResolutionChoice { frame, .. } = &self.state.frame
+        if let Frame::Resolve { frame } | Frame::ResolutionChoice { frame, .. } =
+            &self.state.rules.frame
         {
             self.validate_mode_binding(&frame.spell)?;
             self.validate_condition_cache(frame)?;
@@ -434,7 +446,7 @@ impl Game {
         } else {
             match entry.mode {
                 Some(mode) if (mode as usize) < root.modes.len() => {}
-                None if matches!(&self.state.frame,Frame::Modes{cast} if cast.stack_id==entry.id) =>
+                None if matches!(&self.state.rules.frame,Frame::Modes{cast} if cast.stack_id==entry.id) =>
                     {}
                 _ => return Err("missing/invalid modal selection".into()),
             }
