@@ -11,6 +11,8 @@ import shutil
 import subprocess
 import sys
 
+sys.dont_write_bytecode = True
+
 ROOT = Path(__file__).resolve().parents[1]
 GIB = 1024 ** 3
 

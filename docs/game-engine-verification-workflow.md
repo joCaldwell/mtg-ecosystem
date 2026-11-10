@@ -9,7 +9,9 @@ release reports remain evidence for their named source, not future gate mandates
 ## Choose the work that answers the change
 
 Run from the repository root. `npm run check:engine -- --plan` prints the selected
-commands and omissions without checking a toolchain, taking locks or running tests.
+commands and omissions without taking locks or running tests. The npm launcher
+selects the existing pinned environment; direct `node scripts/check-engine.ts --plan`
+can inspect plans without that launcher.
 Every executed mode prints its coverage and writes those omissions into its timing
 report; a successful fast check is not a full-engine acceptance result.
 
@@ -28,6 +30,18 @@ level 2 with debug assertions and overflow checks; production guards are unchang
 Compiler/contracts integration tests and Rust doc tests are also omitted from
 the default. The compiler/contracts library tests exercise lowering and strict data validation,
 but do not establish that games, host behavior or replay work.
+
+The selected Node test wrapper fails if no runnable test matched, including
+empty/skipped/TODO-only selections. Every mode also runs environment, cache,
+worktree and dependency/artifact guards. Python suites execute their files
+directly; unittest discovery can silently skip hyphenated filenames.
+
+`npm run engine:smoke` separately compiles and runs the tiny public-action/replay
+probe; add `-- --artifact generated/NEW.json` to save a bounded reproduction.
+`npm run engine:smoke:replay -- FILE` checks it against the same source/build.
+Both commands own the Cargo lock and cache preflight. A first debug build can be
+expensive even though warm scenario execution takes milliseconds. See
+[the smoke contract](game-engine-smoke.md); this is not a full gameplay gate.
 
 Every mode includes the Python storage/retention safety suites and the Node
 executable-preservation checks. These use small temporary fixtures and fake
@@ -84,6 +98,14 @@ The effective setting and `CARGO_TARGET_DIR` are recorded. The runner never dele
 an existing cache. Inspect active processes and coordinate with storage ownership
 before reusing or removing a target directory. Reuse is a compilation aid, not
 permission to attribute another source's test result to the current source.
+
+Native modes select the same repository/toolchain cache used by the environment
+launcher and check its budget under the Cargo lock before executing phases.
+Defaults are 16 GiB allocated cache and 4 GiB free reserve; explicit
+`ENGINE_CACHE_MAX_GIB`/`ENGINE_CACHE_MIN_FREE_GIB` override these preflight limits.
+They are admission checks, not a monitored runtime quota. Historical performance
+caches exceed the default: this platform integration uses the preserved target
+with an explicit 32 GiB budget. No automatic migration or eviction occurs.
 
 Rust phases require the pinned 1.99.0 toolchain. On this host a preserved copy is
 available at `/home/josh/.local/share/mtg-ecosystem/engine-toolchains/rust1990-node26111-v1`:

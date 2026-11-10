@@ -92,10 +92,37 @@ export interface CheckPhase {
 }
 
 const tooling: CheckPhase[] = [
-  { label: "tooling-tests", command: "node", args: ["--test", "scripts/check-engine-driver.test.ts", "scripts/capture-json-output.test.ts", "scripts/retain-policy-sources.test.ts", "scripts/retain-server-evidence.test.ts", "scripts/retention-workspace.test.ts", "scripts/run-selected-tests.test.ts"] },
+  { label: "tooling-tests", command: "node", args: ["--test", "scripts/check-engine-driver.test.ts", "scripts/capture-json-output.test.ts", "scripts/retain-policy-sources.test.ts", "scripts/retain-server-evidence.test.ts", "scripts/retention-workspace.test.ts", "scripts/run-selected-tests.test.ts", "scripts/engine-environment.test.ts"] },
   { label: "storage-safety", command: "python3", args: ["-B", "scripts/test-engine-storage.py"] },
   { label: "retention-safety", command: "python3", args: ["-B", "scripts/test-retention-workspace.py"] },
+  { label: "worktree-safety", command: "python3", args: ["-B", "scripts/test-engine-worktrees.py"] },
+  { label: "structure-tests", command: "python3", args: ["-B", "scripts/test-engine-structure.py"] },
+  { label: "cache-tests", command: "python3", args: ["-B", "scripts/test-engine-cache.py"] },
+  { label: "structure-guard", command: "python3", args: ["-B", "scripts/engine-structure-check.py"] },
 ];
+export const cachePreflight: CheckPhase = { label: "cache-preflight", command: "python3", args: ["-B", "scripts/engine-cache.py", "check"] };
+
+export function nativeEnvironment(root: string): NodeJS.ProcessEnv {
+  const selected = spawnSync("python3", ["-B", "scripts/engine-cache.py", "path"], { cwd: root, encoding: "utf8" });
+  if (selected.status !== 0) throw new Error("Cannot select Cargo target; run engine:doctor.");
+  return { ...process.env, CARGO_TARGET_DIR: selected.stdout.trim(), CARGO_INCREMENTAL: process.env.CARGO_INCREMENTAL ?? "0" };
+}
+
+export function pinnedRust(root: string) {
+  const pin = fs.readFileSync(path.join(root, "rust-toolchain.toml"), "utf8").match(/^channel\s*=\s*"([^"]+)"/m)?.[1];
+  if (!pin) throw new Error("Missing Rust channel in rust-toolchain.toml");
+  const version = spawnSync("rustc", ["--version"], { encoding: "utf8" });
+  if (version.status !== 0 || !version.stdout.startsWith(`rustc ${pin} `)) throw new Error(`Engine checks require pinned Rust ${pin}. Use sh scripts/engine-env.sh COMMAND.`);
+  return version.stdout.trim();
+}
+
+export function smokePhases(args: string[]): CheckPhase[] {
+  const [mode, ...rest] = args;
+  const valid = mode === "smoke" ? rest.length === 0 || (rest.length === 2 && rest[0] === "--artifact" && !!rest[1])
+    : mode === "smoke-replay" && rest.length === 1 && !!rest[0];
+  if (!valid) throw new Error("Usage: engine:smoke [-- --artifact NEW.json] or engine:smoke:replay -- FILE");
+  return [cachePreflight, { label: mode!, command: "cargo", args: ["run", "--quiet", "--locked", "-p", "mtg-sim", "--", mode!, ...rest] }];
+}
 const archive: CheckPhase = { label: "archive-parser", command: "node", args: ["scripts/run-selected-tests.ts", "--name", "^retained archive hashes agree with JavaScript and source parser$", "packages/game-engine/tests/contracts.test.ts"], preflight: true };
 const format: CheckPhase = { label: "format", command: "cargo", args: ["fmt", "--all", "--", "--check"] };
 

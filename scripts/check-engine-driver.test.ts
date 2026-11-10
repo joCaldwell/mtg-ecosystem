@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { engineCheckPlans, parseCheckArguments, runCheckPhases, measuredCommand, sourceIdentity, withAdvisoryLock } from "./check-engine-driver.ts";
+import { engineCheckPlans, parseCheckArguments, runCheckPhases, measuredCommand, sourceIdentity, withAdvisoryLock, smokePhases } from "./check-engine-driver.ts";
 
 test("default coverage is bounded and deeper runtime work is explicit", () => {
   assert.equal(parseCheckArguments([]).mode, "fast");
@@ -55,8 +55,17 @@ test("phase failure stops subsequent work and inherited preflight cannot shrink 
     cohorts.push(options.env!.MTG_ENGINE_CONTRACT_PREFLIGHT!);
     return { code: 0, signal: null };
   });
-  assert.deepEqual(cohorts, ["0", "0", "0", "1"]);
-  assert.deepEqual(result, { code: 0, completed: ["tooling-tests", "storage-safety", "retention-safety", "contract-preflight"], failed: null });
+  assert.deepEqual(cohorts, engineCheckPlans.contracts.phases.map(phase => "preflight" in phase && phase.preflight ? "1" : "0"));
+  assert.deepEqual(result, { code: 0, completed: engineCheckPlans.contracts.phases.map(phase => phase.label), failed: null });
+});
+
+test("smoke arguments preserve file boundaries and reject misuse before native work", () => {
+  for (const args of [["smoke"], ["smoke", "--artifact", "a b.json"], ["smoke-replay", "a b.json"]]) {
+    const phases = smokePhases(args);
+    assert.equal(phases[0].label, "cache-preflight");
+    assert.deepEqual(phases[1].args.slice(6), args);
+  }
+  for (const args of [[], ["smoke", "--unknown"], ["smoke", "--artifact"], ["smoke-replay"], ["smoke-replay", "a", "b"]]) assert.throws(() => smokePhases(args), /Usage/);
 });
 
 test("command measurement retains nonzero exit, CPU, scoped RSS and exact identities", async () => {

@@ -8,10 +8,10 @@
   "scripts": {
     "engine:bootstrap": "sh scripts/engine-bootstrap.sh",
     "engine:doctor": "sh scripts/engine-env.sh node scripts/engine-doctor.ts",
-    "check:engine": "node scripts/check-engine.ts",
-    "check:engine:source": "node scripts/check-engine.ts --source",
-    "check:engine:contracts": "node scripts/check-engine.ts --contracts",
-    "check:engine:full": "node scripts/check-engine.ts --full",
+    "check:engine": "sh scripts/engine-env.sh node scripts/check-engine.ts",
+    "check:engine:source": "sh scripts/engine-env.sh node scripts/check-engine.ts --source",
+    "check:engine:contracts": "sh scripts/engine-env.sh node scripts/check-engine.ts --contracts",
+    "check:engine:full": "sh scripts/engine-env.sh node scripts/check-engine.ts --full",
     "demo:engine": "cargo run --locked -p mtg-sim -- demo",
     "retain:engine": "python3 scripts/run-retention.py engine",
     "build": "npm run build --workspaces",
@@ -20,7 +20,9 @@
     "build-ir": "node scripts/build-ir.ts",
     "archive-parser": "node scripts/archive-parser.ts",
     "validate": "node scripts/validate-parser.ts",
-    "retain:server": "python3 scripts/run-retention.py server"
+    "retain:server": "python3 scripts/run-retention.py server",
+    "engine:smoke": "sh scripts/engine-env.sh node scripts/run-engine-smoke.ts smoke",
+    "engine:smoke:replay": "sh scripts/engine-env.sh node scripts/run-engine-smoke.ts smoke-replay"
   },
   "devDependencies": {
     "typescript": "^5.4.5",

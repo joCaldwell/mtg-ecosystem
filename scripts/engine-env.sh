@@ -22,9 +22,9 @@ if [ "$(node --version 2>/dev/null || true)" != "v$engine_node" ]; then
     echo 'Select existing tools with MTG_ENGINE_TOOLCHAIN_ROOT; see docs/game-engine-development.md#toolchain-setup.' >&2
     exit 1
 fi
-# The build owner's helper returns a path without creating, migrating or removing
-# a cache. Keep the launcher usable with earlier checkouts that lack that helper.
-if [ -f "$engine_root/scripts/engine-cache.py" ]; then
+# Source-only tools and doctor remain available when Rust is absent. Native
+# entry points select and validate their target before taking the build lock.
+if [ -f "$engine_root/scripts/engine-cache.py" ] && { [ -n "${CARGO_TARGET_DIR:-}" ] || command -v rustc >/dev/null 2>&1; }; then
     CARGO_TARGET_DIR=$(python3 "$engine_root/scripts/engine-cache.py" path)
     export CARGO_TARGET_DIR
 fi
