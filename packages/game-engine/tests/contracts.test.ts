@@ -604,8 +604,9 @@ test("match catalog binds sole defender and the current finite Commander policy"
   for(const d of catalog.definitions){assert.equal(banned.has(d.oracle_id),false);const source=JSON.parse(d.provenance.source_json);assert.equal(source.type_line.includes("Conspiracy"),false);assert.equal(/\bante\b/i.test(source.oracle_text),false);assert.equal(policy.offensive_policy.names.includes(source.name),false);}
 });
 
-// Full historical reports remain immutable. Current runs retain independent
-// replay checks and pin compact current semantic digests per witness.
+// Obsolete full reports are indexed in fixtures/historical-scenario-reports.json
+// for Git recovery. Current runs retain independent replay checks and pin compact
+// current semantic digests per witness.
 // Trusted movement/token evidence retains the exact incarnation. Beginning
 // steps have no object subject; these historical assertions require an object.
 function triggerSubject(event: any) {

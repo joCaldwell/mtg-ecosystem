@@ -1,5 +1,10 @@
 # Compiler and engine implementation progress
 
+Historical `expected-*scenario.json` and `expected-combat-games.json` references
+below describe the original releases. The unconsumed reports now live in Git
+history; see the [fixture recovery index](../packages/game-engine/tests/fixtures/README.md).
+Current tests use compact digests and explicit runtime assertions.
+
 ## First scenario verified on October 13 2026
 
 P0 is complete for the [frozen first scenario](game-engine-first-scenario.md).

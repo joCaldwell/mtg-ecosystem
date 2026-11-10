@@ -1,0 +1,103 @@
+{
+  "format": "historical-scenario-reports-v1",
+  "git_revision": "9257d1b692e05e402b2c9906d2b47d82e7049cbc",
+  "purpose": "Recovery index for obsolete reports; not current rules expectations. See README.md.",
+  "reports": [
+    {
+      "path": "packages/game-engine/tests/fixtures/expected-actions-payments-scenario.json",
+      "bytes": 907147,
+      "lines": 35451,
+      "sha256": "fb28c4f0be34aebaa26b194dbf5db7c892671861419f00e79eda09140f3efc65"
+    },
+    {
+      "path": "packages/game-engine/tests/fixtures/expected-choices-scenario.json",
+      "bytes": 16564245,
+      "lines": 589222,
+      "sha256": "f9c4a9d85d80cd402f87116112a28749811a59dec8fcdbacd10f2d62cf7f06ae"
+    },
+    {
+      "path": "packages/game-engine/tests/fixtures/expected-combat-games.json",
+      "bytes": 563478,
+      "lines": 24257,
+      "sha256": "8d7d05b5c2743814b5cabac8c5a88d640d3e877fa25a53aca577511fbd00cdcd"
+    },
+    {
+      "path": "packages/game-engine/tests/fixtures/expected-commander-scenario.json",
+      "bytes": 256443,
+      "lines": 10405,
+      "sha256": "56346c4dcf1928005e35b17ce7c2621a1b671c091001d4e776974e6d7cbb68c7"
+    },
+    {
+      "path": "packages/game-engine/tests/fixtures/expected-damage-library-scenario.json",
+      "bytes": 752813,
+      "lines": 33772,
+      "sha256": "aa822717dc638b38c7941729a90d5c78bb821240e799ba603918f9b45e76009d"
+    },
+    {
+      "path": "packages/game-engine/tests/fixtures/expected-damage-life-scenario.json",
+      "bytes": 2085172,
+      "lines": 77267,
+      "sha256": "285d36275f4f0a16c2e90b72a8ea1cd2b0a2df684906b161771cbd862b6c4f56"
+    },
+    {
+      "path": "packages/game-engine/tests/fixtures/expected-departure-scenario.json",
+      "bytes": 5574,
+      "lines": 295,
+      "sha256": "f04792bc80dee0a4b27af9e21b4ef756206b2406c2299877bf4ec1843dba09c1"
+    },
+    {
+      "path": "packages/game-engine/tests/fixtures/expected-effects-scenario.json",
+      "bytes": 20809754,
+      "lines": 742016,
+      "sha256": "eadd6f6b913fad0b9f3d75e3ec0e171497c0eeeb09f94628d42df307c7720890"
+    },
+    {
+      "path": "packages/game-engine/tests/fixtures/expected-event-scenario.json",
+      "bytes": 7301,
+      "lines": 345,
+      "sha256": "2e0b255b10292bfc27f2e5137d919c4cff3ddb16fe1f69baaf738484865892d0"
+    },
+    {
+      "path": "packages/game-engine/tests/fixtures/expected-p2-scenario.json",
+      "bytes": 140,
+      "lines": 5,
+      "sha256": "67bc48611e13738fb7f461cb3ed43e7fb618bad91897f564d0e262b3bb845a77"
+    },
+    {
+      "path": "packages/game-engine/tests/fixtures/expected-payment-scenario.json",
+      "bytes": 47789,
+      "lines": 2218,
+      "sha256": "6068edc91703bc89cc151f6ec84e0a8206d9a6c6d4d1abb9e7cd89f9336223a8"
+    },
+    {
+      "path": "packages/game-engine/tests/fixtures/expected-scenario.json",
+      "bytes": 4741,
+      "lines": 257,
+      "sha256": "ee0dff353404042cf07149cab0d36beed80c3edf3edb90d48a0d3d5a2ab3d4ff"
+    },
+    {
+      "path": "packages/game-engine/tests/fixtures/expected-stack-costs-scenario.json",
+      "bytes": 1651495,
+      "lines": 62969,
+      "sha256": "9bbb40351c78c3e8cf2c4212fac0527d14dac0043f72dbf39cf27bb2317e304f"
+    },
+    {
+      "path": "packages/game-engine/tests/fixtures/expected-stack-scenario.json",
+      "bytes": 29488,
+      "lines": 1386,
+      "sha256": "bd97527a6f89c2fb566caac05e44919788ba3d6638f9d32f39cd2aa1d003ea7a"
+    },
+    {
+      "path": "packages/game-engine/tests/fixtures/expected-trigger-scenario.json",
+      "bytes": 3654177,
+      "lines": 133268,
+      "sha256": "83275a631d9fe784e13847d40a53c758874265daaef0a3a41f36fb7aa1fdad09"
+    },
+    {
+      "path": "packages/game-engine/tests/fixtures/expected-turns-scenario.json",
+      "bytes": 143677,
+      "lines": 6730,
+      "sha256": "a6e50293022de4b51df5c48ce4629ea9cce52e1ac54e10e65e146618b7c61adf"
+    }
+  ]
+}

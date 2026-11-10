@@ -1,5 +1,9 @@
 # First compiler and engine implementation brief
 
+The historical `expected-scenario.json` report named below is recoverable from
+Git through the [fixture recovery index](../packages/game-engine/tests/fixtures/README.md).
+Current scenario checks use compact digests and explicit runtime assertions.
+
 > Historical capacity proofs: D1b-2 supersedes this slice's per-profile bounds
 > with the [generic capacity policy](game-engine-capacity-policy.md). The original
 > arithmetic and evidence below describe the historical release only.
