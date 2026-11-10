@@ -115,6 +115,38 @@ impl TriggerEventWitness {
             || matches!(self, Self::Moved { movement: m } if m.destination == Zone::Battlefield && m.from != Zone::Battlefield)
     }
 }
+// CR 109.5/603.3a/603.10: an ordinary trigger observes its source's
+// controller at the occurrence, independently of the controller of the damage
+// invocation and of assignment-time source facts. Restore uses that frozen
+// trigger controller, never a later controller or current recipient liveness.
+// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+fn damage_matches(
+    condition: &TriggerCondition,
+    source: ObjectId,
+    controller: PlayerId,
+    kind: DamageKind,
+    damage: &ActualDamage,
+) -> bool {
+    let TriggerCondition::DamageDealt {
+        source: DamageTriggerSource::Source {},
+        kind: required_kind,
+        recipient,
+    } = condition
+    else {
+        return false;
+    };
+    damage.source.object == source
+        && damage.amount > Quantity::zero()
+        && matches!(
+            (required_kind, kind),
+            (TriggerDamageKind::Any, _) | (TriggerDamageKind::Combat, DamageKind::Combat)
+        )
+        && matches!(damage.recipient, DamageRecipient::Player { player }
+        if match recipient {
+            DamageTriggerRecipient::Player => true,
+            DamageTriggerRecipient::OpponentPlayer => player != controller,
+        })
+}
 fn step_matches(step: BeginningStep, turn: &TurnState) -> bool {
     matches!(
         (step, turn.step),
@@ -225,9 +257,7 @@ impl Game {
                         {
                             return Err("damage trigger actual member invariant".into());
                         }
-                        if tx.kind == DamageKind::Combat
-                            && matches!(d.recipient, DamageRecipient::Player { .. })
-                        {
+                        if matches!(d.recipient, DamageRecipient::Player { .. }) {
                             witnesses.push(TriggerEventWitness::DamageDealt {
                                 kind: tx.kind,
                                 transaction: Some(tx.id),
@@ -236,6 +266,24 @@ impl Game {
                         }
                     }
                     witnesses
+                }
+                // The genuine legacy noncombat leaf carries the consumed
+                // source facts and invocation controller separately. Its typed
+                // occurrence, not its life-total result, supplies the witness.
+                EventOutcome::NoncombatDamageDealt { damage, .. }
+                    if matches!(damage.recipient, DamageRecipient::Player { .. }) =>
+                {
+                    vec![TriggerEventWitness::DamageDealt {
+                        kind: DamageKind::Noncombat,
+                        transaction: None,
+                        damage: Box::new(ActualDamage {
+                            id: DamageId(0),
+                            source: damage.source.clone(),
+                            controller: damage.controller,
+                            recipient: damage.recipient.clone(),
+                            amount: damage.amount.clone(),
+                        }),
+                    }]
                 }
                 // A genuine legacy CombatDamage leaf has no transaction ID.
                 // Its typed vector supplies source, recipient and amount; freeze
@@ -374,14 +422,10 @@ impl Game {
                 .enumerate()
             {
                 let matches = match &definition.condition {
-                    TriggerCondition::DamageDealt {
-                        source: DamageTriggerSource::Source {},
-                        kind: TriggerDamageKind::Combat,
-                        recipient: DamageTriggerRecipient::Player,
-                    } => matches!(&witness, TriggerEventWitness::DamageDealt {
-                        kind: DamageKind::Combat, damage, ..
-                    } if damage.source.object == object.id && damage.amount > Quantity::zero()
-                        && matches!(damage.recipient, DamageRecipient::Player { .. })),
+                    TriggerCondition::DamageDealt { .. } => {
+                        matches!(&witness, TriggerEventWitness::DamageDealt { kind, damage, .. }
+                            if damage_matches(&definition.condition, object.id, object.controller, *kind, damage))
+                    }
                     TriggerCondition::CreatureAttacked {
                         attacker: predicate,
                     } => {
@@ -945,15 +989,14 @@ impl Game {
             } => {
                 let fact = &damage.source;
                 self.validate_characteristic_identity(fact.object, &fact.characteristics)?;
-                *kind == DamageKind::Combat
-                    && transaction
-                        .is_none_or(|id| id.0 < self.state.rules.next_damage_transaction_id)
+                transaction.is_none_or(|id| id.0 < self.state.rules.next_damage_transaction_id)
                     && (damage.id.0 as usize) < self.damage_limit()
                     && damage.amount > Quantity::zero()
                     && fact.object == source
                     && fact.zone == Zone::Battlefield
                     && fact.characteristics.has_type(CardKind::Creature)
-                    && fact.controller == damage.controller
+                    && (*kind != DamageKind::Combat || fact.controller == damage.controller)
+                    && fact.controller.0 < 4
                     && damage.controller.0 < 4
                     && controller.0 < 4
                     && fact.default_controller.0 < 4
@@ -964,14 +1007,7 @@ impl Game {
                         .get(&source.card)
                         .is_some_and(|c| c.owner == fact.owner)
                     && matches!(damage.recipient, DamageRecipient::Player { player } if player.0 < 4)
-                    && matches!(
-                        condition,
-                        TriggerCondition::DamageDealt {
-                            source: DamageTriggerSource::Source {},
-                            kind: TriggerDamageKind::Combat,
-                            recipient: DamageTriggerRecipient::Player,
-                        }
-                    )
+                    && damage_matches(condition, source, controller, *kind, damage)
                     && death_controller.is_none()
                 // No live source/recipient or current combat requirement. CR
                 // 113.7a/800.4 preserve a surviving controller's invocation.

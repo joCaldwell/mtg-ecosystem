@@ -240,6 +240,8 @@ mod cast_trigger_tests;
 #[cfg(test)]
 mod damage_trigger_tests;
 #[cfg(test)]
+mod opponent_damage_trigger_tests;
+#[cfg(test)]
 mod step_trigger_tests;
 #[cfg(test)]
 mod trigger_tests;

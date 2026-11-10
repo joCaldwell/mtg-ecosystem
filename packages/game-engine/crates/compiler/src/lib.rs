@@ -231,6 +231,7 @@ struct SourceComparison {
 enum SourceTrigger {
     DealsDamage {
         what: SourceDamageObject,
+        #[serde(default, deserialize_with = "damage_combat_qualifier")]
         combat: Option<bool>,
         to: serde_json::Value,
     },
@@ -2792,6 +2793,12 @@ fn is_source_creature(subject: &TriggerObject) -> bool {
 fn is_other_creature(subject: &TriggerObject) -> bool {
     matches!(subject,TriggerObject::Filter {filter,count} if filter.other && filter.types==["creature"] && filter.control.is_none() && !filter.non_token && filter.non_subtypes.is_empty() && fixed_one(count))
 }
+// Omission denotes any damage kind. An explicit null is not that AST shape.
+fn damage_combat_qualifier<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<bool>, D::Error> {
+    bool::deserialize(deserializer).map(Some)
+}
 fn lower_trigger(
     trigger: &SourceTrigger,
     effects: &[Sentence],
@@ -2876,6 +2883,11 @@ fn lower_trigger(
             if *to == serde_json::json!("any") && matches!(what, SourceDamageObject::This { noun } if noun == "creature") => {
             TriggerCondition::DamageDealt { source: DamageTriggerSource::Source {},
                 kind: TriggerDamageKind::Combat, recipient: DamageTriggerRecipient::Player }
+        },
+        SourceTrigger::DealsDamage { what, combat: None, to }
+            if *to == serde_json::json!({"player":"an-opponent"}) && matches!(what, SourceDamageObject::This { noun } if noun == "creature") => {
+            TriggerCondition::DamageDealt { source: DamageTriggerSource::Source {},
+                kind: TriggerDamageKind::Any, recipient: DamageTriggerRecipient::OpponentPlayer }
         },
         SourceTrigger::Attacks { what } => {
             let attacker = lower_attack_subject(what)?;

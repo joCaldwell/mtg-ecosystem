@@ -25,7 +25,7 @@ pub use strict_io::strict_read_seekable;
 
 /// Latest IR accepted by validation/schema and emitted by full-corpus coverage.
 /// Historical capability minimums and fixture versions remain literal evidence.
-pub const CURRENT_IR_VERSION: u32 = 25;
+pub const CURRENT_IR_VERSION: u32 = 26;
 pub const MIN_IR_VERSION: u32 = 3;
 
 pub const RULES_EDITION: &str = "2026-09-25";
@@ -169,6 +169,7 @@ pub enum Capability {
     CastTriggerV1,
     AttackTriggerV1,
     DamageTriggerV1,
+    SourceDamageTriggerV2,
     EventPlayerRecipientV1,
     SourceStatusConditionV1,
     StepBeginningTriggerV1,
@@ -768,9 +769,10 @@ pub enum TriggerCondition {
     SelfDies,
     SelfAuraToGraveyard,
 }
-/// CR 120.2/120.7/603.2c: independent occurrence dimensions. This finite
-/// capability admits only this invocation's exact source dealing combat damage
-/// to a player. It supplies no event-player or event-quantity program binding.
+/// CR 120.2/120.7/603.2c: independent occurrence dimensions. These finite
+/// capabilities admit only this invocation's exact source. V1 requires combat
+/// damage to a player; V2 also admits unrestricted damage kind and opponents.
+/// Neither supplies event-player or event-quantity program bindings.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "subject", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DamageTriggerSource {
@@ -780,11 +782,13 @@ pub enum DamageTriggerSource {
 #[serde(rename_all = "snake_case")]
 pub enum TriggerDamageKind {
     Combat,
+    Any,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DamageTriggerRecipient {
     Player,
+    OpponentPlayer,
 }
 /// Ordinary per-creature declaration predicates (CR 508.3a/603.2c).
 /// Controller relation and full type membership are independent of ownership.
@@ -1122,7 +1126,12 @@ impl Definition {
                 TriggerCondition::StepBegan { .. } => Capability::StepBeginningTriggerV1,
                 TriggerCondition::SpellCast { .. } => Capability::CastTriggerV1,
                 TriggerCondition::CreatureAttacked { .. } => Capability::AttackTriggerV1,
-                TriggerCondition::DamageDealt { .. } => Capability::DamageTriggerV1,
+                TriggerCondition::DamageDealt {
+                    kind: TriggerDamageKind::Combat,
+                    recipient: DamageTriggerRecipient::Player,
+                    ..
+                } => Capability::DamageTriggerV1,
+                TriggerCondition::DamageDealt { .. } => Capability::SourceDamageTriggerV2,
                 TriggerCondition::OpponentCreatureDies => Capability::BoardWipesV1,
                 TriggerCondition::SelfEntersBattlefield => Capability::SelfEntersBattlefieldV1,
                 TriggerCondition::OtherCreatureEntersBattlefield => {
@@ -2327,6 +2336,26 @@ impl Catalog {
         }
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
+            if self.schema_version < 26
+                && (d.capabilities.contains(&Capability::SourceDamageTriggerV2)
+                    || d.triggered.iter().any(|a| {
+                        matches!(
+                            a.condition,
+                            TriggerCondition::DamageDealt {
+                                kind: TriggerDamageKind::Any,
+                                ..
+                            } | TriggerCondition::DamageDealt {
+                                recipient: DamageTriggerRecipient::OpponentPlayer,
+                                ..
+                            }
+                        )
+                    }))
+            {
+                return Err(
+                    "IR v26 is required for unrestricted-kind or opponent source-damage triggers"
+                        .into(),
+                );
+            }
             if self.schema_version < 25 && d.capabilities.contains(&Capability::DamageTriggerV1) {
                 return Err("IR v25 is required for ordinary source combat-damage triggers".into());
             }
@@ -2761,6 +2790,15 @@ pub fn catalog_schema() -> serde_json::Value {
             "triggered":{"items":{"properties":{"condition":{"not":{"type":"object","required":["damage_dealt"]}}}}}
         }}}}}
     }));
+    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"properties":{"schema_version":{"maximum":25}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "capabilities":{"items":{"not":{"const":Capability::SourceDamageTriggerV2}}},
+            "triggered":{"items":{"properties":{"condition":{"properties":{
+                "damage_dealt":{"properties":{"kind":{"const":"combat"},"recipient":{"const":"player"}}}
+            }}}}}
+        }}}}}
+    }));
     schema["$defs"]["PreEventPlayerProgram"] = serde_json::json!({"properties":{
         "instructions":{"items":{"properties":{"recipient":{"not":{"const":"event_player"}}}}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerProgram"}}}}
@@ -3098,6 +3136,7 @@ mod tests {
             (23, &[CastTriggerV1]),
             (24, &[AttackTriggerV1]),
             (25, &[DamageTriggerV1]),
+            (26, &[SourceDamageTriggerV2]),
         ];
         // Enumerate the public vocabulary, so a new capability cannot silently
         // escape this contract. Check full program-bearing definitions rather
@@ -3155,7 +3194,31 @@ mod tests {
             recipient: DamageTriggerRecipient::Player,
         };
         damage.capabilities = damage.requirements();
-        definitions.push(damage);
+        definitions.push(damage.clone());
+        // Each newly admitted dimension independently requires IR26, even when
+        // paired with the original value of the other dimension.
+        for (kind, recipient) in [
+            (TriggerDamageKind::Any, DamageTriggerRecipient::Player),
+            (
+                TriggerDamageKind::Combat,
+                DamageTriggerRecipient::OpponentPlayer,
+            ),
+            (
+                TriggerDamageKind::Any,
+                DamageTriggerRecipient::OpponentPlayer,
+            ),
+        ] {
+            let mut expanded = damage.clone();
+            expanded.triggered[0].condition = TriggerCondition::DamageDealt {
+                source: DamageTriggerSource::Source {},
+                kind,
+                recipient,
+            };
+            expanded.capabilities = expanded.requirements();
+            assert!(expanded.capabilities.contains(&SourceDamageTriggerV2));
+            assert!(!expanded.capabilities.contains(&DamageTriggerV1));
+            definitions.push(expanded);
+        }
         for &(version, caps) in groups {
             for cap in caps {
                 let witnesses = definitions

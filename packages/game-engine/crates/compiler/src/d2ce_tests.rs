@@ -5,6 +5,9 @@ const MANIFEST: &str =
 const FOX: &str = include_str!(
     "../../../tests/fixtures/cards-data-d2ce/51f4eb1f-abf2-425a-b78e-cafac177da89.json"
 );
+const OTTER: &str = include_str!(
+    "../../../tests/fixtures/cards-data-d2ce/5dee663f-9e2e-4503-8086-fc51664fdf29.json"
+);
 fn rows() -> Vec<(serde_json::Value, String)> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/cards-data-d2ce");
@@ -46,7 +49,12 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
         assert_eq!(source["source"]["legalities"]["commander"], "legal");
         assert_eq!(source["sourceSha256"], row["source_sha256"]);
         assert_eq!(source["astSha256"], row["ast_sha256"]);
-        if ![4538, 9081, 12306, 14941, 19442, 21636, 28189]
+        // IR26 adds the complete Thieving Otter source at archive line 14102:
+        // no combat restriction, exactly an opponent, and one mandatory draw.
+        // This changes its former unsupported disposition for reviewed semantics;
+        // the original seven IR25 witnesses retain their original requirements.
+        let otter = row["archive_line"] == 14102;
+        if ![4538, 9081, 12306, 14102, 14941, 19442, 21636, 28189]
             .contains(&row["archive_line"].as_u64().unwrap())
         {
             assert!(
@@ -60,20 +68,31 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
         admitted += 1;
         let d = lower(&raw);
         assert_eq!(d.triggered.len(), 1);
-        assert!(matches!(
-            d.triggered[0].condition,
+        let expected = if otter {
+            TriggerCondition::DamageDealt {
+                source: DamageTriggerSource::Source {},
+                kind: TriggerDamageKind::Any,
+                recipient: DamageTriggerRecipient::OpponentPlayer,
+            }
+        } else {
             TriggerCondition::DamageDealt {
                 source: DamageTriggerSource::Source {},
                 kind: TriggerDamageKind::Combat,
                 recipient: DamageTriggerRecipient::Player,
             }
-        ));
+        };
+        assert_eq!(d.triggered[0].condition, expected);
         assert_eq!(d.capabilities, d.requirements());
-        assert!(d.capabilities.contains(&Capability::DamageTriggerV1));
+        let capability = if otter {
+            Capability::SourceDamageTriggerV2
+        } else {
+            Capability::DamageTriggerV1
+        };
+        assert!(d.capabilities.contains(&capability));
         assert_eq!(d.provenance.source_sha256, row["source_sha256"]);
         assert_eq!(d.provenance.ast_sha256, row["ast_sha256"]);
         let mut bad = d.clone();
-        bad.capabilities.remove(&Capability::DamageTriggerV1);
+        bad.capabilities.remove(&capability);
         assert!(bad.validate().is_err());
         for version in 24..=mtg_contracts::CURRENT_IR_VERSION + 1 {
             let c = Catalog {
@@ -84,13 +103,14 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
             };
             assert_eq!(
                 c.validate().is_ok(),
-                (25..=mtg_contracts::CURRENT_IR_VERSION).contains(&version),
+                ((if otter { 26 } else { 25 })..=mtg_contracts::CURRENT_IR_VERSION)
+                    .contains(&version),
                 "{} v{version}",
                 d.name
             );
         }
     }
-    assert_eq!(admitted, 7);
+    assert_eq!(admitted, 8);
 }
 #[test]
 fn d2ce_rejects_partial_kind_source_recipient_optional_quantity_and_condition_shapes() {
@@ -199,4 +219,88 @@ fn d2ce_ir_strict_dimensions_mandatory_program_and_minimum_version() {
     optional.triggered[0].intervening_if = Some(InterveningCondition::ControllerHandEmpty);
     optional.capabilities = optional.requirements();
     assert!(optional.validate().is_err());
+}
+
+#[test]
+fn source_damage_v2_exact_otter_source_and_provenance() {
+    let d = lower(OTTER);
+    let source: serde_json::Value = serde_json::from_str(OTTER).unwrap();
+    assert_eq!(d.name, "Thieving Otter");
+    assert_eq!(
+        source["source"]["oracle_text"],
+        "Whenever this creature deals damage to an opponent, draw a card."
+    );
+    assert_eq!(
+        source["faces"][0]["result"]["abilities"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(d.triggered.len(), 1);
+    let a = &d.triggered[0];
+    assert_eq!(
+        a.condition,
+        TriggerCondition::DamageDealt {
+            source: DamageTriggerSource::Source {},
+            kind: TriggerDamageKind::Any,
+            recipient: DamageTriggerRecipient::OpponentPlayer,
+        }
+    );
+    assert!(a.program.targets.is_empty());
+    assert!(a.program.modes.is_empty());
+    assert!(a.intervening_if.is_none());
+    assert!(
+        matches!(a.program.instructions.as_slice(), [Instruction::DrawCards {
+        count, recipient: None, source_block: 0
+    }] if *count == Quantity::from(1))
+    );
+    assert_eq!(d.provenance.source_sha256, source["sourceSha256"]);
+    assert_eq!(d.provenance.ast_sha256, source["astSha256"]);
+    assert_eq!(d.provenance.binding_sha256, source["bindingSha256"]);
+    assert!(d.capabilities.contains(&Capability::SourceDamageTriggerV2));
+    assert!(!d.capabilities.contains(&Capability::DamageTriggerV1));
+    let mut missing = d.clone();
+    missing
+        .capabilities
+        .remove(&Capability::SourceDamageTriggerV2);
+    assert!(missing.validate().is_err());
+    missing.capabilities.insert(Capability::DamageTriggerV1);
+    assert!(missing.validate().is_err());
+}
+
+#[test]
+fn source_damage_v2_rejects_unreviewed_source_kind_recipient_and_program_shapes() {
+    type Mutation = fn(&mut serde_json::Value);
+    for mutate in [
+        (|a: &mut serde_json::Value| a["trigger"]["combat"] = false.into()) as Mutation,
+        |a| a["trigger"]["combat"] = true.into(),
+        |a| a["trigger"]["combat"] = serde_json::Value::Null,
+        |a| a["trigger"]["combat"] = "false".into(),
+        |a| a["trigger"]["to"] = "any".into(),
+        |a| a["trigger"]["to"] = serde_json::json!({"player":"a-player"}),
+        |a| a["trigger"]["to"] = serde_json::json!({"player":"an-opponent","of":{"ref":"it"}}),
+        |a| {
+            a["trigger"]["to"] = serde_json::json!({"player":"an-opponent","selectionId":"unbound"})
+        },
+        |a| a["trigger"]["what"] = serde_json::json!({"ref":"it"}),
+        |a| a["trigger"]["what"] = serde_json::json!({"ref":"this","noun":"permanent"}),
+        |a| a["trigger"]["what"] = serde_json::json!({"ref":"filter","filter":{"types":["creature"]},"count":{"amount":"fixed","value":1}}),
+        |a| a["trigger"]["grouping"] = "one-or-more".into(),
+        |a| a["effects"][0]["steps"][0]["optional"] = true.into(),
+        |a| a["effects"][0]["steps"][0]["amount"] = serde_json::json!({"amount":"that-much"}),
+        |a| a["effects"][0]["steps"][0]["who"] = serde_json::json!({"player":"that-player"}),
+        |a| a["condition"] = serde_json::json!({"condition":"status","what":{"ref":"this","noun":"creature"},"status":"tapped"}),
+    ] {
+        let raw = tests::changed_source(OTTER, |r| {
+            mutate(&mut r["faces"][0]["result"]["abilities"][0]);
+            r["faces"][0]["result"]["lines"][0]["ability"] =
+                r["faces"][0]["result"]["abilities"][0].clone();
+        });
+        assert!(
+            matches!(compile(MANIFEST, &raw), CompileResult::Unsupported { .. }),
+            "{:?}",
+            compile(MANIFEST, &raw)
+        );
+    }
 }
