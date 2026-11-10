@@ -1,0 +1,93 @@
+# Engine build inputs and cache policy
+
+`mtg_contracts::CURRENT_IR_VERSION` is the current IR authority (25).
+`MIN_IR_VERSION` is the earliest admitted catalog (3). Validation, generated
+schema and compiler coverage use these constants. Future-version negatives use
+`CURRENT_IR_VERSION + 1`; capability introduction versions and historical catalog
+fixtures remain their original literals. This does not upgrade acceptance status,
+public wire versions, hosting/search capabilities, or historical evidence.
+
+Run `python3 scripts/engine-structure-check.py` without Cargo. It checks the
+contracts/compiler/core dependency boundaries, including target-specific tables,
+workspace inheritance and aliases. Core's compiler dependency is permitted only
+for development tests. New dependencies require explicit review of the small
+allowlist. This checks declared direct dependencies, not arbitrary Rust code or
+all transitive feature combinations.
+
+The same command checks the Git index for generated/cache paths and recognizable
+ELF/Wasm/SQLite output anywhere. It catches force-added ignored files and reads
+the staged bytes, even when the working copy differs. There is no blanket size
+limit for source or reviewed fixtures. Renamed JSON output outside known output
+directories cannot always be distinguished from legitimate source; review still
+matters. The command never unstages, rewrites, or deletes files.
+
+Focused helper tests: `python3 scripts/test-engine-structure.py` and
+`python3 scripts/test-engine-cache.py`. Execute these files directly: unittest
+discovery skips hyphenated module names and can misleadingly report zero tests.
+
+## Cache selection and lifecycle
+
+After selecting the pinned toolchain, `python3 scripts/engine-cache.py path`
+prints one absolute path, with no mkdir or mutation. Explicit `CARGO_TARGET_DIR`
+wins. Otherwise the default is
+`$XDG_CACHE_HOME/mtg-ecosystem/cargo/<repo>/<rustc>` (default cache home
+`~/.cache`). Repo means SHA256 prefix of the canonical Git common-directory path;
+rustc means SHA256 prefix of `rustc -vV`, including compiler/host identity.
+Worktrees of the same repository/toolchain share the location. Separate clones
+do not. Cargo still owns its normal target/profile/flags fingerprints.
+
+`python3 scripts/engine-cache.py status` reports allocated bytes, filesystem free
+space, explicit/default selection and budgets. `check` reports the same JSON and
+fails before compilation if the cache exceeds 16 GiB or free space is below
+4 GiB. Override deliberately with `ENGINE_CACHE_MAX_GIB` and
+`ENGINE_CACHE_MIN_FREE_GIB`. This is a preflight guard, **not a hard disk quota**:
+a single build can grow past the budget. Inspect again after heavy work.
+The environment launcher defaults `CARGO_INCREMENTAL=0`; explicit settings win.
+
+Native checks must hold the existing shared Cargo lock across budget preflight
+and compilation. Never wrap a gate that already owns that lock in another
+acquisition. Cache path/status operations do not acquire the lock or mutate data.
+No automatic eviction, old-cache relocation, executable removal or evidence
+cleanup occurs. Existing external/per-worktree targets remain explicit overrides.
+For reviewed incremental-only cleanup use the existing engine storage tools and
+their coordination rules; do not treat retained proof executables as disposable.
+
+## Invalidation and identity
+
+Compiler build inputs are catalog manifests, provenance/accepted-archive lists,
+record groups, and their referenced exact records/archives. The compiler watches
+each input path, including absent inputs that may be repaired, plus the catalog
+directory for new manifests. Core watches catalog/profile directories and every
+data file it reads. Banned-list discovery follows selected profiles; an unused
+new policy file cannot silently make cold/warm generated output disagree.
+Profile edits discover new policy paths. No card facts or expected rules results
+change.
+
+Cargo directory watches recurse, so watching the entire fixture root previously
+invalidated both crates for a README edit. See the
+[Cargo build-script contract](https://doc.rust-lang.org/cargo/reference/build-scripts.html#rerun-if-changed).
+The broad engine **source** watch and `engine_build_input` identity remain intact.
+The core executable still hashes all engine Rust source, manifests, lock/toolchain
+files and effective compilation settings. A simulator edit therefore still
+invalidates core. We did not weaken release evidence identity or introduce a
+separate development identity merely to avoid that cost.
+
+Measurements on 2026-11-09 used Rust 1.99.0, `CARGO_INCREMENTAL=0`, serialized
+`cargo check --locked -p mtg-core -p mtg-compiler`, and the existing
+`perf-engine-verification-loop/target` cache. They are single observations, not a
+statistical benchmark or runtime performance claim. Baseline was `c62777b`;
+changed-source measurements include this branch's version/watch changes.
+
+| Probe | Before | After |
+| --- | ---: | ---: |
+| Warm no-op | 0.029 s | 0.031 s |
+| Fixture README comment | 5.994 s | 0.031 s |
+| Restore fixture README | 5.955 s | 0.032 s |
+
+Afterward an archive-header whitespace edit still rechecked compiler (0.893 s);
+a simulator-source comment still rechecked core (6.083 s). All temporary edits
+were restored. Initial cache priming was 8.088 s before and 7.862 s after;
+those timings are affected by source/tool fingerprint changes and are not a
+claimed cold-build speedup. Raw logs/measurements are ignored under
+`generated/platform-build-measurements/` in the implementation worktree.
+No release build, gameplay matrix or retention rebuild is implied by these checks.
