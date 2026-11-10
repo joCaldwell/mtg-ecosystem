@@ -40,3 +40,17 @@ CR 701.21a defines control, ownership and non-destruction for sacrifice;
 possible parts; 117.5/704.4 defer stabilization during resolution; 903.9a defines
 Commander graveyard return. Official source:
 <https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt>.
+
+Source checkpoint `bcbcd55` passed formatting, workspace all-target compilation,
+108 compiler and 18 contracts library tests, six new sacrifice tests, six prior
+event-player discard tests, six existing action tests and the historical
+token-lifetime test. All 31 executable source/schema/catalog checks passed.
+Exact-source accepted-input tests cover public checked choices, ownership,
+departures, ordinary death triggers, Commander return and coherent victim
+forgery rejection. Prior discard bytes and behavior remain checked.
+
+Logs are retained under
+`~/.local/share/mtg-ecosystem/engine-verification/correctness-loop-20261110/`.
+Full core/sim/server runtime suites, Clippy, SDK, release/profile gameplay
+matrices, coverage measurements and retention rebuilds were omitted. Schema
+checks built the release CLI; focused validation is not combined acceptance.
