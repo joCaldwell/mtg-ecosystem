@@ -25,7 +25,7 @@ pub use strict_io::strict_read_seekable;
 
 /// Latest IR accepted by validation/schema and emitted by full-corpus coverage.
 /// Historical capability minimums and fixture versions remain literal evidence.
-pub const CURRENT_IR_VERSION: u32 = 27;
+pub const CURRENT_IR_VERSION: u32 = 28;
 pub const MIN_IR_VERSION: u32 = 3;
 
 pub const RULES_EDITION: &str = "2026-09-25";
@@ -171,6 +171,7 @@ pub enum Capability {
     DamageTriggerV1,
     SourceDamageTriggerV2,
     OptionalControllerDrawV1,
+    EventPlayerDiscardV1,
     EventPlayerRecipientV1,
     SourceStatusConditionV1,
     StepBeginningTriggerV1,
@@ -354,6 +355,25 @@ pub enum LifeRecipient {
     Target {
         target_slot: u32,
     },
+}
+/// Discard uses a separate binding domain from draw/life recipients. The event
+/// player is the frozen damaged player of a source-damage trigger (CR 603.2c).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DiscardRecipient {
+    Controller,
+    EventPlayer,
+}
+impl<'de> Deserialize<'de> for DiscardRecipient {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Match the schema's string vocabulary; serde's externally tagged
+        // unit-object alternative is not an executable recipient encoding.
+        match String::deserialize(deserializer)?.as_str() {
+            "controller" => Ok(Self::Controller),
+            "event_player" => Ok(Self::EventPlayer),
+            _ => Err(serde::de::Error::custom("unsupported discard recipient")),
+        }
+    }
 }
 /// CR 111.3–4: precisely defined creature tokens, never copied card definitions.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -549,6 +569,8 @@ pub enum Instruction {
         source_block: u32,
     },
     DiscardCards {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        recipient: Option<DiscardRecipient>,
         count: Quantity,
         source_block: u32,
     },
@@ -1195,6 +1217,26 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        fn event_discard(p: &SpellProgram) -> bool {
+            p.instructions.iter().any(|i| {
+                matches!(
+                    i,
+                    Instruction::DiscardCards {
+                        recipient: Some(DiscardRecipient::EventPlayer),
+                        ..
+                    }
+                )
+            }) || p.modes.iter().any(|m| event_discard(&m.program))
+        }
+        if self.spell.as_ref().is_some_and(event_discard)
+            || self.activated.iter().any(|a| event_discard(&a.program))
+            || self.triggered.iter().any(|a| {
+                event_discard(&a.program)
+                    && !matches!(a.condition, TriggerCondition::DamageDealt { .. })
+            })
+        {
+            return Err("event-player discard requires a bound damage trigger".into());
+        }
         fn event_player(p: &SpellProgram) -> bool {
             p.instructions.iter().any(Instruction::uses_event_player)
                 || p.modes.iter().any(|m| event_player(&m.program))
@@ -1634,6 +1676,10 @@ impl Definition {
                             | Instruction::PutPlusOneCounters { .. }
                             | Instruction::DrawCards { .. }
                             | Instruction::OptionalDrawCards { .. }
+                            | Instruction::DiscardCards {
+                                recipient: Some(DiscardRecipient::EventPlayer),
+                                ..
+                            }
                             | Instruction::ModifyPowerToughness { .. }
                             | Instruction::GainLife { .. }
                             | Instruction::LoseLife { .. }
@@ -2298,6 +2344,10 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             }
             Instruction::DrawCards { .. } => Capability::ControllerDrawV1,
             Instruction::OptionalDrawCards { .. } => Capability::OptionalControllerDrawV1,
+            Instruction::DiscardCards {
+                recipient: Some(DiscardRecipient::EventPlayer),
+                ..
+            } => Capability::EventPlayerDiscardV1,
             Instruction::DiscardCards { .. } => Capability::ControllerDiscardV1,
             Instruction::CounterStackObject { .. } => Capability::CounterStackObjectV1,
             Instruction::DealDamage { .. } => Capability::NoncombatDamageV1,
@@ -2348,6 +2398,12 @@ impl Catalog {
         }
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
+            if self.schema_version < 28
+                && (d.capabilities.contains(&Capability::EventPlayerDiscardV1)
+                    || d.requirements().contains(&Capability::EventPlayerDiscardV1))
+            {
+                return Err("IR v28 is required for event-player discard".into());
+            }
             // requirements() derives from instructions recursively through every
             // program/mode, independently of the supplied capability labels.
             if self.schema_version < 27
@@ -2831,6 +2887,22 @@ pub fn catalog_schema() -> serde_json::Value {
             "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreOptionalDrawProgram"}}}}
         }}}}}
     }));
+    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"properties":{"schema_version":{"maximum":27}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "capabilities":{"items":{"not":{"const":Capability::EventPlayerDiscardV1}}},
+            "spell":{"$ref":"#/$defs/PreEventPlayerDiscardProgram"},
+            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerDiscardProgram"}}}},
+            "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerDiscardProgram"}}}}
+        }}}}}
+    }));
+    schema["$defs"]["PreEventPlayerDiscardProgram"] = serde_json::json!({"properties":{
+        "instructions":{"items":{
+            "if":{"properties":{"op":{"const":"discard_cards"}}},
+            "then":{"properties":{"recipient":{"not":{"const":"event_player"}}}}
+        }},
+        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerDiscardProgram"}}}}
+    }});
     schema["$defs"]["PreOptionalDrawProgram"] = serde_json::json!({"properties":{
         "instructions":{"items":{"properties":{"op":{"not":{"const":"optional_draw_cards"}}}}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreOptionalDrawProgram"}}}}
@@ -3174,6 +3246,7 @@ mod tests {
             (25, &[DamageTriggerV1]),
             (26, &[SourceDamageTriggerV2]),
             (27, &[OptionalControllerDrawV1]),
+            (28, &[EventPlayerDiscardV1]),
         ];
         // Enumerate the public vocabulary, so a new capability cannot silently
         // escape this contract. Check full program-bearing definitions rather
@@ -3238,6 +3311,15 @@ mod tests {
             vec![Instruction::OptionalDrawCards { source_block: 0 }];
         optional.capabilities = optional.requirements();
         definitions.push(optional);
+        let mut discard = damage.clone();
+        discard.triggered[0].program.targets.clear();
+        discard.triggered[0].program.instructions = vec![Instruction::DiscardCards {
+            recipient: Some(DiscardRecipient::EventPlayer),
+            count: Quantity::from(1),
+            source_block: 0,
+        }];
+        discard.capabilities = discard.requirements();
+        definitions.push(discard);
         // Each newly admitted dimension independently requires IR26, even when
         // paired with the original value of the other dimension.
         for (kind, recipient) in [
@@ -3331,6 +3413,147 @@ mod tests {
                 .remove(&Capability::OptionalControllerDrawV1);
             assert!(c.validate().unwrap_err().contains("IR v27"));
         }
+    }
+    #[test]
+    fn event_player_discard_preserves_legacy_bytes_and_has_a_separate_binding_domain() {
+        let legacy = r#"{"op":"discard_cards","count":"1","source_block":0}"#;
+        let instruction: Instruction = strict_read(legacy).unwrap();
+        assert_eq!(
+            instruction,
+            Instruction::DiscardCards {
+                recipient: None,
+                count: Quantity::from(1),
+                source_block: 0,
+            }
+        );
+        assert_eq!(serde_json::to_string(&instruction).unwrap(), legacy);
+        for recipient in [
+            serde_json::json!({"event_player":null}),
+            serde_json::json!({"controller":null}),
+            serde_json::json!("target_player"),
+        ] {
+            assert!(serde_json::from_value::<DiscardRecipient>(recipient).is_err());
+        }
+
+        let original: Catalog = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/expected-trigger-ir.json"
+        ))
+        .unwrap();
+        let mut bound = original
+            .definitions
+            .iter()
+            .find(|d| d.characteristics.kind == CardKind::Creature && !d.triggered.is_empty())
+            .unwrap()
+            .clone();
+        bound.triggered.truncate(1);
+        let ability = &mut bound.triggered[0];
+        ability.condition = TriggerCondition::DamageDealt {
+            source: DamageTriggerSource::Source {},
+            kind: TriggerDamageKind::Combat,
+            recipient: DamageTriggerRecipient::Player,
+        };
+        ability.intervening_if = None;
+        ability.death_filter = None;
+        ability.program.targets.clear();
+        ability.program.modes.clear();
+        ability.program.instructions = vec![Instruction::DiscardCards {
+            recipient: Some(DiscardRecipient::EventPlayer),
+            count: Quantity::from(1),
+            source_block: 0,
+        }];
+        bound.capabilities = bound.requirements();
+        bound.validate().unwrap();
+        assert!(
+            bound
+                .capabilities
+                .contains(&Capability::EventPlayerDiscardV1)
+        );
+        assert!(
+            !bound
+                .capabilities
+                .contains(&Capability::EventPlayerRecipientV1)
+        );
+        assert!(
+            !bound
+                .capabilities
+                .contains(&Capability::ControllerDiscardV1)
+        );
+        for condition in [
+            TriggerCondition::SelfEntersBattlefield,
+            TriggerCondition::StepBegan {
+                step: BeginningStep::Upkeep,
+                turn_relation: TurnRelation::Controller,
+            },
+            TriggerCondition::SpellCast {
+                caster: CasterRelation::Controller,
+                spell: TypePredicate::Any {},
+            },
+        ] {
+            let mut unbound = bound.clone();
+            unbound.triggered[0].condition = condition;
+            unbound.capabilities = unbound.requirements();
+            assert!(
+                unbound
+                    .validate()
+                    .unwrap_err()
+                    .contains("event-player discard")
+            );
+        }
+        let mut spell = bound.clone();
+        spell.spell.as_mut().unwrap().instructions =
+            spell.triggered[0].program.instructions.clone();
+        spell.capabilities = spell.requirements();
+        assert!(
+            spell
+                .validate()
+                .unwrap_err()
+                .contains("event-player discard")
+        );
+        let actions: Catalog = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/expected-action-ir.json"
+        ))
+        .unwrap();
+        let mut activation = actions
+            .definitions
+            .into_iter()
+            .find(|d| !d.activated.is_empty())
+            .unwrap();
+        activation.activated[0].program.instructions =
+            bound.triggered[0].program.instructions.clone();
+        activation.capabilities = activation.requirements();
+        assert!(
+            activation
+                .validate()
+                .unwrap_err()
+                .contains("event-player discard")
+        );
+        let mut c = Catalog {
+            schema_version: 28,
+            rules_edition: RULES_EDITION.into(),
+            rules_sha256: RULES_SHA256.into(),
+            definitions: vec![bound.clone()],
+        };
+        c.validate().unwrap();
+        c.schema_version = 27;
+        assert!(c.validate().unwrap_err().contains("IR v28"));
+        c.definitions[0]
+            .capabilities
+            .remove(&Capability::EventPlayerDiscardV1);
+        assert!(c.validate().unwrap_err().contains("IR v28"));
+
+        // Recursive derived requirements reject hidden new fields before the
+        // independent unbound-program rejection, without trusting labels.
+        let mut nested = bound;
+        let child = nested.triggered[0].program.clone();
+        let program = nested.spell.as_mut().unwrap();
+        program.modes = vec![SpellMode { program: child }];
+        nested.triggered.clear();
+        nested.capabilities = nested.requirements();
+        nested
+            .capabilities
+            .remove(&Capability::EventPlayerDiscardV1);
+        c.definitions = vec![nested];
+        assert!(c.validate().unwrap_err().contains("IR v28"));
     }
     #[test]
     fn incremental_sha256_matches_reference_across_byte_fragment_boundaries() {

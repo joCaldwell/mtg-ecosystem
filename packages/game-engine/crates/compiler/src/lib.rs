@@ -1348,6 +1348,7 @@ fn bind_target(
 enum PlayerBinding {
     Unbound,
     EventPlayer,
+    DamageRecipient,
     DeathController,
 }
 fn append_spell_effects(
@@ -1749,6 +1750,22 @@ fn append_spell_effects(
                     )?,
                     source_block,
                 },
+                Step::Discard { who, what }
+                    if player_binding == PlayerBinding::DamageRecipient
+                        && who.player == "that-player"
+                        && who.selection_id.is_none()
+                        && who.of.is_none()
+                        && what.reference == "filter"
+                        && fixed_one(&what.count)
+                        && what.filter
+                            == ObjectFilter::Class(CardFilter { cls: "card".into() }) =>
+                {
+                    Instruction::DiscardCards {
+                        recipient: Some(DiscardRecipient::EventPlayer),
+                        count: Quantity::from(1),
+                        source_block,
+                    }
+                }
                 Step::Draw {
                     who,
                     amount,
@@ -2980,6 +2997,8 @@ fn lower_trigger(
             TriggerCondition::StepBegan { .. } | TriggerCondition::SpellCast { .. }
         ) {
             PlayerBinding::EventPlayer
+        } else if matches!(condition, TriggerCondition::DamageDealt { .. }) {
+            PlayerBinding::DamageRecipient
         } else if condition == TriggerCondition::OpponentCreatureDies {
             PlayerBinding::DeathController
         } else {
@@ -3335,6 +3354,7 @@ fn lower_activation(
                             == ObjectFilter::Class(CardFilter { cls: "card".into() }) =>
                 {
                     Instruction::DiscardCards {
+                        recipient: None,
                         count: Quantity::from(1),
                         source_block,
                     }
@@ -6105,6 +6125,7 @@ mod tests {
                     source_block: 0
                 },
                 Instruction::DiscardCards {
+                    recipient: None,
                     count: Quantity::from(1),
                     source_block: 0
                 },
@@ -6829,6 +6850,7 @@ mod tests {
                             source_block: 0
                         },
                         Instruction::DiscardCards {
+                            recipient: None,
                             count: Quantity::from(1),
                             source_block: 0
                         }

@@ -168,6 +168,31 @@ impl Game {
             .map(|o| o.id)
             .collect()
     }
+    // CR 603.3a/608.2c/701.9a-b: the damaged player is frozen by the
+    // actual trigger occurrence. The invocation's controller remains "you";
+    // neither source control changes nor departures rebind either player.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    pub(super) fn discard_player(
+        &self,
+        frame: &Resolving,
+        recipient: Option<&DiscardRecipient>,
+    ) -> Result<PlayerId, String> {
+        match recipient {
+            None | Some(DiscardRecipient::Controller) => Ok(frame.spell.controller),
+            Some(DiscardRecipient::EventPlayer) => match &frame.spell.kind {
+                StackKind::Triggered {
+                    witness: TriggerEventWitness::DamageDealt { damage, .. },
+                    ..
+                } => match damage.recipient {
+                    DamageRecipient::Player { player } => Ok(player),
+                    DamageRecipient::Creature { .. } => {
+                        Err("discard event requires a player damage recipient".into())
+                    }
+                },
+                _ => Err("unbound damage-recipient discard".into()),
+            },
+        }
+    }
     fn action_hand(&self, player: PlayerId) -> Vec<ObjectId> {
         self.state
             .rules
@@ -687,9 +712,11 @@ impl Game {
                 Ok(())
             }
             Instruction::DiscardCards {
+                recipient,
                 count,
                 source_block,
             } => {
+                let player = self.discard_player(&frame, recipient.as_ref())?;
                 if count != Quantity::from(1) {
                     return Err("unsupported discard count".into());
                 }
@@ -941,11 +968,13 @@ impl Game {
                         source_block,
                     },
                     Instruction::DiscardCards {
+                        recipient,
                         count: expected,
                         source_block: expected_block,
                     },
                 ) => {
-                    *player == frame.spell.controller
+                    self.discard_player(frame, recipient.as_ref())
+                        .is_ok_and(|actor| actor == *player)
                         && *count == 1
                         && *expected == Quantity::from(1)
                         && *source_block == *expected_block

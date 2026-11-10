@@ -11,6 +11,9 @@ const OTTER: &str = include_str!(
 const COMMANDO: &str = include_str!(
     "../../../tests/fixtures/cards-data-d2ce/48936751-429b-4c40-88f5-72acde6278cc.json"
 );
+const CUTPURSE: &str = include_str!(
+    "../../../tests/fixtures/cards-data-d2ce/56c1a548-c80c-432b-bf92-d4ef6117b298.json"
+);
 fn rows() -> Vec<(serde_json::Value, String)> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/cards-data-d2ce");
@@ -58,10 +61,15 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
         // the original seven IR25 witnesses retain their original requirements.
         // IR27 additionally admits Neurok Commando (line 10885): its complete
         // shroud plus combat/player trigger with a resolution-time optional draw.
+        // IR28 admits Dimir Cutpurse (line 13027): the damaged player discards
+        // one card, followed by the invocation controller's mandatory draw.
         let otter = row["archive_line"] == 14102;
         let commando = row["archive_line"] == 10885;
-        if ![4538, 9081, 10885, 12306, 14102, 14941, 19442, 21636, 28189]
-            .contains(&row["archive_line"].as_u64().unwrap())
+        let cutpurse = row["archive_line"] == 13027;
+        if ![
+            4538, 9081, 10885, 12306, 13027, 14102, 14941, 19442, 21636, 28189,
+        ]
+        .contains(&row["archive_line"].as_u64().unwrap())
         {
             assert!(
                 matches!(compile(MANIFEST, &raw), CompileResult::Unsupported { .. }),
@@ -109,7 +117,9 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
             };
             assert_eq!(
                 c.validate().is_ok(),
-                ((if commando {
+                ((if cutpurse {
+                    28
+                } else if commando {
                     27
                 } else if otter {
                     26
@@ -122,7 +132,7 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
             );
         }
     }
-    assert_eq!(admitted, 9);
+    assert_eq!(admitted, 10);
 }
 #[test]
 fn d2ce_rejects_partial_kind_source_recipient_optional_quantity_and_condition_shapes() {
@@ -423,6 +433,129 @@ fn optional_draw_rejects_other_recipients_quantities_and_malformed_options() {
             matches!(compile(MANIFEST, &raw), CompileResult::Unsupported { .. }),
             "{:?}",
             compile(MANIFEST, &raw)
+        );
+    }
+}
+
+#[test]
+fn event_player_discard_exact_cutpurse_source_provenance_and_binding() {
+    let d = lower(CUTPURSE);
+    let source: serde_json::Value = serde_json::from_str(CUTPURSE).unwrap();
+    assert_eq!(d.name, "Dimir Cutpurse");
+    assert_eq!(
+        source["source"]["oracle_text"],
+        "Whenever this creature deals combat damage to a player, that player discards a card and you draw a card."
+    );
+    assert_eq!(d.triggered.len(), 1);
+    let a = &d.triggered[0];
+    assert_eq!(
+        a.condition,
+        TriggerCondition::DamageDealt {
+            source: DamageTriggerSource::Source {},
+            kind: TriggerDamageKind::Combat,
+            recipient: DamageTriggerRecipient::Player,
+        }
+    );
+    assert_eq!(
+        a.program.instructions,
+        [
+            Instruction::DiscardCards {
+                recipient: Some(DiscardRecipient::EventPlayer),
+                count: Quantity::from(1),
+                source_block: 0
+            },
+            Instruction::DrawCards {
+                recipient: None,
+                count: Quantity::from(1),
+                source_block: 0
+            },
+        ]
+    );
+    assert!(a.program.targets.is_empty());
+    assert!(a.program.modes.is_empty());
+    assert!(a.intervening_if.is_none());
+    assert_eq!(d.provenance.source_sha256, source["sourceSha256"]);
+    assert_eq!(d.provenance.ast_sha256, source["astSha256"]);
+    assert_eq!(d.provenance.binding_sha256, source["bindingSha256"]);
+    assert!(d.capabilities.contains(&Capability::EventPlayerDiscardV1));
+    assert!(!d.capabilities.contains(&Capability::ControllerDiscardV1));
+    assert!(!d.capabilities.contains(&Capability::EventPlayerRecipientV1));
+    let mut missing = d.clone();
+    missing
+        .capabilities
+        .remove(&Capability::EventPlayerDiscardV1);
+    assert!(missing.validate().is_err());
+}
+
+#[test]
+fn event_player_discard_rejects_unbound_qualified_and_unreviewed_programs() {
+    type Mutation = fn(&mut serde_json::Value);
+    for mutate in [
+        (|a: &mut serde_json::Value| a["trigger"]["combat"] = false.into()) as Mutation,
+        |a| {
+            a["trigger"].as_object_mut().unwrap().remove("combat");
+        },
+        |a| a["trigger"]["what"] = serde_json::json!({"ref":"it"}),
+        |a| a["trigger"]["what"] = serde_json::json!({"ref":"this","noun":"permanent"}),
+        |a| a["trigger"]["to"] = serde_json::json!({"player":"a-player"}),
+        |a| a["trigger"] = serde_json::json!({"trigger":"phase","phase":"upkeep","whose":"your"}),
+        |a| {
+            a["trigger"] =
+                serde_json::json!({"trigger":"enters","what":{"ref":"this","noun":"creature"}})
+        },
+        |a| a["effects"][0]["steps"][0]["who"] = serde_json::json!({"player":"you"}),
+        |a| {
+            a["effects"][0]["steps"][0]["who"] =
+                serde_json::json!({"player":"target-player","selectionId":"target"})
+        },
+        |a| a["effects"][0]["steps"][0]["who"]["of"] = serde_json::json!({"ref":"it"}),
+        |a| a["effects"][0]["steps"][0]["who"]["selectionId"] = "qualified".into(),
+        |a| a["effects"][0]["steps"][0]["what"]["count"]["value"] = 0.into(),
+        |a| a["effects"][0]["steps"][0]["what"]["count"]["value"] = 2.into(),
+        |a| a["effects"][0]["steps"][0]["what"]["filter"]["cls"] = "creature".into(),
+        |a| a["effects"][0]["steps"][0]["optional"] = true.into(),
+        |a| a["effects"][0]["steps"][1]["who"] = serde_json::json!({"player":"that-player"}),
+    ] {
+        let raw = tests::changed_source(CUTPURSE, |r| {
+            let result = &mut r["faces"][0]["result"];
+            mutate(&mut result["abilities"][0]);
+            result["lines"][0]["ability"] = result["abilities"][0].clone();
+        });
+        assert!(
+            matches!(compile(MANIFEST, &raw), CompileResult::Unsupported { .. }),
+            "{:?}",
+            compile(MANIFEST, &raw)
+        );
+    }
+    // Damage recipient discard does not extend the older Draw/Life event-player
+    // binding, which remains restricted to supported step and cast triggers.
+    let mut damage_draw = lower(FOX);
+    damage_draw.triggered[0].program.instructions = vec![Instruction::DrawCards {
+        recipient: Some(LifeRecipient::EventPlayer),
+        count: Quantity::from(1),
+        source_block: 0,
+    }];
+    damage_draw.capabilities = damage_draw.requirements();
+    assert!(damage_draw.validate().is_err());
+    let mut damage_life = damage_draw;
+    damage_life.triggered[0].program.instructions = vec![Instruction::GainLife {
+        recipient: LifeRecipient::EventPlayer,
+        amount: Quantity::from(1),
+        source_block: 0,
+    }];
+    damage_life.capabilities = damage_life.requirements();
+    assert!(damage_life.validate().is_err());
+    for recipient in [None, Some(DiscardRecipient::Controller)] {
+        let mut controller = lower(CUTPURSE);
+        if let Instruction::DiscardCards { recipient: r, .. } =
+            &mut controller.triggered[0].program.instructions[0]
+        {
+            *r = recipient;
+        }
+        controller.capabilities = controller.requirements();
+        assert!(
+            controller.validate().is_err(),
+            "controller discard trigger is not admitted"
         );
     }
 }
