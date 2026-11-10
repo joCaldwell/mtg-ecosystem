@@ -2105,7 +2105,7 @@ test("IR31 exact-source controller damage discard preserves sequencing and conte
       // modal damage programs, but an old version must still reject the opcode.
       const nested=structuredClone(witness);
       const p=nested.definitions[0].triggered[0].program;
-      p.modes=[{program:structuredClone(p)}];
+      p.modes=[{program:structuredClone(p)},{program:structuredClone(p)}];
       p.instructions=[];
       assert.equal(validate(nested),true,JSON.stringify(validate.errors));
       nested.schema_version=30;
@@ -2113,7 +2113,7 @@ test("IR31 exact-source controller damage discard preserves sequencing and conte
       assert.equal(validate(nested),false,"nested controller damage discard cannot evade old-version rejection");
     }
     assert.equal(validate(loadCatalog("damage-matches")),true,JSON.stringify(validate.errors));
-    assert.equal(validate(loadCatalog("actions")),true,JSON.stringify(validate.errors));
+    assert.equal(validate(loadCatalog("action")),true,JSON.stringify(validate.errors));
     passed=true;
   } finally {
     if(passed) fs.rmSync(temporary,{recursive:true,force:true});

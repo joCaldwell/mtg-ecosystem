@@ -34,3 +34,32 @@ CR 109.5/603.3a bind the trigger controller; 608.2c preserves written order;
 609.3 performs possible parts; 701.9a defines discarding; 117.5/704.4 defer
 state-based actions during resolution; 903.9b governs the hand replacement.
 Official source: <https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt>.
+
+Focused native validation at source checkpoint `d85e757` passed formatting,
+workspace all-target compilation, dependency/structure guards, 113 compiler tests,
+20 contracts tests and 22 selected core tests. The core selection executes five
+new source-backed Locke cases, six recipient-discard cases, six optional-draw
+cases, one existing looter/activated-draw case and four damage-profile cases.
+Tests cover lifelink, private checked responses, wrong/stale/foreign choices,
+restore/replay, failed-draw ordering, hidden Commander replacement, departures,
+forged choice actors and unchanged hosting/search rejection.
+
+The executable source/schema preflight passed 33 existing cases. Its new case
+initially failed because the synthetic modal witness had one mode instead of the
+schema's required minimum two. That test fixture and its `action.json` catalog
+path were corrected; the targeted IR31 rerun executed one test and passed. All
+34 cases therefore have passing results across the two runs; no complete second
+preflight or native rerun was needed for those test-only corrections. No source
+record, expected card result or production guard changed to satisfy a failure.
+An earlier formatting-only module-order failure is also retained.
+
+Raw logs are retained in
+`~/.local/share/mtg-ecosystem/engine-verification/correctness-loop-20261110/` as
+`controller-discard-focused-01.log` (formatting failure),
+`controller-discard-focused-02.log` (passed),
+`controller-discard-schema-01.log` (33 passed, one test-fixture failure), and
+`controller-discard-schema-02.log` (targeted pass).
+Full core/sim/server suites, a fresh complete-match capture, SDK, hosting/search,
+release/profile gameplay matrices and retention rebuilds were not run. Existing
+complete-match evidence retains its original source identity; this is not renewed
+combined acceptance.
