@@ -6092,7 +6092,7 @@ mod tests {
     #[test]
     fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
         let catalog = embedded_catalog("stack").unwrap();
-        for version in [3, 4, 5, 25] {
+        for version in [3, 4, 5, 26] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -6829,7 +6829,7 @@ mod tests {
     #[test]
     fn action_ir_version_shapes_and_target_domains_are_strict() {
         let catalog = embedded_catalog("action").unwrap();
-        for version in [3, 4, 25] {
+        for version in [3, 4, 26] {
             let mut bad = catalog.clone();
             bad.schema_version = version;
             assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
