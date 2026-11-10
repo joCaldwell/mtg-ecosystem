@@ -24,6 +24,18 @@ class CacheTests(unittest.TestCase):
             self.assertEqual(first, cache.cache_path(Path('/worktree-b'), {'XDG_CACHE_HOME': '/cache'}))
             self.assertNotEqual(first, cache.cache_path(Path('/worktree-b'), {'XDG_CACHE_HOME': '/cache'}))
 
+    def test_override_symlink_counts_the_actual_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            actual = root / 'actual'
+            actual.mkdir()
+            (actual / 'binary').write_bytes(b'x' * 8192)
+            link = root / 'link'
+            link.symlink_to(actual, target_is_directory=True)
+            report = cache.status(environ={'CARGO_TARGET_DIR': str(link), 'ENGINE_CACHE_MIN_FREE_GIB': '0'})
+            self.assertGreaterEqual(report['allocated_bytes'], 8192)
+            self.assertTrue(link.is_symlink())
+
     def test_budget_failure_preserves_executable(self):
         with tempfile.TemporaryDirectory() as tmp:
             binary = Path(tmp) / 'mtg-sim'

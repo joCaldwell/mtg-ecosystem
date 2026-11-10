@@ -49,6 +49,11 @@ and compilation. Never wrap a gate that already owns that lock in another
 acquisition. Cache path/status operations do not acquire the lock or mutate data.
 No automatic eviction, old-cache relocation, executable removal or evidence
 cleanup occurs. Existing external/per-worktree targets remain explicit overrides.
+The preserved `perf-engine-verification-loop/target` measured about 22 GiB during
+this wave: its coordinated reuse sets `ENGINE_CACHE_MAX_GIB=32` explicitly.
+Selecting the new stable default instead leaves those bytes in place and can
+require a cold compile; cross-worktree reuse is not guaranteed to avoid rebuilding
+workspace crates because their absolute source paths differ.
 For reviewed incremental-only cleanup use the existing engine storage tools and
 their coordination rules; do not treat retained proof executables as disposable.
 

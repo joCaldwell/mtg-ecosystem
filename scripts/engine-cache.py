@@ -22,7 +22,7 @@ def digest(value):
 def cache_path(root=ROOT, environ=None):
     env = os.environ if environ is None else environ
     if env.get('CARGO_TARGET_DIR'):
-        return Path(env['CARGO_TARGET_DIR']).expanduser().absolute()
+        return Path(os.path.abspath(Path(env['CARGO_TARGET_DIR']).expanduser()))
     common = subprocess.check_output(['git', '-C', str(root), 'rev-parse', '--path-format=absolute', '--git-common-dir'], text=True).strip()
     rustc = subprocess.check_output(['rustc', '-vV'], text=True)
     cache_home = Path(env.get('XDG_CACHE_HOME', str(Path.home() / '.cache'))).expanduser()
@@ -46,7 +46,7 @@ def status(root=ROOT, environ=None):
     ancestor = path
     while not ancestor.exists():
         ancestor = ancestor.parent
-    used = storage.usage(path) if path.exists() else 0
+    used = storage.usage(path.resolve()) if path.exists() else 0
     free = shutil.disk_usage(ancestor).free
     maximum = gib_setting(env, 'ENGINE_CACHE_MAX_GIB', '16')
     minimum = gib_setting(env, 'ENGINE_CACHE_MIN_FREE_GIB', '4')
