@@ -81,3 +81,46 @@ state cache/build qualifications. Integrate compatible changes and run the new
 appropriate checks once; do not reintroduce the old full matrix as an automatic
 requirement for this cleanup. The detailed command policy belongs in
 `game-engine-verification-workflow.md`.
+
+## Integrated result
+
+All three cleanup branches were merged into `feat/engine-plan` and pushed.
+`main` remains separate. The integration contains:
+
+- Removal of sixteen unconsumed scenario reports: 1,719,863 lines and a net
+  47,477,579 fixture bytes. Current digests and runtime expectations are unchanged;
+  `packages/game-engine/tests/fixtures/README.md` describes exact Git recovery.
+- A reduced default development check, with explicit source/contracts/full modes
+  and printed omissions. The earlier reduced-default warm measurement was 3.058
+  seconds before the new storage safety suites were added. See
+  `game-engine-fast-checks-20261109.md` for source/cache qualifications.
+- Reclamation of 35,361,935,360 allocated bytes (32.93 GiB) from three inactive
+  incremental caches, with six final executables verified unchanged. Retention
+  now bounds scratch/evidence growth and redirects temporary build/capture output
+  into supervised scratch; see `game-engine-storage.md` for limits and caveats.
+- Small checkpoint commits and pushes, including backup of the integration base
+  and thirteen other engine branches with unique unpublished commits.
+
+The combined default passed 107 Rust library tests (97 compiler, 10 contracts),
+34 Node tests, 22 Python storage/retention safety tests, formatting and all-target
+workspace compilation. Measured child phases totaled 27.748 seconds, including
+recompilation in the integration worktree using the preserved performance cache.
+The inventory remained unchanged throughout the run. The receipt is
+`generated/engine-check-timing/2026-11-10T00-15-21.842Z-75022.jsonl`; its log is
+`generated/gardening-integration/check-corrected.log`.
+
+The first integrated compile found one diagnostic caller still treating
+`artifact_root()` as an infallible path. That caller now explicitly expects a
+valid host path. The failed receipt remains at
+`generated/engine-check-timing/2026-11-10T00-14-53.325Z-73714.jsonl`, with its log
+in `generated/gardening-integration/check-initial.log`. Earlier compiler failures
+caused by stale IR25 negative tests were corrected without removing lower-version
+negatives or changing runtime validation.
+
+No broad core/simulator/server runtime gate, full demo, profile matrix, SDK suite
+or real offline retention/rebuild was run for this cleanup. The retention lifecycle
+was exercised with small synthetic workers, including failure, budget exhaustion,
+cancellation, executable preservation and inherited-path containment. The host
+artifact override was source-reviewed and compiled; full demo routing was not
+executed. Sampled storage limits can overshoot between observations, and abandoned
+scratch after SIGKILL/power loss needs ownership review before removal.

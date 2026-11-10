@@ -29,6 +29,11 @@ Compiler/contracts integration tests and Rust doc tests are also omitted from
 the default. The compiler/contracts library tests exercise lowering and strict data validation,
 but do not establish that games, host behavior or replay work.
 
+Every mode includes the Python storage/retention safety suites and the Node
+executable-preservation checks. These use small temporary fixtures and fake
+workers, not a real offline engine rebuild. Python 3 and Linux process inspection
+are required for these tooling checks.
+
 For a gameplay change, add the smallest relevant Rust test filter, for example
 `cargo test --locked -p mtg-core FILTER`, under the shared Cargo lock. For parser
 changes, add the affected parser tests. Use executable contracts when IR/schema

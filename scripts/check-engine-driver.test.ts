@@ -20,6 +20,11 @@ test("default coverage is bounded and deeper runtime work is explicit", () => {
   assert.equal(full.filter(phase => phase.args.includes("packages/game-engine/tests/contracts.test.ts")).length, 1);
   assert.equal("preflight" in full.find(phase => phase.label === "node-tests")!, false);
   assert.match(engineCheckPlans.fast.omitted, /Core\/simulator\/server runtime tests/);
+  for (const plan of Object.values(engineCheckPlans)) {
+    assert.equal(plan.phases.filter(phase => phase.args.includes("scripts/test-engine-storage.py")).length, 1);
+    assert.equal(plan.phases.filter(phase => phase.args.includes("scripts/test-retention-workspace.py")).length, 1);
+    assert.ok(plan.phases.some(phase => phase.args.includes("scripts/retention-workspace.test.ts")));
+  }
 });
 
 test("mode selection rejects typos and conflicting modes before launching commands", () => {
@@ -50,8 +55,8 @@ test("phase failure stops subsequent work and inherited preflight cannot shrink 
     cohorts.push(options.env!.MTG_ENGINE_CONTRACT_PREFLIGHT!);
     return { code: 0, signal: null };
   });
-  assert.deepEqual(cohorts, ["0", "1"]);
-  assert.deepEqual(result, { code: 0, completed: ["tooling-tests", "contract-preflight"], failed: null });
+  assert.deepEqual(cohorts, ["0", "0", "0", "1"]);
+  assert.deepEqual(result, { code: 0, completed: ["tooling-tests", "storage-safety", "retention-safety", "contract-preflight"], failed: null });
 });
 
 test("command measurement retains nonzero exit, CPU, scoped RSS and exact identities", async () => {

@@ -284,7 +284,9 @@ fn current_pod_instrumentation_matches_unchanged_headless_run() {
     let catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
     let (config, mulls) = fixed_case(1).unwrap();
     let reference = run(&catalog, config.clone(), Policy::Develop, mulls, 1024).unwrap();
-    let directory = artifact_root().join(format!("pod-profile-guard-{}", std::process::id()));
+    let directory = artifact_root()
+        .expect("valid host artifact path")
+        .join(format!("pod-profile-guard-{}", std::process::id()));
     fs::DirBuilder::new()
         .mode(0o700)
         .create(&directory)

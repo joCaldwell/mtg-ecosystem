@@ -91,7 +91,11 @@ export interface CheckPhase {
   preflight?: boolean;
 }
 
-const tooling: CheckPhase = { label: "tooling-tests", command: "node", args: ["--test", "scripts/check-engine-driver.test.ts", "scripts/capture-json-output.test.ts", "scripts/retain-policy-sources.test.ts", "scripts/retain-server-evidence.test.ts"] };
+const tooling: CheckPhase[] = [
+  { label: "tooling-tests", command: "node", args: ["--test", "scripts/check-engine-driver.test.ts", "scripts/capture-json-output.test.ts", "scripts/retain-policy-sources.test.ts", "scripts/retain-server-evidence.test.ts", "scripts/retention-workspace.test.ts"] },
+  { label: "storage-safety", command: "python3", args: ["-B", "scripts/test-engine-storage.py"] },
+  { label: "retention-safety", command: "python3", args: ["-B", "scripts/test-retention-workspace.py"] },
+];
 const archive: CheckPhase = { label: "archive-parser", command: "node", args: ["--test", "--test-name-pattern=^retained archive hashes agree with JavaScript and source parser$", "packages/game-engine/tests/contracts.test.ts"], preflight: true };
 const format: CheckPhase = { label: "format", command: "cargo", args: ["fmt", "--all", "--", "--check"] };
 
@@ -99,24 +103,24 @@ const format: CheckPhase = { label: "format", command: "cargo", args: ["fmt", "-
 // No default phase launches the simulator, release build, demo or profile matrix.
 export const engineCheckPlans = {
   source: {
-    phases: [tooling, archive],
+    phases: [...tooling, archive],
     coverage: "Tooling behavior/negatives and archived-source parser agreement; no Cargo.",
     omitted: "Rust formatting, compilation and tests; executable schema/catalog checks; runtime demo; SDK; release/profile/replay/retention gates.",
   },
   fast: {
-    phases: [tooling, archive, format,
+    phases: [...tooling, archive, format,
       { label: "rust-check", command: "cargo", args: ["check", "--workspace", "--all-targets", "--locked"] },
       { label: "compiler-tests", command: "cargo", args: ["test", "--locked", "-p", "mtg-contracts", "-p", "mtg-compiler", "--lib"] }],
     coverage: "Source/tooling checks, Rust formatting, all-target compilation, contracts/compiler unit tests.",
     omitted: "Core/simulator/server runtime tests; Clippy; executable schema/catalog checks; runtime demo; SDK; release/profile/replay/retention gates.",
   },
   contracts: {
-    phases: [tooling, { label: "contract-preflight", command: "node", args: ["--test", "packages/game-engine/tests/contracts.test.ts"], preflight: true }],
+    phases: [...tooling, { label: "contract-preflight", command: "node", args: ["--test", "packages/game-engine/tests/contracts.test.ts"], preflight: true }],
     coverage: "Tooling and all source/schema/catalog Node contracts, including downgrade negatives; may build release mtg-sim.",
     omitted: "Rust formatting/lints/unit tests; runtime-backed Node contracts/demo; SDK; release test/profile/replay/retention gates.",
   },
   full: {
-    phases: [format, tooling,
+    phases: [format, ...tooling,
       { label: "clippy", command: "cargo", args: ["clippy", "--workspace", "--all-targets", "--locked", "--", "-D", "warnings"] },
       { label: "rust-tests", command: "cargo", args: ["test", "--workspace", "--locked"] },
       { label: "node-tests", command: "node", args: ["--test", "packages/game-engine/tests/contracts.test.ts"] }],
