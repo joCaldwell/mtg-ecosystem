@@ -1,87 +1,104 @@
-# Engine review and verification ownership
+# Engine development verification
 
-Josh changed this workflow on 2026-11-03 to shorten feedback and avoid repeated
-successful end-to-end runs for one change. This applies to engine/server work;
-other packages retain their own instructions.
+Josh's 2026-11-09 preference is substantially faster development verification,
+including explicitly reduced coverage. This supersedes the 2026-11-03 requirement
+for one mandatory full acceptance matrix. It applies to engine/server work and
+related parser tooling; other packages retain their own instructions. Historical
+release reports remain evidence for their named source, not future gate mandates.
 
-## One reviewed freeze, one full gate
+## Choose the work that answers the change
 
-1. **Implementation:** run formatting, compilation/lints and focused tests for
-   affected capabilities. Run cheap compiler/schema/contract negatives early.
-   Commit the candidate and report exact focused results. Implementers do not
-   run the full engine/demo/all-profile acceptance suite unless explicitly given
-   verification ownership.
-2. **Source review:** independently inspect semantics, scope, guards, source
-   records and expected-result changes before expensive acceptance. Return
-   blockers without launching the full gate. Fixes get focused checks and a
-   scoped review; do not spend another full run to discover a cheap defect.
-3. **Freeze:** identify the final reviewed code commit, required phases and one
-   verification owner. The reviewer may own execution after approving source,
-   or a dedicated verifier may do it. Reuse the implementation worktree's build
-   cache when safe; do not create a fresh checkout merely to repeat compilation.
-4. **Acceptance:** that owner runs the required full gate once on the reviewed
-   freeze. Include SDK/release/batch/replay phases required by the actual change.
-   A successful read-only review never triggers another full run. Combine
-   independently reviewed compatible changes into one acceptance candidate when
-   practical, then verify the combined source closure.
-5. **Integration:** the parent checks evidence, source/executable identity and
-   exact tree equality, then merges. Documentation-only changes do not invalidate
-   compiled-source evidence. A code change invalidates affected phases; identify
-   the dependency/reason before repeating a full suite. Failed/interrupted runs
-   remain preserved and distinct from passed phases.
+Run from the repository root. `npm run check:engine -- --plan` prints the selected
+commands and omissions without checking a toolchain, taking locks or running tests.
+Every executed mode prints its coverage and writes those omissions into its timing
+report; a successful fast check is not a full-engine acceptance result.
 
-Focused tests do not replace final acceptance. This changes timing and ownership,
-not workload, rules, proof, rejection or resource requirements. Preserve independent
-semantic replay, all required profile seeds/pods, limits and exact outcomes.
-Never reuse another build's pass merely because a profile or branch has the same
-name. Reuse requires the same frozen compiled bytes and intact artifacts/guards.
+| Command | Runs | Deliberately omits |
+| --- | --- | --- |
+| `npm run check:engine` | Tooling behavior and failure tests; archived-source/parser agreement; Rust formatting; `cargo check --workspace --all-targets --locked`; contracts/compiler library unit tests | Core/simulator/server runtime tests, Clippy, executable schema/catalog Node checks, demo, SDK, release tests, profile matrices, explicit CLI replays, retention |
+| `npm run check:engine:source` | Tooling tests and archived-source/parser agreement, without Cargo or its lock | All Rust work and executable contracts/runtime work |
+| `npm run check:engine:contracts` | Tooling plus existing source/schema/catalog Node preflight and downgrade/invalid-shape negatives | Runtime-backed Node contracts/demo and Rust unit tests/lints; may **compile release mtg-sim** on a cold cache |
+| `npm run check:engine:full` | Former check-engine workload: formatting, Clippy, workspace Rust tests, tooling and complete Node contracts/demo | SDK, ignored diagnostics, separate release tests, profile matrix, explicit CLI replays and offline retention |
 
-## Parallel work and shared execution
+`--fast`, `--source`, `--contracts` and `--full` are mutually exclusive. The full
+mode runs the cheap contract cohort once, removing its former duplicate early
+preflight. Source and fast use one exact named archive/parser test; keep that
+selection synchronized if the test is renamed. Rust test optimization remains
+level 2 with debug assertions and overflow checks; production guards are unchanged.
+Compiler/contracts integration tests and Rust doc tests are also omitted from
+the default. The compiler/contracts library tests exercise lowering and strict data validation,
+but do not establish that games, host behavior or replay work.
 
-Use separate worktrees/owned files for independent implementation and review.
-Agents can think, audit, write and run cheap independent checks while a frozen
-candidate is verified. Do not mutate the source used by an active verification.
-Assign one expensive acceptance owner per integration candidate; agents must not
-independently start duplicate full gates. Serialize Cargo compilation and heavy
-acceptance until measured CPU/memory headroom justifies bounded overlap.
-Coordinate through the primary task; a busy verifier is a reason to continue
-independent source work, not to rerun its checks elsewhere.
+For a gameplay change, add the smallest relevant Rust test filter, for example
+`cargo test --locked -p mtg-core FILTER`, under the shared Cargo lock. For parser
+changes, add the affected parser tests. Use executable contracts when IR/schema
+changes need cross-language coverage. Run SDK checks when the public API changes.
+Use release, full demo, a selected profile/seed, independent replay or offline
+reconstruction only when the actual change or an explicitly requested release
+claim warrants them. No default obligation exists to run twelve profiles, all
+216 games and explicit replays, duplicate debug/release suites, historical golden
+matrices, or fresh offline rebuilds. State which obligations you did not exercise.
+Do not silently remove runtime correctness guards to make a selected test pass.
 
-For cooperating local threads, shared advisory lock paths are:
+Review and integration need focused evidence proportionate to the change, not a
+mandatory full gate. Read-only review and documentation edits do not invalidate
+compiled-source checks. After a code change, repeat affected checks with the reason
+recorded; do not rerun passed unrelated work. Preserve exact failed/interrupted
+results and distinguish an unrun check from a pass. Avoid huge generated reports.
+
+## Git checkpoint cadence
+
+Commit each coherent change after relevant focused checks; push immediately after
+each meaningful checkpoint and before a handoff/end of session. Do not hold commits
+or pushes for the full acceptance matrix. WIP checkpoints are allowed if labeled
+clearly and exact failures/unrun checks are recorded; make no claim of acceptance.
+Stage explicit task-owned paths, never blanket generated artifacts; never
+force-push shared branches. See [the gardening coordination record](game-engine-gardening.md)
+for the current integration scope and Git audit.
+
+## Shared Cargo execution and caches
+
+Use separate worktrees and owned files for independent work. One designated
+verifier coordinates expensive Cargo commands; other threads can inspect source
+and run `check:engine:source`. Honor these shared advisory locks:
 
 - `/home/josh/.local/share/mtg-ecosystem/engine-verification/cargo.lock`
-- `/home/josh/.local/share/mtg-ecosystem/engine-verification/full-gate.lock`
+- `/home/josh/.local/share/mtg-ecosystem/engine-verification/full-gate.lock` when an
+  explicitly chosen multi-phase acceptance needs one owner.
 
-Use `flock` for execution ownership and record lock waiting separately from child
-execution. Every participant must honor the same locks. Do not change a workload
-or proof limit to obtain concurrency. Parallel runtime jobs require measured
-memory headroom; timings must identify concurrency and other host load.
+The runner acquires `cargo.lock` for fast/contracts/full, including nested Node
+Cargo calls. **Do not wrap it in a second acquisition of the same lock.** Wrap
+standalone Cargo commands with `flock` on that path. Record waiting separately
+from execution. Never edit the source inventory being measured. A busy verifier
+is a reason to continue independent work, not start a duplicate build elsewhere.
 
-## Verification-speed optimization loop
+The runner defaults `CARGO_INCREMENTAL=0` to avoid repeated multi-GiB incremental
+cache growth. `CARGO_INCREMENTAL=1` explicitly opts in; this trades disk for
+potentially faster Rust edits. Ordinary Cargo dependency/final outputs still cache.
+The effective setting and `CARGO_TARGET_DIR` are recorded. The runner never deletes
+an existing cache. Inspect active processes and coordinate with storage ownership
+before reusing or removing a target directory. Reuse is a compilation aid, not
+permission to attribute another source's test result to the current source.
 
-The separate optimization thread profiles a frozen baseline, makes a small
-change, runs focused equivalence/performance checks, obtains independent source
-review, and reports a candidate with wall/CPU/memory evidence. It repeats after
-integration. One centrally owned full gate validates the final reviewed candidate;
-implementation subagents do not each run it. Avoid speculative core rewrites.
+Rust phases require the pinned 1.99.0 toolchain. On this host a preserved copy is
+available at `/home/josh/.local/share/mtg-ecosystem/engine-toolchains/rust1990-node26111-v1`:
+prepend its `usr/bin` to `PATH` and its `usr/lib` to `LD_LIBRARY_PATH`. The system
+Rust can differ; rejection is an environment failure, not a test pass. Source-only
+mode needs Node/dependencies but deliberately does not require Rust.
 
-First targets identified by the read-only runtime audit:
+## Measurement and coverage reporting
 
-- Reuse the detailed replay already checked by `verify_replay` for interaction
-  reporting, retaining all checkpoint/loss/terminal/digest checks and standalone
-  explicit CLI replay.
-- Serialize each immutable trace-run snapshot once instead of three times.
-- Run cheap schema/contract preflight before slow runtime checks.
-- Record child wall/user/system time, peak RSS, exit status, source/executable
-  identity and verification coverage. Existing elapsed-only logs cannot distinguish
-  CPU from I/O or other blocked time precisely.
-- After measuring memory, consider longest-first batches, more runtime workers,
-  and overlap of a verified prebuilt release CLI's Node checks with Rust tests.
-  Preserve debug and release evidence; avoid concurrent Cargo builds.
+The driver records source inventories before/after, executable/driver identities,
+phase commands, child wall/user/system time, largest single-process RSS, lock wait,
+exit/cancellation status, host load, selected mode and omitted coverage. Use
+`MTG_ENGINE_TIMING_FILE` for an explicit new JSONL path (existing files are never
+overwritten). A source change during execution fails the run.
 
-Representative A/B checks come before a full matrix. Full correctness comparison
-includes unchanged interaction/site summaries, manifests except build identity,
-accepted inputs, winners/outcomes, state hashes, decision/query/rule-step counters,
-historical references and all required independent replay results. Record gains
-only after measuring them. Development wall-time measurements are not quiet P7
-search-performance claims.
+Compare like workloads/cache states where practical; if a full baseline is too
+costly, use retained timings and label the different source, cache and coverage.
+Distinguish first run/recompilation from warm repeat. Reduced work is the intended
+benefit here; never call it a same-workload engine speedup. CPU is command plus
+waited-for descendants; RSS is the largest individual process, not aggregate group
+peak. Other host activity is uncontrolled and recorded as such. These are developer
+feedback measurements, not quiet search-performance claims. See
+[the fast-check measurement report](game-engine-fast-checks-20261109.md).

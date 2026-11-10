@@ -84,13 +84,77 @@ export interface MeasurementOptions {
   record: (value: any) => void;
 }
 
-export const engineCheckPhases = [
-  { label: "format", command: "cargo", args: ["fmt", "--all", "--", "--check"] },
-  { label: "contract-preflight", command: "node", args: ["--test", "packages/game-engine/tests/contracts.test.ts"], preflight: true },
-  { label: "clippy", command: "cargo", args: ["clippy", "--workspace", "--all-targets", "--locked", "--", "-D", "warnings"] },
-  { label: "rust-tests", command: "cargo", args: ["test", "--workspace", "--locked"] },
-  { label: "node-tests", command: "node", args: ["--test", "scripts/check-engine-driver.test.ts", "scripts/capture-json-output.test.ts", "scripts/retain-policy-sources.test.ts", "scripts/retain-server-evidence.test.ts", "packages/game-engine/tests/contracts.test.ts"] },
-] as const;
+export interface CheckPhase {
+  label: string;
+  command: string;
+  args: string[];
+  preflight?: boolean;
+}
+
+const tooling: CheckPhase = { label: "tooling-tests", command: "node", args: ["--test", "scripts/check-engine-driver.test.ts", "scripts/capture-json-output.test.ts", "scripts/retain-policy-sources.test.ts", "scripts/retain-server-evidence.test.ts"] };
+const archive: CheckPhase = { label: "archive-parser", command: "node", args: ["--test", "--test-name-pattern=^retained archive hashes agree with JavaScript and source parser$", "packages/game-engine/tests/contracts.test.ts"], preflight: true };
+const format: CheckPhase = { label: "format", command: "cargo", args: ["fmt", "--all", "--", "--check"] };
+
+// Development coverage is deliberately smaller than historical acceptance.
+// No default phase launches the simulator, release build, demo or profile matrix.
+export const engineCheckPlans = {
+  source: {
+    phases: [tooling, archive],
+    coverage: "Tooling behavior/negatives and archived-source parser agreement; no Cargo.",
+    omitted: "Rust formatting, compilation and tests; executable schema/catalog checks; runtime demo; SDK; release/profile/replay/retention gates.",
+  },
+  fast: {
+    phases: [tooling, archive, format,
+      { label: "rust-check", command: "cargo", args: ["check", "--workspace", "--all-targets", "--locked"] },
+      { label: "compiler-tests", command: "cargo", args: ["test", "--locked", "-p", "mtg-contracts", "-p", "mtg-compiler", "--lib"] }],
+    coverage: "Source/tooling checks, Rust formatting, all-target compilation, contracts/compiler unit tests.",
+    omitted: "Core/simulator/server runtime tests; Clippy; executable schema/catalog checks; runtime demo; SDK; release/profile/replay/retention gates.",
+  },
+  contracts: {
+    phases: [tooling, { label: "contract-preflight", command: "node", args: ["--test", "packages/game-engine/tests/contracts.test.ts"], preflight: true }],
+    coverage: "Tooling and all source/schema/catalog Node contracts, including downgrade negatives; may build release mtg-sim.",
+    omitted: "Rust formatting/lints/unit tests; runtime-backed Node contracts/demo; SDK; release test/profile/replay/retention gates.",
+  },
+  full: {
+    phases: [format, tooling,
+      { label: "clippy", command: "cargo", args: ["clippy", "--workspace", "--all-targets", "--locked", "--", "-D", "warnings"] },
+      { label: "rust-tests", command: "cargo", args: ["test", "--workspace", "--locked"] },
+      { label: "node-tests", command: "node", args: ["--test", "packages/game-engine/tests/contracts.test.ts"] }],
+    coverage: "Former check:engine coverage: formatting, Clippy, workspace Rust tests and all tooling/Node contracts including demo. Cheap contracts run once.",
+    omitted: "Ignored Rust diagnostics; SDK; separate release test/profile matrix/explicit CLI replay/retention gates. This is not universal acceptance.",
+  },
+} satisfies Record<string, { phases: CheckPhase[]; coverage: string; omitted: string }>;
+export type CheckMode = keyof typeof engineCheckPlans;
+
+export function parseCheckArguments(args: string[]) {
+  let mode: CheckMode = "fast";
+  let selected = false;
+  let planOnly = false;
+  let help = false;
+  for (const arg of args) {
+    if (arg === "--plan") planOnly = true;
+    else if (arg === "--help") help = true;
+    else if (arg.startsWith("--") && Object.hasOwn(engineCheckPlans, arg.slice(2))) {
+      if (selected) throw new Error("Select exactly one engine check mode.");
+      mode = arg.slice(2) as CheckMode;
+      selected = true;
+    } else throw new Error(`Unknown engine check argument: ${arg}`);
+  }
+  return { mode, planOnly, help };
+}
+
+export async function runCheckPhases(phases: readonly CheckPhase[], options: MeasurementOptions, execute = measuredCommand) {
+  const completed: string[] = [];
+  for (const phase of phases) {
+    const result = await execute(phase.label, phase.command, [...phase.args], {
+      ...options,
+      env: { ...(options.env ?? process.env), MTG_ENGINE_CONTRACT_PREFLIGHT: phase.preflight ? "1" : "0" },
+    });
+    if (result.code !== 0) return { code: result.code ?? 1, completed, failed: phase.label };
+    completed.push(phase.label);
+  }
+  return { code: 0, completed, failed: null };
+}
 
 export async function measuredCommand(label: string, command: string, args: string[], options: MeasurementOptions) {
   const identity = executableIdentity(command, options);
