@@ -25,7 +25,7 @@ pub use strict_io::strict_read_seekable;
 
 /// Latest IR accepted by validation/schema and emitted by full-corpus coverage.
 /// Historical capability minimums and fixture versions remain literal evidence.
-pub const CURRENT_IR_VERSION: u32 = 29;
+pub const CURRENT_IR_VERSION: u32 = 30;
 pub const MIN_IR_VERSION: u32 = 3;
 
 pub const RULES_EDITION: &str = "2026-09-25";
@@ -173,6 +173,7 @@ pub enum Capability {
     OptionalControllerDrawV1,
     EventPlayerDiscardV1,
     EventPlayerSacrificeV1,
+    FilteredDamageTriggerV1,
     EventPlayerRecipientV1,
     SourceStatusConditionV1,
     StepBeginningTriggerV1,
@@ -803,14 +804,36 @@ pub enum TriggerCondition {
     SelfDies,
     SelfAuraToGraveyard,
 }
-/// CR 120.2/120.7/603.2c: independent occurrence dimensions. These finite
-/// capabilities admit only this invocation's exact source. V1 requires combat
-/// damage to a player; V2 also admits unrestricted damage kind and opponents.
-/// Neither supplies event-player or event-quantity program bindings.
+/// CR 120.2/120.7/603.2c: independent source, kind and recipient dimensions.
+/// Source means the observer's exact incarnation; CreatureFilter separately
+/// matches actual creature damage sources and requires FilteredDamageTriggerV1.
+/// DamageTriggerV1 requires combat/player; V2 permits any kind or opponents.
+/// These predicates alone supply no event-player or event-quantity binding.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "subject", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DamageTriggerSource {
     Source {},
+    /// A creature dealing damage, with additional type membership and a
+    /// controller relation to the observing ability's controller (CR 603.10).
+    CreatureFilter {
+        controller: DamageSourceRelation,
+        types: TypePredicate,
+    },
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DamageSourceRelation {
+    Controller,
+}
+impl<'de> Deserialize<'de> for DamageSourceRelation {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match String::deserialize(deserializer)?.as_str() {
+            "controller" => Ok(Self::Controller),
+            _ => Err(serde::de::Error::custom(
+                "unsupported damage source relation",
+            )),
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -1156,6 +1179,15 @@ impl Definition {
                 set.insert(Capability::SacrificeV1);
             }
             set.insert(Capability::TriggeredAbilityV1);
+            if matches!(
+                ability.condition,
+                TriggerCondition::DamageDealt {
+                    source: DamageTriggerSource::CreatureFilter { .. },
+                    ..
+                }
+            ) {
+                set.insert(Capability::FilteredDamageTriggerV1);
+            }
             set.insert(match ability.condition {
                 TriggerCondition::StepBegan { .. } => Capability::StepBeginningTriggerV1,
                 TriggerCondition::SpellCast { .. } => Capability::CastTriggerV1,
@@ -1565,10 +1597,22 @@ impl Definition {
             return Err("trigger programs require a supported permanent source".into());
         }
         for ability in &self.triggered {
-            if matches!(ability.condition, TriggerCondition::DamageDealt { .. })
-                && !c.has_type(CardKind::Creature)
+            if matches!(
+                ability.condition,
+                TriggerCondition::DamageDealt {
+                    source: DamageTriggerSource::Source {},
+                    ..
+                }
+            ) && !c.has_type(CardKind::Creature)
             {
                 return Err("self damage trigger requires a creature source".into());
+            }
+            if let TriggerCondition::DamageDealt {
+                source: DamageTriggerSource::CreatureFilter { types, .. },
+                ..
+            } = &ability.condition
+            {
+                types.validate()?;
             }
             if let TriggerCondition::CreatureAttacked { attacker } = &ability.condition {
                 match attacker {
@@ -2415,6 +2459,22 @@ impl Catalog {
         }
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
+            if self.schema_version < 30
+                && (d
+                    .capabilities
+                    .contains(&Capability::FilteredDamageTriggerV1)
+                    || d.triggered.iter().any(|a| {
+                        matches!(
+                            a.condition,
+                            TriggerCondition::DamageDealt {
+                                source: DamageTriggerSource::CreatureFilter { .. },
+                                ..
+                            }
+                        )
+                    }))
+            {
+                return Err("IR v30 is required for filtered damage sources".into());
+            }
             if self.schema_version < 29
                 && (d.capabilities.contains(&Capability::EventPlayerSacrificeV1)
                     || d.requirements()
@@ -2929,6 +2989,15 @@ pub fn catalog_schema() -> serde_json::Value {
             "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerSacrificeProgram"}}}}
         }}}}}
     }));
+    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"properties":{"schema_version":{"maximum":29}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "capabilities":{"items":{"not":{"const":Capability::FilteredDamageTriggerV1}}},
+            "triggered":{"items":{"properties":{"condition":{"properties":{
+                "damage_dealt":{"properties":{"source":{"properties":{"subject":{"not":{"const":"creature_filter"}}}}}}
+            }}}}}
+        }}}}}
+    }));
     schema["$defs"]["PreEventPlayerSacrificeProgram"] = serde_json::json!({"properties":{
         "instructions":{"items":{"properties":{"op":{"not":{"const":"sacrifice_creature"}}}}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerSacrificeProgram"}}}}
@@ -3298,6 +3367,7 @@ mod tests {
             (27, &[OptionalControllerDrawV1]),
             (28, &[EventPlayerDiscardV1]),
             (29, &[EventPlayerSacrificeV1]),
+            (30, &[FilteredDamageTriggerV1]),
         ];
         // Enumerate the public vocabulary, so a new capability cannot silently
         // escape this contract. Check full program-bearing definitions rather
@@ -3379,6 +3449,19 @@ mod tests {
         }];
         sacrifice.capabilities = sacrifice.requirements();
         definitions.push(sacrifice);
+        let mut filtered = damage.clone();
+        filtered.triggered[0].condition = TriggerCondition::DamageDealt {
+            source: DamageTriggerSource::CreatureFilter {
+                controller: DamageSourceRelation::Controller,
+                types: TypePredicate::Type {
+                    kind: CardKind::Creature,
+                },
+            },
+            kind: TriggerDamageKind::Combat,
+            recipient: DamageTriggerRecipient::Player,
+        };
+        filtered.capabilities = filtered.requirements();
+        definitions.push(filtered);
         // Each newly admitted dimension independently requires IR26, even when
         // paired with the original value of the other dimension.
         for (kind, recipient) in [
@@ -3738,6 +3821,146 @@ mod tests {
             serde_json::from_str::<ActionRecipient>("\"event_player\"").unwrap(),
             ActionRecipient::EventPlayer
         );
+    }
+    #[test]
+    fn filtered_damage_sources_validate_predicates_observers_and_minimum_version() {
+        let original: Catalog = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/expected-mana-ir.json"
+        ))
+        .unwrap();
+        let mut observer = original
+            .definitions
+            .iter()
+            .find(|d| d.name == "Mind Stone")
+            .unwrap()
+            .clone();
+        let mut program = observer.activated[0].program.clone();
+        program.instructions = vec![Instruction::DrawCards {
+            recipient: None,
+            count: Quantity::from(1),
+            source_block: 0,
+        }];
+        let predicate = TypePredicate::All {
+            terms: vec![
+                TypePredicate::Type {
+                    kind: CardKind::Artifact,
+                },
+                TypePredicate::Type {
+                    kind: CardKind::Creature,
+                },
+            ],
+        };
+        observer.triggered = vec![TriggeredAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            death_filter: None,
+            intervening_if: None,
+            condition: TriggerCondition::DamageDealt {
+                source: DamageTriggerSource::CreatureFilter {
+                    controller: DamageSourceRelation::Controller,
+                    types: predicate,
+                },
+                kind: TriggerDamageKind::Combat,
+                recipient: DamageTriggerRecipient::Player,
+            },
+            program,
+        }];
+        observer.capabilities = observer.requirements();
+        // Synthetic contract witness: filtered observers need not be creatures.
+        observer.validate().unwrap();
+        assert!(
+            observer
+                .capabilities
+                .contains(&Capability::FilteredDamageTriggerV1)
+        );
+        assert!(observer.capabilities.contains(&Capability::DamageTriggerV1));
+        assert!(
+            !observer
+                .capabilities
+                .contains(&Capability::SourceDamageTriggerV2)
+        );
+        let mut c = Catalog {
+            schema_version: 30,
+            rules_edition: RULES_EDITION.into(),
+            rules_sha256: RULES_SHA256.into(),
+            definitions: vec![observer.clone()],
+        };
+        c.validate().unwrap();
+        c.schema_version = 29;
+        assert!(c.validate().unwrap_err().contains("IR v30"));
+        c.definitions[0]
+            .capabilities
+            .remove(&Capability::FilteredDamageTriggerV1);
+        assert!(c.validate().unwrap_err().contains("IR v30"));
+        let mut self_observer = observer.clone();
+        if let TriggerCondition::DamageDealt { source, .. } =
+            &mut self_observer.triggered[0].condition
+        {
+            *source = DamageTriggerSource::Source {};
+        }
+        self_observer.capabilities = self_observer.requirements();
+        assert!(
+            self_observer
+                .validate()
+                .unwrap_err()
+                .contains("creature source")
+        );
+        for (kind, recipient) in [
+            (TriggerDamageKind::Any, DamageTriggerRecipient::Player),
+            (
+                TriggerDamageKind::Combat,
+                DamageTriggerRecipient::OpponentPlayer,
+            ),
+        ] {
+            let mut extended = observer.clone();
+            if let TriggerCondition::DamageDealt {
+                kind: k,
+                recipient: r,
+                ..
+            } = &mut extended.triggered[0].condition
+            {
+                *k = kind;
+                *r = recipient;
+            }
+            extended.capabilities = extended.requirements();
+            extended.validate().unwrap();
+            assert!(
+                extended
+                    .capabilities
+                    .contains(&Capability::FilteredDamageTriggerV1)
+            );
+            assert!(
+                extended
+                    .capabilities
+                    .contains(&Capability::SourceDamageTriggerV2)
+            );
+            assert!(!extended.capabilities.contains(&Capability::DamageTriggerV1));
+        }
+        for predicate in [
+            TypePredicate::All { terms: vec![] },
+            TypePredicate::AnyOf {
+                terms: vec![TypePredicate::Any {}; 33],
+            },
+        ] {
+            let mut bad = observer.clone();
+            if let TriggerCondition::DamageDealt {
+                source: DamageTriggerSource::CreatureFilter { types, .. },
+                ..
+            } = &mut bad.triggered[0].condition
+            {
+                *types = predicate;
+            }
+            bad.capabilities = bad.requirements();
+            assert!(bad.validate().is_err());
+        }
+        for relation in [
+            serde_json::json!({"controller":null}),
+            serde_json::json!("owner"),
+            serde_json::json!("any_player"),
+            serde_json::json!("opponent"),
+            serde_json::json!(true),
+        ] {
+            assert!(serde_json::from_value::<DamageSourceRelation>(relation).is_err());
+        }
     }
     #[test]
     fn incremental_sha256_matches_reference_across_byte_fragment_boundaries() {

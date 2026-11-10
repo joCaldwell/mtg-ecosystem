@@ -261,13 +261,92 @@ enum SourceTrigger {
         events: Vec<SourceTrigger>,
     },
 }
-// Keep filtered/event-pronoun sources outside this finite mirror. Named
-// source references are archive-bound and canonicalized to "this" by the
-// existing self_reference pass before this mirror is decoded.
+// Self and complete creature filters have distinct meanings. Event-pronoun
+// sources remain unsupported. Named source references require archive-bound
+// canonicalization to "this" before this strict mirror is decoded.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "ref", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceDamageObject {
-    This { noun: String },
+    This {
+        noun: String,
+    },
+    Filter {
+        filter: SourceDamageFilter,
+        count: Count,
+    },
+}
+// This creature-domain mirror consumes every source filter field. Requiring
+// "creature" in root types avoids narrowing a printed artifact-only source.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceDamageFilter {
+    types: Vec<String>,
+    #[serde(
+        default,
+        rename = "nonTypes",
+        deserialize_with = "present_damage_filter_field"
+    )]
+    non_types: Option<Vec<String>>,
+    #[serde(
+        default,
+        rename = "allOf",
+        deserialize_with = "present_damage_filter_field"
+    )]
+    all_of: Option<Vec<SourceTypeFilter>>,
+    #[serde(
+        default,
+        rename = "anyOf",
+        deserialize_with = "present_damage_filter_field"
+    )]
+    any_of: Option<Vec<SourceTypeFilter>>,
+    #[serde(default, deserialize_with = "present_damage_filter_field")]
+    control: Option<String>,
+}
+fn present_damage_filter_field<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
+fn lower_damage_subject(what: &SourceDamageObject) -> Result<DamageTriggerSource, Failure> {
+    match what {
+        SourceDamageObject::This { noun } if noun == "creature" => {
+            Ok(DamageTriggerSource::Source {})
+        }
+        SourceDamageObject::Filter { filter, count }
+            if fixed_one(count) && filter.types.iter().any(|t| t == "creature") =>
+        {
+            let controller = match filter.control.as_deref() {
+                Some("you") => DamageSourceRelation::Controller,
+                _ => {
+                    return Err(unsupported(
+                        "trigger.what.filter.control",
+                        "unsupported damage source controller",
+                    ));
+                }
+            };
+            Ok(DamageTriggerSource::CreatureFilter {
+                controller,
+                types: lower_type_predicate(
+                    &SourceTypeFilter {
+                        cls: None,
+                        types: Some(filter.types.clone()),
+                        non_types: filter.non_types.clone(),
+                        all_of: filter.all_of.clone(),
+                        any_of: filter.any_of.clone(),
+                    },
+                    None,
+                    true,
+                    0,
+                )?,
+            })
+        }
+        _ => Err(unsupported(
+            "trigger.what",
+            "unsupported complete creature damage source/cardinality",
+        )),
+    }
 }
 // ObjectFilter semantics: fields/arrays conjunctive, explicit anyOf disjunctive.
 // packages/oracle-parser/src/ast.ts ObjectFilter; CR 205.2b, 601.2i.
@@ -2941,13 +3020,13 @@ fn lower_trigger(
     };
     let condition=match trigger {
         SourceTrigger::DealsDamage { what, combat: Some(true), to }
-            if *to == serde_json::json!("any") && matches!(what, SourceDamageObject::This { noun } if noun == "creature") => {
-            TriggerCondition::DamageDealt { source: DamageTriggerSource::Source {},
+            if *to == serde_json::json!("any") => {
+            TriggerCondition::DamageDealt { source: lower_damage_subject(what)?,
                 kind: TriggerDamageKind::Combat, recipient: DamageTriggerRecipient::Player }
         },
         SourceTrigger::DealsDamage { what, combat: None, to }
-            if *to == serde_json::json!({"player":"an-opponent"}) && matches!(what, SourceDamageObject::This { noun } if noun == "creature") => {
-            TriggerCondition::DamageDealt { source: DamageTriggerSource::Source {},
+            if *to == serde_json::json!({"player":"an-opponent"}) => {
+            TriggerCondition::DamageDealt { source: lower_damage_subject(what)?,
                 kind: TriggerDamageKind::Any, recipient: DamageTriggerRecipient::OpponentPlayer }
         },
         SourceTrigger::Attacks { what } => {

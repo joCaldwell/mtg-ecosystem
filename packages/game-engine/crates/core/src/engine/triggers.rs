@@ -120,7 +120,7 @@ impl TriggerEventWitness {
 // invocation and of assignment-time source facts. Restore uses that frozen
 // trigger controller, never a later controller or current recipient liveness.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-fn damage_matches(
+pub(super) fn damage_matches(
     condition: &TriggerCondition,
     source: ObjectId,
     controller: PlayerId,
@@ -128,14 +128,32 @@ fn damage_matches(
     damage: &ActualDamage,
 ) -> bool {
     let TriggerCondition::DamageDealt {
-        source: DamageTriggerSource::Source {},
+        source: subject,
         kind: required_kind,
         recipient,
     } = condition
     else {
         return false;
     };
-    damage.source.object == source
+    let subject_matches = match subject {
+        DamageTriggerSource::Source {} => damage.source.object == source,
+        DamageTriggerSource::CreatureFilter {
+            controller: relation,
+            types,
+        } => {
+            // CR 109.5/205.2b/603.2c: a creature domain and the complete type
+            // predicate both match the actual damager's frozen characteristics.
+            // Its damage-time controller differs from its owner and from the
+            // controller of a noncombat invocation that made it deal damage.
+            damage.source.zone == Zone::Battlefield
+                && damage.source.characteristics.has_type(CardKind::Creature)
+                && types.matches(&damage.source.characteristics)
+                && match relation {
+                    DamageSourceRelation::Controller => damage.source.controller == controller,
+                }
+        }
+    };
+    subject_matches
         && damage.amount > Quantity::zero()
         && matches!(
             (required_kind, kind),
@@ -992,7 +1010,6 @@ impl Game {
                 transaction.is_none_or(|id| id.0 < self.state.rules.next_damage_transaction_id)
                     && (damage.id.0 as usize) < self.damage_limit()
                     && damage.amount > Quantity::zero()
-                    && fact.object == source
                     && fact.zone == Zone::Battlefield
                     && fact.characteristics.has_type(CardKind::Creature)
                     && (*kind != DamageKind::Combat || fact.controller == damage.controller)
@@ -1004,7 +1021,7 @@ impl Game {
                         .state
                         .rules
                         .cards
-                        .get(&source.card)
+                        .get(&fact.object.card)
                         .is_some_and(|c| c.owner == fact.owner)
                     && matches!(damage.recipient, DamageRecipient::Player { player } if player.0 < 4)
                     && damage_matches(condition, source, controller, *kind, damage)

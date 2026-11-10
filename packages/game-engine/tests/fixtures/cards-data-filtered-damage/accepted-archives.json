@@ -1,0 +1,14 @@
+[
+  {
+    "manifest_file": "archive-manifest-current.json",
+    "manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+    "file_sha256": "d705222b280a71cb5a5362f657d530b22402ca51687bac3227c1d6db403d0282",
+    "parser_revision": "327b3360ea8e5cffb75b136223e75a348e903cbe",
+    "parser_source_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+    "corpus_sha256": "f8cb9da28e34b01dbd72504f059e012bda62db7d332acd2e3b43e75570e92738",
+    "record_sha256": [
+      "347f493891553e335cc88b29624f8fd49542836ad1db0a53305dbe44cad4be95",
+      "3c63a54f89777acc650d07af8d8ff9ac02931ae4da004d75e521131608042a1d"
+    ]
+  }
+]

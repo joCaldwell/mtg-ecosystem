@@ -17,6 +17,9 @@ const CUTPURSE: &str = include_str!(
 const DEMON: &str = include_str!(
     "../../../tests/fixtures/cards-data-d2ce/2e55fc03-779c-4a71-beb7-aa0ade738c24.json"
 );
+const RESEARCH: &str = include_str!(
+    "../../../tests/fixtures/cards-data-d2ce/ba5055ce-6809-47a4-bee6-fb97a5b60f8a.json"
+);
 fn rows() -> Vec<(serde_json::Value, String)> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/cards-data-d2ce");
@@ -68,12 +71,15 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
         // one card, followed by the invocation controller's mandatory draw.
         // IR29 admits Demon of Loathing (line 6875): the damaged player chooses
         // and sacrifices one controlled creature; flying/trample are retained.
+        // IR30 admits Research Thief (line 28052): a controlled artifact
+        // creature deals damage; complete flash/flying source remains intact.
         let otter = row["archive_line"] == 14102;
         let commando = row["archive_line"] == 10885;
         let cutpurse = row["archive_line"] == 13027;
         let demon = row["archive_line"] == 6875;
+        let research = row["archive_line"] == 28052;
         if ![
-            4538, 6875, 9081, 10885, 12306, 13027, 14102, 14941, 19442, 21636, 28189,
+            4538, 6875, 9081, 10885, 12306, 13027, 14102, 14941, 19442, 21636, 28052, 28189,
         ]
         .contains(&row["archive_line"].as_u64().unwrap())
         {
@@ -88,7 +94,25 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
         admitted += 1;
         let d = lower(&raw);
         assert_eq!(d.triggered.len(), 1);
-        let expected = if otter {
+        let expected = if research {
+            TriggerCondition::DamageDealt {
+                source: DamageTriggerSource::CreatureFilter {
+                    controller: DamageSourceRelation::Controller,
+                    types: TypePredicate::All {
+                        terms: vec![
+                            TypePredicate::Type {
+                                kind: CardKind::Artifact,
+                            },
+                            TypePredicate::Type {
+                                kind: CardKind::Creature,
+                            },
+                        ],
+                    },
+                },
+                kind: TriggerDamageKind::Combat,
+                recipient: DamageTriggerRecipient::Player,
+            }
+        } else if otter {
             TriggerCondition::DamageDealt {
                 source: DamageTriggerSource::Source {},
                 kind: TriggerDamageKind::Any,
@@ -123,7 +147,9 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
             };
             assert_eq!(
                 c.validate().is_ok(),
-                ((if demon {
+                ((if research {
+                    30
+                } else if demon {
                     29
                 } else if cutpurse {
                     28
@@ -140,7 +166,7 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
             );
         }
     }
-    assert_eq!(admitted, 11);
+    assert_eq!(admitted, 12);
 }
 #[test]
 fn d2ce_rejects_partial_kind_source_recipient_optional_quantity_and_condition_shapes() {
@@ -165,6 +191,7 @@ fn d2ce_rejects_partial_kind_source_recipient_optional_quantity_and_condition_sh
     }
     for v in [
         serde_json::json!({"ref":"it"}),
+        // An unrestricted controller relation remains outside the IR30 slice.
         serde_json::json!({"ref":"filter","filter":{"types":["creature"]},"count":{"amount":"fixed","value":1}}),
         serde_json::json!({"ref":"this","noun":"permanent"}),
         serde_json::json!({"ref":"this","noun":"creature","extra":true}),
@@ -681,4 +708,173 @@ fn event_player_sacrifice_rejects_qualified_choosers_cardinality_and_unbound_sou
             compile(MANIFEST, &raw)
         );
     }
+}
+
+#[test]
+fn filtered_damage_exact_research_source_provenance_and_conjunctive_types() {
+    let d = lower(RESEARCH);
+    let source: serde_json::Value = serde_json::from_str(RESEARCH).unwrap();
+    assert_eq!(d.name, "Research Thief");
+    assert_eq!(d.characteristics.kind, CardKind::Creature);
+    assert_eq!(d.characteristics.additional_types, [CardKind::Artifact]);
+    assert_eq!(d.keywords, [KeywordAbility::Flash, KeywordAbility::Flying]);
+    assert_eq!(d.spell.as_ref().unwrap().timing, SpellTiming::Instant);
+    assert_eq!(
+        source["faces"][0]["result"]["abilities"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    assert_eq!(d.triggered.len(), 1);
+    let a = &d.triggered[0];
+    assert_eq!(
+        a.condition,
+        TriggerCondition::DamageDealt {
+            source: DamageTriggerSource::CreatureFilter {
+                controller: DamageSourceRelation::Controller,
+                types: TypePredicate::All {
+                    terms: vec![
+                        TypePredicate::Type {
+                            kind: CardKind::Artifact
+                        },
+                        TypePredicate::Type {
+                            kind: CardKind::Creature
+                        },
+                    ]
+                },
+            },
+            kind: TriggerDamageKind::Combat,
+            recipient: DamageTriggerRecipient::Player,
+        }
+    );
+    assert_eq!(
+        a.program.instructions,
+        [Instruction::DrawCards {
+            recipient: None,
+            count: Quantity::from(1),
+            source_block: 2
+        }]
+    );
+    assert!(
+        a.program.targets.is_empty() && a.program.modes.is_empty() && a.intervening_if.is_none()
+    );
+    assert_eq!(d.provenance.source_sha256, source["sourceSha256"]);
+    assert_eq!(d.provenance.ast_sha256, source["astSha256"]);
+    assert_eq!(d.provenance.binding_sha256, source["bindingSha256"]);
+    assert!(d.capabilities.contains(&Capability::DamageTriggerV1));
+    assert!(
+        d.capabilities
+            .contains(&Capability::FilteredDamageTriggerV1)
+    );
+    assert!(!d.capabilities.contains(&Capability::SourceDamageTriggerV2));
+    let mut missing = d;
+    missing
+        .capabilities
+        .remove(&Capability::FilteredDamageTriggerV1);
+    assert!(missing.validate().is_err());
+}
+
+#[test]
+fn filtered_damage_preserves_controlled_sources_and_boolean_types() {
+    let raw = tests::changed_source(RESEARCH, |r| {
+        let result = &mut r["faces"][0]["result"];
+        let filter = &mut result["abilities"][2]["trigger"]["what"]["filter"];
+        filter["nonTypes"] = serde_json::json!(["enchantment"]);
+        filter["anyOf"] = serde_json::json!([{"types":["artifact"]},{"types":["enchantment"]}]);
+        result["lines"][2]["ability"] = result["abilities"][2].clone();
+    });
+    let d = lower(&raw);
+    let TriggerCondition::DamageDealt {
+        source: DamageTriggerSource::CreatureFilter { controller, types },
+        ..
+    } = &d.triggered[0].condition
+    else {
+        panic!("filter");
+    };
+    assert_eq!(*controller, DamageSourceRelation::Controller);
+    types.validate().unwrap();
+    let mut characteristics = d.characteristics.clone();
+    assert!(types.matches(&characteristics));
+    characteristics.additional_types.clear();
+    assert!(
+        !types.matches(&characteristics),
+        "artifact+creature is conjunctive"
+    );
+    characteristics.additional_types = vec![CardKind::Artifact, CardKind::Enchantment];
+    assert!(
+        !types.matches(&characteristics),
+        "negative type is retained"
+    );
+    // The complete controlled creature filter is supported, whereas an absent
+    // controller relation in the historical negatives remains unsupported.
+    let d = lower(&changed(
+        |a| a["trigger"]["what"] = serde_json::json!({"ref":"filter","filter":{"types":["creature"],"control":"you"},"count":{"amount":"fixed","value":1}}),
+    ));
+    assert_eq!(
+        d.triggered[0].condition,
+        TriggerCondition::DamageDealt {
+            source: DamageTriggerSource::CreatureFilter {
+                controller: DamageSourceRelation::Controller,
+                types: TypePredicate::Type {
+                    kind: CardKind::Creature
+                }
+            },
+            kind: TriggerDamageKind::Combat,
+            recipient: DamageTriggerRecipient::Player,
+        }
+    );
+}
+
+#[test]
+fn filtered_damage_rejects_partial_qualifiers_noncreature_narrowing_and_predicate_exhaustion() {
+    type Mutation = fn(&mut serde_json::Value);
+    for mutate in [
+        (|w: &mut serde_json::Value| w["filter"]["types"] = serde_json::json!(["artifact"]))
+            as Mutation,
+        |w| w["filter"]["types"] = serde_json::json!([]),
+        |w| w["filter"]["types"] = serde_json::json!(["creature", "future-kind"]),
+        |w| w["count"]["value"] = 0.into(),
+        |w| w["count"]["value"] = 2.into(),
+        |w| {
+            w["filter"].as_object_mut().unwrap().remove("control");
+        },
+        |w| w["filter"]["control"] = "opponent".into(),
+        |w| w["filter"]["control"] = "any_player".into(),
+        |w| w["filter"]["control"] = "owner".into(),
+        |w| w["filter"]["control"] = serde_json::Value::Null,
+        |w| w["filter"]["nonTypes"] = serde_json::Value::Null,
+        |w| w["filter"]["owner"] = "you".into(),
+        |w| w["filter"]["other"] = true.into(),
+        |w| w["filter"]["status"] = serde_json::json!(["attacking"]),
+        |w| w["grouping"] = "one-or-more".into(),
+        |w| w["amount"] = serde_json::json!({"amount":"fixed","value":1}),
+        |w| w["filter"]["anyOf"] = serde_json::json!([]),
+        |w| w["filter"]["types"] = serde_json::json!(vec!["creature"; 33]),
+        |w| {
+            let mut child = serde_json::json!({"types":["creature"]});
+            for _ in 0..10 {
+                child = serde_json::json!({"allOf":[child]});
+            }
+            w["filter"]["allOf"] = serde_json::json!([child]);
+        },
+    ] {
+        let raw = tests::changed_source(RESEARCH, |r| {
+            let result = &mut r["faces"][0]["result"];
+            mutate(&mut result["abilities"][2]["trigger"]["what"]);
+            result["lines"][2]["ability"] = result["abilities"][2].clone();
+        });
+        assert!(
+            matches!(compile(MANIFEST, &raw), CompileResult::Unsupported { .. }),
+            "{:?}",
+            compile(MANIFEST, &raw)
+        );
+    }
+    let frostfang = include_str!(
+        "../../../tests/fixtures/cards-data-d2ce/b99ada26-9a61-4175-9fb8-15a106960220.json"
+    );
+    assert!(matches!(
+        compile(MANIFEST, frostfang),
+        CompileResult::Unsupported { .. }
+    ));
 }
