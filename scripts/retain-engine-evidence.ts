@@ -3,6 +3,7 @@
 // https://doc.rust-lang.org/cargo/commands/cargo-vendor.html
 // https://doc.rust-lang.org/cargo/reference/source-replacement.html
 import { spawnSync } from "node:child_process";
+import { retentionScratch, retainExecutable } from "./retention-workspace.ts";
 import { captureJsonOutput } from "./capture-json-output.ts";
 import { retainPolicySources, verifyRetainedPolicySources } from "./retain-policy-sources.ts";
 import { createHash } from "node:crypto";
@@ -27,7 +28,8 @@ const rulesPath = process.env.MTG_ENGINE_RULES_PATH ?? path.join(root, ".scryfal
 const rulesBytes = fs.readFileSync(rulesPath);
 const rulesSha256 = "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca";
 if (sha(rulesBytes) !== rulesSha256) throw new Error("Pinned official rules digest mismatch.");
-const bundleRoot = path.join(root, "generated/p2-bundles");
+const scratch = retentionScratch();
+const bundleRoot = path.join(scratch, "bundles");
 fs.mkdirSync(bundleRoot, { recursive: true });
 // Inspect only this capture: historical bundles keep their original versions
 // and source identities and must not enter this run's strict metadata reader.
@@ -76,8 +78,8 @@ function recordFiles(dir: string) {
   }
 }
 recordFiles(vendorPath);
-const cargoHomePath = path.join(store, "fresh-cargo-home");fs.mkdirSync(cargoHomePath);
-const targetPath = path.join(store, "fresh-target");
+const cargoHomePath = path.join(scratch, "fresh-cargo-home");fs.mkdirSync(cargoHomePath);
+const targetPath = path.join(scratch, "fresh-target");
 const env = { ...process.env, CARGO_HOME: cargoHomePath, CARGO_TARGET_DIR: targetPath,
   CARGO_NET_OFFLINE: "true", CARGO_ENCODED_RUSTFLAGS: bundle.rustflags,
   CARGO_PROFILE_RELEASE_OPT_LEVEL: bundle.opt_level,
@@ -85,7 +87,7 @@ const env = { ...process.env, CARGO_HOME: cargoHomePath, CARGO_TARGET_DIR: targe
   CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: bundle.debug_assertions };
 const initialCargoHomeEmpty = fs.readdirSync(cargoHomePath).length === 0;
 run("cargo", ["build", "--frozen", "--release", "--target", bundle.target, "-p", "mtg-sim"], sourceRoot, env);
-const rebuilt = path.join(targetPath, bundle.target, "release/mtg-sim");
+const rebuilt = retainExecutable(path.join(targetPath, bundle.target, "release/mtg-sim"), store, "mtg-sim");
 const verification = runJson(rebuilt, ["verify-bundle", bundlePath], store, env);
 if (verification.state_sha256 !== report.state_sha256) throw new Error("Offline rebuilt replay differs.");
 if (sha(fs.readFileSync(retainedRulesPath)) !== bundle.catalog.rules_sha256) throw new Error("Retained rules/catalog mismatch.");

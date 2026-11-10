@@ -8,14 +8,14 @@
   "scripts": {
     "check:engine": "node scripts/check-engine.ts",
     "demo:engine": "cargo run --locked -p mtg-sim -- demo",
-    "retain:engine": "node scripts/retain-engine-evidence.ts",
+    "retain:engine": "python3 scripts/run-retention.py engine",
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces",
     "ingest": "node scripts/ingest-scryfall.ts",
     "build-ir": "node scripts/build-ir.ts",
     "archive-parser": "node scripts/archive-parser.ts",
     "validate": "node scripts/validate-parser.ts",
-    "retain:server": "node scripts/retain-server-evidence.ts"
+    "retain:server": "python3 scripts/run-retention.py server"
   },
   "devDependencies": {
     "typescript": "^5.4.5",

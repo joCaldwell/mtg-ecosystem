@@ -30,14 +30,20 @@ def usage(root):
     pending = [Path(root)]
     while pending:
         entry = pending.pop()
-        info = entry.lstat()
+        try:
+            info = entry.lstat()
+        except FileNotFoundError:
+            continue  # Compiler temp files can disappear during a read-only scan.
         key = (info.st_dev, info.st_ino)
         if key in seen:
             continue
         seen.add(key)
         total += info.st_blocks * 512
         if entry.is_dir() and not entry.is_symlink():
-            pending.extend(entry.iterdir())
+            try:
+                pending.extend(entry.iterdir())
+            except FileNotFoundError:
+                pass
     return total
 
 

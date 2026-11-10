@@ -338,6 +338,9 @@ Run from repository root, using pinned Rust 1.99.0:
 - `cargo run --locked -p mtg-sim -- schema`: export the executable JSON Schema.
 - `npm run retain:engine`: retain source/dependency closure and verify an offline
   rebuild/replay with a fresh Cargo home and target directory.
+  Retention runs through a bounded scratch supervisor; use the npm entry point.
+  See `docs/game-engine-storage.md` for disk budgets, cancellation cleanup and
+  dry-run inventory/cleanup commands. Historical generated evidence is not a cache.
 
 Search also exposes `search-roots`, `search-diagnostic INDEX`,
 `search-benchmark OUTPUT --quiescent` and `search-replay REPORT` through the

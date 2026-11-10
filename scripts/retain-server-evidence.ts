@@ -11,6 +11,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
+import {retentionScratch, retainExecutable} from './retention-workspace.ts';
 import {captureJsonOutput} from './capture-json-output.ts';
 import {verifyRetainedPolicySources} from './retain-policy-sources.ts';
 const root=fileURLToPath(new URL('../',import.meta.url));
@@ -52,8 +53,9 @@ function authoritativeSources(){if(sha(fs.readFileSync(engine.rules_path))!==eng
 authoritativeSources();
 const source=path.join(store,'source');
 if(!fs.existsSync(path.join(source,'packages/game-server/Cargo.toml')))throw new Error('Retained native closure does not contain server');
+const scratch=retentionScratch();
 const evidence=fs.mkdtempSync(path.join(store,'server-'));
-const home=path.join(evidence,'cargo-home'),target=path.join(evidence,'target');fs.mkdirSync(home);
+const home=path.join(scratch,'cargo-home'),target=path.join(scratch,'target');fs.mkdirSync(home);
 const env={...process.env,CARGO_HOME:home,CARGO_TARGET_DIR:target,CARGO_NET_OFFLINE:'true',CARGO_ENCODED_RUSTFLAGS:native.rustflags,CARGO_PROFILE_RELEASE_OPT_LEVEL:native.opt_level,CARGO_PROFILE_RELEASE_DEBUG:native.debug,CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS:native.debug_assertions,CARGO_BUILD_JOBS:'2'};
 // The predecessor already pins all Cargo/vendor bytes; independently recheck it
 // before and after compiling the server from the same retained workspace.
@@ -66,8 +68,8 @@ const metadata=JSON.parse(run('cargo',['metadata','--frozen','--offline','--form
 const packages=metadata.packages.filter((p:{source:string|null})=>p.source!==null).map((p:{name:string;version:string;source:string})=>({name:p.name,version:p.version,source:p.source}));
 run('cargo',['build','--frozen','--offline','--release','--target',native.target,'-p','mtg-server'],source,env,path.join(evidence,'server-build.log'));
 const host=native.target;
-const binary=path.join(target,host,'release/mtg-server');
 run('cargo',['test','--frozen','--offline','--release','--target',native.target,'-p','mtg-server'],source,env,path.join(evidence,'server-offline-tests.log'));
+const binary=retainExecutable(path.join(target,host,'release/mtg-server'),evidence,'mtg-server');
 const binarySha=sha(fs.readFileSync(binary));
 const schema=JSON.parse(run(binary,['schema'],evidence,env));
 const nativeInfo=JSON.parse(run(binary,['native-info'],evidence,env));
@@ -132,7 +134,7 @@ const generated=files(path.join(client,'generated'));
 const clientVerification=JSON.parse(fs.readFileSync(path.join(client,'generated/verification.json'),'utf8'));
 const compileInfo={rustc:run('rustc',['-vV'],source,env),node:run('node',['--version'],client,npmEnv).trim(),npm:run('npm',['--version',...npmFlags],client,npmEnv).trim(),host_tool_probes:{cc:run('cc',['--version'],source,env),ar:run('ar',['--version'],source,env)},c_tool_override_names:Object.keys(process.env).filter(k=>/^(CC|AR|CFLAGS|CPPFLAGS|CXX|CXXFLAGS)(_|$)/.test(k)).sort()};
 authoritativeSources();check(vendor,engine.dependency_files);check(source,sourceBefore);serverPins();predecessorPins();
-const hostTools=path.join(evidence,'host-tools');fs.mkdirSync(hostTools);const hostToolFiles:Record<string,string>={};for(const name of ['retain-server-evidence.ts','retain-server-evidence.test.ts','capture-json-output.ts','retain-policy-sources.ts']){const bytes=fs.readFileSync(path.join(root,'scripts',name));fs.writeFileSync(path.join(hostTools,name),bytes);hostToolFiles[name]=sha(bytes);}
+const hostTools=path.join(evidence,'host-tools');fs.mkdirSync(hostTools);const hostToolFiles:Record<string,string>={};for(const name of ['retain-server-evidence.ts','retain-server-evidence.test.ts','capture-json-output.ts','retain-policy-sources.ts','retention-workspace.ts','run-retention.py','engine-storage.py']){const bytes=fs.readFileSync(path.join(root,'scripts',name));fs.writeFileSync(path.join(hostTools,name),bytes);hostToolFiles[name]=sha(bytes);}
 const report={host_tool_files:hostToolFiles,status:'offline_server_and_client_verified',engine_build_id:engine.build_id,native_bundle_sha256:engine.bundle_sha256,server_executable:binary,server_executable_sha256:binarySha,server_schema_sha256:sha(JSON.stringify(schema)),server_native_info:nativeInfo,reference_server_executable_sha256:referenceSha,source_files:sourceBefore,cargo_vendor_manifest_sha256:engine.dependency_manifest_sha256,packages,empty_server_cargo_home_before_build:true,cargo_frozen_offline:true,client_source:clientSource,client_layout:{version:clientLayoutVersion,sdk_relative_root:'packages/game-server/sdk',native_fixture_files:clientNativeFixtureFiles},npm_preparation_cache_files:cacheManifest,empty_client_node_modules_before_install:true,npm_ci_offline:true,npm_ignore_scripts:true,client_generated:generated,client_verification:clientVerification,compile_info:compileInfo};
 output(path.join(evidence,'evidence.json'),report);output(path.join(root,'generated/server-retention.json'),{evidence:path.join(evidence,'evidence.json'),sha256:sha(fs.readFileSync(path.join(evidence,'evidence.json'))),engine_build_id:engine.build_id});
 console.log(JSON.stringify({status:report.status,evidence,engine_build_id:engine.build_id,server_executable_sha256:report.server_executable_sha256}));

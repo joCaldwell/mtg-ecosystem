@@ -13,7 +13,7 @@ for(const alteration of ['bundle','executable','dependency-manifest','predecesso
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'mtg-server-retention-guard-'));
   try{
    fs.mkdirSync(path.join(root,'scripts'));fs.mkdirSync(path.join(root,'generated'));const store=path.join(root,'retained');fs.mkdirSync(store);
-   for(const name of ['retain-server-evidence.ts','capture-json-output.ts','retain-policy-sources.ts'])fs.copyFileSync(path.join(scripts,name),path.join(root,'scripts',name));
+   for(const name of ['retain-server-evidence.ts','capture-json-output.ts','retain-policy-sources.ts','retention-workspace.ts'])fs.copyFileSync(path.join(scripts,name),path.join(root,'scripts',name));
    const marker=path.join(root,'executed-marker'),executable=path.join(store,'tool.mjs'),bundle=path.join(store,'bundle.json');
    fs.writeFileSync(executable,`#!/usr/bin/env node\nimport fs from 'node:fs';fs.writeFileSync(${JSON.stringify(marker)},'executed');process.stdout.write('{}');\n`,{mode:0o700});
    fs.writeFileSync(bundle,'{}');
@@ -39,7 +39,7 @@ for(const mutation of ['executable','bundle','manifest'] as const){
   try{
    const store=path.join(root,'retained'),bin=path.join(root,'bin');
    for(const directory of ['scripts','generated','retained','bin'])fs.mkdirSync(path.join(root,directory));
-   for(const name of ['retain-server-evidence.ts','capture-json-output.ts','retain-policy-sources.ts'])fs.copyFileSync(path.join(scripts,name),path.join(root,'scripts',name));
+   for(const name of ['retain-server-evidence.ts','capture-json-output.ts','retain-policy-sources.ts','retention-workspace.ts'])fs.copyFileSync(path.join(scripts,name),path.join(root,'scripts',name));
    const marker=path.join(root,'metadata-ran'),cargoMarker=path.join(root,'cargo-ran');
    const executable=path.join(store,'metadata.mjs'),bundle=path.join(store,'bundle.json'),manifest=path.join(root,'generated/p2-retention.json');
    const mutatedPath=mutation==='executable'?executable:mutation==='bundle'?bundle:manifest;

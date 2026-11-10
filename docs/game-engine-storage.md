@@ -54,10 +54,11 @@ At the initial audit, registered worktrees held 82,151,342,080 allocated bytes i
 real `target` directories, 68,311,638,016 in generated directories and
 1,664,405,504 in the root Scryfall cache. External engine evidence held
 107,273,039,872 bytes; external toolchains held 386,232,320 bytes. Symlinked stores
-were not followed or counted again. The source checkout held 1,417 tracked files
+were not followed or counted again. At pre-gardening `9257d1b`, the source checkout held 1,417 tracked files
 and 72,304,656 apparent bytes. Its two largest tracked files were the reviewed
 scenario fixtures `expected-effects-scenario.json` (20,809,754 bytes) and
-`expected-choices-scenario.json` (16,564,245 bytes); fixture migration is separate.
+`expected-choices-scenario.json` (16,564,245 bytes); these are historical pre-gardening sizes. See the integrated
+[fixture policy](../packages/game-engine/tests/fixtures/README.md) for the subsequent migration.
 
 The coordinator cleared three inactive worktrees after inspecting clean Git
 status, active T3 threads and process ownership. Only their incremental caches
@@ -86,3 +87,76 @@ aggregate result. Future builds may take longer to reconstruct incremental state
 
 Focused safety checks: `python3 scripts/test-engine-storage.py`. No engine gate,
 Cargo rebuild, release replay or corpus regeneration is needed for this command.
+
+## Retention defaults
+
+`npm run retain:engine` and `npm run retain:server` now run through
+`scripts/run-retention.py`. The existing replay, hash, offline dependency and
+server/client verification guards still execute in the workers. Storage supervision
+adds no claim that those checks passed: a storage failure or worker failure exits
+nonzero. This change was tested with small process/file fixtures, **not** a new
+full retention rebuild or engine acceptance run. The simulator artifact-path
+change is source-inspected here; the coordinator owns its integrated compile check.
+
+The default bounds are **32 GiB scratch**, **128 GiB total evidence store**, and
+**16 GiB free space** on both filesystems. The supervisor checks admission and
+samples allocated usage every two seconds while the worker runs, stopping its
+process group on overflow. These are practical monitored bounds, not filesystem
+quotas: a fast writer can overshoot between samples, and a concurrent unrelated
+writer can consume disk space. Scanning also has some overhead. Explicit overrides
+are available when a reviewed capture needs more space:
+
+```sh
+npm run retain:engine -- /absolute/evidence-store --scratch-gib 48 --store-gib 160
+npm run retain:server -- --scratch-gib 48
+```
+
+Server retention derives the evidence root from its verified predecessor pointer.
+No old evidence is automatically deleted to make room. A full store refuses new
+work until an owner reviews and removes/replaces specific retained runs, moves the
+store with references updated, or deliberately raises its budget. Review pinned
+source archives, rules, bundles, binaries, logs and downstream documentation before
+retiring a run. Age alone is not a retention decision.
+
+The supervisor holds the existing shared Cargo lock. It creates one fixed ignored
+`generated/.retention-work` workspace for bundle capture, JSON stdout, Cargo homes
+and fresh rebuild targets. The initial engine build also uses this
+owned scratch target, overriding inherited `CARGO_TARGET_DIR` so a shared cache
+cannot bypass the storage bound. The host-only `MTG_ENGINE_ARTIFACT_ROOT` override
+routes demo batch captures and live journals to scratch as well; an invalid relative
+value fails explicitly rather than spilling into the default directory. Outside
+supervised retention, the simulator keeps its existing generated-directory default. `CARGO_INCREMENTAL=0` is the default unless the
+caller deliberately overrides it. This matches the development runner policy.
+
+The exact rebuilt executable is copied exclusively into retained `bin/mtg-sim`
+or `bin/mtg-server`, checked by hash, and executed/verified from that retained
+path before the usual evidence manifest is written. Source closure, vendor,
+policy inputs, bundles, server/client evidence and failed retained output stay in
+the evidence store. The fresh compiler intermediates and duplicate temporary
+bundle captures are discarded. Temporary failure captures are not debug archives;
+this trades some failure diagnostics for bounded disk use.
+
+Success, ordinary errors, SIGINT and SIGTERM stop descendants and remove only the
+supervisor's own scratch directory. A small latest storage-status file records the
+outcome at `generated/retention-storage-latest.json`. SIGKILL, machine failure or
+filesystem errors may leave scratch. A new run **refuses an existing scratch
+workspace**, rather than adding another or guessing it is abandoned. Inspect its
+`owner.json`, establish that the supervisor and descendants are stopped under the
+Cargo lock, and review its contents before manually removing that exact directory.
+No generated/evidence-tree sweep is part of this workflow. Directly invoking the
+TypeScript worker is no longer a supported retention entry point.
+
+Cheap lifecycle checks:
+
+```sh
+python3 scripts/test-engine-storage.py
+python3 scripts/test-retention-workspace.py
+node --test scripts/retention-workspace.test.ts scripts/retain-server-evidence.test.ts scripts/capture-json-output.test.ts scripts/retain-policy-sources.test.ts
+```
+
+Parser ingestion and archive publication already replace their named outputs
+atomically and remove `.tmp` output in `finally` on ordinary failures. Their exact
+content-addressed corpus/paper snapshots remain pinned inputs, not age-based
+cache candidates. No grammar or archive wire format changed. Existing ignore
+rules already cover generated output, targets, corpora and Python bytecode; no
+broader ignores were added to conceal source changes.
