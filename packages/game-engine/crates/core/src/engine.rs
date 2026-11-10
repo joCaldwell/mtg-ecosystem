@@ -238,6 +238,8 @@ mod attack_trigger_tests;
 #[cfg(test)]
 mod cast_trigger_tests;
 #[cfg(test)]
+mod damage_controller_discard_tests;
+#[cfg(test)]
 mod damage_match_tests;
 #[cfg(test)]
 mod damage_trigger_tests;

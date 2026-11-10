@@ -9,7 +9,7 @@ export function assertDamageTriggerSchema(schema: any, catalog: any, legacy: any
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
   assert.equal(catalog.schema_version,25);
   for (const c of legacy) assert.equal(validate(c),true,JSON.stringify(validate.errors));
-  for (const version of [24,31]) assert.equal(validate({...catalog,schema_version:version}),false);
+  for (const version of [24,32]) assert.equal(validate({...catalog,schema_version:version}),false);
   for (const d of catalog.definitions) {
     assert.ok(d.capabilities.includes("damage_trigger_v1"));
     const old=structuredClone(catalog);old.schema_version=24;old.definitions=[structuredClone(d)];

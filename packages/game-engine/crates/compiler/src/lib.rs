@@ -1831,7 +1831,7 @@ fn append_spell_effects(
                 },
                 Step::Discard { who, what }
                     if player_binding == PlayerBinding::DamageRecipient
-                        && who.player == "that-player"
+                        && matches!(who.player.as_str(), "that-player" | "you")
                         && who.selection_id.is_none()
                         && who.of.is_none()
                         && what.reference == "filter"
@@ -1840,7 +1840,11 @@ fn append_spell_effects(
                             == ObjectFilter::Class(CardFilter { cls: "card".into() }) =>
                 {
                     Instruction::DiscardCards {
-                        recipient: Some(ActionRecipient::EventPlayer),
+                        recipient: if who.player == "that-player" {
+                            Some(ActionRecipient::EventPlayer)
+                        } else {
+                            None
+                        },
                         count: Quantity::from(1),
                         source_block,
                     }

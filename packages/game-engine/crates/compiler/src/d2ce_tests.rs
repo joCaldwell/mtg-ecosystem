@@ -20,6 +20,9 @@ const DEMON: &str = include_str!(
 const RESEARCH: &str = include_str!(
     "../../../tests/fixtures/cards-data-d2ce/ba5055ce-6809-47a4-bee6-fb97a5b60f8a.json"
 );
+const LOCKE: &str = include_str!(
+    "../../../tests/fixtures/cards-data-d2ce/bdcb7aed-3595-4c7e-b9da-543e92de919a.json"
+);
 fn rows() -> Vec<(serde_json::Value, String)> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/cards-data-d2ce");
@@ -73,13 +76,16 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
         // and sacrifices one controlled creature; flying/trample are retained.
         // IR30 admits Research Thief (line 28052): a controlled artifact
         // creature deals damage; complete flash/flying source remains intact.
+        // IR31 admits Locke Cole (line 28579): its combat damage trigger draws
+        // then discards for the controller, retaining deathtouch and lifelink.
         let otter = row["archive_line"] == 14102;
         let commando = row["archive_line"] == 10885;
         let cutpurse = row["archive_line"] == 13027;
         let demon = row["archive_line"] == 6875;
         let research = row["archive_line"] == 28052;
+        let locke = row["archive_line"] == 28579;
         if ![
-            4538, 6875, 9081, 10885, 12306, 13027, 14102, 14941, 19442, 21636, 28052, 28189,
+            4538, 6875, 9081, 10885, 12306, 13027, 14102, 14941, 19442, 21636, 28052, 28189, 28579,
         ]
         .contains(&row["archive_line"].as_u64().unwrap())
         {
@@ -147,7 +153,9 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
             };
             assert_eq!(
                 c.validate().is_ok(),
-                ((if research {
+                ((if locke {
+                    31
+                } else if research {
                     30
                 } else if demon {
                     29
@@ -166,7 +174,7 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
             );
         }
     }
-    assert_eq!(admitted, 12);
+    assert_eq!(admitted, 13);
 }
 #[test]
 fn d2ce_rejects_partial_kind_source_recipient_optional_quantity_and_condition_shapes() {
@@ -538,7 +546,12 @@ fn event_player_discard_rejects_unbound_qualified_and_unreviewed_programs() {
             a["trigger"] =
                 serde_json::json!({"trigger":"enters","what":{"ref":"this","noun":"creature"}})
         },
-        |a| a["effects"][0]["steps"][0]["who"] = serde_json::json!({"player":"you"}),
+        // IR31 admits unqualified controller discard in damage triggers;
+        // a qualified controller selector still has no supported meaning.
+        |a| {
+            a["effects"][0]["steps"][0]["who"] =
+                serde_json::json!({"player":"you","of":{"ref":"it"}})
+        },
         |a| {
             a["effects"][0]["steps"][0]["who"] =
                 serde_json::json!({"player":"target-player","selectionId":"target"})
@@ -587,10 +600,13 @@ fn event_player_discard_rejects_unbound_qualified_and_unreviewed_programs() {
         {
             *r = recipient;
         }
+        // Keep the contextual rejection: controller discard is admitted only
+        // for damage triggers, never an unversioned general entry trigger.
+        controller.triggered[0].condition = TriggerCondition::SelfEntersBattlefield;
         controller.capabilities = controller.requirements();
         assert!(
             controller.validate().is_err(),
-            "controller discard trigger is not admitted"
+            "controller discard entry trigger is not admitted"
         );
     }
 }
@@ -877,4 +893,124 @@ fn filtered_damage_rejects_partial_qualifiers_noncreature_narrowing_and_predicat
         compile(MANIFEST, frostfang),
         CompileResult::Unsupported { .. }
     ));
+}
+
+#[test]
+fn damage_controller_discard_exact_locke_source_provenance_and_order() {
+    let d = lower(LOCKE);
+    let source: serde_json::Value = serde_json::from_str(LOCKE).unwrap();
+    assert_eq!(d.name, "Locke Cole");
+    assert!(d.characteristics.legendary);
+    assert_eq!(
+        d.keywords,
+        [KeywordAbility::Deathtouch, KeywordAbility::Lifelink]
+    );
+    assert_eq!(
+        source["source"]["oracle_text"],
+        "Deathtouch, lifelink\nWhenever Locke Cole deals combat damage to a player, draw a card, then discard a card."
+    );
+    assert_eq!(
+        source["faces"][0]["result"]["abilities"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(d.triggered.len(), 1);
+    let a = &d.triggered[0];
+    assert_eq!(
+        a.condition,
+        TriggerCondition::DamageDealt {
+            source: DamageTriggerSource::Source {},
+            kind: TriggerDamageKind::Combat,
+            recipient: DamageTriggerRecipient::Player,
+        }
+    );
+    assert_eq!(
+        a.program.instructions,
+        [
+            Instruction::DrawCards {
+                recipient: None,
+                count: Quantity::from(1),
+                source_block: 1
+            },
+            Instruction::DiscardCards {
+                recipient: None,
+                count: Quantity::from(1),
+                source_block: 1
+            },
+        ]
+    );
+    assert!(
+        a.program.targets.is_empty() && a.program.modes.is_empty() && a.intervening_if.is_none()
+    );
+    assert_eq!(d.provenance.source_sha256, source["sourceSha256"]);
+    assert_eq!(d.provenance.ast_sha256, source["astSha256"]);
+    assert_eq!(d.provenance.binding_sha256, source["bindingSha256"]);
+    for capability in [
+        Capability::DamageTriggerV1,
+        Capability::ControllerDrawV1,
+        Capability::ControllerDiscardV1,
+        Capability::DamageControllerDiscardV1,
+    ] {
+        assert!(d.capabilities.contains(&capability));
+    }
+    assert!(!d.capabilities.contains(&Capability::EventPlayerDiscardV1));
+    let mut missing = d;
+    missing
+        .capabilities
+        .remove(&Capability::DamageControllerDiscardV1);
+    assert!(missing.validate().is_err());
+    let unbound = tests::changed_source(LOCKE, |r| {
+        r["binding"]["references"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|r| r["path"] != "/faces/0/abilities/1/trigger/what");
+    });
+    assert!(matches!(
+        compile(MANIFEST, &unbound),
+        CompileResult::Unsupported { .. }
+    ));
+}
+
+#[test]
+fn damage_controller_discard_rejects_other_contexts_qualifiers_filters_and_counts() {
+    type Mutation = fn(&mut serde_json::Value);
+    for mutate in [
+        (|a: &mut serde_json::Value| {
+            a["trigger"] =
+                serde_json::json!({"trigger":"enters","what":{"ref":"this","noun":"creature"}})
+        }) as Mutation,
+        |a| a["trigger"] = serde_json::json!({"trigger":"phase","phase":"upkeep","whose":"your"}),
+        |a| {
+            a["trigger"] =
+                serde_json::json!({"trigger":"cast","who":{"player":"you"},"what":{"cls":"spell"}})
+        },
+        |a| {
+            a["effects"][0]["steps"][1]["who"] =
+                serde_json::json!({"player":"target-player","selectionId":"target"})
+        },
+        |a| a["effects"][0]["steps"][1]["who"]["of"] = serde_json::json!({"ref":"it"}),
+        |a| a["effects"][0]["steps"][1]["who"]["selectionId"] = "qualified".into(),
+        |a| a["effects"][0]["steps"][1]["what"]["count"]["value"] = 0.into(),
+        |a| a["effects"][0]["steps"][1]["what"]["count"]["value"] = 2.into(),
+        |a| a["effects"][0]["steps"][1]["what"]["count"]["amount"] = "x".into(),
+        |a| a["effects"][0]["steps"][1]["what"]["filter"]["cls"] = "creature".into(),
+        |a| {
+            a["effects"][0]["steps"][1]["what"]["filter"]["types"] = serde_json::json!(["creature"])
+        },
+        |a| a["effects"][0]["steps"][1]["what"]["ref"] = "target".into(),
+        |a| a["effects"][0]["steps"][1]["optional"] = true.into(),
+    ] {
+        let raw = tests::changed_source(LOCKE, |r| {
+            let result = &mut r["faces"][0]["result"];
+            mutate(&mut result["abilities"][1]);
+            result["lines"][1]["ability"] = result["abilities"][1].clone();
+        });
+        assert!(
+            matches!(compile(MANIFEST, &raw), CompileResult::Unsupported { .. }),
+            "{:?}",
+            compile(MANIFEST, &raw)
+        );
+    }
 }

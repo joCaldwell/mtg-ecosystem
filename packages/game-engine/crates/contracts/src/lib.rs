@@ -25,7 +25,7 @@ pub use strict_io::strict_read_seekable;
 
 /// Latest IR accepted by validation/schema and emitted by full-corpus coverage.
 /// Historical capability minimums and fixture versions remain literal evidence.
-pub const CURRENT_IR_VERSION: u32 = 30;
+pub const CURRENT_IR_VERSION: u32 = 31;
 pub const MIN_IR_VERSION: u32 = 3;
 
 pub const RULES_EDITION: &str = "2026-09-25";
@@ -174,6 +174,7 @@ pub enum Capability {
     EventPlayerDiscardV1,
     EventPlayerSacrificeV1,
     FilteredDamageTriggerV1,
+    DamageControllerDiscardV1,
     EventPlayerRecipientV1,
     SourceStatusConditionV1,
     StepBeginningTriggerV1,
@@ -1179,6 +1180,11 @@ impl Definition {
                 set.insert(Capability::SacrificeV1);
             }
             set.insert(Capability::TriggeredAbilityV1);
+            if matches!(ability.condition, TriggerCondition::DamageDealt { .. })
+                && has_controller_discard(&ability.program)
+            {
+                set.insert(Capability::DamageControllerDiscardV1);
+            }
             if matches!(
                 ability.condition,
                 TriggerCondition::DamageDealt {
@@ -1255,6 +1261,12 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        if self.triggered.iter().any(|a| {
+            has_controller_discard(&a.program)
+                && !matches!(a.condition, TriggerCondition::DamageDealt { .. })
+        }) {
+            return Err("controller discard trigger requires a damage trigger".into());
+        }
         fn damage_recipient_action(p: &SpellProgram) -> bool {
             p.instructions.iter().any(|i| {
                 matches!(
@@ -1729,10 +1741,7 @@ impl Definition {
                             | Instruction::PutPlusOneCounters { .. }
                             | Instruction::DrawCards { .. }
                             | Instruction::OptionalDrawCards { .. }
-                            | Instruction::DiscardCards {
-                                recipient: Some(ActionRecipient::EventPlayer),
-                                ..
-                            }
+                            | Instruction::DiscardCards { .. }
                             | Instruction::SacrificeCreature { .. }
                             | Instruction::ModifyPowerToughness { .. }
                             | Instruction::GainLife { .. }
@@ -2312,6 +2321,20 @@ impl Instruction {
         )
     }
 }
+fn has_controller_discard(program: &SpellProgram) -> bool {
+    program.instructions.iter().any(|i| {
+        matches!(
+            i,
+            Instruction::DiscardCards {
+                recipient: None | Some(ActionRecipient::Controller),
+                ..
+            }
+        )
+    }) || program
+        .modes
+        .iter()
+        .any(|m| has_controller_discard(&m.program))
+}
 fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgram) {
     if program.additional_sacrifice.is_some()
         || program.instructions.iter().any(|i| {
@@ -2459,6 +2482,16 @@ impl Catalog {
         }
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
+            if self.schema_version < 31
+                && (d
+                    .capabilities
+                    .contains(&Capability::DamageControllerDiscardV1)
+                    || d.triggered
+                        .iter()
+                        .any(|a| has_controller_discard(&a.program)))
+            {
+                return Err("IR v31 is required for controller discard in a damage trigger".into());
+            }
             if self.schema_version < 30
                 && (d
                     .capabilities
@@ -2998,6 +3031,20 @@ pub fn catalog_schema() -> serde_json::Value {
             }}}}}
         }}}}}
     }));
+    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"properties":{"schema_version":{"maximum":30}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "capabilities":{"items":{"not":{"const":Capability::DamageControllerDiscardV1}}},
+            "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreDamageControllerDiscardProgram"}}}}
+        }}}}}
+    }));
+    schema["$defs"]["PreDamageControllerDiscardProgram"] = serde_json::json!({"properties":{
+        "instructions":{"items":{
+            "if":{"properties":{"op":{"const":"discard_cards"}},"required":["op"]},
+            "then":{"required":["recipient"],"properties":{"recipient":{"const":"event_player"}}}
+        }},
+        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreDamageControllerDiscardProgram"}}}}
+    }});
     schema["$defs"]["PreEventPlayerSacrificeProgram"] = serde_json::json!({"properties":{
         "instructions":{"items":{"properties":{"op":{"not":{"const":"sacrifice_creature"}}}}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerSacrificeProgram"}}}}
@@ -3368,6 +3415,7 @@ mod tests {
             (28, &[EventPlayerDiscardV1]),
             (29, &[EventPlayerSacrificeV1]),
             (30, &[FilteredDamageTriggerV1]),
+            (31, &[DamageControllerDiscardV1]),
         ];
         // Enumerate the public vocabulary, so a new capability cannot silently
         // escape this contract. Check full program-bearing definitions rather
@@ -3462,6 +3510,15 @@ mod tests {
         };
         filtered.capabilities = filtered.requirements();
         definitions.push(filtered);
+        let mut controller_discard = damage.clone();
+        controller_discard.triggered[0].program.targets.clear();
+        controller_discard.triggered[0].program.instructions = vec![Instruction::DiscardCards {
+            recipient: None,
+            count: Quantity::from(1),
+            source_block: 0,
+        }];
+        controller_discard.capabilities = controller_discard.requirements();
+        definitions.push(controller_discard);
         // Each newly admitted dimension independently requires IR26, even when
         // paired with the original value of the other dimension.
         for (kind, recipient) in [
@@ -3961,6 +4018,143 @@ mod tests {
         ] {
             assert!(serde_json::from_value::<DamageSourceRelation>(relation).is_err());
         }
+    }
+    #[test]
+    fn damage_controller_discard_is_contextual_recursive_and_versioned() {
+        let original = Catalog::read(include_str!(
+            "../../../tests/fixtures/expected-action-ir.json"
+        ))
+        .unwrap();
+        let activation = original
+            .definitions
+            .iter()
+            .find(|d| d.name == "Hapless Researcher")
+            .unwrap();
+        assert!(
+            activation
+                .capabilities
+                .contains(&Capability::ControllerDiscardV1)
+        );
+        assert!(
+            !activation
+                .capabilities
+                .contains(&Capability::DamageControllerDiscardV1)
+        );
+        let mut bound = activation.clone();
+        let program = bound.activated[0].program.clone();
+        bound.activated.clear();
+        bound.triggered = vec![TriggeredAbility {
+            death_filter: None,
+            intervening_if: None,
+            functioning_zone: FunctioningZone::Battlefield,
+            condition: TriggerCondition::DamageDealt {
+                source: DamageTriggerSource::Source {},
+                kind: TriggerDamageKind::Combat,
+                recipient: DamageTriggerRecipient::Player,
+            },
+            program,
+        }];
+        for recipient in [None, Some(ActionRecipient::Controller)] {
+            let mut d = bound.clone();
+            for i in &mut d.triggered[0].program.instructions {
+                if let Instruction::DiscardCards { recipient: r, .. } = i {
+                    *r = recipient;
+                }
+            }
+            d.capabilities = d.requirements();
+            d.validate().unwrap();
+            assert!(d.capabilities.contains(&Capability::ControllerDiscardV1));
+            assert!(
+                d.capabilities
+                    .contains(&Capability::DamageControllerDiscardV1)
+            );
+            let mut c = Catalog {
+                schema_version: 31,
+                rules_edition: RULES_EDITION.into(),
+                rules_sha256: RULES_SHA256.into(),
+                definitions: vec![d],
+            };
+            c.validate().unwrap();
+            c.schema_version = 30;
+            assert!(c.validate().unwrap_err().contains("IR v31"));
+            c.definitions[0]
+                .capabilities
+                .remove(&Capability::DamageControllerDiscardV1);
+            assert!(c.validate().unwrap_err().contains("IR v31"));
+        }
+        for condition in [
+            TriggerCondition::SelfEntersBattlefield,
+            TriggerCondition::StepBegan {
+                step: BeginningStep::Upkeep,
+                turn_relation: TurnRelation::Controller,
+            },
+            TriggerCondition::SpellCast {
+                caster: CasterRelation::Controller,
+                spell: TypePredicate::Any {},
+            },
+        ] {
+            let mut unbound = bound.clone();
+            unbound.triggered[0].condition = condition;
+            unbound.capabilities = unbound.requirements();
+            assert!(
+                !unbound
+                    .capabilities
+                    .contains(&Capability::DamageControllerDiscardV1)
+            );
+            assert!(unbound.validate().unwrap_err().contains("damage trigger"));
+        }
+        let mut event = bound.clone();
+        for i in &mut event.triggered[0].program.instructions {
+            if let Instruction::DiscardCards { recipient, .. } = i {
+                *recipient = Some(ActionRecipient::EventPlayer);
+            }
+        }
+        event.capabilities = event.requirements();
+        assert!(
+            event
+                .capabilities
+                .contains(&Capability::EventPlayerDiscardV1)
+        );
+        assert!(
+            !event
+                .capabilities
+                .contains(&Capability::DamageControllerDiscardV1)
+        );
+        Catalog {
+            schema_version: 28,
+            rules_edition: RULES_EDITION.into(),
+            rules_sha256: RULES_SHA256.into(),
+            definitions: vec![event],
+        }
+        .validate()
+        .unwrap();
+        // Trigger modes remain unsupported, but nested instruction closure and
+        // old-version guards must still detect a forged controller discard.
+        let child = bound.triggered[0].program.clone();
+        let p = &mut bound.triggered[0].program;
+        p.instructions.clear();
+        p.modes = vec![
+            SpellMode {
+                program: child.clone(),
+            },
+            SpellMode { program: child },
+        ];
+        bound.capabilities = bound.requirements();
+        assert!(
+            bound
+                .capabilities
+                .contains(&Capability::DamageControllerDiscardV1)
+        );
+        bound
+            .capabilities
+            .remove(&Capability::DamageControllerDiscardV1);
+        let c = Catalog {
+            schema_version: 30,
+            rules_edition: RULES_EDITION.into(),
+            rules_sha256: RULES_SHA256.into(),
+            definitions: vec![bound],
+        };
+        assert!(c.validate().unwrap_err().contains("IR v31"));
     }
     #[test]
     fn incremental_sha256_matches_reference_across_byte_fragment_boundaries() {
