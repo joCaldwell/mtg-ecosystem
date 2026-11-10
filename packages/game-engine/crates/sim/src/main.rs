@@ -30,6 +30,7 @@ mod search_jobs;
 mod search_policy;
 mod search_roots;
 mod search_sampler;
+mod smoke;
 mod stack_costs_games;
 #[cfg(test)]
 mod trace_reuse_tests;
@@ -1594,6 +1595,9 @@ fn verify_bundle(json: &str) -> Result<String, String> {
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if matches!(args.first().map(String::as_str), Some("smoke" | "smoke-replay")) {
+        return smoke::cli(&args).map_err(Into::into);
+    }
     match args.first().map(String::as_str) {
         Some("catalog") => {
             let report = match args.get(1).map(String::as_str) {
