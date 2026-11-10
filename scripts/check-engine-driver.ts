@@ -92,11 +92,11 @@ export interface CheckPhase {
 }
 
 const tooling: CheckPhase[] = [
-  { label: "tooling-tests", command: "node", args: ["--test", "scripts/check-engine-driver.test.ts", "scripts/capture-json-output.test.ts", "scripts/retain-policy-sources.test.ts", "scripts/retain-server-evidence.test.ts", "scripts/retention-workspace.test.ts"] },
+  { label: "tooling-tests", command: "node", args: ["--test", "scripts/check-engine-driver.test.ts", "scripts/capture-json-output.test.ts", "scripts/retain-policy-sources.test.ts", "scripts/retain-server-evidence.test.ts", "scripts/retention-workspace.test.ts", "scripts/run-selected-tests.test.ts"] },
   { label: "storage-safety", command: "python3", args: ["-B", "scripts/test-engine-storage.py"] },
   { label: "retention-safety", command: "python3", args: ["-B", "scripts/test-retention-workspace.py"] },
 ];
-const archive: CheckPhase = { label: "archive-parser", command: "node", args: ["--test", "--test-name-pattern=^retained archive hashes agree with JavaScript and source parser$", "packages/game-engine/tests/contracts.test.ts"], preflight: true };
+const archive: CheckPhase = { label: "archive-parser", command: "node", args: ["scripts/run-selected-tests.ts", "--name", "^retained archive hashes agree with JavaScript and source parser$", "packages/game-engine/tests/contracts.test.ts"], preflight: true };
 const format: CheckPhase = { label: "format", command: "cargo", args: ["fmt", "--all", "--", "--check"] };
 
 // Development coverage is deliberately smaller than historical acceptance.
