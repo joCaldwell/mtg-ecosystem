@@ -46,13 +46,19 @@ mechanic and expands no hosting/search capability set.
 
 ## Verification
 
-The production changes passed workspace all-target compilation and **169 focused
+Production checkpoint **`a5ea0be`** passed workspace all-target compilation and **169 focused
 Rust checks**: 157 selected core tests, six search reconstruction tests, two finite
 explorations, three catalog lookup tests and one compile-fail facade doctest.
 The selected core suite includes a frozen flat-state oracle, the former nested
 transaction mode, every-unit query reference comparisons, history hashing,
 strict recovery, privacy and payment/turn behavior. The 4,096 footprint sequences
 and full-capacity conflict case passed. Formatting and the structural guard pass.
+
+The source gate also passed 48 tooling Node tests, one archive/parser Node check,
+38 Python tests and the dependency/artifact guard. The explicit saved smoke and
+its replay both passed (two accepted inputs, three recorded checkpoints), with
+unchanged source inventories. Core build identity:
+`6f124983bad351d1b50d8d3f8486d64d86cdfb912cd3297c983ee327f40cac16`.
 
 Compilation initially found test aliases left behind by the field migration;
 those were corrected. Review also caught accidental journal flattening in hot
