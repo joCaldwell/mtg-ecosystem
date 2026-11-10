@@ -20,12 +20,19 @@ mod suite_receipt_probe;
 mod suite_receipt_tests;
 
 // Evidence belongs outside native crate sources regardless of Cargo's test cwd.
-fn artifact_root() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
+fn artifact_root() -> Result<std::path::PathBuf, String> {
+    if let Some(value) = std::env::var_os("MTG_ENGINE_ARTIFACT_ROOT") {
+        let root = std::path::PathBuf::from(value);
+        if !root.is_absolute() {
+            return Err("MTG_ENGINE_ARTIFACT_ROOT must be an absolute path".into());
+        }
+        return Ok(root);
+    }
+    Ok(Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .nth(4)
         .expect("sim crate workspace layout")
-        .join("generated")
+        .join("generated"))
 }
 
 const DECISION_LIMIT: usize = 100_000;
@@ -516,7 +523,7 @@ struct LiveJournal {
 }
 impl LiveJournal {
     fn new(config: &MatchConfig, policy: Policy, mulligans: [u8; 4]) -> Result<Self, String> {
-        let parent = artifact_root().join("p5-live-journals");
+        let parent = artifact_root()?.join("p5-live-journals");
         fs::create_dir_all(&parent).map_err(|e| e.to_string())?;
         for index in 0..1000 {
             let path = parent.join(format!("run-{}-{index}.jsonl", std::process::id()));
@@ -957,7 +964,7 @@ fn batch_impl(
 }
 
 pub(super) fn suite(catalog: &Catalog) -> Result<(Vec<Evidence>, serde_json::Value), String> {
-    let parent = artifact_root().join("p5-batches");
+    let parent = artifact_root()?.join("p5-batches");
     fs::create_dir_all(&parent).map_err(|e| e.to_string())?;
     let directory = (0..1000)
         .map(|i| parent.join(format!("capture-{}-{i}", std::process::id())))
