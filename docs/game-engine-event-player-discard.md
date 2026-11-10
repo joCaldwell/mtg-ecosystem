@@ -41,3 +41,18 @@ order; 701.9a defines discarding; 609.3 performs the possible parts of effects;
 117.5/704.4 defer state-based actions during resolution; 903.9a governs the
 subsequent Commander graveyard choice. Official source:
 <https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt>.
+
+Source checkpoint `6b80321` passed formatting, workspace all-target compilation,
+106 compiler and 17 contracts library tests, six new event-player discard tests
+and six existing action tests. All 30 executable source/schema/catalog checks
+passed. Accepted-input runtime checks cover public checked-response submission,
+mid-choice recovery, written sequencing, player departures, Commander discard
+ordering and coherent recipient forgery rejection. Historical discard bytes and
+all prior source dispositions remain checked, with Cutpurse explicitly added.
+
+Logs are retained under
+`~/.local/share/mtg-ecosystem/engine-verification/correctness-loop-20261110/`,
+including an initial formatting-only module-order failure and its correction.
+Full core/sim/server runtime suites, Clippy, SDK, release/profile gameplay
+matrices, coverage measurements and retention rebuilds were not run. The schema
+checks built the release CLI; no combined acceptance or performance claim follows.
