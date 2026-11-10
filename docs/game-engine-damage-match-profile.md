@@ -43,3 +43,21 @@ Use the pinned environment and shared Cargo lock. Preserve the saved trusted
 diagnostic game/journal outside Git. A single complete game and replay provide
 focused integration evidence; they do not establish the full 18-game profile
 matrix, combined engine acceptance, hosting/search admission or performance.
+
+Source checkpoint `14698c1` passed all-target compilation, four new profile
+tests, the existing construction-negative test, 108 compiler and 18 contracts
+library tests, and the selected 32-record parser/catalog contract. The fixed
+index-0 game finished naturally on turn 57 with seat 3 winning after 2,473
+decisions. Explicit saved-report replay verified final state SHA-256
+`7e5ee6b1d5e2cc51c811c7f8b4761a0630cdf1e34c294415da8880584ee59483`;
+the measured source stayed unchanged. This does not assert that every catalog
+instruction or all four new creatures were reached in that single game.
+
+Logs, live journal, saved detailed game and summary are retained under
+`~/.local/share/mtg-ecosystem/engine-verification/correctness-loop-20261110/`.
+The detailed report is about 529 MiB; retain it rather than recapturing or treating
+it as a disposable cache. The initial profile test's ordered color-identity
+assumption is preserved in its failed log; it was corrected to set membership
+using the unchanged pinned source and admission contract. Full core/sim/server
+suites, Clippy, SDK, the 18-game profile matrix, search/hosting tests, quiet
+performance measurements and retention rebuilds were omitted.
