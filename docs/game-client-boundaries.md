@@ -11,7 +11,8 @@ It refines the existing [system architecture](architecture.md) and
 | Component | Owns | Must delegate or exclude |
 | --- | --- | --- |
 | Offline ingestion/presentation tooling (TypeScript) | Exact source extraction; allowlisted text, face and artwork metadata; stable presentation identifiers and digests | No runtime legality or game-state computation; no live source fetch in a game turn |
-| Semantic compiler/contracts (Rust) | Complete-source lowering, executable IR, capabilities, source-to-ability identity mapping | No player interaction or network hosting; not imported by deterministic core at runtime |
+| Executable contracts (Rust) | Shared executable IR types, capability vocabulary and structural validation | No source parsing, hosting or UI; core and compiler may both import these contracts at runtime |
+| Semantic compiler (Rust) | Complete-source lowering and semantic validation, source-to-ability identity mapping | No player interaction or network hosting; not imported by deterministic core at runtime |
 | Deterministic core (Rust) | Rules state and transitions, legality, costs, priority, choices, visibility, permitted handles/projections, action beginnings, semantic query budgets, typed rules outcomes | No HTTP/authentication, database, wall clock, UI layout, text localization or strategy decisions |
 | Server HTTP/supervisor | Authentication to seat, strict transport decoding, admission/rate/size limits, routing, bounded queues, worker lifecycle | No Game execution, casting predicates, target filtering, response rewriting or card strategy |
 | Server match worker | Exclusive Game ownership, calls to core, scheduling, durable commit/recovery, idempotency, host clocks/statuses, publication ledger and cursors | No alternate rules interpreter; no manual alteration of core state/projections or fabricated rule outcomes |
