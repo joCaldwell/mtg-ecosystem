@@ -26,6 +26,9 @@ const LOCKE: &str = include_str!(
 const FEAR: &str = include_str!(
     "../../../tests/fixtures/cards-data-d2ce/34fd461b-a913-4a60-9477-ce2bd5c6fc5a.json"
 );
+const OHRAN: &str = include_str!(
+    "../../../tests/fixtures/cards-data-d2ce/b99ada26-9a61-4175-9fb8-15a106960220.json"
+);
 fn rows() -> Vec<(serde_json::Value, String)> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/cards-data-d2ce");
@@ -90,9 +93,12 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
         // IR32 admits Fear of Failed Tests (line7911): its standalone
         // mandatory controller draw uses the actual triggering damage quantity.
         let fear = row["archive_line"] == 7911;
+        // IR33 admits the complete Ohran Frostfang (line27940): preserve Snow
+        // and the dynamic attacking-creature grant, plus its IR30 damage trigger.
+        let ohran = row["archive_line"] == 27940;
         if ![
-            4538, 6875, 7911, 9081, 10885, 12306, 13027, 14102, 14941, 19442, 21636, 28052, 28189,
-            28579,
+            4538, 6875, 7911, 9081, 10885, 12306, 13027, 14102, 14941, 19442, 21636, 27940, 28052,
+            28189, 28579,
         ]
         .contains(&row["archive_line"].as_u64().unwrap())
         {
@@ -120,6 +126,17 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
                                 kind: CardKind::Creature,
                             },
                         ],
+                    },
+                },
+                kind: TriggerDamageKind::Combat,
+                recipient: DamageTriggerRecipient::Player,
+            }
+        } else if ohran {
+            TriggerCondition::DamageDealt {
+                source: DamageTriggerSource::CreatureFilter {
+                    controller: DamageSourceRelation::Controller,
+                    types: TypePredicate::Type {
+                        kind: CardKind::Creature,
                     },
                 },
                 kind: TriggerDamageKind::Combat,
@@ -160,7 +177,9 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
             };
             assert_eq!(
                 c.validate().is_ok(),
-                ((if fear {
+                ((if ohran {
+                    33
+                } else if fear {
                     32
                 } else if locke {
                     31
@@ -183,7 +202,7 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
             );
         }
     }
-    assert_eq!(admitted, 14);
+    assert_eq!(admitted, 15);
 }
 #[test]
 fn d2ce_rejects_partial_kind_source_recipient_optional_quantity_and_condition_shapes() {
@@ -899,13 +918,54 @@ fn filtered_damage_rejects_partial_qualifiers_noncreature_narrowing_and_predicat
             compile(MANIFEST, &raw)
         );
     }
-    let frostfang = include_str!(
-        "../../../tests/fixtures/cards-data-d2ce/b99ada26-9a61-4175-9fb8-15a106960220.json"
+    // IR30 could lower the filtered trigger, but correctly rejected the whole
+    // Frostfang source because Snow and the attacking grant were unsupported.
+    // IR33 completes that exact source; older catalogs still must reject both
+    // new semantic dimensions, independently of their capability labels.
+    let frostfang = lower(OHRAN);
+    assert!(frostfang.characteristics.snow);
+    assert!(
+        frostfang
+            .capabilities
+            .contains(&Capability::FilteredDamageTriggerV1)
     );
-    assert!(matches!(
-        compile(MANIFEST, frostfang),
-        CompileResult::Unsupported { .. }
-    ));
+    assert!(
+        frostfang
+            .capabilities
+            .contains(&Capability::SnowSupertypeV1)
+    );
+    assert!(
+        frostfang
+            .capabilities
+            .contains(&Capability::AttackingCreatureKeywordsV1)
+    );
+    assert_eq!(
+        frostfang.static_abilities,
+        [StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::ModifyCreatures {
+                scope: CreatureScope::AttackingController,
+                power: Quantity::zero(),
+                toughness: Quantity::zero(),
+                keywords: vec![KeywordAbility::Deathtouch],
+                restrictions: vec![]
+            },
+        }]
+    );
+    let mut historical = Catalog {
+        schema_version: 32,
+        rules_edition: RULES_EDITION.into(),
+        rules_sha256: RULES_SHA256.into(),
+        definitions: vec![frostfang],
+    };
+    assert!(historical.validate().unwrap_err().contains("IR v33"));
+    historical.definitions[0]
+        .capabilities
+        .remove(&Capability::SnowSupertypeV1);
+    historical.definitions[0]
+        .capabilities
+        .remove(&Capability::AttackingCreatureKeywordsV1);
+    assert!(historical.validate().unwrap_err().contains("IR v33"));
 }
 
 #[test]
@@ -1197,4 +1257,195 @@ fn damage_quantity_draw_rejects_unbound_ambiguous_and_qualified_source_shapes() 
         );
         assert!(!d.capabilities.contains(&Capability::DamageQuantityDrawV1));
     }
+}
+
+#[test]
+fn attacking_creature_keywords_exact_ohran_source_preserves_snow_and_both_abilities() {
+    let d = lower(OHRAN);
+    let r: serde_json::Value = serde_json::from_str(OHRAN).unwrap();
+    assert_eq!(d.name, "Ohran Frostfang");
+    assert_eq!(
+        r["source"]["oracle_text"],
+        "Attacking creatures you control have deathtouch.\nWhenever a creature you control deals combat damage to a player, draw a card."
+    );
+    assert_eq!(d.characteristics.kind, CardKind::Creature);
+    assert!(d.characteristics.snow);
+    assert_eq!(d.characteristics.subtypes, ["Snake"]);
+    assert_eq!(d.characteristics.power, Some(Quantity::from(2)));
+    assert_eq!(d.characteristics.toughness, Some(Quantity::from(6)));
+    assert_eq!(d.characteristics.mana_cost.generic, Quantity::from(3));
+    assert_eq!(d.characteristics.mana_cost.colored, [Color::G, Color::G]);
+    assert!(d.keywords.is_empty());
+    assert_eq!(
+        d.static_abilities,
+        [StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::ModifyCreatures {
+                scope: CreatureScope::AttackingController,
+                power: Quantity::zero(),
+                toughness: Quantity::zero(),
+                keywords: vec![KeywordAbility::Deathtouch],
+                restrictions: vec![]
+            },
+        }]
+    );
+    assert_eq!(d.triggered.len(), 1);
+    assert_eq!(
+        d.triggered[0].condition,
+        TriggerCondition::DamageDealt {
+            source: DamageTriggerSource::CreatureFilter {
+                controller: DamageSourceRelation::Controller,
+                types: TypePredicate::Type {
+                    kind: CardKind::Creature
+                }
+            },
+            kind: TriggerDamageKind::Combat,
+            recipient: DamageTriggerRecipient::Player,
+        }
+    );
+    assert_eq!(
+        d.triggered[0].program.instructions,
+        [Instruction::DrawCards {
+            recipient: None,
+            count: Quantity::from(1),
+            source_block: 1
+        }]
+    );
+    for cap in [
+        Capability::SnowSupertypeV1,
+        Capability::AttackingCreatureKeywordsV1,
+        Capability::FilteredDamageTriggerV1,
+        Capability::DamageTriggerV1,
+        Capability::ControllerDrawV1,
+    ] {
+        assert!(d.capabilities.contains(&cap));
+        let mut missing = d.clone();
+        missing.capabilities.remove(&cap);
+        assert!(missing.validate().is_err());
+    }
+    assert!(!d.capabilities.contains(&Capability::AttachmentsV1));
+    assert_eq!(d.provenance.source_sha256, r["sourceSha256"]);
+    assert_eq!(d.provenance.ast_sha256, r["astSha256"]);
+    assert_eq!(d.provenance.binding_sha256, r["bindingSha256"]);
+    let nonsnow = tests::changed_source(OHRAN, |r| {
+        r["source"]["type_line"] = "Creature — Snake".into()
+    });
+    let nonsnow = lower(&nonsnow);
+    assert!(!nonsnow.characteristics.snow);
+    assert!(!nonsnow.capabilities.contains(&Capability::SnowSupertypeV1));
+    assert_eq!(nonsnow.static_abilities, d.static_abilities);
+}
+
+#[test]
+fn attacking_creature_keywords_rejects_unconsumed_status_scope_and_modifier_semantics() {
+    type Mutation = fn(&mut serde_json::Value);
+    for mutate in [
+        (|e: &mut serde_json::Value| {
+            e["what"]["filter"]["status"] = serde_json::json!(["blocking"])
+        }) as Mutation,
+        |e| e["what"]["filter"]["status"] = serde_json::json!(["attacking", "tapped"]),
+        |e| e["what"]["filter"]["status"] = serde_json::json!(["attacking", "attacking"]),
+        |e| e["what"]["filter"]["status"] = serde_json::json!([]),
+        |e| e["what"]["filter"]["status"] = serde_json::Value::Null,
+        |e| {
+            e["what"]["filter"]
+                .as_object_mut()
+                .unwrap()
+                .remove("status");
+        },
+        |e| e["what"]["filter"]["control"] = "opponent".into(),
+        |e| {
+            e["what"]["filter"]
+                .as_object_mut()
+                .unwrap()
+                .remove("control");
+        },
+        |e| e["what"]["filter"]["owner"] = "you".into(),
+        |e| e["what"]["filter"]["other"] = true.into(),
+        |e| e["what"]["filter"]["types"] = serde_json::json!(["artifact", "creature"]),
+        |e| e["what"]["filter"]["supertypes"] = serde_json::json!(["snow"]),
+        |e| e["what"]["ref"] = "filter".into(),
+        |e| e["what"]["count"] = serde_json::json!({"amount":"fixed","value":1}),
+        |e| e["what"]["selectionId"] = "qualified".into(),
+        |e| e["modifiers"][0]["optional"] = true.into(),
+        |e| e["modifiers"][0]["abilities"][0]["gained"] = "activated".into(),
+        |e| e["modifiers"][0]["abilities"][0]["keyword"]["keyword"] = "flying".into(),
+        |e| e["modifiers"][0]["abilities"][0]["keyword"]["keyword"] = "flash".into(),
+        |e| e["modifiers"][0]["abilities"][0]["keyword"]["cost"] = serde_json::json!([]),
+        |e| e["modifiers"][0]["abilities"][0]["keyword"]["filter"] = serde_json::Value::Null,
+        |e| {
+            let grant = e["modifiers"][0]["abilities"][0].clone();
+            e["modifiers"][0]["abilities"]
+                .as_array_mut()
+                .unwrap()
+                .push(grant);
+        },
+        |e| {
+            e["modifiers"][0]["abilities"] = serde_json::json!([]);
+        },
+        |e| {
+            e["modifiers"].as_array_mut().unwrap().push(serde_json::json!({"modifier":"pt","power":{"sign":1,"amount":{"amount":"fixed","value":1}},"toughness":{"sign":1,"amount":{"amount":"fixed","value":1}}}));
+        },
+        |e| {
+            e["modifiers"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({"modifier":"cant","action":"be-blocked"}));
+        },
+        |e| {
+            let grant = e["modifiers"][0].clone();
+            e["modifiers"].as_array_mut().unwrap().push(grant);
+        },
+    ] {
+        let raw = tests::changed_source(OHRAN, |r| {
+            let result = &mut r["faces"][0]["result"];
+            mutate(&mut result["abilities"][0]["effect"]);
+            result["lines"][0]["ability"] = result["abilities"][0].clone();
+        });
+        assert!(
+            matches!(compile(MANIFEST, &raw), CompileResult::Unsupported { .. }),
+            "{:?}",
+            compile(MANIFEST, &raw)
+        );
+    }
+}
+
+#[test]
+fn snow_supertype_rejects_duplicate_world_other_kinds_and_untracked_mana() {
+    let duplicate = tests::changed_source(OHRAN, |r| {
+        r["source"]["type_line"] = "Snow Snow Creature — Snake".into()
+    });
+    assert!(matches!(
+        compile(MANIFEST, &duplicate),
+        CompileResult::Invalid { .. }
+    ));
+    for line in [
+        "Snow Land — Forest",
+        "Basic Snow Land — Forest",
+        "Snow Artifact",
+        "Snow Enchantment",
+        "Snow Instant",
+        "World Creature — Snake",
+    ] {
+        let raw = tests::changed_source(OHRAN, |r| r["source"]["type_line"] = line.into());
+        assert!(
+            matches!(compile(MANIFEST, &raw), CompileResult::Unsupported { .. }),
+            "{line}: {:?}",
+            compile(MANIFEST, &raw)
+        );
+    }
+    let snow_cost = tests::changed_source(OHRAN, |r| r["source"]["mana_cost"] = "{3}{S}{G}".into());
+    assert!(matches!(
+        compile(MANIFEST, &snow_cost),
+        CompileResult::Unsupported { .. }
+    ));
+    let mana = tests::changed_source(OHRAN, |r| {
+        let result = &mut r["faces"][0]["result"];
+        result["abilities"][0] = serde_json::json!({"kind":"activated","costs":[{"cost":"tap-self"}],"effects":[{"steps":[{"effect":"add-mana","who":{"player":"you"},"mana":{"mana":"fixed","symbols":["G"]}}]}]});
+        result["lines"][0]["ability"] = result["abilities"][0].clone();
+    });
+    assert!(matches!(
+        compile(MANIFEST, &mana),
+        CompileResult::Unsupported { reason, .. } if reason.contains("non-mana creature")
+    ));
 }

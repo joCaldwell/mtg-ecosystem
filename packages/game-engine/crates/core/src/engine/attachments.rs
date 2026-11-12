@@ -36,6 +36,18 @@ impl Game {
                                     CreatureScope::Controller => {
                                         o.controller == creature.controller
                                     }
+                                    CreatureScope::AttackingController => {
+                                        // CR 508.1k/506.4/611.3a: attacking is
+                                        // incarnation-bound combat membership,
+                                        // independent of tapping or readiness.
+                                        o.controller == creature.controller
+                                            && self
+                                                .state
+                                                .rules
+                                                .combat
+                                                .iter()
+                                                .any(|attacker| attacker.attacker == target)
+                                    }
                                     CreatureScope::Equipped | CreatureScope::Enchanted => {
                                         o.attached_to == Some(target)
                                     }

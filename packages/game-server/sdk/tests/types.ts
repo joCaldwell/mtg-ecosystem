@@ -139,3 +139,9 @@ const x: PlayerResponse = {response: 'announce_x', value: '900719925474099312345
 // @ts-expect-error X is an exact quantity.
 const badX: PlayerResponse = {response: 'announce_x', value: 3};
 void [x,badX];
+
+// IR33 adds an optional, nonnullable Snow characteristic. Existing nonsnow
+// hosted catalogs omit it; feature admission is still owned by Rust.
+type CatalogSnow = Assert<Equal<Catalog['definitions'][number]['characteristics']['snow'], boolean | undefined>>;
+type ViewSnow = Assert<Equal<NonNullable<Extract<Publication, { kind: 'view_replaced' }>['observation']['view']['objects'][number]['characteristics']>['snow'], boolean | undefined>>;
+export type SnowCharacteristicProofs = [CatalogSnow, ViewSnow];

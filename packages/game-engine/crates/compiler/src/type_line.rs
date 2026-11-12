@@ -6,6 +6,7 @@ pub(super) struct ParsedTypes {
     pub additional_types: Vec<CardKind>,
     pub basic: bool,
     pub legendary: bool,
+    pub snow: bool,
     pub subtypes: Vec<String>,
 }
 pub(super) fn parse(line: &str) -> Result<ParsedTypes, Failure> {
@@ -14,13 +15,13 @@ pub(super) fn parse(line: &str) -> Result<ParsedTypes, Failure> {
     let mut supertypes = BTreeSet::new();
     for word in head.split_whitespace() {
         let kind = match word {
-            "Basic" | "Legendary" => {
+            "Basic" | "Legendary" | "Snow" => {
                 if !supertypes.insert(word) {
                     return Err(invalid("source.type_line", "duplicate supertype"));
                 }
                 continue;
             }
-            "Snow" | "World" => return Err(unsupported("source.type_line.supertype", word)),
+            "World" => return Err(unsupported("source.type_line.supertype", word)),
             "Artifact" => CardKind::Artifact,
             "Creature" => CardKind::Creature,
             "Enchantment" => CardKind::Enchantment,
@@ -53,6 +54,12 @@ pub(super) fn parse(line: &str) -> Result<ParsedTypes, Failure> {
             "unsupported type combination",
         ));
     }
+    if supertypes.contains("Snow") && kind != CardKind::Creature {
+        return Err(unsupported(
+            "source.type_line.supertype",
+            "snow support requires a non-mana creature",
+        ));
+    }
     if supertypes.contains("Basic") && kind != CardKind::Land {
         return Err(invalid("source.type_line", "basic requires land"));
     }
@@ -70,6 +77,7 @@ pub(super) fn parse(line: &str) -> Result<ParsedTypes, Failure> {
         additional_types: types.into_iter().collect(),
         basic: supertypes.contains("Basic"),
         legendary: supertypes.contains("Legendary"),
+        snow: supertypes.contains("Snow"),
         subtypes: tail.split_whitespace().map(str::to_owned).collect(),
     })
 }

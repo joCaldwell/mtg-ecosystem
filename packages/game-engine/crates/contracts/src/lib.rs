@@ -25,7 +25,7 @@ pub use strict_io::strict_read_seekable;
 
 /// Latest IR accepted by validation/schema and emitted by full-corpus coverage.
 /// Historical capability minimums and fixture versions remain literal evidence.
-pub const CURRENT_IR_VERSION: u32 = 32;
+pub const CURRENT_IR_VERSION: u32 = 33;
 pub const MIN_IR_VERSION: u32 = 3;
 
 pub const RULES_EDITION: &str = "2026-09-25";
@@ -127,11 +127,17 @@ pub struct Characteristics {
     pub subtypes: Vec<String>,
     pub basic: bool,
     pub legendary: bool,
+    /// CR 205.4g; omission preserves historical nonsnow catalog bytes.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub snow: bool,
     pub mana_cost: ManaCost,
     pub colors: Vec<Color>,
     pub color_identity: Vec<Color>,
     pub power: Option<Quantity>,
     pub toughness: Option<Quantity>,
+}
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 impl Characteristics {
     pub fn has_type(&self, kind: CardKind) -> bool {
@@ -176,6 +182,8 @@ pub enum Capability {
     FilteredDamageTriggerV1,
     DamageControllerDiscardV1,
     DamageQuantityDrawV1,
+    SnowSupertypeV1,
+    AttackingCreatureKeywordsV1,
     EventPlayerRecipientV1,
     SourceStatusConditionV1,
     StepBeginningTriggerV1,
@@ -690,6 +698,8 @@ pub enum CreatureScope {
     Equipped,
     Enchanted,
     Controller,
+    /// Dynamic attacking creatures controlled by this battlefield source.
+    AttackingController,
     Source,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1098,6 +1108,9 @@ pub struct Definition {
 impl Definition {
     pub fn requirements(&self) -> BTreeSet<Capability> {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1]);
+        if self.characteristics.snow {
+            set.insert(Capability::SnowSupertypeV1);
+        }
         if self.x_mana_cost {
             set.insert(Capability::BoardWipesV1);
         }
@@ -1257,6 +1270,10 @@ impl Definition {
                 }
                 StaticEffect::ControllerCreatureAnthem { .. } => Capability::CreatureAnthemV1,
                 StaticEffect::ModifyCreatures {
+                    scope: CreatureScope::AttackingController,
+                    ..
+                } => Capability::AttackingCreatureKeywordsV1,
+                StaticEffect::ModifyCreatures {
                     scope: CreatureScope::Source,
                     ..
                 } => Capability::SacrificeV1,
@@ -1266,6 +1283,11 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        if self.characteristics.snow
+            && (self.characteristics.kind != CardKind::Creature || !self.mana_abilities.is_empty())
+        {
+            return Err("snow support requires a non-mana creature".into());
+        }
         if self.spell.as_ref().is_some_and(has_damage_quantity_draw)
             || self
                 .activated
@@ -1771,11 +1793,16 @@ impl Definition {
             }
             validate_instruction_program(p)?;
         }
-        if self
-            .static_abilities
-            .iter()
-            .any(|a| a.effect != StaticEffect::EntersTapped)
-            && c.kind != CardKind::Enchantment
+        if self.static_abilities.iter().any(|a| {
+            a.effect != StaticEffect::EntersTapped
+                && !matches!(
+                    a.effect,
+                    StaticEffect::ModifyCreatures {
+                        scope: CreatureScope::AttackingController,
+                        ..
+                    }
+                )
+        }) && c.kind != CardKind::Enchantment
             && !equipment
             && !(sacrifice && c.kind == CardKind::Creature)
             && !(wipes && matches!(c.kind, CardKind::Instant | CardKind::Sorcery))
@@ -1822,6 +1849,14 @@ impl Definition {
                             || *toughness != Quantity::zero()
                             || !keywords.is_empty()
                             || restrictions != &[CreatureRestriction::CantBlock]))
+                    || (*scope == CreatureScope::AttackingController
+                        && (!matches!(
+                            c.kind,
+                            CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
+                        ) || *power != Quantity::zero()
+                            || *toughness != Quantity::zero()
+                            || keywords != &[KeywordAbility::Deathtouch]
+                            || !restrictions.is_empty()))
                     || (*scope == CreatureScope::Equipped && !equipment)
                     || (*scope == CreatureScope::Enchanted && !aura)
                     || (*scope == CreatureScope::Controller
@@ -2512,6 +2547,23 @@ impl Catalog {
         }
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
+            if self.schema_version < 33
+                && (d.characteristics.snow
+                    || d.capabilities.contains(&Capability::SnowSupertypeV1)
+                    || d.capabilities
+                        .contains(&Capability::AttackingCreatureKeywordsV1)
+                    || d.static_abilities.iter().any(|a| {
+                        matches!(
+                            a.effect,
+                            StaticEffect::ModifyCreatures {
+                                scope: CreatureScope::AttackingController,
+                                ..
+                            }
+                        )
+                    }))
+            {
+                return Err("IR v33 is required for snow or attacking creature keywords".into());
+            }
             if self.schema_version < 32
                 && (d.capabilities.contains(&Capability::DamageQuantityDrawV1)
                     || d.spell.as_ref().is_some_and(has_damage_quantity_draw)
@@ -3089,6 +3141,26 @@ pub fn catalog_schema() -> serde_json::Value {
             "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreDamageQuantityDrawProgram"}}}}
         }}}}}
     }));
+    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"properties":{"schema_version":{"maximum":32}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "capabilities":{"items":{"not":{"enum":[Capability::SnowSupertypeV1,Capability::AttackingCreatureKeywordsV1]}}},
+            "characteristics":{"properties":{"snow":{"const":false}}},
+            "static_abilities":{"items":{"properties":{"effect":{"properties":{"modify_creatures":{"properties":{"scope":{"not":{"const":"attacking_controller"}}}}}}}}}
+        }}}}}
+    }));
+    schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
+        .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
+        .push(serde_json::json!({"properties":{"modify_creatures":{
+            "if":{"properties":{"scope":{"const":"attacking_controller"}},"required":["scope"]},
+            "then":{"properties":{"power":{"const":"0"},"toughness":{"const":"0"},"keywords":{"const":["deathtouch"]},"restrictions":{"const":[]}}}
+        }}}));
+    schema["$defs"]["Definition"].as_object_mut().unwrap()
+        .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
+        .push(serde_json::json!({
+            "if":{"properties":{"characteristics":{"properties":{"snow":{"const":true}},"required":["snow"]}},"required":["characteristics"]},
+            "then":{"properties":{"characteristics":{"properties":{"kind":{"const":"creature"}}},"mana_abilities":{"maxItems":0}}}
+        }));
     schema["$defs"]["PreDamageQuantityDrawProgram"] = serde_json::json!({"properties":{
         "instructions":{"items":{"properties":{"op":{"not":{"const":"draw_damage_amount"}}}}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreDamageQuantityDrawProgram"}}}}
@@ -3472,6 +3544,7 @@ mod tests {
             (30, &[FilteredDamageTriggerV1]),
             (31, &[DamageControllerDiscardV1]),
             (32, &[DamageQuantityDrawV1]),
+            (33, &[SnowSupertypeV1, AttackingCreatureKeywordsV1]),
         ];
         // Enumerate the public vocabulary, so a new capability cannot silently
         // escape this contract. Check full program-bearing definitions rather
@@ -3581,6 +3654,23 @@ mod tests {
             vec![Instruction::DrawDamageAmount { source_block: 0 }];
         quantity_draw.capabilities = quantity_draw.requirements();
         definitions.push(quantity_draw);
+        let mut snow = damage.clone();
+        snow.characteristics.snow = true;
+        snow.capabilities = snow.requirements();
+        definitions.push(snow);
+        let mut attacking = damage.clone();
+        attacking.static_abilities = vec![StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::ModifyCreatures {
+                scope: CreatureScope::AttackingController,
+                power: Quantity::zero(),
+                toughness: Quantity::zero(),
+                keywords: vec![KeywordAbility::Deathtouch],
+                restrictions: vec![],
+            },
+        }];
+        attacking.capabilities = attacking.requirements();
+        definitions.push(attacking);
         // Each newly admitted dimension independently requires IR26, even when
         // paired with the original value of the other dimension.
         for (kind, recipient) in [
@@ -4366,6 +4456,190 @@ mod tests {
                 assert!(old.validate().unwrap_err().contains("IR v32"));
             }
         }
+    }
+    #[test]
+    fn snow_and_attacking_keyword_dimensions_are_strict_and_independently_versioned() {
+        let old = Catalog::read(include_str!(
+            "../../../tests/fixtures/expected-wipes-ir.json"
+        ))
+        .unwrap();
+        let base = old
+            .definitions
+            .iter()
+            .find(|d| d.name == "Storm Crow")
+            .unwrap()
+            .clone();
+        let old_bytes = serde_json::to_string(&base.characteristics).unwrap();
+        assert!(!old_bytes.contains("snow"));
+        let decoded: Characteristics = strict_read(&old_bytes).unwrap();
+        assert!(!decoded.snow);
+        assert_eq!(serde_json::to_string(&decoded).unwrap(), old_bytes);
+        for value in [
+            serde_json::Value::Null,
+            serde_json::json!("true"),
+            serde_json::json!(1),
+        ] {
+            let mut c = serde_json::to_value(&decoded).unwrap();
+            c["snow"] = value;
+            assert!(serde_json::from_value::<Characteristics>(c).is_err());
+        }
+        let grant = StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::ModifyCreatures {
+                scope: CreatureScope::AttackingController,
+                power: Quantity::zero(),
+                toughness: Quantity::zero(),
+                keywords: vec![KeywordAbility::Deathtouch],
+                restrictions: vec![],
+            },
+        };
+        for (snow, attacking) in [(true, false), (false, true), (true, true)] {
+            let mut d = base.clone();
+            d.characteristics.snow = snow;
+            if attacking {
+                d.static_abilities.push(grant.clone());
+            }
+            d.capabilities = d.requirements();
+            d.validate().unwrap();
+            assert_eq!(d.capabilities.contains(&Capability::SnowSupertypeV1), snow);
+            assert_eq!(
+                d.capabilities
+                    .contains(&Capability::AttackingCreatureKeywordsV1),
+                attacking
+            );
+            assert!(!d.capabilities.contains(&Capability::AttachmentsV1));
+            let mut c = Catalog {
+                schema_version: 33,
+                rules_edition: RULES_EDITION.into(),
+                rules_sha256: RULES_SHA256.into(),
+                definitions: vec![d.clone()],
+            };
+            c.validate().unwrap();
+            c.schema_version = 32;
+            assert!(c.validate().unwrap_err().contains("IR v33"));
+            c.definitions[0]
+                .capabilities
+                .remove(&Capability::SnowSupertypeV1);
+            c.definitions[0]
+                .capabilities
+                .remove(&Capability::AttackingCreatureKeywordsV1);
+            assert!(c.validate().unwrap_err().contains("IR v33"));
+            for cap in [
+                Capability::SnowSupertypeV1,
+                Capability::AttackingCreatureKeywordsV1,
+            ] {
+                if d.capabilities.contains(&cap) {
+                    let mut missing = d.clone();
+                    missing.capabilities.remove(&cap);
+                    assert!(missing.validate().is_err());
+                }
+            }
+        }
+        // Labels alone are version-gated even without the new semantic shape.
+        for cap in [
+            Capability::SnowSupertypeV1,
+            Capability::AttackingCreatureKeywordsV1,
+        ] {
+            let mut d = base.clone();
+            d.capabilities.insert(cap);
+            let c = Catalog {
+                schema_version: 32,
+                rules_edition: RULES_EDITION.into(),
+                rules_sha256: RULES_SHA256.into(),
+                definitions: vec![d],
+            };
+            assert!(c.validate().unwrap_err().contains("IR v33"));
+        }
+        let mut snow_mana = base.clone();
+        snow_mana.characteristics.snow = true;
+        snow_mana.mana_abilities = old
+            .definitions
+            .iter()
+            .find(|d| d.name == "Sol Ring")
+            .unwrap()
+            .mana_abilities
+            .clone();
+        snow_mana.capabilities = snow_mana.requirements();
+        assert!(
+            snow_mana
+                .validate()
+                .unwrap_err()
+                .contains("non-mana creature")
+        );
+        for kind in [
+            CardKind::Land,
+            CardKind::Artifact,
+            CardKind::Enchantment,
+            CardKind::Instant,
+            CardKind::Sorcery,
+        ] {
+            let mut d = base.clone();
+            d.characteristics.snow = true;
+            d.characteristics.kind = kind;
+            d.capabilities = d.requirements();
+            assert!(d.validate().unwrap_err().contains("non-mana creature"));
+        }
+        for (power, toughness, keywords, restrictions) in [
+            (
+                Quantity::from(1),
+                Quantity::zero(),
+                vec![KeywordAbility::Deathtouch],
+                vec![],
+            ),
+            (
+                Quantity::zero(),
+                Quantity::from(1),
+                vec![KeywordAbility::Deathtouch],
+                vec![],
+            ),
+            (Quantity::zero(), Quantity::zero(), vec![], vec![]),
+            (
+                Quantity::zero(),
+                Quantity::zero(),
+                vec![KeywordAbility::Flying],
+                vec![],
+            ),
+            (
+                Quantity::zero(),
+                Quantity::zero(),
+                vec![KeywordAbility::Deathtouch, KeywordAbility::Deathtouch],
+                vec![],
+            ),
+            (
+                Quantity::zero(),
+                Quantity::zero(),
+                vec![KeywordAbility::Deathtouch],
+                vec![CreatureRestriction::CantBlock],
+            ),
+        ] {
+            let mut d = base.clone();
+            d.static_abilities = vec![StaticAbility {
+                functioning_zone: FunctioningZone::Battlefield,
+                effect: StaticEffect::ModifyCreatures {
+                    scope: CreatureScope::AttackingController,
+                    power,
+                    toughness,
+                    keywords,
+                    restrictions,
+                },
+            }];
+            d.capabilities = d.requirements();
+            assert!(d.validate().is_err());
+        }
+        let mut unbound = base.clone();
+        unbound.static_abilities = vec![grant.clone()];
+        unbound.static_abilities[0].functioning_zone = FunctioningZone::Stack;
+        unbound.capabilities = unbound.requirements();
+        assert!(unbound.validate().is_err());
+        // The old unqualified Controller scope still requires its historical
+        // enchantment context; the new scope does not widen it on creatures.
+        unbound.static_abilities = vec![grant];
+        if let StaticEffect::ModifyCreatures { scope, .. } = &mut unbound.static_abilities[0].effect
+        {
+            *scope = CreatureScope::Controller;
+        }
+        unbound.capabilities = unbound.requirements();
+        assert!(unbound.validate().is_err());
     }
     #[test]
     fn incremental_sha256_matches_reference_across_byte_fragment_boundaries() {

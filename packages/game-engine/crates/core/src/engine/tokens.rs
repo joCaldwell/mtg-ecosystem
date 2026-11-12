@@ -74,6 +74,7 @@ fn token_definition(source: &Definition, id: CardId, token: &CreatureToken) -> D
         subtypes: token.subtypes.clone(),
         basic: false,
         legendary: false,
+        snow: false,
         mana_cost: ManaCost {
             generic: Quantity::zero(),
             colored: vec![],

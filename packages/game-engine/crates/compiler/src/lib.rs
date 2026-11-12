@@ -1113,6 +1113,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             additional_types: types.additional_types,
             basic,
             legendary: types.legendary,
+            snow: types.snow,
             subtypes: types.subtypes,
             mana_cost: mana_cost(&source.mana_cost.replace("{X}", ""))?,
             colors: source.colors,
@@ -2630,6 +2631,33 @@ fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
             },
         });
     }
+    // CR 611.3a/613.1f: a live battlefield source continuously grants the
+    // keyword to its current attacking creatures. Consume the entire AST shape;
+    // neither status/ownership qualifiers nor mixed modifiers are discarded.
+    if let SourceStaticEffect::Modify { what, modifiers } = effect
+        && *what
+            == serde_json::json!({"ref":"each","filter":{"status":["attacking"],"types":["creature"],"control":"you"}})
+    {
+        if modifiers.len() != 1
+            || modifiers[0]
+                != serde_json::json!({"modifier":"abilities","abilities":[{"gained":"keyword","keyword":{"keyword":"deathtouch"}}]})
+        {
+            return Err(unsupported(
+                "static.modifier",
+                "attacking creature grant requires exactly deathtouch",
+            ));
+        }
+        return Ok(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::ModifyCreatures {
+                scope: CreatureScope::AttackingController,
+                power: Quantity::zero(),
+                toughness: Quantity::zero(),
+                keywords: vec![KeywordAbility::Deathtouch],
+                restrictions: vec![],
+            },
+        });
+    }
     let scope = |what: &serde_json::Value| {
         if *what == serde_json::json!({"ref":"equipped","noun":"creature"}) {
             Some(CreatureScope::Equipped)
@@ -3656,7 +3684,6 @@ mod tests {
         for (line, reason) in [
             ("Planeswalker — Ada", "Planeswalker"),
             ("Battle — Siege", "Battle"),
-            ("Snow Creature — Bear", "Snow"),
             ("World Enchantment", "World"),
         ] {
             let raw = changed_record(1, |r| {

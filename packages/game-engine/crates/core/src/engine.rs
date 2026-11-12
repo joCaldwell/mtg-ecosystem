@@ -236,6 +236,8 @@ pub use damage_life::{NoncombatDamageOccurrence, TargetEntity};
 #[cfg(test)]
 mod attack_trigger_tests;
 #[cfg(test)]
+mod attacking_creature_keyword_tests;
+#[cfg(test)]
 mod cast_trigger_tests;
 #[cfg(test)]
 mod damage_controller_discard_tests;
