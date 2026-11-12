@@ -48,3 +48,30 @@ CR 205.4g defines Snow; 107.4h distinguishes Snow provenance from mana color/typ
 dynamic; 613.1f governs keyword grants; 702.2b–f/702.19b govern deathtouch,
 redundancy, LKI and lethal trample assignments. Official source:
 <https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt>.
+
+Focused validation at source checkpoint `1854e37` passed formatting, dependency
+boundaries, workspace all-target compilation, 118 compiler tests, 22 contracts
+tests and 33 selected core tests. The runtime selection executes all six new
+Ohran cases, 16 attachment cases, six filtered-damage cases, one token-combat
+case and four v2 admission cases. The ordinary SDK schema binary was rebuilt;
+all 37 executable engine source/schema/catalog cases and all 47 SDK checks passed,
+including strict generated TypeScript and the unchanged 33 response variants.
+The optional Snow field is proven on both generated catalog and visible
+characteristic types without a hand-maintained DTO.
+
+The first native run retained a stale IR30 whole-Ohran unsupported assertion.
+Source/rules review confirmed that IR33 deliberately completes both previously
+unsupported dimensions. The test now checks the complete new source and explicit
+IR32 rejection with stripped capability labels. No source record, historical IR
+fixture, runtime guard or expected card result was changed to bless a failure.
+
+Raw logs, failed and passing native runs, public schema and SDK manifests are
+retained in
+`~/.local/share/mtg-ecosystem/engine-verification/correctness-loop-20261112/`:
+`attacking-keywords-focused-01.log`, `attacking-keywords-focused-02.log`,
+`attacking-keywords-schema-01.log`, `attacking-keywords-sdk-01.log` and the
+`attacking-keywords-sdk-verification-01.*` / `attacking-keywords-public-schema-01.json`
+artifacts. Full runtime suites, actual hosted clients/recovery, a new full game,
+release/profile gameplay matrices and retention rebuilds were not run. The
+previous v2 match evidence keeps its original source qualification; these results
+do not renew combined acceptance or host/search admission.
