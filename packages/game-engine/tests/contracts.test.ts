@@ -2181,3 +2181,48 @@ test("IR32 exact-source damage quantity draw preserves frozen count and version 
     if(passed) fs.rmSync(temporary,{recursive:true,force:true});
   }
 });
+
+
+test("headless damage v2 profile compiles all 36 exact sources without changing v1", () => {
+  const catalog=loadCatalog("damage-matches-v2");
+  assert.equal(catalog.schema_version,32);
+  assert.equal(catalog.definitions.length,36);
+  assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"06466aeb1c18d3b75352c9ab276c046ff07b931f1aadf3f86fde7c5e74dc5bda");
+  assert.equal(read("catalogs/damage-matches.sha256").trim(),"b7dae2b1f537f3c7abb4ed4e53a6dc1ae4b84f9b14eeb33e8f42f2736dda5bd0");
+  const group=fileURLToPath(new URL("fixtures/damage-matches-v2/",import.meta.url));
+  const provenance=JSON.parse(fs.readFileSync(path.join(group,"provenance.json"),"utf8"));
+  const archives=JSON.parse(fs.readFileSync(path.join(group,"accepted-archives.json"),"utf8"));
+  assert.equal(provenance.records.length,36);
+  assert.deepEqual(archives.map((a:any)=>a.record_sha256.length),[27,9]);
+  for(const archive of archives) assert.equal(sha(fs.readFileSync(path.join(group,archive.manifest_file),"utf8").trimEnd()),archive.manifest_sha256);
+  for(const witness of provenance.records) {
+    const raw=fs.readFileSync(path.join(group,witness.file),"utf8");
+    assert.equal(sha(raw.trimEnd()),witness.record_sha256);
+    assert.ok(archives.find((a:any)=>a.manifest_file===witness.archive)?.record_sha256.includes(witness.record_sha256));
+    const record=JSON.parse(raw);
+    assert.equal(record.status,"parsed");
+    assert.equal(record.source.legalities.commander,"legal");
+    const d=catalog.definitions.find((d:any)=>d.oracle_id===record.oracleIdentity);
+    assert.ok(d,record.source.name);
+    assert.equal(d.provenance.source_sha256,witness.source_sha256);
+    assert.equal(d.provenance.ast_sha256,witness.ast_sha256);
+    const parsed=parseOracleText(record.source.oracle_text,record.source.name,{
+      layout:record.source.layout,typeLine:record.source.type_line,includeSourceProvenance:true,
+    });
+    assert.equal(parsed.ok,true,record.source.name);
+    if(parsed.ok) assert.deepEqual(JSON.parse(JSON.stringify(parsed.abilities)),record.faces[0].result.abilities,record.source.name);
+  }
+  const profile=JSON.parse(read("profiles/commander-damage-triggers-v2.json"));
+  assert.equal(profile.hosted,false);assert.equal(profile.search,false);
+  assert.deepEqual(profile.commanders,["333cc91b-01ab-4491-a993-d8304fc382c6"]);
+  for(const deck of profile.decks) {
+    assert.equal(deck.cards.reduce((n:number,c:any)=>n+c.count,0),100);
+    assert.equal(deck.cards.filter((c:any)=>c.count===1).length,34);
+    assert.deepEqual(deck.cards.filter((c:any)=>c.count!==1).map((c:any)=>c.count),[33,33]);
+  }
+  const caps=new Set(catalog.definitions.flatMap((d:any)=>d.capabilities));
+  for(const cap of ["filtered_damage_trigger_v1","damage_controller_discard_v1","damage_quantity_draw_v1"]) assert.ok(caps.has(cap),cap);
+  const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
+  assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
+  assert.equal(validate(loadCatalog("damage-matches")),true,JSON.stringify(validate.errors));
+});

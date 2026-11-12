@@ -1,0 +1,619 @@
+{
+  "name": "commander-damage-triggers-v2",
+  "catalog_manifest": "../catalogs/damage-matches-v2.json",
+  "commander_policy": {
+    "banned_list": "../commander-banned-2026-10-15.json",
+    "color_identity": "commander_subset",
+    "eligibility": "legendary_creature"
+  },
+  "commanders": [
+    "333cc91b-01ab-4491-a993-d8304fc382c6"
+  ],
+  "decks": [
+    {
+      "commander": "333cc91b-01ab-4491-a993-d8304fc382c6",
+      "cards": [
+        {
+          "oracle_id": "000d5588-5a4c-434e-988d-396632ade42c",
+          "count": 1
+        },
+        {
+          "oracle_id": "0895c9b7-ae7d-4bb3-af17-3b75deb50a25",
+          "count": 1
+        },
+        {
+          "oracle_id": "0b67c4e2-f88b-4e01-85a1-9d5f5b8db13b",
+          "count": 1
+        },
+        {
+          "oracle_id": "0bc7f093-bef0-4f1a-852c-4b75ebf54838",
+          "count": 1
+        },
+        {
+          "oracle_id": "10c585c4-bf5b-4d8f-94a9-e9a5036a688f",
+          "count": 1
+        },
+        {
+          "oracle_id": "11cb509d-21af-48f1-b355-135ebd3e4bd1",
+          "count": 1
+        },
+        {
+          "oracle_id": "11f77158-0240-4882-94a4-6bd6b3d94bcc",
+          "count": 1
+        },
+        {
+          "oracle_id": "1a2030cc-d7ee-4059-b2d7-fb95ea8e267b",
+          "count": 1
+        },
+        {
+          "oracle_id": "2e55fc03-779c-4a71-beb7-aa0ade738c24",
+          "count": 1
+        },
+        {
+          "oracle_id": "333cc91b-01ab-4491-a993-d8304fc382c6",
+          "count": 1
+        },
+        {
+          "oracle_id": "34fd461b-a913-4a60-9477-ce2bd5c6fc5a",
+          "count": 1
+        },
+        {
+          "oracle_id": "48936751-429b-4c40-88f5-72acde6278cc",
+          "count": 1
+        },
+        {
+          "oracle_id": "4bbc5df9-60d7-46c1-8856-91c9c74abf18",
+          "count": 1
+        },
+        {
+          "oracle_id": "4caa8e68-e599-416f-b839-3d009569ff29",
+          "count": 1
+        },
+        {
+          "oracle_id": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68",
+          "count": 33
+        },
+        {
+          "oracle_id": "56c1a548-c80c-432b-bf92-d4ef6117b298",
+          "count": 1
+        },
+        {
+          "oracle_id": "5dee663f-9e2e-4503-8086-fc51664fdf29",
+          "count": 1
+        },
+        {
+          "oracle_id": "6ad8011d-3471-4369-9d68-b264cc027487",
+          "count": 1
+        },
+        {
+          "oracle_id": "72a53d9e-0645-4024-a90f-73b05c2284c6",
+          "count": 1
+        },
+        {
+          "oracle_id": "73115500-4468-43b3-9151-13e3da9050c5",
+          "count": 1
+        },
+        {
+          "oracle_id": "7ffae8f8-3006-4969-a339-6d30678f87ea",
+          "count": 1
+        },
+        {
+          "oracle_id": "837182db-1bf3-4a2c-bd01-1af9d9873561",
+          "count": 1
+        },
+        {
+          "oracle_id": "88b50194-bc39-47a6-968b-983553d89cf9",
+          "count": 1
+        },
+        {
+          "oracle_id": "938b4e2c-88d9-4637-bc00-e228920c9a78",
+          "count": 1
+        },
+        {
+          "oracle_id": "b2c6aa39-2d2a-459c-a555-fb48ba993373",
+          "count": 33
+        },
+        {
+          "oracle_id": "ba5055ce-6809-47a4-bee6-fb97a5b60f8a",
+          "count": 1
+        },
+        {
+          "oracle_id": "bbf9fd47-10e1-4749-b06f-4fe72200afc7",
+          "count": 1
+        },
+        {
+          "oracle_id": "bdcb7aed-3595-4c7e-b9da-543e92de919a",
+          "count": 1
+        },
+        {
+          "oracle_id": "c6207f6a-a624-4754-88f5-dbe700c841ff",
+          "count": 1
+        },
+        {
+          "oracle_id": "c650a7bc-e350-44a0-a698-d4a233d66156",
+          "count": 1
+        },
+        {
+          "oracle_id": "c97361b5-af16-4a7b-af85-a429dbaf4ad2",
+          "count": 1
+        },
+        {
+          "oracle_id": "d6ee6cc1-902d-4f56-afa5-6fa4813bfbbc",
+          "count": 1
+        },
+        {
+          "oracle_id": "f328012f-4696-47bb-ab43-247bdcb13f03",
+          "count": 1
+        },
+        {
+          "oracle_id": "fb9af562-7384-4575-93bb-34f1ada23735",
+          "count": 1
+        },
+        {
+          "oracle_id": "fc1256e9-eb92-43b6-abfc-ce19d910a929",
+          "count": 1
+        },
+        {
+          "oracle_id": "feb244f8-bcb1-44cf-9940-2719221a7309",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "commander": "333cc91b-01ab-4491-a993-d8304fc382c6",
+      "cards": [
+        {
+          "oracle_id": "000d5588-5a4c-434e-988d-396632ade42c",
+          "count": 1
+        },
+        {
+          "oracle_id": "0895c9b7-ae7d-4bb3-af17-3b75deb50a25",
+          "count": 1
+        },
+        {
+          "oracle_id": "0b67c4e2-f88b-4e01-85a1-9d5f5b8db13b",
+          "count": 1
+        },
+        {
+          "oracle_id": "0bc7f093-bef0-4f1a-852c-4b75ebf54838",
+          "count": 1
+        },
+        {
+          "oracle_id": "10c585c4-bf5b-4d8f-94a9-e9a5036a688f",
+          "count": 1
+        },
+        {
+          "oracle_id": "11cb509d-21af-48f1-b355-135ebd3e4bd1",
+          "count": 1
+        },
+        {
+          "oracle_id": "11f77158-0240-4882-94a4-6bd6b3d94bcc",
+          "count": 1
+        },
+        {
+          "oracle_id": "1a2030cc-d7ee-4059-b2d7-fb95ea8e267b",
+          "count": 1
+        },
+        {
+          "oracle_id": "2e55fc03-779c-4a71-beb7-aa0ade738c24",
+          "count": 1
+        },
+        {
+          "oracle_id": "333cc91b-01ab-4491-a993-d8304fc382c6",
+          "count": 1
+        },
+        {
+          "oracle_id": "34fd461b-a913-4a60-9477-ce2bd5c6fc5a",
+          "count": 1
+        },
+        {
+          "oracle_id": "48936751-429b-4c40-88f5-72acde6278cc",
+          "count": 1
+        },
+        {
+          "oracle_id": "4bbc5df9-60d7-46c1-8856-91c9c74abf18",
+          "count": 1
+        },
+        {
+          "oracle_id": "4caa8e68-e599-416f-b839-3d009569ff29",
+          "count": 1
+        },
+        {
+          "oracle_id": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68",
+          "count": 33
+        },
+        {
+          "oracle_id": "56c1a548-c80c-432b-bf92-d4ef6117b298",
+          "count": 1
+        },
+        {
+          "oracle_id": "5dee663f-9e2e-4503-8086-fc51664fdf29",
+          "count": 1
+        },
+        {
+          "oracle_id": "6ad8011d-3471-4369-9d68-b264cc027487",
+          "count": 1
+        },
+        {
+          "oracle_id": "72a53d9e-0645-4024-a90f-73b05c2284c6",
+          "count": 1
+        },
+        {
+          "oracle_id": "73115500-4468-43b3-9151-13e3da9050c5",
+          "count": 1
+        },
+        {
+          "oracle_id": "7ffae8f8-3006-4969-a339-6d30678f87ea",
+          "count": 1
+        },
+        {
+          "oracle_id": "837182db-1bf3-4a2c-bd01-1af9d9873561",
+          "count": 1
+        },
+        {
+          "oracle_id": "88b50194-bc39-47a6-968b-983553d89cf9",
+          "count": 1
+        },
+        {
+          "oracle_id": "938b4e2c-88d9-4637-bc00-e228920c9a78",
+          "count": 1
+        },
+        {
+          "oracle_id": "b2c6aa39-2d2a-459c-a555-fb48ba993373",
+          "count": 33
+        },
+        {
+          "oracle_id": "ba5055ce-6809-47a4-bee6-fb97a5b60f8a",
+          "count": 1
+        },
+        {
+          "oracle_id": "bbf9fd47-10e1-4749-b06f-4fe72200afc7",
+          "count": 1
+        },
+        {
+          "oracle_id": "bdcb7aed-3595-4c7e-b9da-543e92de919a",
+          "count": 1
+        },
+        {
+          "oracle_id": "c6207f6a-a624-4754-88f5-dbe700c841ff",
+          "count": 1
+        },
+        {
+          "oracle_id": "c650a7bc-e350-44a0-a698-d4a233d66156",
+          "count": 1
+        },
+        {
+          "oracle_id": "c97361b5-af16-4a7b-af85-a429dbaf4ad2",
+          "count": 1
+        },
+        {
+          "oracle_id": "d6ee6cc1-902d-4f56-afa5-6fa4813bfbbc",
+          "count": 1
+        },
+        {
+          "oracle_id": "f328012f-4696-47bb-ab43-247bdcb13f03",
+          "count": 1
+        },
+        {
+          "oracle_id": "fb9af562-7384-4575-93bb-34f1ada23735",
+          "count": 1
+        },
+        {
+          "oracle_id": "fc1256e9-eb92-43b6-abfc-ce19d910a929",
+          "count": 1
+        },
+        {
+          "oracle_id": "feb244f8-bcb1-44cf-9940-2719221a7309",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "commander": "333cc91b-01ab-4491-a993-d8304fc382c6",
+      "cards": [
+        {
+          "oracle_id": "000d5588-5a4c-434e-988d-396632ade42c",
+          "count": 1
+        },
+        {
+          "oracle_id": "0895c9b7-ae7d-4bb3-af17-3b75deb50a25",
+          "count": 1
+        },
+        {
+          "oracle_id": "0b67c4e2-f88b-4e01-85a1-9d5f5b8db13b",
+          "count": 1
+        },
+        {
+          "oracle_id": "0bc7f093-bef0-4f1a-852c-4b75ebf54838",
+          "count": 1
+        },
+        {
+          "oracle_id": "10c585c4-bf5b-4d8f-94a9-e9a5036a688f",
+          "count": 1
+        },
+        {
+          "oracle_id": "11cb509d-21af-48f1-b355-135ebd3e4bd1",
+          "count": 1
+        },
+        {
+          "oracle_id": "11f77158-0240-4882-94a4-6bd6b3d94bcc",
+          "count": 1
+        },
+        {
+          "oracle_id": "1a2030cc-d7ee-4059-b2d7-fb95ea8e267b",
+          "count": 1
+        },
+        {
+          "oracle_id": "2e55fc03-779c-4a71-beb7-aa0ade738c24",
+          "count": 1
+        },
+        {
+          "oracle_id": "333cc91b-01ab-4491-a993-d8304fc382c6",
+          "count": 1
+        },
+        {
+          "oracle_id": "34fd461b-a913-4a60-9477-ce2bd5c6fc5a",
+          "count": 1
+        },
+        {
+          "oracle_id": "48936751-429b-4c40-88f5-72acde6278cc",
+          "count": 1
+        },
+        {
+          "oracle_id": "4bbc5df9-60d7-46c1-8856-91c9c74abf18",
+          "count": 1
+        },
+        {
+          "oracle_id": "4caa8e68-e599-416f-b839-3d009569ff29",
+          "count": 1
+        },
+        {
+          "oracle_id": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68",
+          "count": 33
+        },
+        {
+          "oracle_id": "56c1a548-c80c-432b-bf92-d4ef6117b298",
+          "count": 1
+        },
+        {
+          "oracle_id": "5dee663f-9e2e-4503-8086-fc51664fdf29",
+          "count": 1
+        },
+        {
+          "oracle_id": "6ad8011d-3471-4369-9d68-b264cc027487",
+          "count": 1
+        },
+        {
+          "oracle_id": "72a53d9e-0645-4024-a90f-73b05c2284c6",
+          "count": 1
+        },
+        {
+          "oracle_id": "73115500-4468-43b3-9151-13e3da9050c5",
+          "count": 1
+        },
+        {
+          "oracle_id": "7ffae8f8-3006-4969-a339-6d30678f87ea",
+          "count": 1
+        },
+        {
+          "oracle_id": "837182db-1bf3-4a2c-bd01-1af9d9873561",
+          "count": 1
+        },
+        {
+          "oracle_id": "88b50194-bc39-47a6-968b-983553d89cf9",
+          "count": 1
+        },
+        {
+          "oracle_id": "938b4e2c-88d9-4637-bc00-e228920c9a78",
+          "count": 1
+        },
+        {
+          "oracle_id": "b2c6aa39-2d2a-459c-a555-fb48ba993373",
+          "count": 33
+        },
+        {
+          "oracle_id": "ba5055ce-6809-47a4-bee6-fb97a5b60f8a",
+          "count": 1
+        },
+        {
+          "oracle_id": "bbf9fd47-10e1-4749-b06f-4fe72200afc7",
+          "count": 1
+        },
+        {
+          "oracle_id": "bdcb7aed-3595-4c7e-b9da-543e92de919a",
+          "count": 1
+        },
+        {
+          "oracle_id": "c6207f6a-a624-4754-88f5-dbe700c841ff",
+          "count": 1
+        },
+        {
+          "oracle_id": "c650a7bc-e350-44a0-a698-d4a233d66156",
+          "count": 1
+        },
+        {
+          "oracle_id": "c97361b5-af16-4a7b-af85-a429dbaf4ad2",
+          "count": 1
+        },
+        {
+          "oracle_id": "d6ee6cc1-902d-4f56-afa5-6fa4813bfbbc",
+          "count": 1
+        },
+        {
+          "oracle_id": "f328012f-4696-47bb-ab43-247bdcb13f03",
+          "count": 1
+        },
+        {
+          "oracle_id": "fb9af562-7384-4575-93bb-34f1ada23735",
+          "count": 1
+        },
+        {
+          "oracle_id": "fc1256e9-eb92-43b6-abfc-ce19d910a929",
+          "count": 1
+        },
+        {
+          "oracle_id": "feb244f8-bcb1-44cf-9940-2719221a7309",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "commander": "333cc91b-01ab-4491-a993-d8304fc382c6",
+      "cards": [
+        {
+          "oracle_id": "000d5588-5a4c-434e-988d-396632ade42c",
+          "count": 1
+        },
+        {
+          "oracle_id": "0895c9b7-ae7d-4bb3-af17-3b75deb50a25",
+          "count": 1
+        },
+        {
+          "oracle_id": "0b67c4e2-f88b-4e01-85a1-9d5f5b8db13b",
+          "count": 1
+        },
+        {
+          "oracle_id": "0bc7f093-bef0-4f1a-852c-4b75ebf54838",
+          "count": 1
+        },
+        {
+          "oracle_id": "10c585c4-bf5b-4d8f-94a9-e9a5036a688f",
+          "count": 1
+        },
+        {
+          "oracle_id": "11cb509d-21af-48f1-b355-135ebd3e4bd1",
+          "count": 1
+        },
+        {
+          "oracle_id": "11f77158-0240-4882-94a4-6bd6b3d94bcc",
+          "count": 1
+        },
+        {
+          "oracle_id": "1a2030cc-d7ee-4059-b2d7-fb95ea8e267b",
+          "count": 1
+        },
+        {
+          "oracle_id": "2e55fc03-779c-4a71-beb7-aa0ade738c24",
+          "count": 1
+        },
+        {
+          "oracle_id": "333cc91b-01ab-4491-a993-d8304fc382c6",
+          "count": 1
+        },
+        {
+          "oracle_id": "34fd461b-a913-4a60-9477-ce2bd5c6fc5a",
+          "count": 1
+        },
+        {
+          "oracle_id": "48936751-429b-4c40-88f5-72acde6278cc",
+          "count": 1
+        },
+        {
+          "oracle_id": "4bbc5df9-60d7-46c1-8856-91c9c74abf18",
+          "count": 1
+        },
+        {
+          "oracle_id": "4caa8e68-e599-416f-b839-3d009569ff29",
+          "count": 1
+        },
+        {
+          "oracle_id": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68",
+          "count": 33
+        },
+        {
+          "oracle_id": "56c1a548-c80c-432b-bf92-d4ef6117b298",
+          "count": 1
+        },
+        {
+          "oracle_id": "5dee663f-9e2e-4503-8086-fc51664fdf29",
+          "count": 1
+        },
+        {
+          "oracle_id": "6ad8011d-3471-4369-9d68-b264cc027487",
+          "count": 1
+        },
+        {
+          "oracle_id": "72a53d9e-0645-4024-a90f-73b05c2284c6",
+          "count": 1
+        },
+        {
+          "oracle_id": "73115500-4468-43b3-9151-13e3da9050c5",
+          "count": 1
+        },
+        {
+          "oracle_id": "7ffae8f8-3006-4969-a339-6d30678f87ea",
+          "count": 1
+        },
+        {
+          "oracle_id": "837182db-1bf3-4a2c-bd01-1af9d9873561",
+          "count": 1
+        },
+        {
+          "oracle_id": "88b50194-bc39-47a6-968b-983553d89cf9",
+          "count": 1
+        },
+        {
+          "oracle_id": "938b4e2c-88d9-4637-bc00-e228920c9a78",
+          "count": 1
+        },
+        {
+          "oracle_id": "b2c6aa39-2d2a-459c-a555-fb48ba993373",
+          "count": 33
+        },
+        {
+          "oracle_id": "ba5055ce-6809-47a4-bee6-fb97a5b60f8a",
+          "count": 1
+        },
+        {
+          "oracle_id": "bbf9fd47-10e1-4749-b06f-4fe72200afc7",
+          "count": 1
+        },
+        {
+          "oracle_id": "bdcb7aed-3595-4c7e-b9da-543e92de919a",
+          "count": 1
+        },
+        {
+          "oracle_id": "c6207f6a-a624-4754-88f5-dbe700c841ff",
+          "count": 1
+        },
+        {
+          "oracle_id": "c650a7bc-e350-44a0-a698-d4a233d66156",
+          "count": 1
+        },
+        {
+          "oracle_id": "c97361b5-af16-4a7b-af85-a429dbaf4ad2",
+          "count": 1
+        },
+        {
+          "oracle_id": "d6ee6cc1-902d-4f56-afa5-6fa4813bfbbc",
+          "count": 1
+        },
+        {
+          "oracle_id": "f328012f-4696-47bb-ab43-247bdcb13f03",
+          "count": 1
+        },
+        {
+          "oracle_id": "fb9af562-7384-4575-93bb-34f1ada23735",
+          "count": 1
+        },
+        {
+          "oracle_id": "fc1256e9-eb92-43b6-abfc-ce19d910a929",
+          "count": 1
+        },
+        {
+          "oracle_id": "feb244f8-bcb1-44cf-9940-2719221a7309",
+          "count": 1
+        }
+      ]
+    }
+  ],
+  "hosted": false,
+  "search": false,
+  "completion": {
+    "rotate": false,
+    "homogeneous_seats": [
+      0,
+      1
+    ]
+  }
+}

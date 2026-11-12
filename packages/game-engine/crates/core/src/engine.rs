@@ -242,6 +242,8 @@ mod damage_controller_discard_tests;
 #[cfg(test)]
 mod damage_match_tests;
 #[cfg(test)]
+mod damage_match_v2_tests;
+#[cfg(test)]
 mod damage_quantity_draw_tests;
 #[cfg(test)]
 mod damage_trigger_tests;
