@@ -40,7 +40,25 @@ agreement for the 36 source records. Selected tests executed with no skips.
 Logs are retained under
 `~/.local/share/mtg-ecosystem/engine-verification/correctness-loop-20261112/` as
 `damage-profile-v2-focused-01.log` and `damage-profile-v2-source-01.log`.
-Full-game capture and saved-report replay have not been run for v2. Full runtime
-suites, SDK, hosting/search, 18-game/release matrices and retention rebuilds were
-also omitted. V1's completed game/replay remains evidence for its original source;
-these admission/setup checks do not renew combined acceptance.
+One ordinary fixed-index game and explicit saved-report replay subsequently
+passed at clean published source `580e862`, engine build
+`66eb93de4f6505440b9e1d1701e648992967e9c09b4155aa0fff687fc0f85292`.
+Seat 0 won naturally on turn 45 after 2,293 decisions, 6,477 rule steps and
+4,586 query calls. Replay reproduced final state
+`86964a838754112623cdfb759c03a4a12311f0f0de99b356c8db9936338f98d8`;
+source identity remained unchanged throughout capture and replay.
+
+The final detailed trace contains seven resolved Locke Cole triggers, seven
+Research Thief triggers and six Fear of Failed Tests triggers. Research was its
+own damager in all eight collected witnesses: the distinct observer/damager case
+is established by the earlier exact-source kernel tests, not by this game.
+The trace has 14 Locke instruction batches and 12 Fear instruction batches;
+batch counts are event receipts, not a general opcode-completion metric.
+
+The approximately 535 MiB saved report `damage-profile-v2-game-0.json`, replay
+report `damage-profile-v2-replay-01.json`, game summary and
+`damage-profile-v2-trace-audit-01.json` remain in the same external evidence
+folder, with the live journal under `damage-profile-v2-artifacts/`. No repeated
+seed search, 18-game/release matrix, full runtime suite, SDK, hosting/search or
+retention rebuild was run. V1's completed game/replay remains evidence for its
+original source. These focused results do not renew combined acceptance.
