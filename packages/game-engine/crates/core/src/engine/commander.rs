@@ -297,7 +297,7 @@ impl Game {
                 } else {
                     None
                 };
-                self.finish_instruction(
+                self.finish_draw_attempt(
                     frame,
                     if present {
                         InstructionOutcome::Drawn {
@@ -523,6 +523,9 @@ impl Game {
                             }) => *count == Quantity::from(1) && b == source_block,
                             Some(Instruction::OptionalDrawCards { source_block: b }) => {
                                 b == source_block
+                            }
+                            Some(Instruction::DrawDamageAmount { source_block: b }) => {
+                                b == source_block && frame.damage_draw.is_some()
                             }
                             _ => false,
                         }

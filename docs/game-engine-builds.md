@@ -1,6 +1,6 @@
 # Engine build inputs and cache policy
 
-`mtg_contracts::CURRENT_IR_VERSION` is the current IR authority (25).
+`mtg_contracts::CURRENT_IR_VERSION` is the current IR authority.
 `MIN_IR_VERSION` is the earliest admitted catalog (3). Validation, generated
 schema and compiler coverage use these constants. Future-version negatives use
 `CURRENT_IR_VERSION + 1`; capability introduction versions and historical catalog

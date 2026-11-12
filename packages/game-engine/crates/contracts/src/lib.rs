@@ -25,7 +25,7 @@ pub use strict_io::strict_read_seekable;
 
 /// Latest IR accepted by validation/schema and emitted by full-corpus coverage.
 /// Historical capability minimums and fixture versions remain literal evidence.
-pub const CURRENT_IR_VERSION: u32 = 31;
+pub const CURRENT_IR_VERSION: u32 = 32;
 pub const MIN_IR_VERSION: u32 = 3;
 
 pub const RULES_EDITION: &str = "2026-09-25";
@@ -175,6 +175,7 @@ pub enum Capability {
     EventPlayerSacrificeV1,
     FilteredDamageTriggerV1,
     DamageControllerDiscardV1,
+    DamageQuantityDrawV1,
     EventPlayerRecipientV1,
     SourceStatusConditionV1,
     StepBeginningTriggerV1,
@@ -574,6 +575,10 @@ pub enum Instruction {
     /// CR 603.5/608.2d: the controller chooses at resolution whether to draw
     /// one card, including when their library is empty.
     OptionalDrawCards {
+        source_block: u32,
+    },
+    /// Draw once per unit of the triggering actual damage amount (CR 121.2).
+    DrawDamageAmount {
         source_block: u32,
     },
     DiscardCards {
@@ -1261,6 +1266,18 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        if self.spell.as_ref().is_some_and(has_damage_quantity_draw)
+            || self
+                .activated
+                .iter()
+                .any(|a| has_damage_quantity_draw(&a.program))
+            || self.triggered.iter().any(|a| {
+                has_damage_quantity_draw(&a.program)
+                    && !matches!(a.condition, TriggerCondition::DamageDealt { .. })
+            })
+        {
+            return Err("damage-quantity draw requires a bound damage trigger".into());
+        }
         if self.triggered.iter().any(|a| {
             has_controller_discard(&a.program)
                 && !matches!(a.condition, TriggerCondition::DamageDealt { .. })
@@ -1741,6 +1758,7 @@ impl Definition {
                             | Instruction::PutPlusOneCounters { .. }
                             | Instruction::DrawCards { .. }
                             | Instruction::OptionalDrawCards { .. }
+                            | Instruction::DrawDamageAmount { .. }
                             | Instruction::DiscardCards { .. }
                             | Instruction::SacrificeCreature { .. }
                             | Instruction::ModifyPowerToughness { .. }
@@ -2016,7 +2034,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             Instruction::MoveSet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::EachPlayerSacrifice { .. }
-            | Instruction::OptionalDrawCards { .. } => None,
+            | Instruction::OptionalDrawCards { .. }
+            | Instruction::DrawDamageAmount { .. } => None,
             Instruction::DamageSet {
                 sets,
                 each_player,
@@ -2321,6 +2340,16 @@ impl Instruction {
         )
     }
 }
+fn has_damage_quantity_draw(program: &SpellProgram) -> bool {
+    program
+        .instructions
+        .iter()
+        .any(|i| matches!(i, Instruction::DrawDamageAmount { .. }))
+        || program
+            .modes
+            .iter()
+            .any(|m| has_damage_quantity_draw(&m.program))
+}
 fn has_controller_discard(program: &SpellProgram) -> bool {
     program.instructions.iter().any(|i| {
         matches!(
@@ -2428,6 +2457,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::SacrificeCreature { .. } => Capability::EventPlayerSacrificeV1,
             Instruction::DrawCards { .. } => Capability::ControllerDrawV1,
             Instruction::OptionalDrawCards { .. } => Capability::OptionalControllerDrawV1,
+            Instruction::DrawDamageAmount { .. } => Capability::DamageQuantityDrawV1,
             Instruction::DiscardCards {
                 recipient: Some(ActionRecipient::EventPlayer),
                 ..
@@ -2482,6 +2512,18 @@ impl Catalog {
         }
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
+            if self.schema_version < 32
+                && (d.capabilities.contains(&Capability::DamageQuantityDrawV1)
+                    || d.spell.as_ref().is_some_and(has_damage_quantity_draw)
+                    || d.activated
+                        .iter()
+                        .any(|a| has_damage_quantity_draw(&a.program))
+                    || d.triggered
+                        .iter()
+                        .any(|a| has_damage_quantity_draw(&a.program)))
+            {
+                return Err("IR v32 is required for damage-quantity draw".into());
+            }
             if self.schema_version < 31
                 && (d
                     .capabilities
@@ -3038,6 +3080,19 @@ pub fn catalog_schema() -> serde_json::Value {
             "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreDamageControllerDiscardProgram"}}}}
         }}}}}
     }));
+    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"properties":{"schema_version":{"maximum":31}}},
+        "then":{"properties":{"definitions":{"items":{"properties":{
+            "capabilities":{"items":{"not":{"const":Capability::DamageQuantityDrawV1}}},
+            "spell":{"$ref":"#/$defs/PreDamageQuantityDrawProgram"},
+            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreDamageQuantityDrawProgram"}}}},
+            "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreDamageQuantityDrawProgram"}}}}
+        }}}}}
+    }));
+    schema["$defs"]["PreDamageQuantityDrawProgram"] = serde_json::json!({"properties":{
+        "instructions":{"items":{"properties":{"op":{"not":{"const":"draw_damage_amount"}}}}},
+        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreDamageQuantityDrawProgram"}}}}
+    }});
     schema["$defs"]["PreDamageControllerDiscardProgram"] = serde_json::json!({"properties":{
         "instructions":{"items":{
             "if":{"properties":{"op":{"const":"discard_cards"}},"required":["op"]},
@@ -3416,6 +3471,7 @@ mod tests {
             (29, &[EventPlayerSacrificeV1]),
             (30, &[FilteredDamageTriggerV1]),
             (31, &[DamageControllerDiscardV1]),
+            (32, &[DamageQuantityDrawV1]),
         ];
         // Enumerate the public vocabulary, so a new capability cannot silently
         // escape this contract. Check full program-bearing definitions rather
@@ -3519,6 +3575,12 @@ mod tests {
         }];
         controller_discard.capabilities = controller_discard.requirements();
         definitions.push(controller_discard);
+        let mut quantity_draw = damage.clone();
+        quantity_draw.triggered[0].program.targets.clear();
+        quantity_draw.triggered[0].program.instructions =
+            vec![Instruction::DrawDamageAmount { source_block: 0 }];
+        quantity_draw.capabilities = quantity_draw.requirements();
+        definitions.push(quantity_draw);
         // Each newly admitted dimension independently requires IR26, even when
         // paired with the original value of the other dimension.
         for (kind, recipient) in [
@@ -4155,6 +4217,155 @@ mod tests {
             definitions: vec![bound],
         };
         assert!(c.validate().unwrap_err().contains("IR v31"));
+    }
+    #[test]
+    fn damage_quantity_draw_is_strict_bound_recursive_and_independently_versioned() {
+        let old = r#"{"op":"draw_cards","count":"1","source_block":0}"#;
+        let fixed: Instruction = strict_read(old).unwrap();
+        assert_eq!(serde_json::to_string(&fixed).unwrap(), old);
+        let opcode = serde_json::json!({"op":"draw_damage_amount","source_block":0});
+        let dynamic: Instruction = serde_json::from_value(opcode.clone()).unwrap();
+        assert_eq!(dynamic, Instruction::DrawDamageAmount { source_block: 0 });
+        for (field, value) in [
+            ("count", serde_json::json!("2")),
+            ("recipient", serde_json::json!("controller")),
+            ("optional", serde_json::json!(false)),
+        ] {
+            let mut invalid = opcode.clone();
+            invalid[field] = value;
+            assert!(serde_json::from_value::<Instruction>(invalid).is_err());
+        }
+        let original = Catalog::read(include_str!(
+            "../../../tests/fixtures/expected-action-ir.json"
+        ))
+        .unwrap();
+        let mut d = original
+            .definitions
+            .iter()
+            .find(|d| d.name == "Hapless Researcher")
+            .unwrap()
+            .clone();
+        let mut program = d.activated[0].program.clone();
+        program.targets.clear();
+        program.instructions = vec![dynamic];
+        d.activated.clear();
+        d.triggered = vec![TriggeredAbility {
+            death_filter: None,
+            intervening_if: None,
+            functioning_zone: FunctioningZone::Battlefield,
+            condition: TriggerCondition::DamageDealt {
+                source: DamageTriggerSource::Source {},
+                kind: TriggerDamageKind::Combat,
+                recipient: DamageTriggerRecipient::Player,
+            },
+            program: program.clone(),
+        }];
+        d.capabilities = d.requirements();
+        d.validate().unwrap();
+        assert!(d.capabilities.contains(&Capability::DamageQuantityDrawV1));
+        assert!(!d.capabilities.contains(&Capability::ControllerDrawV1));
+        let mut catalog = Catalog {
+            schema_version: 32,
+            rules_edition: RULES_EDITION.into(),
+            rules_sha256: RULES_SHA256.into(),
+            definitions: vec![d.clone()],
+        };
+        catalog.validate().unwrap();
+        catalog.schema_version = 31;
+        assert!(catalog.validate().unwrap_err().contains("IR v32"));
+        catalog.definitions[0]
+            .capabilities
+            .remove(&Capability::DamageQuantityDrawV1);
+        assert!(catalog.validate().unwrap_err().contains("IR v32"));
+        let mut missing = d.clone();
+        missing
+            .capabilities
+            .remove(&Capability::DamageQuantityDrawV1);
+        assert!(missing.validate().is_err());
+        for condition in [
+            TriggerCondition::SelfEntersBattlefield,
+            TriggerCondition::SelfDies,
+            TriggerCondition::CreatureAttacked {
+                attacker: AttackSubject::Source {},
+            },
+            TriggerCondition::StepBegan {
+                step: BeginningStep::Upkeep,
+                turn_relation: TurnRelation::Controller,
+            },
+            TriggerCondition::SpellCast {
+                caster: CasterRelation::Controller,
+                spell: TypePredicate::Any {},
+            },
+        ] {
+            let mut unbound = d.clone();
+            unbound.triggered[0].condition = condition;
+            unbound.capabilities = unbound.requirements();
+            assert!(
+                unbound
+                    .validate()
+                    .unwrap_err()
+                    .contains("bound damage trigger")
+            );
+        }
+        // Independent opcode guards inspect all program-bearing locations and
+        // recurse into modes even when the context itself is unsupported.
+        for nested in [false, true] {
+            let mut p = program.clone();
+            if nested {
+                p.instructions.clear();
+                p.modes = vec![
+                    SpellMode {
+                        program: program.clone(),
+                    },
+                    SpellMode {
+                        program: program.clone(),
+                    },
+                ];
+            }
+            for location in 0..3 {
+                let mut unbound = d.clone();
+                unbound.triggered.clear();
+                match location {
+                    0 => unbound.spell = Some(p.clone()),
+                    1 => {
+                        unbound.activated = vec![ActivatedAbility {
+                            cost: ActivationCost::TapSource,
+                            functioning_zone: FunctioningZone::Battlefield,
+                            program: p.clone(),
+                        }]
+                    }
+                    _ => {
+                        let mut ability = d.triggered[0].clone();
+                        ability.program = p.clone();
+                        unbound.triggered = vec![ability];
+                    }
+                }
+                unbound.capabilities = unbound.requirements();
+                assert!(
+                    unbound
+                        .capabilities
+                        .contains(&Capability::DamageQuantityDrawV1)
+                );
+                if location != 2 {
+                    assert!(
+                        unbound
+                            .validate()
+                            .unwrap_err()
+                            .contains("bound damage trigger")
+                    );
+                }
+                unbound
+                    .capabilities
+                    .remove(&Capability::DamageQuantityDrawV1);
+                let old = Catalog {
+                    schema_version: 31,
+                    rules_edition: RULES_EDITION.into(),
+                    rules_sha256: RULES_SHA256.into(),
+                    definitions: vec![unbound],
+                };
+                assert!(old.validate().unwrap_err().contains("IR v32"));
+            }
+        }
     }
     #[test]
     fn incremental_sha256_matches_reference_across_byte_fragment_boundaries() {

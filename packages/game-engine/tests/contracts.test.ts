@@ -118,7 +118,7 @@ test("Rust lowering matches reviewed IR and its generated JSON Schema", () => {
   assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   for (const mutate of [
     (c: any) => { c.unknownSemanticField = true; },
-    (c: any) => { c.schema_version=32; },
+    (c: any) => { c.schema_version=33; },
     (c: any) => { c.schema_version = 2; },
     (c: any) => { delete c.definitions.find((d: any) => d.spell).spell.timing; },
     (c: any) => { delete c.definitions.find((d: any) => d.spell).spell.resolution; },
@@ -206,7 +206,7 @@ test("library and damage catalogs retain exact source semantics and explicit IR 
   for (const catalog of [previous, library, damage]) assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   for (const mutate of [
     (c: any) => { c.schema_version = 3; },
-    (c: any) => { c.schema_version=32; },
+    (c: any) => { c.schema_version=33; },
     (c: any) => { c.definitions.find((d: any) => d.characteristics.kind === "sorcery").spell.instructions[0].op = "put_on_bottom_owner_library"; },
     (c: any) => { c.definitions.find((d: any) => d.characteristics.kind === "sorcery").spell.instructions[0].position = "top"; },
   ]) {
@@ -256,7 +256,7 @@ test("action catalog preserves complete activated costs, opponent choice and sch
   for (const mutate of [
     (c: any) => { c.schema_version = 3; },
     (c: any) => { c.schema_version = 4; },
-    (c: any) => { c.schema_version=32; },
+    (c: any) => { c.schema_version=33; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].cost = "tap_source"; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].program.instructions[0].count = "01"; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].program.instructions[1].optional = true; },
@@ -310,7 +310,7 @@ test("stack catalog preserves complete counter domains and distinct tap and mana
     (c: any) => { c.schema_version = 3; },
     (c: any) => { c.schema_version = 4; },
     (c: any) => { c.schema_version = 5; },
-    (c: any) => { c.schema_version=32; },
+    (c: any) => { c.schema_version=33; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Stifle").spell.targets[0].domain = "stack_activated_ability"; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Counterspell").spell.instructions[0].destination = "graveyard"; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Azure Mage").activated[0].cost.mana.cost.extra = true; },
@@ -377,7 +377,7 @@ test("damage and life catalog preserves complete sources and explicit IR7 target
     }
   }
   for (const mutate of [
-    (c: any) => {c.schema_version=32;},
+    (c: any) => {c.schema_version=33;},
     (c: any) => {c.definitions.find((d: any) => d.name==="Lightning Bolt").spell.targets[0].domain="creature_or_player";},
     (c: any) => {c.definitions.find((d: any) => d.name==="Soul Feast").spell.instructions[0].recipient={opponent:{target_slot:0}};},
     (c: any) => {c.definitions.find((d: any) => d.name==="Sacred Nectar").spell.instructions[0].recipient={controller:{extra:true}};},
@@ -446,7 +446,7 @@ test("trigger catalog binds mandatory self and other events without trusting arc
     assert.equal(validate(bad),false,`${name} IR${version}`);
   }
   for (const mutate of [
-    (c: any) => {c.schema_version=32;},
+    (c: any) => {c.schema_version=33;},
     (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].optional=true;},
     (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].cost="tap_source";},
     (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].condition="other_creature_dies";},
@@ -519,7 +519,7 @@ test("effects catalog preserves signed modifiers and complete prevention/replace
     assert.equal(validate(bad),false,`stripped ${name} IR${version}`);
   }
   for (const mutate of [
-    (c: any)=>{c.schema_version=32;},
+    (c: any)=>{c.schema_version=33;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Giant Growth").spell.instructions[0].power="-0";},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Disfigure").spell.instructions[0].toughness=-2;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Fog").spell.instructions[0].duration="this_turn";},
@@ -568,7 +568,7 @@ test("choices catalog preserves separate occurrences, complete modal programs an
     bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,`stripped ${name} IR${version}`);
   }
   for(const mutate of [
-    (c: any)=>{c.schema_version=32;},
+    (c: any)=>{c.schema_version=33;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Healing Salve").spell.modes[0].hidden=true;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Healing Salve").spell.modes.pop();},
     (c: any)=>{const p=c.definitions.find((d: any)=>d.name==="Healing Salve").spell;p.instructions=[{op:"draw_cards",count:"1",source_block:0}];},
@@ -590,7 +590,7 @@ test("match catalog binds sole defender and the current finite Commander policy"
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   for(const file of ["expected-ir.json","expected-commander-ir.json","expected-damage-ir.json","expected-library-ir.json","expected-action-ir.json","expected-stack-ir.json","expected-damage-life-ir.json","expected-trigger-ir.json","expected-effects-ir.json","expected-choices-ir.json","expected-match-ir.json"])assert.equal(validate(JSON.parse(read(file))),true,file+JSON.stringify(validate.errors));
   for(let version=3;version<=10;version++){const bad=structuredClone(catalog);bad.schema_version=version;bad.definitions=[structuredClone(wall)];assert.equal(validate(bad),false);bad.definitions[0].capabilities=[];assert.equal(validate(bad),false);}
-  for(const mutate of [(c:any)=>{c.schema_version=32;},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=["reach"];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{keyword:"defender"}];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{defender:null}];}]){const bad=structuredClone(catalog);mutate(bad);assert.equal(validate(bad),false);}
+  for(const mutate of [(c:any)=>{c.schema_version=33;},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=["reach"];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{keyword:"defender"}];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{defender:null}];}]){const bad=structuredClone(catalog);mutate(bad);assert.equal(validate(bad),false);}
   const policy=selectedPolicies(catalog)[0];assert.equal(policy.policy_version,1);assert.ok(policy.retrieved_date);assert.equal(policy.html_sha256.length,64);assert.ok(policy.named_bans.length > 0);
   assert.equal(policy.offensive_policy.html_sha256.length,64);assert.ok(policy.offensive_policy.records.length > 0);assert.equal(policy.categories.lutri,"companion_only");
   const banned=new Set<string>();
@@ -1683,7 +1683,7 @@ test("D2c-b event-player and source status shapes require IR22", () => {
   const v = new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   assert.equal(v(c),true,JSON.stringify(v.errors));
   assert.equal(c.definitions.length,3);
-  for(const version of [21,32]) assert.equal(v({...c,schema_version:version}),false);
+  for(const version of [21,33]) assert.equal(v({...c,schema_version:version}),false);
   const mine=c.definitions.find((d:any)=>d.triggered[0].intervening_if != null);
   assert.deepEqual(mine.triggered[0].intervening_if,{source_status:{status:"untapped"}});
   for(const f of [
@@ -1752,7 +1752,7 @@ test("IR26 exact-source opponent damage predicates require the new capability ve
     assert.deepEqual(definition.triggered[0].condition,{damage_dealt:{source:{subject:"source"},kind:"any",recipient:"opponent_player"}});
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
-    assert.equal(validate({...catalog,schema_version:32}),false);
+    assert.equal(validate({...catalog,schema_version:33}),false);
     // Each new dimension independently requires IR26, even if a forged catalog
     // strips its capability label. These are synthetic schema witnesses.
     for(const predicate of [
@@ -1810,7 +1810,7 @@ test("IR27 exact-source optional controller draw preserves opcode and version bo
     assert.deepEqual(definition.triggered[0].program.instructions,[{op:"optional_draw_cards",source_block:1}]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
-    assert.equal(validate({...catalog,schema_version:32}),false);
+    assert.equal(validate({...catalog,schema_version:33}),false);
     for(const version of [25,26]) {
       const old=structuredClone(catalog);old.schema_version=version;
       assert.equal(validate(old),false);
@@ -1870,7 +1870,7 @@ test("IR28 exact-source damage recipient discard preserves actor and version bou
     ]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
-    assert.equal(validate({...catalog,schema_version:32}),false);
+    assert.equal(validate({...catalog,schema_version:33}),false);
     for(const version of [25,26,27]) {
       const old=structuredClone(catalog);old.schema_version=version;
       assert.equal(validate(old),false);
@@ -1923,7 +1923,7 @@ test("IR29 exact-source damage recipient sacrifice preserves actor and version b
     assert.deepEqual(definition.triggered[0].program.instructions,[{op:"sacrifice_creature",recipient:"event_player",source_block:1}]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
-    assert.equal(validate({...catalog,schema_version:32}),false);
+    assert.equal(validate({...catalog,schema_version:33}),false);
     for(const version of [25,26,27,28]) {
       const old=structuredClone(catalog);old.schema_version=version;
       assert.equal(validate(old),false);
@@ -2030,7 +2030,7 @@ test("IR30 exact-source filtered damage distinguishes observer and creature sour
     assert.deepEqual(research.triggered[0].program.instructions,[{op:"draw_cards",count:"1",source_block:2}]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
-    assert.equal(validate({...catalog,schema_version:32}),false);
+    assert.equal(validate({...catalog,schema_version:33}),false);
     for(const version of [25,26,27,28,29]) {
       const old=structuredClone(catalog);old.schema_version=version;
       assert.equal(validate(old),false);
@@ -2090,7 +2090,7 @@ test("IR31 exact-source controller damage discard preserves sequencing and conte
     ]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
-    assert.equal(validate({...catalog,schema_version:32}),false);
+    assert.equal(validate({...catalog,schema_version:33}),false);
     for(const recipient of [undefined,"controller"]) {
       const witness=structuredClone(catalog);
       if(recipient!==undefined) witness.definitions[0].triggered[0].program.instructions[1].recipient=recipient;
@@ -2114,6 +2114,68 @@ test("IR31 exact-source controller damage discard preserves sequencing and conte
     }
     assert.equal(validate(loadCatalog("damage-matches")),true,JSON.stringify(validate.errors));
     assert.equal(validate(loadCatalog("action")),true,JSON.stringify(validate.errors));
+    passed=true;
+  } finally {
+    if(passed) fs.rmSync(temporary,{recursive:true,force:true});
+  }
+});
+
+
+test("IR32 exact-source damage quantity draw preserves frozen count and version boundaries", () => {
+  const source=fileURLToPath(new URL("fixtures/cards-data-d2ce/",import.meta.url));
+  const record=path.join(source,"34fd461b-a913-4a60-9477-ce2bd5c6fc5a.json");
+  const archived=JSON.parse(fs.readFileSync(record,"utf8"));
+  const parsed=parseOracleText(archived.source.oracle_text,archived.source.name,{
+    layout:archived.source.layout,typeLine:archived.source.type_line,includeSourceProvenance:true,
+  });
+  assert.equal(parsed.ok,true);
+  if(parsed.ok) assert.deepEqual(JSON.parse(JSON.stringify(parsed.abilities)),archived.faces[0].result.abilities);
+  const temporary=fs.mkdtempSync(path.join(os.tmpdir(),"mtg-damage-quantity-draw-schema-"));
+  let passed=false;
+  try {
+    const manifest=path.join(temporary,"catalog.json");
+    fs.writeFileSync(manifest,JSON.stringify({schema_version:32,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
+    const report=run("catalog","build",manifest,"--write");
+    assert.equal(report.definitions,1);
+    const catalog=JSON.parse(fs.readFileSync(report.expected_ir,"utf8"));
+    const d=catalog.definitions[0];
+    assert.equal(d.name,"Fear of Failed Tests");
+    assert.equal(d.characteristics.kind,"creature");
+    assert.deepEqual(d.characteristics.additional_types,["enchantment"]);
+    assert.equal(d.characteristics.power,"2");
+    assert.equal(d.characteristics.toughness,"7");
+    assert.ok(d.capabilities.includes("damage_quantity_draw_v1"));
+    assert.deepEqual(d.triggered[0].condition,{damage_dealt:{source:{subject:"source"},kind:"combat",recipient:"player"}});
+    assert.deepEqual(d.triggered[0].program.instructions,[{op:"draw_damage_amount",source_block:0}]);
+    const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
+    assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
+    assert.equal(validate({...catalog,schema_version:33}),false);
+    for(const version of [25,28,30,31]) {
+      const old=structuredClone(catalog);old.schema_version=version;
+      assert.equal(validate(old),false);
+      old.definitions[0].capabilities=old.definitions[0].capabilities.filter((c:string)=>c!=="damage_quantity_draw_v1");
+      assert.equal(validate(old),false,"frozen quantity opcode independently requires IR32");
+    }
+    for(const mutate of [
+      (i:any)=>{i.count="2";},
+      (i:any)=>{i.amount={amount:"that-much"};},
+      (i:any)=>{i.recipient="event_player";},
+      (i:any)=>{i.optional=true;},
+      (i:any)=>{delete i.source_block;},
+    ]) {
+      const bad=structuredClone(catalog);mutate(bad.definitions[0].triggered[0].program.instructions[0]);
+      assert.equal(validate(bad),false);
+    }
+    // Synthetic schema-only closure; executable trigger modes remain rejected.
+    const nested=structuredClone(catalog);
+    const p=nested.definitions[0].triggered[0].program;
+    p.modes=[{program:structuredClone(p)},{program:structuredClone(p)}];p.instructions=[];
+    assert.equal(validate(nested),true,JSON.stringify(validate.errors));
+    nested.schema_version=31;
+    nested.definitions[0].capabilities=nested.definitions[0].capabilities.filter((c:string)=>c!=="damage_quantity_draw_v1");
+    assert.equal(validate(nested),false,"nested opcode still requires IR32");
+    assert.equal(validate(loadCatalog("action")),true,JSON.stringify(validate.errors));
+    assert.equal(validate(loadCatalog("damage-matches")),true,JSON.stringify(validate.errors));
     passed=true;
   } finally {
     if(passed) fs.rmSync(temporary,{recursive:true,force:true});

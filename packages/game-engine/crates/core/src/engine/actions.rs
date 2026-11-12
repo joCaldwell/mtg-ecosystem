@@ -567,6 +567,9 @@ impl Game {
         mut frame: Resolving,
         outcome: InstructionOutcome,
     ) -> Result<(), String> {
+        if frame.damage_draw.is_some() {
+            return Err("cannot advance an unfinished damage-quantity draw".into());
+        }
         frame.outcomes.push(outcome);
         frame.cursor = frame
             .cursor
@@ -719,6 +722,9 @@ impl Game {
                 };
                 self.draw_one(frame, player, source_block)
             }
+            Instruction::DrawDamageAmount { source_block } => {
+                self.draw_damage_amount(frame, source_block)
+            }
             // CR 603.5/608.2d: offer the option only during resolution, even
             // when the library is empty. Accepting performs the ordinary draw.
             // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -791,7 +797,7 @@ impl Game {
     ) -> Result<(), String> {
         if !self.is_live(player) {
             return self
-                .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
+                .finish_draw_attempt(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
         if let Some(card) = self
             .state
@@ -827,7 +833,7 @@ impl Game {
                         source_block,
                     },
                 )?;
-                self.finish_instruction(
+                self.finish_draw_attempt(
                     frame,
                     InstructionOutcome::Drawn {
                         player,
@@ -847,7 +853,7 @@ impl Game {
                     source_block,
                 },
             )?;
-            self.finish_instruction(
+            self.finish_draw_attempt(
                 frame,
                 InstructionOutcome::Drawn {
                     player,
@@ -856,6 +862,161 @@ impl Game {
                 },
             )
         }
+    }
+    /// CR 120.4b/603.2c: "that many" is the positive final member of this
+    /// invocation's actual damage witness, never printed power or life changes.
+    pub(super) fn damage_draw_amount(&self, frame: &Resolving) -> Result<Quantity, String> {
+        match &frame.spell.kind {
+            StackKind::Triggered {
+                witness: TriggerEventWitness::DamageDealt { damage, .. },
+                ..
+            } if damage.amount > Quantity::zero() => Ok(damage.amount.clone()),
+            _ => Err("damage-quantity draw requires a positive actual damage witness".into()),
+        }
+    }
+    // CR 121.2/121.4/704.4: one attempt per rule unit, including repeated failed
+    // attempts. No SBA, card-count clamp or machine-integer conversion interrupts
+    // the exact instruction. Commander replacement consumes just its attempt.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    fn draw_damage_amount(
+        &mut self,
+        mut frame: Resolving,
+        source_block: u32,
+    ) -> Result<(), String> {
+        self.validate_damage_draw(&frame)?;
+        if frame.damage_draw.is_none() {
+            frame.damage_draw = Some(DamageDrawProgress {
+                cursor: frame.cursor,
+                source_block,
+                completed: Quantity::zero(),
+                remaining: self.damage_draw_amount(&frame)?,
+                failed: Quantity::zero(),
+            });
+        }
+        let player = frame.spell.controller;
+        self.draw_one(frame, player, source_block)
+    }
+    /// Finish one ordinary draw attempt. The same owned continuation is used
+    /// after a Commander replacement, preserving progress without another draw.
+    pub(super) fn finish_draw_attempt(
+        &mut self,
+        mut frame: Resolving,
+        outcome: InstructionOutcome,
+    ) -> Result<(), String> {
+        if frame.damage_draw.is_none() {
+            if matches!(
+                self.program_for(&frame.spell)?
+                    .instructions
+                    .get(frame.cursor as usize),
+                Some(Instruction::DrawDamageAmount { .. })
+            ) {
+                return Err("missing damage-quantity draw progress".into());
+            }
+            return self.finish_instruction(frame, outcome);
+        }
+        self.validate_damage_draw(&frame)?;
+        let player = frame.spell.controller;
+        if matches!(outcome, InstructionOutcome::PlayerActionSkipped { player: actor } if actor == player && !self.is_live(player))
+        {
+            let progress = frame.damage_draw.take().unwrap();
+            return self.finish_instruction(
+                frame,
+                InstructionOutcome::DamageDrawn {
+                    player,
+                    attempted: progress.completed,
+                    failed: progress.failed,
+                },
+            );
+        }
+        let failed = match outcome {
+            InstructionOutcome::Drawn {
+                player: actor,
+                movement,
+                failed,
+            } if actor == player
+                && (if failed {
+                    movement.is_none()
+                } else {
+                    movement.is_some()
+                }) =>
+            {
+                failed
+            }
+            _ => return Err("invalid damage-quantity draw attempt outcome".into()),
+        };
+        let progress = frame.damage_draw.as_mut().unwrap();
+        progress.completed.add(&Quantity::from(1));
+        progress.remaining.subtract(&Quantity::from(1));
+        if failed {
+            progress.failed.add(&Quantity::from(1));
+        }
+        if progress.remaining == Quantity::zero() {
+            let progress = frame.damage_draw.take().unwrap();
+            self.finish_instruction(
+                frame,
+                InstructionOutcome::DamageDrawn {
+                    player,
+                    attempted: progress.completed,
+                    failed: progress.failed,
+                },
+            )
+        } else {
+            self.state.rules.frame = Frame::Resolve { frame };
+            Ok(())
+        }
+    }
+    /// Structural guards complement accepted-input replay: neither coherent
+    /// counters nor a substituted witness can establish an unrecorded draw.
+    fn validate_damage_draw(&self, frame: &Resolving) -> Result<(), String> {
+        let program = self.program_for(&frame.spell)?;
+        if let Some(progress) = &frame.damage_draw {
+            let Some(Instruction::DrawDamageAmount { source_block }) =
+                program.instructions.get(frame.cursor as usize)
+            else {
+                return Err("damage-quantity draw progress on another instruction".into());
+            };
+            let mut total = progress.completed.clone();
+            total.add(&progress.remaining);
+            if progress.cursor != frame.cursor
+                || progress.source_block != *source_block
+                || progress.completed.is_negative()
+                || progress.remaining <= Quantity::zero()
+                || progress.failed.is_negative()
+                || progress.failed > progress.completed
+                || total != self.damage_draw_amount(frame)?
+            {
+                return Err("damage-quantity draw progress invariant".into());
+            }
+        }
+        for (instruction, outcome) in program.instructions.iter().zip(&frame.outcomes) {
+            match (instruction, outcome) {
+                (
+                    Instruction::DrawDamageAmount { .. },
+                    InstructionOutcome::DamageDrawn {
+                        player,
+                        attempted,
+                        failed,
+                    },
+                ) => {
+                    let amount = self.damage_draw_amount(frame)?;
+                    if *player != frame.spell.controller
+                        || attempted.is_negative()
+                        || *attempted > amount
+                        || failed.is_negative()
+                        || failed > attempted
+                        || (*attempted != amount && self.is_live(*player))
+                    {
+                        return Err("damage-quantity draw completed outcome invariant".into());
+                    }
+                }
+                (Instruction::DrawDamageAmount { .. }, _)
+                | (_, InstructionOutcome::DamageDrawn { .. }) => {
+                    return Err("damage-quantity draw outcome on another instruction".into());
+                }
+                _ => (),
+            }
+        }
+        Ok(())
     }
     pub(super) fn finish_ability(
         &mut self,
@@ -914,6 +1075,7 @@ impl Game {
         self.validate_condition_cache(frame)?;
         self.validate_target_facts(frame)?;
         self.validate_set_damage_facts(frame)?;
+        self.validate_damage_draw(frame)?;
         let entry = &frame.spell;
         let program = self.program_for(entry)?;
         self.validate_damage_bindings(entry)?;

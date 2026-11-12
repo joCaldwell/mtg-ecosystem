@@ -602,7 +602,7 @@ enum Step {
     },
     Draw {
         who: PlayerSelector,
-        amount: Count,
+        amount: DrawAmount,
         #[serde(default)]
         optional: bool,
     },
@@ -749,6 +749,18 @@ struct Filter {
 struct Count {
     amount: String,
     value: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "amount", rename_all = "kebab-case", deny_unknown_fields)]
+enum DrawAmount {
+    Fixed { value: u32 },
+    ThatMuch {},
+}
+impl DrawAmount {
+    fn fixed_one(&self) -> bool {
+        matches!(self, Self::Fixed { value: 1 })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -1857,7 +1869,7 @@ fn append_spell_effects(
                     if who.player != "you"
                         || who.selection_id.is_some()
                         || who.of.is_some()
-                        || !fixed_one(amount)
+                        || !amount.fixed_one()
                     {
                         return Err(unsupported(
                             "effects.draw",
@@ -1868,7 +1880,21 @@ fn append_spell_effects(
                 }
                 Step::Draw {
                     who,
-                    amount,
+                    amount: DrawAmount::ThatMuch {},
+                    optional: false,
+                } if player_binding == PlayerBinding::DamageRecipient
+                    && who.player == "you"
+                    && who.selection_id.is_none()
+                    && who.of.is_none() =>
+                {
+                    // CR 608.2c/608.2h: bind this quantity to the actual triggering
+                    // damage event, not to current power, life change or another effect.
+                    // The archive's reference graph remains diagnostic/nonexecutable.
+                    Instruction::DrawDamageAmount { source_block }
+                }
+                Step::Draw {
+                    who,
+                    amount: DrawAmount::Fixed { value },
                     optional: false,
                 } => {
                     let recipient = match life_recipient(
@@ -1880,11 +1906,11 @@ fn append_spell_effects(
                         LifeRecipient::Controller => None,
                         r => Some(r),
                     };
-                    if amount.amount != "fixed" || !(1..=2).contains(&amount.value) {
+                    if !(1..=2).contains(value) {
                         return Err(unsupported("effects.draw", "unsupported fixed draw count"));
                     }
                     // CR 121.2: multiple draws are performed one at a time.
-                    for _ in 1..amount.value {
+                    for _ in 1..*value {
                         program.instructions.push(Instruction::DrawCards {
                             recipient: recipient.clone(),
                             count: Quantity::from(1),
@@ -3022,6 +3048,33 @@ fn lower_trigger(
         }
         _ => None,
     };
+    fn has_draw_quantity(effects: &[Sentence]) -> bool {
+        effects
+            .iter()
+            .flat_map(|s| &s.steps)
+            .any(|step| match step {
+                Step::Draw {
+                    amount: DrawAmount::ThatMuch {},
+                    ..
+                } => true,
+                Step::Modal { options, .. } => {
+                    options.iter().any(|o| has_draw_quantity(&o.effects))
+                }
+                _ => false,
+            })
+    }
+    if has_draw_quantity(effects)
+        && !matches!(effects, [Sentence {bindings, steps}] if bindings.is_empty()
+            && matches!(steps.as_slice(), [Step::Draw {amount: DrawAmount::ThatMuch {}, ..}]))
+    {
+        // Prior effects may produce another quantity. This finite binder only
+        // proves the standalone trigger-quantity reference; it never guesses
+        // the antecedent of "that much" in an arbitrary instruction sequence.
+        return Err(unsupported(
+            "effects.draw",
+            "damage quantity requires a standalone draw sentence",
+        ));
+    }
     let condition=match trigger {
         SourceTrigger::DealsDamage { what, combat: Some(true), to }
             if *to == serde_json::json!("any") => {
@@ -3438,14 +3491,14 @@ fn lower_activation(
                     who,
                     amount,
                     optional: true,
-                } if *who == you && fixed_one(amount) => {
+                } if *who == you && amount.fixed_one() => {
                     Instruction::OptionalDrawCards { source_block }
                 }
                 Step::Draw {
                     who,
                     amount,
                     optional: false,
-                } if *who == you && fixed_one(amount) => Instruction::DrawCards {
+                } if *who == you && amount.fixed_one() => Instruction::DrawCards {
                     recipient: None,
                     count: Quantity::from(1),
                     source_block,

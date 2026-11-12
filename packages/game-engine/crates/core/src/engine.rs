@@ -242,6 +242,8 @@ mod damage_controller_discard_tests;
 #[cfg(test)]
 mod damage_match_tests;
 #[cfg(test)]
+mod damage_quantity_draw_tests;
+#[cfg(test)]
 mod damage_trigger_tests;
 #[cfg(test)]
 mod event_player_discard_tests;
@@ -873,7 +875,18 @@ struct SetDamageFacts {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct DamageDrawProgress {
+    cursor: u32,
+    source_block: u32,
+    completed: Quantity,
+    remaining: Quantity,
+    failed: Quantity,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Resolving {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    damage_draw: Option<DamageDrawProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     set_damage: Option<SetDamageFacts>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1727,6 +1740,11 @@ enum InstructionOutcome {
         player: PlayerId,
         movement: Option<MoveOutcome>,
         failed: bool,
+    },
+    DamageDrawn {
+        player: PlayerId,
+        attempted: Quantity,
+        failed: Quantity,
     },
     Discarded {
         player: PlayerId,

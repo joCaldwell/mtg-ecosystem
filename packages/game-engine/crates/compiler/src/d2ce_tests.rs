@@ -23,6 +23,9 @@ const RESEARCH: &str = include_str!(
 const LOCKE: &str = include_str!(
     "../../../tests/fixtures/cards-data-d2ce/bdcb7aed-3595-4c7e-b9da-543e92de919a.json"
 );
+const FEAR: &str = include_str!(
+    "../../../tests/fixtures/cards-data-d2ce/34fd461b-a913-4a60-9477-ce2bd5c6fc5a.json"
+);
 fn rows() -> Vec<(serde_json::Value, String)> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/cards-data-d2ce");
@@ -84,8 +87,12 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
         let demon = row["archive_line"] == 6875;
         let research = row["archive_line"] == 28052;
         let locke = row["archive_line"] == 28579;
+        // IR32 admits Fear of Failed Tests (line7911): its standalone
+        // mandatory controller draw uses the actual triggering damage quantity.
+        let fear = row["archive_line"] == 7911;
         if ![
-            4538, 6875, 9081, 10885, 12306, 13027, 14102, 14941, 19442, 21636, 28052, 28189, 28579,
+            4538, 6875, 7911, 9081, 10885, 12306, 13027, 14102, 14941, 19442, 21636, 28052, 28189,
+            28579,
         ]
         .contains(&row["archive_line"].as_u64().unwrap())
         {
@@ -153,7 +160,9 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
             };
             assert_eq!(
                 c.validate().is_ok(),
-                ((if locke {
+                ((if fear {
+                    32
+                } else if locke {
                     31
                 } else if research {
                     30
@@ -174,7 +183,7 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
             );
         }
     }
-    assert_eq!(admitted, 13);
+    assert_eq!(admitted, 14);
 }
 #[test]
 fn d2ce_rejects_partial_kind_source_recipient_optional_quantity_and_condition_shapes() {
@@ -224,7 +233,8 @@ fn d2ce_rejects_partial_kind_source_recipient_optional_quantity_and_condition_sh
         a["effects"][0]["steps"][0]["amount"]["value"] = 2.into();
     }));
     mutations.push(changed(|a| {
-        a["effects"][0]["steps"][0]["amount"] = serde_json::json!({"amount":"that-much"})
+        a["effects"][0]["steps"][0]["amount"] =
+            serde_json::json!({"amount":"that-much", "of":{"ref":"it"}})
     }));
     mutations.push(changed(|a| {
         a["effects"][0]["steps"][0]["who"] = serde_json::json!({"player":"that-player"})
@@ -359,7 +369,10 @@ fn source_damage_v2_rejects_unreviewed_source_kind_recipient_and_program_shapes(
             a["effects"][0]["steps"][0]["optional"] = true.into();
             a["effects"][0]["steps"][0]["amount"]["value"] = 2.into();
         },
-        |a| a["effects"][0]["steps"][0]["amount"] = serde_json::json!({"amount":"that-much"}),
+        |a| {
+            a["effects"][0]["steps"][0]["amount"] =
+                serde_json::json!({"amount":"that-much", "of":{"ref":"it"}})
+        },
         |a| a["effects"][0]["steps"][0]["who"] = serde_json::json!({"player":"that-player"}),
         |a| a["condition"] = serde_json::json!({"condition":"status","what":{"ref":"this","noun":"creature"},"status":"tapped"}),
     ] {
@@ -1012,5 +1025,176 @@ fn damage_controller_discard_rejects_other_contexts_qualifiers_filters_and_count
             "{:?}",
             compile(MANIFEST, &raw)
         );
+    }
+}
+
+#[test]
+fn damage_quantity_draw_exact_fear_source_and_diagnostic_provenance() {
+    let d = lower(FEAR);
+    let source: serde_json::Value = serde_json::from_str(FEAR).unwrap();
+    assert_eq!(d.name, "Fear of Failed Tests");
+    assert_eq!(
+        source["source"]["oracle_text"],
+        "Whenever this creature deals combat damage to a player, draw that many cards."
+    );
+    assert_eq!(source["source"]["power"], "2");
+    assert_eq!(source["source"]["toughness"], "7");
+    assert!(d.characteristics.has_type(CardKind::Enchantment));
+    assert!(d.characteristics.has_type(CardKind::Creature));
+    assert!(d.keywords.is_empty() && d.static_abilities.is_empty() && d.activated.is_empty());
+    assert_eq!(d.triggered.len(), 1);
+    assert_eq!(
+        d.triggered[0].program.instructions,
+        [Instruction::DrawDamageAmount { source_block: 0 }]
+    );
+    assert!(d.triggered[0].program.targets.is_empty());
+    assert!(d.triggered[0].program.modes.is_empty());
+    assert!(d.capabilities.contains(&Capability::DamageTriggerV1));
+    assert!(d.capabilities.contains(&Capability::DamageQuantityDrawV1));
+    assert!(!d.capabilities.contains(&Capability::ControllerDrawV1));
+    assert_eq!(d.provenance.source_sha256, source["sourceSha256"]);
+    assert_eq!(d.provenance.ast_sha256, source["astSha256"]);
+    assert_eq!(d.provenance.binding_sha256, source["bindingSha256"]);
+    let reference = source["binding"]["references"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["path"] == "/faces/0/abilities/0/effects/0/steps/0/amount")
+        .unwrap();
+    assert_eq!(
+        reference["expression"],
+        serde_json::json!({"amount":"that-much"})
+    );
+    assert_eq!(
+        reference["target"],
+        "card:34fd461b-a913-4a60-9477-ce2bd5c6fc5a/faces/0/abilities/0/trigger#quantity"
+    );
+    // Semantic scope is proved from the complete typed AST. The diagnostic
+    // graph is retained provenance, not authority for executable quantities.
+    let diagnostic = tests::changed_source(FEAR, |r| {
+        r["binding"]["references"] = serde_json::json!([]);
+    });
+    assert_eq!(
+        lower(&diagnostic).triggered[0].program,
+        d.triggered[0].program
+    );
+    for optional in [None, Some(false)] {
+        let mandatory = tests::changed_source(FEAR, |r| {
+            let a = &mut r["faces"][0]["result"]["abilities"][0];
+            if let Some(v) = optional {
+                a["effects"][0]["steps"][0]["optional"] = v.into();
+            }
+            r["faces"][0]["result"]["lines"][0]["ability"] =
+                r["faces"][0]["result"]["abilities"][0].clone();
+        });
+        assert_eq!(
+            lower(&mandatory).triggered[0].program,
+            d.triggered[0].program
+        );
+    }
+}
+
+#[test]
+fn damage_quantity_draw_rejects_unbound_ambiguous_and_qualified_source_shapes() {
+    type Mutation = fn(&mut serde_json::Value);
+    for mutate in [
+        (|a: &mut serde_json::Value| a["effects"][0]["steps"][0]["optional"] = true.into())
+            as Mutation,
+        |a| a["effects"][0]["steps"][0]["optional"] = serde_json::Value::Null,
+        |a| a["effects"][0]["steps"][0]["who"] = serde_json::json!({"player":"that-player"}),
+        |a| a["effects"][0]["steps"][0]["who"] = serde_json::json!({"player":"each-opponent"}),
+        |a| {
+            a["effects"][0]["steps"][0]["who"] =
+                serde_json::json!({"player":"target-player","selectionId":"target"})
+        },
+        |a| a["effects"][0]["steps"][0]["who"]["of"] = serde_json::json!({"ref":"it"}),
+        |a| a["effects"][0]["steps"][0]["who"]["selectionId"] = "qualified".into(),
+        |a| a["effects"][0]["steps"][0]["amount"]["value"] = 2.into(),
+        |a| a["effects"][0]["steps"][0]["amount"]["of"] = serde_json::json!({"ref":"it"}),
+        |a| a["effects"][0]["steps"][0]["amount"] = serde_json::json!({"amount":"that-many"}),
+        |a| a["effects"][0]["steps"][0]["amount"] = serde_json::json!({"amount":"fixed"}),
+        |a| a["effects"][0]["steps"][0]["amount"] = serde_json::Value::Null,
+        |a| a["effects"][0]["steps"][0]["amount"] = serde_json::json!({"amount":"fixed","value":0}),
+        |a| a["effects"][0]["steps"][0]["amount"] = serde_json::json!({"amount":"fixed","value":3}),
+        |a| a["effects"][0]["bindings"] = serde_json::json!([{"amount":"that-much"}]),
+        |a| {
+            a["trigger"] =
+                serde_json::json!({"trigger":"enters","what":{"ref":"this","noun":"creature"}})
+        },
+        |a| a["trigger"] = serde_json::json!({"trigger":"phase","phase":"upkeep","whose":"your"}),
+        |a| {
+            a["trigger"] =
+                serde_json::json!({"trigger":"cast","who":{"player":"you"},"what":{"cls":"spell"}})
+        },
+        |a| {
+            a["trigger"] =
+                serde_json::json!({"trigger":"dies","what":{"ref":"this","noun":"creature"}})
+        },
+        |a| {
+            a["trigger"] =
+                serde_json::json!({"trigger":"attacks","what":{"ref":"this","noun":"creature"}})
+        },
+        |a| a["trigger"]["what"] = serde_json::json!({"ref":"it"}),
+        |a| a["trigger"]["combat"] = false.into(),
+        |a| {
+            a["effects"][0]["steps"].as_array_mut().unwrap().insert(0,
+            serde_json::json!({"effect":"draw","who":{"player":"you"},"amount":{"amount":"fixed","value":1}}));
+        },
+        |a| {
+            a["effects"][0]["steps"].as_array_mut().unwrap().insert(0,
+            serde_json::json!({"effect":"damage","source":{"ref":"self"},"amount":{"amount":"fixed","value":1},"to":{"to":"any-target","selectionId":"damage"}}));
+        },
+        |a| {
+            a["effects"].as_array_mut().unwrap().insert(0,
+            serde_json::json!({"steps":[{"effect":"draw","who":{"player":"you"},"amount":{"amount":"fixed","value":1}}]}));
+        },
+        |a| {
+            let draw = a["effects"][0]["steps"][0].clone();
+            a["effects"] = serde_json::json!([{"steps":[{"effect":"modal","count":{"exactly":1},"options":[{"effects":[{"steps":[draw.clone()]}]},{"effects":[{"steps":[draw]}]}]}]}]);
+        },
+        |a| {
+            a["kind"] = "spell".into();
+            a.as_object_mut().unwrap().remove("trigger");
+        },
+        |a| {
+            a["kind"] = "activated".into();
+            a["costs"] = serde_json::json!([{"cost":"tap-self"}]);
+            a.as_object_mut().unwrap().remove("trigger");
+        },
+    ] {
+        let raw = tests::changed_source(FEAR, |r| {
+            let result = &mut r["faces"][0]["result"];
+            mutate(&mut result["abilities"][0]);
+            result["lines"][0]["ability"] = result["abilities"][0].clone();
+        });
+        assert!(
+            matches!(compile(MANIFEST, &raw), CompileResult::Unsupported { .. }),
+            "{:?}",
+            compile(MANIFEST, &raw)
+        );
+    }
+    // Existing fixed-one/two lowering and byte shape remain exactly ordinary
+    // DrawCards: dynamic quantities do not relax fixed cardinality checks.
+    for count in [1, 2] {
+        let raw = tests::changed_source(FEAR, |r| {
+            let a = &mut r["faces"][0]["result"]["abilities"][0];
+            a["effects"][0]["steps"][0]["amount"] =
+                serde_json::json!({"amount":"fixed","value":count});
+            r["faces"][0]["result"]["lines"][0]["ability"] =
+                r["faces"][0]["result"]["abilities"][0].clone();
+        });
+        let d = lower(&raw);
+        assert_eq!(
+            d.triggered[0].program.instructions,
+            vec![
+                Instruction::DrawCards {
+                    recipient: None,
+                    count: Quantity::from(1),
+                    source_block: 0
+                };
+                count as usize
+            ]
+        );
+        assert!(!d.capabilities.contains(&Capability::DamageQuantityDrawV1));
     }
 }

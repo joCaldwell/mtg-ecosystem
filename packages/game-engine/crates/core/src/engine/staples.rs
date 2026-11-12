@@ -41,7 +41,8 @@ impl Game {
                 recipient: None | Some(LifeRecipient::Controller),
                 ..
             })
-            | Some(Instruction::OptionalDrawCards { .. }) => Ok(frame.spell.controller),
+            | Some(Instruction::OptionalDrawCards { .. })
+            | Some(Instruction::DrawDamageAmount { .. }) => Ok(frame.spell.controller),
             _ => Err("not draw instruction".into()),
         }
     }
