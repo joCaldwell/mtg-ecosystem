@@ -84,6 +84,9 @@ impl Game {
                         .current(object)
                         .is_ok_and(|o| o.controller == entry.controller && o.id != entry.source)
             }
+            Some(TargetDomain::BlockingBattlefieldCreature) => {
+                self.is_blocking_creature(object) && self.targetable_by(object, entry.controller)
+            }
             _ => {
                 self.is_battlefield_creature(object) && self.targetable_by(object, entry.controller)
             }

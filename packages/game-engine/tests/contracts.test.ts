@@ -2198,3 +2198,74 @@ test("exact-source Gratuitous Violence retains controlled-creature replacement s
     passed=true;
   } finally {if(passed) fs.rmSync(temporary,{recursive:true,force:true});}
 });
+
+test("exact-source Righteousness preserves its blocking creature target and bounded spell context", () => {
+  const source=fileURLToPath(new URL("fixtures/",import.meta.url));
+  const record=path.join(source,"righteousness.json");const raw=fs.readFileSync(record,"utf8");
+  const archived=JSON.parse(raw);
+  assert.equal(sha(raw.trimEnd()),"7f93ff4781abe286d05e5835771b711f964771fedddbf6e580d90c89074f62e0");
+  assert.equal(archived.oracleIdentity,"3f6b2f76-0364-415e-a6a2-e9e5bf31b745");
+  assert.equal(archived.source.oracle_text,"Target blocking creature gets +7/+7 until end of turn.");
+  const parsed=parseOracleText(archived.source.oracle_text,archived.source.name,{
+    layout:archived.source.layout,typeLine:archived.source.type_line,includeSourceProvenance:true,
+  });
+  assert.equal(parsed.ok,true);
+  if(parsed.ok) assert.deepEqual(JSON.parse(JSON.stringify(parsed.abilities)),archived.faces[0].result.abilities);
+  const temporary=fs.mkdtempSync(path.join(os.tmpdir(),"mtg-blocking-target-schema-"));let passed=false;
+  try {
+    const manifest=path.join(temporary,"catalog.json");
+    fs.writeFileSync(manifest,JSON.stringify({schema_version:IR_SCHEMA_VERSION,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
+    const report=run("catalog","build",manifest,"--write");assert.equal(report.definitions,1);
+    const catalog=JSON.parse(fs.readFileSync(report.expected_ir,"utf8"));const d=catalog.definitions[0];
+    assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
+    assert.equal(d.oracle_id,archived.oracleIdentity);assert.equal(d.name,"Righteousness");
+    assert.equal(d.characteristics.kind,"instant");
+    assert.deepEqual(d.characteristics.mana_cost,{generic:"0",colored:["W"]});
+    assert.equal(d.provenance.source_json,JSON.stringify(archived.source));
+    assert.equal(d.provenance.abilities_json,JSON.stringify(archived.faces[0].result.abilities));
+    assert.equal(d.provenance.source_index,9534);
+    assert.equal(d.provenance.source_sha256,archived.sourceSha256);
+    assert.equal(d.provenance.ast_sha256,archived.astSha256);
+    assert.equal(d.provenance.binding_sha256,archived.bindingSha256);
+    assert.ok(d.capabilities.includes("blocking_creature_target_v1"));
+    assert.ok(d.capabilities.includes("temporary_power_toughness_v1"));
+    assert.equal(d.capabilities.includes("creature_target_v1"),false);
+    assert.deepEqual(d.spell,{
+      timing:"instant",resolution:"instructions",functioning_zone:"stack",
+      targets:[{slot:0,selection_id:"line:0:0",chooser:"controller",stage:"announcement",domain:"blocking_battlefield_creature"}],
+      instructions:[{op:"modify_power_toughness",target_slot:0,power:"7",toughness:"7",duration:"until_end_of_turn",source_block:0}],
+    });
+    const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
+    assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
+    // These are schema shape/context guards. Slot binding and exact capability
+    // closure remain Rust semantic checks, rather than inferred schema promises.
+    for(const [label,mutate] of [
+      ["unknown target domain",(x:any)=>{x.spell.targets[0].domain="blocking_creature";}],
+      ["parameterized target domain",(x:any)=>{x.spell.targets[0].domain={blocking_battlefield_creature:{}};}],
+      ["unknown target field",(x:any)=>{x.spell.targets[0].blocking=true;}],
+      ["extra target filter",(x:any)=>{x.spell.targets[0].filter={types:["creature"],non_types:[],non_colors:[],opponent:false};}],
+      ["missing blocking capability",(x:any)=>{x.capabilities=x.capabilities.filter((cap:string)=>cap!=="blocking_creature_target_v1");}],
+      ["mixed target domains",(x:any)=>{x.spell.targets.push({...x.spell.targets[0],slot:1,selection_id:"line:0:1",domain:"battlefield_creature"});}],
+      ["noncanonical quantity",(x:any)=>{x.spell.instructions[0].power="07";}],
+      ["unsupported duration",(x:any)=>{x.spell.instructions[0].duration="this_turn";}],
+      ["empty program",(x:any)=>{x.spell.instructions=[];}],
+      ["non-pump instruction",(x:any)=>{x.spell.instructions=[{op:"return_to_owner_hand",target_slot:0,source_block:0}];}],
+      ["permanent spell",(x:any)=>{x.spell.resolution="permanent";}],
+      ["battlefield program",(x:any)=>{x.spell.functioning_zone="battlefield";}],
+      ["creature source",(x:any)=>{x.characteristics.kind="creature";x.characteristics.power="1";x.characteristics.toughness="1";}],
+      ["additional sacrifice",(x:any)=>{x.spell.additional_sacrifice={types:["creature"],subtypes:[]};}],
+      ["modal program",(x:any)=>{const p=structuredClone(x.spell);x.spell.targets=[];x.spell.instructions=[];x.spell.modes=[{program:p},{program:structuredClone(p)}];}],
+      ["activated program",(x:any)=>{const p=structuredClone(x.spell);x.spell=null;x.activated=[{functioning_zone:"battlefield",cost:"tap_source",program:p}];}],
+      ["triggered program",(x:any)=>{const p=structuredClone(x.spell);x.spell=null;x.triggered=[{functioning_zone:"battlefield",condition:"self_enters_battlefield",intervening_if:null,program:p}];}],
+    ] as const) {
+      const bad=structuredClone(catalog);mutate(bad.definitions[0]);
+      assert.equal(validate(bad),false,`${label}: ${JSON.stringify(validate.errors)}`);
+    }
+    // Complete lowering does not expand the earlier admitted finite pools.
+    for(const file of ["expected-effects-ir.json","expected-choices-ir.json","expected-match-ir.json"]) {
+      assert.equal(JSON.parse(read(file)).definitions.some((x:any)=>x.oracle_id===archived.oracleIdentity),false,file);
+    }
+    assert.equal(fs.readFileSync(record,"utf8"),raw,"compilation preserves the frozen source and diagnostic binding");
+    passed=true;
+  } finally {if(passed) fs.rmSync(temporary,{recursive:true,force:true});}
+});

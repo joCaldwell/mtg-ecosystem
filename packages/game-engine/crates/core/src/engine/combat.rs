@@ -285,32 +285,26 @@ impl Game {
         Ok(())
     }
     pub(super) fn remove_from_combat(&mut self, object: ObjectId) {
-        let orphaned = self
-            .state
-            .rules
-            .combat
-            .iter()
-            .filter(|a| a.attacker == object)
-            .flat_map(|a| a.blockers.clone())
-            .filter(|b| {
-                self.has_keyword(*b, KeywordAbility::FirstStrike)
-                    || self.has_keyword(*b, KeywordAbility::DoubleStrike)
-            })
-            .collect::<Vec<_>>();
-        self.state
-            .rules
-            .orphan_first_strike_blockers
-            .extend(orphaned);
-        self.state
-            .rules
-            .orphan_first_strike_blockers
-            .remove(&object);
+        // CR509.1g/506.4: removing an attacker does not remove its blockers.
+        // The links below determine damage recipients (510.1d), not status.
+        self.state.rules.blocking_creatures.remove(&object);
         self.state.rules.combat.retain(|a| a.attacker != object);
         for a in &mut self.state.rules.combat {
             a.blockers.retain(|b| *b != object);
         }
         self.state.rules.damage_choices.remove(&object);
         self.state.rules.player_damage_choices.remove(&object);
+    }
+    pub(super) fn is_blocking_creature(&self, object: ObjectId) -> bool {
+        self.state.rules.blocking_creatures.contains(&object)
+            && self.is_battlefield_creature(object)
+    }
+    pub(super) fn clear_combat(&mut self) {
+        self.state.rules.combat.clear();
+        self.state.rules.blocking_creatures.clear();
+        self.state.rules.first_strike_participants.clear();
+        self.state.rules.damage_choices.clear();
+        self.state.rules.player_damage_choices.clear();
     }
     pub(super) fn grant_turn_priority(&mut self) -> Result<(), String> {
         if matches!(self.state.rules.frame, Frame::Finished { .. } | Frame::Draw) {
@@ -436,14 +430,8 @@ impl Game {
             .rules
             .combat
             .iter()
-            .flat_map(|a| std::iter::once(a.attacker).chain(a.blockers.iter().copied()))
-            .chain(
-                self.state
-                    .rules
-                    .orphan_first_strike_blockers
-                    .iter()
-                    .copied(),
-            )
+            .map(|a| a.attacker)
+            .chain(self.state.rules.blocking_creatures.iter().copied())
             .filter(|o| {
                 self.has_keyword(*o, KeywordAbility::FirstStrike)
                     || self.has_keyword(*o, KeywordAbility::DoubleStrike)
@@ -847,6 +835,29 @@ impl Game {
         Ok(())
     }
     pub(super) fn validate_combat_state(&self) -> Result<(), String> {
+        // CR509.1g/506.4: an orphan blocker may have no damage link, but every
+        // retained member is the exact creature still in combat. Declaration
+        // provenance (including coherent extra members) is proved by replay.
+        if self.state.rules.blocking_creatures.iter().any(|object| {
+            !self.is_battlefield_creature(*object)
+                || !self
+                    .current(*object)
+                    .is_ok_and(|o| self.is_live(o.controller))
+                || self
+                    .state
+                    .rules
+                    .combat
+                    .iter()
+                    .any(|a| a.attacker == *object)
+        }) || self.state.rules.combat.iter().any(|a| {
+            a.blockers
+                .iter()
+                .any(|b| !self.state.rules.blocking_creatures.contains(b))
+        }) || (self.state.rules.turn.step.phase() != Phase::Combat
+            && !self.state.rules.blocking_creatures.is_empty())
+        {
+            return Err("blocking creature membership invariant".into());
+        }
         for (p, library) in &self.state.rules.libraries {
             let actual = self
                 .state

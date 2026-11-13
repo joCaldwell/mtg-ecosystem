@@ -35,6 +35,8 @@ mod attachments;
 #[cfg(test)]
 mod attachments_tests;
 #[cfg(test)]
+mod blocking_target_tests;
+#[cfg(test)]
 mod four_colors_tests;
 mod staples;
 mod tokens;
@@ -1986,7 +1988,7 @@ impl Game {
                 damage_choices: BTreeMap::new(),
                 player_damage_choices: BTreeMap::new(),
                 first_strike_participants: BTreeSet::new(),
-                orphan_first_strike_blockers: BTreeSet::new(),
+                blocking_creatures: BTreeSet::new(),
                 cleanup_repeat: false,
                 simultaneous_losses: false,
                 losing_players: vec![],
@@ -2471,6 +2473,7 @@ impl Game {
                         TargetDomain::ControlledBattlefieldCreature
                             | TargetDomain::BattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
+                            | TargetDomain::BlockingBattlefieldCreature
                             | TargetDomain::OwnGraveyardCreatureCard
                     )
                 }) || objects.len() != self.program()?.targets.len()

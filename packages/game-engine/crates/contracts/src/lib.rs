@@ -210,6 +210,7 @@ pub enum Capability {
     CastInstantV1,
     CastCreatureV1,
     CreatureTargetV1,
+    BlockingCreatureTargetV1,
     OwnerHandMoveV1,
     CastSorceryV1,
     OwnerLibraryTopMoveV1,
@@ -281,6 +282,8 @@ pub enum TargetDomain {
     BattlefieldPermanent,
     ControlledBattlefieldCreature,
     BattlefieldCreature,
+    /// CR 509.1g: a current blocking creature; ordinary spell pumps only.
+    BlockingBattlefieldCreature,
     OwnGraveyardCreatureCard,
     OpponentPlayer,
     StackSpell,
@@ -1325,6 +1328,24 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        if self
+            .activated
+            .iter()
+            .any(|a| has_blocking_creature_target(&a.program))
+            || self
+                .triggered
+                .iter()
+                .any(|a| has_blocking_creature_target(&a.program))
+            || self.spell.as_ref().is_some_and(|p| {
+                has_blocking_creature_target(p)
+                    && (!matches!(
+                        self.characteristics.kind,
+                        CardKind::Instant | CardKind::Sorcery
+                    ) || !p.modes.is_empty())
+            })
+        {
+            return Err("blocking creature targets require an ordinary nonmodal spell pump".into());
+        }
         if self.characteristics.snow
             && (self.characteristics.kind != CardKind::Creature || !self.mana_abilities.is_empty())
         {
@@ -2069,6 +2090,29 @@ fn validate_permanent_costs(c: &PermanentActivationCosts) -> Result<(), String> 
     Ok(())
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
+    if p.targets
+        .iter()
+        .any(|t| t.domain == TargetDomain::BlockingBattlefieldCreature)
+        && (p.additional_sacrifice.is_some()
+            || !p.modes.is_empty()
+            || p.functioning_zone != FunctioningZone::Stack
+            || p.resolution != SpellResolution::Instructions
+            || p.targets.iter().any(|t| {
+                t.domain != TargetDomain::BlockingBattlefieldCreature || t.filter.is_some()
+            })
+            || p.instructions.is_empty()
+            || p.instructions.iter().any(|i| {
+                !matches!(
+                    i,
+                    Instruction::ModifyPowerToughness {
+                        duration: Duration::UntilEndOfTurn,
+                        ..
+                    }
+                )
+            }))
+    {
+        return Err("blocking creature targets require a complete ordinary pump program".into());
+    }
     if let Some(f) = &p.additional_sacrifice {
         f.validate()?;
         if p.resolution != SpellResolution::Instructions || !p.modes.is_empty() {
@@ -2345,7 +2389,18 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
             }
             Instruction::ModifyPowerToughness { target_slot, .. } => {
-                Some((*target_slot, TargetDomain::BattlefieldCreature))
+                let domain = p
+                    .targets
+                    .get(*target_slot as usize)
+                    .map(|target| target.domain)
+                    .ok_or("unbound creature pump target")?;
+                if !matches!(
+                    domain,
+                    TargetDomain::BattlefieldCreature | TargetDomain::BlockingBattlefieldCreature
+                ) {
+                    return Err("unsupported creature pump target domain".into());
+                }
+                Some((*target_slot, domain))
             }
             Instruction::PreventNextDamage {
                 target_slot,
@@ -2469,6 +2524,16 @@ impl Instruction {
         )
     }
 }
+fn has_blocking_creature_target(program: &SpellProgram) -> bool {
+    program
+        .targets
+        .iter()
+        .any(|t| t.domain == TargetDomain::BlockingBattlefieldCreature)
+        || program
+            .modes
+            .iter()
+            .any(|m| has_blocking_creature_target(&m.program))
+}
 fn has_damage_quantity_draw(program: &SpellProgram) -> bool {
     program
         .instructions
@@ -2523,6 +2588,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         set.insert(match target.domain {
             TargetDomain::BattlefieldPermanent => Capability::PermanentRemovalV1,
             TargetDomain::BattlefieldCreature => Capability::CreatureTargetV1,
+            TargetDomain::BlockingBattlefieldCreature => Capability::BlockingCreatureTargetV1,
             TargetDomain::ControlledBattlefieldCreature => Capability::AttachmentsV1,
             TargetDomain::OwnGraveyardCreatureCard => Capability::GraveyardRecursionV1,
             TargetDomain::OpponentPlayer => Capability::OpponentTargetV1,
@@ -2780,6 +2846,34 @@ pub fn catalog_schema() -> serde_json::Value {
             }}}}}
         }}
     }]);
+    // This finite domain is a root spell-pump predicate, not a general
+    // creature filter that may silently reach other opcodes or contexts.
+    let blocking = serde_json::json!({"targets":{"contains":{"properties":{"domain":{"const":"blocking_battlefield_creature"}},"required":["domain"]}}});
+    schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["targets"],"properties":blocking},
+        "then":{"properties":{
+            "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
+            "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
+            "targets":{"items":{"properties":{"domain":{"const":"blocking_battlefield_creature"},"filter":{"type":"null"}}}},
+            "instructions":{"minItems":1,"items":{"properties":{"op":{"const":"modify_power_toughness"},"duration":{"const":"until_end_of_turn"}}}}
+        }}
+    }));
+    schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "properties":{"modes":{"items":{"properties":{"program":{"properties":{
+            "targets":{"items":{"properties":{"domain":{"not":{"const":"blocking_battlefield_creature"}}}}}
+        }}}}}}
+    }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["spell"],"properties":{"spell":{"type":"object","required":["targets"],"properties":blocking}}},
+        "then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},
+            "capabilities":{"contains":{"const":Capability::BlockingCreatureTargetV1}}}}
+    }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "properties":{
+            "activated":{"items":{"properties":{"program":{"properties":{"targets":{"items":{"properties":{"domain":{"not":{"const":"blocking_battlefield_creature"}}}}}}}}}},
+            "triggered":{"items":{"properties":{"program":{"properties":{"targets":{"items":{"properties":{"domain":{"not":{"const":"blocking_battlefield_creature"}}}}}}}}}}
+        }
+    }));
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -2895,6 +2989,7 @@ mod tests {
             CastInstantV1,
             CastCreatureV1,
             CreatureTargetV1,
+            BlockingCreatureTargetV1,
             OwnerHandMoveV1,
             CastSorceryV1,
             OwnerLibraryTopMoveV1,
@@ -3003,6 +3098,15 @@ mod tests {
                 catalog.definitions
             })
             .collect::<Vec<_>>();
+        let mut blocking = definitions
+            .iter()
+            .find(|d| d.name == "Giant Growth")
+            .unwrap()
+            .clone();
+        blocking.spell.as_mut().unwrap().targets[0].domain =
+            TargetDomain::BlockingBattlefieldCreature;
+        blocking.capabilities = blocking.requirements();
+        definitions.push(blocking);
         // Synthetic contract-shape witness only. Complete D2c-e source lowering
         // is checked in compiler/core tests, without fabricated expected IR.
         let mut damage = definitions
@@ -4415,6 +4519,135 @@ mod tests {
             invalid.capabilities = invalid.requirements();
             assert!(invalid.validate().is_err());
         }
+    }
+    #[test]
+    fn blocking_creature_targets_require_current_root_spell_pumps() {
+        let catalog = Catalog::read(include_str!(
+            "../../../tests/fixtures/expected-effects-ir.json"
+        ))
+        .unwrap();
+        let mut pump = catalog
+            .definitions
+            .iter()
+            .find(|d| d.name == "Giant Growth")
+            .unwrap()
+            .clone();
+        pump.spell.as_mut().unwrap().targets[0].domain = TargetDomain::BlockingBattlefieldCreature;
+        pump.capabilities = pump.requirements();
+        pump.validate().unwrap();
+        assert!(
+            pump.capabilities
+                .contains(&Capability::BlockingCreatureTargetV1)
+        );
+        assert!(!pump.capabilities.contains(&Capability::CreatureTargetV1));
+        let mut missing = pump.clone();
+        missing
+            .capabilities
+            .remove(&Capability::BlockingCreatureTargetV1);
+        assert!(missing.validate().is_err());
+        for change in [
+            (|p: &mut SpellProgram| {
+                p.targets[0].filter = Some(PermanentFilter {
+                    types: vec![CardKind::Creature],
+                    non_types: vec![],
+                    non_colors: vec![],
+                    opponent: false,
+                })
+            }) as fn(&mut SpellProgram),
+            |p| {
+                p.instructions[0] = Instruction::ReturnToOwnerHand {
+                    target_slot: 0,
+                    source_block: 0,
+                }
+            },
+            |p| {
+                p.instructions.push(Instruction::DrawCards {
+                    recipient: None,
+                    count: 1.into(),
+                    source_block: 0,
+                })
+            },
+            |p| {
+                p.additional_sacrifice = Some(SacrificeFilter {
+                    types: vec![CardKind::Creature],
+                    subtypes: vec![],
+                })
+            },
+            |p| p.targets[0].slot = 1,
+            |p| p.targets[0].selection_id.clear(),
+            |p| p.targets[0].domain = TargetDomain::AnyDamageTarget,
+            |p| p.functioning_zone = FunctioningZone::Battlefield,
+            |p| p.resolution = SpellResolution::Permanent,
+        ] {
+            let mut invalid = pump.clone();
+            change(invalid.spell.as_mut().unwrap());
+            invalid.capabilities = invalid.requirements();
+            assert!(invalid.validate().is_err());
+        }
+        let program = pump.spell.clone().unwrap();
+        let mut modal = pump.clone();
+        let root = modal.spell.as_mut().unwrap();
+        root.targets.clear();
+        root.instructions.clear();
+        root.modes = vec![
+            SpellMode {
+                program: program.clone()
+            };
+            2
+        ];
+        modal.capabilities = modal.requirements();
+        assert!(
+            modal
+                .validate()
+                .unwrap_err()
+                .contains("ordinary nonmodal spell")
+        );
+        for activated in [false, true] {
+            let mut permanent = catalog
+                .definitions
+                .iter()
+                .find(|d| d.name == "Yoked Ox")
+                .unwrap()
+                .clone();
+            if activated {
+                permanent.activated = vec![ActivatedAbility {
+                    cost: ActivationCost::TapSource,
+                    functioning_zone: FunctioningZone::Battlefield,
+                    program: program.clone(),
+                }];
+            } else {
+                permanent.triggered = vec![TriggeredAbility {
+                    condition: TriggerCondition::SelfEntersBattlefield,
+                    functioning_zone: FunctioningZone::Battlefield,
+                    death_filter: None,
+                    intervening_if: None,
+                    program: program.clone(),
+                }];
+            }
+            permanent.capabilities = permanent.requirements();
+            assert!(
+                permanent
+                    .validate()
+                    .unwrap_err()
+                    .contains("ordinary nonmodal spell")
+            );
+        }
+        // A new target restriction cannot be carried by a permanent's cast
+        // program or be confused with the existing unqualified creature domain.
+        let mut permanent = pump.clone();
+        permanent.characteristics.kind = CardKind::Creature;
+        permanent.capabilities = permanent.requirements();
+        assert!(permanent.validate().is_err());
+        let ordinary = catalog
+            .definitions
+            .iter()
+            .find(|d| d.name == "Giant Growth")
+            .unwrap();
+        assert_eq!(
+            ordinary.spell.as_ref().unwrap().targets[0].domain,
+            TargetDomain::BattlefieldCreature
+        );
+        ordinary.validate().unwrap();
     }
     #[test]
     fn incremental_sha256_matches_reference_across_byte_fragment_boundaries() {

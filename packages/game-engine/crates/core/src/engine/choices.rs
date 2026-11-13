@@ -303,6 +303,7 @@ impl Game {
                 TargetDomain::ControlledBattlefieldCreature
                 | TargetDomain::BattlefieldPermanent
                 | TargetDomain::BattlefieldCreature
+                | TargetDomain::BlockingBattlefieldCreature
                 | TargetDomain::OwnGraveyardCreatureCard => Frame::Targets { cast },
                 TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
                     Frame::StackTargets { cast }

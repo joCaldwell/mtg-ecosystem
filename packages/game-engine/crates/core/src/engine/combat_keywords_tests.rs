@@ -701,6 +701,7 @@ fn trample_marked_damage_and_other_step_assignments_private_domain() {
             blockers: vec![b],
         },
     ];
+    g.state.rules.blocking_creatures.insert(b);
     g.state
         .rules
         .objects
@@ -778,7 +779,7 @@ fn first_strike_blocker_of_departed_attacker_still_starts_first_step() {
             assert_eq!(g.state.rules.players[1].life, 38.into());
             assert_eq!(g.current(object(g, 2)).unwrap().marked_damage, 0.into());
             reach(g, TurnStep::PostcombatMain);
-            assert!(g.state.rules.orphan_first_strike_blockers.is_empty());
+            assert!(g.state.rules.blocking_creatures.is_empty());
         },
     );
 }

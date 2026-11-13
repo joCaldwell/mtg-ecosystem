@@ -1614,6 +1614,7 @@ impl Game {
                         .ok_or("missing blocker attacker")?;
                     attacker.blocked = true;
                     attacker.blockers.push(*b);
+                    self.state.rules.blocking_creatures.insert(*b);
                 }
                 EventOutcome::BlockersDeclared {
                     player: *player,
@@ -1726,6 +1727,11 @@ impl Game {
                 // damage step begins, before any later departure boundary.
                 if next.step == TurnStep::FirstStrikeDamage {
                     self.state.rules.first_strike_participants = self.first_strikers();
+                }
+                // CR511.3: remove every combatant as the end of combat step
+                // ends, before the separately budgeted postcombat entry unit.
+                if self.state.rules.turn.step == TurnStep::EndCombat {
+                    self.clear_combat();
                 }
                 let previous = std::mem::replace(&mut self.state.rules.turn, next.clone());
                 let previous_owner = std::mem::replace(&mut self.state.rules.turn_owner, *owner);

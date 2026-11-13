@@ -251,12 +251,8 @@ impl Game {
                 }
             }
             TurnStep::BeginningCombat => {
-                self.state.rules.combat.clear();
+                self.clear_combat();
                 self.state.rules.combat_declared = false;
-                self.state.rules.first_strike_participants.clear();
-                self.state.rules.orphan_first_strike_blockers.clear();
-                self.state.rules.damage_choices.clear();
-                self.state.rules.player_damage_choices.clear();
             }
             TurnStep::DeclareAttackers => {
                 if self.state.rules.active.is_some() {
@@ -285,13 +281,7 @@ impl Game {
                 return Ok(());
             }
             TurnStep::EndCombat => {}
-            TurnStep::PostcombatMain => {
-                self.state.rules.combat.clear();
-                self.state.rules.first_strike_participants.clear();
-                self.state.rules.orphan_first_strike_blockers.clear();
-                self.state.rules.damage_choices.clear();
-                self.state.rules.player_damage_choices.clear();
-            }
+            TurnStep::PostcombatMain => {}
             TurnStep::Cleanup => {
                 self.state.rules.frame = if let Some(player) = self.state.rules.active {
                     let count = self

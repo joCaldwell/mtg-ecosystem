@@ -1737,12 +1737,7 @@ fn append_spell_effects(
                     toughness,
                     duration,
                 } if duration.duration == "end-of-turn" => Instruction::ModifyPowerToughness {
-                    target_slot: bind_creature_target(
-                        program,
-                        slots,
-                        &serde_json::from_value(what.clone())
-                            .map_err(|_| unsupported("pump", "unsupported target"))?,
-                    )?,
+                    target_slot: bind_pump_target(program, slots, what)?,
                     power: signed_fixed(power)?,
                     toughness: signed_fixed(toughness)?,
                     duration: Duration::UntilEndOfTurn,
@@ -3008,6 +3003,31 @@ fn life_recipient(
             "unsupported life recipient or unbound target",
         )),
     }
+}
+// CR 509.1g/601.2c/608.2b: consume the entire blocking-creature target.
+// Keep other creature operators on their existing unqualified target binder.
+fn bind_pump_target(
+    program: &mut SpellProgram,
+    slots: &mut BTreeMap<String, u32>,
+    what: &serde_json::Value,
+) -> Result<u32, Failure> {
+    let id = what["selectionId"].as_str().unwrap_or("");
+    if *what
+        == serde_json::json!({"ref":"target","filter":{"status":["blocking"],"types":["creature"]},
+        "count":{"amount":"fixed","value":1},"selectionId":id})
+    {
+        // bind_target rejects mixed domains before looking up a reused ID, so
+        // a second use cannot discard or overwrite the blocking restriction.
+        return bind_target(
+            program,
+            slots,
+            id,
+            TargetDomain::BlockingBattlefieldCreature,
+        );
+    }
+    let target = serde_json::from_value(what.clone())
+        .map_err(|_| unsupported("pump", "unsupported complete creature pump target"))?;
+    bind_creature_target(program, slots, &target)
 }
 fn bind_creature_target(
     program: &mut SpellProgram,
@@ -5399,11 +5419,200 @@ mod tests {
         }
     }
     #[test]
+    fn blocking_creature_pump_lowers_complete_righteousness_source() {
+        let raw = effect_record("righteousness");
+        assert_eq!(
+            sha256(raw.trim_end().as_bytes()),
+            "7f93ff4781abe286d05e5835771b711f964771fedddbf6e580d90c89074f62e0"
+        );
+        let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
+            panic!("complete pinned Righteousness source must lower")
+        };
+        assert_eq!(definition.oracle_id, "3f6b2f76-0364-415e-a6a2-e9e5bf31b745");
+        assert_eq!(definition.provenance.source_index, 9534);
+        assert_eq!(
+            definition.provenance.source_sha256,
+            "f9af121b8a7525a90421c871f441e59b9449d1509a571e54b59656aca48f8177"
+        );
+        assert_eq!(
+            definition.provenance.ast_sha256,
+            "39040712bbdeb4100fbbe67e4010a216db8a3cb431bd754c078285ab3167932f"
+        );
+        assert_eq!(
+            definition.provenance.binding_sha256,
+            "eba91cf74d2af16085aab09b7a771235dede6bc6cebed8f34c3c6e05696e0351"
+        );
+        let record: serde_json::Value = strict_read(raw).unwrap();
+        assert_eq!(
+            strict_read::<serde_json::Value>(&definition.provenance.source_json).unwrap(),
+            record["source"]
+        );
+        assert_eq!(
+            strict_read::<serde_json::Value>(&definition.provenance.abilities_json).unwrap(),
+            record["faces"][0]["result"]["abilities"]
+        );
+        assert_eq!(definition.characteristics.kind, CardKind::Instant);
+        assert_eq!(
+            definition.characteristics.mana_cost,
+            ManaCost {
+                generic: Quantity::zero(),
+                colored: vec![Color::W]
+            }
+        );
+        assert!(
+            definition.activated.is_empty()
+                && definition.triggered.is_empty()
+                && definition.static_abilities.is_empty()
+        );
+        assert_eq!(
+            definition.spell,
+            Some(SpellProgram {
+                additional_sacrifice: None,
+                timing: SpellTiming::Instant,
+                resolution: SpellResolution::Instructions,
+                functioning_zone: FunctioningZone::Stack,
+                modes: vec![],
+                targets: vec![TargetSpec {
+                    slot: 0,
+                    selection_id: "line:0:0".into(),
+                    chooser: Chooser::Controller,
+                    stage: EvaluationStage::Announcement,
+                    domain: TargetDomain::BlockingBattlefieldCreature,
+                    filter: None
+                }],
+                instructions: vec![Instruction::ModifyPowerToughness {
+                    target_slot: 0,
+                    power: 7.into(),
+                    toughness: 7.into(),
+                    duration: Duration::UntilEndOfTurn,
+                    source_block: 0
+                }],
+            })
+        );
+        assert_eq!(
+            definition.capabilities,
+            BTreeSet::from([
+                Capability::NormalLayoutV1,
+                Capability::CastInstantV1,
+                Capability::BlockingCreatureTargetV1,
+                Capability::TemporaryPowerToughnessV1
+            ])
+        );
+        Catalog {
+            schema_version: CURRENT_IR_VERSION,
+            rules_edition: RULES_EDITION.into(),
+            rules_sha256: RULES_SHA256.into(),
+            definitions: vec![*definition],
+        }
+        .validate()
+        .unwrap();
+    }
+    #[test]
+    fn blocking_creature_pump_rejects_unconsumed_target_and_effect_qualifiers() {
+        for (path, value) in [
+            ("/what/filter/status", serde_json::json!([])),
+            ("/what/filter/status", serde_json::json!(["attacking"])),
+            ("/what/filter/status", serde_json::json!(["blocked"])),
+            (
+                "/what/filter/status",
+                serde_json::json!(["blocking", "attacking"]),
+            ),
+            ("/what/filter/status", serde_json::Value::Null),
+            (
+                "/what/filter/types",
+                serde_json::json!(["artifact", "creature"]),
+            ),
+            ("/what/filter/owner", serde_json::json!("you")),
+            ("/what/filter/control", serde_json::json!("you")),
+            ("/what/count/value", serde_json::json!(2)),
+            ("/what/count/amount", serde_json::json!("x")),
+            ("/what/selectionId", serde_json::json!("")),
+            ("/what/ref", serde_json::json!("filter")),
+            ("/optional", serde_json::json!(false)),
+            ("/duration/duration", serde_json::json!("permanent")),
+        ] {
+            let raw = changed_source(effect_record("righteousness"), |record| {
+                let result = &mut record["faces"][0]["result"];
+                let step = &mut result["abilities"][0]["effects"][0]["steps"][0];
+                let (parent, key) = path.rsplit_once('/').unwrap();
+                step.pointer_mut(parent)
+                    .unwrap()
+                    .as_object_mut()
+                    .unwrap()
+                    .insert(key.into(), value);
+                let target = step["what"].clone();
+                result["lines"][0]["ability"] = result["abilities"][0].clone();
+                for node in record["binding"]["nodes"].as_array_mut().unwrap() {
+                    if node["node"] == "selection" {
+                        node["expression"] = target.clone();
+                    }
+                }
+                for reference in record["binding"]["references"].as_array_mut().unwrap() {
+                    reference["expression"] = target.clone();
+                }
+            });
+            assert!(
+                matches!(
+                    compile(fixtures::MANIFEST, &raw),
+                    CompileResult::Unsupported { .. }
+                ),
+                "{path}"
+            );
+        }
+        let with_draw = changed_source(effect_record("righteousness"), |record| {
+            let text = "Target blocking creature gets +7/+7 until end of turn. Draw a card.";
+            record["source"]["oracle_text"] = text.into();
+            let result = &mut record["faces"][0]["result"];
+            result["abilities"][0]["effects"][0]["steps"].as_array_mut().unwrap().push(
+                serde_json::json!({"effect":"draw","who":{"player":"you"},"amount":{"amount":"fixed","value":1}}));
+            result["lines"][0]["text"] = text.into();
+            result["lines"][0]["ability"] = result["abilities"][0].clone();
+        });
+        assert!(
+            matches!(compile(fixtures::MANIFEST, &with_draw), CompileResult::Unsupported { path, .. } if path == "definition")
+        );
+    }
+    #[test]
+    fn blocking_creature_pump_rejects_inconsistent_reused_selection_domains() {
+        let record: serde_json::Value = strict_read(effect_record("righteousness")).unwrap();
+        let blocking =
+            record["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["what"].clone();
+        let mut ordinary = blocking.clone();
+        ordinary["filter"].as_object_mut().unwrap().remove("status");
+        for (first, second, domain) in [
+            (
+                &blocking,
+                &ordinary,
+                TargetDomain::BlockingBattlefieldCreature,
+            ),
+            (&ordinary, &blocking, TargetDomain::BattlefieldCreature),
+        ] {
+            let mut program = embedded_catalog("effects")
+                .unwrap()
+                .definitions
+                .into_iter()
+                .find(|d| d.name == "Giant Growth")
+                .unwrap()
+                .spell
+                .unwrap();
+            program.targets.clear();
+            program.instructions.clear();
+            let mut slots = BTreeMap::new();
+            assert_eq!(
+                bind_pump_target(&mut program, &mut slots, first).unwrap(),
+                0
+            );
+            assert!(bind_pump_target(&mut program, &mut slots, second).is_err());
+            assert_eq!(program.targets.len(), 1);
+            assert_eq!(program.targets[0].domain, domain);
+        }
+    }
+    #[test]
     fn complete_effects_sources_reject_filtered_modal_and_optional_near_misses() {
         // Gratuitous Violence's original source negative is now a complete
         // controlled-creature replacement positive above; other partial sources
         // remain unsupported; each complete source retains its exact expected program.
-        for name in ["righteousness", "flame-rift", "deathgreeter"] {
+        for name in ["flame-rift", "deathgreeter"] {
             assert!(
                 matches!(
                     compile(fixtures::MANIFEST, effect_record(name)),

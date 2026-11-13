@@ -112,6 +112,12 @@ impl Game {
             Some(TargetDomain::OwnGraveyardCreatureCard) => {
                 !self.graveyard_creatures(player).is_empty()
             }
+            Some(TargetDomain::BlockingBattlefieldCreature) => self
+                .state
+                .rules
+                .blocking_creatures
+                .iter()
+                .any(|o| self.is_blocking_creature(*o) && self.targetable_by(*o, player)),
             Some(
                 domain @ (TargetDomain::BattlefieldCreature
                 | TargetDomain::ControlledBattlefieldCreature),

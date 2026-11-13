@@ -1154,24 +1154,26 @@ fn verify_source_catalog(
         "action" | "stack" => (&[BLOOD], &[]),
         "damage-life" => (&[BLOOD], &[FLAME]),
         "trigger" => (&[], &[FLAME, DEATHGREETER]),
-        "effects" => (&[SALVE, VIOLENCE], &[FLAME, DEATHGREETER, RIGHTEOUSNESS]),
+        "effects" => (&[SALVE, VIOLENCE, RIGHTEOUSNESS], &[FLAME, DEATHGREETER]),
         "choices" => (
-            &[VIOLENCE],
+            &[VIOLENCE, RIGHTEOUSNESS],
             &[
                 FLAME,
                 DEATHGREETER,
-                RIGHTEOUSNESS,
                 "2679d0dd-ba30-4a1c-b6a0-b3ac6c790496", // Boros Charm: unsupported complete modes
                 "2825ff5a-5340-4494-bfde-80f6f5bce5a2", // Lavaborn Muse: unsupported condition
             ],
         ),
         "match" => (
             // Complete source support does not widen this closed pool.
-            &["51ce0158-c9a5-4fa5-9704-46ab02f01b86", VIOLENCE],
+            &[
+                "51ce0158-c9a5-4fa5-9704-46ab02f01b86",
+                VIOLENCE,
+                RIGHTEOUSNESS,
+            ],
             &[
                 FLAME,
                 DEATHGREETER,
-                RIGHTEOUSNESS,
                 "2679d0dd-ba30-4a1c-b6a0-b3ac6c790496",
                 "2825ff5a-5340-4494-bfde-80f6f5bce5a2",
             ],
