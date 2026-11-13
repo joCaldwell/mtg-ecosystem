@@ -39,14 +39,19 @@ for one any-target recipient this turn. Furnace is a **1RRR** non-Aura
 Enchantment whose battlefield static ability doubles each source's damage to
 any permanent/player. Ox is a W 0/4 with a complete empty ability list.
 
-The positive catalog has exactly 30 definitions: the previous 24 trigger
-cards plus these six. Thirty-five source records retain those positives,
-existing Flame Rift/Deathgreeter negatives and three new complete negatives:
-Righteousness (9534, blocking-creature target restriction), Healing Salve
-(21291, modal gain/prevention choice), and Gratuitous Violence (18654,
-creature-source/controller restriction). Reject the entire unsupported card;
-never drop its distinguishing filter, mode or clause. Historical catalog
-families retain their original definitions and admission boundaries.
+At the original source boundary, the positive catalog has exactly 30 definitions:
+the previous 24 trigger cards plus these six. Thirty-five source records retain
+those positives, existing Flame Rift/Deathgreeter negatives and three then-new
+complete negatives: Righteousness (9534, blocking-creature target restriction),
+Healing Salve (21291, modal gain/prevention choice), and Gratuitous Violence
+(18654, creature-source/controller restriction).
+
+These exclusions qualify that historical source boundary. Later work completes
+all three; the [blocking-target extension](game-engine-blocking-targets.md)
+records Righteousness support, and the [current map](game-engine-current.md)
+links the other extensions. The existing effects admission pool remains separate.
+Every filter, mode and clause must still compile completely or the whole card
+must reject.
 
 IR v9 adds fixed signed additive P/T modification, global combat prevention,
 finite recipient-bound prevention, Enchantment permanent casting and the finite

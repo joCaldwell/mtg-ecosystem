@@ -96,8 +96,10 @@ See [stack](game-engine-stack-slice.md), [payment](game-engine-payment-slice.md)
 
 Combat declarations, simultaneous damage and SBA waves use typed events.
 Multiple blockers have no damage-assignment order under the pinned rules.
-Preserve blocked status after blockers leave. Skip blockers/damage only when no
-attackers were declared. Continuous-control eligibility is stamped at turn entry
+Preserve blocked status after blockers leave, and blocking status after attackers
+leave. Blocking lasts through EndCombat priority and ends as combat ends
+(CR 509.1g/511.3); damage links alone do not define it. Skip blockers/damage only
+when no attackers were declared. Continuous-control eligibility is stamped at turn entry
 and resets on incarnation/controller changes. First/double-strike participant
 sets, trample amounts, prevention and dealt-damage quantities retain their
 reviewed distinctions. Commander combat damage never derives from life changes.

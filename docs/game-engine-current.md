@@ -64,6 +64,9 @@ casting prohibition](game-engine-grouped-damage.md); its capability scope is
 validated independently of schema numbering.
 The [controlled-creature damage replacement](game-engine-controlled-damage-replacement.md)
 extension uses the same unreleased schema with separate current/LKI source facts.
+The [blocking-target extension](game-engine-blocking-targets.md) adds complete
+Righteousness lowering, authoritative blocker status and payment-time target
+binding correctness, with no new pool or hosting/search admission.
 Read Rust types and validation at the edited source; old reports retain their
 original version numbers. Active catalogs are regenerated at schema 1; distinct
 source/admission pools remain separate. Historical decoder gates and downgrade
