@@ -1558,3 +1558,308 @@ mod reactive_tapped_destroy_tests {
         }
     }
 }
+
+// Public IR/observation probes, not accepted-input games or replay evidence.
+mod defensive_untap_policy_tests {
+    use super::*;
+
+    fn fixture() -> (Catalog, PermittedView) {
+        let mut c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+        let mut v = wipe_tests::view(&c);
+        for raw in [
+            include_str!("../../../../tests/fixtures/b795ecfd-31ac-4a2a-9679-97b088932d93.json"),
+            include_str!("../../../../tests/fixtures/5820d760-8ed7-4abf-a959-c06ed86a3730.json"),
+            include_str!("../../../../tests/fixtures/ce979f36-84f2-4419-b400-971263494cc6.json"),
+        ] {
+            let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+                include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+                raw,
+            ) else {
+                panic!("complete untap/target-status source must lower")
+            };
+            c.definitions.push(*definition);
+        }
+        c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        c.validate().unwrap();
+        v.active = Some(PlayerId(0));
+        v.turn_owner = PlayerId(0);
+        v.priority = Some(v.viewer);
+        v.turn.step = TurnStep::DeclareAttackers;
+        v.players
+            .iter_mut()
+            .find(|p| p.player == v.viewer)
+            .unwrap()
+            .mana = BTreeMap::from([(Color::W, 1.into())]);
+        v.objects = vec![
+            wipe_tests::card(
+                &c,
+                "Burst of Energy",
+                v.viewer.0,
+                Zone::Hand { owner: v.viewer },
+            ),
+            wipe_tests::card(&c, "Storm Crow", v.viewer.0, Zone::Battlefield),
+            wipe_tests::card(&c, "Goliath Sphinx", v.viewer.0, Zone::Battlefield),
+        ];
+        v.objects[1].tapped = true;
+        v.objects[1].owner = PlayerId(1); // Defense follows current control.
+        v.objects[2].tapped = true;
+        stack_spell(&mut v, &c, "Swift Response", 0);
+        v.stack.last_mut().unwrap().targets = vec![mtg_core::VisibleTarget {
+            announced: ObjectHandle("Storm Crow".into()),
+            current: Some(ObjectHandle("Storm Crow".into())),
+        }];
+        (c, v)
+    }
+
+    #[test]
+    fn defensive_untap_reacts_and_prefers_threatened_handle_over_more_valuable_permanent() {
+        let (c, mut v) = fixture();
+        let before = canonical(&v).unwrap();
+        assert_eq!(
+            strategy(&c).priority(&observation(v.clone())).unwrap(),
+            PlayerResponse::Cast {
+                card: ObjectHandle("Burst of Energy".into())
+            }
+        );
+        assert_eq!(canonical(&v).unwrap(), before);
+        let d = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Burst of Energy")
+            .unwrap();
+        let p = d.spell.as_ref().unwrap();
+        assert_eq!(
+            strategy(&c).object_target(&v, d, p, &p.targets[0], None),
+            Some(ObjectHandle("Storm Crow".into()))
+        );
+
+        v.objects.remove(0);
+        let viewer = v.viewer.0;
+        stack_spell(&mut v, &c, "Burst of Energy", viewer);
+        v.stack.last_mut().unwrap().cast_complete = false;
+        let mut o = observation(v);
+        o.decision = Some(PlayerRequest::Targets {
+            token: mtg_core::DecisionToken("defensive-untap-payload".into()),
+            player: o.view.viewer,
+            occurrences: p.targets.clone(),
+            candidates: vec![
+                ObjectHandle("Goliath Sphinx".into()),
+                ObjectHandle("Storm Crow".into()),
+            ],
+        });
+        let before = canonical(&o).unwrap();
+        assert_eq!(
+            strategy(&c).choose(&o).unwrap(),
+            PlayerResponse::Targets {
+                objects: vec![ObjectHandle("Storm Crow".into())]
+            }
+        );
+        assert_eq!(canonical(&o).unwrap(), before);
+    }
+
+    #[test]
+    fn defensive_untap_requires_current_enemy_threat_targetability_and_payment() {
+        let (c, v) = fixture();
+        for case in [
+            "empty",
+            "own",
+            "incomplete",
+            "untapped",
+            "enemy-controlled",
+            "shroud",
+            "hexproof",
+            "missing",
+            "no-current",
+            "unaffordable",
+            "unrelated-top",
+        ] {
+            let mut v = v.clone();
+            match case {
+                "empty" => v.stack.clear(),
+                "own" => v.stack[0].controller = v.viewer,
+                "incomplete" => v.stack[0].cast_complete = false,
+                "untapped" => v.objects[1].tapped = false,
+                "enemy-controlled" => v.objects[1].controller = PlayerId(0),
+                "shroud" => v.objects[1].keywords.push(KeywordAbility::Shroud),
+                "hexproof" => v.objects[1].keywords.push(KeywordAbility::Hexproof),
+                "missing" => {
+                    v.objects.remove(1);
+                }
+                "no-current" => v.stack[0].targets[0].current = None,
+                "unaffordable" => v
+                    .players
+                    .iter_mut()
+                    .find(|p| p.player == v.viewer)
+                    .unwrap()
+                    .mana
+                    .clear(),
+                "unrelated-top" => stack_spell(&mut v, &c, "Lightning Bolt", 0),
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                strategy(&c).priority(&observation(v)).unwrap(),
+                PlayerResponse::Pass,
+                "{case}"
+            );
+        }
+    }
+
+    #[test]
+    fn defensive_untap_respects_incoming_and_outgoing_spell_scope() {
+        let (c, v) = fixture();
+        for case in [
+            "unrestricted",
+            "optional",
+            "ability",
+            "trigger",
+            "sorcery-untap",
+            "modal-untap",
+        ] {
+            let mut c = c.clone();
+            let mut v = v.clone();
+            match case {
+                "unrestricted" | "optional" => {
+                    let p = c
+                        .definitions
+                        .iter_mut()
+                        .find(|d| d.name == "Swift Response")
+                        .unwrap()
+                        .spell
+                        .as_mut()
+                        .unwrap();
+                    if case == "unrestricted" {
+                        p.targets[0].filter.as_mut().unwrap().tapped = false;
+                    } else {
+                        let I::DestroyPermanent { optional, .. } = &mut p.instructions[0] else {
+                            panic!("destroy")
+                        };
+                        *optional = true;
+                    }
+                }
+                "ability" => {
+                    let id = c
+                        .definitions
+                        .iter()
+                        .find(|d| d.name == "Samite Healer")
+                        .unwrap()
+                        .oracle_id
+                        .clone();
+                    v.stack[0].ability = Some(mtg_core::VisibleAbility {
+                        oracle_id: id,
+                        ability: 0,
+                        handle: StackHandle("ability".into()),
+                        source: mtg_core::VisibleTarget {
+                            announced: ObjectHandle("source".into()),
+                            current: None,
+                        },
+                    });
+                }
+                "trigger" => {
+                    let id = c
+                        .definitions
+                        .iter()
+                        .find(|d| d.name == "Blood Artist")
+                        .unwrap()
+                        .oracle_id
+                        .clone();
+                    v.stack[0].triggered = Some(mtg_core::VisibleTriggered {
+                        oracle_id: id,
+                        ability: 0,
+                        handle: StackHandle("trigger".into()),
+                        source: mtg_core::VisibleTarget {
+                            announced: ObjectHandle("source".into()),
+                            current: None,
+                        },
+                    });
+                }
+                "sorcery-untap" => {
+                    let d = c
+                        .definitions
+                        .iter_mut()
+                        .find(|d| d.name == "Burst of Energy")
+                        .unwrap();
+                    d.characteristics.kind = CardKind::Sorcery;
+                    d.spell.as_mut().unwrap().timing = SpellTiming::MainPhase;
+                }
+                "modal-untap" => {
+                    let p = c
+                        .definitions
+                        .iter_mut()
+                        .find(|d| d.name == "Burst of Energy")
+                        .unwrap()
+                        .spell
+                        .as_mut()
+                        .unwrap();
+                    let child = p.clone();
+                    p.targets.clear();
+                    p.instructions.clear();
+                    p.modes = vec![
+                        mtg_contracts::SpellMode {
+                            program: child.clone(),
+                        },
+                        mtg_contracts::SpellMode { program: child },
+                    ];
+                }
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                strategy(&c).priority(&observation(v)).unwrap(),
+                PlayerResponse::Pass,
+                "{case}"
+            );
+        }
+
+        // A sorcery removal already on the stack is also an ordinary threat;
+        // only the responding untap spell must have instant timing.
+        let mut v = v;
+        v.stack.clear();
+        v.objects.retain(|o| o.zone != Zone::Stack);
+        stack_spell(&mut v, &c, "Assassinate", 0);
+        v.stack[0].targets = vec![mtg_core::VisibleTarget {
+            announced: ObjectHandle("Storm Crow".into()),
+            current: Some(ObjectHandle("Storm Crow".into())),
+        }];
+        assert_eq!(
+            strategy(&c).priority(&observation(v)).unwrap(),
+            PlayerResponse::Cast {
+                card: ObjectHandle("Burst of Energy".into())
+            }
+        );
+    }
+
+    #[test]
+    fn defensive_untap_preference_never_invents_stale_or_unoffered_targets() {
+        let (c, mut v) = fixture();
+        let d = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Burst of Energy")
+            .unwrap();
+        let p = d.spell.as_ref().unwrap();
+        let offered = [ObjectHandle("Goliath Sphinx".into())];
+        // Direct preference is absent; the existing mandatory Targets handler
+        // retains its legal-candidate fallback after an initiated cast.
+        assert_eq!(
+            strategy(&c).object_target(&v, d, p, &p.targets[0], Some(&offered)),
+            None
+        );
+        assert_eq!(
+            strategy(&c).object_target(&v, d, p, &p.targets[0], Some(&[])),
+            None
+        );
+        v.stack[0].targets[0].current = Some(ObjectHandle("stale-incarnation".into()));
+        assert_eq!(
+            strategy(&c).object_target(&v, d, p, &p.targets[0], None),
+            None
+        );
+        v.stack.clear();
+        v.active = Some(v.viewer);
+        v.turn_owner = v.viewer;
+        v.turn.step = TurnStep::PrecombatMain;
+        assert_eq!(
+            strategy(&c).priority(&observation(v)).unwrap(),
+            PlayerResponse::Pass,
+            "ordinary development must not spend untap on mana/ramp without a defensive threat"
+        );
+    }
+}

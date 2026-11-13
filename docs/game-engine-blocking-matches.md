@@ -2,7 +2,8 @@
 
 `commander-blocking-targets-v1` is a separate finite development profile. Its
 schema-1 `blocking-matches` catalog contains the 34 exact records selected by the
-foundations match catalog plus Righteousness, Swift Response and Assassinate.
+foundations match catalog plus Righteousness, Swift Response, Assassinate and
+Burst of Energy.
 This development pool evolves in place; its name does not select runtime rules.
 Other catalogs and decks remain unchanged.
 Neither hosting nor sampled search is requested by this profile; their reviewed
@@ -40,7 +41,7 @@ with these explicit additions to the foundations decks:
 
 | Seats | Commander | Composition including commander |
 | --- | --- | --- |
-| 0, 2 | Isamaru, Hound of Konda | Eight singleton nonbasic cards, including Righteousness and Swift Response, and 92 Plains |
+| 0, 2 | Isamaru, Hound of Konda | Nine singleton nonbasic cards, including Righteousness, Swift Response and Burst of Energy, and 91 Plains |
 | 1, 3 | Yargle and Multani | Thirteen singleton nonbasic cards, including Assassinate, 43 Swamps and 44 Forests |
 
 Each deck contains 100 cards. The profile retains the frozen 2026-10-15 Commander
@@ -75,9 +76,52 @@ provide membership authority, including for orphans. Current visible type,
 targetability and friendly control still guide selection. Ordinary Growth spells
 do not become generally reactive. No card/profile identity selects policy rules.
 
-## Tapped-removal admission
+## Current untap defense
 
-The current 37-definition catalog's canonical digest is
+The current 38-definition catalog's canonical digest is
+`bb098a1b0b0f6ba206f5b1df4cd79fee4d16b4342d5fa55ae2e257f7024f3498`.
+Burst's definition comes from its already qualified source. All prior 37
+definition bodies remain byte-identical. This adds one singleton Burst per white
+default deck and removes one Plains; other profiles, source and provenance files
+remain unchanged. Hosting/search requests still reject the new capability.
+
+Develop uses an ordinary instant untap only against an immediate completed
+opposing tapped-target destroy spell. It chooses the currently threatened friendly
+tapped permanent, intersecting current types, both casters' targetability and any
+offered candidates. It does not spend the card on a higher-value unthreatened
+permanent or general mana development. During target selection, it can inspect
+the threat immediately below its own incomplete untap proposal. It never scans
+past an unrelated stack entry. If a threat disappears after initiation, the
+existing mandatory-target fallback remains a legal recovery choice.
+
+The accepted-pod witness uses four legal custom white decks, each with Isamaru,
+one special card and 98 Plains. Seats 0–3 use Burst, Swift, Righteousness and Swift.
+A bounded setup-only probe selected index 102 in
+`commander-blocking-targets-v1/opening-untap-defense/`; the test pins that seed and
+checks the actual Burst/Swift opening hands in the new catalog. The preliminary
+37-definition probe used Righteousness as a positional proxy, made only opening
+keep decisions, and did not qualify Burst gameplay.
+
+Ordinary commander casts, land plays and an attack establish the interaction.
+Swift pays `{1}{W}` from two Plains; Burst responds with `{W}` from another Plains.
+The witness checks Burst resolved, Swift did not, one real untap occurred, the
+attacker remains in combat, and the defender has not taken damage. It stops before
+blockers, with snapshot verification and accepted-input replay across budgets 1
+and 4096. It is not a new full default-deck completion-game claim.
+
+The focused pass executed one all-catalog freshness test, two admission tests,
+this new accepted-pod defense witness, the earlier paid Swift and Righteousness
+witnesses, and 28 policy tests: 34 passed. Formatting, workspace all-target
+compilation, structure checks, production simulator Clippy/build, compiled source
+verification, smoke and explicit replay passed. The copied simulator's core build
+is `408a5fb617e19e4515b5bc9c46545a55f37338a5e302238c055ea177e1625ce4`.
+Receipts, setup probe, exact executable and source fingerprints remain under
+`generated/untap-defense/`. Full default completion, release/profile/runtime/tooling
+matrices, offline retention and client/server requalification were omitted.
+
+## 37-definition tapped-removal qualification
+
+The preceding 37-definition catalog at `a549c95c` had canonical digest
 `7c011dbb938aeeb2f846ab658b11e6b1a59aff8fbdb36dcaa4aaa88c4bbccb52`.
 The two added definitions come from the exact retained source records; all prior
 35 definition bodies are byte-identical. Other fixture/catalog/profile files
@@ -102,7 +146,7 @@ activations. An untapped friendly commander is rejected atomically. Destruction
 and the ordinary commander-return choice finish the witness before blockers.
 It does not claim a new default-deck completion game or full-game coverage.
 
-The current focused pass executed one all-catalog freshness test, two admission
+That focused pass executed one all-catalog freshness test, two admission
 tests, the new paid Swift Response accepted-pod witness, the existing paid
 Righteousness witness and 24 policy tests: 29 passed. Workspace all-target
 compilation, formatting, structure checks and production simulator Clippy/build
@@ -122,7 +166,7 @@ pinned to its independent producer; it is not relabeled to this engine.
 
 The evidence below predates tapped-removal admission. It retains its exact old
 catalog and producer identity; its completion game is not qualification of the
-current 37-definition default decks.
+later default decks.
 
 The native source checkpoint is `d5740fd4e8372163d1832775a4dd9eadf76599d5`.
 The copied debug simulator's compiled source closure is verified with core build

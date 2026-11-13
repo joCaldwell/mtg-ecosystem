@@ -65,10 +65,11 @@ fn reactive_program(p: &SpellProgram) -> bool {
         })
         || p.modes.iter().any(|m| reactive_program(&m.program))
 }
-fn tapped_destroy_spell(d: &Definition, p: &SpellProgram) -> bool {
-    d.characteristics.kind == CardKind::Instant
-        && d.spell.as_ref() == Some(p)
-        && p.timing == SpellTiming::Instant
+fn tapped_destroy_program(d: &Definition, p: &SpellProgram) -> bool {
+    matches!(
+        d.characteristics.kind,
+        CardKind::Instant | CardKind::Sorcery
+    ) && d.spell.as_ref() == Some(p)
         && p.resolution == SpellResolution::Instructions
         && p.modes.is_empty()
         && p.additional_sacrifice.is_none()
@@ -81,6 +82,32 @@ fn tapped_destroy_spell(d: &Definition, p: &SpellProgram) -> bool {
         && p.instructions.iter().all(|i| {
             matches!(i, I::DestroyPermanent { target_slot, optional: false, .. }
                 if p.targets.iter().any(|t| t.slot == *target_slot))
+        })
+}
+fn tapped_destroy_spell(d: &Definition, p: &SpellProgram) -> bool {
+    d.characteristics.kind == CardKind::Instant
+        && p.timing == SpellTiming::Instant
+        && tapped_destroy_program(d, p)
+}
+fn defensive_untap_spell(d: &Definition, p: &SpellProgram) -> bool {
+    d.characteristics.kind == CardKind::Instant
+        && d.spell.as_ref() == Some(p)
+        && p.timing == SpellTiming::Instant
+        && p.resolution == SpellResolution::Instructions
+        && p.modes.is_empty()
+        && p.additional_sacrifice.is_none()
+        && matches!(
+            p.instructions.as_slice(),
+            [I::UntapPermanent { target_slot: 0, .. }]
+        )
+        && p.targets.len() == 1
+        && p.targets[0].domain == TargetDomain::BattlefieldPermanent
+        && p.targets[0].filter.as_ref().is_some_and(|f| {
+            f.types.is_empty()
+                && f.non_types.is_empty()
+                && f.non_colors.is_empty()
+                && !f.opponent
+                && !f.tapped
         })
 }
 impl Strategy<'_> {
@@ -228,6 +255,12 @@ impl Strategy<'_> {
         t: &TargetSpec,
         candidates: Option<&[ObjectHandle]>,
     ) -> Option<ObjectHandle> {
+        if p.instructions
+            .iter()
+            .any(|i| matches!(i, I::UntapPermanent { .. }))
+        {
+            return self.defensive_untap_target(v, d, p, t, candidates);
+        }
         let own = self.target_beneficial(d, p, t.slot)
             || t.domain == TargetDomain::OwnGraveyardCreatureCard;
         v.objects
@@ -239,6 +272,67 @@ impl Strategy<'_> {
             })
             .max_by_key(|o| (self.value(o), o.handle.0.clone()))
             .map(|o| o.handle.clone())
+    }
+    fn defensive_untap_target(
+        &self,
+        v: &PermittedView,
+        d: &Definition,
+        p: &SpellProgram,
+        t: &TargetSpec,
+        candidates: Option<&[ObjectHandle]>,
+    ) -> Option<ObjectHandle> {
+        if !defensive_untap_spell(d, p) {
+            return None;
+        }
+        let mut entries = v.stack.iter().rev();
+        let mut threat = entries.next()?;
+        // Target selection exposes our newly proposed spell above the threat.
+        // Skip exactly that incomplete ordinary untap spell, never an unrelated
+        // entry or a completed spell that may have changed the useful response.
+        if !threat.cast_complete
+            && threat.controller == v.viewer
+            && threat.ability.is_none()
+            && threat.triggered.is_none()
+            && self.entry_program(v, threat).is_some_and(|(top, program)| {
+                top.oracle_id == d.oracle_id && defensive_untap_spell(top, program)
+            })
+        {
+            threat = entries.next()?;
+        }
+        if !threat.cast_complete
+            || threat.controller == v.viewer
+            || threat.ability.is_some()
+            || threat.triggered.is_some()
+            || threat.mode.is_some()
+        {
+            return None;
+        }
+        let (source, incoming) = self.entry_program(v, threat)?;
+        if !tapped_destroy_program(source, incoming) {
+            return None;
+        }
+        incoming.instructions.iter().filter_map(|i| {
+            let I::DestroyPermanent { target_slot, .. } = i else { return None };
+            let handle = threat.targets.get(*target_slot as usize)?.current.as_ref()?;
+            let spec = incoming.targets.get(*target_slot as usize)?;
+            let filter = spec.filter.as_ref()?;
+            v.objects.iter().find(|o| {
+                let Some(c) = &o.characteristics else { return false };
+                &o.handle == handle
+                    && o.controller == v.viewer && o.tapped
+                    && candidates.is_none_or(|cs| cs.contains(handle))
+                    && self.object_matches(v, o, t, candidates.is_some())
+                    // The incoming spell must still be a threat for its own
+                    // caster. Hexproof can already protect our permanent.
+                    && !o.keywords.contains(&KeywordAbility::Shroud)
+                    && (o.controller == threat.controller || !o.keywords.contains(&KeywordAbility::Hexproof))
+                    && (!filter.opponent || o.controller != threat.controller)
+                        && (filter.types.is_empty()
+                            || filter.types.iter().any(|kind| c.has_type(*kind)))
+                        && !filter.non_types.iter().any(|kind| c.has_type(*kind))
+                    && !c.colors.iter().any(|color| filter.non_colors.contains(color))
+            })
+        }).max_by_key(|o| (self.value(o), o.handle.0.clone())).map(|o| o.handle.clone())
     }
     pub(super) fn player_target(
         &self,
@@ -878,6 +972,13 @@ impl Strategy<'_> {
         if !p.modes.is_empty() {
             return p.modes.iter().any(|m| self.program_ready(v, d, &m.program));
         }
+        if p.instructions
+            .iter()
+            .any(|i| matches!(i, I::UntapPermanent { .. }))
+            && !defensive_untap_spell(d, p)
+        {
+            return false;
+        }
         // Priority during these steps precedes remaining combat damage.
         // End-of-combat priority has legal blockers but no damage left to boost.
         if blocking_pump_program(p)
@@ -983,7 +1084,8 @@ impl Strategy<'_> {
         }
         // Only the ordinary nonmodal spell is recognized here. In particular,
         // a modal child or activated program does not acquire this new policy.
-        self.program_ready(v, d, p) && (reactive_program(p) || tapped_destroy_spell(d, p))
+        self.program_ready(v, d, p)
+            && (reactive_program(p) || tapped_destroy_spell(d, p) || defensive_untap_spell(d, p))
     }
     fn cast(
         &mut self,

@@ -75,7 +75,8 @@ with exact Swift Response and Assassinate source fixtures. The existing headless
 development pool now admits both; hosting and search capability sets remain unchanged.
 Separate [ordinary permanent untapping](game-engine-untap-permanents.md) supports
 complete Burst of Energy lowering and genuine source-backed untap/revalidation
-witnesses, without adding it to an admitted pool.
+witnesses. Its subsequent headless admission adds a paid accepted-pod defensive
+response witness and narrowly scoped public-view policy support.
 Read Rust types and validation at the edited source; old reports retain their
 original version numbers. Active catalogs are regenerated at schema 1; distinct
 source/admission pools remain separate. Historical decoder gates and downgrade

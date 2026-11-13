@@ -7,7 +7,7 @@ fn tapped_catalog() -> Catalog {
         .unwrap()
         .catalog()
         .clone();
-    assert_eq!(c.definitions.len(), 37);
+    assert_eq!(c.definitions.len(), 38);
     c
 }
 fn tapped_config(c: &Catalog, seed: [u8; 32]) -> MatchConfig {

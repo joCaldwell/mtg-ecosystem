@@ -15,7 +15,8 @@ Its single AST instruction binds one target with `filter: { cls: "permanent" }`.
 The record was extracted from the accepted `d705222b…` archive at physical line
 27637/source index 27635 and verified against the full archive hash. Exact raw,
 source, AST and binding pins remain in fixture provenance. It is a compiler and
-runtime witness; catalog/profile membership is unchanged.
+runtime witness. Subsequent [headless admission](game-engine-blocking-matches.md)
+adds it to the existing development pool without expanding hosting/search.
 
 ## Resolution
 
@@ -32,8 +33,9 @@ cannot affect a successor incarnation after departure and reentry.
 
 This reuses existing target handles, query validation, payment, event outcomes and
 snapshot/replay contracts. No public or trusted-state format changes are added.
-Hosting and search do not admit the new capability. No Develop-policy or client
-qualification follows from this compiler/runtime increment.
+Hosting and search do not admit the new capability. The later headless increment
+separately qualifies a narrow defensive Develop policy; no client qualification
+follows from this compiler/runtime increment.
 
 ## Source-backed witnesses
 
@@ -51,7 +53,7 @@ accepted-input replay, trace retention and execution budgets are checked where
 claimed by the focused tests. The earlier synthetic status change during payment
 remains separately qualified; an ordinary spell response occurs after payment.
 
-Selected checks passed 31 contracts, 142 compiler, five untap, five tapped-target,
+The initial implementation at `566b5f04` passed 31 contracts, 142 compiler, five untap, five tapped-target,
 34 adjacent removal and one historical lifetime-proof test: 218 Rust tests.
 Ajv accepted the generated Burst catalog and one synthetic valid IR shape, and
 rejected 13 scope violations. Workspace all-target compilation, formatting,

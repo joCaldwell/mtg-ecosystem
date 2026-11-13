@@ -38,7 +38,8 @@
     "../seeds-of-strength.json",
     "../righteousness.json",
     "../5820d760-8ed7-4abf-a959-c06ed86a3730.json",
-    "../ce979f36-84f2-4419-b400-971263494cc6.json"
+    "../ce979f36-84f2-4419-b400-971263494cc6.json",
+    "../b795ecfd-31ac-4a2a-9679-97b088932d93.json"
   ],
   "expected_ir": "../expected-blocking-matches-ir.json",
   "expected_digest": "blocking-matches.sha256",
