@@ -215,6 +215,7 @@ pub enum Capability {
     UntapPermanentV1,
     TapPermanentV1,
     OwnerHandMoveV1,
+    PermanentOwnerHandMoveV1,
     CastSorceryV1,
     OwnerLibraryTopMoveV1,
     ActivatedAbilityV1,
@@ -1343,6 +1344,24 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        if self
+            .activated
+            .iter()
+            .any(|a| has_permanent_owner_hand(&a.program))
+            || self
+                .triggered
+                .iter()
+                .any(|a| has_permanent_owner_hand(&a.program))
+            || self.spell.as_ref().is_some_and(|p| {
+                has_permanent_owner_hand(p)
+                    && (!matches!(
+                        self.characteristics.kind,
+                        CardKind::Instant | CardKind::Sorcery
+                    ) || !p.modes.is_empty())
+            })
+        {
+            return Err("permanent owner-hand movement requires an ordinary nonmodal spell".into());
+        }
         if self.activated.iter().any(|a| has_tap(&a.program))
             || self.triggered.iter().any(|a| has_tap(&a.program))
             || self.spell.as_ref().is_some_and(|p| {
@@ -2129,6 +2148,27 @@ fn validate_permanent_costs(c: &PermanentActivationCosts) -> Result<(), String> 
     Ok(())
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
+    if has_permanent_owner_hand(p)
+        && (p.additional_sacrifice.is_some()
+            || !p.modes.is_empty()
+            || p.functioning_zone != FunctioningZone::Stack
+            || p.resolution != SpellResolution::Instructions
+            || p.targets.len() != 1
+            || p.targets[0].domain != TargetDomain::BattlefieldPermanent
+            || p.targets[0].filter.as_ref().is_none_or(|f| {
+                !f.types.is_empty()
+                    || !matches!(f.non_types.as_slice(), [] | [CardKind::Land])
+                    || !f.non_colors.is_empty()
+                    || f.opponent
+                    || f.tapped
+            })
+            || !matches!(
+                p.instructions.as_slice(),
+                [Instruction::ReturnToOwnerHand { target_slot: 0, .. }]
+            ))
+    {
+        return Err("permanent owner-hand movement requires one unqualified or nonland permanent target and one instruction".into());
+    }
     if has_tap(p)
         && (p.additional_sacrifice.is_some()
             || !p.modes.is_empty()
@@ -2506,8 +2546,21 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 Some((*target_slot, TargetDomain::AnyDamageTarget))
             }
             Instruction::PreventCombatDamage { .. } => None,
-            Instruction::ReturnToOwnerHand { target_slot, .. }
-            | Instruction::PutOnTopOwnerLibrary { target_slot, .. } => {
+            Instruction::ReturnToOwnerHand { target_slot, .. } => {
+                let domain = p
+                    .targets
+                    .get(*target_slot as usize)
+                    .ok_or("unbound owner-hand target")?
+                    .domain;
+                if !matches!(
+                    domain,
+                    TargetDomain::BattlefieldCreature | TargetDomain::BattlefieldPermanent
+                ) {
+                    return Err("unsupported owner-hand target domain".into());
+                }
+                Some((*target_slot, domain))
+            }
+            Instruction::PutOnTopOwnerLibrary { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::BattlefieldCreature))
             }
             Instruction::SacrificeCreature { recipient, .. } => {
@@ -2627,6 +2680,22 @@ fn has_blocking_creature_target(program: &SpellProgram) -> bool {
             .iter()
             .any(|m| has_blocking_creature_target(&m.program))
 }
+fn has_permanent_owner_hand(program: &SpellProgram) -> bool {
+    program
+        .instructions
+        .iter()
+        .any(|instruction| match instruction {
+            Instruction::ReturnToOwnerHand { target_slot, .. } => program
+                .targets
+                .get(*target_slot as usize)
+                .is_some_and(|target| target.domain == TargetDomain::BattlefieldPermanent),
+            _ => false,
+        })
+        || program
+            .modes
+            .iter()
+            .any(|mode| has_permanent_owner_hand(&mode.program))
+}
 fn has_tap(program: &SpellProgram) -> bool {
     program
         .instructions
@@ -2666,6 +2735,11 @@ fn has_controller_discard(program: &SpellProgram) -> bool {
         .any(|m| has_controller_discard(&m.program))
 }
 fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgram) {
+    if has_permanent_owner_hand(program) {
+        // Existing creature-bounce and permanent-target capabilities alone do
+        // not authorize this new composition in hosted/search profiles.
+        set.insert(Capability::PermanentOwnerHandMoveV1);
+    }
     if program.additional_sacrifice.is_some()
         || program.instructions.iter().any(|i| {
             matches!(
@@ -2986,6 +3060,51 @@ pub fn catalog_schema() -> serde_json::Value {
             "triggered":{"items":{"properties":{"program":{"properties":{"targets":{"items":{"properties":{"domain":{"not":{"const":"blocking_battlefield_creature"}}}}}}}}}}
         }
     }));
+    // Keep the legacy creature-bounce opcode, fencing its new permanent domain
+    // independently and recursively without prohibiting old creature programs.
+    let permanent_owner_hand = serde_json::json!({
+        "targets":{"contains":{"required":["domain"],"properties":{"domain":{"const":"battlefield_permanent"}}}},
+        "instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"return_to_owner_hand"}}}}
+    });
+    schema["$defs"]["PermanentOwnerHandFreeProgram"] = serde_json::json!({
+        "not":{"required":["targets","instructions"],"properties":permanent_owner_hand},
+        "properties":{"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PermanentOwnerHandFreeProgram"}}}}}
+    });
+    schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["targets","instructions"],"properties":permanent_owner_hand},
+        "then":{"properties":{
+            "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
+            "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
+            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"return_to_owner_hand"},"target_slot":{"const":0}}}},
+            "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
+                "domain":{"const":"battlefield_permanent"},"filter":{"type":"object","properties":{
+                    "types":{"maxItems":0},"non_types":{"enum":[[],["land"]]},"non_colors":{"maxItems":0},"opponent":{"const":false},"tapped":{"const":false}
+                }}
+            }}}
+        }}
+    }));
+    schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "properties":{"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PermanentOwnerHandFreeProgram"}}}}}
+    }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["spell"],"properties":{"spell":{"type":"object","required":["targets","instructions"],"properties":permanent_owner_hand}}},
+        "then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},"capabilities":{"allOf":[
+            {"contains":{"const":Capability::PermanentOwnerHandMoveV1}},
+            {"contains":{"const":Capability::OwnerHandMoveV1}},
+            {"contains":{"const":Capability::PermanentRemovalV1}}
+        ]}}}
+    }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["capabilities"],"properties":{"capabilities":{"contains":{"const":Capability::PermanentOwnerHandMoveV1}}}},
+        "then":{"required":["spell"],"properties":{
+            "characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},
+            "spell":{"type":"object","required":["targets","instructions"],"properties":permanent_owner_hand}
+        }}
+    }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({"properties":{
+        "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PermanentOwnerHandFreeProgram"}}}},
+        "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PermanentOwnerHandFreeProgram"}}}}
+    }}));
     // A creature tap may compose with the existing mandatory draw-one effect.
     // No other execution context or instruction composition is admitted.
     schema["$defs"]["TapFreeProgram"] = serde_json::json!({"properties":{
@@ -3120,6 +3239,9 @@ mod untap_tests;
 mod tap_tests;
 
 #[cfg(test)]
+mod permanent_owner_hand_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]
@@ -3183,6 +3305,7 @@ mod tests {
             UntapPermanentV1,
             TapPermanentV1,
             OwnerHandMoveV1,
+            PermanentOwnerHandMoveV1,
             CastSorceryV1,
             OwnerLibraryTopMoveV1,
             ActivatedAbilityV1,
@@ -3317,6 +3440,7 @@ mod tests {
         // retained source and its complete unqualified target selection.
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
+        definitions.push(permanent_owner_hand_tests::permanent_owner_hand());
         // Synthetic contract-shape witness only. Complete D2c-e source lowering
         // is checked in compiler/core tests, without fabricated expected IR.
         let mut damage = definitions

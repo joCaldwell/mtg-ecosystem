@@ -2002,9 +2002,13 @@ fn append_spell_effects(
                     to,
                     optional: None,
                 } if to == "owner" => {
-                    let t: Target = serde_json::from_value(what.clone())
-                        .map_err(|_| unsupported("effects.return", "unsupported target"))?;
-                    let target_slot = bind_creature_target(program, slots, &t)?;
+                    let target_slot = if what["filter"]["cls"] == "permanent" {
+                        bind_permanent_target(program, slots, what)?
+                    } else {
+                        let t: Target = serde_json::from_value(what.clone())
+                            .map_err(|_| unsupported("effects.return", "unsupported target"))?;
+                        bind_creature_target(program, slots, &t)?
+                    };
                     Instruction::ReturnToOwnerHand {
                         target_slot,
                         source_block,
@@ -8312,3 +8316,6 @@ mod counter_target_reuse_tests;
 
 #[cfg(test)]
 mod tap_tests;
+
+#[cfg(test)]
+mod permanent_owner_hand_tests;

@@ -21,6 +21,8 @@ pub use advance_report::*;
 pub use match_admission::*;
 mod commander_policy;
 pub use commander_policy::policy_digest;
+#[cfg(test)]
+mod permanent_owner_hand_tests;
 mod removal;
 #[cfg(test)]
 mod removal_information_tests;

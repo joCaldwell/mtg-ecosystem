@@ -69,6 +69,28 @@ IR v18 adds:
 
 IR v17 and earlier reject all of these.
 
+## Permanent owner-hand movement
+
+Schema 1 also supports complete Regress (`2fa763ad-4d94-4c3a-a099-13ac22c09ce4`,
+archive line 7097, `{2}{U}` Instant) and Disperse
+(`9d8fe3f8-5027-4f9e-999e-e277caa96478`, line 23758, `{1}{U}` Instant).
+Both return one targeted permanent to its owner's hand; Disperse excludes lands.
+Exact source/AST/binding pins remain in the root fixtures and provenance.
+
+The existing `ReturnToOwnerHand` opcode accepts a single unqualified or nonland
+battlefield-permanent target in an ordinary nonmodal instant/sorcery with no
+additional cost or other instructions. `PermanentOwnerHandMoveV1` is required
+alongside the old owner-hand and permanent-target capabilities. Nested modes,
+activations, triggers and unrepresented qualifiers reject; legacy creature
+bounce keeps its original requirements and meaning. Hosting/search do not gain
+this composition through their existing capability sets.
+
+Execution reuses owner routing, a new zone incarnation, Aura/Equipment cleanup,
+Commander hand replacement and stale-target rejection (CR400.3/7,608.2b,903.9b).
+The [focused source configurations](../packages/game-engine/crates/core/src/engine/permanent_owner_hand_tests.rs)
+exercise real payments, owner/control distinctions and recovery/replay. They are
+not admitted pods; this increment grants no pool or consumer qualification.
+
 ## Profile
 
 `commander-removal-v1` uses the 118 attachments-v1 definitions plus:
