@@ -70,6 +70,9 @@ binding correctness. Its subsequent [headless development profile](game-engine-b
 adds explicit separate-pool admission and public-view policy support, with a
 paid accepted-pod combat/replay witness and one fixed-index completion game.
 Hosting/search admission and the earlier pools remain unchanged.
+Current development also supports [tapped-permanent target filters](game-engine-tapped-targets.md),
+with exact Swift Response and Assassinate source fixtures. These fixtures are
+compiler/runtime witnesses; they are not additions to an admitted match pool.
 Read Rust types and validation at the edited source; old reports retain their
 original version numbers. Active catalogs are regenerated at schema 1; distinct
 source/admission pools remain separate. Historical decoder gates and downgrade

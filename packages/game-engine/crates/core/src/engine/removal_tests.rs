@@ -1264,6 +1264,7 @@ fn combined_types_participate_in_every_filter_and_set() {
             non_types: vec![],
             non_colors: vec![],
             opponent: false,
+            tapped: false,
         };
         assert!(g.permanent_target_legal(hybrid, PlayerId(1), &spec(&f)));
         assert_eq!(
@@ -1275,6 +1276,7 @@ fn combined_types_participate_in_every_filter_and_set() {
             non_types: vec![kind],
             non_colors: vec![],
             opponent: false,
+            tapped: false,
         };
         assert!(!g.permanent_target_legal(hybrid, PlayerId(1), &spec(&excluded)));
     }
@@ -1338,6 +1340,7 @@ fn artifact_creature_cast_is_both_an_artifact_spell_and_a_creature_permanent() {
                     non_types: vec![],
                     non_colors: vec![],
                     opponent: false,
+                    tapped: false,
                 }),
             };
             assert_eq!(g.eligible_stack_targets_for(&spec, None).len(), 1);
@@ -1549,6 +1552,7 @@ fn artifact_land_survives_nonland_wipe_and_is_removed_by_artifact_removal() {
             non_types: vec![],
             non_colors: vec![],
             opponent: false,
+            tapped: false,
         }),
     };
     assert!(g.permanent_target_legal(land, PlayerId(1), &target));

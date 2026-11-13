@@ -46,6 +46,8 @@ mod keywords;
 #[cfg(test)]
 mod staples_tests;
 #[cfg(test)]
+mod tapped_target_tests;
+#[cfg(test)]
 mod tokens_tests;
 pub use keywords::LifelinkGain;
 #[cfg(test)]

@@ -196,6 +196,7 @@ impl Strategy<'_> {
             }
             && t.filter.as_ref().is_none_or(|f| {
                 (!f.opponent || o.controller != v.viewer)
+                    && (!f.tapped || o.tapped)
                     && (f.types.is_empty() || f.types.contains(&c.kind))
                     && !f.non_types.contains(&c.kind)
                     && !c.colors.iter().any(|c| f.non_colors.contains(c))

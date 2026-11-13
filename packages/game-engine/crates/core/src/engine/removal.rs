@@ -24,7 +24,9 @@ impl Game {
         f: &PermanentFilter,
     ) -> bool {
         self.current(object).is_ok_and(|o| {
-            o.zone == Zone::Battlefield && (!f.opponent || o.controller != controller)
+            o.zone == Zone::Battlefield
+                && (!f.opponent || o.controller != controller)
+                && (!f.tapped || o.tapped)
         }) && self.definition(object.card).is_ok_and(|d| {
             let c = &d.characteristics;
             !matches!(c.kind, CardKind::Instant | CardKind::Sorcery)

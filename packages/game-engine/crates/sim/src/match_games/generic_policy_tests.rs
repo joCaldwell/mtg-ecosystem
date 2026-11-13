@@ -1335,3 +1335,49 @@ mod blocking_target_policy_tests {
         }
     }
 }
+
+#[test]
+fn tapped_target_policy_uses_current_public_status_and_offered_candidates() {
+    let mut c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+    let mut v = wipe_tests::view(&c);
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/5820d760-8ed7-4abf-a959-c06ed86a3730.json"),
+    ) else {
+        panic!("complete Swift Response source must lower")
+    };
+    c.definitions.push(*definition);
+    let d = c
+        .definitions
+        .iter()
+        .find(|d| d.name == "Swift Response")
+        .unwrap();
+    let p = d.spell.as_ref().unwrap();
+    let t = &p.targets[0];
+    v.objects = vec![
+        wipe_tests::card(&c, "Goliath Sphinx", 0, Zone::Battlefield),
+        wipe_tests::card(&c, "Storm Crow", 0, Zone::Battlefield),
+        wipe_tests::card(&c, "Sol Ring", 0, Zone::Battlefield),
+        wipe_tests::card(&c, "Grizzly Bears", v.viewer.0, Zone::Battlefield),
+    ];
+    v.objects[1].tapped = true;
+    v.objects[2].tapped = true;
+    v.objects[3].tapped = true;
+    let before = canonical(&v).unwrap();
+    let selected = ObjectHandle("Storm Crow".into());
+    assert_eq!(
+        strategy(&c).object_target(&v, d, p, t, None),
+        Some(selected.clone())
+    );
+    assert_eq!(
+        strategy(&c).object_target(&v, d, p, t, Some(&[selected.clone()])),
+        Some(selected)
+    );
+    assert_eq!(
+        strategy(&c).object_target(&v, d, p, t, Some(&[ObjectHandle("Goliath Sphinx".into())])),
+        None
+    );
+    assert_eq!(canonical(&v).unwrap(), before);
+    v.objects[1].tapped = false;
+    assert_eq!(strategy(&c).object_target(&v, d, p, t, None), None);
+}

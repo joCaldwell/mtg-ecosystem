@@ -2316,7 +2316,16 @@ fn lower_permanent_filter(v: &serde_json::Value) -> Result<PermanentFilter, Fail
         .as_object()
         .ok_or_else(|| unsupported("filter", "not an object"))?;
     if obj.keys().any(|k| {
-        !["cls", "types", "allOf", "nonTypes", "nonColors", "control"].contains(&k.as_str())
+        ![
+            "cls",
+            "types",
+            "allOf",
+            "nonTypes",
+            "nonColors",
+            "control",
+            "status",
+        ]
+        .contains(&k.as_str())
     }) {
         return Err(unsupported("filter", "unsupported filter term"));
     }
@@ -2394,11 +2403,25 @@ fn lower_permanent_filter(v: &serde_json::Value) -> Result<PermanentFilter, Fail
         Some(c) if c == "opponent" => true,
         _ => return Err(unsupported("filter", "unsupported controller")),
     };
+    // CR 110.5/601.2c/608.2b: this predicate tests the permanent's
+    // current tapped status. Every source status term must be represented.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    let tapped = match v.get("status") {
+        None => false,
+        Some(status) if *status == serde_json::json!(["tapped"]) => true,
+        _ => {
+            return Err(unsupported(
+                "filter.status",
+                "unsupported complete permanent status",
+            ));
+        }
+    };
     Ok(PermanentFilter {
         types,
         non_types,
         non_colors,
         opponent,
+        tapped,
     })
 }
 fn bind_permanent_target(
@@ -8236,3 +8259,6 @@ mod d2ce_tests;
 
 #[cfg(test)]
 mod activation_source_tests;
+
+#[cfg(test)]
+mod tapped_target_tests;

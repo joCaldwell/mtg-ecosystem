@@ -211,6 +211,7 @@ pub enum Capability {
     CastCreatureV1,
     CreatureTargetV1,
     BlockingCreatureTargetV1,
+    TappedPermanentTargetV1,
     OwnerHandMoveV1,
     CastSorceryV1,
     OwnerLibraryTopMoveV1,
@@ -305,7 +306,7 @@ pub struct TargetSpec {
     pub filter: Option<PermanentFilter>,
 }
 /// Finite CR 115 filters; an empty type set means any permanent. Types are
-/// alternatives; exclusions and the controller restriction are intersections.
+/// alternatives; exclusions, controller and tapped restrictions are intersections.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PermanentFilter {
@@ -313,6 +314,10 @@ pub struct PermanentFilter {
     pub non_types: Vec<CardKind>,
     pub non_colors: Vec<Color>,
     pub opponent: bool,
+    /// Require the current battlefield incarnation to be tapped (CR 110.5,
+    /// 601.2c, 608.2b). False imposes no tap-status restriction.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub tapped: bool,
 }
 /// Closed non-targeted sets, evaluated as an instruction is performed (CR 608.2h).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -2156,6 +2161,15 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     {
         return Err("mixed target domains are unsupported".into());
     }
+    // Requests expose one common candidate set, and execution uses that common
+    // predicate. Distinct per-slot filters need a different request contract;
+    // accepting them here would apply the first slot's restriction to all slots.
+    if p.targets
+        .windows(2)
+        .any(|targets| targets[0].filter != targets[1].filter)
+    {
+        return Err("mixed target filters are unsupported".into());
+    }
     for t in &p.targets {
         if let Some(f) = &t.filter {
             if !matches!(
@@ -2165,7 +2179,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 && (f.types.is_empty()
                     || !f.non_types.is_empty()
                     || !f.non_colors.is_empty()
-                    || f.opponent))
+                    || f.opponent
+                    || f.tapped))
                 || f.types
                     .iter()
                     .enumerate()
@@ -2585,6 +2600,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         if target.filter.is_some() {
             set.insert(Capability::PermanentRemovalV1);
         }
+        if target.filter.as_ref().is_some_and(|filter| filter.tapped) {
+            set.insert(Capability::TappedPermanentTargetV1);
+        }
         set.insert(match target.domain {
             TargetDomain::BattlefieldPermanent => Capability::PermanentRemovalV1,
             TargetDomain::BattlefieldCreature => Capability::CreatureTargetV1,
@@ -2931,6 +2949,9 @@ impl<'de> Deserialize<'de> for UniqueJson {
 mod catalog_lookup_tests;
 
 #[cfg(test)]
+mod tapped_target_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]
@@ -2990,6 +3011,7 @@ mod tests {
             CastCreatureV1,
             CreatureTargetV1,
             BlockingCreatureTargetV1,
+            TappedPermanentTargetV1,
             OwnerHandMoveV1,
             CastSorceryV1,
             OwnerLibraryTopMoveV1,
@@ -3107,6 +3129,20 @@ mod tests {
             TargetDomain::BlockingBattlefieldCreature;
         blocking.capabilities = blocking.requirements();
         definitions.push(blocking);
+        // Complete synthetic IR witness for the independently source-qualified
+        // tapped predicate; compiler tests exercise the exact new card records.
+        let mut tapped = definitions
+            .iter()
+            .find(|d| d.name == "Naturalize")
+            .unwrap()
+            .clone();
+        tapped.spell.as_mut().unwrap().targets[0]
+            .filter
+            .as_mut()
+            .unwrap()
+            .tapped = true;
+        tapped.capabilities = tapped.requirements();
+        definitions.push(tapped);
         // Synthetic contract-shape witness only. Complete D2c-e source lowering
         // is checked in compiler/core tests, without fabricated expected IR.
         let mut damage = definitions
@@ -4552,6 +4588,7 @@ mod tests {
                     non_types: vec![],
                     non_colors: vec![],
                     opponent: false,
+                    tapped: false,
                 })
             }) as fn(&mut SpellProgram),
             |p| {
