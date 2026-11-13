@@ -1765,6 +1765,30 @@ impl Game {
         }
         Ok(())
     }
+    /// Existing permitted handle order only; no raw-object scan or handle minting.
+    /// Publication prunes this map when an incarnation ceases to be visible.
+    pub(super) fn next_action_handle(
+        &self,
+        viewer: PlayerId,
+        after: Option<&ObjectHandle>,
+    ) -> Option<ObjectHandle> {
+        use std::ops::Bound::{Excluded, Unbounded};
+        let entries = &self
+            .state
+            .knowledge
+            .visibility
+            .get(viewer.0 as usize)?
+            .handles
+            .entries;
+        let row = match after {
+            None => entries.first_key_value(),
+            Some(handle) => entries
+                .range((Excluded(handle.0.clone()), Unbounded))
+                .next(),
+        };
+        row.map(|(handle, _)| ObjectHandle(handle.clone()))
+    }
+
     pub(super) fn resolve_handle(
         &self,
         viewer: PlayerId,
