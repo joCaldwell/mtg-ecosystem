@@ -33,3 +33,12 @@ in authorization headers/private fields, never URLs/errors/JSON logs. Enforce
 cursor and body bounds, reject extra fields and imprecise numeric data, and
 cancel response streams on early rejection. Mock transport tests are necessary
 but do not replace actual authenticated HTTP/crash/reconnect/isolation tests.
+
+Browser consumers import the package root or `/browser`, after explicit
+`build:browser`. Generation emits standalone Ajv validators; never restore
+runtime compilation or relax CSP. `verify` also builds the browser package and
+checks its declarations/exports. `test:browser` separately runs the production
+bundle in pinned Chromium and Firefox under restrictive CSP, against a synthetic
+HTTP fixture. Install these browsers explicitly with the local Playwright CLI;
+checks never download them or start Cargo. A real host proof is separately gated
+on the native owner's exact compatible executable and one-seat bootstrap.

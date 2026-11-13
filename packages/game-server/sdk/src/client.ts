@@ -51,7 +51,9 @@ export class GameClient {
     this.#base = url.href.replace(/\/$/, '');
     this.#matchId = options.matchId;
     this.#capability = options.capability;
-    this.#fetch = options.fetch ?? globalThis.fetch;
+    // Window.fetch requires its browser-global receiver. Calling an unbound
+    // default as a private instance method fails in browsers (Node permits it).
+    this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.#maximumResponseBytes = maximum;
   }
   async #request(operation: keyof typeof ROUTES, body: string | undefined, signal?: AbortSignal, parameters: { query?: URLSearchParams; commandId?: string } = {}): Promise<unknown> {
