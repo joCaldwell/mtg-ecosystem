@@ -32,6 +32,27 @@ impl Game {
 }
 
 impl PlayerSession<'_> {
+    /// Discover beginnings only. Later choices/payments still require validation.
+    pub fn action_beginnings(
+        &self,
+        token: DecisionToken,
+        scope: ActionScope,
+        page_size: u16,
+        budget: Budget,
+    ) -> ActionQueryResult {
+        self.game
+            .begin_actions(self.viewer, token, scope, page_size, budget)
+    }
+
+    /// Continuations are private executor objects, never client cursors or DTOs.
+    pub fn resume_actions(
+        &self,
+        continuation: ActionContinuation,
+        budget: Budget,
+    ) -> ActionQueryResult {
+        self.game.resume_actions(self.viewer, continuation, budget)
+    }
+
     pub fn observe(&self, budget: Budget) -> QueryResult {
         self.game.observe(self.viewer, budget)
     }
