@@ -10,7 +10,8 @@
     "check": "npm run build:browser && npm run typecheck && npm test",
     "verify": "node scripts/verify.mjs",
     "build:browser": "npm run generate && node scripts/build-browser.mjs",
-    "test:browser": "node scripts/test-browser.mjs"
+    "test:browser": "node scripts/test-browser.mjs",
+    "test:browser:host": "node scripts/test-browser-host.mjs"
   },
   "devDependencies": {
     "ajv": "8.20.0",

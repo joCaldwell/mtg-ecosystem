@@ -89,6 +89,9 @@ try {
     const page = await client().poll({ after: '18446744073709551615', waitMs: 0 });
     assert(page.next === '18446744073709551615', 'HTTP exact counter');
   });
+  await test('explicitly injected native fetch retains its browser receiver', async () => {
+    assert((await client(globalThis.fetch).poll({ after: '0', waitMs: 0 })).next === '0', 'injected native fetch receiver');
+  });
   await test('native fetch abort during a pending HTTP response', async () => {
     const controller = new AbortController();
     const pending = client().poll({ after: '0', waitMs: 20000, signal: controller.signal });

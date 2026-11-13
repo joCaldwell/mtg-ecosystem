@@ -14,13 +14,14 @@ isolated dependencies. No install hook, check or build invokes Cargo. The Rust
 owner supplies the compatible executable or exact exported schema file:
 
 ```sh
-MTG_SERVER_SCHEMA=/absolute/source-qualified/protocol.schema.json npm --prefix packages/game-server/sdk run build:browser --workspaces=false
+MTG_SERVER_SCHEMA=/absolute/source-qualified/protocol.schema.json MTG_SERVER_BOOTSTRAP_SCHEMA=/absolute/source-qualified/bootstrap.schema.json npm --prefix packages/game-server/sdk run build:browser --workspaces=false
 ```
 
 Both `@multiverse/game-server-sdk` and `@multiverse/game-server-sdk/browser` export
 `GameClient`, `HttpError`, `TransportError`, `ProtocolError`, `counter` and
-`PROTOCOL_VERSION`. Exact generated type exports include `Observation`,
-`PlayerRequest`, `PlayerResponse`, `CommandEnvelope`, `StreamPage`, `PublicManifest`
+`PROTOCOL_VERSION`, and `parseSeatBootstrap`. Exact generated type exports include `Observation`,
+`PlayerRequest`, `PlayerResponse`, `CommandEnvelope`, `StreamPage`, `PublicManifest`,
+`SeatResume`, `ResumeState`, `SeatBootstrap`
 and the existing types listed in `src/client.ts`; `ClientOptions` and `PollOptions`
 are transport configuration. They resolve to `dist/browser.js` and
 `dist/browser.d.ts`. Source/tests/examples are not package exports.
@@ -38,8 +39,8 @@ time. The browser ESM has no external imports, Node globals, runtime JSON import
 React, example policies or private fixtures. Strict raw JSON decoding, response
 correlation, byte limits and decimal exactness remain in the shared transport.
 The browser default fetch is bound to its global receiver. No automatic retries
-are introduced. The existing five operations are the supported wire contract;
-new resume/action operations require a separate native schema dependency.
+are introduced. The six operations include native `get_resume`, pinned to the
+dependency in the report. Action/context operations are not implemented.
 
 `generated/generation.json` pins schema bytes, declarations, standalone validators,
 generator inputs/options and lockfile. `dist/build.json` pins generated input,
@@ -66,6 +67,36 @@ synthetic; it does not establish real Rust hosting, seat isolation or human play
 See [the browser SDK report](../../../docs/game-client-browser-sdk.md) for source
 qualification, actual evidence and remaining native integration gates.
 
+`parseSeatBootstrap(text)` validates the separately exported Rust `SeatBootstrap`
+schema plus the 4096-byte file bound, strict raw JSON and canonical numeric
+loopback origin (including explicit port 80). It returns sensitive data for
+in-memory session use only. The caller must explicitly import the file, verify
+the allowlisted proxy mapping and compare viewer/build/catalog identity; this
+function does not select an upstream or persist credentials.
+
+`resume({ signal? })` performs one authenticated read with a 131072-byte bound
+(or the caller's smaller configured bound). It validates and correlates match
+identity and checks available observation viewer against the envelope viewer.
+`state.status` distinguishes pending from available; `lifecycle` is the last
+published lifecycle and can be null, while `outcome` is the last rules outcome.
+The session binds viewer/build/catalog to its bootstrap/manifest and polls after
+the exact `next` cursor. No handle regeneration, replay or automatic retry occurs.
+
+The separate read-only real-host proof requires a native owner to start a
+matching host first. It uses an allowlisted same-origin proxy and explicit file
+picker imports. Only individual seat files may be passed, never the issued file
+or registry. It sends no commands and prints no credentials or observations:
+
+```sh
+SDK_NATIVE_COMMIT=<full-native-source-SHA> SDK_NATIVE_INFO=/absolute/native-info.json SDK_NATIVE_BIN=/absolute/mtg-server SDK_BROWSER_HOST_ORIGIN=http://127.0.0.1:18741 node packages/game-server/sdk/scripts/test-browser-host.mjs /private/seat0.json /private/seat1.json
+```
+
+The host must remain at the opening boundary during this proof. The harness
+checks manifest/resume/stream identity, stable repeated resume and native no-store
+responses in isolated Chromium/Firefox contexts. It writes a scrubbed
+`generated/browser-host-proof-*.json`; this read path is not a completed-game or
+crash-recovery test. The harness proxy is test tooling, not production hosting.
+
 The nested package owns its lockfile and dependencies. It deliberately stays
 outside the root npm workspace. From the repository root, install without changing the shared root `node_modules` symlink:
 
@@ -76,8 +107,9 @@ MTG_SERVER_BIN=/absolute/path/to/mtg-server npm --prefix packages/game-server/sd
 ```
 
 The default executable is `../../../target/debug/mtg-server` relative to this
-package. `MTG_SERVER_SCHEMA` accepts an explicit Rust-exported schema file for
-verification; `MTG_SERVER_OUTPUT` selects an isolated generated output directory.
+package. `MTG_SERVER_SCHEMA` and `MTG_SERVER_BOOTSTRAP_SCHEMA` together accept
+explicit Rust exports for verification; `MTG_SERVER_OUTPUT` selects an isolated
+generated output directory. Executable mode calls `schema` and `bootstrap-schema`.
 The generator rejects external references, future protocol envelopes,
 non-Draft7 tuple dialects and unconstrained TypeScript types. It publishes only
 complete reviewed declarations, records SHA-256 fingerprints, and removes
@@ -85,7 +117,7 @@ failed temporary output. Tests verify deterministic regeneration and failures.
 
 `json-schema-to-typescript` is pinned at16.0.0, TypeScript at5.9.3, and Ajv
 at8.20.0 in the standalone lockfile. DTOs come from the generated types; the
-compile check exhaustively consumes all29 `PlayerResponse` variants and checks
+compile check exhaustively consumes all33 `PlayerResponse` variants and checks
 fixed-arity damage/allocation/combat tuples. Runtime validation uses the exact
 Rust schemas without coercion, defaults or removing extra properties. Endpoint
 paths and methods come from the same Rust `protocol::ROUTES` export, through a
@@ -169,7 +201,7 @@ verify --workspaces=false` with the same `MTG_SERVER_BIN`. It repeats generation
 strict compilation and all test files, then writes `generated/verification.json`
 and `generated/verification.log`. The manifest hashes every SDK source and its
 lockfile, exact schema/declarations, generator version/options and complete log;
-it records actual tool versions,28 exhaustive response variants, tuple checks
+it records actual tool versions,33 exhaustive response variants, tuple checks
 and the executed test count. This evidence is scoped to the SDK checks above.
 See [AGENTS.md](AGENTS.md) for the nested workflow.
 

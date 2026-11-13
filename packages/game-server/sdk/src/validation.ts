@@ -3,8 +3,10 @@ import type { StreamPage } from '../generated/stream.js';
 import type { SubmissionResult } from '../generated/submission.js';
 import type { CommandExecution } from '../generated/execution.js';
 import type { PublicManifest } from '../generated/manifest.js';
+import type { SeatResume } from '../generated/resume.js';
+import type { SeatBootstrap } from '../generated/bootstrap.js';
 import { commandValidator, streamValidator, submissionValidator, executionValidator,
-  manifestValidator, commandIdValidator, counterValidator } from '../generated/validators.js';
+  manifestValidator, commandIdValidator, counterValidator, resumeValidator, bootstrapValidator } from '../generated/validators.js';
 import { PROTOCOL_VERSION } from '../generated/protocol.ts';
 export { PROTOCOL_VERSION } from '../generated/protocol.ts';
 export class ProtocolError extends Error {
@@ -26,6 +28,23 @@ export function commandIdentifier(value: string): string {
 export function manifest(value: unknown): PublicManifest {
   exactNumbers(value);
   if (!manifestValidator(value) || value.protocol_version !== PROTOCOL_VERSION) throw new ProtocolError('Invalid public manifest');
+  return value;
+}
+export function resume(value: unknown): SeatResume {
+  exactNumbers(value);
+  if (!resumeValidator(value) || value.protocol_version !== PROTOCOL_VERSION) throw new ProtocolError('Invalid seat resume');
+  if (value.state.status === 'available' && value.state.observation.view.viewer !== value.viewer) throw new ProtocolError('Resume observation has a different viewer');
+  return value;
+}
+export function bootstrap(value: unknown): SeatBootstrap {
+  exactNumbers(value);
+  if (!bootstrapValidator(value) || value.protocol_version !== PROTOCOL_VERSION || value.bootstrap_version !== 1) throw new ProtocolError('Invalid seat bootstrap');
+  // URL parsing also rejects schema-valid but unusable ports and canonicalizes
+  // spellings; do not allow the regex end anchor to accept a terminal newline.
+  let origin: URL;
+  try { origin = new URL(value.server_origin); } catch { throw new ProtocolError('Invalid bootstrap origin'); }
+  if (`http://${origin.hostname}:${origin.port || '80'}` !== value.server_origin || origin.protocol !== 'http:' || !['127.0.0.1', '[::1]'].includes(origin.hostname)) throw new ProtocolError('Invalid bootstrap origin');
+  if (/[^0-9a-f]/.test(value.capability) || /[^0-9a-f]/.test(value.match_id)) throw new ProtocolError('Invalid seat bootstrap');
   return value;
 }
 export function execution(value: unknown): CommandExecution {
