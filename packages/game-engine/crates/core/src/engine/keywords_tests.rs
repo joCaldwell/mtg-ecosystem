@@ -689,7 +689,7 @@ fn keyword_profile_admission_policy_and_historical_identity_are_separate() {
     let config = MatchConfig::for_profile("commander-keywords-v1", [5; 32], PlayerId(2)).unwrap();
     let p = Prepared::admit_pod(c.clone(), config.clone()).unwrap();
     assert_eq!(p.config.cards.len(), 400);
-    assert_eq!(p.catalog.schema_version, 12);
+    assert_eq!(p.catalog.schema_version, mtg_contracts::CURRENT_IR_VERSION);
     for deck in &config.decks {
         assert_eq!(deck.cards.iter().map(|r| r.count).sum::<u32>(), 100);
     }

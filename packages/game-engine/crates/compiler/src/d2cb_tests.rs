@@ -21,7 +21,7 @@ fn changed(raw: &str, f: impl FnOnce(&mut serde_json::Value)) -> String {
     })
 }
 #[test]
-fn d2cb_archive_programs_and_exact_minimum_capability_schema_closure() {
+fn d2cb_archive_programs_and_capability_closure() {
     let mine = lower(MINE);
     let seizan = lower(SEIZAN);
     let mut forged = serde_json::to_value(&mine).unwrap();
@@ -72,18 +72,14 @@ fn d2cb_archive_programs_and_exact_minimum_capability_schema_closure() {
                 assert!(bad.validate().is_err());
             }
         }
-        for version in 21..=mtg_contracts::CURRENT_IR_VERSION + 1 {
-            let c = Catalog {
-                schema_version: version,
-                rules_edition: RULES_EDITION.into(),
-                rules_sha256: RULES_SHA256.into(),
-                definitions: vec![d.clone()],
-            };
-            assert_eq!(
-                c.validate().is_ok(),
-                (22..=mtg_contracts::CURRENT_IR_VERSION).contains(&version)
-            );
+        Catalog {
+            schema_version: mtg_contracts::CURRENT_IR_VERSION,
+            rules_edition: RULES_EDITION.into(),
+            rules_sha256: RULES_SHA256.into(),
+            definitions: vec![d.clone()],
         }
+        .validate()
+        .unwrap();
     }
 }
 #[test]

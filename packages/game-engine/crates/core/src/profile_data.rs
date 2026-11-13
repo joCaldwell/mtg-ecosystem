@@ -41,8 +41,6 @@ pub struct MatchProfile {
     #[serde(skip)]
     pub catalog_sha256: String,
     #[serde(skip)]
-    pub ir_version: u32,
-    #[serde(skip)]
     pub catalog: Option<Catalog>,
     #[serde(skip)]
     pub(crate) banned_list_raw: String,
@@ -163,7 +161,6 @@ impl MatchProfile {
         }
         p.banned_list_raw = banned_raw.to_owned();
         p.catalog_sha256 = digest(&catalog)?;
-        p.ir_version = catalog.schema_version;
         p.validate_requested_features(&catalog)?;
         p.catalog = Some(catalog);
         Ok(p)

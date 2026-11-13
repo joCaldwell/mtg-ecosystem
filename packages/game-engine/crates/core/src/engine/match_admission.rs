@@ -166,22 +166,19 @@ pub fn validate_pod(
     catalog
         .validate()
         .map_err(|detail| MatchAdmissionError::InvalidCatalog { detail })?;
-    if catalog.schema_version != profile.ir_version
-        || digest(catalog).map_err(|detail| MatchAdmissionError::InvalidCatalog { detail })?
-            != profile.catalog_sha256
+    if digest(catalog).map_err(|detail| MatchAdmissionError::InvalidCatalog { detail })?
+        != profile.catalog_sha256
     {
         return Err(MatchAdmissionError::InvalidCatalog {
             detail: format!(
-                "catalog differs from reviewed {} pool: expected {} definitions at IR v{}, received {} at IR v{}",
+                "catalog differs from reviewed {} pool: expected {} definitions, received {}",
                 profile.name,
                 reviewed_catalog_size(&profile.catalog_sha256).ok_or_else(|| {
                     MatchAdmissionError::InvalidCatalog {
                         detail: "missing reviewed catalog metadata".into(),
                     }
                 })?,
-                profile.ir_version,
                 catalog.definitions.len(),
-                catalog.schema_version,
             ),
         });
     }

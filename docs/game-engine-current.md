@@ -34,8 +34,8 @@ Profiles request hosting/search through data, subject to explicit reviewed
 capability sets: foundations and attachments are hosted; foundations alone is
 search-enabled. New compiler support does not implicitly expand those sets.
 The separate [damage-trigger development profile](game-engine-damage-match-profile.md)
-admits finite legal headless matches for IR26–IR29. Its separate
-[v2 profile](game-engine-damage-match-profile-v2.md) extends the pool through IR32;
+admits finite legal headless matches for a reviewed damage-trigger pool. Its separate
+[v2 profile](game-engine-damage-match-profile-v2.md) extends that pool;
 neither profile requests hosting or search.
 
 ## Evidence boundaries at the platform baseline
@@ -49,7 +49,7 @@ independent work there. Historical evidence remains separately qualified:
 | D2c-c at `a7f5571` | Accepted ordinary cast triggers at IR23; see [its report](game-engine-cards-as-data-d2c-c.md) |
 | D2c-d + reviewed demo/Bundle lifetimes at `394301d` | Accepted IR24 declared-attack triggers and parent evidence audit; see [D2c-d](game-engine-cards-as-data-d2c-d.md) and [lifetimes](game-engine-verification-lifetimes.md) |
 | Later IR25/D2c-e | Present on the development line, with candidate-focused validation; final parent source review/combined acceptance remain pending in [the D2c-e report](game-engine-cards-as-data-d2c-e.md) |
-| Later finite trigger extensions | Separate capability/version gates cover [opponent damage](game-engine-opponent-damage-triggers.md), [optional draws](game-engine-optional-draws.md), [event-player discard](game-engine-event-player-discard.md), [event-player sacrifice](game-engine-event-player-sacrifice.md), [filtered sources](game-engine-filtered-damage-sources.md), [controller discard](game-engine-damage-controller-discard.md), [damage-quantity draws](game-engine-damage-quantity-draw.md), and [attacking keywords/Snow](game-engine-attacking-creature-keywords.md) across IR26–IR33. The subsequent [event-time appearance correction](game-engine-damage-match-appearance.md) preserves these IR/catalog contracts. Their focused validation does not renew combined acceptance or expand hosting/search. |
+| Later finite trigger extensions | Separate capabilities cover [opponent damage](game-engine-opponent-damage-triggers.md), [optional draws](game-engine-optional-draws.md), [event-player discard](game-engine-event-player-discard.md), [event-player sacrifice](game-engine-event-player-sacrifice.md), [filtered sources](game-engine-filtered-damage-sources.md), [controller discard](game-engine-damage-controller-discard.md), [damage-quantity draws](game-engine-damage-quantity-draw.md), and [attacking keywords/Snow](game-engine-attacking-creature-keywords.md) (originally developed across IR26–IR33). The subsequent [event-time appearance correction](game-engine-damage-match-appearance.md) preserves their semantic contracts. Their focused validation does not renew combined acceptance or expand hosting/search. |
 | Later digest reuse and November tooling changes | Separate focused-work evidence, not part of the frozen D2c-d gate; see [trace digests](game-engine-verification-trace-digests.md) and [fast checks](game-engine-fast-checks-20261109.md) |
 
 At the platform baseline trusted snapshot/bundle formats were 19/20 and public
@@ -57,17 +57,18 @@ projection/context/query-sidecar formats were 16/16/15. The architecture refacto
 retains snapshot/bundle/public formats but advances query work sidecars to 16
 and adds one charged initialization unit; old sidecars reject. `mtg_contracts::CURRENT_IR_VERSION`
 is the current IR authority; see [version and build checks](game-engine-builds.md).
-The unreleased schema stays at 33 while there are no external consumers; new
+The only active IR schema is 1 while there are no external consumers; new
 features evolve it in place with capability validation and exact build fencing.
 Current in-place support covers [grouped power-qualified damage and opponent
 casting prohibition](game-engine-grouped-damage.md); its capability scope is
-separate from historical version gates.
+validated independently of schema numbering.
 The [controlled-creature damage replacement](game-engine-controlled-damage-replacement.md)
 extension uses the same unreleased schema with separate current/LKI source facts.
 Read Rust types and validation at the edited source; old reports retain their
-original version numbers. Do not update historical catalogs or expected hashes
-just to match the newest IR version. No new quiet P7 performance, offline
-rebuild, full-profile or combined-acceptance claim follows from a focused check.
+original version numbers. Active catalogs are regenerated at schema 1; distinct
+source/admission pools remain separate. Historical decoder gates and downgrade
+matrices have been removed; source archives and external evidence remain pinned.
+No new quiet P7 performance, offline rebuild, full-profile or combined-acceptance claim follows from a focused check.
 
 ## Start and navigate
 

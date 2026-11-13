@@ -437,14 +437,13 @@ fn exact_stack_profile_admission_rejects_missing_old_extra_and_changed_semantics
     ))
     .unwrap();
     assert!(Prepared::admit(old, ScenarioConfig::stack_costs()).is_err());
-    for mutation in 0..5 {
+    for mutation in 0..4 {
         let mut bad = catalog.clone();
         match mutation {
-            0 => bad.schema_version = 5,
-            1 => {
+            0 => {
                 bad.definitions.pop();
             }
-            2 => {
+            1 => {
                 bad.definitions
                     .iter_mut()
                     .find(|d| d.name == "Azure Mage")
@@ -453,7 +452,7 @@ fn exact_stack_profile_admission_rejects_missing_old_extra_and_changed_semantics
                     .mana_cost
                     .generic = 2.into()
             }
-            3 => {
+            2 => {
                 bad.definitions
                     .iter_mut()
                     .find(|d| d.name == "Stifle")

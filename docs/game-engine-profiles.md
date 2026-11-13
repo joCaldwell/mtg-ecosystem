@@ -7,7 +7,7 @@ or Rust selector edit. Fields are:
 
 - `name`: unique admission identity.
 - `catalog_manifest`: relative reference to a catalog manifest in `catalogs/`.
-  The manifest determines the IR version, complete catalog and canonical digest;
+  The manifest determines the complete schema-1 catalog and canonical digest;
   its expected digest and source-regeneration checks remain enforced.
 - `decks`: four default decks, each with `commander` and `cards` entries containing
   `oracle_id` and positive `count`. The commander is included in the 100 cards.

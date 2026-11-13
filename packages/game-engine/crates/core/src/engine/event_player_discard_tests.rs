@@ -19,7 +19,7 @@ fn prepared(empty: bool, commander: bool) -> Prepared {
         panic!("complete Dimir Cutpurse source must lower")
     };
     c.definitions.push(*definition);
-    c.schema_version = 28;
+    c.schema_version = mtg_contracts::CURRENT_IR_VERSION;
     c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     c.validate().unwrap();
     let mut config = ScenarioConfig::turns_permanents();

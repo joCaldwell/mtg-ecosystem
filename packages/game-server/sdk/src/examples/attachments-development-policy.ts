@@ -35,7 +35,7 @@ export function attachmentsDevelopmentPolicy(): (observation: Observation, viewe
     const v = observation.view, r = observation.decision;
     if (!Number.isInteger(viewer) || viewer < 0 || viewer > 3 || v.viewer !== viewer
       || (r !== null && r.player !== viewer) || manifest.profile !== 'commander-attachments-v1'
-      || manifest.catalog.schema_version !== 17 || manifest.catalog.definitions.length !== 118) return fail();
+      || manifest.catalog.schema_version !== 1 || manifest.catalog.definitions.length !== 118) return fail();
     const binding = `${manifest.match_id}:${viewer}:${manifest.engine_build_id}:${manifest.catalog_sha256}`;
     if (identity !== undefined && identity !== binding) return fail();
     identity = binding;

@@ -73,31 +73,26 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
         assert_eq!(source["source"]["legalities"]["commander"], "legal");
         assert_eq!(source["sourceSha256"], row["source_sha256"]);
         assert_eq!(source["astSha256"], row["ast_sha256"]);
-        // IR26 adds the complete Thieving Otter source at archive line 14102:
+        // The complete Thieving Otter source at archive line 14102:
         // no combat restriction, exactly an opponent, and one mandatory draw.
         // This changes its former unsupported disposition for reviewed semantics;
-        // the original seven IR25 witnesses retain their original requirements.
-        // IR27 additionally admits Neurok Commando (line 10885): its complete
+        // the original seven combat witnesses retain their distinct requirements.
+        // Neurok Commando is supported (line 10885): its complete
         // shroud plus combat/player trigger with a resolution-time optional draw.
-        // IR28 admits Dimir Cutpurse (line 13027): the damaged player discards
+        // Dimir Cutpurse is supported (line 13027): the damaged player discards
         // one card, followed by the invocation controller's mandatory draw.
-        // IR29 admits Demon of Loathing (line 6875): the damaged player chooses
+        // Demon of Loathing is supported (line 6875): the damaged player chooses
         // and sacrifices one controlled creature; flying/trample are retained.
-        // IR30 admits Research Thief (line 28052): a controlled artifact
+        // Research Thief is supported (line 28052): a controlled artifact
         // creature deals damage; complete flash/flying source remains intact.
-        // IR31 admits Locke Cole (line 28579): its combat damage trigger draws
+        // Locke Cole is supported (line 28579): its combat damage trigger draws
         // then discards for the controller, retaining deathtouch and lifelink.
         let otter = row["archive_line"] == 14102;
-        let commando = row["archive_line"] == 10885;
-        let cutpurse = row["archive_line"] == 13027;
-        let demon = row["archive_line"] == 6875;
         let research = row["archive_line"] == 28052;
-        let locke = row["archive_line"] == 28579;
-        // IR32 admits Fear of Failed Tests (line7911): its standalone
+        // Fear of Failed Tests is supported (line7911): its standalone
         // mandatory controller draw uses the actual triggering damage quantity.
-        let fear = row["archive_line"] == 7911;
-        // IR33 admits the complete Ohran Frostfang (line27940): preserve Snow
-        // and the dynamic attacking-creature grant, plus its IR30 damage trigger.
+        // The complete Ohran Frostfang is supported (line27940): preserve Snow
+        // and the dynamic attacking-creature grant, plus its controlled-creature damage trigger.
         let ohran = row["archive_line"] == 27940;
         // The unreleased capabilities complete Kutzil (line7477): the casting
         // prohibition and candidate-local grouped power predicate have Rust binders.
@@ -189,50 +184,14 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
         let mut bad = d.clone();
         bad.capabilities.remove(&capability);
         assert!(bad.validate().is_err());
-        for version in 24..=mtg_contracts::CURRENT_IR_VERSION + 1 {
-            let c = Catalog {
-                schema_version: version,
-                rules_edition: RULES_EDITION.into(),
-                rules_sha256: RULES_SHA256.into(),
-                definitions: vec![d.clone()],
-            };
-            if kutzil {
-                // The current development schema is frozen until a real
-                // consumer compatibility requirement warrants a migration.
-                // New capability support has no historical-version claim.
-                if version == mtg_contracts::CURRENT_IR_VERSION {
-                    c.validate().unwrap();
-                } else if version > mtg_contracts::CURRENT_IR_VERSION {
-                    assert!(c.validate().is_err());
-                }
-                continue;
-            }
-            assert_eq!(
-                c.validate().is_ok(),
-                ((if ohran {
-                    33
-                } else if fear {
-                    32
-                } else if locke {
-                    31
-                } else if research {
-                    30
-                } else if demon {
-                    29
-                } else if cutpurse {
-                    28
-                } else if commando {
-                    27
-                } else if otter {
-                    26
-                } else {
-                    25
-                })..=mtg_contracts::CURRENT_IR_VERSION)
-                    .contains(&version),
-                "{} v{version}",
-                d.name
-            );
+        Catalog {
+            schema_version: mtg_contracts::CURRENT_IR_VERSION,
+            rules_edition: RULES_EDITION.into(),
+            rules_sha256: RULES_SHA256.into(),
+            definitions: vec![d.clone()],
         }
+        .validate()
+        .unwrap();
     }
     assert_eq!(admitted, 16);
 }
@@ -259,7 +218,7 @@ fn d2ce_rejects_partial_kind_source_recipient_optional_quantity_and_condition_sh
     }
     for v in [
         serde_json::json!({"ref":"it"}),
-        // An unrestricted controller relation remains outside the IR30 slice.
+        // An unrestricted controller relation remains outside the controlled-creature source scope.
         serde_json::json!({"ref":"filter","filter":{"types":["creature"]},"count":{"amount":"fixed","value":1}}),
         serde_json::json!({"ref":"this","noun":"permanent"}),
         serde_json::json!({"ref":"this","noun":"creature","extra":true}),
@@ -278,7 +237,7 @@ fn d2ce_rejects_partial_kind_source_recipient_optional_quantity_and_condition_sh
         mutations.push(changed(|a| a["trigger"][k] = v));
     }
     mutations.push(changed(|a| {
-        // Controller optional draw is supported at IR27; optional draw of two
+        // Controller optional draw is supported; optional draw of two
         // cards remains outside the complete supported instruction shape.
         a["effects"][0]["steps"][0]["optional"] = true.into();
         a["effects"][0]["steps"][0]["amount"]["value"] = 2.into();
@@ -322,7 +281,7 @@ fn d2ce_rejects_partial_kind_source_recipient_optional_quantity_and_condition_sh
     );
 }
 #[test]
-fn d2ce_ir_strict_dimensions_mandatory_program_and_minimum_version() {
+fn d2ce_ir_strict_dimensions_mandatory_program_and_capability_closure() {
     let d = lower(FOX);
     for condition in [
         serde_json::json!({"damage_dealt":{"source":{"subject":"source","extra":true},"kind":"combat","recipient":"player"}}),
@@ -610,7 +569,7 @@ fn event_player_discard_rejects_unbound_qualified_and_unreviewed_programs() {
             a["trigger"] =
                 serde_json::json!({"trigger":"enters","what":{"ref":"this","noun":"creature"}})
         },
-        // IR31 admits unqualified controller discard in damage triggers;
+        // Unqualified controller discard is supported in damage triggers;
         // a qualified controller selector still has no supported meaning.
         |a| {
             a["effects"][0]["steps"][0]["who"] =
@@ -950,10 +909,8 @@ fn filtered_damage_rejects_partial_qualifiers_noncreature_narrowing_and_predicat
             compile(MANIFEST, &raw)
         );
     }
-    // IR30 could lower the filtered trigger, but correctly rejected the whole
-    // Frostfang source because Snow and the attacking grant were unsupported.
-    // IR33 completes that exact source; older catalogs still must reject both
-    // new semantic dimensions, independently of their capability labels.
+    // The complete Frostfang source retains Snow, the attacking keyword grant,
+    // and its filtered damage trigger with their independent capabilities.
     let frostfang = lower(OHRAN);
     assert!(frostfang.characteristics.snow);
     assert!(
@@ -984,20 +941,14 @@ fn filtered_damage_rejects_partial_qualifiers_noncreature_narrowing_and_predicat
             },
         }]
     );
-    let mut historical = Catalog {
-        schema_version: 32,
+    Catalog {
+        schema_version: mtg_contracts::CURRENT_IR_VERSION,
         rules_edition: RULES_EDITION.into(),
         rules_sha256: RULES_SHA256.into(),
         definitions: vec![frostfang],
-    };
-    assert!(historical.validate().unwrap_err().contains("IR v33"));
-    historical.definitions[0]
-        .capabilities
-        .remove(&Capability::SnowSupertypeV1);
-    historical.definitions[0]
-        .capabilities
-        .remove(&Capability::AttackingCreatureKeywordsV1);
-    assert!(historical.validate().unwrap_err().contains("IR v33"));
+    }
+    .validate()
+    .unwrap();
 }
 
 #[test]

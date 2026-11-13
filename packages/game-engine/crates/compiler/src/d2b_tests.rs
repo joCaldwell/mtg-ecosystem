@@ -58,7 +58,7 @@ fn bound_self_reference_equals_this_source_and_rejects_wrong_or_missing_bindings
 }
 
 #[test]
-fn new_intrinsics_require_capability_closure_version_and_exact_shapes() {
+fn new_intrinsics_require_capability_closure_and_exact_shapes() {
     let catalog = catalog::build_catalog(std::path::Path::new(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/catalogs/cards-data-d2b.json"
@@ -73,9 +73,6 @@ fn new_intrinsics_require_capability_closure_version_and_exact_shapes() {
         let mut bad = d.clone();
         bad.capabilities.remove(&capability);
         assert!(bad.validate().is_err());
-        let mut old = catalog.clone();
-        old.schema_version = 19;
-        assert!(old.validate().is_err());
     }
     let mut bad = catalog
         .definitions

@@ -21,8 +21,8 @@ cargo run --locked -p mtg-sim -- catalog verify /path/to/accepted.jsonl packages
 provenance hashes and its record-hash pin under the labelled accepted archive. Without `--write`, it checks both expected IR bytes and the
 canonical digest. With `--write`, it regenerates both files. Paths inside a
 manifest are relative to that manifest; record and archive paths in provenance
-are relative to the provenance file. `schema_version` sets the catalog's IR
-version. `output_order` is `canonical` (sorted compact JSON), `sorted` (sorted
+are relative to the provenance file. `schema_version` must be 1, the only supported Card IR schema.
+Catalog names distinguish source/admission pools; they do not select mechanics. `output_order` is `canonical` (sorted compact JSON), `sorted` (sorted
 pretty JSON), or `struct` (typed field order, pretty JSON); these preserve the
 existing fixture encodings. In the committed fixture layout, `catalogs/*.json`
 is reserved for manifests; expected IR files live outside that directory.

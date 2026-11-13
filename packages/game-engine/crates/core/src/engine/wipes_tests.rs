@@ -798,7 +798,7 @@ fn wipes_profile_catalog_decks_policy_bounds_and_prior_catalog_rejection() {
             .catalog_sha256
             .as_str()
     );
-    for p in MATCH_PROFILES.iter().take(10) {
+    for p in MATCH_PROFILES.iter() {
         assert!(match_profile(&p.name).is_some());
     }
     let config = MatchConfig::for_profile("commander-wipes-v1", [7; 32], PlayerId(0)).unwrap();
@@ -823,11 +823,7 @@ fn wipes_profile_catalog_decks_policy_bounds_and_prior_catalog_rejection() {
         "../../../../tests/fixtures/expected-sacrifice-ir.json"
     ))
     .unwrap();
-    let received = format!(
-        "received {} at IR v{}",
-        old.definitions.len(),
-        old.schema_version
-    );
+    let received = format!("received {}", old.definitions.len());
     let MatchAdmissionError::InvalidCatalog { detail } =
         Prepared::admit_pod(old, config).err().unwrap()
     else {

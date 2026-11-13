@@ -572,7 +572,7 @@ impl Prepared {
     pub fn admit(catalog: Catalog, config: ScenarioConfig) -> Result<Self, String> {
         catalog.validate()?;
         // Admission-only exact fixture/pin table. It never selects runtime rules.
-        let (version, allowed) = [
+        let allowed = [
             (
                 vec![
                     ScenarioConfig::land_return(),
@@ -583,7 +583,6 @@ impl Prepared {
                     ScenarioConfig::combat_game(),
                     ScenarioConfig::combat_interactions(),
                 ],
-                3,
                 [ALLOWED.as_slice()].concat(),
             ),
             (
@@ -592,7 +591,6 @@ impl Prepared {
                     ScenarioConfig::commander_lifecycle(),
                     ScenarioConfig::commander_exile(),
                 ],
-                3,
                 [ALLOWED.as_slice(), &[(PLAINS, PLAINS_DIGEST)]].concat(),
             ),
             (
@@ -600,7 +598,6 @@ impl Prepared {
                     ScenarioConfig::commander_damage(),
                     ScenarioConfig::commander_damage_borrowed(),
                 ],
-                3,
                 [
                     ALLOWED.as_slice(),
                     &[(PLAINS, PLAINS_DIGEST)],
@@ -610,7 +607,6 @@ impl Prepared {
             ),
             (
                 vec![ScenarioConfig::commander_library()],
-                4,
                 [
                     ALLOWED.as_slice(),
                     &[(PLAINS, PLAINS_DIGEST)],
@@ -625,7 +621,6 @@ impl Prepared {
                     ScenarioConfig::actions_empty_library(),
                     ScenarioConfig::mixed_mana(),
                 ],
-                5,
                 [
                     ALLOWED.as_slice(),
                     &[(PLAINS, PLAINS_DIGEST)],
@@ -644,7 +639,6 @@ impl Prepared {
                     ScenarioConfig::conditions_borrowed(),
                     ScenarioConfig::conditions_no_targets(),
                 ],
-                10,
                 [
                     ALLOWED.as_slice(),
                     &[(PLAINS, PLAINS_DIGEST)],
@@ -667,7 +661,6 @@ impl Prepared {
                     ScenarioConfig::effects_borrowed(),
                     ScenarioConfig::effects_low(),
                 ],
-                9,
                 [
                     ALLOWED.as_slice(),
                     &[(PLAINS, PLAINS_DIGEST)],
@@ -689,7 +682,6 @@ impl Prepared {
                     ScenarioConfig::triggers_empty_library(),
                     ScenarioConfig::triggers_nonactive(),
                 ],
-                8,
                 [
                     ALLOWED.as_slice(),
                     &[(PLAINS, PLAINS_DIGEST)],
@@ -710,7 +702,6 @@ impl Prepared {
                     ScenarioConfig::damage_life_empty_library(),
                     ScenarioConfig::damage_life_library(),
                 ],
-                7,
                 [
                     ALLOWED.as_slice(),
                     &[(PLAINS, PLAINS_DIGEST)],
@@ -729,7 +720,6 @@ impl Prepared {
                     ScenarioConfig::stack_costs_empty_library(),
                     ScenarioConfig::stack_costs_library(),
                 ],
-                6,
                 [
                     ALLOWED.as_slice(),
                     &[(PLAINS, PLAINS_DIGEST)],
@@ -742,16 +732,13 @@ impl Prepared {
             ),
         ]
         .into_iter()
-        .find_map(|(candidate, version, allowed)| {
+        .find_map(|(candidate, allowed)| {
             candidate
                 .iter()
                 .any(|candidate| candidate == &config)
-                .then_some((version, allowed))
+                .then_some(allowed)
         })
         .ok_or("configuration is outside the reviewed four-seat scenario; no match admission")?;
-        if catalog.schema_version != version {
-            return Err("catalog version is not admitted by this exact configuration".into());
-        }
         if catalog.definitions.len() != allowed.len() {
             return Err("definition pool is not the closed reviewed scenario pool".into());
         }
@@ -1878,6 +1865,8 @@ pub enum Event {
         reason: String,
     },
 }
+mod action_query;
+pub use action_query::*;
 mod player_session;
 pub use player_session::PlayerSession;
 #[cfg(test)]

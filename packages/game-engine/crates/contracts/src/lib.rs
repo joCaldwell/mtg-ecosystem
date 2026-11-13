@@ -1,4 +1,4 @@
-//! Versioned executable contracts. No rules execution or parser dependency.
+//! Executable Card IR contracts. No rules execution or parser dependency.
 /// Engine build identity excludes card/profile data and hosting code. Retained
 /// evidence still carries those files with their own hashes; matches/snapshots
 /// separately bind the exact catalog digest. Used by both the core build and
@@ -23,10 +23,12 @@ pub use archives::*;
 mod strict_io;
 pub use strict_io::strict_read_seekable;
 
-/// Latest IR accepted by validation/schema and emitted by full-corpus coverage.
-/// Historical capability minimums and fixture versions remain literal evidence.
-pub const CURRENT_IR_VERSION: u32 = 33;
-pub const MIN_IR_VERSION: u32 = 3;
+/// The sole active Card IR schema accepted and emitted by the engine.
+pub const CURRENT_IR_VERSION: u32 = 1;
+
+fn current_ir_version_schema(_: &mut SchemaGenerator) -> Schema {
+    json_schema!({"type":"integer", "const":CURRENT_IR_VERSION})
+}
 
 pub const RULES_EDITION: &str = "2026-09-25";
 pub const RULES_SHA256: &str = "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca";
@@ -127,7 +129,7 @@ pub struct Characteristics {
     pub subtypes: Vec<String>,
     pub basic: bool,
     pub legendary: bool,
-    /// CR 205.4g; omission preserves historical nonsnow catalog bytes.
+    /// CR 205.4g; omitted for nonsnow characteristics.
     #[serde(default, skip_serializing_if = "is_false")]
     pub snow: bool,
     pub mana_cost: ManaCost,
@@ -1444,8 +1446,8 @@ impl Definition {
         }) {
             return Err("attachment operations are not spell instructions".into());
         }
-        // v19 alone admits enchantment programs and creature statics. Older
-        // catalogs reject this capability, retaining their original kind checks.
+        // Sacrifice programs admit enchantment programs and creature statics.
+        // Other programs retain their narrower kind constraints.
         let sacrifice = self.capabilities.contains(&Capability::SacrificeV1);
         let wipes = self.capabilities.contains(&Capability::BoardWipesV1);
         if self.x_mana_cost
@@ -2610,7 +2612,7 @@ pub fn basic_land_color(subtype: &str) -> Option<Color> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
-    #[schemars(range(min = MIN_IR_VERSION, max = CURRENT_IR_VERSION))]
+    #[schemars(schema_with = "current_ir_version_schema")]
     pub schema_version: u32,
     pub rules_edition: String,
     pub rules_sha256: String,
@@ -2631,7 +2633,7 @@ impl Catalog {
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        if !(MIN_IR_VERSION..=CURRENT_IR_VERSION).contains(&self.schema_version)
+        if self.schema_version != CURRENT_IR_VERSION
             || self.rules_edition != RULES_EDITION
             || self.rules_sha256 != RULES_SHA256
         {
@@ -2639,142 +2641,7 @@ impl Catalog {
         }
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
-            if self.schema_version < 33
-                && (d.characteristics.snow
-                    || d.capabilities.contains(&Capability::SnowSupertypeV1)
-                    || d.capabilities
-                        .contains(&Capability::AttackingCreatureKeywordsV1)
-                    || d.static_abilities.iter().any(|a| {
-                        matches!(
-                            a.effect,
-                            StaticEffect::ModifyCreatures {
-                                scope: CreatureScope::AttackingController,
-                                ..
-                            }
-                        )
-                    }))
-            {
-                return Err("IR v33 is required for snow or attacking creature keywords".into());
-            }
-            if self.schema_version < 32
-                && (d.capabilities.contains(&Capability::DamageQuantityDrawV1)
-                    || d.spell.as_ref().is_some_and(has_damage_quantity_draw)
-                    || d.activated
-                        .iter()
-                        .any(|a| has_damage_quantity_draw(&a.program))
-                    || d.triggered
-                        .iter()
-                        .any(|a| has_damage_quantity_draw(&a.program)))
-            {
-                return Err("IR v32 is required for damage-quantity draw".into());
-            }
-            if self.schema_version < 31
-                && (d
-                    .capabilities
-                    .contains(&Capability::DamageControllerDiscardV1)
-                    || d.triggered
-                        .iter()
-                        .any(|a| has_controller_discard(&a.program)))
-            {
-                return Err("IR v31 is required for controller discard in a damage trigger".into());
-            }
-            if self.schema_version < 30
-                && (d
-                    .capabilities
-                    .contains(&Capability::FilteredDamageTriggerV1)
-                    || d.triggered.iter().any(|a| {
-                        matches!(
-                            a.condition,
-                            TriggerCondition::DamageDealt {
-                                source: DamageTriggerSource::CreatureFilter { .. },
-                                ..
-                            }
-                        )
-                    }))
-            {
-                return Err("IR v30 is required for filtered damage sources".into());
-            }
-            if self.schema_version < 29
-                && (d.capabilities.contains(&Capability::EventPlayerSacrificeV1)
-                    || d.requirements()
-                        .contains(&Capability::EventPlayerSacrificeV1))
-            {
-                return Err("IR v29 is required for event-player sacrifice".into());
-            }
-            if self.schema_version < 28
-                && (d.capabilities.contains(&Capability::EventPlayerDiscardV1)
-                    || d.requirements().contains(&Capability::EventPlayerDiscardV1))
-            {
-                return Err("IR v28 is required for event-player discard".into());
-            }
-            // requirements() derives from instructions recursively through every
-            // program/mode, independently of the supplied capability labels.
-            if self.schema_version < 27
-                && (d
-                    .capabilities
-                    .contains(&Capability::OptionalControllerDrawV1)
-                    || d.requirements()
-                        .contains(&Capability::OptionalControllerDrawV1))
-            {
-                return Err("IR v27 is required for optional controller draws".into());
-            }
-            if self.schema_version < 26
-                && (d.capabilities.contains(&Capability::SourceDamageTriggerV2)
-                    || d.triggered.iter().any(|a| {
-                        matches!(
-                            a.condition,
-                            TriggerCondition::DamageDealt {
-                                kind: TriggerDamageKind::Any,
-                                ..
-                            } | TriggerCondition::DamageDealt {
-                                recipient: DamageTriggerRecipient::OpponentPlayer,
-                                ..
-                            }
-                        )
-                    }))
-            {
-                return Err(
-                    "IR v26 is required for unrestricted-kind or opponent source-damage triggers"
-                        .into(),
-                );
-            }
-            if self.schema_version < 25 && d.capabilities.contains(&Capability::DamageTriggerV1) {
-                return Err("IR v25 is required for ordinary source combat-damage triggers".into());
-            }
-            if self.schema_version < 24 && d.capabilities.contains(&Capability::AttackTriggerV1) {
-                return Err("IR v24 is required for ordinary attack triggers".into());
-            }
-            if self.schema_version < 23 && d.capabilities.contains(&Capability::CastTriggerV1) {
-                return Err("IR v23 is required for ordinary cast triggers".into());
-            }
-            if self.schema_version < 22
-                && d.capabilities.iter().any(|c| {
-                    matches!(
-                        c,
-                        Capability::EventPlayerRecipientV1 | Capability::SourceStatusConditionV1
-                    )
-                })
-            {
-                return Err(
-                    "IR v22 is required for event-player recipients and source-status conditions"
-                        .into(),
-                );
-            }
-            if self.schema_version < 21
-                && d.capabilities.contains(&Capability::StepBeginningTriggerV1)
-            {
-                return Err("IR v21 is required for beginning-of-step triggers".into());
-            }
             d.validate()?;
-            if self.schema_version < 20 && d.capabilities.contains(&Capability::EntersTappedV1) {
-                return Err("IR v20 is required for entry replacements".into());
-            }
-            if self.schema_version < 20 && d.capabilities.contains(&Capability::FlashV1) {
-                return Err("IR v20 is required for flash".into());
-            }
-            if self.schema_version < 20 && d.capabilities.contains(&Capability::BoardWipesV1) {
-                return Err("IR v20 is required for board wipes and X".into());
-            }
             if d.triggered.iter().any(|a| {
                 a.program
                     .instructions
@@ -2783,192 +2650,6 @@ impl Catalog {
                     && a.condition != TriggerCondition::OpponentCreatureDies
             }) {
                 return Err("unbound death controller".into());
-            }
-            if self.schema_version < 19 && d.capabilities.contains(&Capability::SacrificeV1) {
-                return Err("IR v19 is required for sacrifice and death payoffs".into());
-            }
-            if self.schema_version < 18 && d.capabilities.contains(&Capability::PermanentRemovalV1)
-            {
-                return Err("IR v18 is required for permanent removal and LKI".into());
-            }
-            if self.schema_version < 17 && d.capabilities.contains(&Capability::AttachmentsV1) {
-                return Err("IR v17 is required for attachments and targeting keywords".into());
-            }
-            if self.schema_version < 16
-                && d.capabilities.iter().any(|c| {
-                    matches!(
-                        c,
-                        Capability::CastArtifactV1
-                            | Capability::PermanentManaV1
-                            | Capability::CompositeActivationCostV1
-                    )
-                })
-            {
-                return Err("IR v16 is required for permanent mana and artifacts".into());
-            }
-            if self.schema_version < 15
-                && d.capabilities.iter().any(|c| {
-                    matches!(
-                        c,
-                        Capability::DestroyCreatureV1
-                            | Capability::GraveyardRecursionV1
-                            | Capability::BasicLandSearchV1
-                            | Capability::CreatureAnthemV1
-                            | Capability::TargetPlayerDrawV1
-                    )
-                })
-            {
-                return Err("IR v15 is required for Commander staples".into());
-            }
-            if self.schema_version < 14
-                && d.capabilities.iter().any(|c| {
-                    matches!(
-                        c,
-                        Capability::CreatureTokensV1 | Capability::PlusOneCountersV1
-                    )
-                })
-            {
-                return Err("IR v14 is required for creature tokens and counters".into());
-            }
-            if self.schema_version < 13
-                && d.keywords.iter().any(|k| {
-                    matches!(
-                        k,
-                        KeywordAbility::Trample
-                            | KeywordAbility::FirstStrike
-                            | KeywordAbility::DoubleStrike
-                            | KeywordAbility::Menace
-                    )
-                })
-            {
-                return Err("IR v13 is required for combat damage keywords and menace".into());
-            }
-            if self.schema_version < 12 && d.keywords.iter().any(|k| *k != KeywordAbility::Defender)
-            {
-                return Err("IR v12 is required for creature keywords beyond defender".into());
-            }
-            if self.schema_version < 11
-                && (!d.keywords.is_empty() || d.capabilities.contains(&Capability::DefenderV1))
-            {
-                return Err("IR v11 is required for defender".into());
-            }
-            if self.schema_version < 10
-                && d.capabilities.iter().any(|c| {
-                    matches!(
-                        c,
-                        Capability::ModalChoiceV1
-                            | Capability::SelfDiesV1
-                            | Capability::InterveningIfV1
-                    )
-                })
-                || self.schema_version < 10
-                    && d.triggered.iter().any(|a| {
-                        a.program
-                            .targets
-                            .iter()
-                            .any(|t| t.domain == TargetDomain::BattlefieldCreature)
-                    })
-            {
-                return Err(
-                    "IR v10 is required for modal choices and intervening-if dies triggers".into(),
-                );
-            }
-            if self.schema_version < 9
-                && d.capabilities.iter().any(|c| {
-                    matches!(
-                        c,
-                        Capability::CastEnchantmentV1
-                            | Capability::TemporaryPowerToughnessV1
-                            | Capability::CombatDamagePreventionV1
-                            | Capability::DamageBudgetPreventionV1
-                            | Capability::StaticDamageReplacementV1
-                    )
-                })
-            {
-                return Err(
-                    "IR v9 is required for temporary effects, prevention and replacements".into(),
-                );
-            }
-            if self.schema_version < 8 && !d.triggered.is_empty() {
-                return Err("IR v8 is required for ordinary triggered abilities".into());
-            }
-            if self.schema_version < 7
-                && (d.capabilities.iter().any(|cap| {
-                    matches!(
-                        cap,
-                        Capability::AnyDamageTargetV1
-                            | Capability::AnyPlayerTargetV1
-                            | Capability::NoncombatDamageV1
-                            | Capability::LifeGainV1
-                            | Capability::LifeLossV1
-                    )
-                }) || d
-                    .activated
-                    .iter()
-                    .any(|ability| !ability.program.targets.is_empty())
-                    || d.spell.as_ref().is_some_and(|program| {
-                        program.resolution == SpellResolution::Instructions
-                            && (program.targets.is_empty()
-                                || program.instructions.iter().any(|instruction| {
-                                    matches!(
-                                        instruction,
-                                        Instruction::DrawCards { .. }
-                                            | Instruction::DiscardCards { .. }
-                                    )
-                                }))
-                    }))
-            {
-                return Err("IR v7 is required for damage/life, targeted activations or untargeted spell instructions".into());
-            }
-            if self.schema_version < 6
-                && (d
-                    .activated
-                    .iter()
-                    .any(|ability| ability.cost != ActivationCost::SacrificeSource)
-                    || d.spell.as_ref().is_some_and(|program| {
-                        program.targets.iter().any(|target| {
-                            matches!(
-                                target.domain,
-                                TargetDomain::StackSpell
-                                    | TargetDomain::StackActivatedOrTriggeredAbility
-                            )
-                        }) || program.instructions.iter().any(|instruction| {
-                            matches!(instruction, Instruction::CounterStackObject { .. })
-                        })
-                    }))
-            {
-                return Err(
-                    "IR v6 is required for stack targets or tap/mana activation costs".into(),
-                );
-            }
-            if self.schema_version < 5
-                && (!d.activated.is_empty()
-                    || d.spell.as_ref().is_some_and(|program| {
-                        program
-                            .targets
-                            .iter()
-                            .any(|target| target.domain == TargetDomain::OpponentPlayer)
-                            || program.instructions.iter().any(|instruction| {
-                                matches!(
-                                    instruction,
-                                    Instruction::TargetPlayerSacrificeCreature { .. }
-                                        | Instruction::DrawCards { .. }
-                                        | Instruction::DiscardCards { .. }
-                                )
-                            })
-                    }))
-            {
-                return Err("IR v5 is required for activated or opponent-choice programs".into());
-            }
-            if self.schema_version == 3
-                && (d.characteristics.kind == CardKind::Sorcery
-                    || d.spell.as_ref().is_some_and(|program| {
-                        program.instructions.iter().any(|instruction| {
-                            matches!(instruction, Instruction::PutOnTopOwnerLibrary { .. })
-                        })
-                    }))
-            {
-                return Err("IR v3 does not support sorcery/library-top semantics".into());
             }
             if !ids.insert(&d.oracle_id) {
                 return Err("duplicate Oracle identity".into());
@@ -3021,7 +2702,7 @@ impl std::io::Write for Sha256Sink {
         Ok(())
     }
 }
-/// IR v3/v4/v5/v6/v7/v8/v9 canonicalization (same algorithm as v1/v2): UTF-8 compact serde_json Value (sorted object keys),
+/// Card IR canonicalization: UTF-8 compact serde_json Value (sorted object keys),
 /// ordered arrays, exact quantities as strings. Separate from JS archive hashes.
 pub fn canonical<T: Serialize>(value: &T) -> Result<String, String> {
     serde_json::to_value(value)
@@ -3033,214 +2714,6 @@ pub fn digest<T: Serialize>(value: &T) -> Result<String, String> {
 }
 pub fn catalog_schema() -> serde_json::Value {
     let mut schema = serde_json::to_value(schemars::schema_for!(Catalog)).expect("schema is JSON");
-    // Catalog versions share unchanged definition shapes. Restrict the v3
-    // vocabularies explicitly so schema validation cannot downgrade programs.
-    // https://json-schema.org/understanding-json-schema/reference/conditionals
-    schema["allOf"] = serde_json::json!([{
-        "if": {"required": ["schema_version"], "properties": {"schema_version": {"const": 3}}},
-        "then": {"properties": {"definitions": {"items": {"properties": {
-            "characteristics": {"properties": {"kind": {"enum": [CardKind::Land, CardKind::Creature, CardKind::Instant]}}},
-            "capabilities": {"items": {"enum": [Capability::NormalLayoutV1, Capability::BasicLandManaV1,
-                Capability::LandPlayV1, Capability::BaseCreatureV1, Capability::CommanderIdentityV1,
-                Capability::CastInstantV1, Capability::CastCreatureV1, Capability::CreatureTargetV1,
-                Capability::OwnerHandMoveV1]}},
-            "spell": {"anyOf": [{"type": "null"}, {"type": "object", "properties": {
-                "instructions": {"items": {"properties": {"op": {"enum": ["return_to_owner_hand"]}}}}
-            }}]}
-        }}}}}
-    }, {
-        "if": {"required": ["schema_version"], "properties": {"schema_version": {"enum": [3,4]}}},
-        "then": {"properties": {"definitions": {"items": {"properties": {
-            "activated": {"maxItems": 0},
-            "capabilities": {"items": {"enum": [Capability::NormalLayoutV1, Capability::BasicLandManaV1,
-                Capability::LandPlayV1, Capability::BaseCreatureV1, Capability::CommanderIdentityV1,
-                Capability::CastInstantV1, Capability::CastCreatureV1, Capability::CreatureTargetV1,
-                Capability::OwnerHandMoveV1, Capability::CastSorceryV1, Capability::OwnerLibraryTopMoveV1]}},
-            "spell": {"anyOf": [{"type":"null"}, {"type":"object", "properties": {
-                "targets": {"items": {"properties": {"domain": {"const":"battlefield_creature"}}}},
-                "instructions": {"items": {"properties": {"op": {"enum":["return_to_owner_hand","put_on_top_owner_library"]}}}}
-            }}]}
-        }}}}}
-    }, {
-        "if": {"required": ["schema_version"], "properties": {"schema_version": {"enum": [3,4,5]}}},
-        "then": {"properties": {"definitions": {"items": {"properties": {
-            "activated": {"items": {"properties": {"cost": {"const": "sacrifice_source"}}}},
-            "capabilities": {"items": {"not": {"enum": [Capability::StackSpellTargetV1,
-                Capability::StackAbilityTargetV1, Capability::CounterStackObjectV1,
-                Capability::TapSourceCostV1, Capability::ManaActivationCostV1]}}},
-            "spell": {"anyOf": [{"type":"null"}, {"type":"object", "properties": {
-                "targets": {"items": {"properties": {"domain": {"enum": ["battlefield_creature", "opponent_player"]}}}},
-                "instructions": {"items": {"properties": {"op": {"not": {"const": "counter_stack_object"}}}}}
-            }}]}
-        }}}}}
-    }, {
-        "if":{"required":["schema_version"],"properties":{"schema_version":{"enum":[3,4,5,6]}}},
-        "then":{"properties":{"definitions":{"items":{
-            "properties":{
-                "capabilities":{"items":{"not":{"enum":[Capability::AnyDamageTargetV1,Capability::AnyPlayerTargetV1,Capability::NoncombatDamageV1,Capability::LifeGainV1,Capability::LifeLossV1]}}},
-                "activated":{"items":{"properties":{"program":{"properties":{"targets":{"maxItems":0},"instructions":{"items":{"properties":{"op":{"enum":["draw_cards","discard_cards"]}}}}}}}}},
-                "spell":{"anyOf":[{"type":"null"},{"type":"object","properties":{
-                    "targets":{"items":{"properties":{"domain":{"enum":["battlefield_creature","opponent_player","stack_spell","stack_activated_or_triggered_ability"]}}}},
-                    "instructions":{"items":{"properties":{"op":{"enum":["return_to_owner_hand","put_on_top_owner_library","target_player_sacrifice_creature","counter_stack_object"]}}}}
-                }}]}
-            },
-            "allOf":[{"if":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}}}},
-                "then":{"properties":{"spell":{"properties":{"targets":{"minItems":1}}}}}}]
-        }}}}
-    }, {
-        "if":{"required":["schema_version"],"properties":{"schema_version":{"enum":[3,4,5,6,7]}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "triggered":{"maxItems":0},
-            "capabilities":{"items":{"not":{"enum":[Capability::TriggeredAbilityV1,Capability::SelfEntersBattlefieldV1,Capability::OtherCreatureEntersBattlefieldV1,Capability::CreatureDiesV1]}}}
-        }}}}}
-    }, {
-        "if":{"required":["schema_version"],"properties":{"schema_version":{"enum":[3,4,5,6,7,8]}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "characteristics":{"properties":{"kind":{"not":{"const":"enchantment"}}}},
-            "static_abilities":{"maxItems":0},
-            "capabilities":{"items":{"not":{"enum":[Capability::CastEnchantmentV1,Capability::TemporaryPowerToughnessV1,Capability::CombatDamagePreventionV1,Capability::DamageBudgetPreventionV1,Capability::StaticDamageReplacementV1]}}},
-            "spell":{"anyOf":[{"type":"null"},{"type":"object","properties":{"instructions":{"items":{"properties":{"op":{"not":{"enum":["modify_power_toughness","prevent_combat_damage","prevent_next_damage"]}}}}}}}]},
-            "activated":{"items":{"properties":{"program":{"properties":{"instructions":{"items":{"properties":{"op":{"not":{"enum":["modify_power_toughness","prevent_combat_damage","prevent_next_damage"]}}}}}}}}}},
-            "triggered":{"items":{"properties":{"program":{"properties":{"instructions":{"items":{"properties":{"op":{"not":{"enum":["modify_power_toughness","prevent_combat_damage","prevent_next_damage"]}}}}}}}}}}
-        }}}}}
-    }, {
-        "if":{"required":["schema_version"],"properties":{"schema_version":{"enum":[3,4,5,6,7,8,9]}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "capabilities":{"items":{"not":{"enum":[Capability::ModalChoiceV1,Capability::SelfDiesV1,Capability::InterveningIfV1]}}},
-            "spell":{"anyOf":[{"type":"null"},{"type":"object","properties":{"modes":{"maxItems":0}}}]},
-            "activated":{"items":{"properties":{"program":{"properties":{"modes":{"maxItems":0}}}}}},
-            "triggered":{"items":{"properties":{
-                "condition":{"not":{"const":"self_dies"}},"intervening_if":{"type":"null"},
-                "program":{"properties":{"modes":{"maxItems":0},"targets":{"items":{"properties":{"domain":{"const":"any_player"}}}}}}
-            }}}
-        }}}}}
-    }, {
-        "if":{"required":["schema_version"],"properties":{"schema_version":{"enum":[3,4,5,6,7,8,9,10]}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "keywords":{"maxItems":0},"capabilities":{"items":{"not":{"const":Capability::DefenderV1}}}
-        }}}}}
-    }, {
-        "if":{"required":["schema_version"],"properties":{"schema_version":{"maximum":11}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "keywords":{"items":{"const":"defender"}},
-            "capabilities":{"items":{"not":{"enum":[Capability::FlyingV1,Capability::ReachV1,Capability::VigilanceV1,Capability::HasteV1,Capability::LifelinkV1,Capability::DeathtouchV1]}}}
-        }}}}}
-    }, {
-        "if":{"required":["schema_version"],"properties":{"schema_version":{"maximum":12}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "keywords":{"items":{"not":{"enum":["trample","first strike","double strike","menace"]}}},
-            "capabilities":{"items":{"not":{"enum":[Capability::TrampleV1,Capability::FirstStrikeV1,Capability::DoubleStrikeV1,Capability::MenaceV1]}}}
-        }}}}}
-    }]);
-    schema["allOf"]
-        .as_array_mut()
-        .unwrap()
-        .push(serde_json::json!({
-            "if":{"properties":{"schema_version":{"maximum":20}}},
-            "then":{"properties":{"definitions":{"items":{"properties":{
-                "capabilities":{"items":{"not":{"const":Capability::StepBeginningTriggerV1}}},
-                "triggered":{"items":{"properties":{"condition":{"type":"string"}}}}
-            }}}}}
-        }));
-    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"properties":{"schema_version":{"maximum":21}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "capabilities":{"items":{"not":{"enum":[Capability::EventPlayerRecipientV1,Capability::SourceStatusConditionV1]}}},
-            "triggered":{"items":{"properties":{"intervening_if":{"type":["string","null"]},"program":{"$ref":"#/$defs/PreEventPlayerProgram"}}}},
-            "spell":{"$ref":"#/$defs/PreEventPlayerProgram"},
-            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerProgram"}}}}
-        }}}}}
-    }));
-    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"properties":{"schema_version":{"maximum":22}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "capabilities":{"items":{"not":{"const":Capability::CastTriggerV1}}},
-            "triggered":{"items":{"properties":{"condition":{"not":{"type":"object","required":["spell_cast"]}}}}}
-        }}}}}
-    }));
-    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"properties":{"schema_version":{"maximum":23}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "capabilities":{"items":{"not":{"const":Capability::AttackTriggerV1}}},
-            "triggered":{"items":{"properties":{"condition":{"not":{"type":"object","required":["creature_attacked"]}}}}}
-        }}}}}
-    }));
-    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"properties":{"schema_version":{"maximum":24}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "capabilities":{"items":{"not":{"const":Capability::DamageTriggerV1}}},
-            "triggered":{"items":{"properties":{"condition":{"not":{"type":"object","required":["damage_dealt"]}}}}}
-        }}}}}
-    }));
-    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"properties":{"schema_version":{"maximum":25}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "capabilities":{"items":{"not":{"const":Capability::SourceDamageTriggerV2}}},
-            "triggered":{"items":{"properties":{"condition":{"properties":{
-                "damage_dealt":{"properties":{"kind":{"const":"combat"},"recipient":{"const":"player"}}}
-            }}}}}
-        }}}}}
-    }));
-    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"properties":{"schema_version":{"maximum":26}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "capabilities":{"items":{"not":{"const":Capability::OptionalControllerDrawV1}}},
-            "spell":{"$ref":"#/$defs/PreOptionalDrawProgram"},
-            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreOptionalDrawProgram"}}}},
-            "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreOptionalDrawProgram"}}}}
-        }}}}}
-    }));
-    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"properties":{"schema_version":{"maximum":27}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "capabilities":{"items":{"not":{"const":Capability::EventPlayerDiscardV1}}},
-            "spell":{"$ref":"#/$defs/PreEventPlayerDiscardProgram"},
-            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerDiscardProgram"}}}},
-            "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerDiscardProgram"}}}}
-        }}}}}
-    }));
-    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"properties":{"schema_version":{"maximum":28}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "capabilities":{"items":{"not":{"const":Capability::EventPlayerSacrificeV1}}},
-            "spell":{"$ref":"#/$defs/PreEventPlayerSacrificeProgram"},
-            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerSacrificeProgram"}}}},
-            "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerSacrificeProgram"}}}}
-        }}}}}
-    }));
-    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"properties":{"schema_version":{"maximum":29}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "capabilities":{"items":{"not":{"const":Capability::FilteredDamageTriggerV1}}},
-            "triggered":{"items":{"properties":{"condition":{"properties":{
-                "damage_dealt":{"properties":{"source":{"properties":{"subject":{"not":{"const":"creature_filter"}}}}}}
-            }}}}}
-        }}}}}
-    }));
-    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"properties":{"schema_version":{"maximum":30}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "capabilities":{"items":{"not":{"const":Capability::DamageControllerDiscardV1}}},
-            "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreDamageControllerDiscardProgram"}}}}
-        }}}}}
-    }));
-    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"properties":{"schema_version":{"maximum":31}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "capabilities":{"items":{"not":{"const":Capability::DamageQuantityDrawV1}}},
-            "spell":{"$ref":"#/$defs/PreDamageQuantityDrawProgram"},
-            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreDamageQuantityDrawProgram"}}}},
-            "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreDamageQuantityDrawProgram"}}}}
-        }}}}}
-    }));
-    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"properties":{"schema_version":{"maximum":32}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "capabilities":{"items":{"not":{"enum":[Capability::SnowSupertypeV1,Capability::AttackingCreatureKeywordsV1]}}},
-            "characteristics":{"properties":{"snow":{"const":false}}},
-            "static_abilities":{"items":{"properties":{"effect":{"properties":{"modify_creatures":{"properties":{"scope":{"not":{"const":"attacking_controller"}}}}}}}}}
-        }}}}}
-    }));
     schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .push(serde_json::json!({"properties":{"modify_creatures":{
@@ -3283,21 +2756,6 @@ pub fn catalog_schema() -> serde_json::Value {
                 }}
             }}
         }));
-    schema["$defs"]["PreDamageQuantityDrawProgram"] = serde_json::json!({"properties":{
-        "instructions":{"items":{"properties":{"op":{"not":{"const":"draw_damage_amount"}}}}},
-        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreDamageQuantityDrawProgram"}}}}
-    }});
-    schema["$defs"]["PreDamageControllerDiscardProgram"] = serde_json::json!({"properties":{
-        "instructions":{"items":{
-            "if":{"properties":{"op":{"const":"discard_cards"}},"required":["op"]},
-            "then":{"required":["recipient"],"properties":{"recipient":{"const":"event_player"}}}
-        }},
-        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreDamageControllerDiscardProgram"}}}}
-    }});
-    schema["$defs"]["PreEventPlayerSacrificeProgram"] = serde_json::json!({"properties":{
-        "instructions":{"items":{"properties":{"op":{"not":{"const":"sacrifice_creature"}}}}},
-        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerSacrificeProgram"}}}}
-    }});
     // ActionRecipient is shared with controller discards, but this new opcode
     // admits only the frozen damage recipient. Keep schema and Rust aligned.
     schema["$defs"]["Instruction"]
@@ -3311,125 +2769,6 @@ pub fn catalog_schema() -> serde_json::Value {
             "if":{"properties":{"op":{"const":"sacrifice_creature"}},"required":["op"]},
             "then":{"properties":{"recipient":{"const":"event_player"}}}
         }));
-    schema["$defs"]["PreEventPlayerDiscardProgram"] = serde_json::json!({"properties":{
-        "instructions":{"items":{
-            "if":{"properties":{"op":{"const":"discard_cards"}}},
-            "then":{"properties":{"recipient":{"not":{"const":"event_player"}}}}
-        }},
-        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerDiscardProgram"}}}}
-    }});
-    schema["$defs"]["PreOptionalDrawProgram"] = serde_json::json!({"properties":{
-        "instructions":{"items":{"properties":{"op":{"not":{"const":"optional_draw_cards"}}}}},
-        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreOptionalDrawProgram"}}}}
-    }});
-    schema["$defs"]["PreEventPlayerProgram"] = serde_json::json!({"properties":{
-        "instructions":{"items":{"properties":{"recipient":{"not":{"const":"event_player"}}}}},
-        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreEventPlayerProgram"}}}}
-    }});
-    schema["$defs"]["PreWipesProgram"] = serde_json::json!({"properties":{
-        "instructions":{"items":{"properties":{"op":{"not":{"enum":["move_set","pump_set","damage_set","gain_life_destroyed","exile_damaged_this_turn","each_player_sacrifice","lose_life_death_controller"]}}}}},
-        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreWipesProgram"}}}}
-    }});
-    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"properties":{"schema_version":{"maximum":19}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "x_mana_cost":{"const":false},
-            "capabilities":{"items":{"not":{"const":Capability::BoardWipesV1}}},
-            "static_abilities":{"items":{"properties":{"effect":{"not":{"enum":["reduce_generic_by_creature_count","cant_be_countered"]}}}}},
-            "spell":{"$ref":"#/$defs/PreWipesProgram"},
-            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreWipesProgram"}}}},
-            "triggered":{"items":{"properties":{"condition":{"not":{"const":"opponent_creature_dies"}},"program":{"$ref":"#/$defs/PreWipesProgram"}}}}
-        }}}}}
-    }));
-    schema["$defs"]["PreTokensProgram"] = serde_json::json!({"properties":{
-        "instructions":{"items":{"properties":{"op":{"not":{"enum":["create_creature_tokens","put_plus_one_counters"]}}}}},
-        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreTokensProgram"}}}}
-    }});
-    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"required":["schema_version"],"properties":{"schema_version":{"maximum":13}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "capabilities":{"items":{"not":{"enum":[Capability::CreatureTokensV1,Capability::PlusOneCountersV1]}}},
-            "spell":{"$ref":"#/$defs/PreTokensProgram"},
-            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreTokensProgram"}}}},
-            "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreTokensProgram"}}}}
-        }}}}}
-    }));
-    schema["$defs"]["PreStaplesProgram"] = serde_json::json!({"properties":{
-        "targets":{"items":{"properties":{"domain":{"not":{"const":"own_graveyard_creature_card"}}}}},
-        "instructions":{"items":{"properties":{
-            "op":{"not":{"enum":["destroy_target_creature","destroy_all_creatures","return_own_graveyard_creature_to_hand","search_basic_lands"]}}
-        },"allOf":[{"if":{"properties":{"op":{"const":"draw_cards"}}},"then":{"properties":{"recipient":{"type":"null"}}}}]}},
-        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreStaplesProgram"}}}}
-    }});
-    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"required":["schema_version"],"properties":{"schema_version":{"maximum":14}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "capabilities":{"items":{"not":{"enum":[Capability::DestroyCreatureV1,Capability::GraveyardRecursionV1,Capability::BasicLandSearchV1,Capability::CreatureAnthemV1,Capability::TargetPlayerDrawV1]}}},
-            "static_abilities":{"items":{"properties":{"effect":{"const":"double_damage_to_permanent_or_player"}}}},
-            "spell":{"$ref":"#/$defs/PreStaplesProgram"},
-            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreStaplesProgram"}}}},
-            "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreStaplesProgram"}}}}
-        }}}}}
-    }));
-    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"required":["schema_version"],"properties":{"schema_version":{"maximum":15}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "characteristics":{"properties":{"kind":{"not":{"const":"artifact"}}}},
-            "mana_abilities":{"maxItems":0},
-            "activated":{"items":{"properties":{"cost":{"not":{"type":"object","required":["composite"]}}}}},
-            "capabilities":{"items":{"not":{"enum":[Capability::CastArtifactV1,Capability::PermanentManaV1,Capability::CompositeActivationCostV1]}}}
-        }}}}}
-    }));
-    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"required":["schema_version"],"properties":{"schema_version":{"maximum":16}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "capabilities":{"items":{"not":{"const":Capability::AttachmentsV1}}},
-            "keywords":{"items":{"not":{"enum":["hexproof","shroud"]}}},
-            "characteristics":{"properties":{"subtypes":{"items":{"not":{"enum":["Equipment","Aura"]}}}}},
-            "static_abilities":{"items":{"properties":{"effect":{"not":{"type":"object","required":["modify_creatures"]}}}}}
-        }}}}}
-    }));
-    schema["$defs"]["PreRemovalProgram"] = serde_json::json!({"properties":{
-        "targets":{"items":{"properties":{"filter":{"not":{}},"domain":{"not":{"const":"battlefield_permanent"}}}}},
-        "instructions":{"items":{"properties":{"op":{"not":{"enum":["destroy_permanent","exile_permanent","change_life_from_target","create_tokens_for","damage_target_controller"]}}}}},
-        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreRemovalProgram"}}}}
-    }});
-    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"required":["schema_version"],"properties":{"schema_version":{"maximum":17}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "capabilities":{"items":{"not":{"const":Capability::PermanentRemovalV1}}},
-            "spell":{"$ref":"#/$defs/PreRemovalProgram"},
-            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreRemovalProgram"}}}},
-            "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PreRemovalProgram"}}}}
-        }}}}}
-    }));
-    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"required":["schema_version"],"properties":{"schema_version":{"maximum":18}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "capabilities":{"items":{"not":{"const":Capability::SacrificeV1}}},
-            "spell":{"$ref":"#/$defs/PreSacrificeProgram"},
-            "triggered":{"items":{"allOf":[{"if":{"properties":{"condition":{"const":"self_dies"}}},"then":{"properties":{"program":{"properties":{"instructions":{"items":{"properties":{"op":{"not":{"const":"create_creature_tokens"}}}}}}}}}}],"properties":{"death_filter":{"type":"null"},"program":{"$ref":"#/$defs/PreSacrificeProgram"}}}},
-            "activated":{"items":{"allOf":[{"if":{"properties":{"cost":{"const":"sacrifice_source"}}},"then":{"properties":{"program":{"properties":{"instructions":{"items":{"properties":{"op":{"not":{"const":"search_basic_lands"}}}}}}}}}}],"properties":{"cost":{"not":{"type":"object","required":["sacrifice_permanent"]}},"program":{"$ref":"#/$defs/PreSacrificeProgram"}}}}
-        }}}}}
-    }));
-    schema["$defs"]["PreSacrificeProgram"] = serde_json::json!({"properties":{
-        "additional_sacrifice":{"type":"null"},
-        "instructions":{"items":{"properties":{"op":{"not":{"enum":["sacrifice_damage","each_opponent_sacrifice","modify_source_power_toughness"]}},"recipient":{"not":{"const":"each_opponent"}}}}},
-        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreSacrificeProgram"}}}}
-    }});
-    schema["$defs"]["PreAttachmentsProgram"] = serde_json::json!({"properties":{
-        "targets":{"items":{"properties":{"domain":{"not":{"const":"controlled_battlefield_creature"}}}}},
-        "instructions":{"items":{"properties":{"op":{"not":{"enum":["attach_equipment","return_aura_from_graveyard"]}},"token":{"properties":{"keywords":{"items":{"not":{"enum":["hexproof","shroud"]}}}}}}}},
-        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreAttachmentsProgram"}}}}
-    }});
-    schema["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"required":["schema_version"],"properties":{"schema_version":{"maximum":16}}},
-        "then":{"properties":{"definitions":{"items":{"properties":{
-            "spell":{"$ref":"#/$defs/PreAttachmentsProgram"},
-            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PreAttachmentsProgram"}}}},
-            "triggered":{"items":{"properties":{"condition":{"not":{"const":"self_aura_to_graveyard"}},"program":{"$ref":"#/$defs/PreAttachmentsProgram"}}}}
-        }}}}}
-    }));
     schema["$defs"]["SpellProgram"]["allOf"] = serde_json::json!([{
         "if":{"required":["modes"],"properties":{"modes":{"minItems":1}}},
         "then":{"properties":{
@@ -3524,154 +2863,111 @@ mod tests {
 
     #[test]
     fn current_ir_authority_matches_schema_and_validation() {
-        let schema = catalog_schema();
-        assert_eq!(
-            schema["properties"]["schema_version"]["minimum"],
-            MIN_IR_VERSION
-        );
-        assert_eq!(
-            schema["properties"]["schema_version"]["maximum"],
-            CURRENT_IR_VERSION
-        );
-        for version in [
-            MIN_IR_VERSION - 1,
-            MIN_IR_VERSION,
-            CURRENT_IR_VERSION,
-            CURRENT_IR_VERSION + 1,
+        for schema in [
+            catalog_schema(),
+            serde_json::to_value(schemars::schema_for!(Catalog)).unwrap(),
         ] {
+            assert_eq!(
+                schema["properties"]["schema_version"]["const"],
+                CURRENT_IR_VERSION
+            );
+        }
+        for version in [0, CURRENT_IR_VERSION, 2, 33, u32::MAX] {
             let catalog = Catalog {
                 schema_version: version,
                 rules_edition: RULES_EDITION.into(),
                 rules_sha256: RULES_SHA256.into(),
                 definitions: vec![],
             };
-            assert_eq!(
-                catalog.validate().is_ok(),
-                (MIN_IR_VERSION..=CURRENT_IR_VERSION).contains(&version)
-            );
+            assert_eq!(catalog.validate().is_ok(), version == CURRENT_IR_VERSION);
         }
     }
 
     #[test]
-    fn every_capability_has_a_witness_and_historical_minimums_are_preserved() {
+    fn every_capability_has_a_complete_current_witness() {
         use Capability::*;
-        let groups: &[(u32, &[Capability])] = &[
-            (
-                3,
-                &[
-                    NormalLayoutV1,
-                    BasicLandManaV1,
-                    LandPlayV1,
-                    BaseCreatureV1,
-                    CommanderIdentityV1,
-                    CastInstantV1,
-                    CastCreatureV1,
-                    CreatureTargetV1,
-                    OwnerHandMoveV1,
-                ],
-            ),
-            (4, &[CastSorceryV1, OwnerLibraryTopMoveV1]),
-            (
-                5,
-                &[
-                    ActivatedAbilityV1,
-                    SacrificeSourceCostV1,
-                    ControllerDrawV1,
-                    ControllerDiscardV1,
-                    OpponentTargetV1,
-                    TargetPlayerSacrificeCreatureV1,
-                ],
-            ),
-            (
-                6,
-                &[
-                    StackSpellTargetV1,
-                    StackAbilityTargetV1,
-                    CounterStackObjectV1,
-                    TapSourceCostV1,
-                    ManaActivationCostV1,
-                ],
-            ),
-            (
-                7,
-                &[
-                    AnyDamageTargetV1,
-                    AnyPlayerTargetV1,
-                    NoncombatDamageV1,
-                    LifeGainV1,
-                    LifeLossV1,
-                ],
-            ),
-            (
-                8,
-                &[
-                    TriggeredAbilityV1,
-                    SelfEntersBattlefieldV1,
-                    OtherCreatureEntersBattlefieldV1,
-                    CreatureDiesV1,
-                ],
-            ),
-            (
-                9,
-                &[
-                    CastEnchantmentV1,
-                    TemporaryPowerToughnessV1,
-                    CombatDamagePreventionV1,
-                    DamageBudgetPreventionV1,
-                    StaticDamageReplacementV1,
-                ],
-            ),
-            (10, &[SelfDiesV1, InterveningIfV1, ModalChoiceV1]),
-            (11, &[DefenderV1]),
-            (
-                12,
-                &[
-                    FlyingV1,
-                    ReachV1,
-                    VigilanceV1,
-                    HasteV1,
-                    LifelinkV1,
-                    DeathtouchV1,
-                ],
-            ),
-            (13, &[TrampleV1, FirstStrikeV1, DoubleStrikeV1, MenaceV1]),
-            (14, &[CreatureTokensV1, PlusOneCountersV1]),
-            (
-                15,
-                &[
-                    DestroyCreatureV1,
-                    GraveyardRecursionV1,
-                    BasicLandSearchV1,
-                    CreatureAnthemV1,
-                    TargetPlayerDrawV1,
-                ],
-            ),
-            (
-                16,
-                &[CastArtifactV1, PermanentManaV1, CompositeActivationCostV1],
-            ),
-            (17, &[AttachmentsV1]),
-            (18, &[PermanentRemovalV1]),
-            (19, &[SacrificeV1]),
-            (20, &[BoardWipesV1, FlashV1, EntersTappedV1]),
-            (21, &[StepBeginningTriggerV1]),
-            (22, &[EventPlayerRecipientV1, SourceStatusConditionV1]),
-            (23, &[CastTriggerV1]),
-            (24, &[AttackTriggerV1]),
-            (25, &[DamageTriggerV1]),
-            (26, &[SourceDamageTriggerV2]),
-            (27, &[OptionalControllerDrawV1]),
-            (28, &[EventPlayerDiscardV1]),
-            (29, &[EventPlayerSacrificeV1]),
-            (30, &[FilteredDamageTriggerV1]),
-            (31, &[DamageControllerDiscardV1]),
-            (32, &[DamageQuantityDrawV1]),
-            (33, &[SnowSupertypeV1, AttackingCreatureKeywordsV1]),
-        ];
-        // No released consumer requires another schema migration. New
-        // capabilities need complete witnesses in the current development IR,
-        // while already documented historical minimums remain intact.
-        let unreleased = [
+        let expected = [
+            NormalLayoutV1,
+            BasicLandManaV1,
+            LandPlayV1,
+            BaseCreatureV1,
+            CommanderIdentityV1,
+            CastInstantV1,
+            CastCreatureV1,
+            CreatureTargetV1,
+            OwnerHandMoveV1,
+            CastSorceryV1,
+            OwnerLibraryTopMoveV1,
+            ActivatedAbilityV1,
+            SacrificeSourceCostV1,
+            ControllerDrawV1,
+            ControllerDiscardV1,
+            OpponentTargetV1,
+            TargetPlayerSacrificeCreatureV1,
+            StackSpellTargetV1,
+            StackAbilityTargetV1,
+            CounterStackObjectV1,
+            TapSourceCostV1,
+            ManaActivationCostV1,
+            AnyDamageTargetV1,
+            AnyPlayerTargetV1,
+            NoncombatDamageV1,
+            LifeGainV1,
+            LifeLossV1,
+            TriggeredAbilityV1,
+            SelfEntersBattlefieldV1,
+            OtherCreatureEntersBattlefieldV1,
+            CreatureDiesV1,
+            CastEnchantmentV1,
+            TemporaryPowerToughnessV1,
+            CombatDamagePreventionV1,
+            DamageBudgetPreventionV1,
+            StaticDamageReplacementV1,
+            SelfDiesV1,
+            InterveningIfV1,
+            ModalChoiceV1,
+            DefenderV1,
+            FlyingV1,
+            ReachV1,
+            VigilanceV1,
+            HasteV1,
+            LifelinkV1,
+            DeathtouchV1,
+            TrampleV1,
+            FirstStrikeV1,
+            DoubleStrikeV1,
+            MenaceV1,
+            CreatureTokensV1,
+            PlusOneCountersV1,
+            DestroyCreatureV1,
+            GraveyardRecursionV1,
+            BasicLandSearchV1,
+            CreatureAnthemV1,
+            TargetPlayerDrawV1,
+            CastArtifactV1,
+            PermanentManaV1,
+            CompositeActivationCostV1,
+            AttachmentsV1,
+            PermanentRemovalV1,
+            SacrificeV1,
+            BoardWipesV1,
+            FlashV1,
+            EntersTappedV1,
+            StepBeginningTriggerV1,
+            EventPlayerRecipientV1,
+            SourceStatusConditionV1,
+            CastTriggerV1,
+            AttackTriggerV1,
+            DamageTriggerV1,
+            SourceDamageTriggerV2,
+            OptionalControllerDrawV1,
+            EventPlayerDiscardV1,
+            EventPlayerSacrificeV1,
+            FilteredDamageTriggerV1,
+            DamageControllerDiscardV1,
+            DamageQuantityDrawV1,
+            SnowSupertypeV1,
+            AttackingCreatureKeywordsV1,
             OpponentCastProhibitionV1,
             GroupedCreatureDamageTriggerV1,
             ControlledCreatureDamageReplacementV1,
@@ -3685,11 +2981,7 @@ mod tests {
                 .unwrap()
                 .into_iter()
                 .collect();
-        let covered: BTreeSet<Capability> = groups
-            .iter()
-            .flat_map(|(_, caps)| caps.iter().copied())
-            .chain(unreleased)
-            .collect();
+        let covered: BTreeSet<Capability> = expected.into_iter().collect();
         assert_eq!(covered, vocabulary);
         let root =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/catalogs");
@@ -3836,8 +3128,7 @@ mod tests {
         }];
         grouped.capabilities = grouped.requirements();
         definitions.push(grouped);
-        // Each newly admitted dimension independently requires IR26, even when
-        // paired with the original value of the other dimension.
+        // Kind and recipient each derive the expanded damage capability.
         for (kind, recipient) in [
             (TriggerDamageKind::Any, DamageTriggerRecipient::Player),
             (
@@ -3860,49 +3151,23 @@ mod tests {
             assert!(!expanded.capabilities.contains(&DamageTriggerV1));
             definitions.push(expanded);
         }
-        for cap in unreleased {
+        for cap in vocabulary {
             assert!(
                 definitions.iter().any(|d| d.capabilities.contains(&cap)
                     && Catalog {
                         schema_version: CURRENT_IR_VERSION,
                         rules_edition: RULES_EDITION.into(),
                         rules_sha256: RULES_SHA256.into(),
-                        definitions: vec![d.clone()]
+                        definitions: vec![d.clone()],
                     }
                     .validate()
                     .is_ok()),
-                "{cap:?}: no complete current development witness"
+                "{cap:?}: no complete current witness"
             );
-        }
-        for &(version, caps) in groups {
-            for cap in caps {
-                let witnesses = definitions
-                    .iter()
-                    .filter(|d| d.capabilities.contains(cap))
-                    .collect::<Vec<_>>();
-                let catalog = |d: &Definition, schema_version| Catalog {
-                    schema_version,
-                    rules_edition: RULES_EDITION.into(),
-                    rules_sha256: RULES_SHA256.into(),
-                    definitions: vec![d.clone()],
-                };
-                assert!(
-                    witnesses
-                        .iter()
-                        .any(|d| catalog(d, version).validate().is_ok()),
-                    "{cap:?}: no valid IR v{version} witness"
-                );
-                for d in witnesses {
-                    assert!(
-                        catalog(d, version - 1).validate().is_err(),
-                        "{cap:?}: accepted below IR v{version}"
-                    );
-                }
-            }
         }
     }
     #[test]
-    fn optional_draw_minimum_version_checks_nested_instructions_without_labels() {
+    fn optional_draw_requirements_include_nested_instructions() {
         let catalog: Catalog = serde_json::from_str(include_str!(
             "../../../tests/fixtures/expected-choices-ir.json"
         ))
@@ -3929,25 +3194,25 @@ mod tests {
         p.instructions = vec![Instruction::OptionalDrawCards { source_block: 0 }];
         standalone.capabilities = standalone.requirements();
         for d in [standalone, modal] {
-            let mut c = Catalog {
-                schema_version: 27,
+            let mut missing = d.clone();
+            missing
+                .capabilities
+                .remove(&Capability::OptionalControllerDrawV1);
+            assert!(missing.validate().is_err());
+            Catalog {
+                schema_version: CURRENT_IR_VERSION,
                 rules_edition: RULES_EDITION.into(),
                 rules_sha256: RULES_SHA256.into(),
                 definitions: vec![d],
-            };
-            c.validate().unwrap();
-            c.schema_version = 26;
-            assert!(c.validate().unwrap_err().contains("IR v27"));
-            c.definitions[0]
-                .capabilities
-                .remove(&Capability::OptionalControllerDrawV1);
-            assert!(c.validate().unwrap_err().contains("IR v27"));
+            }
+            .validate()
+            .unwrap();
         }
     }
     #[test]
-    fn event_player_discard_preserves_legacy_bytes_and_has_a_separate_binding_domain() {
-        let legacy = r#"{"op":"discard_cards","count":"1","source_block":0}"#;
-        let instruction: Instruction = strict_read(legacy).unwrap();
+    fn event_player_discard_has_a_strict_instruction_shape_and_a_separate_binding_domain() {
+        let raw = r#"{"op":"discard_cards","count":"1","source_block":0}"#;
+        let instruction: Instruction = strict_read(raw).unwrap();
         assert_eq!(
             instruction,
             Instruction::DiscardCards {
@@ -3956,7 +3221,7 @@ mod tests {
                 source_block: 0,
             }
         );
-        assert_eq!(serde_json::to_string(&instruction).unwrap(), legacy);
+        assert_eq!(serde_json::to_string(&instruction).unwrap(), raw);
         for recipient in [
             serde_json::json!({"event_player":null}),
             serde_json::json!({"controller":null}),
@@ -4058,21 +3323,18 @@ mod tests {
                 .contains("event-player discard")
         );
         let mut c = Catalog {
-            schema_version: 28,
+            schema_version: CURRENT_IR_VERSION,
             rules_edition: RULES_EDITION.into(),
             rules_sha256: RULES_SHA256.into(),
             definitions: vec![bound.clone()],
         };
         c.validate().unwrap();
-        c.schema_version = 27;
-        assert!(c.validate().unwrap_err().contains("IR v28"));
         c.definitions[0]
             .capabilities
             .remove(&Capability::EventPlayerDiscardV1);
-        assert!(c.validate().unwrap_err().contains("IR v28"));
+        assert!(c.validate().is_err());
 
-        // Recursive derived requirements reject hidden new fields before the
-        // independent unbound-program rejection, without trusting labels.
+        // Requirements include nested programs independently of instruction context.
         let mut nested = bound;
         let child = nested.triggered[0].program.clone();
         let program = nested.spell.as_mut().unwrap();
@@ -4083,10 +3345,10 @@ mod tests {
             .capabilities
             .remove(&Capability::EventPlayerDiscardV1);
         c.definitions = vec![nested];
-        assert!(c.validate().unwrap_err().contains("IR v28"));
+        assert!(c.validate().is_err());
     }
     #[test]
-    fn event_player_sacrifice_requires_bound_damage_and_rejects_old_nested_opcodes() {
+    fn event_player_sacrifice_requires_bound_damage_and_checks_nested_requirements() {
         let original: Catalog = serde_json::from_str(include_str!(
             "../../../tests/fixtures/expected-trigger-ir.json"
         ))
@@ -4179,18 +3441,16 @@ mod tests {
                 .contains("bound damage trigger")
         );
         let mut c = Catalog {
-            schema_version: 29,
+            schema_version: CURRENT_IR_VERSION,
             rules_edition: RULES_EDITION.into(),
             rules_sha256: RULES_SHA256.into(),
             definitions: vec![bound.clone()],
         };
         c.validate().unwrap();
-        c.schema_version = 28;
-        assert!(c.validate().unwrap_err().contains("IR v29"));
         c.definitions[0]
             .capabilities
             .remove(&Capability::EventPlayerSacrificeV1);
-        assert!(c.validate().unwrap_err().contains("IR v29"));
+        assert!(c.validate().is_err());
         let mut nested = bound;
         let child = nested.triggered[0].program.clone();
         nested.spell.as_mut().unwrap().modes = vec![SpellMode { program: child }];
@@ -4200,7 +3460,7 @@ mod tests {
             .capabilities
             .remove(&Capability::EventPlayerSacrificeV1);
         c.definitions = vec![nested];
-        assert!(c.validate().unwrap_err().contains("IR v29"));
+        assert!(c.validate().is_err());
         assert_eq!(
             serde_json::from_str::<ActionRecipient>("\"controller\"").unwrap(),
             ActionRecipient::Controller
@@ -4211,7 +3471,7 @@ mod tests {
         );
     }
     #[test]
-    fn filtered_damage_sources_validate_predicates_observers_and_minimum_version() {
+    fn filtered_damage_sources_validate_predicates_observers_and_capabilities() {
         let original: Catalog = serde_json::from_str(include_str!(
             "../../../tests/fixtures/expected-mana-ir.json"
         ))
@@ -4267,18 +3527,16 @@ mod tests {
                 .contains(&Capability::SourceDamageTriggerV2)
         );
         let mut c = Catalog {
-            schema_version: 30,
+            schema_version: CURRENT_IR_VERSION,
             rules_edition: RULES_EDITION.into(),
             rules_sha256: RULES_SHA256.into(),
             definitions: vec![observer.clone()],
         };
         c.validate().unwrap();
-        c.schema_version = 29;
-        assert!(c.validate().unwrap_err().contains("IR v30"));
         c.definitions[0]
             .capabilities
             .remove(&Capability::FilteredDamageTriggerV1);
-        assert!(c.validate().unwrap_err().contains("IR v30"));
+        assert!(c.validate().is_err());
         let mut self_observer = observer.clone();
         if let TriggerCondition::DamageDealt { source, .. } =
             &mut self_observer.triggered[0].condition
@@ -4351,7 +3609,7 @@ mod tests {
         }
     }
     #[test]
-    fn damage_controller_discard_is_contextual_recursive_and_versioned() {
+    fn damage_controller_discard_is_contextual_and_recursive() {
         let original = Catalog::read(include_str!(
             "../../../tests/fixtures/expected-action-ir.json"
         ))
@@ -4400,18 +3658,16 @@ mod tests {
                     .contains(&Capability::DamageControllerDiscardV1)
             );
             let mut c = Catalog {
-                schema_version: 31,
+                schema_version: CURRENT_IR_VERSION,
                 rules_edition: RULES_EDITION.into(),
                 rules_sha256: RULES_SHA256.into(),
                 definitions: vec![d],
             };
             c.validate().unwrap();
-            c.schema_version = 30;
-            assert!(c.validate().unwrap_err().contains("IR v31"));
             c.definitions[0]
                 .capabilities
                 .remove(&Capability::DamageControllerDiscardV1);
-            assert!(c.validate().unwrap_err().contains("IR v31"));
+            assert!(c.validate().is_err());
         }
         for condition in [
             TriggerCondition::SelfEntersBattlefield,
@@ -4452,15 +3708,14 @@ mod tests {
                 .contains(&Capability::DamageControllerDiscardV1)
         );
         Catalog {
-            schema_version: 28,
+            schema_version: CURRENT_IR_VERSION,
             rules_edition: RULES_EDITION.into(),
             rules_sha256: RULES_SHA256.into(),
             definitions: vec![event],
         }
         .validate()
         .unwrap();
-        // Trigger modes remain unsupported, but nested instruction closure and
-        // old-version guards must still detect a forged controller discard.
+        // Trigger modes remain unsupported; requirements still include nested discards.
         let child = bound.triggered[0].program.clone();
         let p = &mut bound.triggered[0].program;
         p.instructions.clear();
@@ -4480,18 +3735,18 @@ mod tests {
             .capabilities
             .remove(&Capability::DamageControllerDiscardV1);
         let c = Catalog {
-            schema_version: 30,
+            schema_version: CURRENT_IR_VERSION,
             rules_edition: RULES_EDITION.into(),
             rules_sha256: RULES_SHA256.into(),
             definitions: vec![bound],
         };
-        assert!(c.validate().unwrap_err().contains("IR v31"));
+        assert!(c.validate().is_err());
     }
     #[test]
-    fn damage_quantity_draw_is_strict_bound_recursive_and_independently_versioned() {
-        let old = r#"{"op":"draw_cards","count":"1","source_block":0}"#;
-        let fixed: Instruction = strict_read(old).unwrap();
-        assert_eq!(serde_json::to_string(&fixed).unwrap(), old);
+    fn damage_quantity_draw_is_strict_bound_and_recursive() {
+        let raw = r#"{"op":"draw_cards","count":"1","source_block":0}"#;
+        let fixed: Instruction = strict_read(raw).unwrap();
+        assert_eq!(serde_json::to_string(&fixed).unwrap(), raw);
         let opcode = serde_json::json!({"op":"draw_damage_amount","source_block":0});
         let dynamic: Instruction = serde_json::from_value(opcode.clone()).unwrap();
         assert_eq!(dynamic, Instruction::DrawDamageAmount { source_block: 0 });
@@ -4534,18 +3789,16 @@ mod tests {
         assert!(d.capabilities.contains(&Capability::DamageQuantityDrawV1));
         assert!(!d.capabilities.contains(&Capability::ControllerDrawV1));
         let mut catalog = Catalog {
-            schema_version: 32,
+            schema_version: CURRENT_IR_VERSION,
             rules_edition: RULES_EDITION.into(),
             rules_sha256: RULES_SHA256.into(),
             definitions: vec![d.clone()],
         };
         catalog.validate().unwrap();
-        catalog.schema_version = 31;
-        assert!(catalog.validate().unwrap_err().contains("IR v32"));
         catalog.definitions[0]
             .capabilities
             .remove(&Capability::DamageQuantityDrawV1);
-        assert!(catalog.validate().unwrap_err().contains("IR v32"));
+        assert!(catalog.validate().is_err());
         let mut missing = d.clone();
         missing
             .capabilities
@@ -4576,8 +3829,8 @@ mod tests {
                     .contains("bound damage trigger")
             );
         }
-        // Independent opcode guards inspect all program-bearing locations and
-        // recurse into modes even when the context itself is unsupported.
+        // Requirements inspect all program-bearing locations and recurse into modes
+        // even when the context itself is unsupported.
         for nested in [false, true] {
             let mut p = program.clone();
             if nested {
@@ -4626,18 +3879,18 @@ mod tests {
                 unbound
                     .capabilities
                     .remove(&Capability::DamageQuantityDrawV1);
-                let old = Catalog {
-                    schema_version: 31,
+                let missing = Catalog {
+                    schema_version: CURRENT_IR_VERSION,
                     rules_edition: RULES_EDITION.into(),
                     rules_sha256: RULES_SHA256.into(),
                     definitions: vec![unbound],
                 };
-                assert!(old.validate().unwrap_err().contains("IR v32"));
+                assert!(missing.validate().is_err());
             }
         }
     }
     #[test]
-    fn snow_and_attacking_keyword_dimensions_are_strict_and_independently_versioned() {
+    fn snow_and_attacking_keyword_dimensions_are_strict_and_independent() {
         let old = Catalog::read(include_str!(
             "../../../tests/fixtures/expected-wipes-ir.json"
         ))
@@ -4688,21 +3941,19 @@ mod tests {
             );
             assert!(!d.capabilities.contains(&Capability::AttachmentsV1));
             let mut c = Catalog {
-                schema_version: 33,
+                schema_version: CURRENT_IR_VERSION,
                 rules_edition: RULES_EDITION.into(),
                 rules_sha256: RULES_SHA256.into(),
                 definitions: vec![d.clone()],
             };
             c.validate().unwrap();
-            c.schema_version = 32;
-            assert!(c.validate().unwrap_err().contains("IR v33"));
             c.definitions[0]
                 .capabilities
                 .remove(&Capability::SnowSupertypeV1);
             c.definitions[0]
                 .capabilities
                 .remove(&Capability::AttackingCreatureKeywordsV1);
-            assert!(c.validate().unwrap_err().contains("IR v33"));
+            assert!(c.validate().is_err());
             for cap in [
                 Capability::SnowSupertypeV1,
                 Capability::AttackingCreatureKeywordsV1,
@@ -4714,7 +3965,7 @@ mod tests {
                 }
             }
         }
-        // Labels alone are version-gated even without the new semantic shape.
+        // Extra capability labels without the corresponding semantic shape reject.
         for cap in [
             Capability::SnowSupertypeV1,
             Capability::AttackingCreatureKeywordsV1,
@@ -4722,12 +3973,12 @@ mod tests {
             let mut d = base.clone();
             d.capabilities.insert(cap);
             let c = Catalog {
-                schema_version: 32,
+                schema_version: CURRENT_IR_VERSION,
                 rules_edition: RULES_EDITION.into(),
                 rules_sha256: RULES_SHA256.into(),
                 definitions: vec![d],
             };
-            assert!(c.validate().unwrap_err().contains("IR v33"));
+            assert!(c.validate().is_err());
         }
         let mut snow_mana = base.clone();
         snow_mana.characteristics.snow = true;
@@ -4810,8 +4061,8 @@ mod tests {
         unbound.static_abilities[0].functioning_zone = FunctioningZone::Stack;
         unbound.capabilities = unbound.requirements();
         assert!(unbound.validate().is_err());
-        // The old unqualified Controller scope still requires its historical
-        // enchantment context; the new scope does not widen it on creatures.
+        // Unqualified Controller scope requires an enchantment context; the
+        // attacking scope does not widen it on creatures.
         unbound.static_abilities = vec![grant];
         if let StaticEffect::ModifyCreatures { scope, .. } = &mut unbound.static_abilities[0].effect
         {

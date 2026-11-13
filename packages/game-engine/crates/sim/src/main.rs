@@ -1132,10 +1132,11 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
     report["draw_failure"] = draw_report;
     Ok((bundle, report))
 }
-/// Source compilation and runtime admission remain separate proofs. Frozen
-/// historical catalogs retain their definitions when later compiler passes gain
-/// support for a former paired source. Exact source bytes are checked separately.
+/// Source compilation and runtime admission remain separate proofs. Each
+/// explicitly selected pool retains its reviewed definitions when the compiler
+/// gains support for another paired source. Schema numbers never select pools.
 fn verify_source_catalog(
+    pool: &str,
     manifest: &str,
     catalog: &Catalog,
     records: &[String],
@@ -1148,36 +1149,34 @@ fn verify_source_catalog(
     const SALVE: &str = "8da8644c-75a1-4fe9-8e94-900d948d631c";
     const VIOLENCE: &str = "7c340a39-4ee0-4ba1-bb66-6674f8020fda";
     catalog.validate()?;
-    let (unadmitted, negative): (&[&str], &[&str]) = match catalog.schema_version {
-        3 | 4 => (&[CRUEL], &[]),
-        5 | 6 => (&[BLOOD], &[]),
-        7 => (&[BLOOD], &[FLAME]),
-        8 => (&[], &[FLAME, DEATHGREETER]),
-        9 => (&[SALVE], &[FLAME, DEATHGREETER, RIGHTEOUSNESS, VIOLENCE]),
-        10 => (
-            &[],
+    let (unadmitted, negative): (&[&str], &[&str]) = match pool {
+        "base" | "commander" | "damage" | "library" => (&[CRUEL], &[]),
+        "action" | "stack" => (&[BLOOD], &[]),
+        "damage-life" => (&[BLOOD], &[FLAME]),
+        "trigger" => (&[], &[FLAME, DEATHGREETER]),
+        "effects" => (&[SALVE, VIOLENCE], &[FLAME, DEATHGREETER, RIGHTEOUSNESS]),
+        "choices" => (
+            &[VIOLENCE],
             &[
                 FLAME,
                 DEATHGREETER,
                 RIGHTEOUSNESS,
-                VIOLENCE,
                 "2679d0dd-ba30-4a1c-b6a0-b3ac6c790496", // Boros Charm: unsupported complete modes
-                "2825ff5a-5340-4494-bfde-80f6f5bce5a2", // Lavaborn Muse: upkeep/other-player condition
+                "2825ff5a-5340-4494-bfde-80f6f5bce5a2", // Lavaborn Muse: unsupported condition
             ],
         ),
-        11 => (
-            // Reach now lowers completely, but v11 admission remains frozen.
-            &["51ce0158-c9a5-4fa5-9704-46ab02f01b86"],
+        "match" => (
+            // Complete source support does not widen this closed pool.
+            &["51ce0158-c9a5-4fa5-9704-46ab02f01b86", VIOLENCE],
             &[
                 FLAME,
                 DEATHGREETER,
                 RIGHTEOUSNESS,
-                VIOLENCE,
                 "2679d0dd-ba30-4a1c-b6a0-b3ac6c790496",
                 "2825ff5a-5340-4494-bfde-80f6f5bce5a2",
             ],
         ),
-        _ => return Err("unsupported source coverage version".into()),
+        _ => return Err("unknown source coverage pool".into()),
     };
     let (mut definitions, mut lowered_unadmitted, mut unsupported) = (vec![], vec![], vec![]);
     for record in records {
@@ -1341,25 +1340,25 @@ fn verify_bundle(json: &str) -> Result<String, String> {
         exact_source_records(actual, expected)?;
     }
     verify_native_source_closure(&b)?;
-    for (catalog, records) in [
-        (&b.catalog, &b.records),
-        (&b.commander_catalog, &b.commander_records),
-        (&b.damage_catalog, &b.damage_records),
-        (&b.library_catalog, &b.library_records),
+    for (pool, catalog, records) in [
+        ("base", &b.catalog, &b.records),
+        ("commander", &b.commander_catalog, &b.commander_records),
+        ("damage", &b.damage_catalog, &b.damage_records),
+        ("library", &b.library_catalog, &b.library_records),
+        ("action", &b.action_catalog, &b.action_records),
+        ("stack", &b.stack_catalog, &b.stack_records),
+        (
+            "damage-life",
+            &b.damage_life_catalog,
+            &b.damage_life_records,
+        ),
+        ("trigger", &b.trigger_catalog, &b.trigger_records),
+        ("effects", &b.effect_catalog, &b.effect_records),
+        ("choices", &b.choice_catalog, &b.choice_records),
+        ("match", &b.match_catalog, &b.match_records),
     ] {
-        verify_source_catalog(&b.archive_manifest, catalog, records)?;
+        verify_source_catalog(pool, &b.archive_manifest, catalog, records)?;
     }
-    verify_source_catalog(&b.archive_manifest, &b.action_catalog, &b.action_records)?;
-    verify_source_catalog(&b.archive_manifest, &b.stack_catalog, &b.stack_records)?;
-    verify_source_catalog(
-        &b.archive_manifest,
-        &b.damage_life_catalog,
-        &b.damage_life_records,
-    )?;
-    verify_source_catalog(&b.archive_manifest, &b.trigger_catalog, &b.trigger_records)?;
-    verify_source_catalog(&b.archive_manifest, &b.effect_catalog, &b.effect_records)?;
-    verify_source_catalog(&b.archive_manifest, &b.choice_catalog, &b.choice_records)?;
-    verify_source_catalog(&b.archive_manifest, &b.match_catalog, &b.match_records)?;
     if b.trace_runs.len()
         != (109 + effects_games::POLICIES.len() + choices_games::POLICIES.len()) * 3
     {
@@ -1950,59 +1949,73 @@ mod tests {
             compile(fixtures::MANIFEST, fixtures::ACTION_RECORDS[11].1),
             CompileResult::Lowered { .. }
         ));
-        for (catalog, source) in [
+        for (pool, catalog, source) in [
             (
+                "base",
                 mtg_compiler::catalog::embedded_catalog("base").unwrap(),
                 records(&fixtures::RECORDS),
             ),
             (
+                "commander",
                 mtg_compiler::catalog::embedded_catalog("commander").unwrap(),
                 records(&fixtures::COMMANDER_RECORDS),
             ),
             (
+                "damage",
                 mtg_compiler::catalog::embedded_catalog("damage").unwrap(),
                 records(&fixtures::DAMAGE_RECORDS),
             ),
             (
+                "library",
                 mtg_compiler::catalog::embedded_catalog("library").unwrap(),
                 records(&fixtures::LIBRARY_RECORDS),
             ),
             (
+                "action",
                 mtg_compiler::catalog::embedded_catalog("action").unwrap(),
                 records(&fixtures::ACTION_RECORDS),
             ),
             (
+                "stack",
                 mtg_compiler::catalog::embedded_catalog("stack").unwrap(),
                 records(&fixtures::STACK_RECORDS),
             ),
             (
+                "damage-life",
                 mtg_compiler::catalog::embedded_catalog("damage-life").unwrap(),
                 records(&fixtures::DAMAGE_LIFE_RECORDS),
             ),
             (
+                "trigger",
                 mtg_compiler::catalog::embedded_catalog("trigger").unwrap(),
                 records(&fixtures::TRIGGER_RECORDS),
             ),
             (
+                "effects",
                 mtg_compiler::catalog::embedded_catalog("effects").unwrap(),
                 records(&fixtures::EFFECT_RECORDS),
             ),
             (
+                "choices",
                 mtg_compiler::catalog::embedded_catalog("choices").unwrap(),
                 records(&fixtures::CHOICE_RECORDS),
             ),
             (
+                "match",
                 mtg_compiler::catalog::embedded_catalog("match").unwrap(),
                 records(&fixtures::MATCH_RECORDS),
             ),
         ] {
-            verify_source_catalog(fixtures::MANIFEST, &catalog, &source).unwrap();
+            verify_source_catalog(pool, fixtures::MANIFEST, &catalog, &source).unwrap();
+            assert!(
+                verify_source_catalog("unknown", fixtures::MANIFEST, &catalog, &source).is_err()
+            );
             let mut missing = source.clone();
             missing.pop();
-            assert!(verify_source_catalog(fixtures::MANIFEST, &catalog, &missing).is_err());
+            assert!(verify_source_catalog(pool, fixtures::MANIFEST, &catalog, &missing).is_err());
             let mut duplicate = source.clone();
             duplicate.push(source[0].clone());
-            assert!(verify_source_catalog(fixtures::MANIFEST, &catalog, &duplicate).is_err());
+            assert!(verify_source_catalog(pool, fixtures::MANIFEST, &catalog, &duplicate).is_err());
         }
     }
 

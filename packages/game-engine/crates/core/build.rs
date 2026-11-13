@@ -272,7 +272,7 @@ fn main() {
             "MatchProfile::load({raw:?}, {catalog_raw:?}, BANNED_LISTS[{banned_index}]).expect(\"build-validated profile\"),\n"
         );
     }
-    generated += "]; profiles.sort_by_key(|p| p.ir_version); profiles });\n";
+    generated += "]; profiles.sort_by(|a, b| a.name.cmp(&b.name)); profiles });\n";
     generated += "pub(crate) const BANNED_LISTS: &[&str] = &[\n";
     for raw in banned_files.values() {
         generated += &format!("{raw:?},\n");

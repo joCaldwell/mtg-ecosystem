@@ -1,5 +1,5 @@
 {
-  "schema_version": 29,
+  "schema_version": 1,
   "output_order": "sorted",
   "provenance": "../damage-matches/provenance.json",
   "records": [
