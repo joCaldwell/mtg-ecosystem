@@ -30,6 +30,42 @@ can supply is required. Another agent's ownership confirmation is coordination,
 not a reason to ask Josh to approve routine work. A failed check is evidence to
 investigate, not permission to change an expected outcome.
 
+## Bound each batch
+
+A batch delivers one coherent engine increment. Before editing, state its intended
+behavior, owned scope, focused checks and explicit exclusions. Treat follow-on
+admission, policy, mechanics and consumer qualification as separate increments
+unless they are necessary to make the selected behavior correct and reviewable.
+Do not add another feature while closing a batch. An authorized repeating loop
+starts its next increment after the current checkpoint and handoff; a request to
+stop after the batch means finish that increment and stop.
+
+Record the batch start time. Aim for a useful checkpoint within 30 minutes; if
+work exceeds that target, report elapsed time, the concrete remaining work and
+whether to split the increment. This is a planning target, not permission to
+weaken guards, skip necessary validation or claim incomplete work is complete.
+Make routine scope decisions autonomously within the user's authorization.
+
+Read onboarding once per task and reuse the healthy environment, known ownership
+and retained evidence. Recheck the parts affected by incoming changes or lost
+context; do not repeat the entire onboarding sequence at each checkpoint.
+Delegate independent work with explicit ownership when it saves work. Small
+local fixes do not need another delegation cycle. Consolidate final review of
+production code and its tests; repeat review only for material changes or
+unresolved findings.
+
+Before writing a regression, inspect the actual guard, complete source fixture
+and response/advance lifecycle. Confirm purported existing positive cases really
+work on the baseline. Check diagnostic expectations and isolate the intended
+negative from unrelated failure causes before starting native validation.
+
+Reuse the existing verification entry points and receipt formats. Add a custom
+runner only for a concrete coverage gap, not merely to restate commands or
+duplicate inventories and reports. Keep one authoritative attempt receipt with
+links to logs and preserved failures. Use completion notifications or bounded
+waits instead of rapid status polling; keep user updates meaningful and within
+the session's communication cadence.
+
 ## Commands and machine output
 
 Run from repository root. These direct entry points avoid npm's display output:
@@ -117,6 +153,10 @@ source do not become fresh acceptance evidence. If context is lost, reconstruct
 from Git, relevant docs, receipts and the task owner before making assumptions.
 
 Finish by reporting the pushed checkpoint, changed behavior, meaningful checks,
-omissions and any real decision needed. Release the native slot and leave enough
+omissions and any real decision needed. Include elapsed time for the increment
+and cumulative elapsed time/results for the whole batch, rather than reporting
+only the final commit of a longer run. Separate recorded command time, known
+lock waits and unitemized work; do not label the remainder as idle or wasted
+without evidence. Release the native slot and leave enough
 information for the next agent to proceed. Retirement requires completed ownership,
 published ancestry and preservation of local evidence; see the lifecycle helper.

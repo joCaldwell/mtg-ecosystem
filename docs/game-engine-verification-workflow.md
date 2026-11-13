@@ -59,6 +59,15 @@ claim warrants them. No default obligation exists to run twelve profiles, all
 matrices, or fresh offline rebuilds. State which obligations you did not exercise.
 Do not silently remove runtime correctness guards to make a selected test pass.
 
+Select new behavior and relevant negative cases first, then the smallest adjacent
+regressions that could be affected. A complete neighboring module is not the
+default when only a few cases exercise the changed path. Check that each selector
+actually executes tests before treating it as evidence. After a test-only repair,
+rerun the affected tests and required compilation, rather than restarting every
+passed phase. Preserve earlier receipts and explain which unchanged inputs allow
+reuse. Review test assumptions against existing source/contracts before spending
+another native pass on a guessed diagnostic or unsupported baseline case.
+
 Review and integration need focused evidence proportionate to the change, not a
 mandatory full gate. Read-only review and documentation edits do not invalidate
 compiled-source checks. After a code change, repeat affected checks with the reason
