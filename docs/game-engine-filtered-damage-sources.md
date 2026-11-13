@@ -35,6 +35,41 @@ aggregate life totals and current combat membership cannot fabricate matches.
 Self-source predicates still require exact incarnation equality. Accepted-input
 replay proves coherently forged observer, damager and recipient histories false.
 
+## Current compiler source binding
+
+At schema 1, an effect's damage source must remain distinct from the trigger's
+observer. The current damage instructions execute using the invocation source;
+they do not implement an arbitrary triggering object's damage action. An effect
+using the pronoun `it` therefore lowers only when the complete trigger proves
+that object is the invocation source: self entry, death, attack or damage.
+The reference must also be the first top-level effect step, before another
+instruction can introduce a different antecedent; later or nested references
+require a richer binder before support.
+Filtered/grouped damage, another creature's entry/death, spell-cast and step
+events cannot supply that proof and reject an `it` damage source explicitly,
+including within modal branches. Explicit `self` or `this` source references
+retain their own meaning. This does not add event-object damage execution,
+capabilities, catalog admission or a new schema version.
+
+The distinction follows the pinned rules below: CR 120.7 identifies the object
+that deals damage; CR 113.7a and 608.2h distinguish that object's action from the
+ability and retain source/LKI behavior. Synthetic, coherently rebound source
+regressions test the rejection boundary; they are not new archived card facts.
+
+Compiler-only verification passed all 131 library tests, including freshness of
+every committed catalog, formatting and production compiler Clippy. The actual
+TypeScript parser/binder reproduction matches the retained synthetic record and
+reference graph byte for byte. Paired probes cover eight nonself event contexts,
+four self contexts, deferred/modal references and grouped damage. Five complete
+supported self-source records still lower; Falkenrath Perforator's distinct,
+unsupported defending-player recipient remains rejected. No previous source,
+expected IR or catalog digest changed. The original incorrect lowering and an
+intermediate test-classification failure remain retained alongside the passing
+`filtered-event-source-green-02` receipts under
+`~/.local/share/mtg-ecosystem/engine-verification/correctness-loop-20261113/`.
+Runtime/replay, server/SDK, full source-tooling and release/profile matrices were
+not repeated for this compiler-only correction.
+
 The previously verified 32-definition headless profile, its IR29 catalog/digest,
 hosting/search sets and snapshot/public formats are unchanged. New capabilities
 do not grant feature admission. This increment does not renew combined acceptance.
