@@ -1,0 +1,14 @@
+:root { --sans: 'Segoe UI', 'Helvetica Neue', sans-serif; --serif: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Georgia, serif; --background: #141a19; --table: #18211f; --panel: #1d2523; --line: #35433e; --text: #eeece2; --muted: #b0b9b1; --accent: #d8b579; --card: #e4ddca; --ink: #252d26; --card-edge: #aaa18b; font-family: var(--sans); color: var(--text); background: var(--background); font-synthesis: none; text-rendering: optimizeLegibility; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+button, input { font: inherit; }
+button { color: var(--text); background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 9px 12px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+a { color: var(--accent); text-underline-offset: 4px; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+h2, h3 { font-size: 14px; font-weight: 600; }
+p { line-height: 1.6; }
+.eyebrow { font-size: 10px; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); }
+.muted { color: var(--muted); }
+.skip { position: absolute; z-index: 10; top: -80px; left: 16px; padding: 10px; background: var(--background); }.skip:focus { top: 12px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }

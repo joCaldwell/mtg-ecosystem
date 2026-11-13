@@ -1,0 +1,8 @@
+.card { width: 144px; min-height: 196px; flex: 0 0 144px; display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 13px; border: 1px solid var(--card-edge); border-radius: 7px; background: var(--card); color: var(--ink); text-align: left; cursor: pointer; transition: transform 140ms ease, border-color 140ms ease; }
+.card:hover { transform: translateY(-3px); border-color: var(--accent); }
+.card[aria-pressed='true'] { outline: 3px solid var(--accent); outline-offset: 3px; }
+.heading { font: 600 16px/1.2 var(--serif); }
+.mana { font: 11px/1.3 var(--sans); }
+.text { font: 12px/1.45 var(--serif); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; flex: 1; white-space: pre-line; }
+.type { font-size: 10px; border-top: 1px solid var(--card-edge); padding-top: 7px; }
+.inspect { display: flex; justify-content: space-between; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; }

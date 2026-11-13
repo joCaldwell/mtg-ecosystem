@@ -1,0 +1,26 @@
+.orientation { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 23px 30px; border-bottom: 1px solid var(--line); }
+.orientation h1 { margin: 7px 0 0; font: 500 28px var(--serif); }
+.orientation button { font-size: 12px; white-space: nowrap; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 310px; }
+.workspace { min-width: 0; }
+.seats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 20px 30px; gap: 22px; border-bottom: 1px solid var(--line); }
+.seatTop { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.seat h2 { font-size: 12px; margin: 0; }.seat h2 span { color: var(--accent); }
+.life { font: 25px var(--serif); text-align: center; }.life small { display: block; color: var(--muted); font: 9px var(--sans); text-transform: uppercase; letter-spacing: .1em; }
+.seat p { color: var(--muted); font-size: 11px; margin-bottom: 0; }.seat p span { padding: 0 5px; }
+.battlefield { min-height: 220px; padding: 22px 30px; background: var(--table); }
+.sectionHeading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.sectionHeading h2 { margin: 0; }.sectionHeading > span { font-size: 11px; color: var(--muted); }
+.turnline { display: flex; gap: 22px; font-size: 11px; color: var(--muted); }
+.boardEmpty { text-align: center; padding: 10px 0; color: var(--muted); }.boardEmpty p { margin: 6px 0; font-size: 12px; }.boardEmpty > span { font-size: 11px; }
+.tableMark { color: var(--line); font: 60px/1 var(--serif); letter-spacing: -.1em; }
+.lower { display: grid; grid-template-columns: minmax(0, 1fr) 200px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.hand { padding: 22px 30px; min-width: 0; }.command { padding: 22px 20px; border-left: 1px solid var(--line); min-width: 0; }.command h2 { margin-top: 0; margin-bottom: 15px; }
+.cards { display: flex; flex-wrap: wrap; gap: 12px; padding: 5px; margin: -5px; }
+.empty { font-size: 12px; line-height: 1.6; color: var(--muted); }
+.decision { padding: 22px 30px; border-left: 3px solid var(--accent); background: var(--panel); }.decision h2 { margin: 8px 0; font: 22px var(--serif); }.decision p, .decision li { font-size: 13px; line-height: 1.6; }.decision ul { padding-left: 20px; }.readOnly { color: var(--accent); margin-bottom: 0; }
+.stack { padding: 22px 30px; border-top: 1px solid var(--line); }.stack h2 { margin: 0; }.stack h2 span { color: var(--muted); font-weight: 400; padding-left: 5px; }
+.provenance { padding: 0 30px 15px; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+@media (max-width: 1100px) { .seats { gap: 12px; padding-inline: 20px; }.seatTop { flex-wrap: wrap; }.lower { grid-template-columns: minmax(0, 1fr); }.command { border-left: 0; border-top: 1px solid var(--line); padding-inline: 30px; } }
+@media (max-width: 950px) { .layout { grid-template-columns: minmax(0, 1fr); }.orientation { padding: 20px; }.orientation h1 { font-size: 24px; } }
+@media (max-width: 560px) { .seats { grid-template-columns: repeat(2, minmax(0, 1fr)); }.orientation { align-items: flex-start; flex-direction: column; }.hand, .battlefield, .decision, .stack { padding-inline: 20px; } }
