@@ -1,7 +1,7 @@
 {
-  "native_source": "1e6fbefffb908cdf7dd741c4baa97f6467c4c85d",
+  "native_source": "e86df7e73f5ac896a4b2488779efb46ef28240d4",
   "protocol_schema_sha256": "a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3",
   "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
-  "scope": "Explicit combined schema-1 main144fe059 plus authenticated action-query transport and exact-command SDK. Retained current producer exports; historical fixture/provenance unchanged. One SDK build for SDK/client compatibility checks; no claim of integrated live controls or full M2.",
-  "sdk_source": "76b5f3a1e4cfe8e32189fd197b3f1edf05670f80"
+  "scope": "Reviewed action-query transport and exact-command SDK integrated with main 0b4a8757 compiler source-binding correction. Fresh combined native exports; historical capture/provenance unchanged. One current SDK build qualifies both packages.",
+  "sdk_source": "e86df7e73f5ac896a4b2488779efb46ef28240d4"
 }

@@ -265,3 +265,41 @@ The integration owner must combine transport/pin updates and controls, retain on
 qualified SDK build, supply its exact protocol digest to the opt-in factory,
 qualify command serving/proxy routes, run the actual combined browser-to-native
 journal path and retain its own source-qualified report before enabling live sends.
+
+## Parent integration qualification
+
+Parent combined reviewed action transport with main `0b4a8757`, native source
+`e86df7e73f5ac896a4b2488779efb46ef28240d4`, then merged that source into this
+branch at `41874eeabafae90d1660ab477cfd446c2de6bd7a`. The prepared-command
+prerequisite is preserved once. The separate SDK qualification now deliberately
+uses current `a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3`
+exports. Baseline historical source/fixture/provenance bytes above remain history.
+
+With one current SDK build: generation, strict types and 66 SDK tests passed;
+client types/boundaries/all 60 tests/build and all 16 Chromium/Firefox IndexedDB
+journal cases passed. These current receipts are under this worktree's root
+`generated/m2-integration/`; old standalone receipts were preserved.
+
+The controls branch combines this exact journal source with its unchanged
+controls implementation. Its combined checks passed 67 client tests, 22 fixture
+browser cases and 16 journal browser cases. A separate test-only same-origin
+proxy served the actual browser command factory/session source and production SDK
+against the fresh native `serve-client` binary. In both Chromium and Firefox,
+the pure control adapter produced a response to an actual permitted mulligan
+request from its retained original CommandContext. An explicit test button sent
+that response through the real journal factory. The proxy interrupted the body
+only after a real native HTTP 200; the exact persisted body hash matched the
+native POST, local stop retained its slot, and navigation/reimport reconciled
+`consumed_by_rules` through native execution status and refreshed the view. No
+replacement or replay was sent, and the old intent was ignored. The slot cleared
+only after authoritative disposition. This is automated integration evidence,
+not deployed App wiring or human play.
+
+That receipt and reproducible harness live in the controls worktree's root
+`generated/m2-integration/native-journal-02/report.json` and `native-journal.mjs`.
+The initial harness checked for an opening before native progress had settled;
+its bounded-readiness failure remains in `native-journal-01.log`. The corrected
+harness waits for the actual committed request. All owned host/browser processes
+are stopped. Fresh native identities and focused build checks are recorded in
+`docs/game-client-action-transport.md`'s parent qualification section. Product
+read-only proxy/app behavior and source-label/context gaps remain unchanged.
