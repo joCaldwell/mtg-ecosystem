@@ -59,6 +59,9 @@ and adds one charged initialization unit; old sidecars reject. `mtg_contracts::C
 is the current IR authority; see [version and build checks](game-engine-builds.md).
 The unreleased schema stays at 33 while there are no external consumers; new
 features evolve it in place with capability validation and exact build fencing.
+The next in-place extension covers [grouped power-qualified damage and opponent
+casting prohibition](game-engine-grouped-damage.md); its capability scope is
+separate from historical version gates.
 Read Rust types and validation at the edited source; old reports retain their
 original version numbers. Do not update historical catalogs or expected hashes
 just to match the newest IR version. No new quiet P7 performance, offline

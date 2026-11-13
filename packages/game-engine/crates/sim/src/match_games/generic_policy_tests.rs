@@ -1061,3 +1061,84 @@ fn generic_policy_develops_flash_at_opponents_end_and_chooses_legends() {
         }
     );
 }
+
+#[test]
+fn generic_policy_respects_public_opponent_cast_prohibition_before_flash_planning() {
+    let mut c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+    let mut v = wipe_tests::view(&c);
+    let header =
+        include_str!("../../../../tests/fixtures/cards-data-d2ce/archive-manifest-current.json");
+    for raw in [
+        include_str!(
+            "../../../../tests/fixtures/cards-data-d2ce/3233af43-7826-4895-b67e-03c6102c2cd5.json"
+        ),
+        include_str!(
+            "../../../../tests/fixtures/cards-data-d2ce/ba5055ce-6809-47a4-bee6-fb97a5b60f8a.json"
+        ),
+    ] {
+        let mtg_compiler::CompileResult::Lowered { definition } =
+            mtg_compiler::compile(header, raw)
+        else {
+            panic!("complete frozen Kutzil/Research source must lower");
+        };
+        c.definitions.push(*definition);
+    }
+    c.schema_version = mtg_contracts::CURRENT_IR_VERSION;
+    c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    c.validate().unwrap();
+    let viewer = v.viewer;
+    v.active = Some(PlayerId(1));
+    v.turn_owner = PlayerId(1);
+    v.turn.step = TurnStep::End;
+    v.players
+        .iter_mut()
+        .find(|p| p.player == viewer)
+        .unwrap()
+        .mana = [(Color::U, 5.into())].into();
+    v.objects = vec![wipe_tests::card(
+        &c,
+        "Research Thief",
+        viewer.0,
+        Zone::Hand { owner: viewer },
+    )];
+    let cast = PlayerResponse::Cast {
+        card: ObjectHandle("Research Thief".into()),
+    };
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        cast
+    );
+
+    // These are public-view policy probes, not accepted-input engine replay.
+    // Ownership differs from control; only the source's current controller and
+    // the retained turn owner define the prohibition.
+    let mut lock = wipe_tests::card(&c, "Kutzil, Malamet Exemplar", 2, Zone::Battlefield);
+    lock.controller = PlayerId(1);
+    v.objects.push(lock);
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        PlayerResponse::Pass
+    );
+    v.active = None;
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        PlayerResponse::Pass
+    );
+    v.active = Some(PlayerId(1));
+    v.objects[1].controller = PlayerId(0);
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        cast
+    );
+    v.objects[1].controller = PlayerId(1);
+    v.turn_owner = PlayerId(0);
+    v.active = Some(PlayerId(0));
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        cast
+    );
+    v.turn_owner = PlayerId(1);
+    v.active = Some(PlayerId(1));
+    v.objects[1].zone = Zone::Graveyard { owner: PlayerId(2) };
+    assert_eq!(strategy(&c).priority(&observation(v)).unwrap(), cast);
+}

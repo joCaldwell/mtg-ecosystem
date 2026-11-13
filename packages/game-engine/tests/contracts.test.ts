@@ -2285,3 +2285,58 @@ test("IR33 exact-source Snow creature and attacking deathtouch keep independent 
     passed=true;
   } finally {if(passed) fs.rmSync(temporary,{recursive:true,force:true});}
 });
+
+test("exact-source Kutzil consumes grouped power and cast prohibition on the unreleased schema", () => {
+  const source=fileURLToPath(new URL("fixtures/cards-data-d2ce/",import.meta.url));
+  const record=path.join(source,"3233af43-7826-4895-b67e-03c6102c2cd5.json");
+  const raw=fs.readFileSync(record,"utf8");const archived=JSON.parse(raw);
+  const parsed=parseOracleText(archived.source.oracle_text,archived.source.name,{
+    layout:archived.source.layout,typeLine:archived.source.type_line,includeSourceProvenance:true,
+  });
+  assert.equal(parsed.ok,true);
+  if(parsed.ok) assert.deepEqual(JSON.parse(JSON.stringify(parsed.abilities)),archived.faces[0].result.abilities);
+  // This archived graph is diagnostic, not the executable binder. In particular
+  // its "it" points at the card source, while the strict Rust lowering binds
+  // base power independently to EACH candidate damager. Keep that evidence.
+  assert.equal(archived.binding.executable,false);
+  assert.equal(archived.binding.fullyBound,false);
+  assert.equal(archived.binding.references.find((r:any)=>r.path.endsWith("/comparison/value/of")).target,
+    `card:${archived.oracleIdentity}/source#object`);
+  const temporary=fs.mkdtempSync(path.join(os.tmpdir(),"mtg-grouped-power-schema-"));let passed=false;
+  try {
+    const manifest=path.join(temporary,"catalog.json");
+    fs.writeFileSync(manifest,JSON.stringify({schema_version:33,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
+    const report=run("catalog","build",manifest,"--write");assert.equal(report.definitions,1);
+    const catalog=JSON.parse(fs.readFileSync(report.expected_ir,"utf8"));const d=catalog.definitions[0];
+    assert.equal(d.name,"Kutzil, Malamet Exemplar");assert.equal(d.characteristics.legendary,true);
+    assert.equal(d.characteristics.power,"3");assert.equal(d.characteristics.toughness,"3");
+    for(const cap of ["opponent_cast_prohibition_v1","grouped_creature_damage_trigger_v1"]) assert.ok(d.capabilities.includes(cap),cap);
+    assert.deepEqual(d.static_abilities,[{functioning_zone:"battlefield",effect:"opponents_cant_cast_during_controller_turn"}]);
+    assert.deepEqual(d.triggered[0].condition,{grouped_damage_dealt:{
+      source:{subject:"creature_filter",controller:"controller",types:{predicate:"type",kind:"creature"}},
+      kind:"combat",recipient:"player",source_power:"greater_than_base",
+    }});
+    assert.deepEqual(d.triggered[0].program.instructions,[{op:"draw_cards",count:"1",source_block:1}]);
+    const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
+    assert.equal(validate(catalog),true,JSON.stringify(validate.errors));assert.equal(validate({...catalog,schema_version:34}),false);
+    for(const mutate of [
+      (x:any)=>{x.static_abilities[0].effect={opponents_cant_cast_during_controller_turn:{}};},
+      (x:any)=>{x.static_abilities[0].functioning_zone="command";},
+      (x:any)=>{x.triggered[0].condition.grouped_damage_dealt.source_power="greater_than_source_base";},
+      (x:any)=>{x.triggered[0].condition.grouped_damage_dealt.kind="any";},
+      (x:any)=>{x.triggered[0].condition.grouped_damage_dealt.recipient="opponent_player";},
+      (x:any)=>{x.triggered[0].condition.grouped_damage_dealt.source={subject:"source"};},
+      (x:any)=>{x.triggered[0].condition.grouped_damage_dealt.extra=true;},
+      (x:any)=>{delete x.triggered[0].condition.grouped_damage_dealt.source_power;},
+      (x:any)=>{x.triggered[0].program.instructions[0].count="2";},
+      (x:any)=>{x.triggered[0].program.instructions[0].recipient="event_player";},
+      (x:any)=>{x.triggered[0].program.instructions[0]={op:"draw_damage_amount",source_block:1};},
+    ]) {
+      const bad=structuredClone(catalog);mutate(bad.definitions[0]);assert.equal(validate(bad),false);
+    }
+    assert.equal(fs.readFileSync(record,"utf8"),raw,"compilation cannot rewrite the archived diagnostic binding");
+    assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"06466aeb1c18d3b75352c9ab276c046ff07b931f1aadf3f86fde7c5e74dc5bda");
+    assert.equal(validate(loadCatalog("damage-matches-v2")),true,JSON.stringify(validate.errors));
+    passed=true;
+  } finally {if(passed) fs.rmSync(temporary,{recursive:true,force:true});}
+});

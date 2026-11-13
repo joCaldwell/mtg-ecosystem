@@ -234,6 +234,8 @@ enum SourceTrigger {
         #[serde(default, deserialize_with = "damage_combat_qualifier")]
         combat: Option<bool>,
         to: serde_json::Value,
+        #[serde(default, deserialize_with = "present_damage_filter_field")]
+        grouping: Option<String>,
     },
     Attacks {
         what: SourceAttacker,
@@ -301,6 +303,8 @@ struct SourceDamageFilter {
     any_of: Option<Vec<SourceTypeFilter>>,
     #[serde(default, deserialize_with = "present_damage_filter_field")]
     control: Option<String>,
+    #[serde(default, deserialize_with = "present_damage_filter_field")]
+    properties: Option<Vec<serde_json::Value>>,
 }
 fn present_damage_filter_field<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
@@ -315,7 +319,9 @@ fn lower_damage_subject(what: &SourceDamageObject) -> Result<DamageTriggerSource
             Ok(DamageTriggerSource::Source {})
         }
         SourceDamageObject::Filter { filter, count }
-            if fixed_one(count) && filter.types.iter().any(|t| t == "creature") =>
+            if fixed_one(count)
+                && filter.types.iter().any(|t| t == "creature")
+                && filter.properties.is_none() =>
         {
             let controller = match filter.control.as_deref() {
                 Some("you") => DamageSourceRelation::Controller,
@@ -815,6 +821,9 @@ enum AnyTargetReference {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "static", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceStaticEffect {
+    Prohibit {
+        prohibition: serde_json::Value,
+    },
     EntersTapped {
         what: serde_json::Value,
         #[serde(rename = "conditionKind")]
@@ -2556,6 +2565,25 @@ fn lower_prevention(
     }
 }
 fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
+    if let SourceStaticEffect::Prohibit { prohibition } = effect {
+        // CR 101.2/109.5/601.3/611.3b: the current battlefield controller
+        // defines opponents and whose turn. Consume the whole action scope;
+        // archived unsupported-scope diagnostics are not executable authority.
+        if *prohibition
+            != serde_json::json!({"prohibition":"cast","who":{"player":"each-opponent"},
+            "what":{"ref":"each","filter":{"cls":"spell"}},"when":{"during":"turn","whose":{"player":"you"}}})
+        {
+            return Err(unsupported(
+                "static.prohibition",
+                "unsupported complete casting prohibition scope",
+            ));
+        }
+        return Ok(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::OpponentsCantCastDuringControllerTurn,
+        });
+    }
+
     // CR 614.1c/614.12: only unconditional entry of this source is supported.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     if let SourceStaticEffect::EntersTapped {
@@ -3104,12 +3132,26 @@ fn lower_trigger(
         ));
     }
     let condition=match trigger {
-        SourceTrigger::DealsDamage { what, combat: Some(true), to }
+        SourceTrigger::DealsDamage { what:SourceDamageObject::Filter {filter,count},combat:Some(true),to,grouping:Some(grouping) }
+            if grouping == "one-or-more" && *to == serde_json::json!("any")
+                && fixed_one(count) && filter.types == ["creature"]
+                && filter.control.as_deref() == Some("you") && filter.non_types.is_none()
+                && filter.all_of.is_none() && filter.any_of.is_none()
+                && filter.properties.as_deref() == Some(&[serde_json::json!({"property":"power","comparison":{"op":"gt","value":{"amount":"attribute","of":{"ref":"it"},"attribute":"base-power"}}})]) => {
+            // CR 208.4b/603.2c/603.10: the property's "it" is EACH candidate
+            // creature, not the observing source. Diagnostic references remain
+            // unchanged even when their earlier binder chose another object.
+            TriggerCondition::GroupedDamageDealt {
+                source:DamageTriggerSource::CreatureFilter {controller:DamageSourceRelation::Controller,types:TypePredicate::Type {kind:CardKind::Creature}},
+                kind:TriggerDamageKind::Combat,recipient:DamageTriggerRecipient::Player,source_power:DamageSourcePowerPredicate::GreaterThanBase,
+            }
+        },
+        SourceTrigger::DealsDamage { what, combat: Some(true), to, grouping:None }
             if *to == serde_json::json!("any") => {
             TriggerCondition::DamageDealt { source: lower_damage_subject(what)?,
                 kind: TriggerDamageKind::Combat, recipient: DamageTriggerRecipient::Player }
         },
-        SourceTrigger::DealsDamage { what, combat: None, to }
+        SourceTrigger::DealsDamage { what, combat: None, to, grouping:None }
             if *to == serde_json::json!({"player":"an-opponent"}) => {
             TriggerCondition::DamageDealt { source: lower_damage_subject(what)?,
                 kind: TriggerDamageKind::Any, recipient: DamageTriggerRecipient::OpponentPlayer }
@@ -3163,6 +3205,17 @@ fn lower_trigger(
             && events.iter().filter(|event|matches!(event,SourceTrigger::Dies {what} if is_other_creature(what))).count()==1 =>TriggerCondition::AnyCreatureDies,
         _=>return Err(unsupported("abilities.trigger","unsupported complete event/source/other/alternative trigger binding")),
     };
+    if matches!(condition, TriggerCondition::GroupedDamageDealt { .. })
+        && (intervening.is_some()
+            || !matches!(effects, [Sentence {bindings,steps}] if bindings.is_empty()
+            && matches!(steps.as_slice(), [Step::Draw {who,amount:DrawAmount::Fixed {value:1},optional:false}]
+                if who.player == "you" && who.of.is_none() && who.selection_id.is_none())))
+    {
+        return Err(unsupported(
+            "effects.grouped_damage",
+            "grouped damage requires one standalone mandatory controller draw",
+        ));
+    }
     let mut program = SpellProgram {
         additional_sacrifice: None,
         timing: SpellTiming::Instant,

@@ -238,6 +238,8 @@ mod attack_trigger_tests;
 #[cfg(test)]
 mod attacking_creature_keyword_tests;
 #[cfg(test)]
+mod cast_prohibition_tests;
+#[cfg(test)]
 mod cast_trigger_tests;
 #[cfg(test)]
 mod damage_controller_discard_tests;
@@ -258,6 +260,8 @@ mod event_player_sacrifice_tests;
 #[cfg(test)]
 mod filtered_damage_trigger_tests;
 #[cfg(test)]
+mod grouped_damage_trigger_tests;
+#[cfg(test)]
 mod opponent_damage_trigger_tests;
 #[cfg(test)]
 mod optional_draw_tests;
@@ -267,7 +271,8 @@ mod step_trigger_tests;
 mod trigger_tests;
 mod triggers;
 pub use triggers::{
-    CastOccurrence, CastOccurrenceId, TriggerEventWitness, TriggerId, TriggerOccurrenceId,
+    CastOccurrence, CastOccurrenceId, GroupedDamageMember, TriggerEventWitness, TriggerId,
+    TriggerOccurrenceId,
 };
 use triggers::{PendingTrigger, TriggerPlacement};
 mod history;
@@ -2432,6 +2437,7 @@ impl Game {
                 Ok(())
             }
             (Frame::Priority, Response::Cast { card }) if self.state.rules.priority == player => {
+                self.validate_cast_permission(player)?;
                 let o = self.state.rules.objects.get(card).ok_or("invalid cast")?;
                 if !(o.zone == (Zone::Hand { owner: player })
                     || (o.zone == (Zone::Command { owner: player })
@@ -2660,6 +2666,7 @@ impl Game {
                         }
                     }
                     Response::Cast { card } => {
+                        self.validate_cast_permission(input.player)?;
                         self.check_stack_capacity(1)?;
                         let cast_from = self
                             .state
