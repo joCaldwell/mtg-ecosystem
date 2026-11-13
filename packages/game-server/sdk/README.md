@@ -7,6 +7,65 @@ server checks. Complete admitted four-player integration is tracked separately
 in [the server contract](../../../docs/game-engine-server.md). Production
 authentication and deployment are outside this local release.
 
+## Browser package
+
+Build explicitly before adding `file:../game-server/sdk` to a consumer's own
+isolated dependencies. No install hook, check or build invokes Cargo. The Rust
+owner supplies the compatible executable or exact exported schema file:
+
+```sh
+MTG_SERVER_SCHEMA=/absolute/source-qualified/protocol.schema.json npm --prefix packages/game-server/sdk run build:browser --workspaces=false
+```
+
+Both `@multiverse/game-server-sdk` and `@multiverse/game-server-sdk/browser` export
+`GameClient`, `HttpError`, `TransportError`, `ProtocolError`, `counter` and
+`PROTOCOL_VERSION`. Exact generated type exports include `Observation`,
+`PlayerRequest`, `PlayerResponse`, `CommandEnvelope`, `StreamPage`, `PublicManifest`
+and the existing types listed in `src/client.ts`; `ClientOptions` and `PollOptions`
+are transport configuration. They resolve to `dist/browser.js` and
+`dist/browser.d.ts`. Source/tests/examples are not package exports.
+
+```ts
+import { GameClient, type Observation, type PlayerRequest } from '@multiverse/game-server-sdk';
+const sdk = new GameClient({ baseURL: location.origin, matchId, capability, fetch: fixtureFetch });
+// Omit fetch to use real browser HTTP. Fixtures inject typeof globalThis.fetch
+// returning native Response/ReadableStream; no retry or gameplay policy is added.
+```
+
+The build generates standalone Ajv validators and bundles their static helpers,
+including all four custom numeric formats. Ajv compilation runs only at build
+time. The browser ESM has no external imports, Node globals, runtime JSON imports,
+React, example policies or private fixtures. Strict raw JSON decoding, response
+correlation, byte limits and decimal exactness remain in the shared transport.
+The browser default fetch is bound to its global receiver. No automatic retries
+are introduced. The existing five operations are the supported wire contract;
+new resume/action operations require a separate native schema dependency.
+
+`generated/generation.json` pins schema bytes, declarations, standalone validators,
+generator inputs/options and lockfile. `dist/build.json` pins generated input,
+runtime input allowlist, exports and all distribution files. Generated artifacts
+remain ignored. A changed source/export requires explicit regeneration. Preserve
+the native source/build provenance alongside these digests; a matching schema
+alone does not prove that a host binary is compatible with saved match state.
+
+```sh
+# Explicit one-time download of the locked automation browsers; never part of a check.
+node packages/game-server/sdk/node_modules/playwright/cli.js install chromium firefox
+# After build:browser; no Cargo, no implicit download, no external API.
+npm --prefix packages/game-server/sdk run test:browser --workspaces=false
+```
+
+The small loopback harness serves production ESM with `default-src 'none'`,
+`script-src 'self'`, `connect-src 'self'`, no inline scripts or `unsafe-eval`.
+Its external module proves CSP enforcement with a deliberately blocked dynamic
+function, then exercises validators, exact quantities/cursors, raw JSON negatives,
+bounded/cancelled streams, native fetch/abort, Web Locks and IndexedDB in Chromium
+and Firefox. The runner closes browsers/server and records exact versions and
+hashes in a new `generated/browser-proof-*.json`. Fixture HTTP is explicitly
+synthetic; it does not establish real Rust hosting, seat isolation or human play.
+See [the browser SDK report](../../../docs/game-client-browser-sdk.md) for source
+qualification, actual evidence and remaining native integration gates.
+
 The nested package owns its lockfile and dependencies. It deliberately stays
 outside the root npm workspace. From the repository root, install without changing the shared root `node_modules` symlink:
 

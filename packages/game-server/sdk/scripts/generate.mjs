@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { standalone, validationOptions } from './standalone.mjs';
 
 const sdk = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const output = path.resolve(process.env.MTG_SERVER_OUTPUT ?? path.join(sdk, 'generated'));
@@ -86,10 +87,23 @@ for (const [key, title] of [['command', 'CommandEnvelope'], ['stream', 'StreamPa
 const routeSource = `/* Generated from Rust protocol::ROUTES; do not edit. */\nexport const ROUTES = ${JSON.stringify(routes, null, 2)} as const;\n`;
 fs.writeFileSync(path.join(pending, 'routes.ts'), routeSource);
 files.push({ path: 'routes.ts', sha256: createHash('sha256').update(routeSource).digest('hex') });
+const validators = await standalone(schemas);
+for (const [filename, content] of [
+  ['validators.js', validators.source], ['validators.d.ts', validators.declaration],
+  ['protocol.ts', `/* Generated from Rust; do not edit. */\nexport const PROTOCOL_VERSION = ${schemas.protocol_version} as const;\n`],
+]) {
+  fs.writeFileSync(path.join(pending, filename), content);
+  files.push({ path: filename, sha256: createHash('sha256').update(content).digest('hex') });
+}
 fs.writeFileSync(path.join(pending, 'generation.json'), JSON.stringify({
   protocol_version: schemas.protocol_version, routes: schemas.routes, routes_sha256: createHash('sha256').update(JSON.stringify(schemas.routes)).digest('hex'), generator: 'json-schema-to-typescript@16.0.0',
   generator_options: generatorOptions, schema_dialect: 'Draft7',
   schema_sha256: createHash('sha256').update(bytes).digest('hex'), files,
+  standalone: { generator: 'ajv@8.20.0', bundler: 'esbuild@0.28.2', options: validationOptions,
+    sources: ['scripts/generate.mjs', 'scripts/standalone.mjs', 'scripts/numeric-formats.mjs', 'package-lock.json'].map(file => ({
+      path: file, sha256: createHash('sha256').update(fs.readFileSync(path.join(sdk, file))).digest('hex'),
+    })),
+  },
 }, null, 2) + '\n');
 
 // Publish only after every schema/declaration passed. Manifest is committed last.

@@ -1,25 +1,12 @@
-import { Ajv } from 'ajv';
 import type { CommandEnvelope } from '../generated/command.js';
 import type { StreamPage } from '../generated/stream.js';
 import type { SubmissionResult } from '../generated/submission.js';
 import type { CommandExecution } from '../generated/execution.js';
 import type { PublicManifest } from '../generated/manifest.js';
-import schemas from '../generated/protocol.schema.json' with { type: 'json' };
-
-// Compile trusted local Draft7 schemas once; never coerce or remove input data.
-// https://ajv.js.org/guide/getting-started.html#basic-data-validation
-const ajv = new Ajv({ strict: true, allErrors: false, coerceTypes: false, useDefaults: false, removeAdditional: false });
-for (const [name, maximum] of [['uint8', 255], ['uint32', 4_294_967_295], ['uint64', Number.MAX_SAFE_INTEGER], ['uint', Number.MAX_SAFE_INTEGER]] as const) {
-  ajv.addFormat(name, { type: 'number', validate: (n: number) => Number.isSafeInteger(n) && n >= 0 && n <= maximum });
-}
-const commandValidator = ajv.compile<CommandEnvelope>(schemas.command);
-const streamValidator = ajv.compile<StreamPage>(schemas.stream);
-const submissionValidator = ajv.compile<SubmissionResult>(schemas.submission);
-const executionValidator = ajv.compile<CommandExecution>(schemas.execution);
-const manifestValidator = ajv.compile<PublicManifest>(schemas.manifest);
-const commandIdValidator = ajv.compile<string>(schemas.command.properties.command_id);
-const counterValidator = ajv.compile<string>({ $ref: '#/definitions/DecimalU64Counter', definitions: schemas.stream.definitions });
-export const PROTOCOL_VERSION = schemas.protocol_version;
+import { commandValidator, streamValidator, submissionValidator, executionValidator,
+  manifestValidator, commandIdValidator, counterValidator } from '../generated/validators.js';
+import { PROTOCOL_VERSION } from '../generated/protocol.ts';
+export { PROTOCOL_VERSION } from '../generated/protocol.ts';
 export class ProtocolError extends Error {
   constructor(message = 'Invalid server protocol data') { super(message); this.name = 'ProtocolError'; }
 }
