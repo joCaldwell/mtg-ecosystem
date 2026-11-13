@@ -1,3 +1,5 @@
+import type { ActionQueryRequest } from '../generated/action_request.js';
+import type { ActionQueryResponse } from '../generated/action_query.js';
 import type { CommandEnvelope } from '../generated/command.js';
 import type { StreamPage, StreamEntry } from '../generated/stream.js';
 import type { SubmissionResult } from '../generated/submission.js';
@@ -5,7 +7,7 @@ import type { CommandExecution } from '../generated/execution.js';
 import type { PublicManifest } from '../generated/manifest.js';
 import type { SeatResume } from '../generated/resume.js';
 import type { SeatBootstrap } from '../generated/bootstrap.js';
-import { command, commandIdentifier, counter, execution, manifest, stream, submission, resume, bootstrap, ProtocolError } from './validation.ts';
+import { actionRequest, actionQuery, command, commandIdentifier, counter, execution, manifest, stream, submission, resume, bootstrap, ProtocolError } from './validation.ts';
 import { strictJSON } from './strict-json.ts';
 import { requestJSON } from './transport.ts';
 import { presentationDescriptor, presentationArtifact } from './public.ts';
@@ -23,10 +25,30 @@ export type { PublicManifest, Catalog, Decklist, DeckEntry } from '../generated/
 export type { SeatResume, ResumeState } from '../generated/resume.js';
 export type { SeatBootstrap } from '../generated/bootstrap.js';
 
+export type { ActionQueryRequest } from '../generated/action_request.js';
+export type { ActionQueryResponse, ActionQueryStatus, ActionQueryUnavailable, ActionPage, ActionBeginning, ActionInitiation, ActionScope, ActionLabel, ActionDecisionContext, ActionSourceContext, ActionUnavailable } from '../generated/action_query.js';
+
 /** Parse only an explicitly imported single-seat file; never persist or log it. */
 export function parseSeatBootstrap(text: string): SeatBootstrap {
   if (new TextEncoder().encode(text).byteLength > 4096) throw new ProtocolError('Seat bootstrap exceeds limit');
   return bootstrap(strictJSON(text));
+}
+
+/** Detached immutable journal input; exactBody is the authoritative wire string. */
+export interface PreparedCommand { readonly envelope: CommandEnvelope; readonly exactBody: string }
+function freezeCommand<T>(value:T):T {
+  if (value && typeof value === 'object') { for (const child of Object.values(value)) freezeCommand(child); Object.freeze(value); }
+  return value;
+}
+/** Recovery validates the original bytes without canonicalizing or reserializing. */
+export function parsePreparedCommand(exactBody:string):PreparedCommand {
+  if (typeof exactBody !== 'string' || new TextEncoder().encode(exactBody).byteLength > 65_536) throw new ProtocolError('Command body exceeds limit');
+  return Object.freeze({ envelope:freezeCommand(command(strictJSON(exactBody))), exactBody });
+}
+/** Snapshot, validate and detach from mutable caller-owned input before journaling. */
+export function prepareCommand(envelope:CommandEnvelope):PreparedCommand {
+  command(envelope);
+  return parsePreparedCommand(JSON.stringify(envelope));
 }
 
 export interface ClientOptions {
@@ -82,10 +104,12 @@ export class GameClient {
   }
   /** No retries: after an ambiguous transport error, caller reuses the exact envelope/id. */
   async submit(envelope: CommandEnvelope, options: { signal?: AbortSignal } = {}): Promise<SubmissionResult> {
-    const validated = command(envelope);
-    const commandId = validated.command_id;
-    const body = JSON.stringify(validated);
-    if (new TextEncoder().encode(body).byteLength > 65_536) throw new ProtocolError('Command body exceeds limit');
+    return this.submitExact(prepareCommand(envelope).exactBody, options);
+  }
+  /** Send one validated journal body verbatim. Caller owns every retry/recovery decision. */
+  async submitExact(exactBody:string, options:{signal?:AbortSignal}={}):Promise<SubmissionResult> {
+    const {envelope, exactBody:body}=parsePreparedCommand(exactBody);
+    const commandId=envelope.command_id;
     const result = submission(await this.#request('submit_command', body, options.signal));
     if (result.command_id !== commandId) throw new ProtocolError('Submission result has a different command identifier');
     return result;
@@ -114,6 +138,19 @@ export class GameClient {
     const commandId = commandIdentifier(id);
     const result = submission(await this.#request('cancel_command', undefined, options.signal, { commandId }));
     if (result.command_id !== commandId) throw new ProtocolError('Cancellation result has a different command identifier');
+    return result;
+  }
+  /** One bounded pure discovery/cursor/cancel operation. No retry or automatic pagination. */
+  async queryActions(request:ActionQueryRequest, options:{signal?:AbortSignal}={}):Promise<ActionQueryResponse> {
+    const validated=actionRequest(request);
+    const body=JSON.stringify(validated);
+    if(new TextEncoder().encode(body).byteLength>2048) throw new ProtocolError('Action query body exceeds limit');
+    const result=actionQuery(await this.#request('query_actions',body,options.signal,{maximumBytes:65_536}));
+    if(result.match_id!==this.#matchId) throw new ProtocolError('Action query has a different match identifier');
+    if(validated.operation==='start' && (result.outcome.status==='complete' || result.outcome.status==='incomplete')) {
+      const page=result.outcome.page;
+      if(page.token!==validated.token || page.scope.scope!==validated.scope.scope || (page.scope.scope==='object' && validated.scope.scope==='object' && page.scope.object!==validated.scope.object) || page.beginnings.length>validated.page_size) throw new ProtocolError('Action query page has a different request binding');
+    }
     return result;
   }
   async poll(options: PollOptions): Promise<StreamPage> {
