@@ -29,6 +29,23 @@ export function parseSeatBootstrap(text: string): SeatBootstrap {
   return bootstrap(strictJSON(text));
 }
 
+/** Detached immutable journal input; exactBody is the authoritative wire string. */
+export interface PreparedCommand { readonly envelope: CommandEnvelope; readonly exactBody: string }
+function freezeCommand<T>(value:T):T {
+  if (value && typeof value === 'object') { for (const child of Object.values(value)) freezeCommand(child); Object.freeze(value); }
+  return value;
+}
+/** Recovery validates the original bytes without canonicalizing or reserializing. */
+export function parsePreparedCommand(exactBody:string):PreparedCommand {
+  if (typeof exactBody !== 'string' || new TextEncoder().encode(exactBody).byteLength > 65_536) throw new ProtocolError('Command body exceeds limit');
+  return Object.freeze({ envelope:freezeCommand(command(strictJSON(exactBody))), exactBody });
+}
+/** Snapshot, validate and detach from mutable caller-owned input before journaling. */
+export function prepareCommand(envelope:CommandEnvelope):PreparedCommand {
+  command(envelope);
+  return parsePreparedCommand(JSON.stringify(envelope));
+}
+
 export interface ClientOptions {
   baseURL: string;
   matchId: string;
@@ -82,10 +99,12 @@ export class GameClient {
   }
   /** No retries: after an ambiguous transport error, caller reuses the exact envelope/id. */
   async submit(envelope: CommandEnvelope, options: { signal?: AbortSignal } = {}): Promise<SubmissionResult> {
-    const validated = command(envelope);
-    const commandId = validated.command_id;
-    const body = JSON.stringify(validated);
-    if (new TextEncoder().encode(body).byteLength > 65_536) throw new ProtocolError('Command body exceeds limit');
+    return this.submitExact(prepareCommand(envelope).exactBody, options);
+  }
+  /** Send one validated journal body verbatim. Caller owns every retry/recovery decision. */
+  async submitExact(exactBody:string, options:{signal?:AbortSignal}={}):Promise<SubmissionResult> {
+    const {envelope, exactBody:body}=parsePreparedCommand(exactBody);
+    const commandId=envelope.command_id;
     const result = submission(await this.#request('submit_command', body, options.signal));
     if (result.command_id !== commandId) throw new ProtocolError('Submission result has a different command identifier');
     return result;
