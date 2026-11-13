@@ -23,7 +23,7 @@ try {
     metafile: true, legalComments: 'inline',
   });
   const allowed = new Set(['src/browser.ts', 'src/client.ts', 'src/validation.ts', 'src/strict-json.ts',
-    'generated/validators.js', 'generated/routes.ts', 'generated/protocol.ts']);
+    'src/public.ts', 'src/transport.ts', 'generated/presentation-identity.ts', 'generated/validators.js', 'generated/routes.ts', 'generated/protocol.ts']);
   for (const input of Object.keys(result.metafile.inputs)) {
     if (!allowed.has(input)) throw new Error(`Unexpected browser runtime dependency: ${input}`);
   }

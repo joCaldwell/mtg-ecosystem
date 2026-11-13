@@ -36,13 +36,20 @@ const bytes = fs.readFileSync(schemaPath);
 const bootstrapBytes = fs.readFileSync(bootstrapPath);
 if (bytes.length > 8 * 1024 * 1024 || bootstrapBytes.length > 8 * 1024 * 1024) throw new Error('Protocol schema exceeds generator bound');
 const schemas = JSON.parse(bytes.toString('utf8'));
-if (schemas.protocol_version !== 1 || Object.keys(schemas).sort().join(',') !== 'command,execution,manifest,protocol_version,resume,routes,stream,submission') {
+if (schemas.protocol_version !== 1 || Object.keys(schemas).sort().join(',') !== 'client_config,command,execution,manifest,presentation_descriptor,protocol_version,resume,routes,stream,submission') {
   throw new Error('Unsupported Rust protocol schema envelope');
 }
 const bootstrap = JSON.parse(bootstrapBytes.toString('utf8'));
+// The offline producer, not Rust, owns this descriptive artifact schema.
+const presentationPath = path.resolve(sdk, '../tools/presentation.schema.json');
+const presentationBytes = fs.readFileSync(presentationPath);
+const presentation = JSON.parse(presentationBytes);
+const allSchemas = { ...schemas, bootstrap, presentation };
 // Operation identities describe supported SDK semantics. Paths and methods
 // themselves are exported by Rust; no parallel endpoint strings live in client.
 const operations = {
+  get_client_config: { method: 'GET', response_schema: 'client_config', public: true },
+  get_presentation: { method: 'GET', response_schema: 'presentation_descriptor' },
   get_resume: { method: 'GET', response_schema: 'resume' },
   submit_command: { method: 'POST', response_schema: 'submission' },
   get_manifest: { method: 'GET', response_schema: 'manifest' },
@@ -59,8 +66,8 @@ for (const route of schemas.routes) {
   if (!expected || Object.hasOwn(routes, route.operation) || route.method !== expected.method || route.response_schema !== expected.response_schema) throw new Error('Unsupported Rust route operation');
   if (typeof route.path !== 'string' || route.path.length > 512 || !route.path.startsWith('/')) throw new Error('Invalid Rust route path');
   const parts = route.path.slice(1).split('/');
-  const parameters = expected.command_id ? ['{match_id}', '{command_id}'] : ['{match_id}'];
-  if (parameters.some(parameter => parts.filter(part => part === parameter).length !== 1) || parts.some(part => !parameters.includes(part) && !/^[A-Za-z0-9_-]+$/.test(part))) throw new Error('Unsafe or unsupported Rust route path');
+  const parameters = expected.public ? [] : expected.command_id ? ['{match_id}', '{command_id}'] : ['{match_id}'];
+  if (parameters.some(parameter => parts.filter(part => part === parameter).length !== 1) || parts.some(part => !parameters.includes(part) && !/^[A-Za-z0-9_.-]+$/.test(part) || part === '..' || part === '.')) throw new Error('Unsafe or unsupported Rust route path');
   routes[route.operation] = { method: route.method, path: route.path, response_schema: route.response_schema };
 }
 function localOnly(value) {
@@ -74,11 +81,11 @@ const generatorOptions = {
   unknownAny: true, unreachableDefinitions: true,
 };
 const files = [];
-for (const [key, title] of [['command', 'CommandEnvelope'], ['stream', 'StreamPage'], ['submission', 'SubmissionResult'], ['execution', 'CommandExecution'], ['manifest', 'PublicManifest'], ['resume', 'SeatResume'], ['bootstrap', 'SeatBootstrap']]) {
-  const schema = key === 'bootstrap' ? bootstrap : schemas[key];
+for (const [key, title] of [['command', 'CommandEnvelope'], ['stream', 'StreamPage'], ['submission', 'SubmissionResult'], ['execution', 'CommandExecution'], ['manifest', 'PublicManifest'], ['resume', 'SeatResume'], ['bootstrap', 'SeatBootstrap'], ['presentation_descriptor', 'PresentationDescriptor'], ['client_config', 'ClientConfig'], ['presentation', 'PresentationArtifact']]) {
+  const schema = allSchemas[key];
   if (schema.$schema !== 'http://json-schema.org/draft-07/schema#') throw new Error(`Unexpected ${key} schema dialect`);
   localOnly(schema);
-  const declaration = await compile(schema, title, generatorOptions);
+  const declaration = await compile(schema, title, { ...generatorOptions, ...(key === 'presentation' ? { bannerComment: '/* Generated from offline producer presentation.schema.json; do not edit. */' } : {}) });
   // An unsupported shape must fail generation, never silently become any/unknown.
   const ast = ts.createSourceFile(`${key}.d.ts`, declaration, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   function inspect(node) {
@@ -95,11 +102,13 @@ for (const [key, title] of [['command', 'CommandEnvelope'], ['stream', 'StreamPa
 const routeSource = `/* Generated from Rust protocol::ROUTES; do not edit. */\nexport const ROUTES = ${JSON.stringify(routes, null, 2)} as const;\n`;
 fs.writeFileSync(path.join(pending, 'routes.ts'), routeSource);
 files.push({ path: 'routes.ts', sha256: createHash('sha256').update(routeSource).digest('hex') });
-const validators = await standalone({ ...schemas, bootstrap });
+const validators = await standalone(allSchemas);
 for (const [filename, content] of [
   ['validators.js', validators.source], ['validators.d.ts', validators.declaration],
   ['protocol.ts', `/* Generated from Rust; do not edit. */\nexport const PROTOCOL_VERSION = ${schemas.protocol_version} as const;\n`],
   ['bootstrap.schema.json', bootstrapBytes],
+  ['presentation.schema.json', presentationBytes],
+  ['presentation-identity.ts', `/* Producer identity; generated, do not edit. */\nexport const PRESENTATION_SCHEMA_SHA256 = '${createHash('sha256').update(presentationBytes).digest('hex')}';\nexport const PRESENTATION_PRODUCER_SHA256 = '${createHash('sha256').update(fs.readFileSync(path.resolve(sdk, '../tools/client-artifacts.ts'))).digest('hex')}';\n`],
 ]) {
   fs.writeFileSync(path.join(pending, filename), content);
   files.push({ path: filename, sha256: createHash('sha256').update(content).digest('hex') });
@@ -110,7 +119,7 @@ fs.writeFileSync(path.join(pending, 'generation.json'), JSON.stringify({
   schema_sha256: createHash('sha256').update(bytes).digest('hex'), files,
   bootstrap_schema_sha256: createHash('sha256').update(bootstrapBytes).digest('hex'),
   standalone: { generator: 'ajv@8.20.0', bundler: 'esbuild@0.28.2', options: validationOptions,
-    sources: ['scripts/generate.mjs', 'scripts/standalone.mjs', 'scripts/numeric-formats.mjs', 'package-lock.json'].map(file => ({
+    sources: ['scripts/generate.mjs', 'scripts/standalone.mjs', 'scripts/numeric-formats.mjs', 'package-lock.json', '../tools/presentation.schema.json', '../tools/client-artifacts.ts'].map(file => ({
       path: file, sha256: createHash('sha256').update(fs.readFileSync(path.join(sdk, file))).digest('hex'),
     })),
   },

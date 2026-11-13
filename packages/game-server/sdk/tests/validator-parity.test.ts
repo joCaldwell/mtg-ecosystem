@@ -6,13 +6,14 @@ import * as emitted from '../generated/validators.js';
 
 const schemas = JSON.parse(fs.readFileSync(new URL('../generated/protocol.schema.json', import.meta.url), 'utf8'));
 schemas.bootstrap = JSON.parse(fs.readFileSync(new URL('../generated/bootstrap.schema.json', import.meta.url), 'utf8'));
+schemas.presentation = JSON.parse(fs.readFileSync(new URL('../generated/presentation.schema.json', import.meta.url), 'utf8'));
 // Independent copy of the pre-standalone SDK validator configuration is the
 // oracle here; importing the generator's format implementation would mask drift.
 const ajv = new Ajv({ strict: true, allErrors: false, coerceTypes: false, useDefaults: false, removeAdditional: false });
 for (const [name, maximum] of [['uint8', 255], ['uint32', 4_294_967_295], ['uint64', Number.MAX_SAFE_INTEGER], ['uint', Number.MAX_SAFE_INTEGER]]) {
   ajv.addFormat(name, { type: 'number', validate: n => Number.isSafeInteger(n) && n >= 0 && n <= maximum });
 }
-const reference = Object.fromEntries(['command', 'stream', 'submission', 'execution', 'manifest', 'resume', 'bootstrap'].map(name => [name, ajv.compile(schemas[name])]));
+const reference = Object.fromEntries(['command', 'stream', 'submission', 'execution', 'manifest', 'resume', 'bootstrap', 'client_config', 'presentation_descriptor', 'presentation'].map(name => [name, ajv.compile(schemas[name])]));
 reference.commandId = ajv.compile(schemas.command.properties.command_id);
 reference.counter = ajv.compile({ $ref: '#/definitions/DecimalU64Counter', definitions: schemas.stream.definitions });
 
@@ -30,7 +31,7 @@ function witness(schema, root) {
     case 'boolean': return false;
     case 'integer': case 'number': return schema.minimum ?? 0;
     case 'string': {
-      const candidates = ['0', 'a'.repeat(32), 'a'.repeat(64), 'a', '', 'http://127.0.0.1:18741'];
+      const candidates = ['0', 'a'.repeat(32), 'a'.repeat(64), 'a', '', 'http://127.0.0.1:18741', '/presentation/' + 'a'.repeat(64) + '.json'];
       const result = candidates.find(s => s.length >= (schema.minLength ?? 0) && s.length <= (schema.maxLength ?? Infinity) && (!schema.pattern || new RegExp(schema.pattern).test(s)));
       assert.notEqual(result, undefined, `unhandled witness pattern ${schema.pattern}`);
       return result;
@@ -82,7 +83,7 @@ test('standalone parity with previous runtime Ajv on every response/request vari
     assert(reference.stream(sample), JSON.stringify(reference.stream.errors));
     comparisons += parity('stream', [sample, ...mutations(sample)]);
   }
-  for (const name of ['submission', 'execution', 'manifest', 'resume', 'bootstrap']) {
+  for (const name of ['submission', 'execution', 'manifest', 'resume', 'bootstrap', 'client_config', 'presentation_descriptor', 'presentation']) {
     const sample = witness(schemas[name], schemas[name]);
     assert(reference[name](sample), JSON.stringify(reference[name].errors));
     comparisons += parity(name, [sample, ...mutations(sample)]);

@@ -13,6 +13,7 @@ export const validatorTypes = {
   command: 'CommandEnvelope', stream: 'StreamPage', submission: 'SubmissionResult',
   execution: 'CommandExecution', manifest: 'PublicManifest',
   resume: 'SeatResume', bootstrap: 'SeatBootstrap',
+  presentation_descriptor: 'PresentationDescriptor', presentation: 'PresentationArtifact', client_config: 'ClientConfig',
 };
 
 // Ajv 8.20.0's documented custom-format/standalone API:

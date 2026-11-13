@@ -3,6 +3,7 @@
 use crate::{
     auth::CredentialHashes,
     broker::{Broker, BrokerError},
+    delivery::{CSP, Delivery, OriginPolicy},
     ipc::{WorkerCommand, WorkerErrorCode, WorkerReply},
     protocol::{
         self, CommandDecoder, CommandExecutionStatus, PublicManifest, RejectionReason,
@@ -13,7 +14,7 @@ use axum::{
     Router,
     body::{Body, to_bytes},
     extract::{Path, Query, Request, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, Method, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -51,11 +52,15 @@ struct App {
     matches: BTreeMap<String, Arc<HostedMatch>>,
     decoder: CommandDecoder,
     requests: Arc<Semaphore>,
+    delivery: Delivery,
 }
 #[derive(Clone)]
 pub struct Host(Arc<App>);
 impl Host {
     pub fn new(matches: Vec<HostedMatch>) -> Result<Self, String> {
+        Self::with_delivery(matches, Delivery::default())
+    }
+    pub fn with_delivery(matches: Vec<HostedMatch>, delivery: Delivery) -> Result<Self, String> {
         if matches.is_empty() || matches.len() > 2 {
             return Err("hosting admission requires one or two matches".into());
         }
@@ -70,6 +75,7 @@ impl Host {
         }
         Ok(Self(Arc::new(App {
             matches: map,
+            delivery,
             decoder: CommandDecoder::new()?,
             requests: Arc::new(Semaphore::new(REQUEST_LIMIT)),
         })))
@@ -82,9 +88,29 @@ impl Host {
             .route(protocol::COMMAND_CANCEL_ROUTE, post(cancel))
             .route(protocol::MANIFEST_ROUTE, get(manifest))
             .route(protocol::RESUME_ROUTE, get(resume))
-            .fallback(|| async { failure(StatusCode::NOT_FOUND) })
+            .route(protocol::PRESENTATION_ROUTE, get(presentation))
+            .fallback(public_asset)
             .layer(middleware::from_fn_with_state(self.clone(), bound_request))
             .with_state(self)
+    }
+    /// All externally served routers use the configured origin policy, including
+    /// API-only operator mode. The unwrapped router is for in-process tests.
+    pub fn router_at(self, address: std::net::SocketAddr) -> Result<Router, String> {
+        let policy = OriginPolicy::new(address)?;
+        let config = serde_json::to_string(&policy.config).map_err(|_| "invalid client config")?;
+        Ok(self
+            .router()
+            .route(
+                protocol::CLIENT_CONFIG_ROUTE,
+                get(move |request: Request| {
+                    let config = config.clone();
+                    async move {
+                        if !matches!(read_body(request.into_body(), 0).await, Ok(bytes) if bytes.is_empty()) { return failure(StatusCode::BAD_REQUEST); }
+                        response(StatusCode::OK, config)
+                    }
+                }),
+            )
+            .layer(middleware::from_fn_with_state(policy, browser_boundary)))
     }
     pub fn stop(&self) {
         for item in self.0.matches.values() {
@@ -384,5 +410,150 @@ async fn resume(State(host): State<Host>, Path(id): Path<String>, request: Reque
         Ok(WorkerReply::Error { code }) => worker_failure(code),
         Err(error) => broker_failure(error),
         _ => failure(StatusCode::SERVICE_UNAVAILABLE),
+    }
+}
+
+async fn presentation(
+    State(host): State<Host>,
+    Path(id): Path<String>,
+    request: Request,
+) -> Response {
+    let (item, _) = match host.authenticate(&id, request.headers()) {
+        Ok(v) => v,
+        Err(s) => return failure(s),
+    };
+    if request.uri().query().is_some() {
+        return failure(StatusCode::BAD_REQUEST);
+    }
+    if !matches!(read_body(request.into_body(), 0).await, Ok(bytes) if bytes.is_empty()) {
+        return failure(StatusCode::BAD_REQUEST);
+    }
+    match host.0.delivery.descriptor(&item.manifest.catalog_sha256) {
+        Some(v) => json(v),
+        None => failure(StatusCode::NOT_FOUND),
+    }
+}
+async fn public_asset(State(host): State<Host>, request: Request) -> Response {
+    if request.uri().query().is_some() {
+        return failure(StatusCode::BAD_REQUEST);
+    }
+    if request.method() != Method::GET && request.method() != Method::HEAD {
+        return failure(StatusCode::METHOD_NOT_ALLOWED);
+    }
+    let path = request.uri().path().to_owned();
+    let method = request.method().clone();
+    if !matches!(read_body(request.into_body(), 0).await, Ok(bytes) if bytes.is_empty()) {
+        return failure(StatusCode::BAD_REQUEST);
+    }
+    host.0
+        .delivery
+        .response(&path, &method)
+        .unwrap_or_else(|| failure(StatusCode::NOT_FOUND))
+}
+async fn browser_boundary(
+    State(policy): State<OriginPolicy>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let path = request.uri().path();
+    let rejected = if !policy.permits(request.headers()) {
+        Some(StatusCode::FORBIDDEN)
+    } else if request.uri().authority().is_some()
+        || path.len() > 512
+        || path.contains('%')
+        || path.contains('\\')
+        || path.contains("//")
+        || path.split('/').any(|p| p == "." || p == "..")
+    {
+        Some(StatusCode::BAD_REQUEST)
+    } else if path.starts_with("/v1/") && request.method() == Method::HEAD {
+        Some(StatusCode::METHOD_NOT_ALLOWED)
+    } else if path == protocol::CLIENT_CONFIG_ROUTE
+        && (request.uri().query().is_some() || request.method() != Method::GET)
+    {
+        Some(StatusCode::BAD_REQUEST)
+    } else {
+        None
+    };
+    let mut result = if let Some(status) = rejected {
+        failure(status)
+    } else {
+        next.run(request).await
+    };
+    // Axum extractor/method errors also get bounded generic JSON, never echoed
+    // input, cacheability, or a missing browser security policy.
+    if !result.status().is_success() {
+        result = failure(result.status());
+    }
+    let headers = result.headers_mut();
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        CSP.parse().expect("static CSP"),
+    );
+    headers.insert(header::X_CONTENT_TYPE_OPTIONS, "nosniff".parse().unwrap());
+    headers.insert(header::REFERRER_POLICY, "no-referrer".parse().unwrap());
+    headers.insert(
+        "cross-origin-resource-policy",
+        "same-origin".parse().unwrap(),
+    );
+    headers.insert("x-frame-options", "DENY".parse().unwrap());
+    result
+}
+
+#[cfg(test)]
+mod delivery_tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    #[tokio::test]
+    async fn delivery_boundary_enforces_security_and_bounded_errors_over_http() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let router = Router::new()
+            .route("/", get(|| async { response(StatusCode::OK, "{}".into()) }))
+            .route(
+                "/v1/read",
+                get(|| async { response(StatusCode::OK, "{}".into()) }),
+            )
+            .fallback(|| async { failure(StatusCode::NOT_FOUND) })
+            .layer(middleware::from_fn_with_state(
+                OriginPolicy::new(address).unwrap(),
+                browser_boundary,
+            ));
+        let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        for (target, host, origin, status) in [
+            ("/", address.to_string(), None, 200),
+            ("/", "rebind.invalid".into(), None, 403),
+            ("/", address.to_string(), Some("null"), 403),
+            ("/", address.to_string(), Some("http://evil.example"), 403),
+            ("/%2e%2e/operator.json", address.to_string(), None, 400),
+            ("/operator.json", address.to_string(), None, 404),
+            ("/assets/no.js", address.to_string(), None, 404),
+        ] {
+            let mut connection = tokio::net::TcpStream::connect(address).await.unwrap();
+            let extra = origin
+                .map(|v| format!("Origin: {v}\r\n"))
+                .unwrap_or_default();
+            connection
+                .write_all(
+                    format!(
+                        "GET {target} HTTP/1.1\r\nHost: {host}\r\n{extra}Connection: close\r\n\r\n"
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            let mut raw = String::new();
+            connection.read_to_string(&mut raw).await.unwrap();
+            assert!(raw.starts_with(&format!("HTTP/1.1 {status}")), "{raw}");
+            assert!(raw.contains("cache-control: no-store\r\n"));
+            assert!(raw.contains("content-security-policy: default-src 'none'"));
+            assert!(!raw.contains("access-control-allow-origin"));
+            assert!(raw.contains("x-content-type-options: nosniff"));
+            if status != 200 {
+                assert!(raw.ends_with("{\"error\":\"request_failed\"}"));
+            }
+        }
+        task.abort();
+        let _ = task.await;
     }
 }
