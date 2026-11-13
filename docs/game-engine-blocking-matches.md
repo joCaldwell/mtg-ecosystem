@@ -2,8 +2,8 @@
 
 `commander-blocking-targets-v1` is a separate finite development profile. Its
 schema-1 `blocking-matches` catalog contains the 34 exact records selected by the
-foundations match catalog plus Righteousness, Swift Response, Assassinate and
-Burst of Energy.
+foundations match catalog plus Righteousness, Swift Response, Assassinate,
+Burst of Energy and Pressure Point.
 This development pool evolves in place; its name does not select runtime rules.
 Other catalogs and decks remain unchanged.
 Neither hosting nor sampled search is requested by this profile; their reviewed
@@ -41,7 +41,7 @@ with these explicit additions to the foundations decks:
 
 | Seats | Commander | Composition including commander |
 | --- | --- | --- |
-| 0, 2 | Isamaru, Hound of Konda | Nine singleton nonbasic cards, including Righteousness, Swift Response and Burst of Energy, and 91 Plains |
+| 0, 2 | Isamaru, Hound of Konda | Ten singleton nonbasic cards, including Righteousness, Swift Response, Burst of Energy and Pressure Point, and 90 Plains |
 | 1, 3 | Yargle and Multani | Thirteen singleton nonbasic cards, including Assassinate, 43 Swamps and 44 Forests |
 
 Each deck contains 100 cards. The profile retains the frozen 2026-10-15 Commander
@@ -76,9 +76,25 @@ provide membership authority, including for orphans. Current visible type,
 targetability and friendly control still guide selection. Ordinary Growth spells
 do not become generally reactive. No card/profile identity selects policy rules.
 
-## Current untap defense
+## Current creature-tap admission
 
-The current 38-definition catalog's canonical digest is
+The current pool has 39 definitions, canonical digest
+`6974b47675d0cbd66619597702924af2c1372966bb6e929a624ea40ec4769835`. Pressure Point uses its already qualified
+[source and tap/draw semantics](game-engine-untap-permanents.md#creature-tap-and-controller-draw).
+All prior 38 definition bodies are preserved; white default decks replace one
+Plains with this singleton. Other decks, profiles and hosting/search requests are
+unchanged. Generic public-IR policy can cast it in main-phase development and
+select an offered opposing creature; an already-tapped target remains legal for
+the mandatory draw. No card/profile name selects that behavior.
+
+The [focused accepted-pod witness](../packages/game-engine/crates/core/tests/matches_adversarial/tap_match_admission.rs)
+separately exercises paid tap/draw and combat blocking. It is not a new natural
+completion batch or downstream consumer qualification. Earlier source-qualified
+reports below retain their original catalog and producer identities.
+
+## 38-definition untap qualification
+
+The preceding 38-definition catalog's canonical digest is
 `bb098a1b0b0f6ba206f5b1df4cd79fee4d16b4342d5fa55ae2e257f7024f3498`.
 Burst's definition comes from its already qualified source. All prior 37
 definition bodies remain byte-identical. This adds one singleton Burst per white

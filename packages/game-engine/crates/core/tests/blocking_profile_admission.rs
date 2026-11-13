@@ -22,14 +22,14 @@ fn oracle(catalog: &Catalog, name: &str) -> String {
 }
 
 #[test]
-fn development_profile_adds_four_complete_definitions_and_admits_four_legal_decks() {
+fn development_profile_adds_five_complete_definitions_and_admits_four_legal_decks() {
     let catalog = catalog();
     let original = Catalog::read(include_str!(
         "../../../tests/fixtures/expected-match-ir.json"
     ))
     .unwrap();
     assert_eq!(catalog.schema_version, 1);
-    assert_eq!(catalog.definitions.len(), original.definitions.len() + 4);
+    assert_eq!(catalog.definitions.len(), original.definitions.len() + 5);
     for definition in &original.definitions {
         assert_eq!(
             catalog
@@ -49,6 +49,7 @@ fn development_profile_adds_four_complete_definitions_and_admits_four_legal_deck
     let swift_response = oracle(&catalog, "Swift Response");
     let assassinate = oracle(&catalog, "Assassinate");
     let burst = oracle(&catalog, "Burst of Energy");
+    let pressure = oracle(&catalog, "Pressure Point");
     for (seat, deck) in config.decks.iter().enumerate() {
         assert_eq!(deck.cards.iter().map(|row| row.count).sum::<u32>(), 100);
         assert_eq!(
@@ -62,6 +63,7 @@ fn development_profile_adds_four_complete_definitions_and_admits_four_legal_deck
         for (oracle_id, expected) in [
             (&swift_response, u32::from(seat.is_multiple_of(2))),
             (&burst, u32::from(seat.is_multiple_of(2))),
+            (&pressure, u32::from(seat.is_multiple_of(2))),
             (&assassinate, u32::from(!seat.is_multiple_of(2))),
         ] {
             assert_eq!(

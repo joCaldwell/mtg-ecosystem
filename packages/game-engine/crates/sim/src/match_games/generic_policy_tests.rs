@@ -612,6 +612,71 @@ fn reactive_modal_spell_selects_prevention_instead_of_ready_life_mode() {
 }
 
 #[test]
+fn tap_cantrip_policy_consumes_admitted_program_and_offered_candidates() {
+    let c = mtg_compiler::catalog::embedded_catalog("blocking-matches").unwrap();
+    let baseline = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+    let mut v = wipe_tests::view(&baseline);
+    v.active = Some(v.viewer);
+    v.turn.step = TurnStep::PrecombatMain;
+    v.turn.lands_played = 1;
+    v.players
+        .iter_mut()
+        .find(|p| p.player == v.viewer)
+        .unwrap()
+        .mana
+        .insert(Color::W, 2.into());
+    let mut enemy = wipe_tests::card(&c, "Isamaru, Hound of Konda", 0, Zone::Battlefield);
+    enemy.handle = ObjectHandle("enemy-isamaru".into());
+    let mut own = wipe_tests::card(&c, "Isamaru, Hound of Konda", v.viewer.0, Zone::Battlefield);
+    own.handle = ObjectHandle("own-isamaru".into());
+    v.objects = vec![
+        wipe_tests::card(
+            &c,
+            "Pressure Point",
+            v.viewer.0,
+            Zone::Hand { owner: v.viewer },
+        ),
+        enemy,
+        own,
+    ];
+    let d = c
+        .definitions
+        .iter()
+        .find(|d| d.name == "Pressure Point")
+        .unwrap();
+    let p = d.spell.as_ref().unwrap();
+    let before = canonical(&v).unwrap();
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        PlayerResponse::Cast {
+            card: ObjectHandle("Pressure Point".into())
+        }
+    );
+    assert_eq!(
+        strategy(&c).object_target(&v, d, p, &p.targets[0], None),
+        Some(ObjectHandle("enemy-isamaru".into()))
+    );
+    assert_eq!(
+        strategy(&c).object_target(
+            &v,
+            d,
+            p,
+            &p.targets[0],
+            Some(&[ObjectHandle("own-isamaru".into())])
+        ),
+        None
+    );
+    assert_eq!(canonical(&v).unwrap(), before);
+    v.objects[1].tapped = true;
+    assert!(
+        strategy(&c).definition_ready(&v, d),
+        "the cantrip remains legal on an already-tapped creature"
+    );
+    v.objects[1].zone = Zone::Graveyard { owner: PlayerId(0) };
+    assert!(!strategy(&c).definition_ready(&v, d));
+}
+
+#[test]
 fn sacrifice_shrapnel_source_uses_artifact_cost_and_fixed_damage_for_lethal() {
     let c = mtg_compiler::catalog::embedded_catalog("sacrifice").unwrap();
     let baseline = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();

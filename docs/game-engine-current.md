@@ -85,7 +85,9 @@ finite sacrifice-pool admission includes it in the red default deck; hosting,
 search and downstream consumer qualification remain separate.
 The [ordinary tap primitive](game-engine-untap-permanents.md#creature-tap-and-controller-draw)
 supports complete Pressure Point lowering and creature-tap/draw execution, with
-explicit scope validation. Its pool and consumer admission remain separate.
+explicit scope validation. Its subsequent headless admission adds Pressure Point
+to the target-status development pool; hosting/search and consumer qualification
+remain separate.
 Read Rust types and validation at the edited source; old reports retain their
 original version numbers. Active catalogs are regenerated at schema 1; distinct
 source/admission pools remain separate. Historical decoder gates and downgrade
