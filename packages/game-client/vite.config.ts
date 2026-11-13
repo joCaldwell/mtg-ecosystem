@@ -9,7 +9,7 @@ import { relative } from 'node:path';
 const upstream = process.env.MTG_CLIENT_UPSTREAM ? upstreamOrigin(process.env.MTG_CLIENT_UPSTREAM) : null;
 const csp = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'";
 const headers = { 'Content-Security-Policy': csp, 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff' };
-function guard(port: number): Connect.NextHandleFunction {
+function guard(port: number, production: boolean): Connect.NextHandleFunction {
   return (req, res, next) => {
     const origin = req.headers.origin;
     const site = req.headers['sec-fetch-site'];
@@ -23,14 +23,22 @@ function guard(port: number): Connect.NextHandleFunction {
     }
     if (req.url?.startsWith('/v1/') || req.url?.startsWith('/presentation/')) {
       if (!upstream || !readRouteAllowed(req.method, req.url)) { res.writeHead(404, { 'Cache-Control': 'no-store' }); res.end(); return; }
+      next(); return;
+    }
+    const pages = ['/', '/join', '/table', '/about', '/fixtures/opening', '/fixtures/missing-metadata'];
+    if (production && (!['GET', 'HEAD'].includes(req.method ?? '') || !(pages.includes(req.url ?? '')
+      || /^\/assets\/[a-zA-Z0-9._-]+\.(js|css|woff2|png|webp|jpe?g)$/.test(req.url ?? '')))) {
+      // Vite's generic SPA fallback otherwise returns index.html for arbitrary
+      // private-looking paths. Mirror the native host's explicit SPA surface.
+      res.writeHead(404, { 'Cache-Control': 'no-store' }); res.end(); return;
     }
     next();
   };
 }
 const delivery: Plugin = {
   name: 'local-read-only-delivery',
-  configureServer(server) { server.middlewares.use(guard(server.config.server.port ?? 5173)); },
-  configurePreviewServer(server) { server.middlewares.use(guard(server.config.preview.port ?? 4179)); },
+  configureServer(server) { server.middlewares.use(guard(server.config.server.port ?? 5173, false)); },
+  configurePreviewServer(server) { server.middlewares.use(guard(server.config.preview.port ?? 4179, true)); },
 };
 function proxy(): Record<string, ProxyOptions> {
   if (!upstream) return {};
@@ -69,7 +77,7 @@ export default defineConfig({
       await writeFile(new URL('./generated/bundle-inputs.json', import.meta.url), JSON.stringify({ runtime_inputs: report }, null, 2) + '\n');
     },
   }],
-  server: { host: '127.0.0.1', port: 5173, strictPort: true, cors: false, proxy: proxy(), headers: { ...headers, 'Content-Security-Policy': csp.replace("style-src 'self'", "style-src 'self' 'nonce-multiverse-local-dev'") } },
+  server: { host: '127.0.0.1', port: 5173, strictPort: true, cors: false, proxy: proxy(), fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/generated/**', '**/private/**'] }, headers: { ...headers, 'Content-Security-Policy': csp.replace("style-src 'self'", "style-src 'self' 'nonce-multiverse-local-dev'") } },
   // Vite injects this nonce for development CSS. Production remains external-only.
   html: { cspNonce: 'multiverse-local-dev' },
   preview: { host: '127.0.0.1', port: 4179, strictPort: true, cors: false, headers, proxy: proxy() },

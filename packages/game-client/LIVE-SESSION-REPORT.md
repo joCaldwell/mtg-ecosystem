@@ -62,25 +62,166 @@ input. Only the adapter reads/validates it. Capabilities live only in the SDK's
 memory/Authorization headers, never state snapshots, URL/history, storage or logs.
 No service worker, analytics, journal or broadcast channel was added.
 
-## Evidence in progress
+## Final qualification and acceptance
 
-Initial explicit schema input source:
-`3372b40aba4f6eca29ea946d136745f83996b4c3`; protocol
-`9457a3fb0d62606530a86166cd2c921b1a20646e9268d4f2e2242c9283d14134`, bootstrap
-`0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a`.
-These were read-only copied from the native owner's retained export into this
-client's `generated/initial-inputs/`. Initial SDK generation/browser build was
-explicit and ran no Cargo. SDK strict types and 54 tests passed. Client pure tests
-currently pass 32 cases; initial controller checkpoint also passed strict types,
-boundary checks and production fixture build before the new SDK adapter was wired.
-The final serving source/schema qualification and real-host evidence will replace
-this progress section before handoff.
+The bounded M1 joining/read-only deliverable is implemented and exercised against
+an actual native host with four distinct authenticated seats. This is also the
+read-side session foundation for M2. It is **not** complete M0, command journaling,
+playable decisions, M2–M4 acceptance or a natural game. The admitted foundations
+profile was exercised; attachments runtime acceptance remains a later gate.
 
-Meaningful intermediate failures retained: `generated/meaningful-target-type-failure.log`
-caught an incorrect assumption that generated VisibleTarget had a single handle;
-fixed to display supplied announced/current references. `generated/pending-sdk-contract-typecheck.log`
-records the expected missing readClientConfig/presentation exports while awaiting
-the serving peer's committed SDK prerequisite. Neither used a declaration shim.
+Client runtime checkpoint: `20bb013c1ef7f6c3c2f7fbee0a9c47f499086d28`.
+Subsequent client-owned changes tighten Vite's static route guard, correct test
+assumptions, and update qualification/documentation; all three production asset
+hashes below remain identical. Serving/SDK prerequisite `bb41898b5eeca0c3357c63f03ecdf7180c51e76c`
+is the exact parent, unchanged. The final native-only loader hardening source
+`6bf0609eed12273f6dae44d7cc97766299ebbcc4` is independently qualified, not authored
+or rebuilt by this lane. Its freshly exported protocol/bootstrap files compare
+byte-for-byte equal with the prerequisite exports. The SDK source/runtime and
+producer remain unchanged. No historical SDK schema was substituted at any point.
+
+Final native binary: debug, Rust 1.99.0, x86_64-unknown-linux-gnu, opt-level 0.
+Engine build: `8804fe0e03df54a16a04abf87ea7b1883da559dd880909cbf000ee4c9385d568`.
+Server build: `4248a94314b70f9dc823e227afdb5702c9056d16982c5b108b36413dcd887fcf`.
+
+| Identity/artifact | SHA-256 |
+| --- | --- |
+| Final native executable | `11a68dab211e45ab237e383580007da2cd5895cc904942c6e1e68df309edd966` |
+| Final native-info.json | `b864efbef6c1d82b5323bc01a30cf880b6a573da2a126eb69952dda792f6d229` |
+| Protocol schema | `59deeafe34996f38e7a8905df9c75e9c4c424d54e9ae33bed2a4b23634f99bc6` |
+| Bootstrap schema | `0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a` |
+| Client config schema | `82c71b74373615553d598e126735ddb154d208ed7fdb807959bf377ad938287b` |
+| Canonical catalog | `fc4bd3390e63ea352e129ac370fa848dbee11cf0700e7e6781d449fd49244a7f` |
+| Producer source | `9a1304423d9d6133d7ba4fab51fc86d1c81bb9c877d4c57745908ef617675b35` |
+| Presentation schema | `a7045da3459cd5b6a126ca804ea22716062c63ce3127017bb5f3637c840231a6` |
+| Public presentation bytes | `f3d1c0c33a76565ab107c0201320072c705845cadc4508c7364f7c0b3d3b16b7` |
+| Presentation artifact manifest | `84d1b578929ddad8baab9754072c8914b21702cf5a04f32028dbe99c13192891` |
+| SDK browser.js | `597cd1c25d4291234e26c2079216906f41f1e0fc8da17f9fb7ae48813cbcdb65` |
+| dist/index.html | `a33b2fb7945d46d066eb6530f85290ff2bee4f3d9bca1dfad9b782b68047db78` |
+| dist/assets/index-Ba7Op3pa.css | `8032b902c38ef615450a0ca0dfbf4046698b89f8bf04cb25c9f9a404704abbab` |
+| dist/assets/index-Ds1idBNn.js | `fa9753165b5500959f3346924c3c6a9b879dca921d76a6e3a48f304d0a32c0b9` |
+| Exported public client manifest | `a9e9c6f16377dd9133f2c5dc41bd5b3b4f67573fc2f266c15be24c4dde0fbc81` |
+| Client package lock | `1f837860ed1ab73700fbf18193eb1deaa1e2fadee31f520a1d808ae9fa38a45e` |
+| SDK package lock | `e5034526be40dc01509df43489d7a4e7dd6bf259e7258a1ad76868cd925480d9` |
+
+`sdk-qualification.json` pins current validation independently of unchanged
+historical `fixtures/foundations-opening/provenance.json` and fixture bytes.
+Initial SDK outputs were preserved in `generated/initial-sdk-evidence/` before
+explicit generation from the serving export. The final native-only hardening
+required no new SDK generation because both exports and SDK runtime sources are
+identical; `generated/final-native-inputs/` preserves the fresh comparison inputs.
+
+All client/SDK checks used pinned Node 26.11.1 and local package installs. Passed:
+
+- SDK explicit verify: strict TypeScript, browser build and all **59 Node tests**,
+  one current SDK artifact for all subsequent client checks. Evidence:
+  `generated/serving-sdk-verification.log` plus SDK `generated/verification.*`.
+- Client `check`: strict types, import/effect boundaries, **34 pure/controller
+  tests**, exact fixture/schema/build qualification, runtime module allowlist and
+  production build. Evidence: `generated/final-client-check.log`,
+  `final-native-qualification.log`, `fixture-verification.json`, `bundle-inputs.json`.
+- **10 production fixture browser cases**, five each Chromium **158.0.8127.18**
+  and Firefox **159.0**, Playwright **1.65.0**. Keyboard inspection/restoration,
+  decision jump, reduced motion, 640px layout, missing metadata, route refresh,
+  no API requests on fixture paths and empty browser persistence passed. Evidence:
+  `generated/final-fixture-browser.log`, `browser-report.json`, `browser-results/`.
+- **18 final native production-browser cases**, nine each Chromium/Firefox,
+  against final binary/source above on `http://127.0.0.1:18741`. Each browser read
+  all four separate authenticated seats in isolated contexts: correct bound
+  match/viewer/protocol/build/catalog, own hand only, seven own hand objects,
+  public board, no-store API responses, no CSP violations, GET-only traffic,
+  empty local/session/IndexedDB/cache/service-worker state and no cookies.
+  Same-profile duplicate tabs were blocked before authenticated reads; explicit
+  release, owner close and refresh released ownership; refresh required reimport.
+  Unavailable locks failed clearly. Evidence: `generated/final-native-browser.log`,
+  `final-native-browser-report.json`. Zero skips, retries or failures in final run.
+- The same suite separately labels **injected** faults: missing metadata fallback,
+  corrupt digest failure, wrong configured origin/malformed file, delayed old-seat
+  completion, 401, 429 and 503 with bounded retries. These use real native inputs
+  with explicit browser interception; they are not native fault-injection claims.
+- **4 final restricted-proxy browser cases** (four seats and duplicate-tab/reimport
+  in both browsers), plus **11 actual HTTP route/security checks**. Bad Host,
+  foreign Origin/cross-site metadata, commands, forged resume query and unknown
+  private-looking paths reject; CORS is absent. Evidence:
+  `generated/final-proxy-browser.log`, `final-proxy-browser-report.json`,
+  `final-proxy-security.log`, `proxy-security.json`.
+- Serving peer independently exported source `20bb013c` into a fresh owned
+  scratch checkout, installed both isolated locked packages, explicitly built
+  SDK/client, and reproduced all three dist hashes exactly. Peer evidence:
+  `generated/local-serving/clean-build.log` in the serving worktree. No Cargo,
+  root installation or shared dependency replacement. This is peer-produced proof.
+
+Final browser receipt hashes:
+
+| Redacted receipt under generated/ | SHA-256 |
+| --- | --- |
+| final-native-browser-report.json | `5b165bca5890a64c45b6139cfdbb6934865102d33754f23f7a7a8a4dc10dd45b` |
+| final-proxy-browser-report.json | `b5fe44ebdd7d6315eb3df92bc1a5a51879a8a1059044dba2d6798c1d2bd3c437` |
+| proxy-security.json | `1615175ff62a1f383bb408b4530f8e0a82316d40645f97647945c069fdc0b861` |
+
+All test browser contexts/tabs and the lane-owned Vite preview were closed after
+acceptance. The native owner confirmed graceful shutdown of the exact test host;
+private registries/files and all historical/failed evidence are retained.
+
+The native owner supplied public bundles, exact binaries and private single-seat
+paths. This lane never read the operator issued-credential file or started a native
+process. Native/schema/security tests and build-cache failures remain in that
+owner's source-qualified report, not attributed to client checks here.
+
+## Real lifecycle-only update and bounded recovery
+
+The host owner stopped only the task-owned host, invoked existing offline
+`Worker::clock(Pause)`, and restarted the same executable/bundle. No gameplay
+command or synthetic ledger write was used. The first manually coordinated outage
+exceeded the 7.5-second four-retry window. The browser retained cursor 1, the exact
+rendered seven-card hand and keyboard focus, then stopped/released ownership.
+Explicit reimport read cursor 2, `resource_paused`, the identical hand and no rules
+outcome. This is retained as `generated/lifecycle-browser-reimport.json`; it is not
+claimed as automatic reconnection.
+
+The final source repeated the transition in one prepared invocation: **3,761.08 ms**
+(shutdown 70.45 ms, native offline pause 1,390.65 ms, restart-to-readiness 2,299.98 ms).
+The held production browser automatically recovered within the unchanged policy,
+advanced cursor 1 → 2, displayed `resource_paused`, and retained the exact hand
+hash, seven cards and decision-region focus. No reimport, invented outcome or
+command occurred. Four subsequent native long polls completed HTTP200 approximately
+20.1 seconds apart, confirming the live bounded loop continued after recovery. The additional T3 browser is Chrome **152.0.7977.169** /
+Electron **44.10.1**, separately qualified from the pinned Playwright browsers.
+Final redacted receipt: `generated/final-lifecycle-browser.json`
+(SHA-256 `f158bf90c6a230907c0c69ec12a89992b5f50db32357ea79864e8ba1772ce901`); native timing
+receipt is `generated/local-serving/final/transition-timing.json` in the serving
+worktree. Bounded pending/outcome, atomic stream-page rejection, foreign-view
+rejection and late success/failure fences additionally have injected pure tests.
+
+## Preserved failures and practical limits
+
+- `generated/meaningful-target-type-failure.log`: generated VisibleTarget exposes
+  announced/current references, not an assumed single handle. Corrected display
+  adapter; no handwritten DTO shim.
+- `generated/pending-sdk-contract-typecheck.log`: expected missing new SDK exports
+  before the peer's committed prerequisite. Resolved by exact-source integration.
+- `generated/serving-client-check.log`: test closure lost union narrowing; fixed
+  test binding, retained strict types.
+- `generated/native-live-first/` and `native-live-first.log`: first four-seat
+  keyboard assertion assumed every seat had a mulligan request. Native supplied
+  no decision for nonactive seats and UI correctly showed that. Assertion now
+  targets the actual decision region; final all-seat suite passes.
+- `generated/proxy-preview.log`: npm exec launched Vite with the root cwd, so the
+  initial manual preview returned404. Corrected to package cwd; no root edits.
+- `generated/proxy-fetch-probe-failure.txt`: Node fetch did not send the attempted
+  adversarial Host; replaced the probe with node:http/curl, which verify403.
+- `generated/proxy-static-fallback-failure.log`: Vite returned its app shell for an
+  unknown private-looking path. No private file was served, but preview now uses
+  explicit route/asset allowlists and development excludes generated/private paths.
+- Existing React Router module-directive and production bundle-size warnings are
+  retained. Build size is not a latency/performance measurement.
+
+No actual human usability or screen-reader study, natural match, dense-board or
+performance benchmark, attachments live acceptance, Safari, cross-device takeover,
+command durability/journal, semantic action queries, full engine matrix or
+M2–M4 completion is claimed. This lane started no Cargo. The existing engine
+schema-1 reset/action-query branch is not silently incorporated; integrating it
+requires new source-qualified exports and deliberate client compatibility review.
 
 ## Separate M2 handoff
 
@@ -93,34 +234,3 @@ across builds, durable pending/unknown reconciliation, and explicit human intent
 against generated core action/context contracts. Accepted/pending, missing status,
 local stop, refresh, changed observation and timeout cannot resolve a journal.
 The read-side session is not full M0/M2–M4 acceptance or playable Commander.
-
-## Source-qualified pre-host checkpoint
-
-Serving prerequisite carried unchanged as the exact parent commit
-`bb41898b5eeca0c3357c63f03ecdf7180c51e76c` (not a client-authored server/SDK diff).
-Final serving protocol SHA-256:
-`59deeafe34996f38e7a8905df9c75e9c4c424d54e9ae33bed2a4b23634f99bc6`.
-Bootstrap schema is unchanged. `sdk-qualification.json` pins this source/schema
-separately from immutable historical fixture provenance. Initial SDK outputs and
-receipts were copied to `generated/initial-sdk-evidence/` before regeneration.
-
-With one explicitly generated final SDK build: SDK verify passed strict types and
-59 Node tests; client check passed strict types, source/runtime boundaries, 34 pure
-and controller tests, fixture schema validation and production build. Ten fixture
-browser scenarios passed (Chromium/Firefox, 5 each). Evidence:
-`generated/serving-sdk-verification.log`, `serving-client-check-fixed.log`,
-`fixture-browser-check.log`, `browser-report.json`, `fixture-verification.json`,
-`bundle-inputs.json`. The first final-schema client typecheck caught a test closure
-narrowing issue; `serving-client-check.log` retains it, fixed without changing DTOs.
-
-Pre-host production artifacts:
-
-| File | SHA-256 |
-| --- | --- |
-| SDK browser.js | `597cd1c25d4291234e26c2079216906f41f1e0fc8da17f9fb7ae48813cbcdb65` |
-| dist/index.html | `a33b2fb7945d46d066eb6530f85290ff2bee4f3d9bca1dfad9b782b68047db78` |
-| dist/assets/index-Ba7Op3pa.css | `8032b902c38ef615450a0ca0dfbf4046698b89f8bf04cb25c9f9a404704abbab` |
-| dist/assets/index-Ds1idBNn.js | `fa9753165b5500959f3346924c3c6a9b879dca921d76a6e3a48f304d0a32c0b9` |
-
-Real-host acceptance has not yet run at this checkpoint. The next report update
-will distinguish native outcomes from injected HTTP/browser fault scenarios.

@@ -1,7 +1,7 @@
 {
-  "native_source": "bb41898b5eeca0c3357c63f03ecdf7180c51e76c",
+  "native_source": "6bf0609eed12273f6dae44d7cc97766299ebbcc4",
   "protocol_schema_sha256": "59deeafe34996f38e7a8905df9c75e9c4c424d54e9ae33bed2a4b23634f99bc6",
   "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
-  "scope": "Serving-lane M1 native exports and SDK; historical fixture capture/provenance remains unchanged and is independently validated against this current schema.",
+  "scope": "Final serving native source; fresh protocol/bootstrap exports are byte-identical to bb41898. SDK runtime/producer remain bb41898, one unchanged browser build. Historical fixture capture/provenance is unchanged.",
   "sdk_source": "bb41898b5eeca0c3357c63f03ecdf7180c51e76c"
 }

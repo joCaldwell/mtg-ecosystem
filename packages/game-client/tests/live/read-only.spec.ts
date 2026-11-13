@@ -24,7 +24,7 @@ test('four authenticated seats: native identity, permitted hands, CSP, empty sto
   const contexts: BrowserContext[] = [];
   const evidence: { viewer: number; cursor: string; ownHand: number; methods: string[]; requests: number }[] = [];
   try {
-    for (const [index, seat] of seats.entries()) {
+    for (const seat of seats) {
       const context = await browser.newContext({ baseURL, serviceWorkers: 'block' }); contexts.push(context);
       const page = await context.newPage();
       const errors: string[] = [], methods: string[] = []; let requests = 0;
@@ -59,14 +59,15 @@ test('four authenticated seats: native identity, permitted hands, CSP, empty sto
       await expect(page.getByText('Read-only table. Choices cannot be submitted.')).toBeVisible();
       const input = page.getByRole('button', { name: 'Jump to decision' });
       await input.focus(); await page.keyboard.press('Enter');
-      await expect(page.getByRole('region', { name: 'Opening hand', exact: true })).toBeFocused();
+      await expect(page.locator('section[aria-labelledby="decision-title"]')).toBeFocused();
       expect(await storage(page)).toEqual(emptyStorage);
       expect(await page.evaluate(() => (window as unknown as { cspViolations: number }).cspViolations)).toBe(0);
       expect(errors).toEqual([]);
       expect(methods.every(method => method === 'GET')).toBe(true);
       expect(await page.evaluate(() => location.search === '' && location.hash === '')).toBe(true);
       evidence.push({ viewer: seat.bootstrap.viewer, cursor: read.next, ownHand: hand.length, methods: [...new Set(methods)], requests });
-      expect(index).toBeGreaterThanOrEqual(0);
+      expect(await context.cookies()).toEqual([]);
+      expect((await page.evaluate(() => JSON.stringify(history.state))).includes(seat.bootstrap.capability)).toBe(false);
     }
     await info.attach('read-proof', { body: JSON.stringify({ browser: browser.version(), seats: evidence }), contentType: 'application/json' });
   } finally { for (const context of contexts) await context.close(); }

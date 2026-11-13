@@ -2,7 +2,9 @@
 
 Read the root manual and `docs/game-client-{plan,contracts,boundaries,delivery}.md`.
 This package owns interaction, display and session recovery, never gameplay rules.
-The first checkpoint is a read-only fixture surface, not M1 acceptance or live play.
+Current source supports live read-only joining plus retained inspection fixtures.
+Source-qualified acceptance and remaining gates belong in LIVE-SESSION-REPORT.md;
+read-side recovery does not establish playable decisions or full M2 completion.
 
 ## Boundaries
 
@@ -32,13 +34,21 @@ No package command may implicitly invoke Cargo, generate native schemas or build
 SDK artifacts. Native builds belong to the native lane under the shared build lock.
 
 `check` runs strict types, import boundaries, pure tests and production build.
-`test:browser` runs focused Playwright checks against the production fixture build;
-it does not establish a live server integration. Keep Chromium/Firefox versions and
+`test:browser` runs focused Playwright checks against the production fixture build.
+`test:browser:live` requires an explicitly supplied real host origin and four private
+single-seat file paths; it does not start Cargo, a host or bots. Keep authenticated
+traces/HAR/video off, and never record Authorization headers. Separate injected
+HTTP faults from unmodified host evidence. Keep Chromium/Firefox versions and
 exact source/artifact digests in the checkpoint report. No default full engine matrix.
 
 ## Live integration gates
 
 Use only committed browser SDK exports after source/schema parity and CSP proof.
+Requalify sdk-qualification.json from explicit producer exports when contracts
+change; retain historical fixture/provenance bytes and use one current SDK build
+for SDK and client checks. Never silently install historical schemas to make
+fixture checks pass. Vite must match the agreed native Host/Origin, read-route and
+explicit upstream configuration contract before forwarding credentials.
 Import a validated one-seat bootstrap through a file picker; keep capability only
 in memory. Reimport after refresh. Verify actual viewer and all identity fields.
 Web Locks must precede polling/sending; no forced takeover, broadcast secrets or
