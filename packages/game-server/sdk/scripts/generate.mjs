@@ -36,7 +36,7 @@ const bytes = fs.readFileSync(schemaPath);
 const bootstrapBytes = fs.readFileSync(bootstrapPath);
 if (bytes.length > 8 * 1024 * 1024 || bootstrapBytes.length > 8 * 1024 * 1024) throw new Error('Protocol schema exceeds generator bound');
 const schemas = JSON.parse(bytes.toString('utf8'));
-if (schemas.protocol_version !== 1 || Object.keys(schemas).sort().join(',') !== 'client_config,command,execution,manifest,presentation_descriptor,protocol_version,resume,routes,stream,submission') {
+if (schemas.protocol_version !== 1 || Object.keys(schemas).sort().join(',') !== 'action_query,action_request,client_config,command,execution,manifest,presentation_descriptor,protocol_version,resume,routes,stream,submission') {
   throw new Error('Unsupported Rust protocol schema envelope');
 }
 const bootstrap = JSON.parse(bootstrapBytes.toString('utf8'));
@@ -48,6 +48,7 @@ const allSchemas = { ...schemas, bootstrap, presentation };
 // Operation identities describe supported SDK semantics. Paths and methods
 // themselves are exported by Rust; no parallel endpoint strings live in client.
 const operations = {
+  query_actions: { method:'POST', response_schema:'action_query' },
   get_client_config: { method: 'GET', response_schema: 'client_config', public: true },
   get_presentation: { method: 'GET', response_schema: 'presentation_descriptor' },
   get_resume: { method: 'GET', response_schema: 'resume' },
@@ -81,7 +82,7 @@ const generatorOptions = {
   unknownAny: true, unreachableDefinitions: true,
 };
 const files = [];
-for (const [key, title] of [['command', 'CommandEnvelope'], ['stream', 'StreamPage'], ['submission', 'SubmissionResult'], ['execution', 'CommandExecution'], ['manifest', 'PublicManifest'], ['resume', 'SeatResume'], ['bootstrap', 'SeatBootstrap'], ['presentation_descriptor', 'PresentationDescriptor'], ['client_config', 'ClientConfig'], ['presentation', 'PresentationArtifact']]) {
+for (const [key, title] of [['action_request', 'ActionQueryRequest'], ['action_query', 'ActionQueryResponse'], ['command', 'CommandEnvelope'], ['stream', 'StreamPage'], ['submission', 'SubmissionResult'], ['execution', 'CommandExecution'], ['manifest', 'PublicManifest'], ['resume', 'SeatResume'], ['bootstrap', 'SeatBootstrap'], ['presentation_descriptor', 'PresentationDescriptor'], ['client_config', 'ClientConfig'], ['presentation', 'PresentationArtifact']]) {
   const schema = allSchemas[key];
   if (schema.$schema !== 'http://json-schema.org/draft-07/schema#') throw new Error(`Unexpected ${key} schema dialect`);
   localOnly(schema);

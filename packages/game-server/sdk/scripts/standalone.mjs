@@ -10,6 +10,7 @@ export const validationOptions = {
   useDefaults: false, removeAdditional: false,
 };
 export const validatorTypes = {
+  action_request: 'ActionQueryRequest', action_query: 'ActionQueryResponse',
   command: 'CommandEnvelope', stream: 'StreamPage', submission: 'SubmissionResult',
   execution: 'CommandExecution', manifest: 'PublicManifest',
   resume: 'SeatResume', bootstrap: 'SeatBootstrap',
