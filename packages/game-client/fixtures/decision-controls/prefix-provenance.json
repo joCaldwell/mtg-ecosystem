@@ -1,0 +1,162 @@
+{
+  "provenance_version": 1,
+  "producer_base_source": "144fe059ab2707877109d7e9dbe8751f204681dd",
+  "producer_manifest_sha256": "0092c3fe4e4e70aa7e11682cb024fd1994d04b7e689e9b17977b0759e271bcbf",
+  "native_source_manifest_sha256": "ba6379af2980ffc855635c9662c3989af1a11b93ff8e635fda1d778362fd7692",
+  "engine_build_id": "0e8abd9759e99c6be84492e859396a90fcdc4254b88d125e294114f2ed50730d",
+  "server_build_id": "99d06fefdcff1569acd690b5c4f1f7d78ecc34452399f3530b39cbc45acf3777",
+  "producer_protocol_schema_sha256": "a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3",
+  "baseline_validation_schema_sha256": "7fe738bb5a4aecaedb23a9a6405691c6497c6b117b38464aacde6601f152204c",
+  "public_prefixes_sha256": "5dc2b69175a9b4a5f42fda822cd52f57a6acf4a7311289a9a90b47c554aca9f4",
+  "raw_artifact_locator": "producer-manifest.json#artifacts.public-prefixes.json (explicit producer directory)",
+  "binaries": {
+    "mtg-server": "fb53ef1b029dc6f3c7abeb21791347cff07ef3f1958b484dcb138e2018c6d521",
+    "action_fixture": "b0dd647cc6396df261b9b24dbf31ea00a26e1a828b05c2510da448810fd434b2",
+    "provision_client": "b86c480eb8129c55e8700f34311eb5d2de6cc1840450ce39c664e40356c73b50"
+  },
+  "captures": [
+    {
+      "profile": "commander-foundations-v1",
+      "namespace": "commander-foundations-v1/seed3/offline",
+      "catalog_sha256": "d00ee2cf3760ddaf9a807af0c79764f4bea2f21177c350a30d2d4f0a087c9ef0",
+      "fixture_sha256": "d60a2e36fc65db247c907ea237fac406c9ab2405f9acf006329bc51cb02d896d",
+      "stages": [
+        {
+          "stage": "opening",
+          "viewer": 0,
+          "request": "mulligan",
+          "observation_sha256": "99d82ebce7deccca1b95e0341405282a11f68beb48d41d35309850856acf1bc1",
+          "query_sha256": null,
+          "query_status": null,
+          "action_families": [],
+          "labels": [],
+          "source_context": null
+        },
+        {
+          "stage": "main-priority-before-land",
+          "viewer": 0,
+          "request": "priority",
+          "observation_sha256": "f019c9f665868a954660e43702d6e758ea83b3e176c806faafb64b618cfcff30",
+          "query_sha256": "edfe5a2123ac2c20554cfcd055780f85ae4e087c9d078d6008b7138f229d500a",
+          "query_status": "complete",
+          "action_families": [
+            "cast",
+            "pass",
+            "play_land"
+          ],
+          "labels": [
+            "unavailable"
+          ],
+          "source_context": null
+        },
+        {
+          "stage": "main-priority-before-cast",
+          "viewer": 0,
+          "request": "priority",
+          "observation_sha256": "faeba294e41dce8a3905d07b396fc08a14f788b36ff7f9734d3c2689096093d1",
+          "query_sha256": "141ab043cd54d4bbbe7c526da04b5589654620cec44e0590e29724350a0cdef9",
+          "query_status": "complete",
+          "action_families": [
+            "activate_mana",
+            "cast",
+            "pass"
+          ],
+          "labels": [
+            "unavailable"
+          ],
+          "source_context": null
+        },
+        {
+          "stage": "cast-mana",
+          "viewer": 0,
+          "request": "mana",
+          "observation_sha256": "904b2456ab79c8649baa8103137f0a888a71071edbb198f975fb9beffbfa38e2",
+          "query_sha256": "0d02419754ef544268a856f313ecb667e5cdc1c87cddc87bd26953887971fea4",
+          "query_status": "complete",
+          "action_families": [
+            "activate_mana",
+            "finish_mana"
+          ],
+          "labels": [
+            "unavailable"
+          ],
+          "source_context": {
+            "status": "unavailable"
+          }
+        }
+      ]
+    },
+    {
+      "profile": "commander-attachments-v1",
+      "namespace": "commander-attachments-v1/seed3/offline",
+      "catalog_sha256": "4ccaed0b8318f9fc08e6e53d58660a309d30045a4d706c94787c38a0c45667d6",
+      "fixture_sha256": "fe30a6718b7277bde0c173b987f9019caf3fc3679557770826aa1c5614846794",
+      "stages": [
+        {
+          "stage": "opening",
+          "viewer": 0,
+          "request": "mulligan",
+          "observation_sha256": "8673a3f20e68a5e8a10691a6d09b37f8c8074f2a3d62a04cc095e56a0c67a6f7",
+          "query_sha256": null,
+          "query_status": null,
+          "action_families": [],
+          "labels": [],
+          "source_context": null
+        },
+        {
+          "stage": "main-priority-before-land",
+          "viewer": 0,
+          "request": "priority",
+          "observation_sha256": "e30422542d5e90560c933aad26181c872d4d1db0d3b67409d57e1f6d87bce692",
+          "query_sha256": "365aa93c1fc60de1bff4677e607bec1b7dbc6c0f58ec38ef1f92158ca6bcbd6e",
+          "query_status": "complete",
+          "action_families": [
+            "cast",
+            "pass",
+            "play_land"
+          ],
+          "labels": [
+            "unavailable"
+          ],
+          "source_context": null
+        },
+        {
+          "stage": "main-priority-before-cast",
+          "viewer": 0,
+          "request": "priority",
+          "observation_sha256": "b006555024a57f1c8ec19414f188c9008b6e5dc627a57ddf5034368dcee4f7f0",
+          "query_sha256": "b2bd901994db030fb08a3f2199c8fb0c536001f19589f3a2aa6021268cab1973",
+          "query_status": "complete",
+          "action_families": [
+            "activate_mana",
+            "cast",
+            "pass"
+          ],
+          "labels": [
+            "unavailable"
+          ],
+          "source_context": null
+        },
+        {
+          "stage": "cast-mana",
+          "viewer": 0,
+          "request": "mana",
+          "observation_sha256": "e5946914c803de1ecac308c9a8c0d106d494a417be6f660737b2195bd8d526b4",
+          "query_sha256": "0d02419754ef544268a856f313ecb667e5cdc1c87cddc87bd26953887971fea4",
+          "query_status": "complete",
+          "action_families": [
+            "activate_mana",
+            "finish_mana"
+          ],
+          "labels": [
+            "unavailable"
+          ],
+          "source_context": {
+            "status": "unavailable"
+          }
+        }
+      ]
+    }
+  ],
+  "scope": "Two isolated admitted offline prefixes only. Observation hashes use compact JSON.stringify over parsed producer bytes; full raw-file hash is separately pinned. Query beginnings do not prove accepted responses, whole-profile coverage or client integration. Labels remain unavailable; no source/card metadata imported."
+}

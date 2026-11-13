@@ -59,7 +59,7 @@
     },
     {
       "path": "packages/game-client/scripts/decision-inventory.mjs",
-      "sha256": "54f81d8afc1e96b6b482aa733c4b2cf29407eebfe576804eccf3db8547f72ecd"
+      "sha256": "b99b5ef7f12cf80c7b03c99e090f128e68e5af0f142b4f353166e5082f71a7dd"
     },
     {
       "path": "packages/game-client/tests/decision-controls.test.ts",
@@ -76,9 +76,24 @@
     {
       "path": "packages/game-client/fixtures/foundations-opening/provenance.json",
       "sha256": "892a082d33fadff9475ffd8133df749f968e73f6b7781190adfae72a8e795728"
+    },
+    {
+      "path": "packages/game-client/scripts/decision-prefixes.mjs",
+      "sha256": "cae4e312df8bdffcd20d9aa522fdd105ca2012ab78dfc48b5859a29afd803694"
+    },
+    {
+      "path": "packages/game-client/fixtures/decision-controls/prefix-provenance.json",
+      "sha256": "c34e87914981a6f7729ce744d856b720df27dee56e4142486f5e89a5d7df626f"
     }
   ],
   "scope": "Local drafts only. No send, legality, whole-profile reachability, full M2 or playability claim.",
+  "fresh_producer_evidence": {
+    "provenance": "fixtures/decision-controls/prefix-provenance.json",
+    "producer_protocol_schema_sha256": "a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3",
+    "public_prefixes_sha256": "5dc2b69175a9b4a5f42fda822cd52f57a6acf4a7311289a9a90b47c554aca9f4",
+    "native_source_manifest_sha256": "ba6379af2980ffc855635c9662c3989af1a11b93ff8e635fda1d778362fd7692",
+    "note": "Separately validated producer query extension, not installed SDK/runtime. Existing qualification unchanged. Only mulligan/priority/mana requests observed; action beginnings do not prove accepted responses."
+  },
   "requests": [
     {
       "variant": "legend_rule",
@@ -275,14 +290,15 @@
         "bottom_if_mulligan",
         "can_mulligan"
       ],
-      "known_admitted_reachability": "Historical authenticated foundations opening capture; current schema validation. Core query report also witnesses keep choices in both admitted profiles.",
+      "known_admitted_reachability": "Historical authenticated foundations opening plus fresh separately validated openings in both admitted profiles. Bounded captures only.",
       "reachability_evidence": [
         "docs/game-client-core-queries.md",
-        "packages/game-client/fixtures/foundations-opening/provenance.json"
+        "packages/game-client/fixtures/foundations-opening/provenance.json",
+        "packages/game-client/fixtures/decision-controls/prefix-provenance.json"
       ],
       "implemented_control_draft": "implemented-confirmation",
       "required_core_context_and_source_mapping": "Captured request can_mulligan, mulligans_taken, bottom_if_mulligan; no source semantics inferred.",
-      "permitted_fixture": "fixtures/foundations-opening/opening-seat0-http.json (exact historical capture)",
+      "permitted_fixture": "fixtures/foundations-opening/opening-seat0-http.json (exact historical capture); fresh opening prefixes in prefix-provenance.json (evidence only)",
       "test_locator": "tests/decision-controls.test.ts; tests/browser/decision-controls.spec.ts (gallery covers mulligan, synthetic discard/bottom, generic quantity only)",
       "gallery_locator": "/fixtures/decisions#captured"
     },
@@ -692,13 +708,14 @@
         "token",
         "player"
       ],
-      "known_admitted_reachability": "Core query report: bounded admitted foundations and attachments opening/main prefixes only.",
+      "known_admitted_reachability": "Fresh separately validated foundations and attachments main-priority-before-land/main-priority-before-cast captures, plus core query report. Bounded prefixes only.",
       "reachability_evidence": [
-        "docs/game-client-core-queries.md"
+        "docs/game-client-core-queries.md",
+        "packages/game-client/fixtures/decision-controls/prefix-provenance.json"
       ],
       "implemented_control_draft": "context-missing",
       "required_core_context_and_source_mapping": "Bound authenticated core action query, completeness/continuation handling and source labels. ActionLabel is Unavailable; missing mana source remains explicit.",
-      "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
+      "permitted_fixture": "Fresh isolated admitted prefix observations/queries in prefix-provenance.json (evidence only; no runtime query integration)",
       "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
       "gallery_locator": null
     },
@@ -741,13 +758,14 @@
         "player",
         "cost"
       ],
-      "known_admitted_reachability": "Core query report: bounded admitted foundations and attachments cast/mana prefixes only.",
+      "known_admitted_reachability": "Fresh separately validated foundations and attachments cast-mana captures, plus core query report. Bounded prefixes only.",
       "reachability_evidence": [
-        "docs/game-client-core-queries.md"
+        "docs/game-client-core-queries.md",
+        "packages/game-client/fixtures/decision-controls/prefix-provenance.json"
       ],
       "implemented_control_draft": "context-missing",
       "required_core_context_and_source_mapping": "Bound authenticated core action query, completeness/continuation handling and source labels. ActionLabel is Unavailable; missing mana source remains explicit.",
-      "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
+      "permitted_fixture": "Fresh isolated admitted prefix observations/queries in prefix-provenance.json (evidence only; no runtime query integration)",
       "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
       "gallery_locator": null
     }
@@ -901,7 +919,7 @@
       ],
       "request_variant": "mulligan",
       "implemented_control_draft": "implemented-confirmation",
-      "known_admitted_reachability": "Historical authenticated foundations opening capture; current schema validation. Core query report also witnesses keep choices in both admitted profiles.",
+      "known_admitted_reachability": "Historical authenticated foundations opening plus fresh separately validated openings in both admitted profiles. Bounded captures only.",
       "required_core_context_and_source_mapping": "Captured request can_mulligan, mulligans_taken, bottom_if_mulligan; no source semantics inferred.",
       "permitted_fixture": "Captured request only; completion is local human draft, not an accepted native command.",
       "test_locator": "tests/decision-controls.test.ts"
@@ -1232,7 +1250,7 @@
       ],
       "request_variant": null,
       "implemented_control_draft": "unsupported-action-or-combat-response",
-      "known_admitted_reachability": "Bounded native prefixes in docs/game-client-core-queries.md; no client control or capture proof for this response.",
+      "known_admitted_reachability": "Fresh isolated admitted prefix queries expose this initiation family (prefix-provenance.json); no accepted-response or client-control proof follows.",
       "required_core_context_and_source_mapping": "Core query/decision context and source labels; response variant alone is not an action menu.",
       "permitted_fixture": null,
       "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
@@ -1249,7 +1267,7 @@
       ],
       "request_variant": null,
       "implemented_control_draft": "unsupported-action-or-combat-response",
-      "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
+      "known_admitted_reachability": "Fresh isolated admitted prefix queries expose this initiation family (prefix-provenance.json); no accepted-response or client-control proof follows.",
       "required_core_context_and_source_mapping": "Core query/decision context and source labels; response variant alone is not an action menu.",
       "permitted_fixture": null,
       "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
@@ -1266,7 +1284,7 @@
       ],
       "request_variant": null,
       "implemented_control_draft": "unsupported-action-or-combat-response",
-      "known_admitted_reachability": "Bounded native prefixes in docs/game-client-core-queries.md; no client control or capture proof for this response.",
+      "known_admitted_reachability": "Fresh isolated admitted prefix queries expose this initiation family (prefix-provenance.json); no accepted-response or client-control proof follows.",
       "required_core_context_and_source_mapping": "Core query/decision context and source labels; response variant alone is not an action menu.",
       "permitted_fixture": null,
       "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
@@ -1281,7 +1299,7 @@
       ],
       "request_variant": null,
       "implemented_control_draft": "unsupported-action-or-combat-response",
-      "known_admitted_reachability": "Bounded native prefixes in docs/game-client-core-queries.md; no client control or capture proof for this response.",
+      "known_admitted_reachability": "Fresh isolated admitted prefix queries expose this initiation family (prefix-provenance.json); no accepted-response or client-control proof follows.",
       "required_core_context_and_source_mapping": "Core query/decision context and source labels; response variant alone is not an action menu.",
       "permitted_fixture": null,
       "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
@@ -1315,7 +1333,7 @@
       ],
       "request_variant": null,
       "implemented_control_draft": "unsupported-action-or-combat-response",
-      "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
+      "known_admitted_reachability": "Fresh isolated admitted prefix queries expose this initiation family (prefix-provenance.json); no accepted-response or client-control proof follows.",
       "required_core_context_and_source_mapping": "Core query/decision context and source labels; response variant alone is not an action menu.",
       "permitted_fixture": null,
       "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
