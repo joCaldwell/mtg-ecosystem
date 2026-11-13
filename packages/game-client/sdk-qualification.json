@@ -1,7 +1,7 @@
 {
-  "native_source": "936566b76e9819c4503c9065590be2a66037d26a",
-  "protocol_schema_sha256": "7fe738bb5a4aecaedb23a9a6405691c6497c6b117b38464aacde6601f152204c",
+  "native_source": "1e6fbefffb908cdf7dd741c4baa97f6467c4c85d",
+  "protocol_schema_sha256": "a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3",
   "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
-  "scope": "Combined schema-1 main with blocking-creature spell targets, reviewed core queries, local serving and live read-only client. Fresh native exports; historical fixture capture/provenance remains unchanged. SDK and client use one qualified build.",
-  "sdk_source": "936566b76e9819c4503c9065590be2a66037d26a"
+  "scope": "Explicit combined schema-1 main144fe059 plus authenticated action-query transport and exact-command SDK. Retained current producer exports; historical fixture/provenance unchanged. One SDK build for SDK/client compatibility checks; no claim of integrated live controls or full M2.",
+  "sdk_source": "76b5f3a1e4cfe8e32189fd197b3f1edf05670f80"
 }
