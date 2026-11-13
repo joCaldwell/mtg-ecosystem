@@ -5418,6 +5418,83 @@ mod tests {
             );
         }
     }
+    fn research_thief_event_it_mutation() -> String {
+        // Synthetic body parsed and reference-analyzed by the TypeScript source
+        // adapter during defect triage; this is not an additional card fact.
+        let raw = include_str!(
+            "../../../tests/fixtures/cards-data-d2ce/ba5055ce-6809-47a4-bee6-fb97a5b60f8a.json"
+        );
+        changed_source(raw, |record| {
+            let text = "Whenever an artifact creature you control deals combat damage to a player, it deals 1 damage to each opponent.";
+            record["source"]["oracle_text"] = format!("Flash\nFlying\n{text}").into();
+            let result = &mut record["faces"][0]["result"];
+            result["abilities"][2]["effects"][0]["steps"][0] = serde_json::json!({
+                "effect":"damage","source":{"ref":"it"},"amount":{"amount":"fixed","value":1},
+                "to":{"to":"player","ref":{"player":"each-opponent"}}
+            });
+            result["lines"][2]["text"] = text.into();
+            result["lines"][2]["ability"] = result["abilities"][2].clone();
+            // Mirror the actual analyzeCardBindings result: It denotes the
+            // triggering objects, while the recipient is a resolution query.
+            // The compiler still must prove executable source equality itself.
+            let prefix = format!("card:{}", record["oracleIdentity"].as_str().unwrap());
+            let ability = format!("{prefix}/faces/0/abilities/2#ability");
+            let step = "/faces/0/abilities/2/effects/0/steps/0";
+            let event = format!("{prefix}{step}#event");
+            let source = format!("{prefix}/faces/0/abilities/2/trigger#objects");
+            let recipient = format!("{prefix}{step}/to/ref#query");
+            let nodes = record["binding"]["nodes"].as_array_mut().unwrap();
+            nodes.retain(|node| !node["path"].as_str().unwrap().starts_with(step));
+            nodes.extend(serde_json::from_value::<Vec<serde_json::Value>>(serde_json::json!([
+                {"id":recipient,"path":format!("{step}/to/ref"),"node":"selection","scope":ability,
+                    "expression":{"player":"each-opponent"},"cardinality":"many","timing":"resolution",
+                    "selection":"evaluate-reference","rules":["608.2h"]},
+                {"id":event,"path":step,"node":"event","scope":ability,"operation":"damage",
+                    "inputs":[source,recipient],"availability":"when-performed","rules":["608.2c"]},
+                {"id":format!("{prefix}{step}#quantity"),"path":step,"node":"event-result","event":event,
+                    "result":"quantity","cardinality":"unknown","availability":"if-produced",
+                    "identity":"measured-quantity","rules":["608.2h"]}
+            ])).unwrap());
+            let references = record["binding"]["references"].as_array_mut().unwrap();
+            references.retain(|reference| !reference["path"].as_str().unwrap().starts_with(step));
+            references.extend(serde_json::from_value::<Vec<serde_json::Value>>(serde_json::json!([
+                {"path":format!("{step}/source"),"expression":{"ref":"it"},"binding":"bound","target":source,
+                    "rules":["608.2k","400.7j","608.2h"]},
+                {"path":format!("{step}/to/ref"),"expression":{"player":"each-opponent"},"binding":"bound",
+                    "target":recipient,"rules":["608.2h"]}
+            ])).unwrap());
+            record["binding"]["counts"] =
+                serde_json::json!({"obligations":4,"bound":4,"unresolved":0});
+        })
+    }
+    #[test]
+    fn filtered_damage_trigger_cannot_rebind_event_it_to_observer_source() {
+        let mutant = research_thief_event_it_mutation();
+        let record: serde_json::Value = strict_read(&mutant).unwrap();
+        assert!(
+            record["binding"]["references"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|reference| reference["path"]
+                    == "/faces/0/abilities/2/effects/0/steps/0/source"
+                    && reference["expression"] == serde_json::json!({"ref":"it"})
+                    && reference["target"]
+                        .as_str()
+                        .unwrap()
+                        .ends_with("/trigger#objects"))
+        );
+        // CR120.2b/608.2h: the specified object deals damage, not the observing
+        // ability/source. No current opcode carries the filtered event object.
+        let result = compile(
+            include_str!("../../../tests/fixtures/cards-data-d2ce/archive-manifest-current.json"),
+            &mutant,
+        );
+        assert!(
+            matches!(result, CompileResult::Unsupported { .. }),
+            "filtered event It must not become observer-source damage: {result:?}"
+        );
+    }
     #[test]
     fn blocking_creature_pump_lowers_complete_righteousness_source() {
         let raw = effect_record("righteousness");
