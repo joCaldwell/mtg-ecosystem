@@ -10,10 +10,10 @@ schemas.presentation = JSON.parse(fs.readFileSync(new URL('../generated/presenta
 // Independent copy of the pre-standalone SDK validator configuration is the
 // oracle here; importing the generator's format implementation would mask drift.
 const ajv = new Ajv({ strict: true, allErrors: false, coerceTypes: false, useDefaults: false, removeAdditional: false });
-for (const [name, maximum] of [['uint8', 255], ['uint32', 4_294_967_295], ['uint64', Number.MAX_SAFE_INTEGER], ['uint', Number.MAX_SAFE_INTEGER]]) {
+for (const [name, maximum] of [['uint8', 255], ['uint16', 65_535], ['uint32', 4_294_967_295], ['uint64', Number.MAX_SAFE_INTEGER], ['uint', Number.MAX_SAFE_INTEGER]]) {
   ajv.addFormat(name, { type: 'number', validate: n => Number.isSafeInteger(n) && n >= 0 && n <= maximum });
 }
-const reference = Object.fromEntries(['command', 'stream', 'submission', 'execution', 'manifest', 'resume', 'bootstrap', 'client_config', 'presentation_descriptor', 'presentation'].map(name => [name, ajv.compile(schemas[name])]));
+const reference = Object.fromEntries(['action_request', 'action_query', 'command', 'stream', 'submission', 'execution', 'manifest', 'resume', 'bootstrap', 'client_config', 'presentation_descriptor', 'presentation'].map(name => [name, ajv.compile(schemas[name])]));
 reference.commandId = ajv.compile(schemas.command.properties.command_id);
 reference.counter = ajv.compile({ $ref: '#/definitions/DecimalU64Counter', definitions: schemas.stream.definitions });
 
@@ -87,6 +87,16 @@ test('standalone parity with previous runtime Ajv on every response/request vari
     const sample = witness(schemas[name], schemas[name]);
     assert(reference[name](sample), JSON.stringify(reference[name].errors));
     comparisons += parity(name, [sample, ...mutations(sample)]);
+  }
+  for (const variant of schemas.action_request.oneOf) {
+    const sample=witness(variant,schemas.action_request);
+    assert(reference.action_request(sample),JSON.stringify(reference.action_request.errors));
+    comparisons+=parity('action_request',[sample,...mutations(sample)]);
+  }
+  for (const variant of schemas.action_query.definitions.ActionQueryStatus.oneOf) {
+    const sample={protocol_version:1,match_id:'a1',viewer:0,outcome:witness(variant,schemas.action_query)};
+    assert(reference.action_query(sample),JSON.stringify(reference.action_query.errors));
+    comparisons+=parity('action_query',[sample,...mutations(sample)]);
   }
   for (const name of ['counter', 'commandId']) comparisons += parity(name, [
     '0', '18446744073709551615', '9007199254740992', 'a'.repeat(32), 'f'.repeat(32),

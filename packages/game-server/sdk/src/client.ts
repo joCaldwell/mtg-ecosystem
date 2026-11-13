@@ -1,3 +1,5 @@
+import type { ActionQueryRequest } from '../generated/action_request.js';
+import type { ActionQueryResponse } from '../generated/action_query.js';
 import type { CommandEnvelope } from '../generated/command.js';
 import type { StreamPage, StreamEntry } from '../generated/stream.js';
 import type { SubmissionResult } from '../generated/submission.js';
@@ -5,7 +7,7 @@ import type { CommandExecution } from '../generated/execution.js';
 import type { PublicManifest } from '../generated/manifest.js';
 import type { SeatResume } from '../generated/resume.js';
 import type { SeatBootstrap } from '../generated/bootstrap.js';
-import { command, commandIdentifier, counter, execution, manifest, stream, submission, resume, bootstrap, ProtocolError } from './validation.ts';
+import { actionRequest, actionQuery, command, commandIdentifier, counter, execution, manifest, stream, submission, resume, bootstrap, ProtocolError } from './validation.ts';
 import { strictJSON } from './strict-json.ts';
 import { requestJSON } from './transport.ts';
 import { presentationDescriptor, presentationArtifact } from './public.ts';
@@ -22,6 +24,9 @@ export type { CommandExecution, CommandExecutionStatus } from '../generated/exec
 export type { PublicManifest, Catalog, Decklist, DeckEntry } from '../generated/manifest.js';
 export type { SeatResume, ResumeState } from '../generated/resume.js';
 export type { SeatBootstrap } from '../generated/bootstrap.js';
+
+export type { ActionQueryRequest } from '../generated/action_request.js';
+export type { ActionQueryResponse, ActionQueryStatus, ActionQueryUnavailable, ActionPage, ActionBeginning, ActionInitiation, ActionScope, ActionLabel, ActionDecisionContext, ActionSourceContext, ActionUnavailable } from '../generated/action_query.js';
 
 /** Parse only an explicitly imported single-seat file; never persist or log it. */
 export function parseSeatBootstrap(text: string): SeatBootstrap {
@@ -133,6 +138,19 @@ export class GameClient {
     const commandId = commandIdentifier(id);
     const result = submission(await this.#request('cancel_command', undefined, options.signal, { commandId }));
     if (result.command_id !== commandId) throw new ProtocolError('Cancellation result has a different command identifier');
+    return result;
+  }
+  /** One bounded pure discovery/cursor/cancel operation. No retry or automatic pagination. */
+  async queryActions(request:ActionQueryRequest, options:{signal?:AbortSignal}={}):Promise<ActionQueryResponse> {
+    const validated=actionRequest(request);
+    const body=JSON.stringify(validated);
+    if(new TextEncoder().encode(body).byteLength>2048) throw new ProtocolError('Action query body exceeds limit');
+    const result=actionQuery(await this.#request('query_actions',body,options.signal,{maximumBytes:65_536}));
+    if(result.match_id!==this.#matchId) throw new ProtocolError('Action query has a different match identifier');
+    if(validated.operation==='start' && (result.outcome.status==='complete' || result.outcome.status==='incomplete')) {
+      const page=result.outcome.page;
+      if(page.token!==validated.token || page.scope.scope!==validated.scope.scope || (page.scope.scope==='object' && validated.scope.scope==='object' && page.scope.object!==validated.scope.object) || page.beginnings.length>validated.page_size) throw new ProtocolError('Action query page has a different request binding');
+    }
     return result;
   }
   async poll(options: PollOptions): Promise<StreamPage> {

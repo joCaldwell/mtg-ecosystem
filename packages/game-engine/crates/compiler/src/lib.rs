@@ -3062,6 +3062,59 @@ fn damage_combat_qualifier<'de, D: serde::Deserializer<'de>>(
 ) -> Result<Option<bool>, D::Error> {
     bool::deserialize(deserializer).map(Some)
 }
+// CR 120.2b/608.2h: an event pronoun is not automatically this ability's
+// physical source. Only first-step self events establish that equality; later
+// instructions or modal branches may introduce a different object antecedent.
+// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+fn validate_trigger_damage_sources(
+    condition: &TriggerCondition,
+    effects: &[Sentence],
+) -> Result<(), Failure> {
+    let self_event = matches!(
+        condition,
+        TriggerCondition::SelfDies
+            | TriggerCondition::SelfEntersBattlefield
+            | TriggerCondition::CreatureAttacked {
+                attacker: AttackSubject::Source {}
+            }
+            | TriggerCondition::DamageDealt {
+                source: DamageTriggerSource::Source {},
+                ..
+            }
+    );
+    fn bound(effects: &[Sentence], self_event: bool) -> bool {
+        for (sentence_index, sentence) in effects.iter().enumerate() {
+            for (step_index, step) in sentence.steps.iter().enumerate() {
+                match step {
+                    Step::Damage {
+                        source: DamageSource::It {},
+                        ..
+                    } if !self_event
+                        || sentence_index != 0
+                        || step_index != 0
+                        || !sentence.bindings.is_empty() =>
+                    {
+                        return false;
+                    }
+                    Step::Modal { options, .. }
+                        if options.iter().any(|option| !bound(&option.effects, false)) =>
+                    {
+                        return false;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        true
+    }
+    if !bound(effects, self_event) {
+        return Err(unsupported(
+            "abilities.effects.source",
+            "event-pronoun damage source requires a first-step self event",
+        ));
+    }
+    Ok(())
+}
 fn lower_trigger(
     trigger: &SourceTrigger,
     effects: &[Sentence],
@@ -3195,15 +3248,6 @@ fn lower_trigger(
         },
         SourceTrigger::Attacks { what } => {
             let attacker = lower_attack_subject(what)?;
-            // CR 201.5/508.3a: the event's "it" is the attacker, while the
-            // executable damage source is this invocation's source. Equality
-            // is proved only for the exact self-attacker pattern.
-            if !matches!(attacker, AttackSubject::Source {})
-                && effects.iter().flat_map(|s| &s.steps).any(|s|
-                    matches!(s, Step::Damage { source: DamageSource::It {}, .. }))
-            {
-                return Err(unsupported("abilities.effects.source", "event-attacker damage source is unsupported"));
-            }
             TriggerCondition::CreatureAttacked { attacker }
         },
         SourceTrigger::Cast { who, what } => {
@@ -3242,6 +3286,7 @@ fn lower_trigger(
             && events.iter().filter(|event|matches!(event,SourceTrigger::Dies {what} if is_other_creature(what))).count()==1 =>TriggerCondition::AnyCreatureDies,
         _=>return Err(unsupported("abilities.trigger","unsupported complete event/source/other/alternative trigger binding")),
     };
+    validate_trigger_damage_sources(&condition, effects)?;
     if matches!(condition, TriggerCondition::GroupedDamageDealt { .. })
         && (intervening.is_some()
             || !matches!(effects, [Sentence {bindings,steps}] if bindings.is_empty()
@@ -5417,6 +5462,233 @@ mod tests {
                 }
             );
         }
+    }
+    fn research_thief_event_it_mutation() -> String {
+        // Synthetic body parsed and reference-analyzed by the TypeScript source
+        // adapter during defect triage; this is not an additional card fact.
+        let raw = include_str!(
+            "../../../tests/fixtures/cards-data-d2ce/ba5055ce-6809-47a4-bee6-fb97a5b60f8a.json"
+        );
+        changed_source(raw, |record| {
+            let text = "Whenever an artifact creature you control deals combat damage to a player, it deals 1 damage to each opponent.";
+            record["source"]["oracle_text"] = format!("Flash\nFlying\n{text}").into();
+            let result = &mut record["faces"][0]["result"];
+            result["abilities"][2]["effects"][0]["steps"][0] = serde_json::json!({
+                "effect":"damage","source":{"ref":"it"},"amount":{"amount":"fixed","value":1},
+                "to":{"to":"player","ref":{"player":"each-opponent"}}
+            });
+            result["lines"][2]["text"] = text.into();
+            result["lines"][2]["ability"] = result["abilities"][2].clone();
+            // Mirror the actual analyzeCardBindings result: It denotes the
+            // triggering objects, while the recipient is a resolution query.
+            // The compiler still must prove executable source equality itself.
+            let prefix = format!("card:{}", record["oracleIdentity"].as_str().unwrap());
+            let ability = format!("{prefix}/faces/0/abilities/2#ability");
+            let step = "/faces/0/abilities/2/effects/0/steps/0";
+            let event = format!("{prefix}{step}#event");
+            let source = format!("{prefix}/faces/0/abilities/2/trigger#objects");
+            let recipient = format!("{prefix}{step}/to/ref#query");
+            let nodes = record["binding"]["nodes"].as_array_mut().unwrap();
+            nodes.retain(|node| !node["path"].as_str().unwrap().starts_with(step));
+            nodes.extend(serde_json::from_value::<Vec<serde_json::Value>>(serde_json::json!([
+                {"id":recipient,"path":format!("{step}/to/ref"),"node":"selection","scope":ability,
+                    "expression":{"player":"each-opponent"},"cardinality":"many","timing":"resolution",
+                    "selection":"evaluate-reference","rules":["608.2h"]},
+                {"id":event,"path":step,"node":"event","scope":ability,"operation":"damage",
+                    "inputs":[source,recipient],"availability":"when-performed","rules":["608.2c"]},
+                {"id":format!("{prefix}{step}#quantity"),"path":step,"node":"event-result","event":event,
+                    "result":"quantity","cardinality":"unknown","availability":"if-produced",
+                    "identity":"measured-quantity","rules":["608.2h"]}
+            ])).unwrap());
+            let references = record["binding"]["references"].as_array_mut().unwrap();
+            references.retain(|reference| !reference["path"].as_str().unwrap().starts_with(step));
+            references.extend(serde_json::from_value::<Vec<serde_json::Value>>(serde_json::json!([
+                {"path":format!("{step}/source"),"expression":{"ref":"it"},"binding":"bound","target":source,
+                    "rules":["608.2k","400.7j","608.2h"]},
+                {"path":format!("{step}/to/ref"),"expression":{"player":"each-opponent"},"binding":"bound",
+                    "target":recipient,"rules":["608.2h"]}
+            ])).unwrap());
+            record["binding"]["counts"] =
+                serde_json::json!({"obligations":4,"bound":4,"unresolved":0});
+        })
+    }
+    #[test]
+    fn filtered_damage_trigger_cannot_rebind_event_it_to_observer_source() {
+        let mutant = research_thief_event_it_mutation();
+        let record: serde_json::Value = strict_read(&mutant).unwrap();
+        assert!(
+            record["binding"]["references"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|reference| reference["path"]
+                    == "/faces/0/abilities/2/effects/0/steps/0/source"
+                    && reference["expression"] == serde_json::json!({"ref":"it"})
+                    && reference["target"]
+                        .as_str()
+                        .unwrap()
+                        .ends_with("/trigger#objects"))
+        );
+        // CR120.2b/608.2h: the specified object deals damage, not the observing
+        // ability/source. No current opcode carries the filtered event object.
+        let result = compile(
+            include_str!("../../../tests/fixtures/cards-data-d2ce/archive-manifest-current.json"),
+            &mutant,
+        );
+        assert!(
+            matches!(result, CompileResult::Unsupported { .. }),
+            "filtered event It must not become observer-source damage: {result:?}"
+        );
+    }
+    #[test]
+    fn trigger_damage_it_requires_first_step_self_event_scope() {
+        // Synthetic binder probes are separate from the full-source Research
+        // regression above. No archived source or expected IR is rewritten.
+        let record: serde_json::Value = strict_read(&research_thief_event_it_mutation()).unwrap();
+        let Ability::Triggered {
+            effects, trigger, ..
+        } = serde_json::from_value(record["faces"][0]["result"]["abilities"][2].clone()).unwrap()
+        else {
+            panic!("trigger source")
+        };
+        let mut explicit = effects.clone();
+        let Step::Damage { source, .. } = &mut explicit[0].steps[0] else {
+            panic!("damage")
+        };
+        *source = DamageSource::This {
+            noun: "creature".into(),
+        };
+        let this = serde_json::json!({"ref":"this","noun":"creature"});
+        let other = serde_json::json!({"ref":"filter","filter":{"types":["creature"],"other":true},"count":{"amount":"fixed","value":1}});
+        let filtered = serde_json::json!({"ref":"filter","filter":{"types":["creature"],"control":"you"},"count":{"amount":"fixed","value":1}});
+        let mut unsafe_contexts = vec![*trigger];
+        for value in [
+            serde_json::json!({"trigger":"enters","what":other}),
+            serde_json::json!({"trigger":"any-of","events":[{"trigger":"dies","what":this},{"trigger":"dies","what":other}]}),
+            serde_json::json!({"trigger":"dies","what":filtered}),
+            serde_json::json!({"trigger":"dies","what":{"ref":"filter","filter":{"types":["creature"],"control":"opponent"},"count":{"amount":"fixed","value":1}}}),
+            serde_json::json!({"trigger":"cast","who":{"player":"a-player"},"what":{"cls":"spell"}}),
+            serde_json::json!({"trigger":"phase","phase":"upkeep","whose":"each-player"}),
+            serde_json::json!({"trigger":"attacks","what":filtered}),
+        ] {
+            unsafe_contexts.push(serde_json::from_value(value).unwrap());
+        }
+        for trigger in unsafe_contexts {
+            assert!(
+                matches!(lower_trigger(&trigger, &effects, None, 2),
+                Err(Failure { unsupported: true, ref path, .. }) if path == "abilities.effects.source"),
+                "{trigger:?}"
+            );
+            // Explicit this-creature damage continues to mean the invocation's
+            // source, independently of which other object caused the event.
+            assert!(
+                lower_trigger(&trigger, &explicit, None, 2).is_ok(),
+                "{trigger:?}"
+            );
+        }
+        let safe_contexts: Vec<SourceTrigger> = [
+            serde_json::json!({"trigger":"dies","what":this}),
+            serde_json::json!({"trigger":"enters","what":this}),
+            serde_json::json!({"trigger":"attacks","what":this}),
+            serde_json::json!({"trigger":"deals-damage","what":this,"combat":true,"to":"any"}),
+        ]
+        .into_iter()
+        .map(|value| serde_json::from_value(value).unwrap())
+        .collect();
+        for trigger in &safe_contexts {
+            assert!(
+                lower_trigger(trigger, &effects, None, 2).is_ok(),
+                "{trigger:?}"
+            );
+        }
+        let draw = Step::Draw {
+            who: PlayerSelector {
+                player: "you".into(),
+                selection_id: None,
+                of: None,
+            },
+            amount: DrawAmount::Fixed { value: 1 },
+            optional: false,
+        };
+        let mut later_step = effects.clone();
+        later_step[0].steps.insert(0, draw.clone());
+        let mut later_sentence = effects.clone();
+        later_sentence.insert(
+            0,
+            Sentence {
+                bindings: vec![],
+                steps: vec![draw],
+            },
+        );
+        let modal = vec![Sentence {
+            bindings: vec![],
+            steps: vec![Step::Modal {
+                count: ModeCount { exactly: 1 },
+                options: vec![
+                    ModeOption {
+                        effects: effects.clone()
+                    };
+                    2
+                ],
+            }],
+        }];
+        for effects in [later_step, later_sentence, modal] {
+            assert!(
+                matches!(lower_trigger(&safe_contexts[0], &effects, None, 2),
+                Err(Failure { unsupported: true, ref path, .. }) if path == "abilities.effects.source")
+            );
+        }
+        let grouped: SourceTrigger = serde_json::from_value(serde_json::json!({
+            "trigger":"deals-damage","what":{"ref":"filter","filter":{"types":["creature"],"control":"you",
+                "properties":[{"property":"power","comparison":{"op":"gt","value":{"amount":"attribute","of":{"ref":"it"},"attribute":"base-power"}}}]},
+                "count":{"amount":"fixed","value":1}},"combat":true,"to":"any","grouping":"one-or-more"
+        })).unwrap();
+        assert!(matches!(lower_trigger(&grouped, &effects, None, 2),
+            Err(Failure { unsupported: true, ref path, .. }) if path == "abilities.effects.source"));
+    }
+    #[test]
+    fn trigger_damage_it_preserves_retained_self_source_classification() {
+        for raw in [
+            include_str!("../../../tests/fixtures/goblin-arsonist.json"),
+            include_str!("../../../tests/fixtures/mogg-fanatic.json"),
+        ] {
+            assert!(matches!(
+                compile(fixtures::MANIFEST, raw),
+                CompileResult::Lowered { .. }
+            ));
+        }
+        let manifest =
+            include_str!("../../../tests/fixtures/cards-data-d2cd/archive-manifest-current.json");
+        for raw in [
+            include_str!(
+                "../../../tests/fixtures/cards-data-d2cd/3d563149-7d4e-43e5-b701-28e3212051ec.json"
+            ),
+            include_str!(
+                "../../../tests/fixtures/cards-data-d2cd/47e33aa1-2f54-471c-a484-de13bcd2dceb.json"
+            ),
+            include_str!(
+                "../../../tests/fixtures/cards-data-d2cd/bbd84035-3efd-4301-9778-913898efd57a.json"
+            ),
+        ] {
+            assert!(matches!(
+                compile(manifest, raw),
+                CompileResult::Lowered { .. }
+            ));
+        }
+        // Falkenrath Perforator's source pronoun is valid, but its complete
+        // defending-player recipient remains unsupported. The existing D2c-d
+        // source classifier already rejects archive line 16623 for this reason.
+        let perforator = compile(
+            manifest,
+            include_str!(
+                "../../../tests/fixtures/cards-data-d2cd/6e991808-fea4-46a8-9e87-7b5917f33ce8.json"
+            ),
+        );
+        assert!(
+            matches!(&perforator, CompileResult::Unsupported { reason, .. }
+                if reason.contains("unsupported complete damage recipient")),
+            "{perforator:?}"
+        );
     }
     #[test]
     fn blocking_creature_pump_lowers_complete_righteousness_source() {
