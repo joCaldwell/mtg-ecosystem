@@ -2930,6 +2930,10 @@ fn lower_sacrifice_filter(what: &serde_json::Value) -> Result<SacrificeFilter, F
     {
         vec![CardKind::Creature]
     } else if *what
+        == serde_json::json!({"ref":"filter","filter":{"types":["artifact"]},"count":{"amount":"fixed","value":1}})
+    {
+        vec![CardKind::Artifact]
+    } else if *what
         == serde_json::json!({"ref":"filter","filter":{"allOf":[{"anyOf":[{"types":["artifact"]},{"types":["creature"]}]}]},"count":{"amount":"fixed","value":1}})
     {
         vec![CardKind::Artifact, CardKind::Creature]
@@ -8280,3 +8284,6 @@ mod tapped_target_tests;
 
 #[cfg(test)]
 mod untap_tests;
+
+#[cfg(test)]
+mod artifact_sacrifice_source_tests;
