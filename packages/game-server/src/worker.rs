@@ -251,6 +251,7 @@ pub struct Worker {
     host: HostState,
     last_sample: Option<Instant>,
     halted: bool,
+    action_queries: crate::action_queries::ActionQueries,
 }
 
 fn bounded_read(path: &Path, limit: u64) -> Result<String, String> {
@@ -512,6 +513,7 @@ impl Worker {
                     .ok_or("clock anchor overflow")?,
             ),
             halted: false,
+            action_queries: Default::default(),
         })
     }
     pub fn recover(
@@ -656,7 +658,40 @@ impl Worker {
             host: cursor.host,
             last_sample,
             halted: false,
+            action_queries: Default::default(),
         })
+    }
+    /// Pure worker-owned query. No durable writes, publication or action-clock charge.
+    pub fn query_actions(
+        &mut self,
+        seat: u8,
+        request: crate::protocol::ActionQueryRequest,
+        now: Instant,
+    ) -> crate::protocol::ActionQueryResponse {
+        use crate::protocol::{ActionQueryResponse, ActionQueryStatus, ActionQueryUnavailable};
+        let busy = Instant::now();
+        let valid = serde_json::to_string(&request)
+            .ok()
+            .is_some_and(|text| crate::protocol::decode_action_request(&text).is_ok());
+        let outcome = if !valid || self.halted || !matches!(self.host.phase, WorkerPhase::Waiting) {
+            self.action_queries.clear();
+            ActionQueryStatus::Unavailable {
+                reason: ActionQueryUnavailable::Executor,
+            }
+        } else {
+            self.action_queries.query(&self.game, seat, request, now)
+        };
+        // Exclude executor query time from the next host clock sample, as for
+        // other worker operations. remaining_ns/ready and durable state do not change.
+        if let Some(anchor) = self.last_sample {
+            self.last_sample = anchor.checked_add(busy.elapsed());
+        }
+        ActionQueryResponse {
+            protocol_version: 1,
+            match_id: self.identity.match_id.clone(),
+            viewer: PlayerId(seat),
+            outcome,
+        }
     }
     /// Identity comes from the exact Prepared passed to Game creation/restore,
     /// never an expected registry value or an unvalidated caller assertion.
@@ -776,6 +811,7 @@ impl Worker {
         };
         match self.store.commit(self.store.generation(), transition) {
             Ok(CommitResult::Committed(head)) => {
+                self.action_queries.clear();
                 self.game = candidate;
                 self.host = host;
                 self.head = head;

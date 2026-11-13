@@ -20,7 +20,7 @@ export interface JournalRecord<Envelope> {
 }
 export type DefinitiveDisposition = 'consumed' | 'rejected' | 'cancelled' | 'departure-discarded';
 
-/** Future IndexedDB implementation must atomically enforce one unresolved record
+/** IndexedDB atomically enforces one unresolved record
  * by SeatBinding across builds. persist rejects on conflict/failure before send.
  * An accepted acknowledgment, 404, local stop or elapsed time never calls resolve.
  * No capability, observation or diagnostics belongs in a record. */

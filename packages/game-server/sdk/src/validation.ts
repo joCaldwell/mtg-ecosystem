@@ -1,3 +1,5 @@
+import type { ActionQueryRequest } from '../generated/action_request.js';
+import type { ActionQueryResponse } from '../generated/action_query.js';
 import type { CommandEnvelope } from '../generated/command.js';
 import type { StreamPage } from '../generated/stream.js';
 import type { SubmissionResult } from '../generated/submission.js';
@@ -6,7 +8,7 @@ import type { PublicManifest } from '../generated/manifest.js';
 import type { SeatResume } from '../generated/resume.js';
 import type { SeatBootstrap } from '../generated/bootstrap.js';
 import { commandValidator, streamValidator, submissionValidator, executionValidator,
-  manifestValidator, commandIdValidator, counterValidator, resumeValidator, bootstrapValidator } from '../generated/validators.js';
+  action_queryValidator, action_requestValidator, manifestValidator, commandIdValidator, counterValidator, resumeValidator, bootstrapValidator } from '../generated/validators.js';
 import { PROTOCOL_VERSION } from '../generated/protocol.ts';
 export { PROTOCOL_VERSION } from '../generated/protocol.ts';
 export class ProtocolError extends Error {
@@ -73,5 +75,20 @@ export function stream(value: unknown, after: string): StreamPage {
     previous = cursor;
   }
   if (BigInt(counter(value.next)) !== previous) throw new ProtocolError('Stream next cursor disagrees with included entries');
+  return value;
+}
+
+export function actionRequest(value:unknown):ActionQueryRequest {
+  exactNumbers(value);
+  if(!action_requestValidator(value)) throw new ProtocolError('Invalid action query request');
+  // Anchor-end aliases must never reach transport, even when JSON Schema's
+  // regex admits a terminal newline. Generated length constraints remain exact.
+  if(value.operation!=='start' && /[^0-9a-f]/.test(value.cursor)) throw new ProtocolError('Invalid action cursor');
+  return value;
+}
+export function actionQuery(value:unknown):ActionQueryResponse {
+  exactNumbers(value);
+  if(!action_queryValidator(value)) throw new ProtocolError('Invalid action query response');
+  if(value.outcome.status==='incomplete' && /[^0-9a-f]/.test(value.outcome.cursor)) throw new ProtocolError('Invalid action cursor');
   return value;
 }

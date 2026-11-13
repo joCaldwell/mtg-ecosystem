@@ -30,6 +30,7 @@ pub struct HostedMatch {
     pub manifest: PublicManifest,
     pub broker: Broker,
     polls: [Arc<Semaphore>; 4],
+    queries: [Arc<Semaphore>; 4],
 }
 impl HostedMatch {
     pub fn new(
@@ -45,6 +46,7 @@ impl HostedMatch {
             manifest,
             broker,
             polls: std::array::from_fn(|_| Arc::new(Semaphore::new(1))),
+            queries: std::array::from_fn(|_| Arc::new(Semaphore::new(1))),
         })
     }
 }
@@ -83,6 +85,7 @@ impl Host {
     pub fn router(self) -> Router {
         Router::new()
             .route(protocol::COMMAND_ROUTE, post(submit))
+            .route(protocol::ACTION_QUERY_ROUTE, post(query_actions))
             .route(protocol::EVENTS_ROUTE, get(events))
             .route(protocol::COMMAND_STATUS_ROUTE, get(execution))
             .route(protocol::COMMAND_CANCEL_ROUTE, post(cancel))
@@ -237,6 +240,55 @@ async fn submit(State(host): State<Host>, Path(id): Path<String>, request: Reque
         .await
     {
         Ok(WorkerReply::Submission { result, .. }) => json(&result),
+        Ok(WorkerReply::Error { code }) => worker_failure(code),
+        Err(error) => broker_failure(error),
+        _ => failure(StatusCode::SERVICE_UNAVAILABLE),
+    }
+}
+async fn query_actions(
+    State(host): State<Host>,
+    Path(id): Path<String>,
+    request: Request,
+) -> Response {
+    let (item, seat) = match host.authenticate(&id, request.headers()) {
+        Ok(value) => value,
+        Err(status) => return failure(status),
+    };
+    let Ok(_permit) = item.queries[usize::from(seat)].clone().try_acquire_owned() else {
+        return failure(StatusCode::TOO_MANY_REQUESTS);
+    };
+    if request.uri().query().is_some()
+        || request
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_none_or(|v| v.split(';').next() != Some("application/json"))
+    {
+        return failure(StatusCode::BAD_REQUEST);
+    }
+    let body = match read_body(request.into_body(), protocol::MAX_ACTION_REQUEST_BYTES).await {
+        Ok(value) => value,
+        Err(status) => return failure(status),
+    };
+    let query = match std::str::from_utf8(&body)
+        .ok()
+        .and_then(|text| protocol::decode_action_request(text).ok())
+    {
+        Some(value) => value,
+        None => return failure(StatusCode::BAD_REQUEST),
+    };
+    match item
+        .broker
+        .call(WorkerCommand::QueryActions {
+            seat,
+            request: query,
+        })
+        .await
+    {
+        Ok(WorkerReply::Actions { response: value }) => match protocol::checked_actions(&value) {
+            Ok(body) => response(StatusCode::OK, body),
+            Err(_) => failure(StatusCode::SERVICE_UNAVAILABLE),
+        },
         Ok(WorkerReply::Error { code }) => worker_failure(code),
         Err(error) => broker_failure(error),
         _ => failure(StatusCode::SERVICE_UNAVAILABLE),
