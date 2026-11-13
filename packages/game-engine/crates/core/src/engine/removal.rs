@@ -7,8 +7,8 @@ use mtg_contracts::{EffectRecipient, PermanentFilter, TargetAmount, TargetAttrib
 
 // Reviewed derivation: docs/game-engine-removal.md. Earlier limits are intact.
 
-/// Resolution-start facts survive removal, token cessation, controller departure
-/// and commander return. They never derive from the successor incarnation.
+/// Current facts refresh while the exact target remains in its expected public
+/// zone, then survive as its last appearance. A successor never supplies them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct TargetFacts {
@@ -17,6 +17,77 @@ pub(super) struct TargetFacts {
     mana_value: Quantity,
 }
 impl Game {
+    fn target_information_frame(frame: &mut Frame) -> Option<&mut Resolving> {
+        match frame {
+            Frame::Resolve { frame }
+            | Frame::ResolutionChoice { frame, .. }
+            | Frame::ForcedSacrifice { frame, .. }
+            | Frame::OptionalDamage { frame } => Some(frame),
+            Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
+                match transaction.continuation.as_mut() {
+                    DamageContinuation::Instruction { frame } => Some(frame),
+                    DamageContinuation::Combat => None,
+                }
+            }
+            Frame::Stabilize { resume, .. } | Frame::LegendRule { resume, .. } => {
+                Self::target_information_frame(resume)
+            }
+            Frame::CommanderReturn { continuation, .. } => match continuation.as_mut() {
+                CommanderContinuation::BoardReturn { frame, .. }
+                | CommanderContinuation::SpellMove { frame, .. }
+                | CommanderContinuation::ResolutionDraw { frame, .. } => Some(frame),
+                CommanderContinuation::StateBased { resume }
+                | CommanderContinuation::StateBasedBatch { resume, .. } => {
+                    Self::target_information_frame(resume)
+                }
+                CommanderContinuation::Draw { .. } => None,
+            },
+            _ => None,
+        }
+    }
+    /// CR608.2h: read current information when an effect applies, retaining the
+    /// last expected-zone appearance before a move/departure. Refresh on every
+    /// atomic step, including concessions between instructions. This never
+    /// repeats the resolution-start target legality check (CR608.2b).
+    pub(super) fn refresh_removal_target_facts(&mut self) -> Result<(), String> {
+        let (entry, legal) = match Self::target_information_frame(&mut self.state.rules.frame) {
+            Some(frame) if !frame.target_facts.is_empty() => {
+                (frame.spell.clone(), frame.legal_targets.clone())
+            }
+            _ => return Ok(()),
+        };
+        let current = self
+            .program_for(&entry)?
+            .targets
+            .iter()
+            .enumerate()
+            .map(|(slot, spec)| {
+                legal.get(slot) == Some(&true)
+                    && if spec.domain == TargetDomain::StackSpell {
+                        entry.stack_targets.get(slot).is_some_and(|id| {
+                            self.state.rules.stack.iter().any(|entry| entry.id == *id)
+                        })
+                    } else {
+                        entry.targets.get(slot).is_some_and(|id| {
+                            self.current(*id)
+                                .is_ok_and(|object| object.zone == Zone::Battlefield)
+                        })
+                    }
+            })
+            .collect::<Vec<_>>();
+        let fresh = self.capture_target_facts(&entry, &current)?;
+        let frame = Self::target_information_frame(&mut self.state.rules.frame)
+            .ok_or("missing target information frame")?;
+        for (slot, fact) in fresh.into_iter().enumerate() {
+            if fact.is_some() {
+                *frame
+                    .target_facts
+                    .get_mut(slot)
+                    .ok_or("missing target information slot")? = fact;
+            }
+        }
+        Ok(())
+    }
     fn matches_permanent_filter(
         &self,
         object: ObjectId,

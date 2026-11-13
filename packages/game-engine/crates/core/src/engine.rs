@@ -23,6 +23,8 @@ mod commander_policy;
 pub use commander_policy::policy_digest;
 mod removal;
 #[cfg(test)]
+mod removal_information_tests;
+#[cfg(test)]
 mod removal_tests;
 mod sacrifice;
 #[cfg(test)]
@@ -2628,6 +2630,7 @@ impl Game {
     }
     fn step(&mut self) -> Result<(), String> {
         self.check_history_capacity()?;
+        self.refresh_removal_target_facts()?;
         if let Some(player) = self.state.rules.pending_concessions.first().copied() {
             self.state.rules.pending_concessions.remove(0);
             return self.apply_departure(player);
