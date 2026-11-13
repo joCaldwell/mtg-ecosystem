@@ -608,6 +608,7 @@ impl Game {
             i @ (Instruction::DestroyPermanent { .. }
             | Instruction::ExilePermanent { .. }
             | Instruction::UntapPermanent { .. }
+            | Instruction::TapPermanent { .. }
             | Instruction::ChangeLifeFromTarget { .. }
             | Instruction::CreateTokensFor { .. }
             | Instruction::DamageTargetController { .. }) => {

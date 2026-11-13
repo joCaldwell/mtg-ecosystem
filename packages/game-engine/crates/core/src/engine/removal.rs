@@ -265,7 +265,12 @@ impl Game {
             Instruction::UntapPermanent {
                 target_slot,
                 source_block,
+            }
+            | Instruction::TapPermanent {
+                target_slot,
+                source_block,
             } => {
+                let tap = matches!(instruction, Instruction::TapPermanent { .. });
                 let target = frame.spell.targets[target_slot as usize];
                 // CR608.2b checks targeting once as resolution starts. The
                 // instruction still needs that same battlefield incarnation;
@@ -286,14 +291,21 @@ impl Game {
                         InstructionOutcome::ObjectNoLongerPresent { target },
                     );
                 }
-                // CR701.26b/609.3: an untapped permanent is a legal target,
-                // but cannot be untapped again. Preserve the strict event
-                // guard and record no change rather than a false untap event.
-                if !object.tapped {
+                // CR701.26a/b,609.3: a permanent already in the desired
+                // state is a legal target, but cannot be tapped/untapped
+                // again. Preserve the strict event guards and record no change.
+                if object.tapped == tap {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
-                (ProposedEvent::Untap { object: target }, source_block)
+                (
+                    if tap {
+                        ProposedEvent::Tap { object: target }
+                    } else {
+                        ProposedEvent::Untap { object: target }
+                    },
+                    source_block,
+                )
             }
             Instruction::DestroyPermanent {
                 target_slot,

@@ -1162,6 +1162,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | Instruction::DestroyPermanent { .. }
                     | Instruction::ExilePermanent { .. }
                     | Instruction::UntapPermanent { .. }
+                    | Instruction::TapPermanent { .. }
                     | Instruction::ChangeLifeFromTarget { .. }
                     | Instruction::CreateTokensFor { .. }
                     | Instruction::DamageTargetController { .. }

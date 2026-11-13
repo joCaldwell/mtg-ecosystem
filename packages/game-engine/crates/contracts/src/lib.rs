@@ -213,6 +213,7 @@ pub enum Capability {
     BlockingCreatureTargetV1,
     TappedPermanentTargetV1,
     UntapPermanentV1,
+    TapPermanentV1,
     OwnerHandMoveV1,
     CastSorceryV1,
     OwnerLibraryTopMoveV1,
@@ -503,6 +504,10 @@ pub enum Instruction {
         source_block: u32,
     },
     UntapPermanent {
+        target_slot: u32,
+        source_block: u32,
+    },
+    TapPermanent {
         target_slot: u32,
         source_block: u32,
     },
@@ -1338,6 +1343,18 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        if self.activated.iter().any(|a| has_tap(&a.program))
+            || self.triggered.iter().any(|a| has_tap(&a.program))
+            || self.spell.as_ref().is_some_and(|p| {
+                has_tap(p)
+                    && (!matches!(
+                        self.characteristics.kind,
+                        CardKind::Instant | CardKind::Sorcery
+                    ) || !p.modes.is_empty())
+            })
+        {
+            return Err("tap requires an ordinary nonmodal spell".into());
+        }
         if self.activated.iter().any(|a| has_untap(&a.program))
             || self.triggered.iter().any(|a| has_untap(&a.program))
             || self.spell.as_ref().is_some_and(|p| {
@@ -2112,6 +2129,25 @@ fn validate_permanent_costs(c: &PermanentActivationCosts) -> Result<(), String> 
     Ok(())
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
+    if has_tap(p)
+        && (p.additional_sacrifice.is_some()
+            || !p.modes.is_empty()
+            || p.functioning_zone != FunctioningZone::Stack
+            || p.resolution != SpellResolution::Instructions
+            || p.targets.len() != 1
+            || p.targets[0].domain != TargetDomain::BattlefieldCreature
+            || p.targets[0].filter.is_some()
+            || !matches!(
+                p.instructions.first(),
+                Some(Instruction::TapPermanent { target_slot: 0, .. })
+            )
+            || !(p.instructions.len() == 1
+                || (p.instructions.len() == 2
+                    && matches!(&p.instructions[1],
+                    Instruction::DrawCards { recipient: None, count, .. } if *count == Quantity::from(1)))))
+    {
+        return Err("tap requires one creature target, then at most one controller draw".into());
+    }
     if has_untap(p)
         && (p.additional_sacrifice.is_some()
             || !p.modes.is_empty()
@@ -2352,6 +2388,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             | Instruction::UntapPermanent { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::BattlefieldPermanent))
             }
+            Instruction::TapPermanent { target_slot, .. } => {
+                Some((*target_slot, TargetDomain::BattlefieldCreature))
+            }
             Instruction::ChangeLifeFromTarget {
                 recipient, amount, ..
             } => {
@@ -2588,6 +2627,13 @@ fn has_blocking_creature_target(program: &SpellProgram) -> bool {
             .iter()
             .any(|m| has_blocking_creature_target(&m.program))
 }
+fn has_tap(program: &SpellProgram) -> bool {
+    program
+        .instructions
+        .iter()
+        .any(|i| matches!(i, Instruction::TapPermanent { .. }))
+        || program.modes.iter().any(|m| has_tap(&m.program))
+}
 fn has_untap(program: &SpellProgram) -> bool {
     program
         .instructions
@@ -2718,6 +2764,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::OptionalDrawCards { .. } => Capability::OptionalControllerDrawV1,
             Instruction::DrawDamageAmount { .. } => Capability::DamageQuantityDrawV1,
             Instruction::UntapPermanent { .. } => Capability::UntapPermanentV1,
+            Instruction::TapPermanent { .. } => Capability::TapPermanentV1,
             Instruction::DiscardCards {
                 recipient: Some(ActionRecipient::EventPlayer),
                 ..
@@ -2939,6 +2986,41 @@ pub fn catalog_schema() -> serde_json::Value {
             "triggered":{"items":{"properties":{"program":{"properties":{"targets":{"items":{"properties":{"domain":{"not":{"const":"blocking_battlefield_creature"}}}}}}}}}}
         }
     }));
+    // A creature tap may compose with the existing mandatory draw-one effect.
+    // No other execution context or instruction composition is admitted.
+    schema["$defs"]["TapFreeProgram"] = serde_json::json!({"properties":{
+        "instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"const":"tap_permanent"}}}}},
+        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/TapFreeProgram"}}}}
+    }});
+    let tap = serde_json::json!({"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"tap_permanent"}}}}});
+    schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["instructions"],"properties":tap},
+        "then":{"properties":{
+            "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
+            "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
+            "instructions":{"minItems":1,"maxItems":2,"prefixItems":[
+                {"properties":{"op":{"const":"tap_permanent"},"target_slot":{"const":0}}},
+                {"properties":{"op":{"const":"draw_cards"},"recipient":{"type":"null"},"count":{"const":"1"}}}
+            ],"items":false},
+            "targets":{"minItems":1,"maxItems":1,"items":{"properties":{
+                "domain":{"const":"battlefield_creature"},"filter":{"type":"null"}
+            }}}
+        }}
+    }));
+    schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "properties":{"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/TapFreeProgram"}}}}}
+    }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["spell"],"properties":{"spell":{"type":"object","required":["instructions"],"properties":tap}}},
+        "then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},"capabilities":{"contains":{"const":Capability::TapPermanentV1}}}}
+    }));
+    schema["$defs"]["Definition"]["allOf"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({"properties":{
+            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/TapFreeProgram"}}}},
+            "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/TapFreeProgram"}}}}
+        }}));
     // The untap opcode is a complete ordinary spell, not a capability that
     // implicitly admits activations, triggers or modal child programs.
     schema["$defs"]["UntapFreeProgram"] = serde_json::json!({"properties":{
@@ -3035,6 +3117,9 @@ mod tapped_target_tests;
 mod untap_tests;
 
 #[cfg(test)]
+mod tap_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]
@@ -3096,6 +3181,7 @@ mod tests {
             BlockingCreatureTargetV1,
             TappedPermanentTargetV1,
             UntapPermanentV1,
+            TapPermanentV1,
             OwnerHandMoveV1,
             CastSorceryV1,
             OwnerLibraryTopMoveV1,
@@ -3230,6 +3316,7 @@ mod tests {
         // Complete typed untap witness; the compiler separately checks the
         // retained source and its complete unqualified target selection.
         definitions.push(untap_tests::untap());
+        definitions.push(tap_tests::tap());
         // Synthetic contract-shape witness only. Complete D2c-e source lowering
         // is checked in compiler/core tests, without fabricated expected IR.
         let mut damage = definitions

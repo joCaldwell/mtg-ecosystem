@@ -534,6 +534,9 @@ enum Step {
     Untap {
         what: serde_json::Value,
     },
+    Tap {
+        what: serde_json::Value,
+    },
     Destroy {
         what: serde_json::Value,
         optional: Option<bool>,
@@ -1613,6 +1616,15 @@ fn append_spell_effects(
                     }
                     Instruction::UntapPermanent {
                         target_slot: bind_permanent_target(program, slots, what)?,
+                        source_block,
+                    }
+                }
+                Step::Tap { what } => {
+                    let target: Target = serde_json::from_value(what.clone()).map_err(|_| {
+                        unsupported("effects.tap", "unsupported complete creature tap target")
+                    })?;
+                    Instruction::TapPermanent {
+                        target_slot: bind_creature_target(program, slots, &target)?,
                         source_block,
                     }
                 }
@@ -8297,3 +8309,6 @@ mod artifact_sacrifice_source_tests;
 
 #[cfg(test)]
 mod counter_target_reuse_tests;
+
+#[cfg(test)]
+mod tap_tests;

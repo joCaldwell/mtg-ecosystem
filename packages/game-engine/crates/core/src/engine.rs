@@ -50,6 +50,8 @@ mod keywords;
 #[cfg(test)]
 mod staples_tests;
 #[cfg(test)]
+mod tap_tests;
+#[cfg(test)]
 mod tapped_target_tests;
 #[cfg(test)]
 mod tokens_tests;

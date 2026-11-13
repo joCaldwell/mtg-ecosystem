@@ -1,4 +1,24 @@
-# Ordinary permanent untapping
+# Ordinary permanent untapping and creature tapping
+
+## Creature tap and controller draw
+
+Schema 1 also supports `TapPermanent { target_slot, source_block }` with
+`TapPermanentV1`: one unqualified battlefield-creature target in an ordinary
+instant/sorcery spell, followed by at most one mandatory controller draw-one.
+Other instructions, target filters, additional costs, modes and activated/triggered
+contexts reject. The complete Pressure Point source is pinned at
+`tests/fixtures/d4bbdd0c-e578-49ed-b2f7-b1decb04ee87.json`, archive physical line
+32118/source index 32116: `{1}{W}`, Instant, “Tap target creature. Draw a card.”
+
+A legal already-tapped target produces no second tap event and still permits
+the draw. If its sole target is illegal as resolution starts, the entire spell
+fails to resolve, including the draw. Later departure cannot rebind a target or
+repeat that legality check. Execution reuses the strict tap event and existing
+draw, payment, visibility and replay machinery (pinned CR110.5,608.2b/c,701.26a).
+This source/runtime increment adds no pool, hosting or search admission, and
+does not qualify downstream consumers for the changed schema/build.
+
+## Permanent untap
 
 Card IR remains at schema **1**. `UntapPermanent { target_slot, source_block }`
 requires `UntapPermanentV1`, alongside the existing permanent-filter capability.
