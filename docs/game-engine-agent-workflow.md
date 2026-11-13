@@ -64,6 +64,9 @@ Choose the smallest checks that answer the actual edit. Use `--plan` when covera
 is uncertain, then run the chosen checks once on stable source. Inspect test counts
 and omissions. After a failure, fix its cause and repeat affected checks; source
 or documentation changes alone do not justify repeating an unrelated full gate.
+Evolve the current unreleased IR schema in place at version 33. New capabilities
+need strict semantic validation, not a new schema number or downgrade-test matrix;
+see the [version policy](game-engine-builds.md).
 For gameplay edits, behavioral assertions and replay/privacy negatives matter even
 though the broader matrix is optional. See [verification](game-engine-verification-workflow.md).
 
