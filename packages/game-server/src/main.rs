@@ -36,6 +36,7 @@ fn schema() -> Result<(), Box<dyn std::error::Error>> {
             "submission":mtg_server::protocol::submission_schema(),
             "execution":mtg_server::protocol::execution_schema(),
             "manifest":mtg_server::protocol::manifest_schema(),
+            "resume":mtg_server::protocol::resume_schema(),
         }))?
     );
     Ok(())
@@ -153,6 +154,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match args.first().and_then(|a|a.to_str()) {
         Some("schema") if args.len()==1=>schema(),
         Some("native-info") if args.len()==1=>native_info(),
+        Some("bootstrap-schema") if args.len()==1=>{println!("{}",serde_json::to_string(&mtg_server::protocol::bootstrap_schema())?);Ok(())},
         Some("--worker") if (4..=5).contains(&args.len())=>{
             mtg_server::ipc::run_child(Path::new(&args[1]),Path::new(&args[2]),args[3].to_str().ok_or("invalid match ID")?,args.get(4).map(Path::new))?;Ok(())
         }
@@ -164,6 +166,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             registry.create(id,&catalog,&config,Path::new(&args[5]),|directory,catalog,config| {
                 let worker=mtg_server::worker::Worker::create(directory,catalog.clone(),config.clone(),id,Instant::now())?;drop(worker);Ok(())
             })?;Ok(())
+        }
+        Some("export-seat") if args.len()==7=>{
+            let registry=mtg_server::registry::MatchRegistry::open(Path::new(&args[1]))?;
+            registry.export_seat(args[2].to_str().ok_or("invalid match ID")?,args[3].to_str().ok_or("invalid seat")?.parse()?,args[4].to_str().ok_or("invalid origin")?,Path::new(&args[5]),Path::new(&args[6]))?;Ok(())
         }
         Some("rotate") if args.len()==5=>{
             let mut registry=mtg_server::registry::MatchRegistry::open(Path::new(&args[1]))?;
@@ -177,6 +183,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let address=args[2].to_str().ok_or("invalid bind address")?.parse()?;
             tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?.block_on(serve(Path::new(&args[1]),address))
         }
-        _=>Err("usage: mtg-server schema | native-info | create ROOT ID CATALOG CONFIG ISSUED_FILE | serve ROOT LOOPBACK:PORT | rotate ROOT ID SEAT ISSUED_FILE | revoke ROOT ID SEAT".into()),
+        _=>Err("usage: mtg-server schema | bootstrap-schema | native-info | export-seat ROOT ID SEAT ORIGIN ISSUED_FILE OUTPUT | create ROOT ID CATALOG CONFIG ISSUED_FILE | serve ROOT LOOPBACK:PORT | rotate ROOT ID SEAT ISSUED_FILE | revoke ROOT ID SEAT".into()),
     }
 }

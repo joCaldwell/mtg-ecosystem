@@ -1,7 +1,10 @@
 //! Host-private, length-prefixed stdio protocol. Never route these DTOs to HTTP.
 pub use crate::worker::WorkerIdentity;
 use crate::{
-    protocol::{CommandEnvelope, CommandExecution, ExecutionStatus, StreamPage, SubmissionResult},
+    protocol::{
+        CommandEnvelope, CommandExecution, ExecutionStatus, SeatResume, StreamPage,
+        SubmissionResult,
+    },
     worker::{ClockControl, Worker, WorkerPhase},
 };
 use mtg_contracts::{Catalog, strict_read};
@@ -24,6 +27,7 @@ pub const TASKS_MAX: u64 = 32;
 pub enum WorkerCommand {
     Submit { seat: u8, request: CommandEnvelope },
     CancelQueued { seat: u8, request: CommandEnvelope },
+    Resume { seat: u8 },
     Advance,
     Page { seat: u8, after: u64, limit: u32 },
     Execution { seat: u8, command_id: String },
@@ -35,6 +39,7 @@ impl WorkerCommand {
         let seat = match self {
             Self::Submit { seat, .. }
             | Self::CancelQueued { seat, .. }
+            | Self::Resume { seat }
             | Self::Page { seat, .. }
             | Self::Execution { seat, .. } => Some(*seat),
             _ => None,
@@ -93,6 +98,9 @@ pub enum WorkerReply {
     },
     Execution {
         execution: Option<CommandExecution>,
+    },
+    Resume {
+        resume: Box<SeatResume>,
     },
     Stopped,
     Error {
@@ -341,6 +349,14 @@ fn handle(worker: &mut Worker, command: WorkerCommand) -> WorkerReply {
                 },
             }
         }
+        WorkerCommand::Resume { seat } => match worker.resume(seat) {
+            Ok(resume) => WorkerReply::Resume {
+                resume: Box::new(resume),
+            },
+            Err(_) => WorkerReply::Error {
+                code: WorkerErrorCode::Unavailable,
+            },
+        },
         WorkerCommand::Execution { seat, command_id } => {
             match worker.command_execution(seat, &command_id) {
                 Ok(execution) => WorkerReply::Execution { execution },

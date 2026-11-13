@@ -462,3 +462,108 @@ fn registry_hosts_exactly_the_profiles_flagged_in_data() {
     unknown.profile = "commander-future-v1".into();
     assert!(hosted_profile(&unknown).is_err());
 }
+
+#[test]
+fn seat_bootstrap_export_is_single_seat_strict_private_and_non_overwriting() {
+    let a = Area::new();
+    let mut r = MatchRegistry::open(&a.root()).unwrap();
+    add(&mut r, &a, "a1");
+    let issued = keys(&a.out("a1"));
+    let out = a.out("seat2.json");
+    r.export_seat("a1", 2, "http://127.0.0.1:8080", &a.out("a1"), &out)
+        .unwrap();
+    let body = fs::read_to_string(&out).unwrap();
+    let value = json(&out);
+    assert_eq!(value["viewer"], 2);
+    assert_eq!(value["capability"], issued[2]);
+    for other in [0, 1, 3, 4] {
+        assert!(!body.contains(&issued[other]));
+    }
+    assert!(!body.contains("profile_sha256"));
+    assert_eq!(
+        fs::metadata(&out).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    let validator = jsonschema::draft7::options()
+        .build(&serde_json::to_value(crate::protocol::bootstrap_schema()).unwrap())
+        .unwrap();
+    validator.validate(&value).unwrap();
+    assert!(
+        r.export_seat("a1", 2, "http://127.0.0.1:8080", &a.out("a1"), &out)
+            .is_err()
+    );
+    for origin in [
+        "http://localhost:8080",
+        "http://127.0.0.2:8080",
+        "http://127.0.0.1:0",
+        "http://127.0.0.1:65536",
+        "http://127.0.0.1:080",
+        "http://127.0.0.1:80/",
+        "http://x@127.0.0.1:80",
+        "http://127.0.0.1:80?q=1",
+        "http://127.0.0.1:80#x",
+        "https://127.0.0.1:80",
+    ] {
+        assert!(
+            r.export_seat("a1", 0, origin, &a.out("a1"), &a.out("invalid"))
+                .is_err(),
+            "{origin}"
+        );
+    }
+    r.export_seat("a1", 0, "http://[::1]:8080", &a.out("a1"), &a.out("ipv6"))
+        .unwrap();
+    r.rotate("a1", 2, &a.out("rotated")).unwrap();
+    assert!(
+        r.export_seat(
+            "a1",
+            2,
+            "http://127.0.0.1:8080",
+            &a.out("a1"),
+            &a.out("stale")
+        )
+        .is_err()
+    );
+    assert!(
+        r.export_seat(
+            "a1",
+            1,
+            "http://127.0.0.1:8080",
+            &a.out("rotated"),
+            &a.out("wrong")
+        )
+        .is_err()
+    );
+    r.export_seat(
+        "a1",
+        2,
+        "http://127.0.0.1:8080",
+        &a.out("rotated"),
+        &a.out("new"),
+    )
+    .unwrap();
+    r.revoke("a1", 2).unwrap();
+    assert!(
+        r.export_seat(
+            "a1",
+            2,
+            "http://127.0.0.1:8080",
+            &a.out("rotated"),
+            &a.out("revoked")
+        )
+        .is_err()
+    );
+    let mut bad = json(&a.out("a1"));
+    bad["secret-extra"] = serde_json::json!(issued[0]);
+    rewrite(&a.out("a1"), &bad);
+    let error = r
+        .export_seat(
+            "a1",
+            0,
+            "http://127.0.0.1:8080",
+            &a.out("a1"),
+            &a.out("extra"),
+        )
+        .unwrap_err();
+    assert!(!error.contains(&issued[0]));
+    assert_eq!(body, fs::read_to_string(out).unwrap());
+}
