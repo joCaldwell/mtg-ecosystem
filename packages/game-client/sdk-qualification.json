@@ -1,7 +1,7 @@
 {
-  "native_source": "2aaf466b6a331846baea95116c6c0ebf26d953cb",
+  "native_source": "ebfa6dde266139c45220959c4179ddedf6a38433",
   "protocol_schema_sha256": "a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3",
   "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
-  "scope": "Fresh current-source opening-hand producer: focused native delivery/security/protocol tests and copied server/provisioner exports. Source fingerprint 818ddd3c681c352e70bb3bd66e4109d2e05e8644f4db9a12181842d9b2e7f7df. Live App qualification is recorded separately in LIVE-OPENING-REPORT.md; historical fixture/provenance unchanged.",
-  "sdk_source": "2aaf466b6a331846baea95116c6c0ebf26d953cb"
+  "scope": "Combined current-source producer preserving the dc12222 compiler fix and reviewed PR22/PR23. Passed 15 focused native delivery/HTTP/protocol tests; built server/provisioner; verified 677 source rows and independently rederived build identities. Source fingerprint b7e30b5e01dfba5a0ab9d3e76996840803b35745dae878009c512ae60e5c8191. SDK and production App opening/proxy qualification are recorded in LIVE-OPENING-REPORT.md; historical 2aaf/e86 and fixture provenance remain unchanged.",
+  "sdk_source": "ebfa6dde266139c45220959c4179ddedf6a38433"
 }

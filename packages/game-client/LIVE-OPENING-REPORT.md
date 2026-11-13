@@ -177,3 +177,54 @@ Parent subsequently published compiler-only `dc12222cd6251c3c20c3f15b4a0ae2e6ea1
 This branch deliberately retains the tested 2aaf producer pin. Parent will preserve
 that compiler fix and decide minimal final combined-source qualification; no duplicate
 native build or automatic matrix was started here.
+
+
+## Parent integration with current main
+
+Both independent reviews were clean: query PR22 at `9e06b973` and opening PR23 at
+`9c673913`. Parent merged PR22 as `d93ddebb`, then integrated that main into the
+opening branch at **`ebfa6dde266139c45220959c4179ddedf6a38433`**. The combined source preserves the
+`dc12222` compiler correction and both sets of coverage evidence. No additional
+runtime implementation changed after the opening review; the production bundle
+is byte-identical to the independently reviewed opening bundle. The query
+controller remains opt-in and uncomposed in the App.
+
+Fresh parent qualification uses `generated/opening-integration/`, separate from
+all earlier producer evidence. Historical 2aaf/e86 captures and reports above
+retain their original scope. Updated `sdk-qualification.json` and regenerated
+coverage change only current native/SDK source references and explanatory scope;
+historical capture provenance and UI evidence hashes remain untouched.
+
+| Fresh combined-source check | Result |
+| --- | --- |
+| Native delivery / HTTP delivery / protocol adversarial | 4 + 1 + 10 passed; fresh debug server and provisioner built under shared Cargo lock. |
+| Native source closure | 677 exact Git-source rows; before/after identical; engine and server build IDs independently rederived from actual source/toolchain/configuration. |
+| SDK from fresh exports | Generation, strict types, browser packaging and 66 tests passed; schema/bootstrap and SDK generation/build/browser bytes unchanged. |
+| Client after current qualification | 114 tests, strict types, boundaries, inventory and production build passed; final copied production files match checked output. |
+| Actual production App and new native | Ten opening/recovery case groups across Chromium and Firefox passed, including four isolated seats, explicit keeps/mulligans/bottom order, durable response loss, exact retry, stale rejection, and storage failures. |
+| Restricted production proxy and new native | 17 route/security, four authenticated schema/body and five execution/cancellation restriction checks passed; genuine commands/execution reads passed in both browsers. |
+
+Fresh engine build: `f9422adcd77e57bdc075646f25cc21cf923438d327794bc6944efb4166899343`. Fresh server build:
+`ca2eda503a3e7a72472c149ba096cf1f6dee4864b9dd4b317aa67b2ecfb90292`. Native source manifest SHA-256:
+`b7e30b5e01dfba5a0ab9d3e76996840803b35745dae878009c512ae60e5c8191`. Source-validation, build/test logs and copied
+binaries are under `native/`; `verify-source.py` records the independent build
+identity calculation. App receipt: `accept/report.json` (SHA-256
+`3689e9c5c675a081fa013255a608a170d6d8d655d2aeb30946f0d70a40fae245`); proxy receipt: `proxy/report.json` (SHA-256
+`b84bd34de35189397676bd00d8da605bb733fac1ff95e3bb54c4d01cdbf1721f`). `qualification.json` hashes sources, public
+artifacts, review receipts, checks and proof scripts; private registry/seat files
+are excluded from that public fingerprint list and remain under the private
+0700 evidence root. No authenticated traces/HAR/video were recorded.
+
+The shared build lock was released immediately after copying/validating native
+outputs, and the engine lane was notified. This build used the surviving standard
+target `/home/josh/.cache/mtg-ecosystem/cargo/d5481adfe9c96682/8bf11357d0994b4b`,
+starting empty and ending at about 3.72 GB, with incremental compilation disabled.
+No retired performance path was accessed. All owned test hosts/browsers closed;
+the selected ports were independently checked free. No failures occurred in this
+parent combined pass; earlier meaningful failed evidence remains preserved.
+
+No new full game, human usability, full M2, query-menu composition, expanded
+hosting/search, natural match, Safari, performance or full retention claim follows.
+Separate fixture/gallery, IndexedDB and CSP suites were already independently
+verified and were not repeated in this parent pass; actual App recovery and proxy
+qualification above used fresh current-source native binaries and new seats.
