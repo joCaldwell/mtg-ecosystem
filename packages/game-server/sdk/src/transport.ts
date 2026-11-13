@@ -26,7 +26,11 @@ export async function requestJSON(fetcher: typeof fetch, url: string, init: Requ
   try {
     for (;;) {
       if (signal?.aborted) throw aborted();
-      const result=await reader.read(); if (result.done) break;
+      // A rejected body read is a transport failure, even after valid headers.
+      // Decoding/schema errors from a completed body remain protocol failures.
+      let result: ReadableStreamReadResult<Uint8Array>;
+      try { result=await reader.read(); } catch { throw new TransportError(); }
+      if (result.done) break;
       size+=result.value.byteLength; if (size>maximumBytes) throw new ProtocolError('Response body exceeds limit'); chunks.push(result.value);
     }
     const bytes=new Uint8Array(size); let offset=0;
@@ -36,7 +40,7 @@ export async function requestJSON(fetcher: typeof fetch, url: string, init: Requ
   } catch(error) {
     await reader.cancel().catch(()=>{});
     if(signal?.aborted) throw aborted();
-    if(error instanceof ProtocolError) throw error;
+    if(error instanceof ProtocolError || error instanceof TransportError) throw error;
     throw new ProtocolError('Invalid JSON response');
   } finally {reader.releaseLock();}
 }
