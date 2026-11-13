@@ -15,6 +15,11 @@ source-identical catalog bodies and updated admission digests. The query diff
 contains no reset implementation; test/schema identity is qualified below against
 this integrated baseline, not pre-reset artifacts.
 
+Implementation checkpoint: `d1d039539d63aa17cd411c654e22086ccf3c9322`,
+published on `origin/feat/game-client-action-queries`. All native files in that
+commit match the measured source manifest. This source-pin follow-up changes only
+this report and does not change executable/schema identity.
+
 ## Native contract
 
 `PlayerSession::action_beginnings(token, scope, page_size, budget)` binds the
