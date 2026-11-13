@@ -41,7 +41,9 @@ receipt, seed or other-seat history enters the DTO.
 Consumer validates protocol/match/viewer/build/catalog against the imported
 bootstrap and expected session before installing state. Compatibility is explicit:
 route/schema addition changes SDK generation inputs even though transport version
-remains 1. Older SDK generators reject the new envelope until adapted. Host build
+remains 1. This checkpoint adapts the existing SDK generator and verification
+contract to the six-route envelope and emits Rust-owned `SeatResume` declarations;
+browser packaging and callable resume support remain in the separate SDK PR. Host build
 identity changes and existing different-build durable matches remain incompatible;
 there is no live migration. The index is derived from existing publication data,
 not an alternative semantic projection. SQLite documents the required exact
@@ -257,3 +259,18 @@ result; this is deliberately **not** natural-game evidence. The task-owned host
 received graceful SIGINT and exited successfully; no task-owned native processes
 remain. Private registry/credentials, original failed fixture and all evidence are
 retained. The native build slot was released to the engine lane.
+
+## Independent review correction: standalone SDK compatibility
+
+The independent review reproduced the existing SDK generator rejecting this
+checkpoint's new schema envelope. The native PR now includes the minimal generator
+and verification update, so it can merge before the browser SDK PR without
+breaking existing SDK checks. Generation remains strict and atomic; regression
+cases reject a missing resume schema/route and external observation references.
+
+On Node 26.13.1, a fresh package-local locked install and `verify` against the
+retained `generated/client-native/protocol.schema.json` passed generation, strict
+TypeScript, and all 47 Node tests (33 response variants). Evidence is in
+`packages/game-server/sdk/generated/verification.{log,json}`. This check uses the
+original source-qualified native export; it does not establish current-main native
+compatibility or browser/live-game acceptance. No Rust source changed in this fix.
