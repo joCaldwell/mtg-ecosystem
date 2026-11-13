@@ -163,3 +163,40 @@ runtime and UI are unchanged. Browser CSP/native integration, actual App query
 composition, native builds, broad matrices, natural games, performance, human
 usability and deployment were omitted. Parent owns independent review and ordered
 integration. Draft PR only; no merge by this lane.
+
+
+## Independent-review corrections and current-main integration
+
+Parent integrated current main `dc12222cd6251c3c20c3f15b4a0ae2e6ea19333a`
+without conflicts, then corrected all three P2 findings from the independent
+exact-head review of `edfe63a69818a8fc2a360a178418808aa0c841e2`:
+
+- Monotonic request and chain deadlines are checked before dispatch, after adapter
+  setup, after completed responses and before publication. Delayed timers cannot
+  turn overdue results into complete menus. Only a fresh correlated returned
+  continuation is eligible for bounded cleanup; completed overdue data is discarded.
+  Cleanup also checks elapsed time rather than trusting timer scheduling.
+- A retirement barrier is installed before abort, publication or cleanup callbacks.
+  Reentrant stop calls and replacement intents await the same retirement, including
+  pending cancellation. Cleanup installs its own promise before invoking adapters.
+- Authorization callbacks are followed by another intent and current-owner check.
+  Synchronous stop, replacement or authorization change cannot install the old run.
+
+Final package `check` passed strict types, boundaries, **112 Node tests** (67 base,
+41 pure query cases and four actual-built-SDK HTTP cases) and production build.
+The 15 added cases retain the independent review reproductions, including three
+real-timer/event-loop-stall probes, and cover adapter-setup expiry, overdue rotated
+cursor cleanup, overdue cancellation and owner changes during authorization.
+Six retained fixture compatibility replays passed again, with 670 exact original
+Git-source fingerprint rows. The SDK build/browser hashes above remained unchanged.
+No additional Cargo, native or browser acceptance was claimed for this pure module.
+The compiler changes integrated from main do not renew either historical producer's
+qualification. Original reports/receipts remain attributed to their actual source.
+
+Parent evidence: `generated/query-review-fixes/{client-check.log,
+retained-compatibility.log,qualification.json}`. The first parent test attempt
+(`pure-first.log`) failed because a newly written TypeScript parameter-property
+constructor is unsupported by Node's strip-only execution. It was replaced by an
+explicit class field; subsequent pure tests and the full check passed. No guard,
+limit, cancellation policy or historical provenance was relaxed to pass review.
+Independent re-review and final combined integration remain parent gates.

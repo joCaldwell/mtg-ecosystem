@@ -85,7 +85,10 @@ function initiationKey(value: ActionInitiation): string { return canonical(value
 function graphic(value: string): boolean { return /^[!-~]{1,128}$/.test(value); }
 function validScope(scope: ActionScope): boolean { return scope.scope === 'window' || (scope.scope === 'object' && graphic(scope.object)); }
 const empty = (generation = 0): ActionQuerySnapshot => freeze({ generation, phase: 'idle', scope: null, context: null, beginnings: [], failure: null, unavailable: null, cancellation: 'none', calls: 0, work: 0, bytes: 0 });
-class Deadline extends Error {}
+class Deadline extends Error {
+  readonly dispatched: boolean;
+  constructor(dispatched = false) { super(); this.dispatched = dispatched; }
+}
 interface Run {
   readonly id: number;
   readonly owner: ActionQueryContext;
@@ -99,6 +102,7 @@ interface Run {
   inFlight: boolean;
   stopped: boolean;
   lost: boolean;
+  retirement: Promise<void> | null;
   cleanup: Promise<void> | null;
   calls: number;
   work: number;
@@ -143,28 +147,48 @@ export class ActionQueryController {
   async stop(): Promise<void> { this.#intent++; if (this.#run) await this.#retire(this.#run, 'cancelled'); }
   async cancel(generation: number): Promise<void> { if (this.#run?.id === generation) { this.#intent++; await this.#retire(this.#run, 'cancelled'); } }
   async #retire(run: Run, phase: 'cancelled' | 'stale' | 'limited' | 'uncertain' | 'unavailable', failure: ActionQuerySnapshot['failure'] = null): Promise<void> {
-    if (run.stopped) return run.cleanup ?? undefined;
+    if (run.stopped) { await run.retirement; await run.cleanup; return; }
+    // Abort and publication can synchronously reenter stop/start. Install the
+    // barrier before either callback, including before cleanup has begun.
+    let retired!: () => void;
+    run.retirement = new Promise<void>(resolve => { retired = resolve; });
     run.stopped = true;
-    run.operation?.abort();
     const cursor = run.inFlight ? null : run.cursor;
     run.cursor = null;
-    this.#publish(run, { phase, failure, context: null, beginnings: [], cancellation: cursor ? 'pending' : run.inFlight || run.lost ? 'unknown' : 'none' });
-    if (cursor) await this.#cleanup(run, cursor);
+    try {
+      run.operation?.abort();
+      this.#publish(run, { phase, failure, context: null, beginnings: [], cancellation: cursor ? 'pending' : run.inFlight || run.lost ? 'unknown' : 'none' });
+    } finally {
+      try { if (cursor) await this.#cleanup(run, cursor); else await run.cleanup; }
+      finally { retired(); }
+    }
   }
   #envelope(run: Run, result: ActionQueryResponse): boolean {
     return result.protocol_version === run.owner.binding.protocol_version && result.match_id === run.owner.binding.match_id && result.viewer === run.owner.binding.viewer;
   }
   #pageBinding(run: Run, page: ActionPage): boolean { return page.token === run.owner.token && sameScope(page.scope, run.scope); }
+  #freshCursor(run: Run, result: ActionQueryResponse): string | null {
+    return this.#envelope(run, result) && result.outcome.status === 'incomplete'
+      && this.#pageBinding(run, result.outcome.page) && /^[a-f0-9]{64}$/.test(result.outcome.cursor) && !run.cursors.has(result.outcome.cursor)
+      ? result.outcome.cursor : null;
+  }
   async #cleanup(run: Run, cursor: string): Promise<void> {
     if (run.cleanup) return run.cleanup;
-    run.cleanup = (async () => {
-      const operation = this.#effects.operation(this.#limits.requestMs);
+    let cleaned!: () => void;
+    run.cleanup = new Promise<void>(resolve => { cleaned = resolve; });
+    void (async () => {
+      let operation: QueryOperation | null = null;
       try {
-        const result = await Promise.race([run.query({ operation: 'cancel', cursor }, operation.signal), operation.expired.then(() => { operation.abort(); throw new Deadline(); })]);
+        const deadline = this.#effects.now() + this.#limits.requestMs;
+        const active = this.#effects.operation(this.#limits.requestMs);
+        operation = active;
+        if (this.#effects.now() >= deadline) throw new Deadline();
+        const result = await Promise.race([run.query({ operation: 'cancel', cursor }, active.signal), active.expired.then(() => { active.abort(); throw new Deadline(); })]);
+        if (this.#effects.now() >= deadline) throw new Deadline();
         this.#publish(run, { cancellation: this.#envelope(run, result) && result.outcome.status === 'cancelled' ? 'confirmed'
           : this.#envelope(run, result) && result.outcome.status === 'stale' ? 'stale' : 'unknown' });
       } catch { this.#publish(run, { cancellation: 'unknown' }); }
-      finally { operation.dispose(); }
+      finally { operation?.dispose(); cleaned(); }
     })();
     return run.cleanup;
   }
@@ -172,17 +196,23 @@ export class ActionQueryController {
     // A late successful response can reveal the ROTATED own cursor. An old
     // in-flight cursor is never replayed/cancelled speculatively. Otherwise TTL
     // (30s absolute on worker) is the only scratch-disposition guarantee.
-    if ((run.stopped || run.lost) && this.#envelope(run, result) && result.outcome.status === 'incomplete'
-      && this.#pageBinding(run, result.outcome.page) && /^[a-f0-9]{64}$/.test(result.outcome.cursor) && !run.cursors.has(result.outcome.cursor)) {
-      void this.#cleanup(run, result.outcome.cursor);
-    }
+    const cursor = this.#freshCursor(run, result);
+    if ((run.stopped || run.lost) && cursor) void this.#cleanup(run, cursor);
   }
-  async #send(run: Run, request: ActionQueryRequest): Promise<ActionQueryResponse> {
-    const operation = this.#effects.operation(Math.min(this.#limits.requestMs, this.#limits.lifetimeMs - (this.#effects.now() - run.started)));
-    run.operation = operation; run.inFlight = true;
-    const pending = run.query(request, operation.signal);
-    void pending.then(result => this.#late(run, result), () => {});
-    try { return await Promise.race([pending, operation.expired.then(() => { operation.abort(); throw new Deadline(); })]); }
+  async #send(run: Run, request: ActionQueryRequest): Promise<{ result: ActionQueryResponse; deadline: number }> {
+    const now = this.#effects.now();
+    const deadline = Math.min(now + this.#limits.requestMs, run.started + this.#limits.lifetimeMs);
+    if (now >= deadline) throw new Deadline();
+    const operation = this.#effects.operation(deadline - now);
+    run.operation = operation;
+    try {
+      if (!this.#current(run) || this.#effects.now() >= deadline) throw new Deadline();
+      run.inFlight = true;
+      const pending = run.query(request, operation.signal);
+      void pending.then(result => this.#late(run, result), () => {});
+      const result = await Promise.race([pending, operation.expired.then(() => { operation.abort(); throw new Deadline(true); })]);
+      return { result, deadline };
+    }
     finally { run.inFlight = false; run.operation = null; operation.dispose(); }
   }
   async #wait(run: Run, milliseconds: number): Promise<void> {
@@ -190,7 +220,11 @@ export class ActionQueryController {
     if (remaining <= milliseconds) throw new Deadline();
     const operation = this.#effects.operation(remaining);
     run.operation = operation;
-    try { await Promise.race([this.#effects.wait(milliseconds, operation.signal), operation.expired.then(() => { operation.abort(); throw new Deadline(); })]); }
+    try {
+      if (!this.#current(run) || this.#effects.now() - run.started >= this.#limits.lifetimeMs) throw new Deadline();
+      await Promise.race([this.#effects.wait(milliseconds, operation.signal), operation.expired.then(() => { operation.abort(); throw new Deadline(); })]);
+      if (this.#effects.now() - run.started >= this.#limits.lifetimeMs) throw new Deadline();
+    }
     finally { operation.dispose(); run.operation = null; }
   }
   /** Returns THIS intent's generation even if superseded while awaiting I/O.
@@ -211,9 +245,9 @@ export class ActionQueryController {
     if (this.#run) await this.#retire(this.#run, 'cancelled');
     if (intent !== this.#intent || !sameContext(this.#effects.current(), owner)) return null;
     const query = this.#effects.authorize(context);
-    if (!query) return null;
+    if (!query || intent !== this.#intent || !sameContext(this.#effects.current(), owner)) return null;
     const run: Run = { id: ++this.#generation, owner, scope: capturedScope, query, started: this.#effects.now(), cursors: new Set(), entries: new Set(), operation: null,
-      cursor: null, inFlight: false, stopped: false, lost: false, cleanup: null, calls: 0, work: 0, size: 0, retries: 0, page: null };
+      cursor: null, inFlight: false, stopped: false, lost: false, retirement: null, cleanup: null, calls: 0, work: 0, size: 0, retries: 0, page: null };
     this.#run = run; this.#snapshot = empty(run.id);
     this.#publish(run, { phase: 'loading', scope: run.scope });
     await this.#discover(run);
@@ -234,9 +268,11 @@ export class ActionQueryController {
         this.#publish(run, { phase: run.page ? 'incomplete' : 'loading' });
         if (!this.#current(run)) return;
         let result: ActionQueryResponse;
-        try { result = await this.#send(run, request); }
+        let deadline: number;
+        try { ({ result, deadline } = await this.#send(run, request)); }
         catch (error) {
           if (!this.#current(run)) return;
+          if (error instanceof Deadline && !error.dispatched) { await this.#retire(run, 'limited', 'deadline'); return; }
           const failure = error instanceof Deadline ? 'deadline' : this.#effects.classify(error);
           // Only HTTP 429 is known pre-dispatch admission. 503/protocol/body/
           // request loss may have consumed/rotated the cursor: NEVER replay it.
@@ -246,6 +282,18 @@ export class ActionQueryController {
           await this.#retire(run, run.lost ? 'uncertain' : 'unavailable', failure); return;
         }
         if (!this.#current(run)) { this.#late(run, result); return; }
+        // Timers can be delayed by suspension or synchronous adapter work. A
+        // resolved promise is not evidence that its monotonic deadline was met.
+        if (this.#effects.now() >= deadline || this.#effects.now() - run.started >= this.#limits.lifetimeMs) {
+          if (result.outcome.status === 'incomplete') {
+            run.cursor = this.#freshCursor(run, result); run.lost = !run.cursor;
+          } else if (!this.#envelope(run, result)) { run.cursor = null; run.lost = true; }
+          else if (result.outcome.status !== 'unavailable') {
+            run.cursor = null;
+            if (result.outcome.status === 'complete' && !this.#pageBinding(run, result.outcome.page)) run.lost = true;
+          }
+          await this.#retire(run, 'limited', 'deadline'); return;
+        }
         run.size += bytes(result);
         if (!this.#envelope(run, result)) { run.cursor = null; run.lost = true; await this.#retire(run, 'stale', 'binding'); return; }
         const outcome = result.outcome;
@@ -268,6 +316,7 @@ export class ActionQueryController {
           for (const key of keys) run.entries.add(key);
           run.page = copy({ ...page, beginnings: [...(run.page?.beginnings ?? []), ...page.beginnings] });
           if (outcome.status === 'incomplete') run.cursors.add(outcome.cursor);
+          if (this.#effects.now() >= deadline || this.#effects.now() - run.started >= this.#limits.lifetimeMs) { await this.#retire(run, 'limited', 'deadline'); return; }
           this.#publish(run, { phase: outcome.status, context: run.page.context, beginnings: run.page.beginnings, unavailable: null });
           if (!this.#current(run) || outcome.status === 'complete') return;
           request = { operation: 'continue', cursor: outcome.status === 'incomplete' ? outcome.cursor : '', work: this.#limits.workPerCall };

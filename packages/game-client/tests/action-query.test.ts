@@ -273,3 +273,185 @@ test('intent binding is captured before awaiting predecessor cancellation', asyn
   mutable.token = 'replacement-token'; cancelled.resolve(result({ status: 'cancelled' })); waiting.resolve();
   await Promise.all([first, second]); assert.equal(h.requests.filter(r => r.operation === 'start').length, 1);
 });
+
+// Independent review reproductions, retained as deadline/reentry regressions.
+test('regression: response after absolute lifetime cannot publish complete', async () => {
+  let h: ReturnType<typeof harness>;
+  h = harness(async () => { h.advance(20_001); return complete(); });
+  await h.start();
+  assert.notEqual(h.controller.getSnapshot().phase, 'complete');
+});
+
+test('regression: response after request deadline cannot publish complete', async () => {
+  let h: ReturnType<typeof harness>;
+  h = harness(async () => { h.advance(4_001); return complete(); });
+  await h.start();
+  assert.notEqual(h.controller.getSnapshot().phase, 'complete');
+});
+
+test('regression: expiring lifetime during publication must not send overdue request', async () => {
+  const h = harness(async () => complete());
+  h.controller.subscribe(() => {
+    if (h.controller.getSnapshot().phase === 'loading' && h.controller.getSnapshot().calls === 1) h.advance(20_001);
+  });
+  await h.start();
+  assert.equal(h.requests.length, 0);
+});
+
+test('regression: synchronous stop inside authorize fences the start', async () => {
+  const h = harness(async () => complete());
+  const authorize = h.effects.authorize;
+  h.effects.authorize = owner => { void h.controller.stop(); return authorize(owner); };
+  await h.start();
+  assert.equal(h.requests.length, 0);
+});
+
+test('regression: cleanup pending publication cannot let reentrant replacement skip cleanup', async () => {
+  const cancelled = deferred<ActionQueryResponse>();
+  const waiting = deferred<void>();
+  const h = harness(async r => r.operation === 'cancel' ? cancelled.promise : incomplete());
+  h.effects.wait = () => waiting.promise;
+  const first = h.start(); await flush();
+  let replacement: Promise<number | null> | null = null;
+  h.controller.subscribe(() => {
+    if (h.controller.getSnapshot().phase === 'cancelled' && !replacement) {
+      replacement = h.start({ scope: 'object', object: 'synthetic' });
+    }
+  });
+  const stopped = h.controller.stop(); await flush();
+  const sentBeforeCleanup = h.requests.filter(r => r.operation === 'start').length;
+  cancelled.resolve(result({ status: 'cancelled' })); waiting.resolve();
+  await Promise.all([first, stopped, replacement]);
+  assert.equal(sentBeforeCleanup, 1);
+});
+
+// Unlike the manually advanced clock probes above, these use real deadline
+// timers and a real monotonic clock. Blocking mimics event-loop suspension.
+function realDeadlines(h: ReturnType<typeof harness>) {
+  h.effects.now = () => performance.now();
+  h.effects.operation = milliseconds => {
+    const abort = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const expired = new Promise<void>(resolve => { timer = setTimeout(resolve, milliseconds); });
+    return { signal: abort.signal, expired, abort: () => abort.abort(), dispose: () => clearTimeout(timer) };
+  };
+}
+function block(milliseconds: number) { const until = performance.now() + milliseconds; while (performance.now() < until) {} }
+
+test('regression with real timers: event-loop stall cannot bypass absolute lifetime', async () => {
+  const h = harness(async () => { block(40); return complete(); }, { lifetimeMs: 20, requestMs: 20 });
+  realDeadlines(h);
+  await h.start();
+  assert.notEqual(h.controller.getSnapshot().phase, 'complete');
+});
+
+test('regression with real timers: event-loop stall cannot bypass operation deadline', async () => {
+  const h = harness(async () => { block(40); return complete(); }, { lifetimeMs: 1000, requestMs: 20 });
+  realDeadlines(h);
+  await h.start();
+  assert.notEqual(h.controller.getSnapshot().phase, 'complete');
+});
+
+test('regression with real timers: subscriber stall cannot dispatch after absolute lifetime', async () => {
+  const h = harness(async () => complete(), { lifetimeMs: 20, requestMs: 20 });
+  realDeadlines(h);
+  let once = false;
+  h.controller.subscribe(() => {
+    if (!once && h.controller.getSnapshot().calls === 1) { once = true; block(40); }
+  });
+  await h.start();
+  assert.equal(h.requests.length, 0);
+});
+
+test('regression: reentrant replacement waits for cancellation before dispatch', async () => {
+  const cancelled = deferred<ActionQueryResponse>();
+  const waiting = deferred<void>();
+  let cleanupFinished = false;
+  const h = harness(async request => {
+    if (request.operation === 'cancel') { const response = await cancelled.promise; cleanupFinished = true; return response; }
+    if (request.operation === 'start' && request.scope.scope === 'object') {
+      return cleanupFinished ? complete(page([], { scope: request.scope })) : result({ status: 'unavailable', reason: { kind: 'in_flight' } });
+    }
+    return incomplete();
+  });
+  h.effects.wait = () => waiting.promise;
+  const first = h.start(); await flush();
+  let replacement: Promise<number | null> | null = null;
+  h.controller.subscribe(() => {
+    if (h.controller.getSnapshot().phase === 'cancelled' && !replacement) replacement = h.start({ scope: 'object', object: 'synthetic' });
+  });
+  const stopped = h.controller.stop(); await flush();
+  cancelled.resolve(result({ status: 'cancelled' })); waiting.resolve();
+  await Promise.all([first, stopped, replacement]);
+  assert.equal(h.controller.getSnapshot().phase, 'complete');
+});
+
+test('regression: synchronous replacement inside authorize keeps latest intent current', async () => {
+  const h = harness(async request => request.operation === 'start' ? complete(page([], { scope: request.scope })) : result({ status: 'stale' }));
+  const authorize = h.effects.authorize;
+  let once = false;
+  let replacement: Promise<number | null> | null = null;
+  h.effects.authorize = owner => {
+    if (!once) { once = true; replacement = h.start({ scope: 'object', object: 'synthetic' }); }
+    return authorize(owner);
+  };
+  await h.start(); await replacement;
+  assert.deepEqual(h.controller.getSnapshot().scope, { scope: 'object', object: 'synthetic' });
+});
+
+test('regression: reentrant repeated stop must await the same pending cleanup', async () => {
+  const cancelled = deferred<ActionQueryResponse>(); const waiting = deferred<void>();
+  const h = harness(async request => request.operation === 'cancel' ? cancelled.promise : incomplete());
+  h.effects.wait = () => waiting.promise;
+  const first = h.start(); await flush();
+  let repeated: Promise<void> | null = null; let settled = false;
+  h.controller.subscribe(() => {
+    if (h.controller.getSnapshot().phase === 'cancelled' && !repeated) repeated = h.controller.stop().then(() => { settled = true; });
+  });
+  const stopped = h.controller.stop(); await flush();
+  const settledBeforeCleanup = settled;
+  cancelled.resolve(result({ status: 'cancelled' })); waiting.resolve();
+  await Promise.all([first, stopped, repeated]);
+  assert.equal(settledBeforeCleanup, false);
+});
+
+
+test('operation setup cannot dispatch after its monotonic deadline', async () => {
+  const h = harness(async () => complete(), { requestMs: 20 });
+  const operation = h.effects.operation;
+  h.effects.operation = ms => { const active = operation(ms); h.advance(21); return active; };
+  await h.start();
+  assert.equal(h.requests.length, 0);
+  assert.equal(h.controller.getSnapshot().failure, 'deadline');
+  assert.ok(h.operations.every(operation => operation.milliseconds > 0 && operation.disposed));
+});
+
+test('overdue correlated response cancels only its fresh rotated cursor', async () => {
+  const h = harness(async request => {
+    if (request.operation === 'cancel') return result({ status: 'cancelled' });
+    h.advance(21); return incomplete(2);
+  }, { requestMs: 20 });
+  await h.start();
+  assert.equal(h.controller.getSnapshot().phase, 'limited');
+  assert.equal(h.controller.getSnapshot().cancellation, 'confirmed');
+  assert.deepEqual(h.requests.at(-1), { operation: 'cancel', cursor: cursor(2) });
+  assert.deepEqual(h.controller.getSnapshot().beginnings, []);
+});
+
+test('cleanup response after its monotonic deadline remains unknown', async () => {
+  const h = harness(async request => {
+    if (request.operation === 'cancel') { h.advance(21); return result({ status: 'cancelled' }); }
+    return incomplete();
+  }, { requestMs: 20, calls: 1 });
+  await h.start();
+  assert.equal(h.controller.getSnapshot().cancellation, 'unknown');
+  assert.equal(h.requests.filter(request => request.operation === 'cancel').length, 1);
+});
+
+test('authorization that changes the current owner cannot install the old intent', async () => {
+  const h = harness(async () => complete());
+  const authorize = h.effects.authorize;
+  h.effects.authorize = owner => { const query = authorize(owner); h.replace({ ...h.owner, generation: {} }); return query; };
+  assert.equal(await h.start(), null);
+  assert.equal(h.requests.length, 0);
+});
