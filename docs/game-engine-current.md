@@ -66,7 +66,10 @@ The [controlled-creature damage replacement](game-engine-controlled-damage-repla
 extension uses the same unreleased schema with separate current/LKI source facts.
 The [blocking-target extension](game-engine-blocking-targets.md) adds complete
 Righteousness lowering, authoritative blocker status and payment-time target
-binding correctness, with no new pool or hosting/search admission.
+binding correctness. Its subsequent [headless development profile](game-engine-blocking-matches.md)
+adds explicit separate-pool admission and public-view policy support, with a
+paid accepted-pod combat/replay witness and one fixed-index completion game.
+Hosting/search admission and the earlier pools remain unchanged.
 Read Rust types and validation at the edited source; old reports retain their
 original version numbers. Active catalogs are regenerated at schema 1; distinct
 source/admission pools remain separate. Historical decoder gates and downgrade

@@ -26,9 +26,10 @@ reused selection identity cannot discard the restriction. Capability closure and
 current schema constraints reject unsupported contexts; there is no version gate
 or downgrade matrix. General slot binding remains a Rust validation obligation.
 
-Righteousness remains outside the existing reviewed catalog pools. Source
-coverage classifies it as lowered but unadmitted. Hosting/search capability sets
-and profile decks do not expand with compiler support.
+The subsequent [headless blocking-match profile](game-engine-blocking-matches.md)
+explicitly admits Righteousness in a separate development catalog. The original
+closed pools still classify it as lowered but unadmitted to those pools.
+Hosting/search capability sets and existing profile decks remain unchanged.
 
 ## Status, casting and resolution
 

@@ -61,6 +61,54 @@ the boost and replay. A fixed-index completion game and explicit saved-journal
 replay exercise the complete development path; any unreached instruction sites
 must remain visible.
 
-This document records the admission contract. Verification results require
-separately retained, source-qualified receipts; it makes no new passing-test,
-full-suite, hosting, search or combined-acceptance claim.
+The Develop policy recognizes positive blocking-target pumps as reactive only
+in DeclareBlockers and FirstStrikeDamage priority windows. Before initiation it
+uses permitted attacker/blocker links conservatively; these cannot identify an
+orphan blocker. Once a target request supplies candidate handles, those candidates
+provide membership authority, including for orphans. Current visible type,
+targetability and friendly control still guide selection. Ordinary Growth spells
+do not become generally reactive. No card/profile identity selects policy rules.
+
+## Focused qualification
+
+The native source checkpoint is `d5740fd4e8372163d1832775a4dd9eadf76599d5`.
+The copied debug simulator's compiled source closure is verified with core build
+`c2de67dc4d430595a94c5871f1ff30d7a4381939004dfe528b3f5d34fe04a439`.
+Its canonical catalog digest is
+`e8cfe6134bc54dd0ebc983e60f1f52b76e82155ebf11904ac48345ba272d347d`.
+The retained schema-1 compiler used to bootstrap the expected file was verified
+by hash; current-source compiler freshness independently reproduced this catalog
+and every other committed catalog afterward.
+
+Formatting, workspace all-target compilation, two admission tests, one compiler
+catalog-freshness test, 20 policy tests (including three new payload probes), and
+production simulator Clippy/build passed. Admission negatives preserve singleton,
+color identity and explicit rejection of forced hosting/search requests. An
+initial filename-based policy filter executed zero tests; that receipt remains
+retained, and the corrected `generic_policy::tests` selection executed all 20.
+
+The accepted-pod witness uses four legal custom white decks, each with Isamaru,
+Righteousness and 98 Plains. A bounded setup-only search over indices 0–255 first
+found index 3; that opening seed is pinned in the test, with no runtime searching
+or gameplay-outcome selection. Ordinary paid casts, attacker/blocker declarations
+and target choices establish a 9/9 blocker, rejected attacker targeting, actual
+combat, commander return and cleanup. Snapshot verification, restore and replay
+pass, and budgets 1 and 4096 produce identical journals and final State hashes.
+These custom decks are a capability witness, not the default completion decks.
+
+The prespecified default-profile completion index 0 finished naturally with P1
+winning after 34 turns and 1,427 decisions. Its complete saved-game replay and
+streamed accepted-input journal replay independently passed, reproducing final
+State hash `82b0fe6c3f2a8d496d13035ab2bc552f20c42b461125b7a4c828fd9c2a7c3b41`.
+Righteousness had zero accepted Cast proposals in that game; its instruction site
+was not covered there. The separate accepted-pod witness establishes its paid
+combat behavior. No completion seed was substituted to manufacture coverage.
+
+Receipts, the copied simulator, source manifest, setup probe, complete game and
+both replays are retained under
+`~/.local/share/mtg-ecosystem/engine-verification/correctness-loop-20261113/`
+with the `blocking-match-` prefix. The full 18-game suite, other profile/release
+matrices, complete runtime/source-tooling suites, server/SDK/browser reacceptance
+and offline retention rebuilds were omitted. This is focused development
+qualification for the named producer, not expanded hosting/search or renewed
+combined acceptance.
