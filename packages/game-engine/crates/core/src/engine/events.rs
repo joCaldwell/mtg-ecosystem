@@ -696,12 +696,15 @@ impl Game {
                 | ProposedEvent::CleanupEffects => {
                     if let Ok(tx) = self.damage_transaction() {
                         for d in &tx.entries {
-                            damage_sources.push(d.source.clone());
-                            if self.has_keyword(&d.source, KeywordAbility::Lifelink)
-                                && self.is_live(d.source.controller)
+                            let appearance = self.damage_source_appearance(d)?;
+                            if self.has_keyword(&appearance, KeywordAbility::Lifelink)
+                                && self.is_live(appearance.controller)
                             {
-                                players.insert(d.source.controller);
+                                players.insert(appearance.controller);
                             }
+                            // Consumed damage-time properties remain distinct
+                            // from damage_transaction.entries assignment facts.
+                            damage_sources.push(appearance);
                             match d.recipient {
                                 DamageRecipient::Player { player } => {
                                     players.insert(player);
@@ -2126,7 +2129,7 @@ impl Game {
                 current,
             });
         }
-        let life_gains = self.damage_keywords(&actual)?;
+        let life_gains = self.damage_keywords(&actual, None)?;
         Ok(EventOutcome::DamageDealt {
             life_gains,
             damage: damage.to_vec(),

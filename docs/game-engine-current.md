@@ -57,6 +57,13 @@ projection/context/query-sidecar formats were 16/16/15. The architecture refacto
 retains snapshot/bundle/public formats but advances query work sidecars to 16
 and adds one charged initialization unit; old sidecars reject. `mtg_contracts::CURRENT_IR_VERSION`
 is the current IR authority; see [version and build checks](game-engine-builds.md).
+The unreleased schema stays at 33 while there are no external consumers; new
+features evolve it in place with capability validation and exact build fencing.
+Current in-place support covers [grouped power-qualified damage and opponent
+casting prohibition](game-engine-grouped-damage.md); its capability scope is
+separate from historical version gates.
+The [controlled-creature damage replacement](game-engine-controlled-damage-replacement.md)
+extension uses the same unreleased schema with separate current/LKI source facts.
 Read Rust types and validation at the edited source; old reports retain their
 original version numbers. Do not update historical catalogs or expected hashes
 just to match the newest IR version. No new quiet P7 performance, offline

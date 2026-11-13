@@ -76,6 +76,8 @@ pub enum ResolvedEffectKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PreparedDamage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_appearance: Option<Box<ObjectBefore>>,
     pub source_handles: Vec<ObjectHandle>,
     pub id: DamageId,
     pub source: ObjectBefore,
@@ -88,6 +90,8 @@ pub struct PreparedDamage {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DamageApplication {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qualification: Option<Box<DamageReplacementQualification>>,
     pub damage: DamageId,
     pub effect: EffectKey,
     pub before: Quantity,
@@ -95,6 +99,12 @@ pub struct DamageApplication {
     pub prevented: Quantity,
     pub budget_before: Option<Quantity>,
     pub budget_after: Option<Quantity>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DamageReplacementQualification {
+    pub effect_source: ObjectBefore,
+    pub damage_source: ObjectBefore,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -232,7 +242,11 @@ impl Game {
                     d.static_abilities
                         .iter()
                         .enumerate()
-                        .filter(|(_, a)| a.effect == StaticEffect::DoubleDamageToPermanentOrPlayer)
+                        .filter(|(_, a)| {
+                            matches!(a.effect,
+                            StaticEffect::DoubleDamageToPermanentOrPlayer
+                            | StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer)
+                        })
                         .map(move |(i, _)| EffectKey::Static {
                             source: o.id,
                             ability: i as u32,
@@ -419,6 +433,7 @@ impl Game {
             .enumerate()
             .map(|(i, d)| {
                 Ok(PreparedDamage {
+                    source_appearance: None,
                     source_handles: self.capture_trigger_source_handles(d.source)?,
                     id: DamageId(i as u32),
                     source: self.object_before(d.source)?,
@@ -458,6 +473,7 @@ impl Game {
             StackKind::Spell => frame.spell.effect_source_handles.clone(),
         };
         let entries = vec![PreparedDamage {
+            source_appearance: None,
             source_handles: handles,
             id: DamageId(0),
             source: damage.source,
@@ -500,6 +516,7 @@ impl Game {
             .into_iter()
             .enumerate()
             .map(|(n, t)| PreparedDamage {
+                source_appearance: None,
                 source_handles: handles.clone(),
                 id: DamageId(n as u32),
                 source: source.clone(),
@@ -525,7 +542,7 @@ impl Game {
     fn begin_damage(
         &mut self,
         kind: DamageKind,
-        entries: Vec<PreparedDamage>,
+        mut entries: Vec<PreparedDamage>,
         cause: BatchCause,
         continuation: DamageContinuation,
     ) -> Result<(), String> {
@@ -540,6 +557,23 @@ impl Game {
             || entries.iter().any(|e| e.amount <= Quantity::zero())
         {
             return Err("invalid prepared damage group".into());
+        }
+        // CR 609.7c/614.4: scoped static damage replacements need bounded
+        // source-property LKI. No supported transformation creates battlefield
+        // permanents during this transaction, so an absent scoped provider
+        // cannot appear later. Furnace-only transactions retain their bytes.
+        if self.static_damage_effects().iter().any(|key| {
+            let EffectKey::Static { source, ability } = key else {
+                return false;
+            };
+            self.definition(source.card).is_ok_and(|d| {
+                d.static_abilities[*ability as usize].effect
+                    == StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer
+            })
+        }) {
+            for entry in &mut entries {
+                entry.source_appearance = Some(Box::new(entry.source.clone()));
+            }
         }
         let id = DamageTransactionId(self.state.rules.next_damage_transaction_id);
         self.state.rules.next_damage_transaction_id = self
@@ -579,6 +613,29 @@ impl Game {
                 .flatten(),
         }
     }
+    /// CR 608.2h/609.7c/702.2e/702.15b-c: damage-time properties use the
+    /// exact source's current public-zone appearance or its latest departure
+    /// LKI. Assignment facts separately preserve quantities and legality.
+    pub(super) fn damage_source_appearance(
+        &self,
+        damage: &PreparedDamage,
+    ) -> Result<ObjectBefore, String> {
+        let appearance = if let Ok(current) = self.object_before(damage.source.object)
+            && current.zone == damage.source.zone
+        {
+            current
+        } else {
+            damage
+                .source_appearance
+                .as_deref()
+                .unwrap_or(&damage.source)
+                .clone()
+        };
+        if appearance.controller.0 >= 4 {
+            return Err("invalid damage-time source controller".into());
+        }
+        Ok(appearance)
+    }
     fn application(
         &self,
         tx: &DamageTransaction,
@@ -595,6 +652,7 @@ impl Game {
         {
             return Err("damage effect no longer applicable".into());
         }
+        let mut qualification = None;
         let (after, prevented, budget_before, budget_after) = match &pair.effect {
             EffectKey::Static { source, ability } => {
                 let o = self.current(*source)?;
@@ -603,11 +661,27 @@ impl Game {
                     .static_abilities
                     .get(*ability as usize)
                     .ok_or("missing static effect")?;
-                if o.zone != Zone::Battlefield
-                    || a.functioning_zone != FunctioningZone::Battlefield
-                    || a.effect != StaticEffect::DoubleDamageToPermanentOrPlayer
+                if o.zone != Zone::Battlefield || a.functioning_zone != FunctioningZone::Battlefield
                 {
                     return Err("inactive static damage effect".into());
+                }
+                match a.effect {
+                    StaticEffect::DoubleDamageToPermanentOrPlayer => {}
+                    StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer => {
+                        let damage_source = self.damage_source_appearance(d)?;
+                        if !damage_source.characteristics.has_type(CardKind::Creature)
+                            || damage_source.controller != o.controller
+                        {
+                            return Err(
+                                "damage source outside controlled creature replacement".into()
+                            );
+                        }
+                        qualification = Some(Box::new(DamageReplacementQualification {
+                            effect_source: self.object_before(*source)?,
+                            damage_source,
+                        }));
+                    }
+                    _ => return Err("unsupported static damage effect".into()),
                 }
                 let mut after = d.amount.clone();
                 after.add(&d.amount);
@@ -639,6 +713,7 @@ impl Game {
             },
         };
         Ok(DamageApplication {
+            qualification,
             damage: d.id,
             effect: pair.effect.clone(),
             before: d.amount.clone(),
@@ -1087,6 +1162,7 @@ impl Game {
             return Err("incomplete damage transformation".into());
         }
         let mut actual = vec![];
+        let mut source_appearances = BTreeMap::new();
         let mut cancelled = vec![];
         let mut totals: BTreeMap<(u8, u32), Quantity> = BTreeMap::new();
         let mut commanders: BTreeMap<(CardId, PlayerId), Quantity> = BTreeMap::new();
@@ -1121,6 +1197,7 @@ impl Game {
                 DamageRecipient::Creature { object } => (1, object.card.0),
             };
             totals.entry(key).or_default().add(&d.amount);
+            source_appearances.insert(d.id, self.damage_source_appearance(d)?);
             actual.push(ActualDamage {
                 id: d.id,
                 source: d.source.clone(),
@@ -1183,7 +1260,7 @@ impl Game {
                 current,
             });
         }
-        let life_gains = self.damage_keywords(&actual)?;
+        let life_gains = self.damage_keywords(&actual, Some(&source_appearances))?;
         Ok(EventOutcome::DamageCommitted {
             life_gains,
             transaction: id,
@@ -1474,6 +1551,10 @@ pub enum VisibleEffect {
         handle: EffectHandle,
         origin: VisibleEffectSource,
     },
+    DoubleControllerCreatureDamageToPermanentOrPlayer {
+        handle: EffectHandle,
+        origin: VisibleEffectSource,
+    },
 }
 impl Game {
     pub(super) fn refresh_effect_handles(&mut self) -> Result<(), String> {
@@ -1581,7 +1662,27 @@ impl Game {
         let handle = self.effect_handle(viewer, key)?;
         let origin = self.effect_origin_view(viewer, key)?;
         let EffectKey::Resolved { id } = key else {
-            return Ok(VisibleEffect::DoubleDamageToPermanentOrPlayer { handle, origin });
+            let EffectKey::Static { source, ability } = key else {
+                unreachable!()
+            };
+            return match self
+                .definition(source.card)?
+                .static_abilities
+                .get(*ability as usize)
+                .ok_or("missing visible static effect")?
+                .effect
+            {
+                StaticEffect::DoubleDamageToPermanentOrPlayer => {
+                    Ok(VisibleEffect::DoubleDamageToPermanentOrPlayer { handle, origin })
+                }
+                StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer => Ok(
+                    VisibleEffect::DoubleControllerCreatureDamageToPermanentOrPlayer {
+                        handle,
+                        origin,
+                    },
+                ),
+                _ => Err("unsupported visible static damage effect".into()),
+            };
         };
         let e = self
             .state
@@ -1816,6 +1917,51 @@ impl Game {
             ..current
         } == *frozen
     }
+    fn validate_source_appearance(
+        &self,
+        damage: &PreparedDamage,
+        fact: &ObjectBefore,
+    ) -> Result<(), String> {
+        self.validate_characteristic_identity(fact.object, &fact.characteristics)?;
+        if fact.controller.0 >= 4
+            || fact.default_controller.0 >= 4
+            || fact.marked_damage.is_negative()
+            || self
+                .state
+                .rules
+                .cards
+                .get(&fact.object.card)
+                .is_none_or(|c| c.owner != fact.owner)
+            || (fact.attack_ready && !damage.source.attack_ready)
+            || (fact.controller != damage.source.controller && fact.zone != Zone::Battlefield)
+            || (ObjectBefore {
+                controller: fact.controller,
+                attack_ready: fact.attack_ready,
+                characteristics: fact.characteristics.clone(),
+                keywords: fact.keywords.clone(),
+                ..damage.source.clone()
+            }) != *fact
+        {
+            return Err("invalid replacement source identity/consumed facts".into());
+        }
+        Ok(())
+    }
+    pub(super) fn prepared_damage_source_matches(
+        &self,
+        damage: &PreparedDamage,
+        current: ObjectBefore,
+    ) -> bool {
+        if self.frozen_damage_source_matches(&damage.source, current.clone()) {
+            return true;
+        }
+        // Only the bounded fact refreshed by a typed ControlChanged can
+        // justify changed control/readiness. Every other consumed fact remains
+        // bound, and coherent historical lies still require input replay.
+        damage.source_appearance.as_deref().is_some_and(|latest| {
+            self.validate_source_appearance(damage, latest).is_ok()
+                && self.frozen_damage_source_matches(latest, current)
+        })
+    }
     pub(super) fn validate_damage_transaction(&self, tx: &DamageTransaction) -> Result<(), String> {
         if tx.entries.is_empty()
             || tx.entries.len() > self.damage_limit()
@@ -1834,6 +1980,15 @@ impl Game {
             )?;
         }
         let mut powers: BTreeMap<ObjectId, Quantity> = BTreeMap::new();
+        let scoped_live = self.static_damage_effects().iter().any(|key| {
+            let EffectKey::Static { source, ability } = key else {
+                return false;
+            };
+            self.definition(source.card).is_ok_and(|d| {
+                d.static_abilities[*ability as usize].effect
+                    == StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer
+            })
+        });
         for (i, d) in tx.entries.iter().enumerate() {
             let physical = self
                 .state
@@ -1853,6 +2008,11 @@ impl Game {
                 return Err("damage source identity/quantity invariant".into());
             }
             self.validate_characteristic_identity(d.source.object, &d.source.characteristics)?;
+            if let Some(fact) = &d.source_appearance {
+                self.validate_source_appearance(d, fact)?;
+            } else if scoped_live {
+                return Err("scoped replacement missing bounded source facts".into());
+            }
             let expected_keywords = { self.definition(d.source.object.card)?.keywords.as_slice() };
             let keywords_valid = {
                 let can_have_grants = d.source.zone == Zone::Battlefield
@@ -1870,7 +2030,7 @@ impl Game {
                 );
             }
             if let Ok(current) = self.object_before(d.source.object)
-                && !self.frozen_damage_source_matches(&d.source, current)
+                && !self.prepared_damage_source_matches(d, current)
             {
                 return Err("prepared damage source changed consumed facts".into());
             }
@@ -1965,10 +2125,7 @@ impl Game {
                         || recipient != d.recipient.entity()
                         || frame.legal_targets.get(target_slot as usize) != Some(&true)
                         || d.controller != frame.spell.controller
-                        || !self.frozen_damage_source_matches(
-                            &d.source,
-                            self.source_facts(&frame.spell)?,
-                        )
+                        || !self.prepared_damage_source_matches(d, self.source_facts(&frame.spell)?)
                     {
                         return Err("unbound noncombat damage transaction".into());
                     }
@@ -2026,17 +2183,54 @@ impl Game {
                         .static_abilities
                         .get(*ability as usize)
                         .ok_or("unknown applied static effect")?;
-                    if effect.effect != StaticEffect::DoubleDamageToPermanentOrPlayer
-                        || a.budget_before.is_some()
-                        || a.budget_after.is_some()
-                    {
+                    if a.budget_before.is_some() || a.budget_after.is_some() {
                         return Err("invalid doubling prefix facts".into());
+                    }
+                    match (&effect.effect, &a.qualification) {
+                        (StaticEffect::DoubleDamageToPermanentOrPlayer, None) => {}
+                        (
+                            StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer,
+                            Some(qualification),
+                        ) => {
+                            let provider = &qualification.effect_source;
+                            self.validate_characteristic_identity(
+                                provider.object,
+                                &provider.characteristics,
+                            )?;
+                            self.validate_source_appearance(d, &qualification.damage_source)?;
+                            if d.source_appearance.is_none()
+                                || provider.object != *source
+                                || provider.zone != Zone::Battlefield
+                                || provider.controller.0 >= 4
+                                || provider.default_controller.0 >= 4
+                                || provider.marked_damage.is_negative()
+                                || self
+                                    .state
+                                    .rules
+                                    .cards
+                                    .get(&source.card)
+                                    .is_none_or(|c| c.owner != provider.owner)
+                                || !qualification
+                                    .damage_source
+                                    .characteristics
+                                    .has_type(CardKind::Creature)
+                                || qualification.damage_source.controller != provider.controller
+                            {
+                                return Err("invalid scoped doubling qualification".into());
+                            }
+                        }
+                        _ => return Err("invalid static doubling qualification shape".into()),
                     }
                     let mut after = a.before.clone();
                     after.add(&a.before);
                     (after, Quantity::zero())
                 }
                 EffectKey::Resolved { id } => {
+                    if a.qualification.is_some() {
+                        return Err(
+                            "resolved damage effect cannot carry static qualification".into()
+                        );
+                    }
                     let e = self
                         .state
                         .rules
@@ -2185,7 +2379,7 @@ impl Game {
                     || d.controller != frame.spell.controller
                     || !self
                         .source_facts(&frame.spell)
-                        .is_ok_and(|f| self.frozen_damage_source_matches(&d.source, f))
+                        .is_ok_and(|f| self.prepared_damage_source_matches(d, f))
             })
         {
             return Err("unbound sacrifice damage transaction".into());

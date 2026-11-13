@@ -398,10 +398,19 @@ fn attacking_creature_keywords_owner_departure_changes_future_preparation_not_fr
             g.state.rules.players[1].life,
             if frozen { 35.into() } else { 40.into() }
         );
-        assert_eq!(
-            g.state.rules.objects[&CardId(2)].zone,
-            Zone::Graveyard { owner: PlayerId(1) }
-        );
+        if frozen {
+            // CR 702.2c preserves the legal 1/5 assignment. The attacker is
+            // still present but lost deathtouch before dealing damage, so
+            // 611.3a-b/702.2b,e do not turn that one damage into a DT kill.
+            let blocker = &g.state.rules.objects[&CardId(2)];
+            assert_eq!(blocker.zone, Zone::Battlefield);
+            assert_eq!(blocker.marked_damage, 1.into());
+        } else {
+            assert_eq!(
+                g.state.rules.objects[&CardId(2)].zone,
+                Zone::Graveyard { owner: PlayerId(1) }
+            );
+        }
         assert_eq!(hand(&g, 0), 0);
         recover(&g);
     }

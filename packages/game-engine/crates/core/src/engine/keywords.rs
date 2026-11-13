@@ -51,21 +51,61 @@ impl Game {
     pub(super) fn damage_keywords(
         &mut self,
         actual: &[ActualDamage],
+        // Transactional assignment facts may predate control or grant changes.
+        // None is reserved for genuine legacy leaves with fresh source facts.
+        source_appearances: Option<&BTreeMap<DamageId, ObjectBefore>>,
     ) -> Result<Vec<LifelinkGain>, String> {
+        if let Some(appearances) = source_appearances {
+            if appearances.len() != actual.len() {
+                return Err("incomplete damage-time source appearances".into());
+            }
+            for damage in actual {
+                let fact = appearances
+                    .get(&damage.id)
+                    .ok_or("missing damage-time source appearance")?;
+                self.validate_characteristic_identity(fact.object, &fact.characteristics)?;
+                if fact.object != damage.source.object
+                    || fact.owner != damage.source.owner
+                    || fact.default_controller != damage.source.default_controller
+                    || fact.zone != damage.source.zone
+                    || fact.controller.0 >= 4
+                    || fact.default_controller.0 >= 4
+                    || fact.marked_damage.is_negative()
+                    || self
+                        .state
+                        .rules
+                        .cards
+                        .get(&fact.object.card)
+                        .is_none_or(|c| c.owner != fact.owner)
+                {
+                    return Err("invalid damage-time source appearance".into());
+                }
+            }
+        }
         let mut gains: BTreeMap<(ObjectId, PlayerId), Quantity> = BTreeMap::new();
         for d in actual {
             if d.amount <= Quantity::zero() {
                 continue;
             }
-            if self.has_keyword(&d.source, KeywordAbility::Lifelink)
-                && self.is_live(d.source.controller)
+            // CR 611.3a-b/702.2b,e/702.15b-c: source properties are current
+            // when damage is dealt, or latest LKI if that exact source left.
+            // Assignment-time deathtouch still separately proves the legal
+            // trample split (702.2c); it does not preserve a lost damage grant.
+            let appearance = match source_appearances {
+                Some(appearances) => appearances
+                    .get(&d.id)
+                    .ok_or("missing damage-time source appearance")?,
+                None => &d.source,
+            };
+            if self.has_keyword(appearance, KeywordAbility::Lifelink)
+                && self.is_live(appearance.controller)
             {
                 gains
-                    .entry((d.source.object, d.source.controller))
+                    .entry((d.source.object, appearance.controller))
                     .or_default()
                     .add(&d.amount);
             }
-            if self.has_keyword(&d.source, KeywordAbility::Deathtouch)
+            if self.has_keyword(appearance, KeywordAbility::Deathtouch)
                 && let DamageRecipient::Creature { object } = d.recipient
             {
                 let o = self
