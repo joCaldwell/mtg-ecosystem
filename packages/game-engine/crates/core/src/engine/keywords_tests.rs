@@ -921,15 +921,18 @@ fn lifelink_beneficiary_is_the_source_controller_not_invocation_controller() {
     let mut g = Game::new(prepared(&[("Vampire Nighthawk", 0, false)], false));
     let source = g.object_before(object(&g, 0)).unwrap();
     let gains = g
-        .damage_keywords(&[ActualDamage {
-            id: DamageId(0),
-            source,
-            controller: PlayerId(1),
-            recipient: DamageRecipient::Player {
-                player: PlayerId(2),
-            },
-            amount: 2.into(),
-        }])
+        .damage_keywords(
+            &[ActualDamage {
+                id: DamageId(0),
+                source,
+                controller: PlayerId(1),
+                recipient: DamageRecipient::Player {
+                    player: PlayerId(2),
+                },
+                amount: 2.into(),
+            }],
+            None,
+        )
         .unwrap();
     assert_eq!(gains.len(), 1);
     assert_eq!(gains[0].player, PlayerId(0));

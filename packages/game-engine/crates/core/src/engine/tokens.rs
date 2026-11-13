@@ -61,7 +61,10 @@ pub(super) struct TokenIdentity {
     pub source: ObjectId,
     pub spec: CreatureToken,
     // Generated runtime characteristics, not an admitted source card. Keeping
-    // this immutable after cessation preserves keyword/damage lookback facts.
+    // this immutable after cessation preserves keyword/damage lookback facts,
+    // including every grouped witness member's base power. Token identities
+    // are retained under TOKEN_HISTORY_LIMIT, not reclaimed from a witness's
+    // single subject(), so a multi-source trigger needs no new LKI archive.
     pub definition: Definition,
 }
 fn token_definition(source: &Definition, id: CardId, token: &CreatureToken) -> Definition {

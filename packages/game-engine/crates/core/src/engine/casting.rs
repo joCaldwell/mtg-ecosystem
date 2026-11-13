@@ -1,6 +1,30 @@
 use super::*;
 
 impl Game {
+    /// CR 101.2/109.5/601.3/611.3a, 800.4j: "your turn" names the
+    /// retained turn owner even when there is no active player. The current
+    /// battlefield controller supplies "your"; ownership does not.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    pub(super) fn validate_cast_permission(&self, player: PlayerId) -> Result<(), String> {
+        if !self.is_live(player) {
+            return Err("departed player cannot cast spells".into());
+        }
+        for source in self.state.rules.objects.values().filter(|o| {
+            o.zone == Zone::Battlefield
+                && o.controller == self.state.rules.turn_owner
+                && o.controller != player
+        }) {
+            if self
+                .definition(source.id.card)?
+                .static_abilities
+                .iter()
+                .any(|a| a.effect == StaticEffect::OpponentsCantCastDuringControllerTurn)
+            {
+                return Err("opponent cannot cast during source controller's turn".into());
+            }
+        }
+        Ok(())
+    }
     pub(super) fn validate_mana_activation(
         &self,
         player: PlayerId,

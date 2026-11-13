@@ -485,7 +485,7 @@ impl Game {
                 d.recipient.entity() != *t
                     || d.original_amount != facts.amount
                     || d.controller != frame.spell.controller
-                    || !self.frozen_damage_source_matches(&d.source, source.clone())
+                    || !self.prepared_damage_source_matches(d, source.clone())
             })
         {
             return Err("invalid frozen set damage transaction".into());

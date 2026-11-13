@@ -22,6 +22,11 @@ test('generation is repeatable and rejects future, unconstrained and external-re
     assert.equal(run(source).status, 0);
     const inventory = () => Object.fromEntries(fs.readdirSync(output).map(name => [name, fs.readFileSync(path.join(output, name), 'utf8')]));
     const first = inventory();
+    assert(first['resume.d.ts'].includes('export interface SeatResume'));
+    assert(first['routes.ts'].includes('get_resume'));
+    const missingResume = structuredClone(source); delete missingResume.resume;
+    const externalResume = structuredClone(source); externalResume.resume.properties.observation = { $ref: 'https://untrusted.example/observation.json' };
+    const missingResumeRoute = structuredClone(source); missingResumeRoute.routes = missingResumeRoute.routes.filter(row => row.operation !== 'get_resume');
     assert.equal(run(source).status, 0); assert.deepEqual(inventory(), first);
     const future = structuredClone(source); future.protocol_version = 2;
     const unknown = structuredClone(source); unknown.command.properties.command = {};
@@ -40,7 +45,7 @@ test('generation is repeatable and rejects future, unconstrained and external-re
     const unconstrainedManifest = structuredClone(source); unconstrainedManifest.manifest.properties.catalog = {};
     const externalExecution = structuredClone(source); externalExecution.execution.properties.status = { $ref: 'https://untrusted.example/status.json' };
     const unknownFormat = structuredClone(source); unknownFormat.command.properties.protocol_version.format = 'unreviewed_uint';
-    for (const invalid of [future, unknown, external, tupleDialect, unknownRoute, externalRoute, duplicateRoute, traversalRoute, extraRoute, changedMethod, wrongRouteType, missingCommandParameter, duplicateCommandParameter, unexpectedCommandParameter, externalExecution, unconstrainedManifest, unknownFormat]) {
+    for (const invalid of [missingResume, externalResume, missingResumeRoute, future, unknown, external, tupleDialect, unknownRoute, externalRoute, duplicateRoute, traversalRoute, extraRoute, changedMethod, wrongRouteType, missingCommandParameter, duplicateCommandParameter, unexpectedCommandParameter, externalExecution, unconstrainedManifest, unknownFormat]) {
       const result = run(invalid); assert.notEqual(result.status, 0);
       assert.deepEqual(inventory(), first, 'failed generation must preserve last complete declarations and remove temporary output');
     }

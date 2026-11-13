@@ -29,6 +29,9 @@ const FEAR: &str = include_str!(
 const OHRAN: &str = include_str!(
     "../../../tests/fixtures/cards-data-d2ce/b99ada26-9a61-4175-9fb8-15a106960220.json"
 );
+const KUTZIL: &str = include_str!(
+    "../../../tests/fixtures/cards-data-d2ce/3233af43-7826-4895-b67e-03c6102c2cd5.json"
+);
 fn rows() -> Vec<(serde_json::Value, String)> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/cards-data-d2ce");
@@ -96,9 +99,13 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
         // IR33 admits the complete Ohran Frostfang (line27940): preserve Snow
         // and the dynamic attacking-creature grant, plus its IR30 damage trigger.
         let ohran = row["archive_line"] == 27940;
+        // The unreleased capabilities complete Kutzil (line7477): the casting
+        // prohibition and candidate-local grouped power predicate have Rust binders.
+        // Its original diagnostic artifact remains fullyBound:false unchanged.
+        let kutzil = row["archive_line"] == 7477;
         if ![
-            4538, 6875, 7911, 9081, 10885, 12306, 13027, 14102, 14941, 19442, 21636, 27940, 28052,
-            28189, 28579,
+            4538, 6875, 7477, 7911, 9081, 10885, 12306, 13027, 14102, 14941, 19442, 21636, 27940,
+            28052, 28189, 28579,
         ]
         .contains(&row["archive_line"].as_u64().unwrap())
         {
@@ -113,7 +120,19 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
         admitted += 1;
         let d = lower(&raw);
         assert_eq!(d.triggered.len(), 1);
-        let expected = if research {
+        let expected = if kutzil {
+            TriggerCondition::GroupedDamageDealt {
+                source: DamageTriggerSource::CreatureFilter {
+                    controller: DamageSourceRelation::Controller,
+                    types: TypePredicate::Type {
+                        kind: CardKind::Creature,
+                    },
+                },
+                kind: TriggerDamageKind::Combat,
+                recipient: DamageTriggerRecipient::Player,
+                source_power: DamageSourcePowerPredicate::GreaterThanBase,
+            }
+        } else if research {
             TriggerCondition::DamageDealt {
                 source: DamageTriggerSource::CreatureFilter {
                     controller: DamageSourceRelation::Controller,
@@ -157,7 +176,9 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
         };
         assert_eq!(d.triggered[0].condition, expected);
         assert_eq!(d.capabilities, d.requirements());
-        let capability = if otter {
+        let capability = if kutzil {
+            Capability::GroupedCreatureDamageTriggerV1
+        } else if otter {
             Capability::SourceDamageTriggerV2
         } else {
             Capability::DamageTriggerV1
@@ -175,6 +196,17 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
                 rules_sha256: RULES_SHA256.into(),
                 definitions: vec![d.clone()],
             };
+            if kutzil {
+                // The current development schema is frozen until a real
+                // consumer compatibility requirement warrants a migration.
+                // New capability support has no historical-version claim.
+                if version == mtg_contracts::CURRENT_IR_VERSION {
+                    c.validate().unwrap();
+                } else if version > mtg_contracts::CURRENT_IR_VERSION {
+                    assert!(c.validate().is_err());
+                }
+                continue;
+            }
             assert_eq!(
                 c.validate().is_ok(),
                 ((if ohran {
@@ -202,7 +234,7 @@ fn d2ce_complete_archive_rows_provenance_programs_and_whole_card_negatives() {
             );
         }
     }
-    assert_eq!(admitted, 15);
+    assert_eq!(admitted, 16);
 }
 #[test]
 fn d2ce_rejects_partial_kind_source_recipient_optional_quantity_and_condition_shapes() {
@@ -1448,4 +1480,202 @@ fn snow_supertype_rejects_duplicate_world_other_kinds_and_untracked_mana() {
         compile(MANIFEST, &mana),
         CompileResult::Unsupported { reason, .. } if reason.contains("non-mana creature")
     ));
+}
+
+#[test]
+fn grouped_damage_exact_kutzil_source_binds_complete_scope_and_candidate_power() {
+    let d = lower(KUTZIL);
+    let r: serde_json::Value = serde_json::from_str(KUTZIL).unwrap();
+    assert_eq!(d.name, "Kutzil, Malamet Exemplar");
+    assert_eq!(
+        r["source"]["oracle_text"],
+        "Your opponents can't cast spells during your turn.\nWhenever one or more creatures you control each with power greater than its base power deals combat damage to a player, draw a card."
+    );
+    assert_eq!(d.characteristics.kind, CardKind::Creature);
+    assert!(d.characteristics.legendary);
+    assert_eq!(d.characteristics.subtypes, ["Cat", "Warrior"]);
+    assert_eq!(d.characteristics.power, Some(3.into()));
+    assert_eq!(d.characteristics.toughness, Some(3.into()));
+    assert_eq!(d.characteristics.mana_cost.generic, 1.into());
+    assert_eq!(d.characteristics.mana_cost.colored, [Color::G, Color::W]);
+    assert_eq!(
+        d.static_abilities,
+        [StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::OpponentsCantCastDuringControllerTurn
+        }]
+    );
+    assert_eq!(d.triggered.len(), 1);
+    assert_eq!(
+        d.triggered[0].condition.reporting_key(),
+        "grouped_damage_dealt"
+    );
+    assert_eq!(
+        d.triggered[0].condition,
+        TriggerCondition::GroupedDamageDealt {
+            source: DamageTriggerSource::CreatureFilter {
+                controller: DamageSourceRelation::Controller,
+                types: TypePredicate::Type {
+                    kind: CardKind::Creature
+                }
+            },
+            kind: TriggerDamageKind::Combat,
+            recipient: DamageTriggerRecipient::Player,
+            source_power: DamageSourcePowerPredicate::GreaterThanBase
+        }
+    );
+    assert_eq!(
+        d.triggered[0].program.instructions,
+        [Instruction::DrawCards {
+            recipient: None,
+            count: 1.into(),
+            source_block: 1
+        }]
+    );
+    assert!(d.triggered[0].program.targets.is_empty() && d.triggered[0].program.modes.is_empty());
+    for cap in [
+        Capability::OpponentCastProhibitionV1,
+        Capability::GroupedCreatureDamageTriggerV1,
+        Capability::ControllerDrawV1,
+    ] {
+        assert!(d.capabilities.contains(&cap));
+        let mut missing = d.clone();
+        missing.capabilities.remove(&cap);
+        assert!(missing.validate().is_err());
+    }
+    assert_eq!(d.provenance.source_sha256, r["sourceSha256"]);
+    assert_eq!(d.provenance.ast_sha256, r["astSha256"]);
+    assert_eq!(d.provenance.binding_sha256, r["bindingSha256"]);
+    assert_eq!(r["binding"]["fullyBound"], false);
+    assert!(!r["binding"]["diagnostics"].as_array().unwrap().is_empty());
+    // The diagnostic graph is retained without repairing the unresolved action
+    // scope or its incorrect source-level "it" target. Executable Rust binds
+    // the exact prohibition and EACH queried creature's own base power.
+    assert_eq!(
+        r["binding"]["references"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["path"]
+                == "/faces/0/abilities/1/trigger/what/filter/properties/0/comparison/value/of")
+            .unwrap()["target"],
+        "card:3233af43-7826-4895-b67e-03c6102c2cd5/source#object"
+    );
+    let changed_diagnostic =
+        tests::changed_source(KUTZIL, |r| r["binding"]["fullyBound"] = true.into());
+    let diagnostic = lower(&changed_diagnostic);
+    assert_eq!(diagnostic.static_abilities, d.static_abilities);
+    assert_eq!(diagnostic.triggered, d.triggered);
+}
+
+#[test]
+fn opponent_cast_prohibition_rejects_partial_unknown_and_qualified_action_scopes() {
+    type Mutation = fn(&mut serde_json::Value);
+    for mutate in [
+        (|p: &mut serde_json::Value| p["who"] = serde_json::json!({"player":"you"})) as Mutation,
+        |p| p["who"] = serde_json::json!({"player":"a-player"}),
+        |p| p["who"]["of"] = serde_json::json!({"ref":"it"}),
+        |p| p["who"]["selectionId"] = "unbound".into(),
+        |p| p["what"]["ref"] = "this".into(),
+        |p| p["what"]["filter"]["cls"] = "card".into(),
+        |p| p["what"]["filter"]["types"] = serde_json::json!(["creature"]),
+        |p| p["what"]["filter"]["owner"] = "you".into(),
+        |p| p["what"]["zone"] = "hand".into(),
+        |p| p["what"]["count"] = serde_json::json!({"amount":"fixed","value":1}),
+        |p| p["when"]["during"] = "phase".into(),
+        |p| p["when"]["whose"] = serde_json::json!({"player":"each-opponent"}),
+        |p| p["when"]["whose"]["of"] = serde_json::json!({"ref":"it"}),
+        |p| p["when"] = serde_json::Value::Null,
+        |p| {
+            p.as_object_mut().unwrap().remove("when");
+        },
+        |p| p["prohibition"] = "activate".into(),
+        |p| p["optional"] = false.into(),
+        |p| p["once"] = true.into(),
+        |p| p["unknown"] = true.into(),
+    ] {
+        let raw = tests::changed_source(KUTZIL, |r| {
+            let result = &mut r["faces"][0]["result"];
+            mutate(&mut result["abilities"][0]["effect"]["prohibition"]);
+            result["lines"][0]["ability"] = result["abilities"][0].clone();
+        });
+        assert!(
+            matches!(compile(MANIFEST, &raw), CompileResult::Unsupported { .. }),
+            "{:?}",
+            compile(MANIFEST, &raw)
+        );
+    }
+}
+
+#[test]
+fn grouped_damage_rejects_partial_grouping_properties_and_unbound_draw_recipients() {
+    type Mutation = fn(&mut serde_json::Value);
+    for mutate in [
+        (|a: &mut serde_json::Value| {
+            a["trigger"].as_object_mut().unwrap().remove("grouping");
+        }) as Mutation,
+        |a| a["trigger"]["grouping"] = serde_json::Value::Null,
+        |a| a["trigger"]["grouping"] = "each".into(),
+        |a| a["trigger"]["grouping"] = "once-per-turn".into(),
+        |a| a["trigger"]["grouping"] = false.into(),
+        |a| a["trigger"]["what"]["count"]["value"] = 0.into(),
+        |a| a["trigger"]["what"]["count"]["value"] = 2.into(),
+        |a| a["trigger"]["what"]["filter"]["properties"] = serde_json::json!([]),
+        |a| a["trigger"]["what"]["filter"]["properties"] = serde_json::Value::Null,
+        |a| {
+            a["trigger"]["what"]["filter"]
+                .as_object_mut()
+                .unwrap()
+                .remove("properties");
+        },
+        |a| a["trigger"]["what"]["filter"]["properties"][0]["property"] = "toughness".into(),
+        |a| a["trigger"]["what"]["filter"]["properties"][0]["comparison"]["op"] = "gte".into(),
+        |a| {
+            a["trigger"]["what"]["filter"]["properties"][0]["comparison"]["value"]["attribute"] =
+                "power".into()
+        },
+        |a| {
+            a["trigger"]["what"]["filter"]["properties"][0]["comparison"]["value"]["of"] =
+                serde_json::json!({"ref":"this","noun":"creature"})
+        },
+        |a| {
+            a["trigger"]["what"]["filter"]["properties"][0]["comparison"]["value"]["of"] =
+                serde_json::json!({"ref":"it","owner":"you"})
+        },
+        |a| {
+            let p = a["trigger"]["what"]["filter"]["properties"][0].clone();
+            a["trigger"]["what"]["filter"]["properties"]
+                .as_array_mut()
+                .unwrap()
+                .push(p);
+        },
+        |a| a["trigger"]["what"]["filter"]["properties"][0]["unknown"] = true.into(),
+        |a| a["trigger"]["what"]["filter"]["control"] = "opponent".into(),
+        |a| a["trigger"]["what"]["filter"]["types"] = serde_json::json!(["artifact", "creature"]),
+        |a| a["trigger"]["what"]["filter"]["nonTypes"] = serde_json::json!([]),
+        |a| a["trigger"]["what"]["filter"]["other"] = true.into(),
+        |a| a["trigger"]["combat"] = false.into(),
+        |a| a["trigger"]["to"] = serde_json::json!({"player":"an-opponent"}),
+        |a| a["effects"][0]["steps"][0]["who"] = serde_json::json!({"player":"that-player"}),
+        |a| a["effects"][0]["steps"][0]["who"]["of"] = serde_json::json!({"ref":"it"}),
+        |a| a["effects"][0]["steps"][0]["optional"] = true.into(),
+        |a| a["effects"][0]["steps"][0]["amount"]["value"] = 2.into(),
+        |a| a["effects"][0]["steps"][0]["amount"] = serde_json::json!({"amount":"that-much"}),
+        |a| {
+            let draw = a["effects"][0]["steps"][0].clone();
+            a["effects"][0]["steps"].as_array_mut().unwrap().push(draw);
+        },
+        |a| a["condition"] = serde_json::json!({"condition":"status","what":{"ref":"this","noun":"creature"},"status":"tapped"}),
+    ] {
+        let raw = tests::changed_source(KUTZIL, |r| {
+            let result = &mut r["faces"][0]["result"];
+            mutate(&mut result["abilities"][1]);
+            result["lines"][1]["ability"] = result["abilities"][1].clone();
+        });
+        assert!(
+            matches!(compile(MANIFEST, &raw), CompileResult::Unsupported { .. }),
+            "{:?}",
+            compile(MANIFEST, &raw)
+        );
+    }
 }

@@ -64,6 +64,42 @@ struct IssuedFile<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     capability: Option<&'a str>,
 }
+// Input mirrors only the two issued-file shapes; never format capability data.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InitialCapabilities {
+    seats: [String; 4],
+    operator: String,
+}
+#[derive(Deserialize)]
+#[serde(tag = "purpose", deny_unknown_fields)]
+enum ExportInput {
+    #[serde(rename = "create")]
+    Create {
+        registry_version: u32,
+        match_id: String,
+        initial: InitialCapabilities,
+    },
+    #[serde(rename = "rotate_seat")]
+    Rotate {
+        registry_version: u32,
+        match_id: String,
+        seat: u8,
+        capability: String,
+    },
+}
+fn valid_bootstrap_origin(origin: &str) -> bool {
+    let Some(address) = origin
+        .strip_prefix("http://")
+        .and_then(|s| s.parse::<std::net::SocketAddr>().ok())
+    else {
+        return false;
+    };
+    (address.ip() == std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+        || address.ip() == std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST))
+        && address.port() != 0
+        && origin == format!("http://{address}")
+}
 struct Entry {
     registered: RegisteredMatch,
     credentials: CredentialHashes,
@@ -516,6 +552,69 @@ impl MatchRegistry {
             Some(self.owner_uid),
         )?;
         write_new(&path, canonical(value)?.as_bytes(), self.owner_uid)
+    }
+    /// Offline export of an already issued, still valid seat credential. Does
+    /// not rotate authority. Registry lock and private create-new output apply.
+    pub fn export_seat(
+        &self,
+        id: &str,
+        seat: u8,
+        origin: &str,
+        issued: &Path,
+        output: &Path,
+    ) -> Result<(), String> {
+        self.verify_current()?;
+        if seat >= 4 || !valid_bootstrap_origin(origin) {
+            return Err("invalid bootstrap destination or seat".into());
+        }
+        let entry = self.entries.get(id).ok_or("unknown registry match")?;
+        let input = read_private(&absolute(issued)?, self.owner_uid)?;
+        // Do not propagate deserialization diagnostics: unknown keys can contain secrets.
+        let input: ExportInput =
+            mtg_contracts::strict_read(&input).map_err(|_| "invalid issued capability file")?;
+        let capability = match input {
+            ExportInput::Create {
+                registry_version,
+                match_id,
+                initial,
+            } if registry_version == VERSION && match_id == id => {
+                if !entry.credentials.authenticate_operator(&initial.operator) {
+                    return Err("issued file authorization mismatch".into());
+                }
+                initial.seats[usize::from(seat)].clone()
+            }
+            ExportInput::Rotate {
+                registry_version,
+                match_id,
+                seat: input_seat,
+                capability,
+            } if registry_version == VERSION && match_id == id && input_seat == seat => capability,
+            _ => return Err("issued file identity mismatch".into()),
+        };
+        if entry.credentials.authenticate_seat(&capability) != Some(seat) {
+            return Err("issued seat is no longer authorized".into());
+        }
+        let metadata = &entry.registered.metadata;
+        let bootstrap = crate::protocol::SeatBootstrap {
+            bootstrap_version: 1,
+            protocol_version: crate::protocol::PROTOCOL_VERSION,
+            server_origin: origin.into(),
+            match_id: id.into(),
+            viewer: mtg_core::PlayerId(seat),
+            capability,
+            engine_build_id: metadata.engine_build_id.clone(),
+            server_build_id: metadata.server_build_id.clone(),
+            catalog_sha256: metadata.catalog_sha256.clone(),
+        };
+        let body = canonical(&bootstrap)?;
+        if body.len() > crate::protocol::MAX_BOOTSTRAP_BYTES {
+            return Err("bootstrap exceeds bound".into());
+        }
+        let output = absolute(output)?;
+        if output.starts_with(&self.root) {
+            return Err("bootstrap must be outside registry".into());
+        }
+        write_new(&output, body.as_bytes(), self.owner_uid)
     }
     /// Offline only. Initializer must create and CLOSE its Worker at the supplied
     /// path before returning; SQLite handles must not remain open across rename.

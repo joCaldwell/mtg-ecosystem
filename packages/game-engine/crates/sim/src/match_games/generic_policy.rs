@@ -932,6 +932,21 @@ impl Strategy<'_> {
         o: &VisibleObject,
         d: &Definition,
     ) -> Option<PlayerResponse> {
+        // The prohibition is fully public: inspect current battlefield
+        // controllers and their catalog static effects, using the retained
+        // turn owner rather than active-player presence (CR 800.4j).
+        if v.objects.iter().any(|source| {
+            source.zone == Zone::Battlefield
+                && source.controller == v.turn_owner
+                && source.controller != v.viewer
+                && definition(self.catalog, &source.oracle_id).is_ok_and(|d| {
+                    d.static_abilities
+                        .iter()
+                        .any(|a| a.effect == StaticEffect::OpponentsCantCastDuringControllerTurn)
+                })
+        }) {
+            return None;
+        }
         if !self.definition_ready(v, d) {
             return None;
         }

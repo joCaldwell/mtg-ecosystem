@@ -184,6 +184,8 @@ pub enum Capability {
     DamageQuantityDrawV1,
     SnowSupertypeV1,
     AttackingCreatureKeywordsV1,
+    OpponentCastProhibitionV1,
+    GroupedCreatureDamageTriggerV1,
     EventPlayerRecipientV1,
     SourceStatusConditionV1,
     StepBeginningTriggerV1,
@@ -197,6 +199,7 @@ pub enum Capability {
     CombatDamagePreventionV1,
     DamageBudgetPreventionV1,
     StaticDamageReplacementV1,
+    ControlledCreatureDamageReplacementV1,
     NormalLayoutV1,
     BasicLandManaV1,
     LandPlayV1,
@@ -669,6 +672,8 @@ pub enum Duration {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
+    /// CR 101.2/109.5/601.3: opponents cannot cast during this controller's turn.
+    OpponentsCantCastDuringControllerTurn,
     EntersTapped,
     ReduceGenericByCreatureCount,
     CantBeCountered,
@@ -684,6 +689,8 @@ pub enum StaticEffect {
         toughness: Quantity,
     },
     DoubleDamageToPermanentOrPlayer,
+    /// Double damage from creatures controlled by this battlefield source's controller.
+    DoubleControllerCreatureDamageToPermanentOrPlayer,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -795,6 +802,13 @@ pub struct ActivatedAbility {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerCondition {
+    /// One occurrence per damaged player and simultaneous combat-damage event.
+    GroupedDamageDealt {
+        source: DamageTriggerSource,
+        kind: TriggerDamageKind,
+        recipient: DamageTriggerRecipient,
+        source_power: DamageSourcePowerPredicate,
+    },
     DamageDealt {
         source: DamageTriggerSource,
         kind: TriggerDamageKind,
@@ -819,6 +833,22 @@ pub enum TriggerCondition {
     AnyCreatureDies,
     SelfDies,
     SelfAuraToGraveyard,
+}
+/// Candidate-local event-time comparison; no printed-source pronoun binding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DamageSourcePowerPredicate {
+    GreaterThanBase,
+}
+impl<'de> Deserialize<'de> for DamageSourcePowerPredicate {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match String::deserialize(deserializer)?.as_str() {
+            "greater_than_base" => Ok(Self::GreaterThanBase),
+            _ => Err(serde::de::Error::custom(
+                "unsupported damage source power predicate",
+            )),
+        }
+    }
 }
 /// CR 120.2/120.7/603.2c: independent source, kind and recipient dimensions.
 /// Source means the observer's exact incarnation; CreatureFilter separately
@@ -963,6 +993,7 @@ impl TriggerCondition {
             Self::StepBegan { .. } => "step_began",
             Self::CreatureAttacked { .. } => "creature_attacked",
             Self::DamageDealt { .. } => "damage_dealt",
+            Self::GroupedDamageDealt { .. } => "grouped_damage_dealt",
             Self::SpellCast { .. } => "spell_cast",
             Self::OpponentCreatureDies => "opponent_creature_dies",
             Self::SelfEntersBattlefield => "self_enters_battlefield",
@@ -1213,6 +1244,9 @@ impl Definition {
                 set.insert(Capability::FilteredDamageTriggerV1);
             }
             set.insert(match ability.condition {
+                TriggerCondition::GroupedDamageDealt { .. } => {
+                    Capability::GroupedCreatureDamageTriggerV1
+                }
                 TriggerCondition::StepBegan { .. } => Capability::StepBeginningTriggerV1,
                 TriggerCondition::SpellCast { .. } => Capability::CastTriggerV1,
                 TriggerCondition::CreatureAttacked { .. } => Capability::AttackTriggerV1,
@@ -1261,12 +1295,18 @@ impl Definition {
         }
         for a in &self.static_abilities {
             set.insert(match a.effect {
+                StaticEffect::OpponentsCantCastDuringControllerTurn => {
+                    Capability::OpponentCastProhibitionV1
+                }
                 StaticEffect::EntersTapped => Capability::EntersTappedV1,
                 StaticEffect::ReduceGenericByCreatureCount | StaticEffect::CantBeCountered => {
                     Capability::BoardWipesV1
                 }
                 StaticEffect::DoubleDamageToPermanentOrPlayer => {
                     Capability::StaticDamageReplacementV1
+                }
+                StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer => {
+                    Capability::ControlledCreatureDamageReplacementV1
                 }
                 StaticEffect::ControllerCreatureAnthem { .. } => Capability::CreatureAnthemV1,
                 StaticEffect::ModifyCreatures {
@@ -1648,6 +1688,33 @@ impl Definition {
             return Err("trigger programs require a supported permanent source".into());
         }
         for ability in &self.triggered {
+            if let TriggerCondition::GroupedDamageDealt {
+                source,
+                kind,
+                recipient,
+                source_power,
+            } = &ability.condition
+            {
+                if *source
+                    != (DamageTriggerSource::CreatureFilter {
+                        controller: DamageSourceRelation::Controller,
+                        types: TypePredicate::Type {
+                            kind: CardKind::Creature,
+                        },
+                    })
+                    || *kind != TriggerDamageKind::Combat
+                    || *recipient != DamageTriggerRecipient::Player
+                    || *source_power != DamageSourcePowerPredicate::GreaterThanBase
+                    || ability.death_filter.is_some()
+                    || ability.intervening_if.is_some()
+                    || !ability.program.targets.is_empty()
+                    || !ability.program.modes.is_empty()
+                    || !matches!(ability.program.instructions.as_slice(),
+                        [Instruction::DrawCards {recipient:None|Some(LifeRecipient::Controller),count,..}] if *count == Quantity::from(1))
+                {
+                    return Err("grouped damage requires controlled creatures above base power, combat player damage and one mandatory controller draw".into());
+                }
+            }
             if matches!(
                 ability.condition,
                 TriggerCondition::DamageDealt {
@@ -1795,6 +1862,8 @@ impl Definition {
         }
         if self.static_abilities.iter().any(|a| {
             a.effect != StaticEffect::EntersTapped
+                && a.effect != StaticEffect::OpponentsCantCastDuringControllerTurn
+                && a.effect != StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer
                 && !matches!(
                     a.effect,
                     StaticEffect::ModifyCreatures {
@@ -1823,6 +1892,29 @@ impl Definition {
             return Err("static damage replacement must function on battlefield".into());
         }
         for a in &self.static_abilities {
+            if a.effect == StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer {
+                if !matches!(
+                    c.kind,
+                    CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
+                ) {
+                    return Err(
+                        "controlled creature damage replacement requires a battlefield permanent"
+                            .into(),
+                    );
+                }
+                continue;
+            }
+            if a.effect == StaticEffect::OpponentsCantCastDuringControllerTurn {
+                if !matches!(
+                    c.kind,
+                    CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
+                ) {
+                    return Err(
+                        "opponent casting prohibition requires a battlefield permanent".into(),
+                    );
+                }
+                continue;
+            }
             if a.effect == StaticEffect::EntersTapped {
                 if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
                     return Err("entry replacement requires a permanent".into());
@@ -3161,6 +3253,36 @@ pub fn catalog_schema() -> serde_json::Value {
             "if":{"properties":{"characteristics":{"properties":{"snow":{"const":true}},"required":["snow"]}},"required":["characteristics"]},
             "then":{"properties":{"characteristics":{"properties":{"kind":{"const":"creature"}}},"mana_abilities":{"maxItems":0}}}
         }));
+    schema["$defs"]["StaticAbility"].as_object_mut().unwrap()
+        .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
+        .push(serde_json::json!({
+            "if":{"properties":{"effect":{"enum":[StaticEffect::OpponentsCantCastDuringControllerTurn,StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer]}},"required":["effect"]},
+            "then":{"properties":{"functioning_zone":{"const":"battlefield"}}}
+        }));
+    schema["$defs"]["Definition"].as_object_mut().unwrap()
+        .get_mut("allOf").unwrap().as_array_mut().unwrap()
+        .push(serde_json::json!({
+            "if":{"properties":{"static_abilities":{"contains":{"properties":{"effect":{"enum":[StaticEffect::OpponentsCantCastDuringControllerTurn,StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer]}},"required":["effect"]}}},"required":["static_abilities"]},
+            "then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["creature","artifact","enchantment"]}}}}}
+        }));
+    schema["$defs"]["TriggerCondition"].as_object_mut().unwrap()
+        .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
+        .push(serde_json::json!({"properties":{"grouped_damage_dealt":{"properties":{
+            "source":{"const":{"subject":"creature_filter","controller":"controller","types":{"predicate":"type","kind":"creature"}}},
+            "kind":{"const":"combat"},"recipient":{"const":"player"},"source_power":{"const":"greater_than_base"}
+        }}}}));
+    schema["$defs"]["TriggeredAbility"].as_object_mut().unwrap()
+        .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
+        .push(serde_json::json!({
+            "if":{"properties":{"condition":{"type":"object","required":["grouped_damage_dealt"]}},"required":["condition"]},
+            "then":{"properties":{
+                "death_filter":{"type":"null"},"intervening_if":{"type":"null"},"functioning_zone":{"const":"battlefield"},
+                "program":{"properties":{"additional_sacrifice":{"type":"null"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},"functioning_zone":{"const":"stack"},
+                    "targets":{"maxItems":0},"modes":{"maxItems":0},
+                    "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"draw_cards"},"count":{"const":"1"},"recipient":{"enum":[null,"controller"]}}}}
+                }}
+            }}
+        }));
     schema["$defs"]["PreDamageQuantityDrawProgram"] = serde_json::json!({"properties":{
         "instructions":{"items":{"properties":{"op":{"not":{"const":"draw_damage_amount"}}}}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PreDamageQuantityDrawProgram"}}}}
@@ -3431,7 +3553,7 @@ mod tests {
     }
 
     #[test]
-    fn every_capability_has_a_minimum_ir_version_witness() {
+    fn every_capability_has_a_witness_and_historical_minimums_are_preserved() {
         use Capability::*;
         let groups: &[(u32, &[Capability])] = &[
             (
@@ -3546,6 +3668,14 @@ mod tests {
             (32, &[DamageQuantityDrawV1]),
             (33, &[SnowSupertypeV1, AttackingCreatureKeywordsV1]),
         ];
+        // No released consumer requires another schema migration. New
+        // capabilities need complete witnesses in the current development IR,
+        // while already documented historical minimums remain intact.
+        let unreleased = [
+            OpponentCastProhibitionV1,
+            GroupedCreatureDamageTriggerV1,
+            ControlledCreatureDamageReplacementV1,
+        ];
         // Enumerate the public vocabulary, so a new capability cannot silently
         // escape this contract. Check full program-bearing definitions rather
         // than capability-only records that fail independent shape checks.
@@ -3558,6 +3688,7 @@ mod tests {
         let covered: BTreeSet<Capability> = groups
             .iter()
             .flat_map(|(_, caps)| caps.iter().copied())
+            .chain(unreleased)
             .collect();
         assert_eq!(covered, vocabulary);
         let root =
@@ -3671,6 +3802,40 @@ mod tests {
         }];
         attacking.capabilities = attacking.requirements();
         definitions.push(attacking);
+        let mut prohibit = damage.clone();
+        prohibit.static_abilities = vec![StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::OpponentsCantCastDuringControllerTurn,
+        }];
+        prohibit.capabilities = prohibit.requirements();
+        definitions.push(prohibit);
+        let mut controlled_replacement = damage.clone();
+        controlled_replacement.static_abilities = vec![StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer,
+        }];
+        controlled_replacement.capabilities = controlled_replacement.requirements();
+        definitions.push(controlled_replacement);
+        let mut grouped = damage.clone();
+        grouped.triggered[0].condition = TriggerCondition::GroupedDamageDealt {
+            source: DamageTriggerSource::CreatureFilter {
+                controller: DamageSourceRelation::Controller,
+                types: TypePredicate::Type {
+                    kind: CardKind::Creature,
+                },
+            },
+            kind: TriggerDamageKind::Combat,
+            recipient: DamageTriggerRecipient::Player,
+            source_power: DamageSourcePowerPredicate::GreaterThanBase,
+        };
+        grouped.triggered[0].program.targets.clear();
+        grouped.triggered[0].program.instructions = vec![Instruction::DrawCards {
+            recipient: None,
+            count: Quantity::from(1),
+            source_block: 0,
+        }];
+        grouped.capabilities = grouped.requirements();
+        definitions.push(grouped);
         // Each newly admitted dimension independently requires IR26, even when
         // paired with the original value of the other dimension.
         for (kind, recipient) in [
@@ -3694,6 +3859,20 @@ mod tests {
             assert!(expanded.capabilities.contains(&SourceDamageTriggerV2));
             assert!(!expanded.capabilities.contains(&DamageTriggerV1));
             definitions.push(expanded);
+        }
+        for cap in unreleased {
+            assert!(
+                definitions.iter().any(|d| d.capabilities.contains(&cap)
+                    && Catalog {
+                        schema_version: CURRENT_IR_VERSION,
+                        rules_edition: RULES_EDITION.into(),
+                        rules_sha256: RULES_SHA256.into(),
+                        definitions: vec![d.clone()]
+                    }
+                    .validate()
+                    .is_ok()),
+                "{cap:?}: no complete current development witness"
+            );
         }
         for &(version, caps) in groups {
             for cap in caps {
@@ -4640,6 +4819,351 @@ mod tests {
         }
         unbound.capabilities = unbound.requirements();
         assert!(unbound.validate().is_err());
+    }
+    #[test]
+    fn grouped_damage_and_cast_prohibition_have_independent_capabilities_and_strict_shapes() {
+        let old = Catalog::read(include_str!(
+            "../../../tests/fixtures/expected-wipes-ir.json"
+        ))
+        .unwrap();
+        let base = old
+            .definitions
+            .iter()
+            .find(|d| d.name == "Storm Crow")
+            .unwrap()
+            .clone();
+        let program = SpellProgram {
+            additional_sacrifice: None,
+            timing: SpellTiming::Instant,
+            resolution: SpellResolution::Instructions,
+            functioning_zone: FunctioningZone::Stack,
+            targets: vec![],
+            instructions: vec![Instruction::DrawCards {
+                recipient: None,
+                count: 1.into(),
+                source_block: 0,
+            }],
+            modes: vec![],
+        };
+        let grouped = TriggeredAbility {
+            death_filter: None,
+            intervening_if: None,
+            functioning_zone: FunctioningZone::Battlefield,
+            condition: TriggerCondition::GroupedDamageDealt {
+                source: DamageTriggerSource::CreatureFilter {
+                    controller: DamageSourceRelation::Controller,
+                    types: TypePredicate::Type {
+                        kind: CardKind::Creature,
+                    },
+                },
+                kind: TriggerDamageKind::Combat,
+                recipient: DamageTriggerRecipient::Player,
+                source_power: DamageSourcePowerPredicate::GreaterThanBase,
+            },
+            program,
+        };
+        for (prohibit, group) in [(true, false), (false, true), (true, true)] {
+            let mut d = base.clone();
+            if prohibit {
+                d.static_abilities = vec![StaticAbility {
+                    functioning_zone: FunctioningZone::Battlefield,
+                    effect: StaticEffect::OpponentsCantCastDuringControllerTurn,
+                }];
+            }
+            if group {
+                d.triggered = vec![grouped.clone()];
+            }
+            d.capabilities = d.requirements();
+            d.validate().unwrap();
+            assert_eq!(
+                d.capabilities
+                    .contains(&Capability::OpponentCastProhibitionV1),
+                prohibit
+            );
+            assert_eq!(
+                d.capabilities
+                    .contains(&Capability::GroupedCreatureDamageTriggerV1),
+                group
+            );
+            assert!(
+                !d.capabilities
+                    .contains(&Capability::FilteredDamageTriggerV1)
+            );
+            assert!(!d.capabilities.contains(&Capability::DamageTriggerV1));
+            let c = Catalog {
+                schema_version: CURRENT_IR_VERSION,
+                rules_edition: RULES_EDITION.into(),
+                rules_sha256: RULES_SHA256.into(),
+                definitions: vec![d.clone()],
+            };
+            c.validate().unwrap();
+            for cap in [
+                Capability::OpponentCastProhibitionV1,
+                Capability::GroupedCreatureDamageTriggerV1,
+            ] {
+                if d.capabilities.contains(&cap) {
+                    let mut missing = d.clone();
+                    missing.capabilities.remove(&cap);
+                    assert!(missing.validate().is_err());
+                }
+            }
+        }
+        // A public enum vocabulary cannot introduce unknown actor/power syntax.
+        for value in [
+            serde_json::json!("base_power"),
+            serde_json::json!("greater_than_printed_source"),
+            serde_json::json!({"greater_than_base":{}}),
+            serde_json::json!({"greater_than_base":null}),
+            serde_json::Value::Null,
+        ] {
+            assert!(serde_json::from_value::<DamageSourcePowerPredicate>(value).is_err());
+        }
+        assert_eq!(
+            serde_json::to_value(StaticEffect::OpponentsCantCastDuringControllerTurn).unwrap(),
+            serde_json::json!("opponents_cant_cast_during_controller_turn")
+        );
+        assert!(serde_json::from_value::<StaticEffect>(serde_json::json!({"opponents_cant_cast_during_controller_turn":{"who":"opponents"}})).is_err());
+        let mut d = base.clone();
+        d.triggered = vec![grouped.clone()];
+        // Explicit Controller has the same established meaning as omission.
+        if let Instruction::DrawCards { recipient, .. } =
+            &mut d.triggered[0].program.instructions[0]
+        {
+            *recipient = Some(LifeRecipient::Controller);
+        }
+        d.capabilities = d.requirements();
+        d.validate().unwrap();
+        for condition in [
+            TriggerCondition::GroupedDamageDealt {
+                source: DamageTriggerSource::Source {},
+                kind: TriggerDamageKind::Combat,
+                recipient: DamageTriggerRecipient::Player,
+                source_power: DamageSourcePowerPredicate::GreaterThanBase,
+            },
+            TriggerCondition::GroupedDamageDealt {
+                source: DamageTriggerSource::CreatureFilter {
+                    controller: DamageSourceRelation::Controller,
+                    types: TypePredicate::Any {},
+                },
+                kind: TriggerDamageKind::Combat,
+                recipient: DamageTriggerRecipient::Player,
+                source_power: DamageSourcePowerPredicate::GreaterThanBase,
+            },
+            TriggerCondition::GroupedDamageDealt {
+                source: DamageTriggerSource::CreatureFilter {
+                    controller: DamageSourceRelation::Controller,
+                    types: TypePredicate::Type {
+                        kind: CardKind::Creature,
+                    },
+                },
+                kind: TriggerDamageKind::Any,
+                recipient: DamageTriggerRecipient::Player,
+                source_power: DamageSourcePowerPredicate::GreaterThanBase,
+            },
+            TriggerCondition::GroupedDamageDealt {
+                source: DamageTriggerSource::CreatureFilter {
+                    controller: DamageSourceRelation::Controller,
+                    types: TypePredicate::Type {
+                        kind: CardKind::Creature,
+                    },
+                },
+                kind: TriggerDamageKind::Combat,
+                recipient: DamageTriggerRecipient::OpponentPlayer,
+                source_power: DamageSourcePowerPredicate::GreaterThanBase,
+            },
+        ] {
+            let mut invalid = d.clone();
+            invalid.triggered[0].condition = condition;
+            invalid.capabilities = invalid.requirements();
+            assert!(invalid.validate().is_err());
+        }
+        for instruction in [
+            Instruction::DrawCards {
+                recipient: Some(LifeRecipient::EventPlayer),
+                count: 1.into(),
+                source_block: 0,
+            },
+            Instruction::DrawCards {
+                recipient: None,
+                count: 2.into(),
+                source_block: 0,
+            },
+            Instruction::DrawDamageAmount { source_block: 0 },
+            Instruction::OptionalDrawCards { source_block: 0 },
+            Instruction::GainLife {
+                recipient: LifeRecipient::Controller,
+                amount: 1.into(),
+                source_block: 0,
+            },
+            Instruction::GainLife {
+                recipient: LifeRecipient::EventPlayer,
+                amount: 1.into(),
+                source_block: 0,
+            },
+            Instruction::LoseLife {
+                recipient: LifeRecipient::EventPlayer,
+                amount: 1.into(),
+                source_block: 0,
+            },
+            Instruction::DiscardCards {
+                recipient: None,
+                count: 1.into(),
+                source_block: 0,
+            },
+            Instruction::DiscardCards {
+                recipient: Some(ActionRecipient::EventPlayer),
+                count: 1.into(),
+                source_block: 0,
+            },
+            Instruction::SacrificeCreature {
+                recipient: ActionRecipient::EventPlayer,
+                source_block: 0,
+            },
+        ] {
+            let mut invalid = d.clone();
+            invalid.triggered[0].program.instructions = vec![instruction];
+            invalid.capabilities = invalid.requirements();
+            assert!(invalid.validate().is_err());
+        }
+        let mut invalid = d.clone();
+        let extra = invalid.triggered[0].program.instructions[0].clone();
+        invalid.triggered[0].program.instructions.push(extra);
+        invalid.capabilities = invalid.requirements();
+        assert!(invalid.validate().is_err());
+        let mut invalid = d.clone();
+        let child = invalid.triggered[0].program.clone();
+        invalid.triggered[0].program.instructions.clear();
+        invalid.triggered[0].program.modes = vec![
+            SpellMode {
+                program: child.clone(),
+            },
+            SpellMode { program: child },
+        ];
+        invalid.capabilities = invalid.requirements();
+        assert!(invalid.validate().is_err());
+        let mut invalid = d.clone();
+        invalid.triggered[0].functioning_zone = FunctioningZone::Stack;
+        invalid.capabilities = invalid.requirements();
+        assert!(invalid.validate().is_err());
+        let mut invalid = d;
+        invalid.triggered[0].intervening_if = Some(InterveningCondition::SourceStatus {
+            status: TapStatus::Tapped,
+        });
+        invalid.capabilities = invalid.requirements();
+        assert!(invalid.validate().is_err());
+        // New casting scope does not widen source/functioning-zone admission.
+        for source in ["Lightning Bolt", "Forest"] {
+            let mut d = old
+                .definitions
+                .iter()
+                .find(|d| d.name == source)
+                .unwrap()
+                .clone();
+            d.static_abilities = vec![StaticAbility {
+                functioning_zone: FunctioningZone::Battlefield,
+                effect: StaticEffect::OpponentsCantCastDuringControllerTurn,
+            }];
+            d.capabilities = d.requirements();
+            assert!(d.validate().is_err());
+        }
+        let mut d = base;
+        d.static_abilities = vec![StaticAbility {
+            functioning_zone: FunctioningZone::Stack,
+            effect: StaticEffect::OpponentsCantCastDuringControllerTurn,
+        }];
+        d.capabilities = d.requirements();
+        assert!(d.validate().is_err());
+    }
+    #[test]
+    fn controlled_creature_replacement_requires_its_own_capability_and_battlefield_source() {
+        let c = Catalog::read(include_str!(
+            "../../../tests/fixtures/expected-wipes-ir.json"
+        ))
+        .unwrap();
+        let effect = StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer;
+        assert_eq!(
+            serde_json::to_value(&effect).unwrap(),
+            serde_json::json!("double_controller_creature_damage_to_permanent_or_player")
+        );
+        for invalid in [
+            serde_json::json!({"double_controller_creature_damage_to_permanent_or_player":{"controller":"opponent"}}),
+            serde_json::json!({"double_controller_creature_damage_to_permanent_or_player":{"factor":3}}),
+        ] {
+            assert!(serde_json::from_value::<StaticEffect>(invalid).is_err());
+        }
+        for name in ["Storm Crow", "Sol Ring", "Furnace of Rath"] {
+            let mut d = c
+                .definitions
+                .iter()
+                .find(|d| d.name == name)
+                .unwrap()
+                .clone();
+            d.static_abilities = vec![StaticAbility {
+                functioning_zone: FunctioningZone::Battlefield,
+                effect: effect.clone(),
+            }];
+            d.capabilities = d.requirements();
+            d.validate().unwrap();
+            assert!(
+                d.capabilities
+                    .contains(&Capability::ControlledCreatureDamageReplacementV1)
+            );
+            assert!(
+                !d.capabilities
+                    .contains(&Capability::StaticDamageReplacementV1)
+            );
+            Catalog {
+                schema_version: CURRENT_IR_VERSION,
+                rules_edition: RULES_EDITION.into(),
+                rules_sha256: RULES_SHA256.into(),
+                definitions: vec![d.clone()],
+            }
+            .validate()
+            .unwrap();
+            let mut missing = d.clone();
+            missing
+                .capabilities
+                .remove(&Capability::ControlledCreatureDamageReplacementV1);
+            assert!(missing.validate().is_err());
+            let mut wrong = d;
+            wrong.static_abilities[0].functioning_zone = FunctioningZone::Stack;
+            wrong.capabilities = wrong.requirements();
+            assert!(wrong.validate().is_err());
+        }
+        let mut both = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Furnace of Rath")
+            .unwrap()
+            .clone();
+        both.static_abilities.push(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: effect.clone(),
+        });
+        both.capabilities = both.requirements();
+        both.validate().unwrap();
+        assert!(
+            both.capabilities
+                .contains(&Capability::StaticDamageReplacementV1)
+        );
+        assert!(
+            both.capabilities
+                .contains(&Capability::ControlledCreatureDamageReplacementV1)
+        );
+        for name in ["Forest", "Lightning Bolt"] {
+            let mut invalid = c
+                .definitions
+                .iter()
+                .find(|d| d.name == name)
+                .unwrap()
+                .clone();
+            invalid.static_abilities = vec![StaticAbility {
+                functioning_zone: FunctioningZone::Battlefield,
+                effect: effect.clone(),
+            }];
+            invalid.capabilities = invalid.requirements();
+            assert!(invalid.validate().is_err());
+        }
     }
     #[test]
     fn incremental_sha256_matches_reference_across_byte_fragment_boundaries() {

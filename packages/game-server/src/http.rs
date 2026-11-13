@@ -81,6 +81,7 @@ impl Host {
             .route(protocol::COMMAND_STATUS_ROUTE, get(execution))
             .route(protocol::COMMAND_CANCEL_ROUTE, post(cancel))
             .route(protocol::MANIFEST_ROUTE, get(manifest))
+            .route(protocol::RESUME_ROUTE, get(resume))
             .fallback(|| async { failure(StatusCode::NOT_FOUND) })
             .layer(middleware::from_fn_with_state(self.clone(), bound_request))
             .with_state(self)
@@ -360,5 +361,28 @@ async fn manifest(
     match host.authenticate(&id, &headers) {
         Ok((item, _)) => json(&item.manifest),
         Err(status) => failure(status),
+    }
+}
+
+async fn resume(State(host): State<Host>, Path(id): Path<String>, request: Request) -> Response {
+    let (item, seat) = match host.authenticate(&id, request.headers()) {
+        Ok(value) => value,
+        Err(status) => return failure(status),
+    };
+    if request.uri().query().is_some() {
+        return failure(StatusCode::BAD_REQUEST);
+    }
+    match read_body(request.into_body(), 0).await {
+        Ok(body) if body.is_empty() => {}
+        _ => return failure(StatusCode::BAD_REQUEST),
+    }
+    match item.broker.call(WorkerCommand::Resume { seat }).await {
+        Ok(WorkerReply::Resume { resume }) => match protocol::checked_resume(&resume) {
+            Ok(body) => response(StatusCode::OK, body),
+            Err(_) => failure(StatusCode::SERVICE_UNAVAILABLE),
+        },
+        Ok(WorkerReply::Error { code }) => worker_failure(code),
+        Err(error) => broker_failure(error),
+        _ => failure(StatusCode::SERVICE_UNAVAILABLE),
     }
 }

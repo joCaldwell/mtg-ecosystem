@@ -676,6 +676,28 @@ impl Worker {
         self.store.stream_page(seat, after, limit)
     }
     /// Host authenticates `seat`; no caller-supplied viewer may cross seats.
+    pub fn resume(&self, seat: u8) -> Result<crate::protocol::SeatResume, String> {
+        let crate::store::CommittedPublications {
+            next,
+            state,
+            lifecycle,
+            outcome,
+        } = self.store.resume_publications(seat)?;
+        let resume = crate::protocol::SeatResume {
+            protocol_version: crate::protocol::PROTOCOL_VERSION,
+            match_id: self.identity.match_id.clone(),
+            viewer: PlayerId(seat),
+            engine_build_id: self.identity.engine_build_id.clone(),
+            server_build_id: self.identity.server_build_id.clone(),
+            catalog_sha256: self.identity.catalog_sha256.clone(),
+            next,
+            state,
+            lifecycle,
+            outcome,
+        };
+        crate::protocol::checked_resume(&resume)?;
+        Ok(resume)
+    }
     pub fn command_execution(
         &self,
         seat: u8,
@@ -1642,6 +1664,93 @@ mod tests {
             [canonical(&value).unwrap()],
         )
         .unwrap();
+    }
+    #[test]
+    fn seat_resume_is_committed_pure_private_and_survives_recovery() {
+        use crate::protocol::{ResumeState, resume_schema};
+        let (temp, mut worker) = create();
+        assert!(matches!(
+            worker.resume(0).unwrap().state,
+            ResumeState::Pending
+        ));
+        assert!(worker.resume(4).is_err());
+        settle(&mut worker);
+        let head = worker.head.clone();
+        let host = worker.host.clone();
+        let snapshot = worker.game.snapshot().unwrap();
+        let validator = jsonschema::draft7::options()
+            .build(&serde_json::to_value(resume_schema()).unwrap())
+            .unwrap();
+        for seat in 0..4 {
+            let resume = worker.resume(seat).unwrap();
+            assert_eq!(resume.next.get(), host.viewer_cursors[usize::from(seat)]);
+            assert_eq!(resume.viewer, PlayerId(seat));
+            assert_eq!(resume.match_id, "a1");
+            assert!(resume.lifecycle.is_none());
+            assert!(resume.outcome.is_none());
+            let ResumeState::Available { observation } = &resume.state else {
+                panic!("expected committed view")
+            };
+            assert_eq!(**observation, observe(&worker.game, seat).unwrap());
+            for object in &observation.view.objects {
+                if matches!(object.zone, mtg_core::Zone::Hand { .. }) {
+                    assert_eq!(object.owner, PlayerId(seat));
+                }
+            }
+            validator
+                .validate(&serde_json::to_value(&resume).unwrap())
+                .unwrap();
+            assert!(
+                worker
+                    .stream_page(seat, resume.next.get(), 32)
+                    .unwrap()
+                    .entries
+                    .is_empty()
+            );
+        }
+        assert_eq!(head, worker.head);
+        assert_eq!(host, worker.host);
+        assert_eq!(snapshot, worker.game.snapshot().unwrap());
+        let before = worker.resume(0).unwrap();
+        worker.clock(ClockControl::Pause, now(&worker)).unwrap();
+        let paused = worker.resume(0).unwrap();
+        assert_eq!(before.state, paused.state);
+        assert_eq!(paused.next.get(), before.next.get() + 1);
+        assert_eq!(paused.lifecycle, Some(ExecutionStatus::ResourcePaused));
+        assert!(paused.outcome.is_none());
+        drop(worker);
+        let worker = Worker::recover(&temp.pod(), catalog(), "a1", Instant::now()).unwrap();
+        assert_eq!(paused, worker.resume(0).unwrap());
+    }
+    #[test]
+    fn seat_resume_does_not_resolve_pending_command_or_publish_failed_transaction() {
+        let (temp, mut worker) = create();
+        settle(&mut worker);
+        let (seat, input) = keep(&worker, 77);
+        let before = worker.resume(seat).unwrap();
+        worker.submit(seat, input.clone(), now(&worker)).unwrap();
+        assert_eq!(worker.resume(seat).unwrap(), before);
+        assert_eq!(
+            worker
+                .command_execution(seat, &input.command_id)
+                .unwrap()
+                .unwrap()
+                .status,
+            CommandExecutionStatus::Pending
+        );
+        drop(worker);
+        let mut worker = Worker::recover(&temp.pod(), catalog(), "a1", Instant::now()).unwrap();
+        assert_eq!(worker.resume(seat).unwrap(), before);
+        assert_eq!(
+            worker.submit(seat, input.clone(), now(&worker)).unwrap(),
+            SubmissionResult::Accepted {
+                command_id: input.command_id.clone()
+            }
+        );
+        let db = rusqlite::Connection::open(temp.pod().join("match.sqlite3")).unwrap();
+        db.execute_batch("CREATE TRIGGER fail_resume_commit BEFORE INSERT ON outbox BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
+        assert!(worker.clock(ClockControl::Pause, now(&worker)).is_err());
+        assert_eq!(worker.resume(seat).unwrap(), before);
     }
     #[test]
     fn pending_acceptance_is_durable_before_progress_and_retry_precedes_staleness() {

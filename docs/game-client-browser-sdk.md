@@ -151,3 +151,32 @@ Action beginnings/decision context and compiler-backed source labels are separat
 unfrozen contracts. No SDK action/query replacements were invented. Full engine
 matrix, hosted profile expansion, human games, four-browser isolation, session
 recovery and deployment were not performed. Safari is untested.
+
+## Independent review and current-main integration
+
+The review found that browser `dist/` was included in retention's SDK source
+closure. Retention now excludes it from copying and source comparisons and records
+its files separately as `client_browser_artifacts`. Focused regression cases cover
+stale dist exclusion, newly built artifact hashes, and continued rejection of
+actual SDK source mutation. All 16 retention-tool tests passed; this is not a new
+full native/offline retention acceptance. The review also identified a pre-existing
+attachment-fixture omission in the full retention path; that remains outside this
+focused browser-output correction.
+
+This branch incorporates native PR #14 at `f327979fad3503523107b2f385669d3c6755b3c6`,
+including main `e2bfcb6a85fd0b9dbbb0f2f12ca6982baaec8bb7` and the standalone native
+SDK-generation compatibility fix. Merge conflicts retained both browser standalone
+validation and the native resume-negative regression tests.
+
+Using the native owner's freshly built source `3372b40aba4f6eca29ea946d136745f83996b4c3`,
+protocol SHA-256 `9457a3fb0d62606530a86166cd2c921b1a20646e9268d4f2e2242c9283d14134`,
+and unchanged bootstrap SHA-256
+`0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a`, SDK generation,
+production browser build, strict TypeScript and all 54 Node tests passed on pinned
+Node 26.11.1. This includes current-main's controlled-creature effect assertion and
+19,522 standalone/runtime validator parity comparisons. All 12 production CSP
+checks passed in each of Chromium 158.0.8127.18 and Firefox 159.0. Evidence is under
+`generated/sdk-review-main/` and SDK `generated/verification.*` plus
+`browser-proof-1794541332945.json`; prior verification was copied before rebuilding.
+The earlier 16-request real-host receipt retains its original source/bundle pin;
+no new live-host or gameplay acceptance is claimed. Merge order remains #14, #13, #15.
