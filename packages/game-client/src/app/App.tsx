@@ -7,7 +7,8 @@ import { liveTable } from '../presentation/live-table.ts';
 import { Join } from '../features/join/Join.tsx';
 import { SessionStatus } from '../features/table/SessionStatus.tsx';
 import { Table } from '../features/table/Table.tsx';
-import { fixtureTable, missingMetadataTable } from './fixture.ts';
+import { fixtureTable, missingMetadataTable, decisionGalleryFixture } from './fixture.ts';
+import { DecisionGallery } from '../features/decisions/DecisionGallery.tsx';
 import styles from './App.module.css';
 
 class SurfaceBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
@@ -35,6 +36,7 @@ export function App() {
     <main id="main" tabIndex={-1}><SurfaceBoundary><Routes>
       <Route path="/" element={<Table table={fixtureTable} />} />
       <Route path="/fixtures/opening" element={<Table table={fixtureTable} />} />
+      <Route path="/fixtures/decisions" element={<DecisionGallery {...decisionGalleryFixture} />} />
       <Route path="/table" element={<><SessionStatus snapshot={snapshot} onStop={session.stop} />{table ? <Table table={table} /> : <section className={styles.page}><h1>Live table</h1><p>{snapshot.connection === 'pending' ? 'Waiting for the first committed observation.' : 'Import a single-seat file to open your permitted view.'}</p><Link to="/join">Import seat file</Link></section>}</>} />
       <Route path="/fixtures/missing-metadata" element={<Table table={missingMetadataTable} />} />
       <Route path="/join" element={<Join snapshot={snapshot} onImport={file => { void session.join(file); }} onStop={session.stop} />} />

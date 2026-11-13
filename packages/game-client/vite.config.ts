@@ -25,7 +25,7 @@ function guard(port: number, production: boolean): Connect.NextHandleFunction {
       if (!upstream || !readRouteAllowed(req.method, req.url)) { res.writeHead(404, { 'Cache-Control': 'no-store' }); res.end(); return; }
       next(); return;
     }
-    const pages = ['/', '/join', '/table', '/about', '/fixtures/opening', '/fixtures/missing-metadata'];
+    const pages = ['/', '/join', '/table', '/about', '/fixtures/opening', '/fixtures/missing-metadata', '/fixtures/decisions'];
     if (production && (!['GET', 'HEAD'].includes(req.method ?? '') || !(pages.includes(req.url ?? '')
       || /^\/assets\/[a-zA-Z0-9._-]+\.(js|css|woff2|png|webp|jpe?g)$/.test(req.url ?? '')))) {
       // Vite's generic SPA fallback otherwise returns index.html for arbitrary
