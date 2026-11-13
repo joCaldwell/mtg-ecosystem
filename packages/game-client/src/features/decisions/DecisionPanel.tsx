@@ -5,9 +5,10 @@ import styles from './decisions.module.css';
 
 /** onComplete is explicit local human intent only. Future app composition must
  * preserve its original session context and pass through durable-send gates. */
-export function DecisionPanel({ binding, request, labels, onComplete }: {
+export function DecisionPanel({ binding, request, labels, onComplete, live = false }: {
   readonly binding: DecisionBinding; readonly request: DecisionRequest;
   readonly labels: readonly ObjectLabel[]; readonly onComplete: (completion: DecisionCompletion) => void;
+  readonly live?: boolean;
 }) {
   const surface = decisionSurface(request, labels);
   const identity = bindingKey(binding);
@@ -25,9 +26,12 @@ export function DecisionPanel({ binding, request, labels, onComplete }: {
   return <section className={styles.panel} aria-label="Local decision draft">
     <p className={styles.announcement} role="status">{state.announcement}</p>
     {!bound ? <><h2>Decision binding unavailable</h2><p>No draft can be completed for this seat or token.</p></>
-      : surface.status === 'supported' ? <LocalControls control={surface.control} draft={draft} onChange={next => setState({ ...state, draft: next })}
+      : surface.status === 'supported' ? <LocalControls control={live && request.request === 'bottom_opening'
+          ? { ...surface.control, description: `Choose exactly ${request.count} cards, then review their order from first to last.` } : surface.control} draft={draft} onChange={next => setState({ ...state, draft: next })}
+        confirmLabel={live ? 'Confirm opening choice' : 'Confirm local draft'}
+        readyText={live ? 'Ready to confirm. The table will check your choice.' : 'Draft shape complete. Core validation is still required.'}
         onComplete={() => { const response = completeDecision(request, labels, draft); if (response) onComplete({ binding: { ...binding }, response }); }} />
         : <><h2>{surface.title}</h2><p>{surface.reason}</p></>}
-    <p className={styles.boundary}>Local draft only. No game action is sent.</p>
+    <p className={styles.boundary}>{live ? 'Confirmation saves this choice before sending it to the table.' : 'Local draft only. No game action is sent.'}</p>
   </section>;
 }

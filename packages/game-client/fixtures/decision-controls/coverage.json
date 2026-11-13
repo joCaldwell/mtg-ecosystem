@@ -2,11 +2,11 @@
   "inventory_version": 1,
   "implementation_base": "144fe059ab2707877109d7e9dbe8751f204681dd",
   "qualification": {
-    "native_source": "e86df7e73f5ac896a4b2488779efb46ef28240d4",
+    "native_source": "ebfa6dde266139c45220959c4179ddedf6a38433",
     "protocol_schema_sha256": "a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3",
     "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
-    "scope": "Reviewed action-query transport and exact-command SDK integrated with main 0b4a8757 compiler source-binding correction. Fresh combined native exports; historical capture/provenance unchanged. One current SDK build qualifies both packages.",
-    "sdk_source": "e86df7e73f5ac896a4b2488779efb46ef28240d4",
+    "scope": "Combined current-source producer preserving the dc12222 compiler fix and reviewed PR22/PR23. Passed 15 focused native delivery/HTTP/protocol tests; built server/provisioner; verified 677 source rows and independently rederived build identities. Source fingerprint b7e30b5e01dfba5a0ab9d3e76996840803b35745dae878009c512ae60e5c8191. SDK and production App opening/proxy qualification are recorded in LIVE-OPENING-REPORT.md; historical 2aaf/e86 and fixture provenance remain unchanged.",
+    "sdk_source": "ebfa6dde266139c45220959c4179ddedf6a38433",
     "sdk_build_manifest_sha256": "793333249d3f65e391505bb346415ef5ec010141e5c0e7574a9d4e9ee27f8123",
     "sdk_generation_sha256": "c8507de687345e9df5b911f3ddb12e072e8b52d7533ee901ce8268d3e26bcb5b"
   },
@@ -23,7 +23,7 @@
     },
     {
       "path": "docs/game-engine-current.md",
-      "sha256": "736ab5f1d650e576424aea6cb8341b1c8796ce939d83445333268f7274026fb0"
+      "sha256": "825621a78307f483dfbb0365ab8b0598ebff62e709412571ca1ee232f5e67886"
     },
     {
       "path": "docs/game-engine-server-attachments.md",
@@ -39,11 +39,11 @@
     },
     {
       "path": "packages/game-client/src/features/decisions/LocalControls.tsx",
-      "sha256": "36437a2df29ddd6def4b94b6b9cd76693ff414b6905690e792e0f3c9a803499f"
+      "sha256": "73510c03e757a458bed03b2acdbfee9cfd3e817855dc117b4c92cbf103f04154"
     },
     {
       "path": "packages/game-client/src/features/decisions/DecisionPanel.tsx",
-      "sha256": "7d9411688e1ccf14cdb27ee7f419a9beb44286171555643983974858500b0f50"
+      "sha256": "360a24739939121c0558ebf9407e8b11f1be4b7502d0708e9230a30768d94fdb"
     },
     {
       "path": "packages/game-client/src/features/decisions/DecisionGallery.tsx",
@@ -71,7 +71,7 @@
     },
     {
       "path": "packages/game-client/tests/browser/decision-controls.spec.ts",
-      "sha256": "9b8fcc996f460c8c75645e78563a0f05781f64042e69523a45df8a6e6e35070e"
+      "sha256": "3026a9e78b8c756ea4edd85837e0d82ae8a9a776dec486593586554de84ac520"
     },
     {
       "path": "packages/game-client/fixtures/foundations-opening/provenance.json",

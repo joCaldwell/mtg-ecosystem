@@ -5,7 +5,7 @@ import styles from './Join.module.css';
 
 export function Join({ snapshot, onImport, onStop }: { snapshot: ReadSnapshot; onImport(file: File): void; onStop(): void }) {
   return <section className={styles.join}>
-    <div className={styles.intro}><span className="eyebrow">Local session / read only</span><h1>Join a Commander table</h1><p>Open the seat file your local operator exported for you. It connects this browser to your permitted view of the table.</p></div>
+    <div className={styles.intro}><span className="eyebrow">Local session / opening actions</span><h1>Join a Commander table</h1><p>Open the seat file your local operator exported for you. It connects this browser to your permitted view of the table.</p></div>
     <div className={styles.import}>
       <label htmlFor="seat-file">Single-seat bootstrap file</label>
       <input id="seat-file" type="file" accept=".json,application/json" aria-describedby="file-help" onChange={event => {
@@ -21,6 +21,6 @@ export function Join({ snapshot, onImport, onStop }: { snapshot: ReadSnapshot; o
       {snapshot.connection !== 'idle' && <button onClick={onStop}>Release seat and clear view</button>}
       <Link to="/fixtures/opening">Inspect the fixture</Link>
     </div>
-    <p className={styles.note}>This build reads the table and lets you inspect cards. Playing choices and persistent command recovery are separate work.</p>
+    <p className={styles.note}>This build supports opening-hand choices and saved-choice recovery. Later game decisions remain unavailable.</p>
   </section>;
 }

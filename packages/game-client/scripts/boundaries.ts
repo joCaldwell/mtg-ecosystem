@@ -21,6 +21,7 @@ export function boundaryViolations(file: string, source: string): string[] {
   const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith('tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   function checkImport(specifier: string, typeOnly: boolean) {
     if (typeOnly && ['app', 'presentation', 'session'].includes(layer) && specifier === '../../generated/presentation.d.ts') return;
+    if (layer === 'app' && specifier === '../../generated/sdk-identity.ts') return;
     if (layer === 'app' && /^\.\.\/\.\.\/fixtures\/foundations-opening\/(opening-seat0-http|presentation)\.json$/.test(specifier)) return;
     if (specifier.startsWith('.')) {
       const path = file.split('/').slice(0, -1);
