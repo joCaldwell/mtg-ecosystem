@@ -8,11 +8,11 @@ route explains the boundary; it does not collect credentials or make requests.
 From the repository root, using its pinned Node 26.11.1, first prepare the SDK
 from the native lane's **explicit qualified integration exports** (never from an
 arbitrary local server). The current integration protocol SHA-256 is
-`9457a3fb0d62606530a86166cd2c921b1a20646e9268d4f2e2242c9283d14134`;
+`2b6881f59cdfc2adbcddff0129d82498fa573862cd63a699f7a167802777ce71`;
 bootstrap SHA-256 is
 `0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a`.
-These exports come from native source `3372b40aba4f6eca29ea946d136745f83996b4c3`
-(current main plus native integration). Obtain the retained exports from the native
+These exports come from native source `ef237b21db575a9f06518dc1f7cb4a6f99cc4147`
+(single Card IR schema 1 and native integration). Obtain the retained exports from the native
 build owner, or explicitly build this integrated source under the shared native
 verification lock and export `schema` and `bootstrap-schema`. No client command
 performs that build. The native handoff report records the retained locations.
