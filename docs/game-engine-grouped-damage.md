@@ -51,3 +51,23 @@ Rules authority is the retained 2026-09-25 Comprehensive Rules, SHA-256
 CR 101.2, 109.2/109.5, 208.4b/613.4, 510.2, 601.2e/601.3/601.6, 603.2c/g/603.10,
 700.1 and 800.4j. Official source:
 <https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt>.
+
+Focused validation at source checkpoint `f93862b` passed formatting, workspace
+all-target compilation, 121 compiler tests, 23 contracts tests, 23 selected core
+tests and one public-data simulator policy test. The core selection includes all
+six new grouped cases, all five casting cases, four event-time appearance cases,
+six filtered-damage cases and two existing casting/payment regressions. All 38
+executable source/schema/catalog checks and 47 SDK checks passed, including strict
+generated TypeScript and 33 response variants. The fixed smoke and explicit replay
+passed with build `dabdca971cc275cf92279fad8329616da29300c43e671bd8959d54d12d40014f`
+and final state `b34e18dae91dbc123485bae4075754c0464e732ffb1296878d1d6a8a738751ac`.
+
+Logs, the smoke artifact, SDK manifest and public schema are retained under
+`~/.local/share/mtg-ecosystem/engine-verification/correctness-loop-20261112/`
+with the `grouped-damage-` prefix, including failed compilation/test attempts.
+Source/tooling checks also passed after the isolated npm probe retained the
+pinned Node library path. Two casting tests explicitly label private control
+transitions; they do not claim an admitted control-changing spell or replay of
+that synthetic setup. Full runtime suites, full games, actual hosted clients,
+release/profile matrices and retention rebuilds were omitted. This is focused
+validation, not renewed combined acceptance or hosting/search admission.
