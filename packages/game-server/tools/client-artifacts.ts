@@ -10,28 +10,8 @@ export function canonical(value: any): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
 }
-const hashSchema = { type: 'string', pattern: '^[0-9a-f]{64}$' };
-const textSchema = { type: ['string', 'null'], maxLength: 16384 };
-function object(properties: Record<string, unknown>) {
-  return { type: 'object', additionalProperties: false, required: Object.keys(properties), properties };
-}
-export const presentationSchema = {
-  $schema: 'http://json-schema.org/draft-07/schema#',
-  ...object({
-    presentation_version: { const: 1 }, catalog_sha256: hashSchema,
-    cards: { type: 'array', maxItems: 1000, items: object({
-      oracle_id: { type: 'string' }, printing_id: { type: 'string' }, source_sha256: hashSchema,
-      // No mapping is inferred from Oracle lines or compiler indices in v1.
-      ability_mapping: { const: 'unavailable' },
-      faces: { type: 'array', minItems: 1, maxItems: 8, items: object({
-        face_index: { type: 'integer', minimum: 0, maximum: 7 },
-        name: { type: 'string', minLength: 1, maxLength: 1024 },
-        oracle_text: textSchema, mana_cost: textSchema, type_line: textSchema,
-        image_url: { type: ['string', 'null'], maxLength: 2048 },
-      }) },
-    }) },
-  }),
-};
+// This producer-owned source schema is shared by the native loader and SDK generator.
+export const presentationSchema = JSON.parse(readFileSync(new URL('./presentation.schema.json', import.meta.url), 'utf8'));
 export function presentation(catalog: any) {
   if (!Array.isArray(catalog.definitions) || catalog.definitions.length > 1000) throw new Error('catalog definition bound');
   const seen = new Set<string>();
