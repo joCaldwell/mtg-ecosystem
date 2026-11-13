@@ -43,46 +43,6 @@ fn blocking_config(seed: [u8; 32]) -> MatchConfig {
     validate_pod(&blocking_catalog(), &config).unwrap();
     config
 }
-fn blocking_seed(index: u16) -> [u8; 32] {
-    let hex = mtg_contracts::sha256(
-        format!("commander-blocking-targets-v1/opening-righteousness/{index}").as_bytes(),
-    );
-    std::array::from_fn(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap())
-}
-// Temporary, bounded SETUP-only qualification. Root will pin the observed
-// opening-hand witness before publishing; no gameplay result selects the seed.
-fn blocking_setup_witness() -> (u16, [u8; 32]) {
-    let righteousness = blocking_oracle("Righteousness");
-    for index in 0..256u16 {
-        let seed = blocking_seed(index);
-        let prepared = Prepared::admit_pod(blocking_catalog(), blocking_config(seed)).unwrap();
-        let mut game = Game::with_trace(prepared, TraceMode::Off);
-        assert!(matches!(
-            settle_match(&mut game, 4096),
-            Advance::AwaitingDecision(_)
-        ));
-        assert!(matches!(request(&game).1, PlayerRequest::Mulligan { .. }));
-        if observation(&game, PlayerId(1))
-            .view
-            .objects
-            .iter()
-            .any(|object| {
-                object.owner == PlayerId(1)
-                    && object.zone == (Zone::Hand { owner: PlayerId(1) })
-                    && object.oracle_id == righteousness
-            })
-        {
-            return (index, seed);
-        }
-    }
-    panic!("no P1 opening Righteousness within declared setup-only indices0..255")
-}
-#[test]
-#[ignore = "temporary setup-only seed qualification; remove after root pins observed seed"]
-fn blocking_match_setup_seed_probe() {
-    let (index, seed) = blocking_setup_witness();
-    println!("blocking setup witness index={index}, seed={seed:?}");
-}
 fn blocking_input(game: &mut Game, response: PlayerResponse, quantum: u64) {
     submit_match(game, response);
     assert!(matches!(
@@ -427,7 +387,18 @@ fn blocking_run(seed: [u8; 32], quantum: u64) -> Game {
 }
 #[test]
 fn admitted_blocking_match_casts_paid_righteousness_replays_and_cleans_up_across_quanta() {
-    let (_index, seed) = blocking_setup_witness();
+    // Separate focused witness, not a completion-batch seed. A bounded
+    // SETUP-only search over indices0..255 first found index3 with P1 opening
+    // Righteousness. No gameplay outcome was used to select this seed.
+    let seed = [
+        83, 119, 48, 174, 200, 72, 242, 215, 30, 28, 42, 248, 254, 219, 225, 30, 175, 198, 88, 231,
+        103, 208, 222, 15, 57, 125, 66, 59, 124, 78, 119, 151,
+    ];
+    let hex = mtg_contracts::sha256(b"commander-blocking-targets-v1/opening-righteousness/3");
+    assert_eq!(
+        seed,
+        std::array::from_fn::<_, 32, _>(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap())
+    );
     let small = blocking_run(seed, 1);
     let large = blocking_run(seed, 4096);
     assert_eq!(small.state_digest().unwrap(), large.state_digest().unwrap());
