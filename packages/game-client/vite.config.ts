@@ -1,6 +1,6 @@
 import { defineConfig, type Plugin, type Connect, type ProxyOptions } from 'vite';
 import type { ClientConfig } from '@multiverse/game-server-sdk';
-import { upstreamOrigin, localRequestAllowed, readRouteAllowed } from './scripts/proxy-policy.ts';
+import { upstreamOrigin, localRequestAllowed, apiRouteAllowed } from './scripts/proxy-policy.ts';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { relative } from 'node:path';
@@ -22,7 +22,7 @@ function guard(port: number, production: boolean): Connect.NextHandleFunction {
       res.end(JSON.stringify({ client_config_version: 1, server_origin: upstream } satisfies ClientConfig)); return;
     }
     if (req.url?.startsWith('/v1/') || req.url?.startsWith('/presentation/')) {
-      if (!upstream || !readRouteAllowed(req.method, req.url)) { res.writeHead(404, { 'Cache-Control': 'no-store' }); res.end(); return; }
+      if (!upstream || !apiRouteAllowed(req.method, req.url)) { res.writeHead(404, { 'Cache-Control': 'no-store' }); res.end(); return; }
       next(); return;
     }
     const pages = ['/', '/join', '/table', '/about', '/fixtures/opening', '/fixtures/missing-metadata', '/fixtures/decisions'];
@@ -36,7 +36,7 @@ function guard(port: number, production: boolean): Connect.NextHandleFunction {
   };
 }
 const delivery: Plugin = {
-  name: 'local-read-only-delivery',
+  name: 'local-opening-delivery',
   configureServer(server) { server.middlewares.use(guard(server.config.server.port ?? 5173, false)); },
   configurePreviewServer(server) { server.middlewares.use(guard(server.config.preview.port ?? 4179, true)); },
 };
@@ -68,6 +68,7 @@ export default defineConfig({
         const local = relative(root, id).replaceAll('\\', '/');
         if (!(local === 'index.html' || local.startsWith('src/') || allowedRuntime.test(local)
           || local === '../game-server/sdk/dist/browser.js'
+          || local === 'generated/sdk-identity.ts'
           || /^fixtures\/foundations-opening\/(opening-seat0-http|presentation)\.json$/.test(local))) {
           throw new Error(`Unreviewed browser runtime module: ${local}`);
         }

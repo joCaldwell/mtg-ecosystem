@@ -139,3 +139,25 @@ test('lost command ack recovers from authoritative status through the existing r
   r.waits[1]!.resolve(); await flush(); assert.equal(r.stats().resumes, 2); assert.equal(r.session.getSnapshot().command.phase, 'ready');
   r.session.stop(); r.waits[2]!.resolve(); await running;
 });
+
+test('terminal rejection interrupts an idle poll and resumes without a reconnect delay or replay', async () => {
+  const r = rig(), authorize = r.effects.authorize;
+  let aborted = false;
+  r.effects.authorize = async (input, signal) => {
+    const value = await authorize(input, signal);
+    return { ...value, transport: { ...value.transport, poll: (_after, pollSignal) => new Promise((_resolve, reject) => {
+      pollSignal.addEventListener('abort', () => { aborted = true; reject(new Error('read interrupted')); }, { once: true });
+    }) } };
+  };
+  const running = r.session.join('seat'); await flush(); const stale = r.intent();
+  r.waits[0]!.resolve(); await flush();
+  r.commands.transport.submitExact = async body => ({ command_id: parsePreparedCommand(body).envelope.command_id, status: 'rejected', reason: 'stale_revision' });
+  await r.session.submitIntent(stale); await flush();
+  assert.equal(aborted, true); assert.equal(r.stats().resumes, 2);
+  assert.equal(r.session.getSnapshot().command.phase, 'ready'); assert.equal(r.session.getSnapshot().retry, 0);
+  assert.equal(r.waits.length, 2, 'refresh adds no reconnect backoff wait');
+  assert.notEqual(r.session.commandContext()!.incarnation, stale.context.incarnation);
+  await r.session.submitIntent(stale); assert.equal(r.record(), null);
+  assert.equal(r.events.filter(event => event === 'persist').length, 1);
+  r.session.stop(); r.waits[1]!.resolve(); await running;
+});

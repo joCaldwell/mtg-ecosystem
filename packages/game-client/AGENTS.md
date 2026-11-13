@@ -2,9 +2,10 @@
 
 Read the root manual and `docs/game-client-{plan,contracts,boundaries,delivery}.md`.
 This package owns interaction, display and session recovery, never gameplay rules.
-Current source supports live read-only joining plus retained inspection fixtures.
-Source-qualified acceptance and remaining gates belong in LIVE-SESSION-REPORT.md;
-read-side recovery does not establish playable decisions or full M2 completion.
+Current source supports live joining and explicit opening-hand choices, plus
+retained inspection fixtures. Source-qualified opening acceptance belongs in
+LIVE-OPENING-REPORT.md; historical read-only evidence remains in LIVE-SESSION-REPORT.md.
+Later decision families and full M2 completion are not established.
 
 ## Boundaries
 

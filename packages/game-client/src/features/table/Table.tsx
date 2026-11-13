@@ -1,10 +1,10 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { CardFace } from '../../cards/CardFace.tsx';
 import { cardName, inspectableCards, type CardView, type TableView } from '../../presentation/table-model.ts';
 import { Inspector } from '../inspector/Inspector.tsx';
 import styles from './Table.module.css';
 
-export function Table({ table }: { table: TableView }) {
+export function Table({ table, decisionControls }: { table: TableView; decisionControls?: ReactNode }) {
   const [selected, setSelected] = useState<string | null>(null);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const decision = useRef<HTMLElement>(null);
@@ -16,7 +16,7 @@ export function Table({ table }: { table: TableView }) {
   }
   return <>
     <div className={styles.orientation}>
-      <div><span className="eyebrow">Commander / {table.live ? 'live read-only table' : 'inspection fixture'}</span><h1>{table.title}</h1></div>
+      <div><span className="eyebrow">Commander / {table.live ? 'live table · opening actions' : 'inspection fixture'}</span><h1>{table.title}</h1></div>
       <button onClick={() => decision.current?.focus()}>Jump to decision <span aria-hidden="true">↓</span></button>
     </div>
     <div className={styles.layout}>
@@ -46,7 +46,7 @@ export function Table({ table }: { table: TableView }) {
           <h2 id="decision-title">{table.decision?.title ?? 'No decision supplied'}</h2>
           <p>{table.decision?.description ?? (table.live ? 'No decision in the latest permitted observation.' : 'The table is not connected to a game.')}</p>
           {table.decision && <ul>{table.decision.details.map(detail => <li key={detail}>{detail}</li>)}</ul>}
-          <p className={styles.readOnly}>{table.live ? 'Read-only table. Choices cannot be submitted.' : 'Read-only fixture. Choices cannot be submitted.'}</p>
+          {decisionControls ?? <p className={styles.readOnly}>{table.live ? 'Opening controls unavailable.' : 'Read-only fixture. Choices cannot be submitted.'}</p>}
         </section>
         <section className={styles.stack} aria-labelledby="stack-title"><h2 id="stack-title">Stack <span>{table.stack.length}</span></h2>{cards(table.stack, 'No stack objects in this view.')}</section>
         {!!table.otherObjects?.length && <section className={styles.stack} aria-label="Other permitted objects"><h2>Other permitted objects</h2>{cards(table.otherObjects, '')}</section>}
