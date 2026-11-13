@@ -115,11 +115,6 @@ fn six_choice_profiles_bind_complete33_catalog_and_owned_limits() {
                     <= 16
             )
         }
-        for version in 3..10 {
-            let mut c = catalog();
-            c.schema_version = version;
-            assert!(Prepared::admit(c, config.clone()).is_err())
-        }
         let mut changed = config;
         changed.cards[0].zone = Zone::Exile;
         assert!(Prepared::admit(catalog(), changed).is_err());

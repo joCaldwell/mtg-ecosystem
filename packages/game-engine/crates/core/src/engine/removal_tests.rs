@@ -354,7 +354,7 @@ fn activated(g: &mut Game, id: u32, targets: Vec<TargetEntity>) {
 #[test]
 fn removal_profile_decks_policy_and_reviewed_capacities() {
     let c = catalog();
-    assert_eq!(c.schema_version, 18);
+    assert_eq!(c.schema_version, mtg_contracts::CURRENT_IR_VERSION);
     assert_eq!(
         digest(&c).unwrap(),
         match_profile("commander-removal-v1")
@@ -1647,7 +1647,7 @@ fn flash_casts_permanent_spells_on_opponents_turns_and_in_response_with_paired_r
             .name
             .clone();
         let mut p = prepared(&[(&name, 0, true), (&name, 1, true)]);
-        Arc::make_mut(&mut p.catalog).schema_version = 20;
+        Arc::make_mut(&mut p.catalog).schema_version = mtg_contracts::CURRENT_IR_VERSION;
         p.config.initial.turn_step = TurnStep::PrecombatMain;
         let d = Arc::make_mut(&mut p.catalog)
             .definitions
@@ -1708,7 +1708,7 @@ fn flash_casts_permanent_spells_on_opponents_turns_and_in_response_with_paired_r
 #[test]
 fn enters_tapped_replaces_land_and_nonland_entry_before_any_priority_window() {
     let mut p = prepared(&[("Forest", 0, true), ("Grizzly Bears", 0, true)]);
-    Arc::make_mut(&mut p.catalog).schema_version = 20;
+    Arc::make_mut(&mut p.catalog).schema_version = mtg_contracts::CURRENT_IR_VERSION;
     for d in Arc::make_mut(&mut p.catalog)
         .definitions
         .iter_mut()
@@ -1758,7 +1758,7 @@ fn enters_tapped_replaces_land_and_nonland_entry_before_any_priority_window() {
 
 fn d2b_source_catalog() -> Catalog {
     let mut c = catalog();
-    c.schema_version = 20;
+    c.schema_version = mtg_contracts::CURRENT_IR_VERSION;
     c.definitions.extend(
         Catalog::read(include_str!(
             "../../../../tests/fixtures/cards-data-d2b/expected-ir.json"

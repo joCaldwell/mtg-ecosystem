@@ -763,7 +763,7 @@ mod guard_tests {
                 )
             })
             .collect::<Vec<_>>();
-        let raw = serde_json::json!({"schema_version":20,"output_order":"canonical","provenance":"../provenance.json","records":records,"expected_ir":"unused.json","expected_digest":"unused.sha256"}).to_string();
+        let raw = serde_json::json!({"schema_version":CURRENT_IR_VERSION,"output_order":"canonical","provenance":"../provenance.json","records":records,"expected_ir":"unused.json","expected_digest":"unused.sha256"}).to_string();
         let (_, c) = build_with(Path::new("catalogs/mixed.json"), |path| {
             if path == Path::new("catalogs/mixed.json") {
                 Ok(raw.clone())

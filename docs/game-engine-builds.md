@@ -1,18 +1,29 @@
 # Engine build inputs and cache policy
 
-`mtg_contracts::CURRENT_IR_VERSION` is the current IR authority.
-`MIN_IR_VERSION` is the earliest admitted catalog (3). Validation, generated
-schema and compiler coverage use these constants. The current unreleased IR
-schema stays at **33** while there are no external consumers. Add supported
-semantics in place with strict capability/shape validation; do not introduce a
-new version, minimum-version gate or downgrade-test matrix per feature. Exact
-engine build identity fences saved-state recovery. Revisit versioning when a
-consumer needs an explicit compatibility contract.
+`mtg_contracts::CURRENT_IR_VERSION` is the sole IR authority, fixed at **1**
+while there are no external consumers. Validation and generated schemas accept
+exactly that value. There is no minimum-version range, feature introduction gate,
+or historical decoder compatibility. Add supported semantics in place with strict
+capability and shape validation. Revisit versioning when a consumer needs an
+explicit compatibility contract.
 
-Existing future-version negatives use `CURRENT_IR_VERSION + 1`. Historical
-capability gates, catalogs and evidence retain their original literals and source
-qualification; they do not require a migration for new work. This policy does
-not expand acceptance status or reviewed hosting/search capabilities.
+All active catalog manifests and expected outputs use schema 1. The distinct
+catalogs remain source-qualified admission pools, not schema editions. Regenerate
+their outputs and canonical digests through the compiler when the IR changes;
+never preserve a second expected output just for an older schema. Source records,
+parser archives, snapshot/bundle/public protocol versions, Git history and external
+historical evidence have separate purposes and retain their own identities.
+Exact build and catalog identity fence saved-state recovery. This policy does not
+expand acceptance status or reviewed hosting/search capabilities.
+
+The schema-1 reset regenerated all 29 active pools through the compiler and
+verified their 1,357 definitions and source memberships were unchanged. Focused
+checks passed: all-target compilation, 124 compiler/24 contracts/36 selected core
+tests, one source-coverage and one hosted-registry test, 40 Node contracts,
+54 SDK tests with strict TypeScript, and explicit smoke replay. Full runtime,
+full-game, release-test and retention matrices were omitted. Raw receipts and
+pool-equivalence evidence are retained under
+`~/.local/share/mtg-ecosystem/engine-verification/correctness-loop-20261112/single-ir-*`.
 
 Run `python3 scripts/engine-structure-check.py` without Cargo. It checks the
 contracts/compiler/core dependency boundaries, including target-specific tables,

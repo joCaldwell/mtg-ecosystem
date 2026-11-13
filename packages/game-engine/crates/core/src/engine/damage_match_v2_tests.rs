@@ -42,20 +42,20 @@ fn damage_match_v2_profile_binds_complete_catalog_and_exact_source_identity() {
     assert!(!p.completion.rotate);
     assert_eq!(p.completion.homogeneous_seats, [0, 1]);
     assert!(p.decks.iter().all(|deck| deck == &p.decks[0]));
-    assert_eq!(p.ir_version, 32);
-    assert_eq!(c.schema_version, 32);
+
+    assert_eq!(c.schema_version, mtg_contracts::CURRENT_IR_VERSION);
     assert_eq!(c.definitions.len(), 36);
     assert_eq!(digest(c).unwrap(), p.catalog_sha256);
     assert_eq!(
         p.catalog_sha256,
-        "06466aeb1c18d3b75352c9ab276c046ff07b931f1aadf3f86fde7c5e74dc5bda"
+        include_str!("../../../../tests/fixtures/catalogs/damage-matches-v2.sha256").trim()
     );
     let old = match_profile("commander-damage-triggers-v1").unwrap();
     assert_eq!(
         old.catalog_sha256,
-        "b7dae2b1f537f3c7abb4ed4e53a6dc1ae4b84f9b14eeb33e8f42f2736dda5bd0"
+        include_str!("../../../../tests/fixtures/catalogs/damage-matches.sha256").trim()
     );
-    assert_eq!(old.ir_version, 29);
+
     assert_eq!(old.catalog().definitions.len(), 32);
     assert_eq!(p.commanders, [COMMANDER]);
     c.validate().unwrap();

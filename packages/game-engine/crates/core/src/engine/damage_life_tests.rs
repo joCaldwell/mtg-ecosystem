@@ -496,14 +496,13 @@ fn damage_life_admission_binds_complete_catalog_version_and_exact_five_profiles(
     ))
     .unwrap();
     assert!(Prepared::admit(old, ScenarioConfig::damage_life()).is_err());
-    for mutation in 0..5 {
+    for mutation in 0..4 {
         let mut bad = c.clone();
         match mutation {
-            0 => bad.schema_version = 6,
-            1 => {
+            0 => {
                 bad.definitions.pop();
             }
-            2 => {
+            1 => {
                 bad.definitions
                     .iter_mut()
                     .find(|d| d.name == "Soul Feast")
@@ -512,7 +511,7 @@ fn damage_life_admission_binds_complete_catalog_version_and_exact_five_profiles(
                     .mana_cost
                     .generic = 2.into()
             }
-            3 => {
+            2 => {
                 bad.definitions
                     .iter_mut()
                     .find(|d| d.name == "Lightning Bolt")

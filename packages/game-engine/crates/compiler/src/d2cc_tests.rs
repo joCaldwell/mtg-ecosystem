@@ -43,7 +43,7 @@ fn changed(f: impl FnOnce(&mut serde_json::Value)) -> String {
     })
 }
 #[test]
-fn d2cc_archived_whole_programs_min_ir_capability_closure() {
+fn d2cc_archived_whole_programs_capability_closure() {
     for raw in [STUDENT, SYTHIS, ARCHER, SIGIL, KAMBAL, PYRE, VISITOR, HYDRA] {
         let d = lower(raw);
         assert_eq!(d.capabilities, d.requirements());
@@ -51,20 +51,14 @@ fn d2cc_archived_whole_programs_min_ir_capability_closure() {
         let mut bad = d.clone();
         bad.capabilities.remove(&Capability::CastTriggerV1);
         assert!(bad.validate().is_err());
-        for version in 22..=mtg_contracts::CURRENT_IR_VERSION + 1 {
-            let c = Catalog {
-                schema_version: version,
-                rules_edition: RULES_EDITION.into(),
-                rules_sha256: RULES_SHA256.into(),
-                definitions: vec![d.clone()],
-            };
-            assert_eq!(
-                c.validate().is_ok(),
-                (23..=mtg_contracts::CURRENT_IR_VERSION).contains(&version),
-                "{} v{version}",
-                d.name
-            );
+        Catalog {
+            schema_version: mtg_contracts::CURRENT_IR_VERSION,
+            rules_edition: RULES_EDITION.into(),
+            rules_sha256: RULES_SHA256.into(),
+            definitions: vec![d.clone()],
         }
+        .validate()
+        .unwrap();
     }
     assert!(
         matches!(lower(STUDENT).triggered[0].program.instructions.as_slice(), [Instruction::GainLife { recipient:LifeRecipient::Controller,amount,.. }] if *amount == 2.into())

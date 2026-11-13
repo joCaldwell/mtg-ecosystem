@@ -3828,9 +3828,9 @@ mod tests {
     }
 
     #[test]
-    fn wipes_v20_complete_source_pairs_and_historical_bytes() {
+    fn wipes_complete_source_pairs() {
         let c = embedded_catalog("wipes").unwrap();
-        assert_eq!(c.schema_version, 20);
+        assert_eq!(c.schema_version, CURRENT_IR_VERSION);
         assert_eq!(
             c,
             Catalog::read(include_str!(
@@ -3838,12 +3838,6 @@ mod tests {
             ))
             .unwrap()
         );
-        for old in embedded_catalog("sacrifice").unwrap().definitions {
-            assert_eq!(
-                c.definitions.iter().find(|d| d.oracle_id == old.oracle_id),
-                Some(&old)
-            );
-        }
         for (name, raw) in fixtures::WIPES_RECORDS {
             let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
                 panic!("{name}")
@@ -3863,9 +3857,9 @@ mod tests {
         }
     }
     #[test]
-    fn sacrifice_v19_complete_sources_whole_card_negatives_and_downgrades() {
+    fn sacrifice_complete_sources_and_whole_card_negatives() {
         let c = embedded_catalog("sacrifice").unwrap();
-        assert_eq!(c.schema_version, 19);
+        assert_eq!(c.schema_version, CURRENT_IR_VERSION);
         assert_eq!(
             c,
             Catalog::read(include_str!(
@@ -3873,12 +3867,6 @@ mod tests {
             ))
             .unwrap()
         );
-        for old in embedded_catalog("removal").unwrap().definitions {
-            assert_eq!(
-                c.definitions.iter().find(|d| d.oracle_id == old.oracle_id),
-                Some(&old)
-            );
-        }
         for (name, raw) in fixtures::SACRIFICE_RECORDS {
             let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
                 panic!("{name}")
@@ -3957,9 +3945,9 @@ mod tests {
         }
     }
     #[test]
-    fn removal_v18_source_pairs_and_unchanged_inherited_definitions() {
+    fn removal_complete_source_pairs() {
         let c = embedded_catalog("removal").unwrap();
-        assert_eq!(c.schema_version, 18);
+        assert_eq!(c.schema_version, CURRENT_IR_VERSION);
         assert_eq!(
             c,
             Catalog::read(include_str!(
@@ -3967,12 +3955,6 @@ mod tests {
             ))
             .unwrap()
         );
-        for old in embedded_catalog("attachments").unwrap().definitions {
-            assert_eq!(
-                c.definitions.iter().find(|d| d.oracle_id == old.oracle_id),
-                Some(&old)
-            );
-        }
         for (name, raw) in fixtures::REMOVAL_RECORDS {
             let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
                 panic!("{name}")
@@ -4077,9 +4059,9 @@ mod tests {
         assert!(serde_json::from_value::<Definition>(raw).is_err());
     }
     #[test]
-    fn attachments_v17_complete_sources_and_strict_downgrades() {
+    fn attachments_complete_sources_and_strict_keyword_shapes() {
         let c = embedded_catalog("attachments").unwrap();
-        assert_eq!(c.schema_version, 17);
+        assert_eq!(c.schema_version, CURRENT_IR_VERSION);
         assert_eq!(
             c,
             Catalog::read(include_str!(
@@ -4087,12 +4069,6 @@ mod tests {
             ))
             .unwrap()
         );
-        for old in embedded_catalog("four-colors").unwrap().definitions {
-            assert_eq!(
-                c.definitions.iter().find(|d| d.oracle_id == old.oracle_id),
-                Some(&old)
-            );
-        }
         for (name, raw) in fixtures::ATTACHMENT_RECORDS {
             let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
                 panic!("{name}")
@@ -4151,12 +4127,6 @@ mod tests {
             intrinsic.keywords = vec![k];
             intrinsic.capabilities = intrinsic.requirements();
             intrinsic.validate().unwrap();
-            if matches!(k, KeywordAbility::Hexproof | KeywordAbility::Shroud) {
-                let mut bad = c.clone();
-                bad.schema_version = 16;
-                bad.definitions = vec![intrinsic];
-                assert!(bad.validate().is_err());
-            }
         }
         for keyword in [KeywordAbility::Hexproof, KeywordAbility::Shroud] {
             let mut token_spell = get("Raise the Alarm").clone();
@@ -4170,14 +4140,12 @@ mod tests {
             let mut probe = c.clone();
             probe.definitions = vec![token_spell];
             probe.validate().unwrap();
-            probe.schema_version = 16;
-            assert!(probe.validate().is_err());
         }
     }
     #[test]
-    fn four_colors_v16_complete_sources_and_whole_card_negative() {
+    fn four_colors_complete_sources_and_whole_card_negative() {
         let c = embedded_catalog("four-colors").unwrap();
-        assert_eq!(c.schema_version, 16);
+        assert_eq!(c.schema_version, CURRENT_IR_VERSION);
         assert_eq!(
             c,
             Catalog::read(include_str!(
@@ -4185,12 +4153,6 @@ mod tests {
             ))
             .unwrap()
         );
-        for old in embedded_catalog("mana").unwrap().definitions {
-            assert_eq!(
-                c.definitions.iter().find(|d| d.oracle_id == old.oracle_id),
-                Some(&old)
-            );
-        }
         for (name, raw) in fixtures::FOUR_COLORS_RECORDS {
             let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
                 panic!("{name}")
@@ -4226,9 +4188,9 @@ mod tests {
     }
 
     #[test]
-    fn mana_v16_complete_sources_negatives_and_downgrades() {
+    fn mana_complete_sources_and_negatives() {
         let catalog = embedded_catalog("mana").unwrap();
-        assert_eq!(catalog.schema_version, 16);
+        assert_eq!(catalog.schema_version, CURRENT_IR_VERSION);
         assert_eq!(
             catalog,
             Catalog::read(include_str!(
@@ -4236,15 +4198,6 @@ mod tests {
             ))
             .unwrap()
         );
-        for old in embedded_catalog("staples").unwrap().definitions {
-            assert_eq!(
-                catalog
-                    .definitions
-                    .iter()
-                    .find(|d| d.oracle_id == old.oracle_id),
-                Some(&old)
-            );
-        }
         for (name, raw) in fixtures::MANA_RECORDS {
             let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
                 panic!("{name}")
@@ -4325,9 +4278,9 @@ mod tests {
     }
 
     #[test]
-    fn staples_v15_source_pairs_and_historical_identity() {
+    fn staples_complete_source_pairs() {
         let catalog = embedded_catalog("staples").unwrap();
-        assert_eq!(catalog.schema_version, 15);
+        assert_eq!(catalog.schema_version, CURRENT_IR_VERSION);
         assert_eq!(
             catalog,
             Catalog::read(include_str!(
@@ -4335,15 +4288,6 @@ mod tests {
             ))
             .unwrap()
         );
-        for d in embedded_catalog("tokens").unwrap().definitions {
-            assert_eq!(
-                catalog
-                    .definitions
-                    .iter()
-                    .find(|x| x.oracle_id == d.oracle_id),
-                Some(&d)
-            );
-        }
         for (name, raw) in fixtures::STAPLES_RECORDS {
             let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
                 panic!("{name}")
@@ -4524,7 +4468,7 @@ mod tests {
             .1
     }
     #[test]
-    fn tokens_v14_sources_and_rejection_pairs() {
+    fn tokens_sources_and_rejection_pairs() {
         fn changed_token_source(raw: &str, change: impl FnOnce(&mut serde_json::Value)) -> String {
             changed_source(raw, |r| {
                 change(r);
@@ -4536,7 +4480,7 @@ mod tests {
             })
         }
         let catalog = embedded_catalog("tokens").unwrap();
-        assert_eq!(catalog.schema_version, 14);
+        assert_eq!(catalog.schema_version, CURRENT_IR_VERSION);
         assert_eq!(
             catalog,
             Catalog::read(include_str!(
@@ -4544,15 +4488,6 @@ mod tests {
             ))
             .unwrap()
         );
-        for old in embedded_catalog("combat-keywords").unwrap().definitions {
-            assert_eq!(
-                catalog
-                    .definitions
-                    .iter()
-                    .find(|d| d.oracle_id == old.oracle_id),
-                Some(&old)
-            );
-        }
         for (name, raw) in fixtures::TOKEN_RECORDS {
             let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
                 panic!("{name}")
@@ -4635,9 +4570,9 @@ mod tests {
         ));
     }
     #[test]
-    fn combat_keywords_v13_sources_and_downgrade_pairs() {
+    fn combat_keywords_complete_sources() {
         let catalog = embedded_catalog("combat-keywords").unwrap();
-        assert_eq!(catalog.schema_version, 13);
+        assert_eq!(catalog.schema_version, CURRENT_IR_VERSION);
         assert_eq!(
             catalog,
             Catalog::read(include_str!(
@@ -4645,15 +4580,6 @@ mod tests {
             ))
             .unwrap()
         );
-        for old in embedded_catalog("keywords").unwrap().definitions {
-            assert_eq!(
-                catalog
-                    .definitions
-                    .iter()
-                    .find(|d| d.oracle_id == old.oracle_id),
-                Some(&old)
-            );
-        }
         for (name, raw) in fixtures::COMBAT_KEYWORD_RECORDS {
             let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
                 panic!("{name}")
@@ -4673,18 +4599,9 @@ mod tests {
         }
     }
     #[test]
-    fn keywords_v12_complete_sources_and_downgrade_pairs() {
+    fn keywords_complete_sources() {
         let catalog = embedded_catalog("keywords").unwrap();
-        assert_eq!(catalog.schema_version, 12);
-        for old in embedded_catalog("match").unwrap().definitions {
-            assert_eq!(
-                catalog
-                    .definitions
-                    .iter()
-                    .find(|d| d.oracle_id == old.oracle_id),
-                Some(&old)
-            );
-        }
+        assert_eq!(catalog.schema_version, CURRENT_IR_VERSION);
         for (name, raw) in fixtures::KEYWORD_RECORDS {
             let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
                 panic!("{name}")
@@ -4721,9 +4638,9 @@ mod tests {
         }
     }
     #[test]
-    fn defender_lowers_complete_keyword_without_widening_previous_catalog() {
+    fn defender_lowers_complete_keyword() {
         let c = embedded_catalog("match").unwrap();
-        assert_eq!(c.schema_version, 11);
+        assert_eq!(c.schema_version, CURRENT_IR_VERSION);
         assert_eq!(
             c,
             Catalog::read(include_str!(
@@ -4731,14 +4648,6 @@ mod tests {
             ))
             .unwrap()
         );
-        for previous in embedded_catalog("choices").unwrap().definitions {
-            assert_eq!(
-                c.definitions
-                    .iter()
-                    .find(|d| d.oracle_id == previous.oracle_id),
-                Some(&previous)
-            );
-        }
         let d = c
             .definitions
             .iter()
@@ -4810,14 +4719,6 @@ mod tests {
             .iter()
             .find(|d| !d.keywords.is_empty())
             .unwrap();
-        for v in 3..11 {
-            let mut bad = c.clone();
-            bad.schema_version = v;
-            bad.definitions = vec![wall.clone()];
-            assert!(bad.validate().is_err());
-            bad.definitions[0].capabilities.clear();
-            assert!(bad.validate().is_err());
-        }
         let mut bad = wall.clone();
         bad.keywords.clear();
         assert!(bad.validate().is_err());
@@ -4839,7 +4740,7 @@ mod tests {
             .1
     }
     #[test]
-    fn complete_choices_sources_preserve_occurrences_modes_conditions_and_old_catalogs() {
+    fn complete_choices_sources_preserve_occurrences_modes_and_conditions() {
         let c = embedded_catalog("choices").unwrap();
         assert_eq!(
             c,
@@ -4848,13 +4749,7 @@ mod tests {
             ))
             .unwrap()
         );
-        assert_eq!(c.schema_version, 10);
-        for d in embedded_catalog("effects").unwrap().definitions {
-            assert_eq!(
-                c.definitions.iter().find(|n| n.oracle_id == d.oracle_id),
-                Some(&d)
-            );
-        }
+        assert_eq!(c.schema_version, CURRENT_IR_VERSION);
         let seeds = c
             .definitions
             .iter()
@@ -5029,19 +4924,8 @@ mod tests {
         }
     }
     #[test]
-    fn choices_ir_rejects_downgrades_nested_modes_and_inconsistent_children() {
+    fn choices_ir_rejects_nested_modes_and_inconsistent_children() {
         let c = embedded_catalog("choices").unwrap();
-        for name in ["Healing Salve", "Slaughterhouse Bouncer"] {
-            let d = c.definitions.iter().find(|d| d.name == name).unwrap();
-            for v in 3..10 {
-                let mut bad = c.clone();
-                bad.schema_version = v;
-                bad.definitions = vec![d.clone()];
-                assert!(bad.validate().is_err());
-                bad.definitions[0].capabilities.clear();
-                assert!(bad.validate().is_err());
-            }
-        }
         let salve = c
             .definitions
             .iter()
@@ -5183,7 +5067,7 @@ mod tests {
             assert_eq!(order.static_abilities, definition.static_abilities);
             assert_eq!(order.characteristics, definition.characteristics);
         }
-        // The original global source remains its historical complete definition,
+        // The global source retains its complete definition,
         // including original provenance and capabilities, without regeneration.
         let old = embedded_catalog("effects").unwrap();
         let expected = old
@@ -5320,9 +5204,9 @@ mod tests {
         }
     }
     #[test]
-    fn complete_effects_catalog_binds_all_six_sources_and_preserves_historical_definitions() {
+    fn complete_effects_catalog_binds_all_six_sources() {
         let c = embedded_catalog("effects").unwrap();
-        assert_eq!(c.schema_version, 9);
+        assert_eq!(c.schema_version, CURRENT_IR_VERSION);
         for (name, power, toughness) in [("Giant Growth", 3, 3), ("Disfigure", -2, -2)] {
             let d = c.definitions.iter().find(|d| d.name == name).unwrap();
             assert!(matches!(d.spell.as_ref().unwrap().instructions.as_slice(),
@@ -5387,13 +5271,6 @@ mod tests {
             ),
             (Some(Quantity::from(0)), Some(Quantity::from(4)))
         );
-        let old = embedded_catalog("trigger").unwrap();
-        for d in old.definitions {
-            assert_eq!(
-                c.definitions.iter().find(|n| n.oracle_id == d.oracle_id),
-                Some(&d)
-            );
-        }
         assert_eq!(Catalog::read(&canonical(&c).unwrap()).unwrap(), c);
         assert_eq!(
             c,
@@ -5427,7 +5304,7 @@ mod tests {
     fn complete_effects_sources_reject_filtered_modal_and_optional_near_misses() {
         // Gratuitous Violence's original source negative is now a complete
         // controlled-creature replacement positive above; other partial sources
-        // remain unsupported. Historical catalogs and expected IR stay frozen.
+        // remain unsupported; each complete source retains its exact expected program.
         for name in ["righteousness", "flame-rift", "deathgreeter"] {
             assert!(
                 matches!(
@@ -5453,7 +5330,7 @@ mod tests {
         }
     }
     #[test]
-    fn effects_vocabulary_and_capabilities_cannot_downgrade_into_historical_ir() {
+    fn effects_require_exact_capability_closure() {
         let c = embedded_catalog("effects").unwrap();
         for d in c.definitions.iter().filter(|d| {
             d.capabilities.iter().any(|c| {
@@ -5467,14 +5344,6 @@ mod tests {
                 )
             })
         }) {
-            for version in 3..9 {
-                let mut old = c.clone();
-                old.schema_version = version;
-                old.definitions = vec![d.clone()];
-                assert!(old.validate().is_err());
-                old.definitions[0].capabilities.clear();
-                assert!(old.validate().is_err());
-            }
             for cap in &d.capabilities {
                 let mut bad = d.clone();
                 bad.capabilities.remove(cap);
@@ -5776,9 +5645,9 @@ mod tests {
         assert!(future.validate().is_err());
     }
     #[test]
-    fn complete_trigger_pool_binds_exact_source_roles_and_preserves_historical_catalogs() {
+    fn complete_trigger_pool_binds_exact_source_roles() {
         let catalog = embedded_catalog("trigger").unwrap();
-        assert_eq!(catalog.schema_version, 8);
+        assert_eq!(catalog.schema_version, CURRENT_IR_VERSION);
         assert_eq!(
             Catalog::read(include_str!(
                 "../../../tests/fixtures/expected-trigger-ir.json"
@@ -5786,51 +5655,6 @@ mod tests {
             .unwrap(),
             catalog
         );
-        for (old, expected) in [
-            (
-                embedded_catalog("base").unwrap(),
-                include_str!("../../../tests/fixtures/expected-ir.json"),
-            ),
-            (
-                embedded_catalog("commander").unwrap(),
-                include_str!("../../../tests/fixtures/expected-commander-ir.json"),
-            ),
-            (
-                embedded_catalog("damage").unwrap(),
-                include_str!("../../../tests/fixtures/expected-damage-ir.json"),
-            ),
-            (
-                embedded_catalog("library").unwrap(),
-                include_str!("../../../tests/fixtures/expected-library-ir.json"),
-            ),
-            (
-                embedded_catalog("action").unwrap(),
-                include_str!("../../../tests/fixtures/expected-action-ir.json"),
-            ),
-            (
-                embedded_catalog("stack").unwrap(),
-                include_str!("../../../tests/fixtures/expected-stack-ir.json"),
-            ),
-            (
-                embedded_catalog("damage-life").unwrap(),
-                include_str!("../../../tests/fixtures/expected-damage-life-ir.json"),
-            ),
-        ] {
-            assert_eq!(
-                canonical(&old).unwrap(),
-                canonical(&Catalog::read(expected).unwrap()).unwrap()
-            );
-            for d in old.definitions {
-                assert!(d.triggered.is_empty());
-                assert_eq!(
-                    catalog
-                        .definitions
-                        .iter()
-                        .find(|new| new.oracle_id == d.oracle_id),
-                    Some(&d)
-                );
-            }
-        }
         let get = |name: &str| catalog.definitions.iter().find(|d| d.name == name).unwrap();
         let visionary = get("Elvish Visionary");
         assert_eq!(
@@ -6084,19 +5908,8 @@ mod tests {
     }
 
     #[test]
-    fn triggered_ir_requires_v8_exact_capability_closure_and_mandatory_stack_programs() {
+    fn triggered_ir_requires_exact_capability_closure_and_mandatory_stack_programs() {
         let c = embedded_catalog("trigger").unwrap();
-        for name in ["Elvish Visionary", "Essence Warden", "Blood Artist"] {
-            for version in 3..=7 {
-                let mut old = c.clone();
-                old.schema_version = version;
-                old.definitions.retain(|d| d.name == name);
-                assert!(
-                    Catalog::read(&canonical(&old).unwrap()).is_err(),
-                    "{name} v{version}"
-                );
-            }
-        }
         for change in [
             (|d: &mut Definition| d.triggered[0].functioning_zone = FunctioningZone::Stack)
                 as fn(&mut Definition),
@@ -6147,7 +5960,7 @@ mod tests {
     #[test]
     fn damage_life_pool_retains_all_source_blocks_targets_quantities_and_printed_costs() {
         let c = embedded_catalog("damage-life").unwrap();
-        assert_eq!(c.schema_version, 7);
+        assert_eq!(c.schema_version, CURRENT_IR_VERSION);
         assert_eq!(
             Catalog::read(include_str!(
                 "../../../tests/fixtures/expected-damage-life-ir.json"
@@ -6155,14 +5968,6 @@ mod tests {
             .unwrap(),
             c
         );
-        for prior in embedded_catalog("stack").unwrap().definitions {
-            assert_eq!(
-                c.definitions
-                    .iter()
-                    .find(|d| d.oracle_id == prior.oracle_id),
-                Some(&prior)
-            );
-        }
         let get = |name: &str| c.definitions.iter().find(|d| d.name == name).unwrap();
         let bolt = get("Lightning Bolt");
         let p = bolt.spell.as_ref().unwrap();
@@ -6384,25 +6189,8 @@ mod tests {
     }
 
     #[test]
-    fn damage_life_programs_require_ir7_and_strict_target_recipient_quantity_closure() {
+    fn damage_life_programs_require_strict_target_recipient_quantity_closure() {
         let catalog = embedded_catalog("damage-life").unwrap();
-        for name in [
-            "Lightning Bolt",
-            "Prodigal Sorcerer",
-            "Soul Feast",
-            "Healing Hands",
-            "Sacred Nectar",
-        ] {
-            for version in 3..=6 {
-                let mut bad = catalog.clone();
-                bad.definitions.retain(|d| d.name == name);
-                bad.schema_version = version;
-                assert!(
-                    Catalog::read(&canonical(&bad).unwrap()).is_err(),
-                    "{name} v{version}"
-                );
-            }
-        }
         let mut bad = catalog.clone();
         bad.schema_version = mtg_contracts::CURRENT_IR_VERSION + 1;
         assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
@@ -6486,9 +6274,8 @@ mod tests {
     }
 
     #[test]
-    fn legacy_spell_and_activation_shapes_cannot_hide_ir7_relaxations() {
+    fn mixed_spell_programs_and_activation_shapes_are_checked() {
         let mut c = embedded_catalog("base").unwrap();
-        c.schema_version = 7;
         let d = c
             .definitions
             .iter_mut()
@@ -6505,11 +6292,6 @@ mod tests {
             });
         d.capabilities = d.requirements();
         c.validate().unwrap();
-        for v in 3..=6 {
-            let mut old = c.clone();
-            old.schema_version = v;
-            assert!(old.validate().is_err());
-        }
         let mut c = embedded_catalog("damage-life").unwrap();
         let d = c
             .definitions
@@ -6526,9 +6308,9 @@ mod tests {
     }
 
     #[test]
-    fn stack_pool_retains_complete_counter_domains_costs_and_prior_definitions() {
+    fn stack_pool_retains_complete_counter_domains_and_costs() {
         let catalog = embedded_catalog("stack").unwrap();
-        assert_eq!(catalog.schema_version, 6);
+        assert_eq!(catalog.schema_version, CURRENT_IR_VERSION);
         assert_eq!(
             Catalog::read(include_str!(
                 "../../../tests/fixtures/expected-stack-ir.json"
@@ -6536,15 +6318,6 @@ mod tests {
             .unwrap(),
             catalog
         );
-        for previous in embedded_catalog("action").unwrap().definitions {
-            assert_eq!(
-                catalog
-                    .definitions
-                    .iter()
-                    .find(|d| d.oracle_id == previous.oracle_id),
-                Some(&previous)
-            );
-        }
         for (name, domain, colored) in [
             (
                 "Counterspell",
@@ -6714,13 +6487,8 @@ mod tests {
     }
 
     #[test]
-    fn stack_vocabulary_requires_ir6_and_rejects_bad_binding_and_capability_closure() {
+    fn stack_vocabulary_rejects_bad_binding_and_capability_closure() {
         let catalog = embedded_catalog("stack").unwrap();
-        for version in [3, 4, 5, mtg_contracts::CURRENT_IR_VERSION + 1] {
-            let mut bad = catalog.clone();
-            bad.schema_version = version;
-            assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
-        }
         for change in [
             (|d: &mut Definition| {
                 d.spell.as_mut().unwrap().targets[0].domain = TargetDomain::BattlefieldCreature
@@ -6853,7 +6621,7 @@ mod tests {
         assert_eq!(Catalog::read(&canonical(&c).unwrap()).unwrap(), c);
     }
     #[test]
-    fn opponent_sacrifice_lowers_as_resolution_choice_without_widening_prior_catalogs() {
+    fn opponent_sacrifice_lowers_as_resolution_choice() {
         let CompileResult::Lowered { definition } =
             compile(fixtures::MANIFEST, fixtures::RECORDS[5].1)
         else {
@@ -6881,19 +6649,6 @@ mod tests {
             }]
         );
         assert!(definition.activated.is_empty());
-        for catalog in [
-            embedded_catalog("base").unwrap(),
-            embedded_catalog("commander").unwrap(),
-            embedded_catalog("damage").unwrap(),
-            embedded_catalog("library").unwrap(),
-        ] {
-            assert!(
-                !catalog
-                    .definitions
-                    .iter()
-                    .any(|d| d.oracle_id == definition.oracle_id)
-            );
-        }
     }
     #[test]
     fn rejects_hash_version_unknown_field_and_incomplete_face() {
@@ -6922,7 +6677,7 @@ mod tests {
         let raw = canonical(&c).unwrap();
         for bad in [
             raw.replace(
-                "\"schema_version\":3",
+                "\"schema_version\":1",
                 &format!(
                     "\"schema_version\":{}",
                     mtg_contracts::CURRENT_IR_VERSION + 1
@@ -6942,7 +6697,7 @@ mod tests {
     #[test]
     fn vanilla_creature_spells_and_land_permissions_are_explicit() {
         let catalog = embedded_catalog("base").unwrap();
-        assert_eq!(catalog.schema_version, 3);
+        assert_eq!(catalog.schema_version, CURRENT_IR_VERSION);
         for d in &catalog.definitions {
             match d.characteristics.kind {
                 CardKind::Land => {
@@ -6976,7 +6731,7 @@ mod tests {
                     assert!(!spell.instructions.is_empty());
                 }
                 CardKind::Sorcery | CardKind::Enchantment | CardKind::Artifact => {
-                    panic!("legacy catalog cannot contain sorceries/enchantments")
+                    panic!("base fixture contains an unexpected card kind")
                 }
             }
             for capability in &d.capabilities {
@@ -6999,12 +6754,8 @@ mod tests {
 
     #[test]
     fn commander_pool_adds_only_exact_source_backed_white_mana() {
-        let original = embedded_catalog("base").unwrap();
         let catalog = embedded_catalog("commander").unwrap();
-        assert_eq!(catalog.schema_version, 3);
-        for definition in &original.definitions {
-            assert!(catalog.definitions.contains(definition));
-        }
+        assert_eq!(catalog.schema_version, CURRENT_IR_VERSION);
         let plains = catalog
             .definitions
             .iter()
@@ -7095,12 +6846,8 @@ mod tests {
 
     #[test]
     fn library_catalog_lowers_complete_source_with_explicit_top_and_sorcery_timing() {
-        let previous = embedded_catalog("commander").unwrap();
         let catalog = embedded_catalog("library").unwrap();
-        assert_eq!(catalog.schema_version, 4);
-        for definition in &previous.definitions {
-            assert!(catalog.definitions.contains(definition));
-        }
+        assert_eq!(catalog.schema_version, CURRENT_IR_VERSION);
         let ebb = catalog
             .definitions
             .iter()
@@ -7177,12 +6924,8 @@ mod tests {
 
     #[test]
     fn damage_pool_is_exact_empty_text_legendary_without_new_ability_vocabulary() {
-        let previous = embedded_catalog("commander").unwrap();
         let catalog = embedded_catalog("damage").unwrap();
-        assert_eq!(catalog.schema_version, 3);
-        for definition in &previous.definitions {
-            assert!(catalog.definitions.contains(definition));
-        }
+        assert_eq!(catalog.schema_version, CURRENT_IR_VERSION);
         let commander = catalog
             .definitions
             .iter()
@@ -7268,17 +7011,7 @@ mod tests {
     #[test]
     fn action_pool_retains_printed_costs_and_complete_distinct_activation_program() {
         let catalog = embedded_catalog("action").unwrap();
-        assert_eq!(catalog.schema_version, 5);
-        for prior in [
-            embedded_catalog("base").unwrap(),
-            embedded_catalog("commander").unwrap(),
-            embedded_catalog("damage").unwrap(),
-            embedded_catalog("library").unwrap(),
-        ] {
-            for definition in prior.definitions {
-                assert!(catalog.definitions.contains(&definition));
-            }
-        }
+        assert_eq!(catalog.schema_version, CURRENT_IR_VERSION);
         let researcher = catalog
             .definitions
             .iter()
@@ -7398,7 +7131,7 @@ mod tests {
             }
         }
         // Synthetic optional-one-card AST variants of Elvish Visionary and
-        // Hapless Researcher. CR 603.5/608.2d and the new IR27 instruction admit
+        // Hapless Researcher. CR 603.5/608.2d and the optional draw instruction admit
         // this choice; it does not make the following discard conditional.
         for raw in [
             fixtures::TRIGGER_RECORDS[23].1,
@@ -7418,7 +7151,7 @@ mod tests {
             });
             let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, &optional)
             else {
-                panic!("IR27 optional controller draw")
+                panic!("optional controller draw")
             };
             assert_eq!(
                 program(&definition).instructions[0],
@@ -7451,8 +7184,8 @@ mod tests {
             |a| a["effects"][0]["steps"][0]["who"]["player"] = "opponent".into(),
             |a| a["effects"][0]["steps"][0]["amount"]["value"] = 2.into(),
             |a| {
-                // Optional controller draw-one is an IR27 instruction; this
-                // optional draw-two remains an unsupported complete shape.
+                // Optional controller draw supports exactly one card; optional draw-two
+                // remains an unsupported complete shape.
                 a["effects"][0]["steps"][0]["optional"] = true.into();
                 a["effects"][0]["steps"][0]["amount"]["value"] = 2.into();
             },
@@ -7511,13 +7244,8 @@ mod tests {
     }
 
     #[test]
-    fn action_ir_version_shapes_and_target_domains_are_strict() {
+    fn action_ir_shapes_and_target_domains_are_strict() {
         let catalog = embedded_catalog("action").unwrap();
-        for version in [3, 4, mtg_contracts::CURRENT_IR_VERSION + 1] {
-            let mut bad = catalog.clone();
-            bad.schema_version = version;
-            assert!(Catalog::read(&canonical(&bad).unwrap()).is_err());
-        }
         let researcher = catalog
             .definitions
             .iter()
@@ -7633,15 +7361,12 @@ mod tests {
     }
 
     #[test]
-    fn library_vocabulary_requires_ir_v4_and_valid_program_shape() {
+    fn library_vocabulary_requires_valid_program_shape() {
         let catalog = embedded_catalog("library").unwrap();
-        let mut old = catalog.clone();
-        old.schema_version = 3;
-        assert!(old.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
             raw.replace(
-                "\"schema_version\":4",
+                "\"schema_version\":1",
                 &format!(
                     "\"schema_version\":{}",
                     mtg_contracts::CURRENT_IR_VERSION + 1
@@ -7679,20 +7404,6 @@ mod tests {
             mutate(&mut bad);
             assert!(bad.validate().is_err());
         }
-        // The operation is independently versioned from casting timing: even
-        // an instant-form synthetic library instruction cannot enter IR v3.
-        let mut synthetic = catalog.clone();
-        let d = synthetic
-            .definitions
-            .iter_mut()
-            .find(|d| d.characteristics.kind == CardKind::Sorcery)
-            .unwrap();
-        d.characteristics.kind = CardKind::Instant;
-        d.spell.as_mut().unwrap().timing = SpellTiming::Instant;
-        d.capabilities = d.requirements();
-        synthetic.validate().unwrap();
-        synthetic.schema_version = 3;
-        assert!(synthetic.validate().is_err());
     }
 
     #[test]
@@ -7752,7 +7463,7 @@ mod tests {
         assert_eq!(bears.characteristics.mana_cost.colored, vec![Color::G]);
         assert!(!bears.characteristics.legendary);
         assert_eq!(bears.provenance.abilities_json, "[]");
-        assert_eq!(catalog.schema_version, 3);
+        assert_eq!(catalog.schema_version, CURRENT_IR_VERSION);
 
         // These are rehashed synthetic negative variants of the retained exact
         // source, not additional cards. Account for the complete source block
@@ -7876,7 +7587,7 @@ mod tests {
         }
         let raw = canonical(&catalog).unwrap();
         for malformed in [
-            raw.replace("\"schema_version\":3", "\"schema_version\":2"),
+            raw.replace("\"schema_version\":1", "\"schema_version\":2"),
             raw.replace("\"timing\":\"main_phase\"", "\"timing\":\"anytime\""),
             raw.replace(
                 "\"resolution\":\"permanent\"",

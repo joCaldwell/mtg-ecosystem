@@ -1,5 +1,5 @@
 {
-  "schema_version": 18,
+  "schema_version": 1,
   "provenance": "../provenance.json",
   "records": [
     "../storm-crow.json",

@@ -18,7 +18,7 @@ const deck = {
 };
 const fixture = () => ({
   protocol_version: 1, match_id: 'abc', engine_build_id: 'b'.repeat(64), server_build_id: 'c'.repeat(64),
-  catalog_sha256: 'fc4bd3390e63ea352e129ac370fa848dbee11cf0700e7e6781d449fd49244a7f',
+  catalog_sha256: 'd00ee2cf3760ddaf9a807af0c79764f4bea2f21177c350a30d2d4f0a087c9ef0',
   profile: 'commander-foundations-v1', decks: Array.from({ length: 4 }, () => structuredClone(deck)),
   starting_player: 0, catalog: structuredClone(catalog),
 });

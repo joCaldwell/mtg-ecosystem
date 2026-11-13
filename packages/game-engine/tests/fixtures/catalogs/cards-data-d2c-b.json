@@ -1,5 +1,5 @@
 {
-  "schema_version": 22,
+  "schema_version": 1,
   "output_order": "struct",
   "provenance": "../cards-data-d2c/provenance.json",
   "records": [

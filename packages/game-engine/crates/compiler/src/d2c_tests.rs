@@ -18,7 +18,7 @@ fn changed(change: impl FnOnce(&mut serde_json::Value)) -> String {
     })
 }
 #[test]
-fn d2c_complete_sources_minimum_version_and_capability_closure() {
+fn d2c_complete_sources_and_capability_closure() {
     let c = catalog();
     assert_eq!(c.definitions.len(), 11);
     for d in &c.definitions {
@@ -45,9 +45,6 @@ fn d2c_complete_sources_minimum_version_and_capability_closure() {
         arena.triggered[0].program.instructions.as_slice(),
         [Instruction::DrawCards { .. }, Instruction::LoseLife { .. }]
     ));
-    let mut old = c.clone();
-    old.schema_version = 20;
-    assert!(old.validate().unwrap_err().contains("IR v21"));
     for step in ["upkeep", "draw-step", "end-step"] {
         for whose in ["your", "each-player", "each-opponent"] {
             let raw = changed(|a| {
@@ -80,7 +77,7 @@ fn d2c_whole_cards_reject_conditions_optionality_unknown_relations_and_zones() {
         changed(|a| a["trigger"]["from"] = "graveyard".into()),
         changed(|a| a["functioningZone"] = "graveyard".into()),
         changed(|a| {
-            // IR27 admits an optional controller draw of one card, while the
+            // Optional controller draw admits one card, while the
             // optional draw-two shape remains outside this finite instruction.
             a["effects"][0]["steps"][0]["optional"] = true.into();
             a["effects"][0]["steps"][0]["amount"]["value"] = 2.into();
@@ -98,7 +95,7 @@ fn d2c_whole_cards_reject_conditions_optionality_unknown_relations_and_zones() {
     // life-loss instruction remains mandatory and in its original position.
     let optional = changed(|a| a["effects"][0]["steps"][0]["optional"] = true.into());
     let CompileResult::Lowered { definition } = compile(MANIFEST, &optional) else {
-        panic!("IR27 optional controller draw on the existing step trigger")
+        panic!("optional controller draw on the existing step trigger")
     };
     assert!(matches!(
         definition.triggered[0].program.instructions.as_slice(),

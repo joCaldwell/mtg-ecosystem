@@ -67,7 +67,7 @@ fn prepare() -> Result<Prepared, String> {
     // though this scenario has only three physical cards. Compile all five from
     // their exact archive-bound sources; never substitute the expected IR.
     let mut catalog = Catalog {
-        schema_version: 3,
+        schema_version: mtg_contracts::CURRENT_IR_VERSION,
         rules_edition: mtg_contracts::RULES_EDITION.into(),
         rules_sha256: mtg_contracts::RULES_SHA256.into(),
         definitions: vec![],

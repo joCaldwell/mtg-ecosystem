@@ -1,5 +1,5 @@
 {
-  "schema_version": 20,
+  "schema_version": 1,
   "provenance": "../data-admission/provenance.json",
   "records": [
     "../data-admission/008290c2-499d-425b-9a6c-c4aeb47c33ff.json",

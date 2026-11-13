@@ -20,9 +20,9 @@ before editing its code; that manual is authoritative for its package.
 | game-server | Finite local Rust host and generated TypeScript SDK | [manual](packages/game-server/AGENTS.md) |
 
 For engine/server onboarding, use [the current map](docs/game-engine-current.md)
-and [development commands](docs/game-engine-development.md). Current development
-includes IR25 candidate work; the accepted D2c-d release at `394301d` does **not**
-cover it. Exact status belongs in that map and the linked source-qualified reports,
+and [development commands](docs/game-engine-development.md). The active Card IR schema stays at 1 while development has no external
+consumers; capabilities and exact build/catalog identity enforce supported behavior.
+The accepted D2c-d release at `394301d` does **not** cover later engine increments. Exact status belongs in that map and the linked source-qualified reports,
 not repeated release counts here. Old onboarding is preserved in the
 [historical index](docs/history/engine/index.md).
 

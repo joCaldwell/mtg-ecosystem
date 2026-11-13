@@ -3,18 +3,14 @@ import Ajv2020 from "ajv/dist/2020.js";
 
 // Shared focused/full contract assertions. Callers supply a prebuilt schema;
 // this helper never builds or runs a demonstration or profile workload.
-export function assertAttackTriggerSchema(schema: any, catalog: any, legacy: any[]) {
+export function assertAttackTriggerSchema(schema: any, catalog: any) {
   const validate = new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(schema);
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
-  assert.equal(catalog.schema_version,24);
+  assert.equal(catalog.schema_version,1);
   assert.equal(catalog.definitions.length,17);
-  for (const c of legacy) assert.equal(validate(c),true,JSON.stringify(validate.errors));
-  for (const version of [23,34]) assert.equal(validate({...catalog,schema_version:version}),false);
   for (const d of catalog.definitions) {
     assert.ok(d.capabilities.includes("attack_trigger_v1"));
-    const old=structuredClone(catalog);old.schema_version=23;
-    old.definitions=[structuredClone(d)];old.definitions[0].capabilities=old.definitions[0].capabilities.filter((c:string)=>c!=="attack_trigger_v1");
-    assert.equal(validate(old),false,"IR23 must reject the condition independently of its capability label");
+
   }
   const source=catalog.definitions.find((d:any)=>d.triggered[0].condition.creature_attacked.attacker.subject==="source");
   const observer=catalog.definitions.find((d:any)=>d.triggered[0].condition.creature_attacked.attacker.subject==="filter");

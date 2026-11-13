@@ -20,7 +20,7 @@ fn catalog() -> Catalog {
     ))
     .unwrap();
     c.definitions.extend(next.definitions);
-    c.schema_version = 22;
+    c.schema_version = mtg_contracts::CURRENT_IR_VERSION;
     c.definitions.extend(add.definitions);
     c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     c.validate().unwrap();
