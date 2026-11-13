@@ -24,7 +24,21 @@ pub const COMMAND_STATUS_ROUTE: &str = "/v1/matches/{match_id}/commands/{command
 pub const COMMAND_CANCEL_ROUTE: &str = "/v1/matches/{match_id}/commands/{command_id}/cancel";
 pub const MANIFEST_ROUTE: &str = "/v1/matches/{match_id}/manifest";
 pub const RESUME_ROUTE: &str = "/v1/matches/{match_id}/resume";
-pub const ROUTES: [RouteSpec; 6] = [
+pub const PRESENTATION_ROUTE: &str = "/v1/matches/{match_id}/presentation";
+pub const CLIENT_CONFIG_ROUTE: &str = "/client-config.json";
+pub const ROUTES: [RouteSpec; 8] = [
+    RouteSpec {
+        operation: "get_client_config",
+        method: "GET",
+        path: CLIENT_CONFIG_ROUTE,
+        response_schema: "client_config",
+    },
+    RouteSpec {
+        operation: "get_presentation",
+        method: "GET",
+        path: PRESENTATION_ROUTE,
+        response_schema: "presentation_descriptor",
+    },
     RouteSpec {
         operation: "get_resume",
         method: "GET",
@@ -62,6 +76,44 @@ pub const ROUTES: [RouteSpec; 6] = [
         response_schema: "submission",
     },
 ];
+
+/// Artifact location/integrity only; the offline producer owns its JSON shape.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PresentationDescriptor {
+    #[schemars(range(min = 1, max = 1))]
+    pub presentation_version: u32,
+    #[schemars(length(min = 64, max = 64), regex(pattern = "^[0-9a-f]{64}$"))]
+    pub catalog_sha256: String,
+    #[schemars(length(min = 64, max = 64), regex(pattern = "^[0-9a-f]{64}$"))]
+    pub presentation_sha256: String,
+    #[schemars(length(min = 64, max = 64), regex(pattern = "^[0-9a-f]{64}$"))]
+    pub presentation_schema_sha256: String,
+    #[schemars(length(min = 64, max = 64), regex(pattern = "^[0-9a-f]{64}$"))]
+    pub producer_sha256: String,
+    #[schemars(
+        length(min = 83, max = 83),
+        regex(pattern = "^/presentation/[0-9a-f]{64}\\.json$")
+    )]
+    pub path: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ClientConfig {
+    #[schemars(range(min = 1, max = 1))]
+    pub client_config_version: u32,
+    #[schemars(
+        length(max = 64),
+        regex(pattern = "^http://(127\\.0\\.0\\.1|\\[::1\\]):[1-9][0-9]{0,4}$")
+    )]
+    pub server_origin: String,
+}
+pub fn presentation_descriptor_schema() -> Schema {
+    schema::<PresentationDescriptor>(true)
+}
+pub fn client_config_schema() -> Schema {
+    schema::<ClientConfig>(true)
+}
 
 /// Only public open-decklist facts. No seed, private profile digest or state ID.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

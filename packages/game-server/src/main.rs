@@ -37,6 +37,8 @@ fn schema() -> Result<(), Box<dyn std::error::Error>> {
             "execution":mtg_server::protocol::execution_schema(),
             "manifest":mtg_server::protocol::manifest_schema(),
             "resume":mtg_server::protocol::resume_schema(),
+            "presentation_descriptor":mtg_server::protocol::presentation_descriptor_schema(),
+            "client_config":mtg_server::protocol::client_config_schema(),
         }))?
     );
     Ok(())
@@ -69,7 +71,12 @@ fn native_info() -> Result<(), Box<dyn std::error::Error>> {
     );
     Ok(())
 }
-async fn serve(root: &Path, address: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
+async fn serve(
+    root: &Path,
+    address: SocketAddr,
+    public: Option<(&Path, &str, &Path, &str)>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    mtg_server::delivery::OriginPolicy::new(address)?;
     if !address.ip().is_loopback() {
         return Err("only loopback hosting is supported".into());
     }
@@ -78,6 +85,13 @@ async fn serve(root: &Path, address: SocketAddr) -> Result<(), Box<dyn std::erro
     let auth = registry.snapshot_auth()?;
     if registered.is_empty() {
         return Err("create an admitted match before serving".into());
+    }
+    let mut delivery = mtg_server::delivery::Delivery::default();
+    if let Some((bundle, bundle_hash, presentation, presentation_hash)) = public {
+        delivery = mtg_server::delivery::Delivery::load_bundle(bundle, bundle_hash, root)?;
+        for item in &registered {
+            delivery.add_presentation(presentation, presentation_hash, &item.catalog)?;
+        }
     }
     let listener =
         mtg_server::network::LimitedListener::new(tokio::net::TcpListener::bind(address).await?)?;
@@ -127,9 +141,9 @@ async fn serve(root: &Path, address: SocketAddr) -> Result<(), Box<dyn std::erro
             broker,
         )?);
     }
-    let host = mtg_server::http::Host::new(hosted)?;
+    let host = mtg_server::http::Host::with_delivery(hosted, delivery)?;
     let stopping = host.clone();
-    let result = axum::serve(listener, host.clone().router())
+    let result = axum::serve(listener, host.clone().router_at(address)?)
         .with_graceful_shutdown(async move {
             let _ = tokio::signal::ctrl_c().await;
             stopping.stop();
@@ -153,6 +167,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     match args.first().and_then(|a|a.to_str()) {
         Some("schema") if args.len()==1=>schema(),
+        Some("client-config-schema") if args.len()==1=>{println!("{}",serde_json::to_string(&mtg_server::protocol::client_config_schema())?);Ok(())},
         Some("native-info") if args.len()==1=>native_info(),
         Some("bootstrap-schema") if args.len()==1=>{println!("{}",serde_json::to_string(&mtg_server::protocol::bootstrap_schema())?);Ok(())},
         Some("--worker") if (4..=5).contains(&args.len())=>{
@@ -181,8 +196,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some("serve") if args.len()==3=>{
             let address=args[2].to_str().ok_or("invalid bind address")?.parse()?;
-            tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?.block_on(serve(Path::new(&args[1]),address))
+            tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?.block_on(serve(Path::new(&args[1]),address,None))
         }
-        _=>Err("usage: mtg-server schema | bootstrap-schema | native-info | export-seat ROOT ID SEAT ORIGIN ISSUED_FILE OUTPUT | create ROOT ID CATALOG CONFIG ISSUED_FILE | serve ROOT LOOPBACK:PORT | rotate ROOT ID SEAT ISSUED_FILE | revoke ROOT ID SEAT".into()),
+        Some("serve-client") if args.len()==7=>{
+            let address=args[2].to_str().ok_or("invalid bind address")?.parse()?;
+            tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?.block_on(serve(Path::new(&args[1]),address,Some((Path::new(&args[3]),args[4].to_str().ok_or("invalid digest")?,Path::new(&args[5]),args[6].to_str().ok_or("invalid digest")?))))
+        }
+        _=>Err("usage: mtg-server schema | bootstrap-schema | client-config-schema | native-info | export-seat ROOT ID SEAT ORIGIN ISSUED_FILE OUTPUT | create ROOT ID CATALOG CONFIG ISSUED_FILE | serve ROOT LOOPBACK:PORT | serve-client ROOT LOOPBACK:PORT BUNDLE BUNDLE_SHA256 PRESENTATION ARTIFACT_MANIFEST_SHA256 | rotate ROOT ID SEAT ISSUED_FILE | revoke ROOT ID SEAT".into()),
     }
 }

@@ -68,3 +68,19 @@ test('only mulligan has a reviewed inspection adapter; unsupported requests stop
   const unsupported: PlayerRequest = { request: 'priority', player: 0, token: 'synthetic-test-token' };
   assert.equal(inspectDecision(unsupported)?.title, 'Unsupported decision');
 });
+
+test('live adapter uses permitted data and retains all zones, exact quantities and lifecycle-independent view', async () => {
+  const { liveTable } = await import('../src/presentation/live-table.ts');
+  const changed = structuredClone(resume);
+  if (changed.state.status !== 'available') assert.fail();
+  const card = changed.state.observation.view.objects.find(object => object.zone.zone === 'hand')!;
+  card.zone = { zone: 'graveyard', owner: 0 };
+  changed.state.observation.view.players[0]!.life = '9007199254740993';
+  changed.lifecycle = { status: 'faulted' };
+  const table = liveTable(changed, metadata)!;
+  assert.equal(table.live, true); assert.equal(table.seats[0]!.life, '9007199254740993');
+  assert.equal(table.otherObjects?.length, 1); assert.equal(table.otherObjects?.[0]?.inspectionId, card.handle);
+  assert.equal(table.hand.length, 6); assert.equal(table.stack.length, 0);
+  assert.equal(liveTable({ ...changed, state: { status: 'pending' } }, metadata), null);
+  assert.ok(liveTable(changed, null)!.hand.every(value => value.name === null));
+});

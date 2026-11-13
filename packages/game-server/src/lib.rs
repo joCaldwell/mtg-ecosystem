@@ -31,3 +31,5 @@ pub static SERVER_BUILD_ID: std::sync::LazyLock<String> = std::sync::LazyLock::n
         .as_bytes(),
     )
 });
+
+pub mod delivery;

@@ -820,6 +820,8 @@ fn source_files_from(root: &Path) -> Result<Vec<SourceFile>, String> {
         "rust-toolchain.toml",
         "packages/game-server/Cargo.toml",
         "packages/game-server/build.rs",
+        "packages/game-server/tools/client-artifacts.ts",
+        "packages/game-server/tools/presentation.schema.json",
     ] {
         let contents = fs::read_to_string(root.join(file)).map_err(|e| e.to_string())?;
         files.push(SourceFile {
@@ -2047,6 +2049,8 @@ mod tests {
             "packages/game-engine/tests/fixtures/catalogs/positive.sha256",
             "packages/game-server/Cargo.toml",
             "packages/game-server/build.rs",
+            "packages/game-server/tools/client-artifacts.ts",
+            "packages/game-server/tools/presentation.schema.json",
             "packages/game-server/src/authority.rs",
             "packages/game-server/tests/protocol.rs",
         ];
@@ -2062,6 +2066,7 @@ mod tests {
             "packages/game-engine/crates/example/.git/hidden.rs",
             "packages/game-engine/tests/fixtures/generated/ignored.json",
             "packages/game-server/sdk/should-not-be-native.json",
+            "packages/game-server/tools/not-a-build-input.ts",
             "packages/game-server/src/generated/ignored.rs",
             "packages/game-server/tests/target/ignored.json",
         ] {

@@ -16,10 +16,19 @@ fn collect(path: &Path, out: &mut Vec<PathBuf>) {
 }
 fn main() {
     let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let mut files = vec![root.join("Cargo.toml"), root.join("build.rs")];
+    let mut files = vec![
+        root.join("Cargo.toml"),
+        root.join("build.rs"),
+        root.join("tools/client-artifacts.ts"),
+        root.join("tools/presentation.schema.json"),
+    ];
     collect(&root.join("src"), &mut files);
     files.sort();
     println!("cargo:rerun-if-changed=src");
+    println!(
+        "cargo:rustc-env=MTG_PRESENTATION_PRODUCER_SHA256={:x}",
+        Sha256::digest(fs::read(root.join("tools/client-artifacts.ts")).unwrap())
+    );
     let mut hash = Sha256::new();
     for path in files {
         println!("cargo:rerun-if-changed={}", path.display());

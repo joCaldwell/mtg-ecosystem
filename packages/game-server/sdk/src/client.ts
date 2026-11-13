@@ -7,6 +7,12 @@ import type { SeatResume } from '../generated/resume.js';
 import type { SeatBootstrap } from '../generated/bootstrap.js';
 import { command, commandIdentifier, counter, execution, manifest, stream, submission, resume, bootstrap, ProtocolError } from './validation.ts';
 import { strictJSON } from './strict-json.ts';
+import { requestJSON } from './transport.ts';
+import { presentationDescriptor, presentationArtifact } from './public.ts';
+import type { PresentationDescriptor, PresentationArtifact } from './public.ts';
+export { parseClientConfig, readClientConfig } from './public.ts';
+export type { ClientConfig, PresentationDescriptor, PresentationArtifact } from './public.ts';
+export { HttpError, TransportError } from './transport.ts';
 import { ROUTES } from '../generated/routes.ts';
 export { ProtocolError, counter, PROTOCOL_VERSION } from './validation.ts';
 export type { CommandEnvelope, PlayerResponse, ExactQuantity } from '../generated/command.js';
@@ -23,13 +29,6 @@ export function parseSeatBootstrap(text: string): SeatBootstrap {
   return bootstrap(strictJSON(text));
 }
 
-export class HttpError extends Error {
-  readonly status: number;
-  constructor(status: number) { super(`Game server returned HTTP ${status}`); this.name = 'HttpError'; this.status = status; }
-}
-export class TransportError extends Error {
-  constructor() { super('Game server request failed; outcome may be unknown'); this.name = 'TransportError'; }
-}
 export interface ClientOptions {
   baseURL: string;
   matchId: string;
@@ -38,8 +37,6 @@ export interface ClientOptions {
   maximumResponseBytes?: number;
 }
 export interface PollOptions { after: string; limit?: number; waitMs?: number; signal?: AbortSignal }
-function aborted(): Error { const error = new Error('Request aborted; outcome may be unknown'); error.name = 'AbortError'; return error; }
-
 /** One seat capability; no administrative or raw-state endpoints. */
 export class GameClient {
   #base: string;
@@ -72,45 +69,16 @@ export class GameClient {
     let path = route.path.replace('{match_id}', this.#matchId);
     if (parameters.commandId !== undefined) path = path.replace('{command_id}', parameters.commandId);
     const suffix = parameters.query === undefined ? '' : `?${parameters.query}`;
-    if (signal?.aborted) throw aborted();
-    let response: Response;
-    try {
-      response = await this.#fetch(`${this.#base}${path}${suffix}`, {
-        method: route.method, headers: { Authorization: `Bearer ${this.#capability}`, Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
-        ...(body === undefined ? {} : { body }), ...(signal === undefined ? {} : { signal }),
-        redirect: 'error', credentials: 'omit', cache: 'no-store', referrerPolicy: 'no-referrer',
-      });
-    } catch { if (signal?.aborted) throw aborted(); throw new TransportError(); }
-    const reject = async (error: Error): Promise<never> => {
-      await response.body?.cancel().catch(() => {});
-      throw error;
-    };
-    if (response.redirected) return reject(new ProtocolError('Unexpected redirected response'));
-    if (!response.ok) return reject(new HttpError(response.status));
-    if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')) return reject(new ProtocolError('Expected JSON response'));
-    const declared = Number(response.headers.get('content-length'));
-    if (Number.isFinite(declared) && declared > maximumBytes) return reject(new ProtocolError('Response body exceeds limit'));
-    const reader = response.body?.getReader();
-    if (!reader) throw new ProtocolError('Missing JSON response body');
-    let bytes = 0, text = '';
-    const decoder = new TextDecoder('utf-8', { fatal: true });
-    try {
-      for (;;) {
-        if (signal?.aborted) throw aborted();
-        const result = await reader.read();
-        if (result.done) break;
-        bytes += result.value.byteLength;
-        if (bytes > maximumBytes) throw new ProtocolError('Response body exceeds limit');
-        text += decoder.decode(result.value, { stream: true });
-      }
-      text += decoder.decode();
-      return strictJSON(text);
-    } catch (error) {
-      await reader.cancel().catch(() => {});
-      if (signal?.aborted) throw aborted();
-      if (error instanceof ProtocolError) throw error;
-      throw new ProtocolError('Invalid JSON response');
-    } finally { reader.releaseLock(); }
+    return (await requestJSON(this.#fetch, `${this.#base}${path}${suffix}`, {
+      method: route.method, headers: { Authorization: `Bearer ${this.#capability}`, Accept: 'application/json', ...(body === undefined ? {} : {'Content-Type':'application/json'}) },
+      ...(body === undefined ? {} : {body}),
+    }, maximumBytes, signal)).value;
+  }
+  /** Public immutable metadata only. 404 is explicit; invalid data fails closed. */
+  async presentation(options:{signal?:AbortSignal}={}):Promise<{descriptor:PresentationDescriptor;artifact:PresentationArtifact}> {
+    const descriptor=presentationDescriptor(await this.#request('get_presentation',undefined,options.signal,{maximumBytes:4096}));
+    const {value,bytes}=await requestJSON(this.#fetch, `${this.#base}${descriptor.path}`, {method:'GET',headers:{Accept:'application/json'}},Math.min(this.#maximumResponseBytes,4*1024*1024),options.signal);
+    return {descriptor,artifact:await presentationArtifact(value,bytes,descriptor)};
   }
   /** No retries: after an ambiguous transport error, caller reuses the exact envelope/id. */
   async submit(envelope: CommandEnvelope, options: { signal?: AbortSignal } = {}): Promise<SubmissionResult> {
