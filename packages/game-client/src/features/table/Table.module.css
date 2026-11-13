@@ -26,3 +26,8 @@
 @media (max-width: 1100px) { .seats { gap: 12px; padding-inline: 20px; }.seatTop { flex-wrap: wrap; }.lower { grid-template-columns: minmax(0, 1fr); }.command { border-left: 0; border-top: 1px solid var(--line); padding-inline: 30px; } }
 @media (max-width: 950px) { .layout { grid-template-columns: minmax(0, 1fr); }.orientation { padding: 20px; }.orientation h1 { font-size: 24px; } }
 @media (max-width: 560px) { .seats { grid-template-columns: repeat(2, minmax(0, 1fr)); }.orientation { align-items: flex-start; flex-direction: column; }.hand, .battlefield, .decision, .stack { padding-inline: 20px; } }
+
+.sessionStatus { padding: 18px 30px; border-bottom: 1px solid var(--line); display: flex; align-items: start; justify-content: space-between; gap: 24px; }
+.sessionStatus h2 { color: var(--accent); margin: 0 0 6px; }.sessionStatus p { margin: 4px 0; font-size: 12px; color: var(--muted); }
+.sessionStatus button { flex-shrink: 0; font-size: 12px; }
+@media (max-width: 640px) { .sessionStatus { padding-inline: 20px; flex-direction: column; } }

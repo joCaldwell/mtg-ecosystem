@@ -16,7 +16,7 @@ export function Table({ table }: { table: TableView }) {
   }
   return <>
     <div className={styles.orientation}>
-      <div><span className="eyebrow">Commander / inspection fixture</span><h1>{table.title}</h1></div>
+      <div><span className="eyebrow">Commander / {table.live ? 'live read-only table' : 'inspection fixture'}</span><h1>{table.title}</h1></div>
       <button onClick={() => decision.current?.focus()}>Jump to decision <span aria-hidden="true">↓</span></button>
     </div>
     <div className={styles.layout}>
@@ -35,6 +35,7 @@ export function Table({ table }: { table: TableView }) {
           <div className={styles.turnline}><span>Turn {table.turn ?? '—'}</span><span>Priority: {table.priority ?? 'not supplied'}</span></div>
           {table.seats.some(seat => seat.battlefield.length) ? table.seats.map(seat => <div key={seat.label}>{seat.battlefield.length > 0 && <><h3>{seat.label}</h3>{cards(seat.battlefield, '')}</>}</div>)
             : <div className={styles.boardEmpty}><div aria-hidden="true" className={styles.tableMark}>M</div><p>No battlefield objects in this view</p><span>Inspect the visible cards below.</span></div>}
+          {!!table.combat?.length && <div><h3>Observed combat</h3><ul>{table.combat.map(line => <li key={line}>{line}</li>)}</ul></div>}
         </section>
         <div className={styles.lower}>
           <section className={styles.hand} aria-labelledby="hand-title"><div className={styles.sectionHeading}><h2 id="hand-title">Your hand</h2><span>Visible to your seat</span></div>{cards(table.hand, 'No hand contents supplied.')}</section>
@@ -43,11 +44,12 @@ export function Table({ table }: { table: TableView }) {
         <section ref={decision} tabIndex={-1} className={styles.decision} aria-labelledby="decision-title">
           <span className="eyebrow">Decision inspector</span>
           <h2 id="decision-title">{table.decision?.title ?? 'No decision supplied'}</h2>
-          <p>{table.decision?.description ?? 'The table is not connected to a game.'}</p>
+          <p>{table.decision?.description ?? (table.live ? 'No decision in the latest permitted observation.' : 'The table is not connected to a game.')}</p>
           {table.decision && <ul>{table.decision.details.map(detail => <li key={detail}>{detail}</li>)}</ul>}
-          <p className={styles.readOnly}>Read-only fixture. Choices cannot be submitted.</p>
+          <p className={styles.readOnly}>{table.live ? 'Read-only table. Choices cannot be submitted.' : 'Read-only fixture. Choices cannot be submitted.'}</p>
         </section>
         <section className={styles.stack} aria-labelledby="stack-title"><h2 id="stack-title">Stack <span>{table.stack.length}</span></h2>{cards(table.stack, 'No stack objects in this view.')}</section>
+        {!!table.otherObjects?.length && <section className={styles.stack} aria-label="Other permitted objects"><h2>Other permitted objects</h2>{cards(table.otherObjects, '')}</section>}
         <p className={styles.provenance}>{table.sourceLabel}</p>
       </div>
       <Inspector card={card} onClose={close} />

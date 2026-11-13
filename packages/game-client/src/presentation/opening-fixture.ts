@@ -30,8 +30,8 @@ export function inspectDecision(request: PlayerRequest | null): TableView['decis
   }
 }
 
-function cardView(object: VisibleObject, metadata: PresentationArtifact): CardView {
-  const printed = metadata.cards.find(card => card.oracle_id === object.oracle_id);
+export function cardView(object: VisibleObject, metadata: PresentationArtifact | null): CardView {
+  const printed = metadata?.cards.find(card => card.oracle_id === object.oracle_id);
   // Multi-face active identity is a separate producer/core mapping gate. Do not
   // guess the active face from Oracle text or array ordering.
   const face = printed?.faces.length === 1 ? printed.faces[0] : undefined;
@@ -48,8 +48,11 @@ function cardView(object: VisibleObject, metadata: PresentationArtifact): CardVi
     if (current.power !== null) currentFacts.push({ label: 'Power', value: current.power });
     if (current.toughness !== null) currentFacts.push({ label: 'Toughness', value: current.toughness });
   }
+  if (object.attached_to) currentFacts.push({ label: 'Attached to', value: object.attached_to });
+  if (object.attachments?.length) currentFacts.push({ label: 'Attachments', value: object.attachments.join(' · ') });
+  if (object.plus_one_counters !== undefined) currentFacts.push({ label: '+1/+1 counters', value: object.plus_one_counters });
   return {
-    inspectionId: object.handle, name: face?.name ?? null,
+    inspectionId: object.handle, name: object.token?.name ?? face?.name ?? null,
     printedType: face?.type_line ?? null, printedMana: face?.mana_cost ?? null,
     oracleText: face?.oracle_text ?? null,
     sourceIdentity: `Oracle ${object.oracle_id}${printed ? ` · Printing ${printed.printing_id} · Source SHA-256 ${printed.source_sha256}` : ' · Presentation metadata unavailable'}`,
