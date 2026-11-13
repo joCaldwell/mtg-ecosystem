@@ -1525,3 +1525,6 @@ fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally(
     }
     panic!("predeclared focused Defender development bound1500")
 }
+
+#[path = "matches_adversarial/blocking_match_admission.rs"]
+mod blocking_match_admission;

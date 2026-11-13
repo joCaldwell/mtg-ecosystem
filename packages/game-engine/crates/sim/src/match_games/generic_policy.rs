@@ -35,8 +35,22 @@ fn entity_matches(visible: &VisibleEntityTarget, target: &PlayerTargetEntity) ->
         _ => false,
     }
 }
+fn blocking_pump_program(p: &SpellProgram) -> bool {
+    p.modes.is_empty()
+        && !p.targets.is_empty()
+        && p.targets
+            .iter()
+            .all(|t| t.domain == TargetDomain::BlockingBattlefieldCreature)
+        && !p.instructions.is_empty()
+        && p.instructions.iter().all(|i| {
+            matches!(i, I::ModifyPowerToughness {power, toughness, ..}
+                if !power.is_negative() && !toughness.is_negative()
+                    && (*power > Quantity::zero() || *toughness > Quantity::zero()))
+        })
+}
 fn reactive_program(p: &SpellProgram) -> bool {
-    p.additional_sacrifice.is_some()
+    blocking_pump_program(p)
+        || p.additional_sacrifice.is_some()
         || p.instructions.iter().any(|i| {
             matches!(
                 i,
@@ -147,7 +161,13 @@ impl Strategy<'_> {
             _ => false,
         })
     }
-    fn object_matches(&self, v: &PermittedView, o: &VisibleObject, t: &TargetSpec) -> bool {
+    fn object_matches(
+        &self,
+        v: &PermittedView,
+        o: &VisibleObject,
+        t: &TargetSpec,
+        authoritative_candidate: bool,
+    ) -> bool {
         let Some(c) = &o.characteristics else {
             return false;
         };
@@ -162,6 +182,14 @@ impl Strategy<'_> {
                 }
                 TargetDomain::BattlefieldCreature | TargetDomain::AnyDamageTarget => {
                     c.kind == CardKind::Creature
+                }
+                TargetDomain::BlockingBattlefieldCreature => {
+                    c.kind == CardKind::Creature
+                        // Public attacker links prove some blockers, but cannot
+                        // prove an orphan blocker's retained status. Once core
+                        // offers a target, its candidate list supplies that proof.
+                        && (authoritative_candidate
+                            || v.combat.iter().any(|a| a.blockers.contains(&o.handle)))
                 }
                 TargetDomain::BattlefieldPermanent => true,
                 _ => false,
@@ -187,7 +215,7 @@ impl Strategy<'_> {
             .iter()
             .filter(|o| {
                 candidates.is_none_or(|cs| cs.contains(&o.handle))
-                    && self.object_matches(v, o, t)
+                    && self.object_matches(v, o, t, candidates.is_some())
                     && (o.controller == v.viewer) == own
             })
             .max_by_key(|o| (self.value(o), o.handle.0.clone()))
@@ -460,7 +488,7 @@ impl Strategy<'_> {
                 .is_some_and(|t| {
                     v.objects.iter().any(|other| {
                         other.controller != v.viewer
-                            && self.object_matches(v, other, t)
+                            && self.object_matches(v, other, t, false)
                             && self.value(other) > self.value(o)
                     })
                 }),
@@ -830,6 +858,16 @@ impl Strategy<'_> {
     fn program_ready(&self, v: &PermittedView, d: &Definition, p: &SpellProgram) -> bool {
         if !p.modes.is_empty() {
             return p.modes.iter().any(|m| self.program_ready(v, d, &m.program));
+        }
+        // Priority during these steps precedes remaining combat damage.
+        // End-of-combat priority has legal blockers but no damage left to boost.
+        if blocking_pump_program(p)
+            && !matches!(
+                v.turn.step,
+                TurnStep::DeclareBlockers | TurnStep::FirstStrikeDamage
+            )
+        {
+            return false;
         }
         if let Some(f) = &p.additional_sacrifice
             && !self
