@@ -1,9 +1,10 @@
-# Headless blocking-target matches
+# Headless target-status matches
 
 `commander-blocking-targets-v1` is a separate finite development profile. Its
 schema-1 `blocking-matches` catalog contains the 34 exact records selected by the
-foundations match catalog plus the retained Righteousness record. Existing
-catalogs, decks, source records and provenance remain separate and unchanged.
+foundations match catalog plus Righteousness, Swift Response and Assassinate.
+This development pool evolves in place; its name does not select runtime rules.
+Other catalogs and decks remain unchanged.
 Neither hosting nor sampled search is requested by this profile; their reviewed
 capability sets remain independent of headless match admission.
 
@@ -15,6 +16,11 @@ white color identity and a retained Commander legality value of `legal`. It cost
 `{W}` and reads “Target blocking creature gets +7/+7 until end of turn.” The
 [blocking-target contract](game-engine-blocking-targets.md) defines its strict
 lowering and common runtime semantics.
+
+The [tapped-target contract](game-engine-tapped-targets.md) pins the two complete
+destruction sources, both with exactly one tapped-creature target. Their original
+raw/source/AST/binding/provenance bytes are retained from compiler qualification.
+Adding them here changes admission and default decks, not their compiled meaning.
 
 | Pin | SHA-256 |
 | --- | --- |
@@ -30,12 +36,12 @@ catalog builder into `expected-blocking-matches-ir.json` and
 `catalogs/blocking-matches.sha256`.
 
 The default decks preserve the foundations profile's commanders and composition
-with one explicit change to each white deck:
+with these explicit additions to the foundations decks:
 
 | Seats | Commander | Composition including commander |
 | --- | --- | --- |
-| 0, 2 | Isamaru, Hound of Konda | Seven singleton nonbasic cards, including Righteousness, and 93 Plains |
-| 1, 3 | Yargle and Multani | The unchanged twelve singleton nonbasic cards, 44 Swamps and 44 Forests |
+| 0, 2 | Isamaru, Hound of Konda | Eight singleton nonbasic cards, including Righteousness and Swift Response, and 92 Plains |
+| 1, 3 | Yargle and Multani | Thirteen singleton nonbasic cards, including Assassinate, 43 Swamps and 44 Forests |
 
 Each deck contains 100 cards. The profile retains the frozen 2026-10-15 Commander
 policy, color-identity restrictions and completion layout; it does not claim a
@@ -69,7 +75,54 @@ provide membership authority, including for orphans. Current visible type,
 targetability and friendly control still guide selection. Ordinary Growth spells
 do not become generally reactive. No card/profile identity selects policy rules.
 
-## Focused qualification
+## Tapped-removal admission
+
+The current 37-definition catalog's canonical digest is
+`7c011dbb938aeeb2f846ab658b11e6b1a59aff8fbdb36dcaa4aaa88c4bbccb52`.
+The two added definitions come from the exact retained source records; all prior
+35 definition bodies are byte-identical. Other fixture/catalog/profile files
+remain unchanged. The ordinary current compiler generates the expected IR and
+digest; default deck admission retains singleton, color identity, frozen ban data
+and four 100-card decks. Forced hosting/search requests still reject, including
+the new tapped-target capability.
+
+Develop recognizes a nonmodal ordinary instant spell whose complete instructions
+are mandatory permanent destruction and whose targets require tapped status.
+Readiness still requires a permitted opposing target and payable mana. It uses
+the public target's current type, tapped state, controller and targetability.
+This does not make unrestricted destruction, sorceries, optional destruction,
+modal children or activated programs generally reactive.
+
+The new accepted-pod witness uses custom white decks containing Isamaru, Swift
+Response and 98 Plains. It reuses the earlier setup seed and checks the actual
+opening hand, rather than searching for an outcome. Ordinary land plays and
+commander casts establish the board. An actual attack taps the opposing commander;
+Swift Response then chooses that target and pays `{1}{W}` using two Plains
+activations. An untapped friendly commander is rejected atomically. Destruction
+and the ordinary commander-return choice finish the witness before blockers.
+It does not claim a new default-deck completion game or full-game coverage.
+
+The current focused pass executed one all-catalog freshness test, two admission
+tests, the new paid Swift Response accepted-pod witness, the existing paid
+Righteousness witness and 24 policy tests: 29 passed. Workspace all-target
+compilation, formatting, structure checks and production simulator Clippy/build
+passed. Snapshot verification, restore and accepted-journal replay passed in the
+new witness, with identical final state and journal at budgets 1 and 4096.
+
+The copied debug simulator's core build is
+`1638a971bfb15b553637f7e0aefa28d0639e602de09a1b8eef4c1fceb9f94fb2`.
+Its compiled source closure, catalog freshness, small smoke and explicit smoke
+replay passed. Receipts, source fingerprints and the exact executable are retained
+under `generated/tapped-profile/` in the development checkout. The full default
+completion batch, full runtime/tooling suites, release matrices, offline retention
+and server/SDK/browser qualification were omitted. The client qualification stays
+pinned to its independent producer; it is not relabeled to this engine.
+
+## Original 35-definition qualification
+
+The evidence below predates tapped-removal admission. It retains its exact old
+catalog and producer identity; its completion game is not qualification of the
+current 37-definition default decks.
 
 The native source checkpoint is `d5740fd4e8372163d1832775a4dd9eadf76599d5`.
 The copied debug simulator's compiled source closure is verified with core build

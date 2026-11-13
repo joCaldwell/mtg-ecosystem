@@ -22,14 +22,14 @@ fn oracle(catalog: &Catalog, name: &str) -> String {
 }
 
 #[test]
-fn blocking_profile_adds_one_complete_definition_and_admits_four_legal_decks() {
+fn development_profile_adds_three_complete_definitions_and_admits_four_legal_decks() {
     let catalog = catalog();
     let original = Catalog::read(include_str!(
         "../../../tests/fixtures/expected-match-ir.json"
     ))
     .unwrap();
     assert_eq!(catalog.schema_version, 1);
-    assert_eq!(catalog.definitions.len(), original.definitions.len() + 1);
+    assert_eq!(catalog.definitions.len(), original.definitions.len() + 3);
     for definition in &original.definitions {
         assert_eq!(
             catalog
@@ -46,6 +46,8 @@ fn blocking_profile_adds_one_complete_definition_and_admits_four_legal_decks() {
     let pod = validate_pod(&catalog, &config).unwrap();
     assert_eq!(pod.physical_config().cards.len(), 400);
     let righteousness = oracle(&catalog, "Righteousness");
+    let swift_response = oracle(&catalog, "Swift Response");
+    let assassinate = oracle(&catalog, "Assassinate");
     for (seat, deck) in config.decks.iter().enumerate() {
         assert_eq!(deck.cards.iter().map(|row| row.count).sum::<u32>(), 100);
         assert_eq!(
@@ -56,6 +58,19 @@ fn blocking_profile_adds_one_complete_definition_and_admits_four_legal_decks() {
                 .sum::<u32>(),
             u32::from(seat.is_multiple_of(2))
         );
+        for (oracle_id, expected) in [
+            (&swift_response, u32::from(seat.is_multiple_of(2))),
+            (&assassinate, u32::from(!seat.is_multiple_of(2))),
+        ] {
+            assert_eq!(
+                deck.cards
+                    .iter()
+                    .filter(|row| row.oracle_id == *oracle_id)
+                    .map(|row| row.count)
+                    .sum::<u32>(),
+                expected
+            );
+        }
     }
     Prepared::admit_pod(catalog, config).unwrap();
 }
@@ -82,7 +97,7 @@ fn blocking_profile_retains_singleton_color_and_feature_rejection() {
             ..
         })
     ));
-    let mut off_color = config;
+    let mut off_color = config.clone();
     off_color.decks[1]
         .cards
         .iter_mut()
@@ -98,6 +113,25 @@ fn blocking_profile_retains_singleton_color_and_feature_rejection() {
         Err(MatchAdmissionError::ColorIdentity { player: PlayerId(1), oracle_id })
             if oracle_id == righteousness
     ));
+    for (seat, basic, added) in [
+        (1, forest.clone(), oracle(&catalog, "Swift Response")),
+        (0, plains.clone(), oracle(&catalog, "Assassinate")),
+    ] {
+        let mut wrong_color = config.clone();
+        wrong_color.decks[seat]
+            .cards
+            .iter_mut()
+            .find(|row| row.oracle_id == basic)
+            .unwrap()
+            .count -= 1;
+        wrong_color.decks[seat].cards.push(DeckEntry {
+            oracle_id: added.clone(),
+            count: 1,
+        });
+        assert!(matches!(validate_pod(&catalog, &wrong_color),
+            Err(MatchAdmissionError::ColorIdentity { player, oracle_id })
+                if player == PlayerId(seat as u8) && oracle_id == added));
+    }
     for feature in [Feature::Hosting, Feature::Search] {
         let mut requested = match_profile(PROFILE).unwrap().clone();
         match feature {
@@ -109,6 +143,7 @@ fn blocking_profile_retains_singleton_color_and_feature_rejection() {
             Err(ProfileError::UnreviewedCapabilities { feature: actual, capabilities })
                 if actual == feature
                     && capabilities.contains(&Capability::BlockingCreatureTargetV1)
+                    && capabilities.contains(&Capability::TappedPermanentTargetV1)
         ));
     }
 }

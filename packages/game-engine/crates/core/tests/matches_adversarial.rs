@@ -1528,3 +1528,6 @@ fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally(
 
 #[path = "matches_adversarial/blocking_match_admission.rs"]
 mod blocking_match_admission;
+
+#[path = "matches_adversarial/tapped_match_admission.rs"]
+mod tapped_match_admission;

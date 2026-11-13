@@ -65,6 +65,24 @@ fn reactive_program(p: &SpellProgram) -> bool {
         })
         || p.modes.iter().any(|m| reactive_program(&m.program))
 }
+fn tapped_destroy_spell(d: &Definition, p: &SpellProgram) -> bool {
+    d.characteristics.kind == CardKind::Instant
+        && d.spell.as_ref() == Some(p)
+        && p.timing == SpellTiming::Instant
+        && p.resolution == SpellResolution::Instructions
+        && p.modes.is_empty()
+        && p.additional_sacrifice.is_none()
+        && !p.targets.is_empty()
+        && p.targets.iter().all(|t| {
+            t.domain == TargetDomain::BattlefieldPermanent
+                && t.filter.as_ref().is_some_and(|f| f.tapped)
+        })
+        && !p.instructions.is_empty()
+        && p.instructions.iter().all(|i| {
+            matches!(i, I::DestroyPermanent { target_slot, optional: false, .. }
+                if p.targets.iter().any(|t| t.slot == *target_slot))
+        })
+}
 impl Strategy<'_> {
     pub(super) fn legend_choice(
         &self,
@@ -963,7 +981,9 @@ impl Strategy<'_> {
                 .iter()
                 .any(|m| self.reactive_ready(v, d, &m.program));
         }
-        self.program_ready(v, d, p) && reactive_program(p)
+        // Only the ordinary nonmodal spell is recognized here. In particular,
+        // a modal child or activated program does not acquire this new policy.
+        self.program_ready(v, d, p) && (reactive_program(p) || tapped_destroy_spell(d, p))
     }
     fn cast(
         &mut self,

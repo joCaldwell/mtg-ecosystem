@@ -38,7 +38,8 @@ Both source ASTs bind exactly one tapped creature target. The fixture bytes,
 source/AST/binding hashes, accepted archive pins and original source indices are
 retained in `tests/fixtures/` provenance. Extraction verifies the full archive
 before writing; the separate verifier checks exact source lines afterward.
-Neither fixture changes catalog or profile membership.
+The subsequent [headless development admission](game-engine-blocking-matches.md)
+adds both records to the existing development pool; other catalogs remain unchanged.
 
 The rules basis is the pinned [2026-09-25 Comprehensive Rules](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt):
 110.5 defines status, 601.2c requires appropriate targets, 608.2b rechecks targets
@@ -56,7 +57,7 @@ atomicity, query purity, timing and replay across budgets and trace modes.
 An explicitly synthetic untap probe covers a status change during payment;
 it does not claim a source-backed untap spell or natural replay witness.
 
-The focused pass executed 28 contracts, 138 compiler, five new core, 34 adjacent
+The implementation at `ece93f6f` executed 28 contracts, 138 compiler, five new core, 34 adjacent
 removal, eight blocking-target and 21 policy tests: 234 passed. Workspace
 all-target compilation, formatting, structure checks and production
 compiler/core/simulator Clippy passed. Contracts Clippy retained an unchanged

@@ -1381,3 +1381,180 @@ fn tapped_target_policy_uses_current_public_status_and_offered_candidates() {
     v.objects[1].tapped = false;
     assert_eq!(strategy(&c).object_target(&v, d, p, t, None), None);
 }
+
+// Public payload policy probes, not accepted-input engine games or replay.
+mod reactive_tapped_destroy_tests {
+    use super::*;
+
+    fn fixture() -> (Catalog, PermittedView) {
+        let mut c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+        let mut v = wipe_tests::view(&c);
+        for raw in [
+            include_str!("../../../../tests/fixtures/5820d760-8ed7-4abf-a959-c06ed86a3730.json"),
+            include_str!("../../../../tests/fixtures/ce979f36-84f2-4419-b400-971263494cc6.json"),
+        ] {
+            let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+                include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+                raw,
+            ) else {
+                panic!("complete tapped-destroy source must lower")
+            };
+            c.definitions.push(*definition);
+        }
+        c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        c.validate().unwrap();
+        v.active = Some(PlayerId(0));
+        v.turn_owner = PlayerId(0);
+        v.priority = Some(v.viewer);
+        v.turn.step = TurnStep::PrecombatMain;
+        v.players
+            .iter_mut()
+            .find(|p| p.player == v.viewer)
+            .unwrap()
+            .mana = BTreeMap::from([(Color::W, 1.into()), (Color::C, 1.into())]);
+        v.objects = vec![
+            wipe_tests::card(
+                &c,
+                "Swift Response",
+                v.viewer.0,
+                Zone::Hand { owner: v.viewer },
+            ),
+            wipe_tests::card(&c, "Goliath Sphinx", 0, Zone::Battlefield),
+            wipe_tests::card(&c, "Storm Crow", 0, Zone::Battlefield),
+            wipe_tests::card(&c, "Grizzly Bears", v.viewer.0, Zone::Battlefield),
+        ];
+        v.objects[2].tapped = true;
+        v.objects[3].tapped = true;
+        (c, v)
+    }
+
+    #[test]
+    fn tapped_destroy_instant_reacts_and_selects_current_offered_opponent() {
+        let (c, mut v) = fixture();
+        let before = canonical(&v).unwrap();
+        assert_eq!(
+            strategy(&c).priority(&observation(v.clone())).unwrap(),
+            PlayerResponse::Cast {
+                card: ObjectHandle("Swift Response".into())
+            }
+        );
+        assert_eq!(canonical(&v).unwrap(), before);
+        let viewer = v.viewer.0;
+        stack_spell(&mut v, &c, "Swift Response", viewer);
+        let d = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Swift Response")
+            .unwrap();
+        let mut o = observation(v);
+        o.decision = Some(PlayerRequest::Targets {
+            token: mtg_core::DecisionToken("tapped-destroy-payload".into()),
+            player: o.view.viewer,
+            occurrences: d.spell.as_ref().unwrap().targets.clone(),
+            candidates: vec![
+                ObjectHandle("Goliath Sphinx".into()),
+                ObjectHandle("Storm Crow".into()),
+                ObjectHandle("Grizzly Bears".into()),
+            ],
+        });
+        let before = canonical(&o).unwrap();
+        assert_eq!(
+            strategy(&c).choose(&o).unwrap(),
+            PlayerResponse::Targets {
+                objects: vec![ObjectHandle("Storm Crow".into())]
+            }
+        );
+        assert_eq!(canonical(&o).unwrap(), before);
+    }
+
+    #[test]
+    fn tapped_destroy_reaction_requires_targetability_opposing_control_and_payment() {
+        let (c, v) = fixture();
+        for case in ["untapped", "own", "shroud", "hexproof", "unaffordable"] {
+            let mut v = v.clone();
+            match case {
+                "untapped" => v.objects[2].tapped = false,
+                "own" => v.objects[2].controller = v.viewer,
+                "shroud" => v.objects[2].keywords.push(KeywordAbility::Shroud),
+                "hexproof" => v.objects[2].keywords.push(KeywordAbility::Hexproof),
+                "unaffordable" => {
+                    v.players
+                        .iter_mut()
+                        .find(|p| p.player == v.viewer)
+                        .unwrap()
+                        .mana
+                        .clear();
+                }
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                strategy(&c).priority(&observation(v)).unwrap(),
+                PlayerResponse::Pass,
+                "{case}"
+            );
+        }
+    }
+
+    #[test]
+    fn tapped_destroy_reaction_preserves_sorcery_and_nonmodal_mandatory_scope() {
+        let (c, mut v) = fixture();
+        v.objects[0] = wipe_tests::card(
+            &c,
+            "Assassinate",
+            v.viewer.0,
+            Zone::Hand { owner: v.viewer },
+        );
+        v.players
+            .iter_mut()
+            .find(|p| p.player == v.viewer)
+            .unwrap()
+            .mana = BTreeMap::from([(Color::B, 3.into())]);
+        assert_eq!(
+            strategy(&c).priority(&observation(v.clone())).unwrap(),
+            PlayerResponse::Pass
+        );
+        v.active = Some(v.viewer);
+        v.turn_owner = v.viewer;
+        assert_eq!(
+            strategy(&c).priority(&observation(v)).unwrap(),
+            PlayerResponse::Cast {
+                card: ObjectHandle("Assassinate".into())
+            }
+        );
+
+        // Typed policy-shape controls do not claim additional source support.
+        let (c, v) = fixture();
+        for case in ["unrestricted", "optional", "modal"] {
+            let mut c = c.clone();
+            let p = c
+                .definitions
+                .iter_mut()
+                .find(|d| d.name == "Swift Response")
+                .unwrap()
+                .spell
+                .as_mut()
+                .unwrap();
+            match case {
+                "unrestricted" => p.targets[0].filter.as_mut().unwrap().tapped = false,
+                "optional" => {
+                    let I::DestroyPermanent { optional, .. } = &mut p.instructions[0] else {
+                        panic!("destroy")
+                    };
+                    *optional = true;
+                }
+                "modal" => {
+                    let child = p.clone();
+                    p.instructions.clear();
+                    p.targets.clear();
+                    p.modes.push(mtg_contracts::SpellMode { program: child });
+                }
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                strategy(&c).priority(&observation(v.clone())).unwrap(),
+                PlayerResponse::Pass,
+                "{case}"
+            );
+        }
+    }
+}

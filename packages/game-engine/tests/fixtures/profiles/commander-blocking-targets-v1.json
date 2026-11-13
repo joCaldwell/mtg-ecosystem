@@ -30,6 +30,10 @@
         },
         {
           "count": 1,
+          "oracle_id": "5820d760-8ed7-4abf-a959-c06ed86a3730"
+        },
+        {
+          "count": 1,
           "oracle_id": "8da8644c-75a1-4fe9-8e94-900d948d631c"
         },
         {
@@ -37,7 +41,7 @@
           "oracle_id": "95a0ca48-d924-47f4-86ed-42c673ee778c"
         },
         {
-          "count": 93,
+          "count": 92,
           "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99"
         },
         {
@@ -66,7 +70,7 @@
           "oracle_id": "310f141c-7f37-4729-aed6-dd9c09db448d"
         },
         {
-          "count": 44,
+          "count": 43,
           "oracle_id": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68"
         },
         {
@@ -104,6 +108,10 @@
         {
           "count": 1,
           "oracle_id": "c6a3a882-a127-4590-93d7-679ef4313efe"
+        },
+        {
+          "count": 1,
+          "oracle_id": "ce979f36-84f2-4419-b400-971263494cc6"
         }
       ],
       "commander": "980e1721-3717-4425-95a4-938dbf2ac661"
@@ -128,6 +136,10 @@
         },
         {
           "count": 1,
+          "oracle_id": "5820d760-8ed7-4abf-a959-c06ed86a3730"
+        },
+        {
+          "count": 1,
           "oracle_id": "8da8644c-75a1-4fe9-8e94-900d948d631c"
         },
         {
@@ -135,7 +147,7 @@
           "oracle_id": "95a0ca48-d924-47f4-86ed-42c673ee778c"
         },
         {
-          "count": 93,
+          "count": 92,
           "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99"
         },
         {
@@ -164,7 +176,7 @@
           "oracle_id": "310f141c-7f37-4729-aed6-dd9c09db448d"
         },
         {
-          "count": 44,
+          "count": 43,
           "oracle_id": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68"
         },
         {
@@ -202,6 +214,10 @@
         {
           "count": 1,
           "oracle_id": "c6a3a882-a127-4590-93d7-679ef4313efe"
+        },
+        {
+          "count": 1,
+          "oracle_id": "ce979f36-84f2-4419-b400-971263494cc6"
         }
       ],
       "commander": "980e1721-3717-4425-95a4-938dbf2ac661"
