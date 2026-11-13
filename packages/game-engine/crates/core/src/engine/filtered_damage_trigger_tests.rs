@@ -236,7 +236,8 @@ fn filtered_damage_creature_type_conjunction_control_and_actual_occurrence_negat
                 object(&g, 0),
                 PlayerId(0),
                 DamageKind::Combat,
-                &actual
+                &actual,
+                Some(&actual.source)
             ),
             expected
         );
@@ -245,7 +246,8 @@ fn filtered_damage_creature_type_conjunction_control_and_actual_occurrence_negat
             object(&g, 0),
             PlayerId(0),
             DamageKind::Noncombat,
-            &actual
+            &actual,
+            Some(&actual.source)
         ));
         if id == 1 || id == 3 {
             let mut pattern = original.clone();
@@ -259,13 +261,14 @@ fn filtered_damage_creature_type_conjunction_control_and_actual_occurrence_negat
                     object(&g, 0),
                     PlayerId(0),
                     DamageKind::Noncombat,
-                    &actual
+                    &actual,
+                    Some(&actual.source)
                 ),
                 id == 1
             );
         }
-        // A permanent pattern never matches a creature card in another zone,
-        // while the original frozen battlefield fact remains usable as LKI.
+        // A permanent pattern never matches an appearance in another zone;
+        // the actual damage member retains its independent source facts.
         let battlefield_fact = actual.source.clone();
         actual.source.zone = Zone::Hand {
             owner: actual.source.owner,
@@ -275,7 +278,8 @@ fn filtered_damage_creature_type_conjunction_control_and_actual_occurrence_negat
             object(&g, 0),
             PlayerId(0),
             DamageKind::Combat,
-            &actual
+            &actual,
+            Some(&actual.source)
         ));
         actual.source = battlefield_fact;
         actual.amount = 0.into();
@@ -284,7 +288,8 @@ fn filtered_damage_creature_type_conjunction_control_and_actual_occurrence_negat
             object(&g, 0),
             PlayerId(0),
             DamageKind::Combat,
-            &actual
+            &actual,
+            Some(&actual.source)
         ));
     }
     let ring = object(&g, 2);
@@ -391,12 +396,13 @@ fn filtered_damage_coherent_damager_and_recipient_lies_cannot_authorize_recovery
     recover(&g);
     for lie in ["damager", "recipient"] {
         let mut forged: serde_json::Value = serde_json::from_str(&g.snapshot().unwrap()).unwrap();
-        let damage = &mut forged["state"]["pending_triggers"][0]["witness"]["damage"];
+        let witness = &mut forged["state"]["pending_triggers"][0]["witness"];
         if lie == "damager" {
-            damage["source"] =
-                serde_json::to_value(g.object_before(object(&g, 2)).unwrap()).unwrap();
+            let appearance = serde_json::to_value(g.object_before(object(&g, 2)).unwrap()).unwrap();
+            witness["damage"]["source"] = appearance.clone();
+            witness["match_source"] = appearance;
         } else {
-            damage["recipient"]["player"] = 3.into();
+            witness["damage"]["recipient"]["player"] = 3.into();
         }
         let decoded: Snapshot = serde_json::from_value(forged.clone()).unwrap();
         let mut structural = g.fork();

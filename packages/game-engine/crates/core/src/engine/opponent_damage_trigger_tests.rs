@@ -206,7 +206,7 @@ fn opponent_damage_exact_source_combat_replay_and_departures() {
             pending(&mut g);
             let frozen = witness(&g);
             assert!(
-                matches!(&frozen, TriggerEventWitness::DamageDealt { kind: DamageKind::Combat, damage, transaction: Some(_) }
+                matches!(&frozen, TriggerEventWitness::DamageDealt { kind: DamageKind::Combat, damage, transaction: Some(_), .. }
                 if damage.source.object == source && damage.source.owner == PlayerId(2) && damage.controller == PlayerId(0) && damage.amount == 2.into())
             );
             assert_eq!(g.state.rules.pending_triggers.len(), 1);
@@ -277,7 +277,7 @@ fn opponent_damage_private_noncombat_leaf_multiplicity_and_negative_recipients()
         }
         assert_eq!(g.state.rules.pending_triggers.len(), 2);
         assert!(
-            matches!(witness(&g), TriggerEventWitness::DamageDealt { kind: DamageKind::Noncombat, transaction: None, damage } if damage.amount == 1.into())
+            matches!(witness(&g), TriggerEventWitness::DamageDealt { kind: DamageKind::Noncombat, transaction: None, damage, .. } if damage.amount == 1.into())
         );
         g.validate_trigger_state().unwrap();
         // These direct typed-event fixtures do not claim accepted-input replay.

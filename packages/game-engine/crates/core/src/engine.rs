@@ -242,6 +242,8 @@ mod cast_trigger_tests;
 #[cfg(test)]
 mod damage_controller_discard_tests;
 #[cfg(test)]
+mod damage_match_appearance_tests;
+#[cfg(test)]
 mod damage_match_tests;
 #[cfg(test)]
 mod damage_match_v2_tests;

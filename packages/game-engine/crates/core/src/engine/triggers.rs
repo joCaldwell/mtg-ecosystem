@@ -66,6 +66,10 @@ pub enum TriggerEventWitness {
         kind: DamageKind,
         transaction: Option<DamageTransactionId>,
         damage: Box<ActualDamage>,
+        /// CR 109.2/603.10: creature filters inspect the exact permanent at
+        /// the damage event, separately from assigned damage-source LKI.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        match_source: Option<Box<ObjectBefore>>,
     },
     CreatureAttacked {
         attacker: Box<ObjectBefore>,
@@ -126,6 +130,7 @@ pub(super) fn damage_matches(
     controller: PlayerId,
     kind: DamageKind,
     damage: &ActualDamage,
+    match_source: Option<&ObjectBefore>,
 ) -> bool {
     let TriggerCondition::DamageDealt {
         source: subject,
@@ -136,21 +141,24 @@ pub(super) fn damage_matches(
         return false;
     };
     let subject_matches = match subject {
-        DamageTriggerSource::Source {} => damage.source.object == source,
+        DamageTriggerSource::Source {} => match_source.is_none() && damage.source.object == source,
         DamageTriggerSource::CreatureFilter {
             controller: relation,
             types,
         } => {
-            // CR 109.5/205.2b/603.2c: a creature domain and the complete type
-            // predicate both match the actual damager's frozen characteristics.
-            // Its damage-time controller differs from its owner and from the
-            // controller of a noncombat invocation that made it deal damage.
-            damage.source.zone == Zone::Battlefield
-                && damage.source.characteristics.has_type(CardKind::Creature)
-                && types.matches(&damage.source.characteristics)
-                && match relation {
-                    DamageSourceRelation::Controller => damage.source.controller == controller,
-                }
+            // CR 109.2/109.5/603.10: "creature" describes a permanent at
+            // matching, not an absent assigned source or its earlier grants.
+            // This appearance freezes once collected, independently of later
+            // departures and of the damage invocation's controller.
+            match_source.is_some_and(|appearance| {
+                appearance.object == damage.source.object
+                    && appearance.zone == Zone::Battlefield
+                    && appearance.characteristics.has_type(CardKind::Creature)
+                    && types.matches(&appearance.characteristics)
+                    && match relation {
+                        DamageSourceRelation::Controller => appearance.controller == controller,
+                    }
+            })
         }
     };
     subject_matches
@@ -280,6 +288,7 @@ impl Game {
                                 kind: tx.kind,
                                 transaction: Some(tx.id),
                                 damage: Box::new(d.clone()),
+                                match_source: None,
                             });
                         }
                     }
@@ -294,6 +303,7 @@ impl Game {
                     vec![TriggerEventWitness::DamageDealt {
                         kind: DamageKind::Noncombat,
                         transaction: None,
+                        match_source: None,
                         damage: Box::new(ActualDamage {
                             id: DamageId(0),
                             source: damage.source.clone(),
@@ -314,6 +324,7 @@ impl Game {
                         Ok(TriggerEventWitness::DamageDealt {
                             kind: DamageKind::Combat,
                             transaction: None,
+                            match_source: None,
                             damage: Box::new(ActualDamage {
                                 id: DamageId(
                                     u32::try_from(i).map_err(|_| "damage member identity limit")?,
@@ -425,6 +436,20 @@ impl Game {
         } else {
             &*self
         };
+        // Capture from the actual event's resulting game, including genuine
+        // legacy leaves. Prepared damage retains assignment-time facts, while
+        // a creature filter requires this exact incarnation still on the
+        // battlefield under the continuous effects that exist now (603.10).
+        let damage_match_source = match &witness {
+            TriggerEventWitness::DamageDealt { damage, .. }
+                if observers
+                    .current(damage.source.object)
+                    .is_ok_and(|o| o.zone == Zone::Battlefield) =>
+            {
+                Some(Box::new(observers.object_before(damage.source.object)?))
+            }
+            _ => None,
+        };
         let mut matched = vec![];
         for object in observers
             .state
@@ -440,9 +465,15 @@ impl Game {
                 .enumerate()
             {
                 let matches = match &definition.condition {
-                    TriggerCondition::DamageDealt { .. } => {
+                    TriggerCondition::DamageDealt { source, .. } => {
+                        let appearance = match source {
+                            DamageTriggerSource::Source {} => None,
+                            DamageTriggerSource::CreatureFilter { .. } => {
+                                damage_match_source.as_deref()
+                            }
+                        };
                         matches!(&witness, TriggerEventWitness::DamageDealt { kind, damage, .. }
-                            if damage_matches(&definition.condition, object.id, object.controller, *kind, damage))
+                            if damage_matches(&definition.condition, object.id, object.controller, *kind, damage, appearance))
                     }
                     TriggerCondition::CreatureAttacked {
                         attacker: predicate,
@@ -499,6 +530,22 @@ impl Game {
                     && definition.functioning_zone == FunctioningZone::Battlefield
                     && observers.is_live(object.controller)
                 {
+                    let mut matched_witness = witness.clone();
+                    if let TriggerEventWitness::DamageDealt { match_source, .. } =
+                        &mut matched_witness
+                    {
+                        *match_source = if matches!(
+                            definition.condition,
+                            TriggerCondition::DamageDealt {
+                                source: DamageTriggerSource::CreatureFilter { .. },
+                                ..
+                            }
+                        ) {
+                            damage_match_source.clone()
+                        } else {
+                            None
+                        };
+                    }
                     matched.push((
                         if definition.condition == TriggerCondition::OpponentCreatureDies {
                             Some(
@@ -523,11 +570,12 @@ impl Game {
                                 )
                             })
                             .transpose()?,
+                        matched_witness,
                     ));
                 }
             }
         }
-        for (death_controller, source_facts, ability, match_condition) in matched {
+        for (death_controller, source_facts, ability, match_condition, witness) in matched {
             if let Some(check) = &match_condition {
                 self.record_event(Event::TriggerConditionChecked {
                     source: source_facts.object,
@@ -1004,9 +1052,25 @@ impl Game {
                 kind,
                 transaction,
                 damage,
+                match_source,
             } => {
                 let fact = &damage.source;
                 self.validate_characteristic_identity(fact.object, &fact.characteristics)?;
+                if let Some(appearance) = match_source {
+                    self.validate_characteristic_identity(
+                        appearance.object,
+                        &appearance.characteristics,
+                    )?;
+                    if appearance.object != fact.object
+                        || appearance.owner != fact.owner
+                        || appearance.default_controller != fact.default_controller
+                        || appearance.controller.0 >= 4
+                        || appearance.default_controller.0 >= 4
+                        || appearance.marked_damage.is_negative()
+                    {
+                        return Err("snapshot damage match appearance invariant".into());
+                    }
+                }
                 transaction.is_none_or(|id| id.0 < self.state.rules.next_damage_transaction_id)
                     && (damage.id.0 as usize) < self.damage_limit()
                     && damage.amount > Quantity::zero()
@@ -1024,12 +1088,20 @@ impl Game {
                         .get(&fact.object.card)
                         .is_some_and(|c| c.owner == fact.owner)
                     && matches!(damage.recipient, DamageRecipient::Player { player } if player.0 < 4)
-                    && damage_matches(condition, source, controller, *kind, damage)
+                    && damage_matches(
+                        condition,
+                        source,
+                        controller,
+                        *kind,
+                        damage,
+                        match_source.as_deref(),
+                    )
                     && death_controller.is_none()
                 // No live source/recipient or current combat requirement. CR
                 // 113.7a/800.4 preserve a surviving controller's invocation.
-                // Accepted-input replay proves actual member/kind/final amount,
-                // including coherent rehashed lies that satisfy these guards.
+                // Accepted-input replay proves actual member/kind/final amount
+                // and the separately frozen match appearance, including coherent
+                // rehashed lies that satisfy these guards.
             }
             TriggerEventWitness::CreatureAttacked {
                 attacker,

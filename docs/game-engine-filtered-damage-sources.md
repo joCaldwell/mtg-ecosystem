@@ -2,8 +2,8 @@
 
 IR30 adds `FilteredDamageTriggerV1` and
 `DamageTriggerSource::CreatureFilter { controller, types }`. The finite control
-relation is `Controller`: the actual damager's frozen controller must equal the
-observer's controller at collection. Other relations reject. The source domain
+relation is `Controller`: the actual damager's battlefield appearance at the
+event must have the observer's controller. Other relations reject. The source domain
 is battlefield creatures, further restricted by the complete bounded
 `TypePredicate`. Type arrays are conjunctive; artifact **and** creature are both
 required by the source witness. Kind and recipient remain independent dimensions
@@ -25,8 +25,9 @@ before extracting line 11539. The two-row `cards-data-filtered-damage/` group
 retains its source and refers to the original Research Thief file; original
 records are unchanged. No new permanent catalog or profile is introduced.
 
-Matching consumes actual positive player damage members and their frozen source
-facts. The trigger observer and damager can be different incarnations with
+Matching consumes actual positive player damage members, keeping assignment-time
+source facts separate from event-time battlefield appearance. See the subsequent
+[matching correction](game-engine-damage-match-appearance.md). The trigger observer and damager can be different incarnations with
 different owners. Observer source/LKI validation remains separate from damage
 witness validation, which checks the actual damager's card identity and owner.
 One matching occurrence per observer/damager member retains ordinary multiplicity;
