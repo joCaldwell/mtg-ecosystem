@@ -35,6 +35,19 @@ Deferred: arbitrary decks, matchmaking, ratings, spectators, chat, public accoun
 offline play, browser-local search/WASM, strategic AI, game-state undo, and a 3D
 table. These are separate increments with their own admission and privacy policies.
 
+### Deferred design direction: deck-builder cohesion
+
+Josh's direction, 2026-11-13: the game client and deck builder should feel like
+closely connected parts of one product. Align the client's styling and UX with
+the deck builder, including visual identity, typography, colors, spacing, card
+presentation, controls, navigation and common interaction patterns. The current
+client's appearance does not yet meet this expectation and is provisional.
+
+This is a recorded future design requirement, with low current priority. Continue
+gameplay and integration work before undertaking the visual/UX alignment. Plan
+shared design tokens and reusable presentation primitives when that work becomes
+active, while preserving the applications' existing responsibility boundaries.
+
 ## 2. Principles
 
 1. The deterministic core exclusively evaluates rules and legality. The server
