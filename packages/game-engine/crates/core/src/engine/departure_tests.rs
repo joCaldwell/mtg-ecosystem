@@ -416,8 +416,10 @@ fn active_departure_keeps_turn_owner_and_surviving_priority_order() {
     recover(&game);
 }
 #[test]
-fn target_departure_reverses_unfinished_cast_without_spending_mana() {
-    // Test announcement, accepted targets, mana window, and automatic payment.
+fn target_departure_reverses_only_before_proposal_finishes() {
+    // CR601.2e/601.6: unconsumed target proposals reverse, but a legal
+    // proposal survives target departure during costs and fizzles at608.2b.
+    // Test announcement, accepted targets, mana window, and explicit payment.
     for boundary in 0..4 {
         let mut game = Game::new(prepared(false));
         cast(&mut game);
@@ -442,19 +444,60 @@ fn target_departure_reverses_unfinished_cast_without_spending_mana() {
             assert!(matches!(game.state.rules.frame, Frame::SpendMana { .. }));
         }
         depart(&mut game, 1);
-        assert_eq!(
-            game.zone(game.object_id(CardId(1)).unwrap()),
-            Some(Zone::Hand { owner: PlayerId(0) })
-        );
-        assert_eq!(game.object_id(CardId(1)).unwrap().incarnation, 0);
-        assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::from(1)));
-        assert!(game.state.rules.stack.is_empty());
-        assert!(
-            !game
-                .events()
-                .iter()
-                .any(|e| matches!(e, Event::SpellCast { .. }))
-        );
+        if boundary < 2 {
+            assert_eq!(
+                game.zone(game.object_id(CardId(1)).unwrap()),
+                Some(Zone::Hand { owner: PlayerId(0) })
+            );
+            assert_eq!(game.object_id(CardId(1)).unwrap().incarnation, 0);
+            assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::from(1)));
+            assert!(game.state.rules.stack.is_empty());
+            assert!(
+                !game
+                    .events()
+                    .iter()
+                    .any(|e| matches!(e, Event::SpellCast { .. }))
+            );
+        } else {
+            assert_eq!(
+                game.zone(game.object_id(CardId(1)).unwrap()),
+                Some(Zone::Stack)
+            );
+            assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::from(1)));
+            if let Advance::AwaitingDecision(Request::Mana {
+                player,
+                decision_id,
+                ..
+            }) = game.advance(Budget::unlimited())
+            {
+                game.respond(
+                    player,
+                    decision_id,
+                    Response::FinishMana { undo_mana: false },
+                )
+                .unwrap();
+            }
+            game.complete_test_mana();
+            assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::zero()));
+            assert!(
+                game.events()
+                    .iter()
+                    .any(|e| matches!(e, Event::SpellCast { .. }))
+            );
+            for _ in 0..8 {
+                let _ = game.advance(Budget::unlimited());
+                if game.state.rules.stack.is_empty() {
+                    break;
+                }
+                respond(&mut game, Response::Pass);
+            }
+            let _ = game.advance(Budget::unlimited());
+            assert!(game.state.rules.stack.is_empty());
+            assert_eq!(
+                game.zone(game.object_id(CardId(1)).unwrap()),
+                Some(Zone::Graveyard { owner: PlayerId(0) })
+            );
+        }
         let _ = game.advance(Budget::unlimited());
         assert_eq!(
             Game::replay(game.prepared.as_ref().clone(), &game.replay_journal())

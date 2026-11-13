@@ -522,6 +522,86 @@ fn blocking_target_private_control_return_ends_status_without_leaving_battlefiel
 }
 
 #[test]
+fn blocking_target_owner_departure_during_mana_keeps_legal_cast_then_fizzles() {
+    // CR601.6: the target was legal when chosen. Its owner's concession during
+    // costs cannot undo that proposal;608.2b checks the absent target later.
+    let mut p = prepared();
+    p.config.cards[1].owner = PlayerId(2);
+    p.profile_digest = digest(&p.config).unwrap();
+    let mut g = Game::new(p);
+    declare(&mut g, 1);
+    let blocker = object(&g, 1);
+    priority(&mut g, 1, PlayerId(1));
+    answer(&mut g, 1, Response::Cast { card: CardId(4) });
+    answer(
+        &mut g,
+        1,
+        Response::Targets {
+            objects: vec![blocker],
+        },
+    );
+    assert!(matches!(
+        request(&mut g, 1),
+        Request::Mana {
+            player: PlayerId(1),
+            ..
+        }
+    ));
+    g.concede(PlayerId(2)).unwrap();
+    assert!(
+        matches!(
+            request(&mut g, 1),
+            Request::Mana {
+                player: PlayerId(1),
+                ..
+            }
+        ),
+        "a chosen target leaving during payment must not reverse a legal proposal"
+    );
+    assert!(!g.is_blocking_creature(blocker));
+    assert!(g.current(blocker).is_err());
+    check(&g);
+    for _ in 0..10 {
+        let r = request(&mut g, 1);
+        let response = match &r {
+            Request::Mana { cost, .. } if g.payment_pool(PlayerId(1), cost).is_ok() => {
+                Response::FinishMana { undo_mana: false }
+            }
+            Request::Mana { .. } => Response::ActivateMana {
+                object: object(&g, 3),
+            },
+            Request::SpendMana { cost, .. } => {
+                assert_eq!(cost.generic, Quantity::zero());
+                assert_eq!(cost.colored, vec![Color::W]);
+                Response::SpendMana {
+                    spending: BTreeMap::from([(Color::W, 1.into())]),
+                }
+            }
+            Request::Priority { .. } => break,
+            other => panic!("pending payment: {other:?}"),
+        };
+        g.respond(r.player(), r.decision_id(), response).unwrap();
+    }
+    assert!(!g.state.rules.stack.is_empty());
+    assert_eq!(g.current(object(&g, 4)).unwrap().zone, Zone::Stack);
+    assert!(g.current(object(&g, 3)).unwrap().tapped);
+    check(&g);
+    resolve(&mut g, 1);
+    assert_eq!(
+        g.current(object(&g, 4)).unwrap().zone,
+        Zone::Graveyard { owner: PlayerId(1) }
+    );
+    assert!(
+        !g.state
+            .rules
+            .effects
+            .iter()
+            .any(|e| matches!(e.kind, ResolvedEffectKind::ModifyPowerToughness { .. }))
+    );
+    check(&g);
+}
+
+#[test]
 fn blocking_target_snapshot_membership_is_structural_and_replay_bound() {
     let mut g = Game::new(prepared());
     declare(&mut g, 1);
@@ -545,5 +625,61 @@ fn blocking_target_snapshot_membership_is_structural_and_replay_bound() {
         panic!("new target capability must remain unreviewed")
     };
     assert!(capabilities.contains(&Capability::BlockingCreatureTargetV1));
+    check(&g);
+}
+
+#[test]
+fn blocking_target_action_discovery_uses_live_membership_without_mutation() {
+    fn offers_cast(g: &Game) -> bool {
+        let before = g.snapshot().unwrap();
+        let QueryResult::Complete(QueryValue::Decision(Some(r))) =
+            g.player_decision_for(PlayerId(0), Budget::unlimited())
+        else {
+            panic!("own priority decision")
+        };
+        let QueryResult::Complete(QueryValue::Observation(view)) =
+            g.observe(PlayerId(0), Budget::unlimited())
+        else {
+            panic!("own permitted view")
+        };
+        let handle = view
+            .view
+            .objects
+            .iter()
+            .find(|o| o.oracle_id == "3f6b2f76-0364-415e-a6a2-e9e5bf31b745")
+            .unwrap()
+            .handle
+            .clone();
+        let result = g.player_session(PlayerId(0)).action_beginnings(
+            r.token().clone(),
+            ActionScope::Object { object: handle },
+            ACTION_PAGE_MAX,
+            Budget::unlimited(),
+        );
+        let ActionQueryOutcome::Complete { page } = result.outcome() else {
+            panic!("bounded action page: {:?}", result.outcome())
+        };
+        let cast = page
+            .beginnings
+            .iter()
+            .any(|a| matches!(a.initiation, ActionInitiation::Cast { .. }));
+        assert_eq!(g.snapshot().unwrap(), before);
+        cast
+    }
+    let mut g = Game::new(prepared());
+    priority(&mut g, 1, PlayerId(0));
+    assert!(!offers_cast(&g));
+    declare(&mut g, 1);
+    priority(&mut g, 1, PlayerId(0));
+    assert!(offers_cast(&g));
+    let attacker = object(&g, 0);
+    announce(&mut g, 1, 5, attacker);
+    resolve(&mut g, 1);
+    assert!(g.state.rules.combat.is_empty());
+    priority(&mut g, 1, PlayerId(0));
+    assert!(offers_cast(&g));
+    reach(&mut g, 1, TurnStep::PostcombatMain);
+    priority(&mut g, 1, PlayerId(0));
+    assert!(!offers_cast(&g));
     check(&g);
 }

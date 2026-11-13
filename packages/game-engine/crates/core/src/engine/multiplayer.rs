@@ -517,15 +517,29 @@ impl Game {
         | Frame::SpendMana { cast }
         | Frame::Payment { cast } = self.state.rules.frame.clone()
         {
-            let targets_bad = self.state.rules.stack.last().is_some_and(|s| {
-                self.bound_target_count(s) != 0
-                    && self
-                        .announced_target_legality(s)
-                        .iter()
-                        .any(|legal| !*legal)
-            });
-            let pending_bad =
-                self.state
+            // CR601.2e/601.6 (also602.2b): proposal legality precedes
+            // costs. Bound targets may become illegal during payment; keep
+            // their identities and recheck them at resolution under608.2b.
+            let proposing = matches!(
+                self.state.rules.frame,
+                Frame::AnnounceX { .. }
+                    | Frame::Modes { .. }
+                    | Frame::EntityTargets { .. }
+                    | Frame::Targets { .. }
+                    | Frame::StackTargets { .. }
+                    | Frame::PlayerTargets { .. }
+            );
+            let targets_bad = proposing
+                && self.state.rules.stack.last().is_some_and(|s| {
+                    self.bound_target_count(s) != 0
+                        && self
+                            .announced_target_legality(s)
+                            .iter()
+                            .any(|legal| !*legal)
+                });
+            let pending_bad = proposing
+                && self
+                    .state
                     .rules
                     .pending
                     .as_ref()
@@ -547,7 +561,8 @@ impl Game {
                         }
                         _ => false,
                     });
-            let no_domain = !self.has_target_domain(self.program()?, self.top()?.controller);
+            let no_domain =
+                proposing && !self.has_target_domain(self.program()?, self.top()?.controller);
             let source_bad = cast.origin == AnnouncementOrigin::Activated
                 && (matches!(self.state.rules.frame, Frame::EntityTargets { .. })
                     || matches!(self.top()?.kind, StackKind::Activated {ability,..} if self.top().is_ok_and(|top| self.definition(top.source.card).is_ok_and(|d| d.activated.get(ability as usize).is_some_and(|a| matches!(a.cost, ActivationCost::Composite {..}))))))
@@ -555,15 +570,8 @@ impl Game {
             // CR 601.2e/601.6: proposal legality is checked before the
             // mana/payment stages (601.2f-h). A prohibition that appears
             // during those later stages cannot undo the legal proposal.
-            let cast_prohibited = matches!(
-                self.state.rules.frame,
-                Frame::AnnounceX { .. }
-                    | Frame::Modes { .. }
-                    | Frame::EntityTargets { .. }
-                    | Frame::Targets { .. }
-                    | Frame::StackTargets { .. }
-                    | Frame::PlayerTargets { .. }
-            ) && self.top()?.kind.is_spell()
+            let cast_prohibited = proposing
+                && self.top()?.kind.is_spell()
                 && self
                     .validate_cast_permission(self.top()?.controller)
                     .is_err();
