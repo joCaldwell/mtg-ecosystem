@@ -1368,9 +1368,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         "nonspell ability on instant/sorcery",
                     ));
                 };
-                if effects.iter().flat_map(|s| &s.steps).any(|step| matches!(step,Step::Damage { source,.. } if !matches!(source,DamageSource::SelfReference {}))) {
-                    return Err(unsupported("damage.source","a spell must refer to its own spell source"));
-                }
+                validate_damage_sources(effects, DamageSourceBinding::Spell)?;
                 // Separate source blocks introduce independent occurrences (CR115.3).
                 // Reusing a selection ID across blocks must not alias targets.
                 slots.clear();
@@ -3062,15 +3060,72 @@ fn damage_combat_qualifier<'de, D: serde::Deserializer<'de>>(
 ) -> Result<Option<bool>, D::Error> {
     bool::deserialize(deserializer).map(Some)
 }
-// CR 120.2b/608.2h: an event pronoun is not automatically this ability's
-// physical source. Only first-step self events establish that equality; later
-// instructions or modal branches may introduce a different object antecedent.
+// CR 120.2b/608.2h: the object specified by the instruction deals damage.
+// An event/cost pronoun is not automatically this invocation's physical source.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+#[derive(Clone, Copy)]
+enum DamageSourceBinding {
+    Spell,
+    Invocation { first_it_is_self: bool },
+}
+fn validate_damage_sources(
+    effects: &[Sentence],
+    binding: DamageSourceBinding,
+) -> Result<(), Failure> {
+    fn bound(effects: &[Sentence], binding: DamageSourceBinding, top_level: bool) -> bool {
+        for (sentence_index, sentence) in effects.iter().enumerate() {
+            for (step_index, step) in sentence.steps.iter().enumerate() {
+                match step {
+                    Step::Damage { source, .. } => match binding {
+                        DamageSourceBinding::Spell
+                            if !matches!(source, DamageSource::SelfReference {}) =>
+                        {
+                            return false;
+                        }
+                        DamageSourceBinding::Invocation { first_it_is_self }
+                            if matches!(source, DamageSource::It {})
+                                && (!first_it_is_self
+                                    || !top_level
+                                    || sentence_index != 0
+                                    || step_index != 0
+                                    || !sentence.bindings.is_empty()) =>
+                        {
+                            return false;
+                        }
+                        _ => {}
+                    },
+                    Step::Modal { options, .. }
+                        if options
+                            .iter()
+                            .any(|option| !bound(&option.effects, binding, false)) =>
+                    {
+                        return false;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        true
+    }
+    if !bound(effects, binding, true) {
+        return Err(match binding {
+            DamageSourceBinding::Spell => unsupported(
+                "damage.source",
+                "a spell must refer to its own spell source",
+            ),
+            DamageSourceBinding::Invocation { .. } => unsupported(
+                "abilities.effects.source",
+                "pronoun damage source requires a first-step proven invocation source",
+            ),
+        });
+    }
+    Ok(())
+}
 fn validate_trigger_damage_sources(
     condition: &TriggerCondition,
     effects: &[Sentence],
 ) -> Result<(), Failure> {
-    let self_event = matches!(
+    let first_it_is_self = matches!(
         condition,
         TriggerCondition::SelfDies
             | TriggerCondition::SelfEntersBattlefield
@@ -3082,38 +3137,10 @@ fn validate_trigger_damage_sources(
                 ..
             }
     );
-    fn bound(effects: &[Sentence], self_event: bool) -> bool {
-        for (sentence_index, sentence) in effects.iter().enumerate() {
-            for (step_index, step) in sentence.steps.iter().enumerate() {
-                match step {
-                    Step::Damage {
-                        source: DamageSource::It {},
-                        ..
-                    } if !self_event
-                        || sentence_index != 0
-                        || step_index != 0
-                        || !sentence.bindings.is_empty() =>
-                    {
-                        return false;
-                    }
-                    Step::Modal { options, .. }
-                        if options.iter().any(|option| !bound(&option.effects, false)) =>
-                    {
-                        return false;
-                    }
-                    _ => {}
-                }
-            }
-        }
-        true
-    }
-    if !bound(effects, self_event) {
-        return Err(unsupported(
-            "abilities.effects.source",
-            "event-pronoun damage source requires a first-step self event",
-        ));
-    }
-    Ok(())
+    validate_damage_sources(
+        effects,
+        DamageSourceBinding::Invocation { first_it_is_self },
+    )
 }
 fn lower_trigger(
     trigger: &SourceTrigger,
@@ -3545,6 +3572,14 @@ fn lower_activation(
             ));
         }
     };
+    // Only sacrificing this exact source establishes the first pronoun's
+    // identity. Choosing another permanent does not make it the invocation.
+    validate_damage_sources(
+        effects,
+        DamageSourceBinding::Invocation {
+            first_it_is_self: matches!(cost, ActivationCost::SacrificeSource),
+        },
+    )?;
     let source_block = source_block(block)?;
     let mut program = SpellProgram {
         additional_sacrifice: None,
@@ -8198,3 +8233,6 @@ mod d2cd_tests;
 
 #[cfg(test)]
 mod d2ce_tests;
+
+#[cfg(test)]
+mod activation_source_tests;
