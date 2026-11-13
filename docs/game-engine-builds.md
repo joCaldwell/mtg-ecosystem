@@ -72,6 +72,15 @@ this wave: its coordinated reuse sets `ENGINE_CACHE_MAX_GIB=32` explicitly.
 Selecting the new stable default instead leaves those bytes in place and can
 require a cold compile; cross-worktree reuse is not guaranteed to avoid rebuilding
 workspace crates because their absolute source paths differ.
+Cargo's [local-source freshness checks](https://doc.rust-lang.org/stable/nightly-rustc/cargo/compiler/fingerprint/index.html)
+use modification times. Shared-target reuse across worktrees has produced stale
+local crate artifacts when switching source baselines. If a build contradicts its
+local IR authority, preserve the failure and refresh only that owned worktree's
+relevant source/build-script timestamps, verifying byte hashes are unchanged,
+then rebuild under the shared lock. Do not delete the shared target to repair it.
+Check compiled source identity and exported schemas; a warm cache alone is not
+proof of the selected source.
+
 For reviewed incremental-only cleanup use the existing engine storage tools and
 their coordination rules; do not treat retained proof executables as disposable.
 

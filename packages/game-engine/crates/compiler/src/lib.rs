@@ -2328,7 +2328,15 @@ fn lower_permanent_filter(v: &serde_json::Value) -> Result<PermanentFilter, Fail
         return Err(unsupported("filter", "unsupported filter term"));
     }
     if let Some(a) = v.get("types") {
-        for t in a.as_array().ok_or_else(|| unsupported("filter", "types"))? {
+        let a = a.as_array().ok_or_else(|| unsupported("filter", "types"))?;
+        // ObjectFilter.types requires every type (oracle-parser/src/ast.ts),
+        // whereas PermanentFilter.types contains alternatives. Do not widen
+        // target criteria: pinned CR 205.2b, 601.2c and 608.2b.
+        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+        if a.len() > 1 {
+            return Err(unsupported("filter.types", "unsupported type conjunction"));
+        }
+        for t in a {
             types.push(kind(t)?);
         }
     }
@@ -3992,6 +4000,96 @@ mod tests {
                 ..
             }
         ));
+    }
+    #[test]
+    fn removal_direct_type_conjunction_rejects_without_changing_supported_filters() {
+        fn changed_removal_target(
+            raw: &str,
+            text: &str,
+            change: impl FnOnce(&mut serde_json::Value),
+        ) -> String {
+            changed_source(raw, |record| {
+                record["source"]["oracle_text"] = text.into();
+                let result = &mut record["faces"][0]["result"];
+                let target = &mut result["abilities"][0]["effects"][0]["steps"][0]["what"];
+                change(target);
+                let target = target.clone();
+                result["lines"][0]["text"] = text.into();
+                result["lines"][0]["ability"] = result["abilities"][0].clone();
+                // Keep diagnostic expressions coherent with this synthetic source.
+                // They remain nonexecutable; semantic lowering owns the filter.
+                let path = "/faces/0/abilities/0/effects/0/steps/0/what";
+                for node in record["binding"]["nodes"].as_array_mut().unwrap() {
+                    if node["node"] == "selection" && node["path"] == path {
+                        node["expression"] = target.clone();
+                    }
+                }
+                for reference in record["binding"]["references"].as_array_mut().unwrap() {
+                    if reference["path"] == path {
+                        reference["expression"] = target.clone();
+                    }
+                }
+            })
+        }
+        let catalog = embedded_catalog("removal").unwrap();
+        let source = |name| {
+            fixtures::REMOVAL_RECORDS
+                .iter()
+                .find(|r| r.0 == name)
+                .unwrap()
+                .1
+        };
+        // The retained single-type/exclusion and explicit artifact-or-enchantment
+        // union remain complete, byte-exact source-to-definition positives.
+        for name in ["doom-blade", "disenchant"] {
+            let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, source(name))
+            else {
+                panic!("complete retained source: {name}")
+            };
+            assert_eq!(
+                catalog.definition_by_oracle_id(&definition.oracle_id),
+                Some(&*definition)
+            );
+        }
+        for (text, field, value) in [
+            (
+                "Destroy target artifact or enchantment you control.",
+                "control",
+                serde_json::json!("you"),
+            ),
+            (
+                "Destroy target artifact creature that's an artifact or enchantment.",
+                "types",
+                serde_json::json!(["artifact", "creature"]),
+            ),
+        ] {
+            let mutant = changed_removal_target(source("disenchant"), text, |target| {
+                target["filter"][field] = value;
+            });
+            assert!(
+                matches!(
+                    compile(fixtures::MANIFEST, &mutant),
+                    CompileResult::Unsupported { .. }
+                ),
+                "unconsumed qualified/mixed target: {text}"
+            );
+        }
+        // ObjectFilter.types is AND (oracle-parser/src/ast.ts3248), while the
+        // finite IR PermanentFilter.types is OR. CR205.2b/601.2c/608.2b require
+        // the complete target criteria at announcement and resolution. This
+        // rehashed source is a regression witness, not an additional card fact.
+        let mutant = changed_removal_target(
+            source("doom-blade"),
+            "Destroy target nonblack artifact creature.",
+            |target| {
+                target["filter"]["types"] = serde_json::json!(["artifact", "creature"]);
+            },
+        );
+        let result = compile(fixtures::MANIFEST, &mutant);
+        assert!(
+            matches!(result, CompileResult::Unsupported { .. }),
+            "direct conjunctive target must reject instead of widening to artifact OR creature: {result:?}"
+        );
     }
     #[test]
     fn removal_whole_card_mutants_cannot_lose_filters_references_or_flags() {
