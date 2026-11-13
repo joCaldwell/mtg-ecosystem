@@ -17,6 +17,7 @@ export interface SeatView {
   readonly handCount: string | null;
   readonly libraryCount: string | null;
   readonly battlefield: readonly CardView[];
+  readonly commandZone: readonly CardView[];
 }
 export interface TableView {
   readonly title: string;
@@ -34,5 +35,5 @@ export interface TableView {
 export function cardName(card: CardView): string { return card.name ?? 'Unidentified card'; }
 
 export function inspectableCards(table: TableView): readonly CardView[] {
-  return [...table.hand, ...table.commandZone, ...table.stack, ...table.seats.flatMap(seat => seat.battlefield)];
+  return [...table.hand, ...table.commandZone, ...table.stack, ...table.seats.flatMap(seat => [...seat.battlefield, ...seat.commandZone])];
 }

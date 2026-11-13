@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { CardFace } from '../../cards/CardFace.tsx';
-import { inspectableCards, type CardView, type TableView } from '../../presentation/table-model.ts';
+import { cardName, inspectableCards, type CardView, type TableView } from '../../presentation/table-model.ts';
 import { Inspector } from '../inspector/Inspector.tsx';
 import styles from './Table.module.css';
 
@@ -25,6 +25,9 @@ export function Table({ table }: { table: TableView }) {
           {table.seats.map(seat => <article className={styles.seat} key={seat.label}>
             <div className={styles.seatTop}><h2>{seat.label}{seat.isViewer && <span> · You</span>}</h2><span className={styles.life}>{seat.life ?? '—'}<small>life</small></span></div>
             <p>Hand {seat.handCount ?? '—'} <span aria-hidden="true">·</span> Library {seat.libraryCount ?? '—'}</p>
+            {seat.commandZone.map(commander => <button key={commander.inspectionId} className={styles.commanderLink}
+              aria-label={`Inspect ${cardName(commander)} for ${seat.label}`} aria-pressed={selected === commander.inspectionId}
+              onClick={event => inspect(commander.inspectionId, event.currentTarget)}>{cardName(commander)}</button>)}
           </article>)}
         </section>
         <section className={styles.battlefield} aria-labelledby="battlefield-title">

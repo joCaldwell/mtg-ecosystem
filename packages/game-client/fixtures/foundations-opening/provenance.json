@@ -1,0 +1,34 @@
+{
+  "fixture_version": 1,
+  "native_source": "5ff4fd94b6dace1cdee0f0223305e054c42af8f3",
+  "native_base": "691496f6410c188d0e26f3a6f46d35f5ee159243",
+  "producer_path": "packages/game-server/tools/client-artifacts.ts",
+  "producer_sha256": "ac83036695a5e17810c381e55b47cf6a7338585e824709228bf434cb897ef5fd",
+  "protocol_schema_sha256": "519ce989ecc98c87e4aba0a14c1c7aa04fffa1aa552c7f2905cdb42f290b93ae",
+  "catalog_sha256": "fc4bd3390e63ea352e129ac370fa848dbee11cf0700e7e6781d449fd49244a7f",
+  "capture": "Authenticated HTTP resume from native systemd-isolated Worker; seat 0, opening mulligan. Exact producer output copied without edits. Public presentation catalog; only observed IDs rendered.",
+  "files": [
+    {
+      "path": "opening-seat0-http.json",
+      "sha256": "cb0214f247ccb0c651f6cb97534539420e0e1a3eb18867dd75509742335d87d9"
+    },
+    {
+      "path": "presentation.json",
+      "sha256": "f3d1c0c33a76565ab107c0201320072c705845cadc4508c7364f7c0b3d3b16b7"
+    },
+    {
+      "path": "presentation.schema.json",
+      "sha256": "a7045da3459cd5b6a126ca804ea22716062c63ce3127017bb5f3637c840231a6"
+    },
+    {
+      "path": "producer-artifacts.json",
+      "sha256": "f2c6e660c47b5f85e3e297650cc0050ff2167f587796b8c4ae8d338c8e0ef2d2"
+    },
+    {
+      "path": "request-inventory.json",
+      "sha256": "208ec7fdb0b3bd52881b5c11aa5b419c028483ec5a2b93e7ae180cc9f6361543"
+    }
+  ],
+  "sdk_source": "2fd07521cc8f342defe05b02b0cb2e00dde226b2",
+  "sdk_browser_base": "f2fb12910bcc4a4d52d6c88b98f61647f4246b24"
+}

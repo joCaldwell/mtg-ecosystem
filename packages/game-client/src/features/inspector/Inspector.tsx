@@ -17,9 +17,9 @@ export function Inspector({ card, onClose }: { card: CardView | null; onClose: (
       <h2 ref={heading} tabIndex={-1} className={styles.title}>{cardName(card)}</h2>
       <p className={styles.zone}>{card.zoneLabel}</p>
       <div className={styles.face}>
-        <p className={styles.mana}>{card.printedMana ?? 'Mana cost unavailable'}</p>
+        <p className={styles.mana}>{card.printedMana === '' ? 'No printed mana cost' : card.printedMana ?? 'Mana cost unavailable'}</p>
         <p className={styles.type}>{card.printedType ?? 'Type unavailable'}</p>
-        <p className={styles.oracle}>{card.oracleText ?? 'Source text is not available for this object.'}</p>
+        <p className={styles.oracle}>{card.oracleText === '' ? 'No printed rules text' : card.oracleText ?? 'Source text is not available for this object.'}</p>
       </div>
       <p className={styles.caption}>Text view · artwork not loaded</p>
       <h3>Current characteristics</h3>

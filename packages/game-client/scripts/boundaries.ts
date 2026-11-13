@@ -20,6 +20,8 @@ export function boundaryViolations(file: string, source: string): string[] {
   const canEffect = file.startsWith('session/effects/');
   const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith('tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   function checkImport(specifier: string, typeOnly: boolean) {
+    if (typeOnly && ['app', 'presentation'].includes(layer) && specifier === '../../generated/presentation.d.ts') return;
+    if (layer === 'app' && /^\.\.\/\.\.\/fixtures\/foundations-opening\/(opening-seat0-http|presentation)\.json$/.test(specifier)) return;
     if (specifier.startsWith('.')) {
       const path = file.split('/').slice(0, -1);
       for (const part of specifier.split('/')) {
@@ -33,7 +35,8 @@ export function boundaryViolations(file: string, source: string): string[] {
       return;
     }
     if (specifier.startsWith('@multiverse/game-server-sdk')) {
-      if (!['session', 'presentation', 'decisions'].includes(layer) || (!typeOnly && !canEffect)) issues.push('SDK runtime belongs only in session/effects');
+      if (!['@multiverse/game-server-sdk', '@multiverse/game-server-sdk/browser'].includes(specifier)) issues.push('Only public SDK entrypoints are permitted');
+      if (!['app', 'session', 'presentation', 'decisions'].includes(layer) || (!typeOnly && !canEffect)) issues.push('SDK runtime belongs only in session/effects');
       return;
     }
     if (pure || !['react', 'react-dom/client', 'react-router'].includes(specifier)) issues.push(`Forbidden external import: ${specifier}`);

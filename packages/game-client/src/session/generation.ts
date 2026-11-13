@@ -18,5 +18,8 @@ export class GenerationFence {
 
   isCurrent(generation: Generation): boolean { return this.#current === generation; }
 
-  stop(): void { this.#current = null; }
+  /** A late cleanup from a previous owner cannot stop its replacement. */
+  stop(generation: Generation): void {
+    if (this.#current === generation) this.#current = null;
+  }
 }

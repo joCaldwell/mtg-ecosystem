@@ -12,12 +12,14 @@ test('same authorization start is idempotent; stop/restart fences late work', as
   let applied = false;
   const pending = new Promise<void>(resolve => { finish = resolve; })
     .then(() => { if (fence.isCurrent(first)) applied = true; });
-  fence.stop(); fence.stop();
+  fence.stop(first); fence.stop(first);
   const restarted = fence.start(authorization);
   finish(); await pending;
   assert.equal(applied, false);
   assert.equal(fence.isCurrent(first), false);
   assert.equal(fence.isCurrent(restarted), true);
+  fence.stop(first);
+  assert.equal(fence.isCurrent(restarted), true, 'late cleanup cannot stop replacement owner');
 });
 
 test('seat switch and same-seat reauthorization both invalidate outstanding generations', () => {

@@ -10,8 +10,8 @@ export function CardFace({ card, selected, onInspect }: {
   return <button className={styles.card} aria-label={`Inspect ${cardName(card)}`}
     aria-pressed={selected} onClick={event => onInspect(card.inspectionId, event.currentTarget)}>
     <span className={styles.heading}>{cardName(card)}</span>
-    <span className={styles.mana}>{card.printedMana ?? 'Mana cost unavailable'}</span>
-    <span className={styles.text}>{card.oracleText ?? 'Source text unavailable'}</span>
+    <span className={styles.mana}>{card.printedMana === '' ? 'No printed mana cost' : card.printedMana ?? 'Mana cost unavailable'}</span>
+    <span className={styles.text}>{card.oracleText === '' ? 'No printed rules text' : card.oracleText ?? 'Source text unavailable'}</span>
     <span className={styles.type}>{card.printedType ?? 'Type unavailable'}</span>
     <span className={styles.inspect}>Inspect card <span aria-hidden="true">↗</span></span>
   </button>;
