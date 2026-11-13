@@ -233,3 +233,27 @@ Catalog identity (canonical compiled catalog):
 Presentation/artifact manifest additionally pins the catalog file bytes, producer
 source and generated schema bytes. Fixture export is development-only; the native
 server does not expose seeds or raw catalogs through resume.
+
+
+### Post-checkpoint integration evidence
+
+Native dependency commit is `5ff4fd94b6dace1cdee0f0223305e054c42af8f3`;
+this report-only follow-up does not change its executable/schema identity.
+The SDK lane supplied a real-browser read proof, inspected and copied to
+`generated/client-native/sdk-browser-host-proof.json` (SHA256
+`f05e70dc29a367454b341388f3fe8d22c8d452aab6491f2c48350dbd24983348`). It binds that native commit/binary,
+the schema/build IDs above, SDK bundle digest, harness source digests and lockfile.
+Chromium 158.0.8127.18 and Firefox 159.0 each used separate seat-0/seat-1 contexts:
+16 authenticated manifest/resume/stream/repeated-resume GETs total, matching
+identities/viewers and committed boundary, no-store, zero CSP violations.
+This establishes that narrow browser-to-real-host read path, not full M0, four-seat
+browser privacy, command recovery, semantic queries or natural-game acceptance.
+
+After the SDK released the host, a focused terminal check sent three explicit test
+concessions. Each became ConsumedByRules, exact-envelope retries returned the
+original Accepted result, and all four resumes returned win/player 0 at own cursor
+5 with empty subsequent streams. `http-terminal-resume.json` retains the exact
+result; this is deliberately **not** natural-game evidence. The task-owned host
+received graceful SIGINT and exited successfully; no task-owned native processes
+remain. Private registry/credentials, original failed fixture and all evidence are
+retained. The native build slot was released to the engine lane.
