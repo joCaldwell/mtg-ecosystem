@@ -1971,6 +1971,13 @@ fn append_spell_effects(
                         {
                             return Err(unsupported("counter", "unsupported typed spell filter"));
                         }
+                        if program.targets[slot as usize]
+                            .filter
+                            .as_ref()
+                            .is_some_and(|old| old != &f)
+                        {
+                            return Err(unsupported("counter", "conflicting target filter"));
+                        }
                         program.targets[slot as usize].filter = Some(f);
                     }
                     Instruction::CounterStackObject {
@@ -8287,3 +8294,6 @@ mod untap_tests;
 
 #[cfg(test)]
 mod artifact_sacrifice_source_tests;
+
+#[cfg(test)]
+mod counter_target_reuse_tests;
