@@ -2,13 +2,13 @@
   "inventory_version": 1,
   "implementation_base": "144fe059ab2707877109d7e9dbe8751f204681dd",
   "qualification": {
-    "native_source": "936566b76e9819c4503c9065590be2a66037d26a",
-    "protocol_schema_sha256": "7fe738bb5a4aecaedb23a9a6405691c6497c6b117b38464aacde6601f152204c",
+    "native_source": "e86df7e73f5ac896a4b2488779efb46ef28240d4",
+    "protocol_schema_sha256": "a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3",
     "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
-    "scope": "Combined schema-1 main with blocking-creature spell targets, reviewed core queries, local serving and live read-only client. Fresh native exports; historical fixture capture/provenance remains unchanged. SDK and client use one qualified build.",
-    "sdk_source": "936566b76e9819c4503c9065590be2a66037d26a",
-    "sdk_build_manifest_sha256": "72c04c45977288dcb74055d7f5238f3a91f586949bcd17250a56145e065d8717",
-    "sdk_generation_sha256": "6d4ccd06a8cb00bd3133b1d7363e009525159dcec6047cf1ec79eb79e411e58d"
+    "scope": "Reviewed action-query transport and exact-command SDK integrated with main 0b4a8757 compiler source-binding correction. Fresh combined native exports; historical capture/provenance unchanged. One current SDK build qualifies both packages.",
+    "sdk_source": "e86df7e73f5ac896a4b2488779efb46ef28240d4",
+    "sdk_build_manifest_sha256": "793333249d3f65e391505bb346415ef5ec010141e5c0e7574a9d4e9ee27f8123",
+    "sdk_generation_sha256": "c8507de687345e9df5b911f3ddb12e072e8b52d7533ee901ce8268d3e26bcb5b"
   },
   "capture_qualification": {
     "native_source": "5ff4fd94b6dace1cdee0f0223305e054c42af8f3",

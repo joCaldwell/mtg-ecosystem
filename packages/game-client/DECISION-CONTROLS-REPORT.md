@@ -232,3 +232,50 @@ families and additional source-qualified captures remain required for reviewed
 live presentation. Extend the native SPA allowlist only if the isolated gallery
 is deliberately included in a later hosted build. No live control wiring, merge
 or deployment is authorized by this checkpoint's passing fixture checks.
+
+## Parent combined-source qualification
+
+Parent combined current main `0b4a8757`, reviewed action transport and the journal
+branch at `7673f19c0885c98b4af7ceb1c02635ad243dfd52`. Native/SDK source is
+`e86df7e73f5ac896a4b2488779efb46ef28240d4`, explicitly rebuilt after the main
+compiler correction. Protocol is now deliberately qualified to
+`a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3`.
+The prepared-command prerequisite is preserved once. Historical fixture and
+prefix capture/provenance facts above are unchanged. The controls inventory was
+explicitly regenerated with `decision-inventory.mjs --write` from that same
+current SDK build; it still reports 28 requests/33 responses, nine local adapters
+and 19 blocked shapes. No missing context was inferred to bypass those gates.
+
+Combined generation/strict types and all 66 SDK tests passed. Then client strict
+types, boundaries, all 67 tests and production build, all 22 production fixture
+browser cases and all 16 actual IndexedDB journal browser cases passed, without
+switching SDK artifacts. Root `generated/m2-integration/` retains these new logs,
+inventory output, exported production assets and qualification hashes. Older
+standalone evidence remains separately qualified above.
+
+An additional automated integration harness composed the actual command-session
+factory, pure control adapter and built SDK against fresh native `serve-client`,
+through a test-only same-origin proxy. Chromium and Firefox each imported an
+actual seat file, captured the original full CommandContext, and explicitly kept
+the source-backed permitted opening hand through a test button. The journal
+persisted before send; its exact body hash matched the genuine native POST. The
+proxy dropped the response body only after native HTTP 200. Local stop preserved
+the unresolved slot. Navigation/reimport recovered through native execution status
+and a fresh coherent resume; `consumed_by_rules` cleared the slot. Each browser
+sent exactly one command, advanced its own cursor, and ignored the old intent.
+No synthetic execution status or game response was supplied to make that pass.
+
+The receipt is `generated/m2-integration/native-journal-02/report.json` and the
+reproducible source is `native-journal.mjs`, both in this worktree. The initial
+run checked for the opening immediately after HTTP readiness while native progress
+was still pending. Its failure/log/private registry are retained as attempt 01;
+the corrected harness waits within a fixed bound for the committed request.
+No product code changed for that harness correction. All owned browsers and
+native host processes are stopped. `docs/game-client-action-transport.md` records
+the fresh native build identities, source fingerprints and 40 focused tests.
+
+This proves automated source-module/SDK/native journal integration with a local
+control completion. The deployed App remains read-only, the product development
+proxy remains read-only, and the native gallery route remains excluded. Enabling
+reviewed live controls, session-owned query lifetime, source labels/context,
+unobserved families and human play remain later implementation gates.
