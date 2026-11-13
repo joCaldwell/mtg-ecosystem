@@ -2845,7 +2845,7 @@ fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
     };
     let player = |recipient: &ReplacementRecipient| {
         matches!(recipient,
-        ReplacementRecipient::Player(p) if p.player == "a-player" && p.selection_id.is_none())
+        ReplacementRecipient::Player(p) if p.player == "a-player" && p.selection_id.is_none() && p.of.is_none())
     };
     if kind != "all"
         || source.reference != "filter"
@@ -5087,6 +5087,62 @@ mod tests {
             r["faces"][0]["result"]["lines"][0]["ability"] =
                 r["faces"][0]["result"]["abilities"][0].clone();
         })
+    }
+    #[test]
+    fn furnace_replacement_rejects_qualified_player_scope_in_either_union_order() {
+        let catalog = embedded_catalog("effects").unwrap();
+        let expected = catalog
+            .definitions
+            .iter()
+            .find(|d| d.name == "Furnace of Rath")
+            .unwrap();
+        let CompileResult::Lowered { definition } =
+            compile(fixtures::MANIFEST, effect_record("furnace-of-rath"))
+        else {
+            panic!("complete frozen Furnace of Rath must lower");
+        };
+        assert_eq!(definition.as_ref(), expected);
+        for reversed in [false, true] {
+            let raw = effect_mutant("furnace-of-rath", |a| {
+                if reversed {
+                    a["effect"]["replacement"]["event"]["to"]
+                        .as_array_mut()
+                        .unwrap()
+                        .reverse();
+                }
+            });
+            let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, &raw) else {
+                panic!("equivalent complete recipient union rejected: reversed={reversed}");
+            };
+            assert_eq!(definition.static_abilities, expected.static_abilities);
+            assert_eq!(definition.characteristics, expected.characteristics);
+            assert_eq!(definition.capabilities, expected.capabilities);
+            for (field, value) in [
+                ("of", serde_json::json!({"ref":"it"})),
+                ("selectionId", serde_json::json!("unbound-player")),
+            ] {
+                // Synthetic near-miss of the exact archived Furnace source:
+                // neither a qualified object relation nor a selected player is
+                // represented by the all-permanent/player doubling instruction.
+                let qualified = effect_mutant("furnace-of-rath", |a| {
+                    let to = a["effect"]["replacement"]["event"]["to"]
+                        .as_array_mut()
+                        .unwrap();
+                    let player = to.iter_mut().find(|r| r["player"] == "a-player").unwrap();
+                    player[field] = value;
+                    if reversed {
+                        to.reverse();
+                    }
+                });
+                assert!(
+                    matches!(
+                        compile(fixtures::MANIFEST, &qualified),
+                        CompileResult::Unsupported { .. }
+                    ),
+                    "unsupported player {field} must not be dropped: reversed={reversed}"
+                );
+            }
+        }
     }
     #[test]
     fn complete_effects_catalog_binds_all_six_sources_and_preserves_historical_definitions() {
