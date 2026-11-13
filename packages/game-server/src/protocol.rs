@@ -26,7 +26,14 @@ pub const MANIFEST_ROUTE: &str = "/v1/matches/{match_id}/manifest";
 pub const RESUME_ROUTE: &str = "/v1/matches/{match_id}/resume";
 pub const PRESENTATION_ROUTE: &str = "/v1/matches/{match_id}/presentation";
 pub const CLIENT_CONFIG_ROUTE: &str = "/client-config.json";
-pub const ROUTES: [RouteSpec; 8] = [
+pub const ACTION_QUERY_ROUTE: &str = "/v1/matches/{match_id}/actions/query";
+pub const ROUTES: [RouteSpec; 9] = [
+    RouteSpec {
+        operation: "query_actions",
+        method: "POST",
+        path: ACTION_QUERY_ROUTE,
+        response_schema: "action_query",
+    },
     RouteSpec {
         operation: "get_client_config",
         method: "GET",
@@ -76,6 +83,140 @@ pub const ROUTES: [RouteSpec; 8] = [
         response_schema: "submission",
     },
 ];
+
+// Logical work is a conservative allowance, never a CPU or completeness promise.
+pub const MAX_ACTION_REQUEST_BYTES: usize = 2048;
+pub const MAX_ACTION_RESPONSE_BYTES: usize = 65_536;
+pub const MAX_ACTION_WORK: u32 = 1000;
+pub const MAX_ACTION_PAGE: u16 = 32;
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ActionQueryRequest {
+    Start {
+        #[schemars(length(min = 1, max = 128), regex(pattern = "^[!-~]+$"))]
+        token: DecisionToken,
+        scope: mtg_core::ActionScope,
+        #[schemars(range(min = 1, max = 32))]
+        page_size: u16,
+        #[schemars(range(min = 1, max = 1000))]
+        work: u32,
+    },
+    Continue {
+        #[schemars(length(min = 64, max = 64), regex(pattern = "^[0-9a-f]{64}$"))]
+        cursor: String,
+        #[schemars(range(min = 1, max = 1000))]
+        work: u32,
+    },
+    Cancel {
+        #[schemars(length(min = 64, max = 64), regex(pattern = "^[0-9a-f]{64}$"))]
+        cursor: String,
+    },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ActionQueryResponse {
+    #[schemars(range(min = 1, max = 1))]
+    pub protocol_version: u32,
+    pub match_id: String,
+    #[schemars(range(min = 0, max = 3))]
+    pub viewer: mtg_core::PlayerId,
+    pub outcome: ActionQueryStatus,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ActionQueryStatus {
+    Complete {
+        page: mtg_core::ActionPage,
+    },
+    Incomplete {
+        page: mtg_core::ActionPage,
+        #[schemars(range(min = 1, max = 1))]
+        required_minimum: u64,
+        #[schemars(length(min = 64, max = 64), regex(pattern = "^[0-9a-f]{64}$"))]
+        cursor: String,
+    },
+    Stale,
+    Unavailable {
+        reason: ActionQueryUnavailable,
+    },
+    Cancelled,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ActionQueryUnavailable {
+    Core { reason: mtg_core::ActionUnavailable },
+    Quota,
+    InFlight,
+    TotalWork,
+    ResponseLimit,
+    Executor,
+}
+pub fn action_request_schema() -> Schema {
+    let mut value = serde_json::to_value(schema::<ActionQueryRequest>(false)).expect("schema");
+    // ObjectHandle is core-owned; transport bounds this scoped input only.
+    if let Some(variants) = value["definitions"]["ActionScope"]["oneOf"].as_array_mut() {
+        for variant in variants {
+            if let Some(object) = variant["properties"].get_mut("object") {
+                object["minLength"] = 1.into();
+                object["maxLength"] = 128.into();
+                object["pattern"] = "^[!-~]+$".into();
+            }
+        }
+    }
+    Schema::try_from(value).expect("schema object")
+}
+pub fn action_query_schema() -> Schema {
+    let mut value = serde_json::to_value(safe_numeric_schema(schema::<ActionQueryResponse>(true)))
+        .expect("schema");
+    value["definitions"]["ActionPage"]["properties"]["beginnings"]["maxItems"] =
+        MAX_ACTION_PAGE.into();
+    Schema::try_from(value).expect("schema object")
+}
+pub fn decode_action_request(json: &str) -> Result<ActionQueryRequest, String> {
+    if json.len() > MAX_ACTION_REQUEST_BYTES {
+        return Err("action request exceeds bound".into());
+    }
+    let value: ActionQueryRequest = crate::codec::exact(json)?;
+    let cursor_valid = |text: &str| {
+        text.len() == 64
+            && text
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    };
+    let valid = match &value {
+        ActionQueryRequest::Start {
+            token,
+            scope,
+            page_size,
+            work,
+        } => {
+            let token = serde_json::to_value(token).map_err(|e| e.to_string())?;
+            let scope = serde_json::to_value(scope).map_err(|e| e.to_string())?;
+            let object = scope.get("object").and_then(Value::as_str);
+            token.as_str().is_some_and(|s| {
+                !s.is_empty() && s.len() <= 128 && s.bytes().all(|b| b.is_ascii_graphic())
+            }) && object.is_none_or(|s| {
+                !s.is_empty() && s.len() <= 128 && s.bytes().all(|b| b.is_ascii_graphic())
+            }) && (1..=MAX_ACTION_PAGE).contains(page_size)
+                && (1..=MAX_ACTION_WORK).contains(work)
+        }
+        ActionQueryRequest::Continue { cursor, work } => {
+            cursor_valid(cursor) && (1..=MAX_ACTION_WORK).contains(work)
+        }
+        ActionQueryRequest::Cancel { cursor } => cursor_valid(cursor),
+    };
+    if !valid {
+        return Err("invalid action query bounds".into());
+    }
+    Ok(value)
+}
+pub fn checked_actions(value: &ActionQueryResponse) -> Result<String, String> {
+    let encoded = checked_public_json(value)?;
+    if encoded.len() > MAX_ACTION_RESPONSE_BYTES {
+        return Err("action response exceeds bound".into());
+    }
+    Ok(encoded)
+}
 
 /// Artifact location/integrity only; the offline producer owns its JSON shape.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

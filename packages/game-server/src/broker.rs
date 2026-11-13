@@ -181,6 +181,11 @@ impl Broker {
                 }
             };
             let command = if let Some(item) = item {
+                if matches!(item.command, WorkerCommand::QueryActions { .. })
+                    && item.replies.iter().all(oneshot::Sender::is_closed)
+                {
+                    continue;
+                }
                 let result = process
                     .call(item.command, CALL_TIMEOUT)
                     .await

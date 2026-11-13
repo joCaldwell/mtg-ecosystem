@@ -32,6 +32,8 @@ fn schema() -> Result<(), Box<dyn std::error::Error>> {
             "protocol_version":mtg_server::protocol::PROTOCOL_VERSION,
             "routes":mtg_server::protocol::ROUTES,
             "command":mtg_server::protocol::command_schema(),
+            "action_request":mtg_server::protocol::action_request_schema(),
+            "action_query":mtg_server::protocol::action_query_schema(),
             "stream":mtg_server::protocol::stream_schema(),
             "submission":mtg_server::protocol::submission_schema(),
             "execution":mtg_server::protocol::execution_schema(),
