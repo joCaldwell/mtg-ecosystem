@@ -269,6 +269,7 @@ fn reply_matches(command: &WorkerCommand, reply: &WorkerReply) -> bool {
             )
             | (WorkerCommand::Advance, WorkerReply::Advanced { .. })
             | (WorkerCommand::Page { .. }, WorkerReply::Page { .. })
+            | (WorkerCommand::Resume { .. }, WorkerReply::Resume { .. })
             | (
                 WorkerCommand::Execution { .. },
                 WorkerReply::Execution { .. }

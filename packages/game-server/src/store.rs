@@ -2,8 +2,9 @@
 //! here: callers publish/replace their candidate Game only after commit succeeds.
 use crate::codec::exact as strict_read;
 use crate::protocol::{
-    CommandEnvelope, CommandExecution, CommandExecutionStatus, Counter, Publication,
-    RejectionReason, StreamEntry, StreamPage, SubmissionResult, checked_publication,
+    CommandEnvelope, CommandExecution, CommandExecutionStatus, Counter, ExecutionStatus,
+    Publication, RejectionReason, ResumeState, RulesResult, StreamEntry, StreamPage,
+    SubmissionResult, checked_publication,
 };
 use mtg_contracts::{canonical, sha256};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
@@ -60,6 +61,13 @@ pub struct Transition {
 pub enum CommitResult {
     Committed(Head),
     ExistingSubmission(SubmissionResult),
+}
+
+pub struct CommittedPublications {
+    pub next: Counter,
+    pub state: ResumeState,
+    pub lifecycle: Option<ExecutionStatus>,
+    pub outcome: Option<RulesResult>,
 }
 
 pub struct MatchStore {
@@ -173,7 +181,8 @@ CREATE TABLE IF NOT EXISTS records(sequence INTEGER PRIMARY KEY,body TEXT NOT NU
 CREATE TABLE IF NOT EXISTS commands(seat INTEGER NOT NULL CHECK(seat BETWEEN 0 AND 3),command_id TEXT NOT NULL,request TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(seat,command_id));
 CREATE TABLE IF NOT EXISTS execution(seat INTEGER NOT NULL CHECK(seat BETWEEN 0 AND 3),command_id TEXT NOT NULL,status TEXT NOT NULL,PRIMARY KEY(seat,command_id),FOREIGN KEY(seat,command_id) REFERENCES commands(seat,command_id));
 CREATE TABLE IF NOT EXISTS viewer_heads(seat INTEGER PRIMARY KEY CHECK(seat BETWEEN 0 AND 3),cursor INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS outbox(seat INTEGER NOT NULL CHECK(seat BETWEEN 0 AND 3),cursor INTEGER NOT NULL,body TEXT NOT NULL,PRIMARY KEY(seat,cursor));").map_err(error)?;
+CREATE TABLE IF NOT EXISTS outbox(seat INTEGER NOT NULL CHECK(seat BETWEEN 0 AND 3),cursor INTEGER NOT NULL,body TEXT NOT NULL,PRIMARY KEY(seat,cursor));
+CREATE INDEX IF NOT EXISTS outbox_publication_kind ON outbox(seat,json_extract(body,'$.entries[0].publication.kind'),cursor);").map_err(error)?;
         // Existing stores may precede CHECK constraints or have been modified
         // externally. Validate the finite seat domain before generation changes.
         for table in ["commands", "execution", "viewer_heads", "outbox"] {
@@ -576,6 +585,70 @@ CREATE TABLE IF NOT EXISTS outbox(seat INTEGER NOT NULL CHECK(seat BETWEEN 0 AND
             has_more: next.get() < u64::try_from(latest).map_err(error)?,
             entries,
             next,
+        })
+    }
+    /// Indexed seeks in a single SQLite read snapshot; cost does not grow with
+    /// the number of pages a reconnecting browser missed. Returns public data only.
+    pub fn resume_publications(&self, seat: u8) -> Result<CommittedPublications, String> {
+        if seat >= 4 {
+            return Err("invalid resume seat".into());
+        }
+        let tx = self.connection.unchecked_transaction().map_err(error)?;
+        let latest: i64 = tx
+            .query_row(
+                "SELECT cursor FROM viewer_heads WHERE seat=?1",
+                [seat],
+                |r| r.get(0),
+            )
+            .map_err(error)?;
+        let next = Counter::new(u64::try_from(latest).map_err(error)?);
+        let mut state = ResumeState::Pending;
+        let mut lifecycle = None;
+        let mut outcome = None;
+        for kind in ["view_replaced", "lifecycle", "outcome"] {
+            // SQL bounds before materializing a corrupt record. The expression
+            // matches outbox_publication_kind exactly (SQLite expression index).
+            let row: Option<(i64, Option<String>)> = tx.query_row(
+                "SELECT cursor,CASE WHEN typeof(body)='text' AND length(CAST(body AS BLOB))<=?4 THEN body ELSE NULL END FROM outbox WHERE seat=?1 AND json_extract(body,'$.entries[0].publication.kind')=?2 AND cursor<=?3 ORDER BY cursor DESC LIMIT 1",
+                params![seat, kind, latest, MAX_VIEW_BYTES as i64], |r| Ok((r.get(0)?,r.get(1)?))
+            ).optional().map_err(error)?;
+            if let Some((cursor, body)) = row {
+                let page: StreamPage =
+                    strict_read(&body.ok_or("resume publication exceeds bound")?)?;
+                if page.protocol_version != 1
+                    || page.entries.len() != 1
+                    || page.has_more
+                    || page.next.get() != u64::try_from(cursor).map_err(error)?
+                    || page.entries[0].cursor != page.next
+                {
+                    return Err("invalid resume publication".into());
+                }
+                match page
+                    .entries
+                    .into_iter()
+                    .next()
+                    .expect("checked one entry")
+                    .publication
+                {
+                    Publication::ViewReplaced { observation }
+                        if kind == "view_replaced" && observation.view.viewer.0 == seat =>
+                    {
+                        state = ResumeState::Available { observation }
+                    }
+                    Publication::Lifecycle { status } if kind == "lifecycle" => {
+                        lifecycle = Some(status)
+                    }
+                    Publication::Outcome { result } if kind == "outcome" => outcome = Some(result),
+                    _ => return Err("invalid resume publication kind or viewer".into()),
+                }
+            }
+        }
+        tx.commit().map_err(error)?;
+        Ok(CommittedPublications {
+            next,
+            state,
+            lifecycle,
+            outcome,
         })
     }
     pub fn records_after(&self, after: u64, limit: u32) -> Result<Vec<DurableRecord>, String> {

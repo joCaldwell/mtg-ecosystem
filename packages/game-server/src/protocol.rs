@@ -6,6 +6,8 @@ use serde_json::Value;
 
 pub const PROTOCOL_VERSION: u32 = 1;
 pub const MAX_COMMAND_BYTES: usize = 65_536;
+pub const MAX_RESUME_BYTES: usize = 131_072;
+pub const MAX_BOOTSTRAP_BYTES: usize = 4096;
 pub const JS_MAX_SAFE_INTEGER: u64 = (1_u64 << 53) - 1;
 
 /// Shared endpoint authority for the Rust router and generated client adapter.
@@ -21,7 +23,14 @@ pub const EVENTS_ROUTE: &str = "/v1/matches/{match_id}/events";
 pub const COMMAND_STATUS_ROUTE: &str = "/v1/matches/{match_id}/commands/{command_id}";
 pub const COMMAND_CANCEL_ROUTE: &str = "/v1/matches/{match_id}/commands/{command_id}/cancel";
 pub const MANIFEST_ROUTE: &str = "/v1/matches/{match_id}/manifest";
-pub const ROUTES: [RouteSpec; 5] = [
+pub const RESUME_ROUTE: &str = "/v1/matches/{match_id}/resume";
+pub const ROUTES: [RouteSpec; 6] = [
+    RouteSpec {
+        operation: "get_resume",
+        method: "GET",
+        path: RESUME_ROUTE,
+        response_schema: "resume",
+    },
     RouteSpec {
         operation: "get_manifest",
         method: "GET",
@@ -249,6 +258,60 @@ pub struct StreamPage {
     pub has_more: bool,
 }
 
+/// One coherent committed own-stream boundary. No query is run to refresh it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SeatResume {
+    #[schemars(range(min = 1, max = 1))]
+    pub protocol_version: u32,
+    pub match_id: String,
+    pub viewer: mtg_core::PlayerId,
+    pub engine_build_id: String,
+    pub server_build_id: String,
+    pub catalog_sha256: String,
+    /// Last included own publication cursor; poll strictly after this value.
+    pub next: Counter,
+    pub state: ResumeState,
+    /// Last published lifecycle, not the worker's private scheduling phase.
+    pub lifecycle: Option<ExecutionStatus>,
+    pub outcome: Option<RulesResult>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ResumeState {
+    Pending,
+    Available { observation: Box<Observation> },
+}
+/// Operator file; never log or derive Debug for capability-bearing data.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SeatBootstrap {
+    #[schemars(range(min = 1, max = 1))]
+    pub bootstrap_version: u32,
+    #[schemars(range(min = 1, max = 1))]
+    pub protocol_version: u32,
+    #[schemars(
+        length(max = 64),
+        regex(pattern = "^http://(127\\.0\\.0\\.1|\\[::1\\]):[1-9][0-9]{0,4}$")
+    )]
+    pub server_origin: String,
+    #[schemars(length(min = 1, max = 64), regex(pattern = "^[0-9a-f]+$"))]
+    pub match_id: String,
+    #[schemars(range(min = 0, max = 3))]
+    pub viewer: mtg_core::PlayerId,
+    #[schemars(length(min = 64, max = 64), regex(pattern = "^[0-9a-f]{64}$"))]
+    pub capability: String,
+    pub engine_build_id: String,
+    pub server_build_id: String,
+    pub catalog_sha256: String,
+}
+pub fn bootstrap_schema() -> Schema {
+    schema::<SeatBootstrap>(false)
+}
+pub fn resume_schema() -> Schema {
+    safe_numeric_schema(schema::<SeatResume>(true))
+}
+
 fn schema<T: JsonSchema>(outbound: bool) -> Schema {
     // Draft7 has tuple items supported by our generated TypeScript consumer.
     // https://docs.rs/schemars/1.2.3/schemars/generate/struct.SchemaSettings.html
@@ -264,7 +327,10 @@ pub fn command_schema() -> Schema {
     schema::<CommandEnvelope>(false)
 }
 pub fn stream_schema() -> Schema {
-    let mut schema = serde_json::to_value(schema::<StreamPage>(true)).expect("generated schema");
+    safe_numeric_schema(schema::<StreamPage>(true))
+}
+fn safe_numeric_schema(input: Schema) -> Schema {
+    let mut schema = serde_json::to_value(input).expect("generated schema");
     fn constrain(value: &mut Value) {
         match value {
             Value::Object(fields) => {
@@ -342,6 +408,16 @@ impl CommandDecoder {
 /// Existing core u64 fields really serialize as JSON numbers. Pause publication
 /// before exceeding JavaScript's exact range rather than falsifying their schema.
 pub fn checked_publication(value: &StreamPage) -> Result<String, String> {
+    checked_public_json(value)
+}
+pub fn checked_resume(value: &SeatResume) -> Result<String, String> {
+    let encoded = checked_public_json(value)?;
+    if encoded.len() > MAX_RESUME_BYTES {
+        return Err("resume exceeds bound".into());
+    }
+    Ok(encoded)
+}
+fn checked_public_json(value: &impl Serialize) -> Result<String, String> {
     let value = serde_json::to_value(value).map_err(|e| e.to_string())?;
     fn check(value: &Value) -> Result<(), String> {
         match value {
@@ -377,6 +453,44 @@ mod tests {
     use serde_json::json;
     fn command(response: Value) -> Value {
         json!({"protocol_version":1,"command_id":"0123456789abcdef0123456789abcdef","expected_revision":"0","command":{"kind":"decision","token":"viewer-token","response":response}})
+    }
+    #[test]
+    fn resume_schema_rejects_extra_fields_versions_and_size_is_inclusive() {
+        let mut resume = SeatResume {
+            protocol_version: 1,
+            match_id: "a1".into(),
+            viewer: mtg_core::PlayerId(0),
+            engine_build_id: "e".into(),
+            server_build_id: "s".into(),
+            catalog_sha256: "c".into(),
+            next: Counter::new(u64::MAX),
+            state: ResumeState::Pending,
+            lifecycle: None,
+            outcome: None,
+        };
+        let validator = jsonschema::draft7::options()
+            .build(&serde_json::to_value(resume_schema()).unwrap())
+            .unwrap();
+        let original = serde_json::to_value(&resume).unwrap();
+        validator.validate(&original).unwrap();
+        for field in ["seed", "profile_sha256", "viewer_revision", "work"] {
+            let mut invalid = original.clone();
+            invalid[field] = json!(0);
+            assert!(!validator.is_valid(&invalid));
+        }
+        let mut invalid = original.clone();
+        invalid["protocol_version"] = json!(2);
+        assert!(!validator.is_valid(&invalid));
+        let mut invalid = original;
+        invalid["state"]["observation"] = json!(null);
+        assert!(!validator.is_valid(&invalid));
+        let length = checked_resume(&resume).unwrap().len();
+        resume
+            .match_id
+            .push_str(&"x".repeat(MAX_RESUME_BYTES - length));
+        assert_eq!(checked_resume(&resume).unwrap().len(), MAX_RESUME_BYTES);
+        resume.match_id.push('x');
+        assert!(checked_resume(&resume).is_err());
     }
     #[test]
     fn command_boundary_rejects_duplicates_unknown_fields_and_protocol_mismatch() {
