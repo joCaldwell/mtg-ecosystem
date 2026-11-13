@@ -19,9 +19,10 @@ MTG_SERVER_SCHEMA=/absolute/source-qualified/protocol.schema.json MTG_SERVER_BOO
 
 Both `@multiverse/game-server-sdk` and `@multiverse/game-server-sdk/browser` export
 `GameClient`, `HttpError`, `TransportError`, `ProtocolError`, `counter` and
-`PROTOCOL_VERSION`, and `parseSeatBootstrap`. Exact generated type exports include `Observation`,
+`PROTOCOL_VERSION`, `parseSeatBootstrap`, `parseClientConfig` and `readClientConfig`. Exact generated type exports include `Observation`,
 `PlayerRequest`, `PlayerResponse`, `CommandEnvelope`, `StreamPage`, `PublicManifest`,
-`SeatResume`, `ResumeState`, `SeatBootstrap`
+`SeatResume`, `ResumeState`, `SeatBootstrap`, `ClientConfig`,
+`PresentationDescriptor`, and producer-owned `PresentationArtifact`
 and the existing types listed in `src/client.ts`; `ClientOptions` and `PollOptions`
 are transport configuration. They resolve to `dist/browser.js` and
 `dist/browser.d.ts`. Source/tests/examples are not package exports.
@@ -39,8 +40,8 @@ time. The browser ESM has no external imports, Node globals, runtime JSON import
 React, example policies or private fixtures. Strict raw JSON decoding, response
 correlation, byte limits and decimal exactness remain in the shared transport.
 The browser default fetch is bound to its global receiver. No automatic retries
-are introduced. The six operations include native `get_resume`, pinned to the
-dependency in the report. Action/context operations are not implemented.
+are introduced. The eight generated routes include native `get_resume`, `get_presentation`,
+and public `get_client_config`, pinned to the source-qualified exports. Action/context operations are not implemented.
 
 `generated/generation.json` pins schema bytes, declarations, standalone validators,
 generator inputs/options and lockfile. `dist/build.json` pins generated input,
@@ -289,3 +290,23 @@ public granted keywords; trample and payments retain exact decimal quantities.
 Search choices use only the private handles offered to that seat. This is a
 finite completion example, with no strategic-strength claim. Its in-memory mana
 plan is private to the consumer; restarting a consumer is not supported.
+
+
+## Local presentation and origin configuration
+
+`readClientConfig(baseURL, {signal?, fetch?})` reads the public no-store Rust
+configuration. `parseClientConfig(text)` validates an explicit captured config.
+Both enforce a 4096-byte limit and canonical numeric loopback upstream. The
+session owns comparing this upstream with a bootstrap and any explicit Vite mapping;
+it must not derive proxy destinations from an imported file.
+
+`GameClient.presentation({signal?})` reads the authenticated Rust descriptor,
+then the same-origin immutable JSON without authorization. The result is
+`{descriptor, artifact}`. The descriptor is capped at 4096 bytes; artifact at 4 MiB
+or the caller's smaller response limit. Hash, producer/schema, shape, catalog,
+face ordering and identity checks fail closed with `ProtocolError`. Missing data
+remains `HttpError(404)` for session-owned display fallback. No retry or local
+rules inference is performed. Producer types and standalone validators are generated
+from `../tools/presentation.schema.json`; its producer source and exact schema
+hashes are recorded beside the Rust export. Do not mix schemas/builds from a
+concurrent engine source; see `docs/game-client-local-serving.md` at repository root.
