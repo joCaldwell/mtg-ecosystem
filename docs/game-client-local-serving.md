@@ -1,5 +1,8 @@
 # Local production delivery and presentation metadata
 
+Current integration qualification is recorded in the final section below. Earlier
+sections retain their original pre-reset source and evidence boundaries.
+
 This lane implements the server/SDK portion of live read-only M1 from
 `0b674d8872087bc96f6078d0daeb1fb2d6c17758`. Core/compiler and client source are not
 edited here. The concurrent engine schema-1 reset and action-query API are separate
@@ -342,3 +345,54 @@ serving PR. See its
 and committed `tests/live/read-only.spec.ts` / `playwright.live.config.ts`.
 That commit qualifies the final `6bf0609` native binary while retaining the exact
 `20bb013c` production runtime bytes; it is not a new server/native measurement.
+
+## Independent-review fixes and schema-1 integration
+
+Native source `147dec571e58a531b1229f61a9f78733c021eadf` integrates current main
+`bcb9cb45b2ca6bbf0a01dc25f325ac5811b269a2` (including reviewed core queries),
+and corrects both retained-source layouts. The simulator explicitly retains the
+presentation producer and schema required by the host build. The SDK reconstruction
+copies those two pinned native files plus both foundations/attachment fixtures to
+their repository-relative paths, and checks the exact input closure again after
+verification. This also repairs the previously documented attachment-fixture gap.
+No semantic engine change or query transport is introduced by the closure fix.
+
+Passed on pinned tools: one native source-list regression, all 61 server library
+tests, server/provision/pause builds and all-target server Clippy with `--no-deps`;
+18 retention-tool tests; three producer/export tests; strict TypeScript and 59 SDK
+tests in both the full checkout and a fresh minimal retained-input reconstruction.
+That reconstruction contains only SDK sources, the two producer files and two
+fixtures, with a fresh locked install. It establishes those declared inputs without
+claiming a full offline Cargo/npm retention run. Both browser CSP suites passed.
+All native checks used the shared Cargo lock and existing cache; byte-preserving
+timestamp refresh is recorded. No historical cache, registry or receipt was removed.
+
+Fresh protocol SHA-256:
+`2796d38cc8dc4ef67d836fbe890ba31170869f4562c91b8edf7c6f1b91396e64`.
+Bootstrap and client-config schema hashes are unchanged. Engine build:
+`81b5711e7ec5dde8dd55cdb8abc73d9f151464ed5d0373f7dd4039a9ef069606`.
+Server build: `2e0c848d22e2ef3232ebf0576cd882faca91bc9594e1cfed2f6551fb771176e2`.
+Fresh schema-1 presentation artifacts and a new public bundle from client source
+`865df11bd13373b38192878764fcfc3303ae8f0b` were exported explicitly. Private registry
+and four seat files were newly provisioned for these exact build/catalog identities.
+
+Combined acceptance: 25 real HTTP security/route checks and all four seat reads;
+59 SDK tests followed by 34 client tests/type/boundary/build checks without schema
+switching; 18 native-browser, four proxy-browser, 11 proxy-security and 10 fixture
+browser cases passed. An initial proxy test launch used the wrong cwd and failed;
+that run is retained, the package-cwd launch was corrected, and all four cases
+passed afresh. No product guard was weakened.
+
+A 4.122-second same-binary stop/pause/restart automatically advanced the held
+Chromium browser from cursor 1 to 2, preserved the exact seven-card hand and focus,
+reported resource_paused with no outcome, and completed four more normal long
+polls without reimport or commands. All browser contexts and the owned host are
+closed. Detailed hashes, source pins and copied client receipts are in this
+worktree's `generated/review-m1/qualification.json`; native/test/build/Clippy logs,
+exports, minimal reconstruction and private files are retained in that directory.
+The client lane retains original reports and lifecycle harness in its own
+`generated/review-m1/` and `packages/game-client/generated/`.
+
+This supersedes the schema-1 premerge qualification gap for the integrated source
+above. Core query transport, command journals, natural games, full retention,
+performance and human usability remain separate milestones.
