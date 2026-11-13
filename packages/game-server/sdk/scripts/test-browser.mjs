@@ -63,7 +63,7 @@ try {
       await context.close();
     } finally { await browser.close(); }
   }
-  assert.equal(requests, 4, 'one poll and one aborted poll per browser; no retries');
+  assert.equal(requests, 6, 'two polls and one aborted poll per browser; no retries');
   assert.equal(pendingResponses, 0, 'aborted HTTP responses closed');
   const sourcePaths = ['browser/index.html', 'browser/proof.mjs', 'scripts/test-browser.mjs', 'package-lock.json'];
   const report = { format_version: 1, status: 'browser-fixture-proof-passed',

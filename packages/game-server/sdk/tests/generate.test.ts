@@ -16,7 +16,7 @@ test('generation is repeatable and rejects future, unconstrained and external-re
     const run = value => {
       fs.writeFileSync(input, JSON.stringify(value));
       return spawnSync(process.execPath, [path.join(sdk, 'scripts/generate.mjs')], {
-        encoding: 'utf8', env: { ...process.env, MTG_SERVER_SCHEMA: input, MTG_SERVER_OUTPUT: output },
+        encoding: 'utf8', env: { ...process.env, MTG_SERVER_SCHEMA: input, MTG_SERVER_BOOTSTRAP_SCHEMA: path.join(sdk, 'generated/bootstrap.schema.json'), MTG_SERVER_OUTPUT: output },
       });
     };
     assert.equal(run(source).status, 0);

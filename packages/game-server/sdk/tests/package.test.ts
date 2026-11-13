@@ -7,7 +7,7 @@ import * as browser from '@multiverse/game-server-sdk/browser';
 
 test('published package exports dependency-free ESM and source-qualified declarations', () => {
   assert.deepEqual(root, browser);
-  assert.deepEqual(Object.keys(root).sort(), ['GameClient', 'HttpError', 'PROTOCOL_VERSION', 'ProtocolError', 'TransportError', 'counter']);
+  assert.deepEqual(Object.keys(root).sort(), ['GameClient', 'HttpError', 'PROTOCOL_VERSION', 'ProtocolError', 'TransportError', 'counter', 'parseSeatBootstrap']);
   const build = JSON.parse(fs.readFileSync(new URL('../dist/build.json', import.meta.url), 'utf8'));
   const generation = JSON.parse(fs.readFileSync(new URL('../generated/generation.json', import.meta.url), 'utf8'));
   assert.equal(build.schema_sha256, generation.schema_sha256);

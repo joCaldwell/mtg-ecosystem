@@ -15,27 +15,35 @@ fs.mkdirSync(output, { recursive: true });
 const pending = fs.mkdtempSync(path.join(output, '.pending-'));
 try {
 const schemaPath = path.join(pending, 'protocol.schema.json');
+const bootstrapPath = path.join(pending, 'bootstrap.schema.json');
 if (process.env.MTG_SERVER_SCHEMA) {
+  if (!process.env.MTG_SERVER_BOOTSTRAP_SCHEMA) throw new Error('MTG_SERVER_BOOTSTRAP_SCHEMA is required with an explicit protocol export');
   fs.copyFileSync(process.env.MTG_SERVER_SCHEMA, schemaPath);
+  fs.copyFileSync(process.env.MTG_SERVER_BOOTSTRAP_SCHEMA, bootstrapPath);
 } else {
   const executable = process.env.MTG_SERVER_BIN ?? path.resolve(sdk, '../../../target/debug/mtg-server');
-  const fd = fs.openSync(schemaPath, 'w');
-  try {
-    const result = spawnSync(executable, ['schema'], {
-      stdio: ['ignore', fd, 'pipe'], encoding: 'utf8', maxBuffer: 1024 * 1024,
-    });
-    if (result.error || result.status !== 0) throw new Error(`Rust schema export failed: ${result.error?.message ?? result.stderr}`);
-  } finally { fs.closeSync(fd); }
+  for (const [file, operation] of [[schemaPath, 'schema'], [bootstrapPath, 'bootstrap-schema']]) {
+    const fd = fs.openSync(file, 'w');
+    try {
+      const result = spawnSync(executable, [operation], {
+        stdio: ['ignore', fd, 'pipe'], encoding: 'utf8', maxBuffer: 1024 * 1024,
+      });
+      if (result.error || result.status !== 0) throw new Error(`Rust schema export failed: ${result.error?.message ?? result.stderr}`);
+    } finally { fs.closeSync(fd); }
+  }
 }
 const bytes = fs.readFileSync(schemaPath);
-if (bytes.length > 8 * 1024 * 1024) throw new Error('Protocol schema exceeds generator bound');
+const bootstrapBytes = fs.readFileSync(bootstrapPath);
+if (bytes.length > 8 * 1024 * 1024 || bootstrapBytes.length > 8 * 1024 * 1024) throw new Error('Protocol schema exceeds generator bound');
 const schemas = JSON.parse(bytes.toString('utf8'));
-if (schemas.protocol_version !== 1 || Object.keys(schemas).sort().join(',') !== 'command,execution,manifest,protocol_version,routes,stream,submission') {
+if (schemas.protocol_version !== 1 || Object.keys(schemas).sort().join(',') !== 'command,execution,manifest,protocol_version,resume,routes,stream,submission') {
   throw new Error('Unsupported Rust protocol schema envelope');
 }
+const bootstrap = JSON.parse(bootstrapBytes.toString('utf8'));
 // Operation identities describe supported SDK semantics. Paths and methods
 // themselves are exported by Rust; no parallel endpoint strings live in client.
 const operations = {
+  get_resume: { method: 'GET', response_schema: 'resume' },
   submit_command: { method: 'POST', response_schema: 'submission' },
   get_manifest: { method: 'GET', response_schema: 'manifest' },
   poll_events: { method: 'GET', response_schema: 'stream' },
@@ -66,8 +74,8 @@ const generatorOptions = {
   unknownAny: true, unreachableDefinitions: true,
 };
 const files = [];
-for (const [key, title] of [['command', 'CommandEnvelope'], ['stream', 'StreamPage'], ['submission', 'SubmissionResult'], ['execution', 'CommandExecution'], ['manifest', 'PublicManifest']]) {
-  const schema = schemas[key];
+for (const [key, title] of [['command', 'CommandEnvelope'], ['stream', 'StreamPage'], ['submission', 'SubmissionResult'], ['execution', 'CommandExecution'], ['manifest', 'PublicManifest'], ['resume', 'SeatResume'], ['bootstrap', 'SeatBootstrap']]) {
+  const schema = key === 'bootstrap' ? bootstrap : schemas[key];
   if (schema.$schema !== 'http://json-schema.org/draft-07/schema#') throw new Error(`Unexpected ${key} schema dialect`);
   localOnly(schema);
   const declaration = await compile(schema, title, generatorOptions);
@@ -87,10 +95,11 @@ for (const [key, title] of [['command', 'CommandEnvelope'], ['stream', 'StreamPa
 const routeSource = `/* Generated from Rust protocol::ROUTES; do not edit. */\nexport const ROUTES = ${JSON.stringify(routes, null, 2)} as const;\n`;
 fs.writeFileSync(path.join(pending, 'routes.ts'), routeSource);
 files.push({ path: 'routes.ts', sha256: createHash('sha256').update(routeSource).digest('hex') });
-const validators = await standalone(schemas);
+const validators = await standalone({ ...schemas, bootstrap });
 for (const [filename, content] of [
   ['validators.js', validators.source], ['validators.d.ts', validators.declaration],
   ['protocol.ts', `/* Generated from Rust; do not edit. */\nexport const PROTOCOL_VERSION = ${schemas.protocol_version} as const;\n`],
+  ['bootstrap.schema.json', bootstrapBytes],
 ]) {
   fs.writeFileSync(path.join(pending, filename), content);
   files.push({ path: filename, sha256: createHash('sha256').update(content).digest('hex') });
@@ -99,6 +108,7 @@ fs.writeFileSync(path.join(pending, 'generation.json'), JSON.stringify({
   protocol_version: schemas.protocol_version, routes: schemas.routes, routes_sha256: createHash('sha256').update(JSON.stringify(schemas.routes)).digest('hex'), generator: 'json-schema-to-typescript@16.0.0',
   generator_options: generatorOptions, schema_dialect: 'Draft7',
   schema_sha256: createHash('sha256').update(bytes).digest('hex'), files,
+  bootstrap_schema_sha256: createHash('sha256').update(bootstrapBytes).digest('hex'),
   standalone: { generator: 'ajv@8.20.0', bundler: 'esbuild@0.28.2', options: validationOptions,
     sources: ['scripts/generate.mjs', 'scripts/standalone.mjs', 'scripts/numeric-formats.mjs', 'package-lock.json'].map(file => ({
       path: file, sha256: createHash('sha256').update(fs.readFileSync(path.join(sdk, file))).digest('hex'),
