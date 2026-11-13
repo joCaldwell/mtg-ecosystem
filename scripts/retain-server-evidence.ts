@@ -81,21 +81,31 @@ serverPins();predecessorPins();
 if(JSON.stringify(referenceInfo)!==JSON.stringify(nativeInfo))throw new Error('Server build/SQLite options differ from verified reference');
 if(nativeInfo.engine_build_id!==engine.build_id||nativeInfo.target!==native.target||nativeInfo.rustflags!==native.rustflags||nativeInfo.opt_level!==native.opt_level)throw new Error('Rebuilt server identity differs');
 check(source,sourceBefore);check(vendor,engine.dependency_files);authoritativeSources();
-// Preserve repository-relative SDK test imports. Only this native-authority
-// fixture is needed outside the SDK; never copy or invent a parallel catalog.
-const clientLayoutVersion='sdk-repository-relative-fixtures-v1';
+// Preserve the exact native-authority fixtures and presentation build inputs at
+// their repository-relative paths. Never copy the whole tools or fixture tree.
+const clientLayoutVersion='sdk-repository-relative-inputs-v2';
 const clientLayoutRoot=path.join(evidence,'client-source');
 const sdk=path.join(root,'packages/game-server/sdk'),client=path.join(clientLayoutRoot,'packages/game-server/sdk');fs.mkdirSync(client,{recursive:true});
-const fixtureRelative='packages/game-engine/tests/fixtures/expected-match-ir.json';
-const fixtureSource=path.join(source,fixtureRelative),fixtureDestination=path.join(clientLayoutRoot,fixtureRelative);
-const fixtureSha=expectedNative[fixtureRelative];
-if(!fixtureSha||sha(fs.readFileSync(fixtureSource))!==fixtureSha)throw new Error('SDK fixture differs from retained native authority');
-fs.mkdirSync(path.dirname(fixtureDestination),{recursive:true});fs.copyFileSync(fixtureSource,fixtureDestination);
-const clientNativeFixtureFiles:Record<string,string>={[fixtureRelative]:fixtureSha};
+const clientNativeInputPaths=[
+ 'packages/game-engine/tests/fixtures/expected-match-ir.json',
+ 'packages/game-engine/tests/fixtures/expected-attachments-ir.json',
+ 'packages/game-server/tools/client-artifacts.ts',
+ 'packages/game-server/tools/presentation.schema.json',
+];
+const clientNativeInputFiles:Record<string,string>={};
+for(const relative of clientNativeInputPaths){
+ const input=path.join(source,relative),destination=path.join(clientLayoutRoot,relative);
+ const expected=expectedNative[relative];
+ if(!expected||sha(fs.readFileSync(input))!==expected)throw new Error('SDK input differs from retained native authority');
+ fs.mkdirSync(path.dirname(destination),{recursive:true});fs.copyFileSync(input,destination);
+ clientNativeInputFiles[relative]=expected;
+}
 function checkClientFixtures(){
- const actual=files(path.join(clientLayoutRoot,'packages/game-engine'));
- const expected={'tests/fixtures/expected-match-ir.json':fixtureSha};
- if(Object.keys(actual).length!==1||Object.entries(expected).some(([p,h])=>actual[p]!==h))throw new Error('Client native fixture closure changed');
+ const actual:Record<string,string>={};
+ for(const subtree of ['packages/game-engine','packages/game-server/tools']){
+  for(const [relative,digest] of Object.entries(files(path.join(clientLayoutRoot,subtree))))actual[`${subtree}/${relative}`]=digest;
+ }
+ if(Object.keys(actual).length!==Object.keys(clientNativeInputFiles).length||Object.entries(clientNativeInputFiles).some(([p,h])=>actual[p]!==h))throw new Error('Client native input closure changed');
 }
 checkClientFixtures();
 function copySDK(current:string,relative=''){
@@ -136,6 +146,6 @@ const clientVerification=JSON.parse(fs.readFileSync(path.join(client,'generated/
 const compileInfo={rustc:run('rustc',['-vV'],source,env),node:run('node',['--version'],client,npmEnv).trim(),npm:run('npm',['--version',...npmFlags],client,npmEnv).trim(),host_tool_probes:{cc:run('cc',['--version'],source,env),ar:run('ar',['--version'],source,env)},c_tool_override_names:Object.keys(process.env).filter(k=>/^(CC|AR|CFLAGS|CPPFLAGS|CXX|CXXFLAGS)(_|$)/.test(k)).sort()};
 authoritativeSources();check(vendor,engine.dependency_files);check(source,sourceBefore);serverPins();predecessorPins();
 const hostTools=path.join(evidence,'host-tools');fs.mkdirSync(hostTools);const hostToolFiles:Record<string,string>={};for(const name of ['retain-server-evidence.ts','retain-server-evidence.test.ts','capture-json-output.ts','retain-policy-sources.ts','retention-workspace.ts','run-retention.py','engine-storage.py']){const bytes=fs.readFileSync(path.join(root,'scripts',name));fs.writeFileSync(path.join(hostTools,name),bytes);hostToolFiles[name]=sha(bytes);}
-const report={host_tool_files:hostToolFiles,status:'offline_server_and_client_verified',engine_build_id:engine.build_id,native_bundle_sha256:engine.bundle_sha256,server_executable:binary,server_executable_sha256:binarySha,server_schema_sha256:sha(JSON.stringify(schema)),server_native_info:nativeInfo,reference_server_executable_sha256:referenceSha,source_files:sourceBefore,cargo_vendor_manifest_sha256:engine.dependency_manifest_sha256,packages,empty_server_cargo_home_before_build:true,cargo_frozen_offline:true,client_source:clientSource,client_layout:{version:clientLayoutVersion,sdk_relative_root:'packages/game-server/sdk',native_fixture_files:clientNativeFixtureFiles},npm_preparation_cache_files:cacheManifest,empty_client_node_modules_before_install:true,npm_ci_offline:true,npm_ignore_scripts:true,client_generated:generated,client_browser_artifacts:browserArtifacts,client_verification:clientVerification,compile_info:compileInfo};
+const report={host_tool_files:hostToolFiles,status:'offline_server_and_client_verified',engine_build_id:engine.build_id,native_bundle_sha256:engine.bundle_sha256,server_executable:binary,server_executable_sha256:binarySha,server_schema_sha256:sha(JSON.stringify(schema)),server_native_info:nativeInfo,reference_server_executable_sha256:referenceSha,source_files:sourceBefore,cargo_vendor_manifest_sha256:engine.dependency_manifest_sha256,packages,empty_server_cargo_home_before_build:true,cargo_frozen_offline:true,client_source:clientSource,client_layout:{version:clientLayoutVersion,sdk_relative_root:'packages/game-server/sdk',native_input_files:clientNativeInputFiles},npm_preparation_cache_files:cacheManifest,empty_client_node_modules_before_install:true,npm_ci_offline:true,npm_ignore_scripts:true,client_generated:generated,client_browser_artifacts:browserArtifacts,client_verification:clientVerification,compile_info:compileInfo};
 output(path.join(evidence,'evidence.json'),report);output(path.join(root,'generated/server-retention.json'),{evidence:path.join(evidence,'evidence.json'),sha256:sha(fs.readFileSync(path.join(evidence,'evidence.json'))),engine_build_id:engine.build_id});
 console.log(JSON.stringify({status:report.status,evidence,engine_build_id:engine.build_id,server_executable_sha256:report.server_executable_sha256}));
