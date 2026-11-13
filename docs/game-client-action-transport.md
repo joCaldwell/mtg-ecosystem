@@ -287,3 +287,44 @@ lane's new implementation. The final integration owner must combine branches,
 apply the exact-command patch once, adopt the qualified SDK/pin, fence query
 lifetimes in session, and run focused combined browser/session/controls checks.
 Source-label mapping, unobserved family reachability and human play remain gates.
+
+## Parent integration: current-main native qualification
+
+Independent review passed the original `9a80f5a6` transport/SDK implementation,
+including 40 source-qualified retained native tests, 66 SDK tests, 20,785 validator
+comparisons, 26 browser CSP checks, 38 client tests, retention guards and a fresh
+real-host probe. Parent then merged main `0b4a8757` without conflicts. Combined
+native source is `e86df7e73f5ac896a4b2488779efb46ef28240d4`; this includes the
+compiler source-binding correction. Existing historical receipts above retain
+their original qualification.
+
+The fresh combined build passed all 40 focused native tests listed above,
+production server/examples Clippy and server/fixture/provisioner builds. All
+670 native-source fingerprints match that exact Git source and are unchanged
+before/after execution. Shared Cargo admission used the existing 32 GiB budget;
+the slot was released after copying binaries and exports. No cache was removed.
+
+Engine identity is
+`e342d46c9c0fd8fc5e6cf7bbb406a14e341130384bebaad339c86b761c1574ab`;
+server identity is
+`5478b51c3b46dc246e57693225c2f598093a5699f83b28b3be3edf7feec1052b`.
+The copied server SHA-256 is
+`477313691f0323e990a633defc35c4bef4f8a81333efdd230bcab6de6922c08c`.
+Fresh protocol bytes retain the exact `a7416856…` schema above. The separate
+current SDK/client qualification now names this combined source explicitly.
+
+Using these fresh exports, SDK generation/strict types and 66 tests, 26 browser
+CSP checks, and existing client types/boundaries/38 tests/build passed. A fresh
+private host passed all 11 probe groups and four real commands, including exact
+retry, response-loss reconciliation, complete continuation equality, recovery
+and concurrent 429. Its owned process is stopped. Receipts and immutable copied
+artifacts are under this worktree's `generated/m2-integration/`; `qualification.json`
+hashes their exact files. This is focused combined-source qualification, not a
+full runtime, game, performance or retention matrix.
+
+The downstream journal and controls branches combine without textual conflicts;
+the prepared-command prerequisite appears once in the resulting source. Parent
+regenerated the controls inventory explicitly from this schema and tested one
+SDK build throughout each package's checks. Combined client evidence is in the
+controls lane's `generated/m2-integration/`, with its separate native journal
+browser receipt; full source labels and live app composition remain later gates.
