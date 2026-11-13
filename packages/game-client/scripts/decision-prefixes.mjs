@@ -9,7 +9,10 @@ const producer = process.env.MTG_DECISION_PRODUCER_DIR;
 if (!producer) throw new Error('Set MTG_DECISION_PRODUCER_DIR to the explicit source-qualified producer export directory');
 const root = pathToFileURL(`${producer.replace(/\/$/, '')}/`);
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
-const manifestBytes = await readFile(new URL('producer-manifest.json', root));
+// This immutable name matches the original measured receipt. The generic
+// producer-manifest.json received later additive annotations; never follow it.
+const manifestName = 'producer-manifest-checkpoint.json';
+const manifestBytes = await readFile(new URL(manifestName, root));
 const manifest = JSON.parse(manifestBytes);
 const nativeBytes = await readFile(new URL(manifest.source_manifest.split('/').at(-1), root));
 if (hash(nativeBytes) !== manifest.source_manifest_sha256) throw new Error('Producer source manifest mismatch');
@@ -51,10 +54,10 @@ for (const item of capture.captures) {
   summaries.push(summary);
 }
 const output = {
-  provenance_version: 1, producer_base_source: manifest.base_source, producer_manifest_sha256: hash(manifestBytes), native_source_manifest_sha256: hash(nativeBytes),
+  provenance_version: 1, producer_base_source: manifest.base_source, producer_manifest_locator: manifestName, producer_manifest_sha256: hash(manifestBytes), native_source_manifest_sha256: hash(nativeBytes),
   engine_build_id: capture.engine_build_id, server_build_id: capture.server_build_id,
   producer_protocol_schema_sha256: hash(schemaBytes), baseline_validation_schema_sha256: pins.protocol_schema_sha256,
-  public_prefixes_sha256: hash(captureBytes), raw_artifact_locator: 'producer-manifest.json#artifacts.public-prefixes.json (explicit producer directory)',
+  public_prefixes_sha256: hash(captureBytes), raw_artifact_locator: `${manifestName}#artifacts.public-prefixes.json (explicit producer directory)`,
   binaries: Object.fromEntries(['mtg-server', 'action_fixture', 'provision_client'].map(name => [name, manifest.artifacts[name].sha256])),
   captures: summaries, scope: 'Two isolated admitted offline prefixes only. Observation hashes use compact JSON.stringify over parsed producer bytes; full raw-file hash is separately pinned. Query beginnings do not prove accepted responses, whole-profile coverage or client integration. Labels remain unavailable; no source/card metadata imported.',
 };

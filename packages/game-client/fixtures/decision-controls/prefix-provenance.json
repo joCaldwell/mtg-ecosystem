@@ -1,6 +1,7 @@
 {
   "provenance_version": 1,
   "producer_base_source": "144fe059ab2707877109d7e9dbe8751f204681dd",
+  "producer_manifest_locator": "producer-manifest-checkpoint.json",
   "producer_manifest_sha256": "0092c3fe4e4e70aa7e11682cb024fd1994d04b7e689e9b17977b0759e271bcbf",
   "native_source_manifest_sha256": "ba6379af2980ffc855635c9662c3989af1a11b93ff8e635fda1d778362fd7692",
   "engine_build_id": "0e8abd9759e99c6be84492e859396a90fcdc4254b88d125e294114f2ed50730d",
@@ -8,7 +9,7 @@
   "producer_protocol_schema_sha256": "a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3",
   "baseline_validation_schema_sha256": "7fe738bb5a4aecaedb23a9a6405691c6497c6b117b38464aacde6601f152204c",
   "public_prefixes_sha256": "5dc2b69175a9b4a5f42fda822cd52f57a6acf4a7311289a9a90b47c554aca9f4",
-  "raw_artifact_locator": "producer-manifest.json#artifacts.public-prefixes.json (explicit producer directory)",
+  "raw_artifact_locator": "producer-manifest-checkpoint.json#artifacts.public-prefixes.json (explicit producer directory)",
   "binaries": {
     "mtg-server": "fb53ef1b029dc6f3c7abeb21791347cff07ef3f1958b484dcb138e2018c6d521",
     "action_fixture": "b0dd647cc6396df261b9b24dbf31ea00a26e1a828b05c2510da448810fd434b2",

@@ -79,11 +79,11 @@
     },
     {
       "path": "packages/game-client/scripts/decision-prefixes.mjs",
-      "sha256": "cae4e312df8bdffcd20d9aa522fdd105ca2012ab78dfc48b5859a29afd803694"
+      "sha256": "180ee889f4912199769b16b6b71692e0b3f67e89642568a844eb9af01449ff3a"
     },
     {
       "path": "packages/game-client/fixtures/decision-controls/prefix-provenance.json",
-      "sha256": "c34e87914981a6f7729ce744d856b720df27dee56e4142486f5e89a5d7df626f"
+      "sha256": "bd4b542c92689c5f91108bc7ef1a63af508ff36743702f9b01bd432ba0a94511"
     }
   ],
   "scope": "Local drafts only. No send, legality, whole-profile reachability, full M2 or playability claim.",
