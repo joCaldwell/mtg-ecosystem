@@ -101,6 +101,16 @@ losses from the instruction's set and amount. These are simple strategy estimate
 core validates every proposal and owns all rules. No card names or catalog-size
 fingerprints select decisions.
 
+Policy filters use every current card type, including `additional_types`, rather
+than the single canonical execution kind ([pinned CR 205.2b](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt)). Positive type lists
+are alternatives; exclusions reject any matching type. This also applies to
+filtered stack spells, sacrifice filters and enchantment wipe sets. An artifact
+creature on the battlefield therefore qualifies for Shatter and not Go for the
+Throat. An enchantment-creature spell qualifies for Swan Song, and its battlefield
+permanent qualifies for enchantment destruction. Sacrifice subtype
+requirements remain conjunctive. Role checks for creatures and lands retain the
+canonical-kind invariant enforced by contracts.
+
 `report.json` contains one batch `interactions` summary and per-game counts.
 Instruction kinds and exact catalog sites distinguish chosen invocations from
 nonempty committed instruction batches; modes and repeated continuation batches

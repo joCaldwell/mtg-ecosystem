@@ -1863,3 +1863,6 @@ mod defensive_untap_policy_tests {
         );
     }
 }
+
+#[path = "combined_type_policy_tests.rs"]
+mod combined_type_policy_tests;

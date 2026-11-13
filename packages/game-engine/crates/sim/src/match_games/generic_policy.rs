@@ -242,8 +242,10 @@ impl Strategy<'_> {
             && t.filter.as_ref().is_none_or(|f| {
                 (!f.opponent || o.controller != v.viewer)
                     && (!f.tapped || o.tapped)
-                    && (f.types.is_empty() || f.types.contains(&c.kind))
-                    && !f.non_types.contains(&c.kind)
+                    // The primary kind selects execution; rules filters use
+                    // every card type (pinned CR205.2b), including additional types.
+                    && (f.types.is_empty() || f.types.iter().any(|kind| c.has_type(*kind)))
+                    && !f.non_types.iter().any(|kind| c.has_type(*kind))
                     && !c.colors.iter().any(|c| f.non_colors.contains(c))
             })
     }
@@ -379,8 +381,12 @@ impl Strategy<'_> {
                     s.spell.is_some()
                         && t.filter.as_ref().is_none_or(|f| {
                             self.entry_program(v, s).is_some_and(|(d, _)| {
-                                (f.types.is_empty() || f.types.contains(&d.characteristics.kind))
-                                    && !f.non_types.contains(&d.characteristics.kind)
+                                (f.types.is_empty()
+                                    || f.types.iter().any(|kind| d.characteristics.has_type(*kind)))
+                                    && !f
+                                        .non_types
+                                        .iter()
+                                        .any(|kind| d.characteristics.has_type(*kind))
                                     && !d
                                         .characteristics
                                         .colors
@@ -416,7 +422,7 @@ impl Strategy<'_> {
                 o.controller == v.viewer
                     && o.zone == Zone::Battlefield
                     && o.characteristics.as_ref().is_some_and(|c| {
-                        (f.types.is_empty() || f.types.contains(&c.kind))
+                        (f.types.is_empty() || f.types.iter().any(|kind| c.has_type(*kind)))
                             && f.subtypes.iter().all(|s| c.subtypes.contains(s))
                     })
             })
@@ -780,7 +786,7 @@ impl Strategy<'_> {
             && match set {
                 ObjectSet::Creatures => c.kind == CardKind::Creature,
                 ObjectSet::NonlandPermanents => c.kind != CardKind::Land,
-                ObjectSet::Enchantments => c.kind == CardKind::Enchantment,
+                ObjectSet::Enchantments => c.has_type(CardKind::Enchantment),
                 ObjectSet::AttackingCreatures => v.combat.iter().any(|a| a.attacker == o.handle),
                 ObjectSet::OpponentCreatures => {
                     c.kind == CardKind::Creature && o.controller != v.viewer
