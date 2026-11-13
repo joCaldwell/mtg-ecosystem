@@ -100,7 +100,7 @@ function checkClientFixtures(){
 checkClientFixtures();
 function copySDK(current:string,relative=''){
  for(const entry of fs.readdirSync(current,{withFileTypes:true})){
-  if(relative===''&&['node_modules','generated','.git'].includes(entry.name))continue;
+  if(relative===''&&['node_modules','generated','dist','.git'].includes(entry.name))continue;
   const rel=path.join(relative,entry.name),src=path.join(current,entry.name),dst=path.join(client,rel);
   if(entry.isSymbolicLink())throw new Error('SDK source symlink');
   if(entry.isDirectory()){fs.mkdirSync(dst);copySDK(src,rel);}else if(entry.isFile())fs.copyFileSync(src,dst);else throw new Error('SDK source entry');
@@ -128,13 +128,14 @@ run('npm',['ci','--offline','--cache',cache,'--workspaces=false',...npmFlags],cl
 // own exact source/tool/declaration manifest using this rebuilt Rust executable.
 run('npm',['run','verify','--workspaces=false','--offline','--cache',cache,...npmFlags],client,npmEnv,path.join(evidence,'sdk-offline-verification.log'));
 checkClientFixtures();
-const afterClient=files(client,new Set(['node_modules','generated']));
+const afterClient=files(client,new Set(['node_modules','generated','dist']));
 if(Object.keys(afterClient).length!==Object.keys(clientSource).length||Object.entries(clientSource).some(([p,h])=>afterClient[p]!==h))throw new Error('Client source closure changed during verification');
 const generated=files(path.join(client,'generated'));
+const browserArtifacts=files(path.join(client,'dist'));
 const clientVerification=JSON.parse(fs.readFileSync(path.join(client,'generated/verification.json'),'utf8'));
 const compileInfo={rustc:run('rustc',['-vV'],source,env),node:run('node',['--version'],client,npmEnv).trim(),npm:run('npm',['--version',...npmFlags],client,npmEnv).trim(),host_tool_probes:{cc:run('cc',['--version'],source,env),ar:run('ar',['--version'],source,env)},c_tool_override_names:Object.keys(process.env).filter(k=>/^(CC|AR|CFLAGS|CPPFLAGS|CXX|CXXFLAGS)(_|$)/.test(k)).sort()};
 authoritativeSources();check(vendor,engine.dependency_files);check(source,sourceBefore);serverPins();predecessorPins();
 const hostTools=path.join(evidence,'host-tools');fs.mkdirSync(hostTools);const hostToolFiles:Record<string,string>={};for(const name of ['retain-server-evidence.ts','retain-server-evidence.test.ts','capture-json-output.ts','retain-policy-sources.ts','retention-workspace.ts','run-retention.py','engine-storage.py']){const bytes=fs.readFileSync(path.join(root,'scripts',name));fs.writeFileSync(path.join(hostTools,name),bytes);hostToolFiles[name]=sha(bytes);}
-const report={host_tool_files:hostToolFiles,status:'offline_server_and_client_verified',engine_build_id:engine.build_id,native_bundle_sha256:engine.bundle_sha256,server_executable:binary,server_executable_sha256:binarySha,server_schema_sha256:sha(JSON.stringify(schema)),server_native_info:nativeInfo,reference_server_executable_sha256:referenceSha,source_files:sourceBefore,cargo_vendor_manifest_sha256:engine.dependency_manifest_sha256,packages,empty_server_cargo_home_before_build:true,cargo_frozen_offline:true,client_source:clientSource,client_layout:{version:clientLayoutVersion,sdk_relative_root:'packages/game-server/sdk',native_fixture_files:clientNativeFixtureFiles},npm_preparation_cache_files:cacheManifest,empty_client_node_modules_before_install:true,npm_ci_offline:true,npm_ignore_scripts:true,client_generated:generated,client_verification:clientVerification,compile_info:compileInfo};
+const report={host_tool_files:hostToolFiles,status:'offline_server_and_client_verified',engine_build_id:engine.build_id,native_bundle_sha256:engine.bundle_sha256,server_executable:binary,server_executable_sha256:binarySha,server_schema_sha256:sha(JSON.stringify(schema)),server_native_info:nativeInfo,reference_server_executable_sha256:referenceSha,source_files:sourceBefore,cargo_vendor_manifest_sha256:engine.dependency_manifest_sha256,packages,empty_server_cargo_home_before_build:true,cargo_frozen_offline:true,client_source:clientSource,client_layout:{version:clientLayoutVersion,sdk_relative_root:'packages/game-server/sdk',native_fixture_files:clientNativeFixtureFiles},npm_preparation_cache_files:cacheManifest,empty_client_node_modules_before_install:true,npm_ci_offline:true,npm_ignore_scripts:true,client_generated:generated,client_browser_artifacts:browserArtifacts,client_verification:clientVerification,compile_info:compileInfo};
 output(path.join(evidence,'evidence.json'),report);output(path.join(root,'generated/server-retention.json'),{evidence:path.join(evidence,'evidence.json'),sha256:sha(fs.readFileSync(path.join(evidence,'evidence.json'))),engine_build_id:engine.build_id});
 console.log(JSON.stringify({status:report.status,evidence,engine_build_id:engine.build_id,server_executable_sha256:report.server_executable_sha256}));

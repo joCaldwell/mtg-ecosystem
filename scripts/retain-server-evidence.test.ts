@@ -102,7 +102,7 @@ test('npm12 direct URL cache preparation requires a command-only remote opt-in',
  }
 });
 
-for(const mutation of ['none','source-mismatch','changed-copy','extra-fixture'] as const){
+for(const mutation of ['none','source-mismatch','changed-copy','extra-fixture','browser-dist','changed-sdk-source'] as const){
  test(`offline SDK repository-relative native fixture layout: ${mutation}`,()=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'mtg-sdk-layout-'));
   try{
@@ -116,16 +116,19 @@ for(const mutation of ['none','source-mismatch','changed-copy','extra-fixture'] 
    // in the formerly flat retained layout. The copied test executes for real.
    fs.writeFileSync(path.join(sdk,'tests/probe.mjs'),"import fs from 'node:fs';process.stdout.write(fs.readFileSync(new URL('../../../game-engine/tests/fixtures/expected-match-ir.json',import.meta.url),'utf8'));\n");
    fs.writeFileSync(path.join(sdk,'package.json'),'{"type":"module"}');
+   fs.mkdirSync(path.join(sdk,'dist')); fs.writeFileSync(path.join(sdk,'dist/stale.js'),'stale output must not copy');
    const retainer=fs.readFileSync(path.join(scripts,'retain-server-evidence.ts'),'utf8');
    const helpers=retainer.slice(retainer.indexOf('function files('),retainer.indexOf('function output('));
    const layout=retainer.slice(retainer.indexOf('const clientLayoutVersion='),retainer.indexOf('const lock='));
    assert.ok(helpers.startsWith('function files(')&&layout.startsWith('const clientLayoutVersion='));
    const expectedNative={[fixtureRelative]:mutation==='source-mismatch'?'0'.repeat(64):sha(fixtureBytes)};
-   const after=mutation==='changed-copy'?"fs.writeFileSync(fixtureDestination,'tampered');checkClientFixtures();":mutation==='extra-fixture'?"fs.writeFileSync(path.join(path.dirname(fixtureDestination),'extra.json'),'{}');checkClientFixtures();":'';
+   const integrity=retainer.slice(retainer.indexOf('const afterClient='),retainer.indexOf('const clientVerification='));
+   const build="if(fs.existsSync(path.join(client,'dist')))throw new Error('dist copied as source');fs.mkdirSync(path.join(client,'dist'));fs.writeFileSync(path.join(client,'dist/browser.js'),'new browser output');fs.mkdirSync(path.join(client,'generated'));";
+   const after=mutation==='browser-dist'?build+integrity+"if(browserArtifacts['browser.js']!==sha('new browser output'))throw new Error('Missing artifact digest');":mutation==='changed-sdk-source'?build+"fs.writeFileSync(path.join(client,'package.json'),'changed source');"+integrity:mutation==='changed-copy'?"fs.writeFileSync(fixtureDestination,'tampered');checkClientFixtures();":mutation==='extra-fixture'?"fs.writeFileSync(path.join(path.dirname(fixtureDestination),'extra.json'),'{}');checkClientFixtures();":'';
    const driver=path.join(root,'layout.ts');
    fs.writeFileSync(driver,`import fs from 'node:fs';import path from 'node:path';import {createHash} from 'node:crypto';\nconst root=${JSON.stringify(checkout)},source=${JSON.stringify(source)},evidence=${JSON.stringify(evidence)},expectedNative=${JSON.stringify(expectedNative)};\nconst sha=(bytes:Buffer|string)=>createHash('sha256').update(bytes).digest('hex');\n${helpers}\n${layout}\n${after}\nconsole.log(JSON.stringify({client,clientSource,clientLayoutVersion,clientNativeFixtureFiles}));\n`);
    const result=spawnSync(process.execPath,[driver],{encoding:'utf8',timeout:5000});assert.equal(result.error,undefined);
-   if(mutation==='none'){
+   if(mutation==='none'||mutation==='browser-dist'){
     assert.equal(result.status,0,result.stderr);const record=JSON.parse(result.stdout);
     assert.equal(record.client,path.join(evidence,'client-source/packages/game-server/sdk'));
     assert.equal(record.clientLayoutVersion,'sdk-repository-relative-fixtures-v1');
@@ -135,7 +138,7 @@ for(const mutation of ['none','source-mismatch','changed-copy','extra-fixture'] 
     assert.equal(fs.readFileSync(path.join(evidence,'client-source',fixtureRelative),'utf8'),fixtureBytes);
     assert.equal(fs.existsSync(path.join(root,'game-engine')),false);
    }else{
-    assert.notEqual(result.status,0);assert.match(result.stderr,/fixture.*(authority|closure changed)/u);
+    assert.notEqual(result.status,0);assert.match(result.stderr,/(fixture.*(authority|closure changed)|Client source closure changed)/u);
    }
    assert.equal(fs.readFileSync(path.join(source,fixtureRelative),'utf8'),fixtureBytes,'retained native input must remain immutable');
   }finally{fs.rmSync(root,{recursive:true,force:true});}

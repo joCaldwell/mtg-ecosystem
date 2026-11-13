@@ -23,8 +23,10 @@ response consumer/tuple negatives, runs the Node transport/generator tests,
 and writes generated/verification.json + verification.log. Schemas/types/logs
 remain ignored. Node26.11.1 is the checked native TypeScript test environment.
 
-`MTG_SERVER_SCHEMA` is an explicit export-file input for isolated generator
-verification; preserve its source provenance separately. `MTG_SERVER_OUTPUT`
+`MTG_SERVER_SCHEMA` plus `MTG_SERVER_BOOTSTRAP_SCHEMA` are explicit Rust export-file
+inputs for isolated generator verification; preserve their source provenance
+separately. Executable mode exports both `schema` and `bootstrap-schema`.
+`MTG_SERVER_OUTPUT`
 is a generator-test override. Verification itself uses this package's ordinary
 ignored generated directory so type/runtime checks read the same outputs.
 
@@ -33,3 +35,12 @@ in authorization headers/private fields, never URLs/errors/JSON logs. Enforce
 cursor and body bounds, reject extra fields and imprecise numeric data, and
 cancel response streams on early rejection. Mock transport tests are necessary
 but do not replace actual authenticated HTTP/crash/reconnect/isolation tests.
+
+Browser consumers import the package root or `/browser`, after explicit
+`build:browser`. Generation emits standalone Ajv validators; never restore
+runtime compilation or relax CSP. `verify` also builds the browser package and
+checks its declarations/exports. `test:browser` separately runs the production
+bundle in pinned Chromium and Firefox under restrictive CSP, against a synthetic
+HTTP fixture. Install these browsers explicitly with the local Playwright CLI;
+checks never download them or start Cargo. A real host proof is separately gated
+on the native owner's exact compatible executable and one-seat bootstrap.

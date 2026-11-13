@@ -16,7 +16,7 @@ test('generation is repeatable and rejects future, unconstrained and external-re
     const run = value => {
       fs.writeFileSync(input, JSON.stringify(value));
       return spawnSync(process.execPath, [path.join(sdk, 'scripts/generate.mjs')], {
-        encoding: 'utf8', env: { ...process.env, MTG_SERVER_SCHEMA: input, MTG_SERVER_OUTPUT: output },
+        encoding: 'utf8', env: { ...process.env, MTG_SERVER_SCHEMA: input, MTG_SERVER_BOOTSTRAP_SCHEMA: path.join(sdk, 'generated/bootstrap.schema.json'), MTG_SERVER_OUTPUT: output },
       });
     };
     assert.equal(run(source).status, 0);
@@ -44,7 +44,8 @@ test('generation is repeatable and rejects future, unconstrained and external-re
     const unexpectedCommandParameter = structuredClone(source); route(unexpectedCommandParameter, 'submit_command').path += '/{command_id}';
     const unconstrainedManifest = structuredClone(source); unconstrainedManifest.manifest.properties.catalog = {};
     const externalExecution = structuredClone(source); externalExecution.execution.properties.status = { $ref: 'https://untrusted.example/status.json' };
-    for (const invalid of [missingResume, externalResume, missingResumeRoute, future, unknown, external, tupleDialect, unknownRoute, externalRoute, duplicateRoute, traversalRoute, extraRoute, changedMethod, wrongRouteType, missingCommandParameter, duplicateCommandParameter, unexpectedCommandParameter, externalExecution, unconstrainedManifest]) {
+    const unknownFormat = structuredClone(source); unknownFormat.command.properties.protocol_version.format = 'unreviewed_uint';
+    for (const invalid of [missingResume, externalResume, missingResumeRoute, future, unknown, external, tupleDialect, unknownRoute, externalRoute, duplicateRoute, traversalRoute, extraRoute, changedMethod, wrongRouteType, missingCommandParameter, duplicateCommandParameter, unexpectedCommandParameter, externalExecution, unconstrainedManifest, unknownFormat]) {
       const result = run(invalid); assert.notEqual(result.status, 0);
       assert.deepEqual(inventory(), first, 'failed generation must preserve last complete declarations and remove temporary output');
     }

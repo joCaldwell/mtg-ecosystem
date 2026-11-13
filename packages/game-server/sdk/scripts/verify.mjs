@@ -13,6 +13,7 @@ const testFiles = fs.readdirSync(path.join(sdk, 'tests')).filter(p => p.endsWith
 try {
   for (const [name, args] of [
     ['generate', ['scripts/generate.mjs']],
+    ['browser-package', ['scripts/build-browser.mjs']],
     ['typescript-strict', ['node_modules/typescript/bin/tsc', '--noEmit']],
     ['node-tests', ['--test', '--test-reporter=tap', ...testFiles]],
   ]) {
@@ -54,7 +55,7 @@ const tests = Number(/^# tests (\d+)$/m.exec(logBytes.toString('utf8'))?.[1]);
 if (!Number.isInteger(tests) || tests < 1 || responseVariants !== 33 || executionVariants !== 5 || schemas.routes.length !== 6) throw new Error('Expected test/response contract counters missing');
 for (const file of generation.files) if (sha(fs.readFileSync(path.join(output, file.path))) !== file.sha256) throw new Error('Generated declaration hash mismatch');
 if (sha(fs.readFileSync(path.join(output, 'protocol.schema.json'))) !== generation.schema_sha256) throw new Error('Rust schema hash mismatch');
-const packages = Object.fromEntries(['ajv', 'json-schema-to-typescript', 'typescript'].map(name => [name, JSON.parse(fs.readFileSync(path.join(sdk, 'node_modules', name, 'package.json'))).version]));
+const packages = Object.fromEntries(['ajv', 'json-schema-to-typescript', 'typescript', 'esbuild', 'playwright'].map(name => [name, JSON.parse(fs.readFileSync(path.join(sdk, 'node_modules', name, 'package.json'))).version]));
 const result = {
   verification_version: 1, status: 'preliminary-sdk-checks-passed',
   scope: 'schema/generated-types/mock-HTTP only; not hosting, durable recovery or four remote consumers',

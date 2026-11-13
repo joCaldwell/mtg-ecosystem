@@ -3,7 +3,9 @@ import type { StreamPage, StreamEntry } from '../generated/stream.js';
 import type { SubmissionResult } from '../generated/submission.js';
 import type { CommandExecution } from '../generated/execution.js';
 import type { PublicManifest } from '../generated/manifest.js';
-import { command, commandIdentifier, counter, execution, manifest, stream, submission, ProtocolError } from './validation.ts';
+import type { SeatResume } from '../generated/resume.js';
+import type { SeatBootstrap } from '../generated/bootstrap.js';
+import { command, commandIdentifier, counter, execution, manifest, stream, submission, resume, bootstrap, ProtocolError } from './validation.ts';
 import { strictJSON } from './strict-json.ts';
 import { ROUTES } from '../generated/routes.ts';
 export { ProtocolError, counter, PROTOCOL_VERSION } from './validation.ts';
@@ -12,6 +14,14 @@ export type { StreamPage, StreamEntry, Observation, PlayerRequest, Publication, 
 export type { SubmissionResult, RejectionReason } from '../generated/submission.js';
 export type { CommandExecution, CommandExecutionStatus } from '../generated/execution.js';
 export type { PublicManifest, Catalog, Decklist, DeckEntry } from '../generated/manifest.js';
+export type { SeatResume, ResumeState } from '../generated/resume.js';
+export type { SeatBootstrap } from '../generated/bootstrap.js';
+
+/** Parse only an explicitly imported single-seat file; never persist or log it. */
+export function parseSeatBootstrap(text: string): SeatBootstrap {
+  if (new TextEncoder().encode(text).byteLength > 4096) throw new ProtocolError('Seat bootstrap exceeds limit');
+  return bootstrap(strictJSON(text));
+}
 
 export class HttpError extends Error {
   readonly status: number;
@@ -51,10 +61,13 @@ export class GameClient {
     this.#base = url.href.replace(/\/$/, '');
     this.#matchId = options.matchId;
     this.#capability = options.capability;
-    this.#fetch = options.fetch ?? globalThis.fetch;
+    // Window.fetch requires its browser-global receiver. Calling an unbound
+    // default as a private instance method fails in browsers (Node permits it).
+    this.#fetch = (options.fetch ?? globalThis.fetch).bind(globalThis);
     this.#maximumResponseBytes = maximum;
   }
-  async #request(operation: keyof typeof ROUTES, body: string | undefined, signal?: AbortSignal, parameters: { query?: URLSearchParams; commandId?: string } = {}): Promise<unknown> {
+  async #request(operation: keyof typeof ROUTES, body: string | undefined, signal?: AbortSignal, parameters: { query?: URLSearchParams; commandId?: string; maximumBytes?: number } = {}): Promise<unknown> {
+    const maximumBytes = Math.min(this.#maximumResponseBytes, parameters.maximumBytes ?? this.#maximumResponseBytes);
     const route = ROUTES[operation];
     let path = route.path.replace('{match_id}', this.#matchId);
     if (parameters.commandId !== undefined) path = path.replace('{command_id}', parameters.commandId);
@@ -76,7 +89,7 @@ export class GameClient {
     if (!response.ok) return reject(new HttpError(response.status));
     if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')) return reject(new ProtocolError('Expected JSON response'));
     const declared = Number(response.headers.get('content-length'));
-    if (Number.isFinite(declared) && declared > this.#maximumResponseBytes) return reject(new ProtocolError('Response body exceeds limit'));
+    if (Number.isFinite(declared) && declared > maximumBytes) return reject(new ProtocolError('Response body exceeds limit'));
     const reader = response.body?.getReader();
     if (!reader) throw new ProtocolError('Missing JSON response body');
     let bytes = 0, text = '';
@@ -87,7 +100,7 @@ export class GameClient {
         const result = await reader.read();
         if (result.done) break;
         bytes += result.value.byteLength;
-        if (bytes > this.#maximumResponseBytes) throw new ProtocolError('Response body exceeds limit');
+        if (bytes > maximumBytes) throw new ProtocolError('Response body exceeds limit');
         text += decoder.decode(result.value, { stream: true });
       }
       text += decoder.decode();
@@ -113,6 +126,12 @@ export class GameClient {
   async manifest(options: { signal?: AbortSignal } = {}): Promise<PublicManifest> {
     const result = manifest(await this.#request('get_manifest', undefined, options.signal));
     if (result.match_id !== this.#matchId) throw new ProtocolError('Public manifest has a different match identifier');
+    return result;
+  }
+  /** One committed boundary; caller binds viewer/build/catalog and polls after next. */
+  async resume(options: { signal?: AbortSignal } = {}): Promise<SeatResume> {
+    const result = resume(await this.#request('get_resume', undefined, options.signal, { maximumBytes: 131_072 }));
+    if (result.match_id !== this.#matchId) throw new ProtocolError('Seat resume has a different match identifier');
     return result;
   }
   /** Durable execution disposition for this authenticated seat's command ID. */
