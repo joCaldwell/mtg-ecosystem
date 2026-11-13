@@ -59,7 +59,7 @@ predicate without mutating state or minting handles.
 
 ## Focused evidence and limits
 
-Runtime source checkpoint `66aef199` includes the payment correction. Its copied
+Feature runtime source checkpoint `66aef199` includes the payment correction. Its copied
 debug executables identify core build
 `8dabf0e48d8a224d610b4728d246baf51021966a2200a270fa24380e578c2344`.
 Raw receipts are retained under
@@ -83,10 +83,28 @@ stop boundary. Their current hash fixture was updated only after source/rules
 review and exact comparison; old values and full reports remain retained in
 `blocking-target-scenario-equivalence.json` and adjacent evidence.
 
-Production focused Clippy/builds, generated SDK strict TypeScript and 54 tests,
-and the small smoke plus explicit replay passed. The read-only client's unchanged
-capture passed current-schema qualification, strict types, boundaries, 15 tests and
-a production build. Full runtime suites, full demo,
+Final combined qualification at `936566b76e9819c4503c9065590be2a66037d26a`
+preserves the reviewed query, local-serving and live read-only client integrations.
+The copied debug producer has core build
+`edf075b61f6497fcc51ca20c7d3107cef0b3afea35323d9026d2defc983b197c`;
+its compiled source manifest is verified. Workspace all-target compilation, nine
+feature/payment tests, eleven action-query tests, five server delivery/registry
+tests and production core/compiler/server Clippy passed. The explicit small smoke
+and replay passed with the unchanged final State hash. SDK strict TypeScript,
+browser packaging and 62 tests passed against this exact producer export
+(protocol schema `7fe738bb5a4aecaedb23a9a6405691c6497c6b117b38464aacde6601f152204c`).
+Current client schema qualification preserves historical capture/provenance bytes.
+Client strict types, boundaries, 38 tests and production build passed;
+the build retains chunk-size and React Router directive warnings. The 94-scenario
+comparison above remains qualified to the feature producer, not a repeated
+combined acceptance run. Final receipts use `blocking-target-merged-*`. The final source/tooling runner
+failed twice in the unchanged retention test
+`test_runtime_store_limit_preserves_failed_output`: the enforcing supervisor
+terminated the writer after a partial write (1,011,712 and 729,088 bytes), whereas
+the test expects a complete 1 MiB file. A focused retry passed. Both runner
+failures remain retained; no complete final source/tooling pass is claimed.
+
+Full runtime suites, full demo,
 legal-pod/profile or release-test matrices, live hosting/browser acceptance and
 offline retention rebuilds were omitted. New pool admission and hosting/search
 review remain separate work.
