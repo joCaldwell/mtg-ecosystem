@@ -20,12 +20,15 @@ export interface SeatView {
   readonly commandZone: readonly CardView[];
 }
 export interface TableView {
+  readonly live?: boolean;
   readonly title: string;
   readonly sourceLabel: string;
   readonly seats: readonly SeatView[];
   readonly hand: readonly CardView[];
   readonly commandZone: readonly CardView[];
   readonly stack: readonly CardView[];
+  readonly otherObjects?: readonly CardView[];
+  readonly combat?: readonly string[];
   readonly turn: string | null;
   readonly phase: string | null;
   readonly priority: string | null;
@@ -35,5 +38,5 @@ export interface TableView {
 export function cardName(card: CardView): string { return card.name ?? 'Unidentified card'; }
 
 export function inspectableCards(table: TableView): readonly CardView[] {
-  return [...table.hand, ...table.commandZone, ...table.stack, ...table.seats.flatMap(seat => [...seat.battlefield, ...seat.commandZone])];
+  return [...table.hand, ...table.commandZone, ...table.stack, ...(table.otherObjects ?? []), ...table.seats.flatMap(seat => [...seat.battlefield, ...seat.commandZone])];
 }

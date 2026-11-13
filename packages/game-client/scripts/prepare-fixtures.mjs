@@ -14,18 +14,19 @@ const generated = new URL('../generated/', import.meta.url);
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const read = async name => readFile(new URL(name, fixtureRoot));
 const pins = JSON.parse(await read('provenance.json'));
+const qualification = JSON.parse(await readFile(new URL('../sdk-qualification.json', import.meta.url)));
 for (const file of pins.files) {
   if (hash(await read(file.path)) !== file.sha256) throw new Error(`Fixture digest mismatch: ${file.path}`);
 }
 const protocolBytes = await readFile(new URL('../../game-server/sdk/generated/protocol.schema.json', import.meta.url));
-if (hash(protocolBytes) !== pins.sdk_qualification.protocol_schema_sha256) throw new Error('SDK schema is not the qualified integration schema; prepare SDK explicitly first');
+if (hash(protocolBytes) !== qualification.protocol_schema_sha256) throw new Error('SDK schema is not the qualified integration schema; prepare SDK explicitly first');
 const protocol = JSON.parse(protocolBytes);
 const sdkRoot = new URL('../../game-server/sdk/', import.meta.url);
 const sdkBuild = JSON.parse(await readFile(new URL('dist/build.json', sdkRoot)));
 const generationBytes = await readFile(new URL('generated/generation.json', sdkRoot));
 if (hash(generationBytes) !== sdkBuild.generation_sha256) throw new Error('SDK browser build has stale generation inputs');
-if (JSON.parse(generationBytes).bootstrap_schema_sha256 !== pins.sdk_qualification.bootstrap_schema_sha256) throw new Error('SDK bootstrap schema is not the qualified integration schema');
-if (sdkBuild.schema_sha256 !== pins.sdk_qualification.protocol_schema_sha256) throw new Error('SDK browser build uses a different schema');
+if (JSON.parse(generationBytes).bootstrap_schema_sha256 !== qualification.bootstrap_schema_sha256) throw new Error('SDK bootstrap schema is not the qualified integration schema');
+if (sdkBuild.schema_sha256 !== qualification.protocol_schema_sha256) throw new Error('SDK browser build uses a different schema');
 for (const file of sdkBuild.files) {
   if (hash(await readFile(new URL(`dist/${file.path}`, sdkRoot))) !== file.sha256) throw new Error('SDK browser artifact digest mismatch');
 }
@@ -57,7 +58,7 @@ await mkdir(generated, { recursive: true });
 await writeFile(new URL('presentation.d.ts', generated), declaration);
 await writeFile(new URL('fixture-verification.json', generated), JSON.stringify({
   native_source: pins.native_source, sdk_source: pins.sdk_source, fixture_protocol_schema_sha256: pins.protocol_schema_sha256,
-  integration_native_source: pins.sdk_qualification.native_source, protocol_schema_sha256: hash(protocolBytes),
+  integration_native_source: qualification.native_source, protocol_schema_sha256: hash(protocolBytes),
   presentation_schema_sha256: hash(await read('presentation.schema.json')),
   presentation_declaration_sha256: hash(declaration), generator: 'json-schema-to-typescript@16.0.0',
   observation_version: opening.resume.state.observation.observation_version,
