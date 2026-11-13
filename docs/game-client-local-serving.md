@@ -396,3 +396,20 @@ The client lane retains original reports and lifecycle harness in its own
 This supersedes the schema-1 premerge qualification gap for the integrated source
 above. Core query transport, command journals, natural games, full retention,
 performance and human usability remain separate milestones.
+
+### Response-body transport correction
+
+The live-client review found that a socket failure after response headers was
+classified as invalid JSON. The SDK now reports a rejected body read using its
+existing sanitized `TransportError`; completed malformed JSON, invalid UTF-8,
+schema violations and size limits remain protocol failures. Explicit abort stays
+an abort, and the SDK still performs no retries. Session recovery belongs to the
+client, whose existing adapter already distinguishes these errors.
+
+Against the same native exports above, strict TypeScript and all 62 SDK tests
+passed, including three new body-error regressions. Both browser CSP suites
+passed (12 checks each). Receipts are `generated/review-m1/interrupted-body-sdk.log`
+and `interrupted-body-sdk-browser.log`; the SDK generated verification manifest
+records the updated source/artifact hashes. This TypeScript-only correction does
+not change native identities. Prior live-host receipts retain their original SDK
+source qualification; the client follow-up adds actual-adapter socket-drop checks.
