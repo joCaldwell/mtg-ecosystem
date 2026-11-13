@@ -84,7 +84,7 @@ test('npm12 direct URL cache preparation requires a command-only remote opt-in',
   fs.writeFileSync(user,'');fs.writeFileSync(global,'');
   const args=['cache','add',url,'--cache',path.join(root,'cache'),`--userconfig=${user}`,`--globalconfig=${global}`,'--ignore-scripts','--no-audit','--no-fund'];
   const run=(extra:string[])=>new Promise<{status:number|null;output:string}>((resolve,reject)=>{
-   const child=spawn('npm',[...args,...extra],{cwd:root,env:{PATH:process.env.PATH,HOME:root,TMPDIR:root},signal:AbortSignal.timeout(10_000)});
+   const child=spawn('npm',[...args,...extra],{cwd:root,env:{PATH:process.env.PATH,LD_LIBRARY_PATH:process.env.LD_LIBRARY_PATH,HOME:root,TMPDIR:root},signal:AbortSignal.timeout(10_000)});
    let output='';child.stdout.on('data',b=>{output+=String(b);});child.stderr.on('data',b=>{output+=String(b);});
    child.on('error',reject);child.on('close',status=>resolve({status,output}));
   });
