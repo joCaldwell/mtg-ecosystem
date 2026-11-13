@@ -91,16 +91,29 @@ below.
 | G | Sakura-Tribe Elder | {1}{G} 1/1: sacrifice this: search for a basic land, put it onto the battlefield tapped, then shuffle |
 | R | Goblin Bombardment | {1}{R} enchantment: sacrifice a creature: 1 damage to any target |
 | R | Fling | {1}{R} instant, additional cost: sacrifice a creature; damage equal to its power to any target |
+| R | Shrapnel Blast | {1}{R} instant, additional cost: sacrifice an artifact; 5 damage to any target |
 | R | Mogg Fanatic | {R} 1/1: sacrifice this: 1 damage to any target |
 | R | Goblin Arsonist | {R} 1/1: when it dies, you may have it deal 1 damage to any target |
 | R | Siege-Gang Commander | {3}{R}{R} 2/2: enters with three 1/1 red Goblin tokens; {1}{R}, sacrifice a Goblin: 2 damage to any target |
 | W | Requiem Angel | {5}{W} 5/5 flying: when another non-Spirit creature you control dies, create a 1/1 white flying Spirit |
 
-That makes 153 definitions. Before admission, verify each record's:
+The current development pool has 154 definitions. Shrapnel Blast is the later
+source-backed addition; all previous 153 definitions are preserved. Its complete
+record is `d3c623f3-c7c9-47c0-8096-6dee3267baff.json`, pinned to physical archive
+line 31967 by `provenance.json`. It uses existing artifact sacrifice, ordinary
+noncombat damage and target/payment contracts: one consumed permanent and one
+fixed damage instruction, with no new token producer or resource-capacity rule.
+This admission does not renew the historical completion/release qualification
+below or grant hosting/search support. The focused
+[accepted-pod witness](../packages/game-engine/crates/core/tests/artifact_sacrifice_admission.rs)
+uses real land and Ring mana, sacrifices that tapped Ring, and verifies fixed
+spell-source damage, snapshots and replay at budgets 1 and 4096.
+Before admission, verify each record's:
 - oracle text, AST, power and toughness;
 - Commander legality and color identity.
 
-In table order, the archive line numbers are: 24338, 25615, 8089, 21180, 1914,
+For the original 18 additions (excluding Shrapnel Blast), the archive line numbers
+in table order are: 24338, 25615, 8089, 21180, 1914,
 17831, 30059, 2691, 35051, 2711, 25302, 34271, 35838, 5439, 19100, 29025, 33396
 and 13487. Costs and stats come from the source records, not from this table.
 
@@ -111,7 +124,7 @@ Each deck adds its colored cards. Basics fill each deck to 100 cards:
 | White | Requiem Angel | 57 Plains |
 | Black/green | the eleven black cards and Sakura-Tribe Elder | 9 Forest, 10 Swamp |
 | Blue | nothing | 71 Islands |
-| Red | the five red cards | 70 Mountains |
+| Red | the six red cards | 69 Mountains |
 
 The default pod and the batch pods are those of removal-v1. The seed domain is
 `commander-sacrifice-v1/completion-batch/`.

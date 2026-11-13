@@ -80,7 +80,9 @@ response witness and narrowly scoped public-view policy support.
 Complete [Shrapnel Blast source](../packages/game-engine/tests/fixtures/d3c623f3-c7c9-47c0-8096-6dee3267baff.json)
 now lowers its exact one-artifact additional sacrifice cost through the existing
 [sacrifice/payment contracts](game-engine-sacrifice.md). This compiler source
-completion adds no IR fields, capabilities, schema version or pool admission.
+completion adds no IR fields, capabilities or schema version. The subsequent
+finite sacrifice-pool admission includes it in the red default deck; hosting,
+search and downstream consumer qualification remain separate.
 Read Rust types and validation at the edited source; old reports retain their
 original version numbers. Active catalogs are regenerated at schema 1; distinct
 source/admission pools remain separate. Historical decoder gates and downgrade

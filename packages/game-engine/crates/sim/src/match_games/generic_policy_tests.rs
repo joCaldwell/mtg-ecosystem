@@ -612,6 +612,76 @@ fn reactive_modal_spell_selects_prevention_instead_of_ready_life_mode() {
 }
 
 #[test]
+fn sacrifice_shrapnel_source_uses_artifact_cost_and_fixed_damage_for_lethal() {
+    let c = mtg_compiler::catalog::embedded_catalog("sacrifice").unwrap();
+    let baseline = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+    let mut v = wipe_tests::view(&baseline);
+    v.active = Some(v.viewer);
+    v.turn.step = TurnStep::PrecombatMain;
+    let d = c
+        .definitions
+        .iter()
+        .find(|d| d.name == "Shrapnel Blast")
+        .unwrap();
+    let p = d.spell.as_ref().unwrap();
+    assert_eq!(
+        p.additional_sacrifice.as_ref().unwrap().types,
+        [CardKind::Artifact]
+    );
+    let mut enemy = wipe_tests::card(&c, "Sol Ring", 0, Zone::Battlefield);
+    enemy.handle = ObjectHandle("enemy-ring".into());
+    v.objects = vec![
+        wipe_tests::card(&c, "Sol Ring", v.viewer.0, Zone::Battlefield),
+        wipe_tests::card(&c, "Grizzly Bears", v.viewer.0, Zone::Battlefield),
+        wipe_tests::card(&c, "Mind Stone", v.viewer.0, Zone::Hand { owner: v.viewer }),
+        enemy,
+    ];
+    v.players
+        .iter_mut()
+        .find(|r| r.player == PlayerId(0))
+        .unwrap()
+        .life = 6.into();
+    let s = strategy(&c);
+    assert!(
+        !s.definition_ready(&v, d),
+        "a healthy Ring is not spent for nonlethal damage alone"
+    );
+    v.players
+        .iter_mut()
+        .find(|r| r.player == PlayerId(0))
+        .unwrap()
+        .life = 5.into();
+    let before = canonical(&v).unwrap();
+    assert!(s.definition_ready(&v, d));
+    assert_eq!(s.damage_amount(&v, p), Quantity::from(5));
+    assert_eq!(
+        s.damage_target(
+            &v,
+            p,
+            &[PlayerTargetEntity::Player {
+                player: PlayerId(0)
+            }]
+        ),
+        Some(PlayerTargetEntity::Player {
+            player: PlayerId(0)
+        })
+    );
+    assert_eq!(
+        s.sacrifice_objects(&v, p.additional_sacrifice.as_ref().unwrap())
+            .into_iter()
+            .map(|o| o.handle.clone())
+            .collect::<Vec<_>>(),
+        vec![ObjectHandle("Sol Ring".into())]
+    );
+    assert_eq!(canonical(&v).unwrap(), before, "policy inspection is pure");
+    v.objects.remove(0);
+    assert!(
+        !s.definition_ready(&v, d),
+        "enemy/hand artifacts and an ordinary creature cannot pay"
+    );
+}
+
+#[test]
 fn sacrifice_costs_use_tokens_doomed_creatures_and_lethal_payoffs() {
     let c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
     let mut v = wipe_tests::view(&c);
