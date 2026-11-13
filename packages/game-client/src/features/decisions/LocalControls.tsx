@@ -4,9 +4,11 @@ import styles from './decisions.module.css';
 
 /** Controlled presentation only. Native controls supply keyboard conventions;
  * the parent owns local state and completion. No network/storage/SDK runtime. */
-export function LocalControls({ control, draft, onChange, onComplete }: {
+export function LocalControls({ control, draft, onChange, onComplete, confirmLabel = 'Confirm local draft', readyText = 'Draft shape complete. Core validation is still required.' }: {
   readonly control: LocalControl; readonly draft: LocalDraft;
   readonly onChange: (draft: LocalDraft) => void; readonly onComplete: () => void;
+  readonly confirmLabel?: string;
+  readonly readyText?: string;
 }) {
   const id = useId();
   const error = draftError(control, draft);
@@ -26,7 +28,7 @@ export function LocalControls({ control, draft, onChange, onComplete }: {
           <button type="button" aria-label={`Move ${selected} later`} aria-disabled={index === draft.selected.length - 1} onClick={() => onChange(reorderDraft(draft, selected, 1))}>Later</button></li>;
       })}</ol></>}
     </fieldset>
-    <p id={`${id}-error`} className={styles.hint} aria-live="polite">{error ?? 'Draft shape complete. Core validation is still required.'}</p>
-    <button className={styles.complete} type="submit" disabled={error !== null}>Confirm local draft</button>
+    <p id={`${id}-error`} className={styles.hint} aria-live="polite">{error ?? readyText}</p>
+    <button className={styles.complete} type="submit" disabled={error !== null}>{confirmLabel}</button>
   </form>;
 }

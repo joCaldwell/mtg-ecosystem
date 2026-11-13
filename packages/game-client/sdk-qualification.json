@@ -1,7 +1,7 @@
 {
-  "native_source": "e86df7e73f5ac896a4b2488779efb46ef28240d4",
+  "native_source": "2aaf466b6a331846baea95116c6c0ebf26d953cb",
   "protocol_schema_sha256": "a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3",
   "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
-  "scope": "Reviewed action-query transport and exact-command SDK integrated with main 0b4a8757 compiler source-binding correction. Fresh combined native exports; historical capture/provenance unchanged. One current SDK build qualifies both packages.",
-  "sdk_source": "e86df7e73f5ac896a4b2488779efb46ef28240d4"
+  "scope": "Fresh current-source opening-hand producer: focused native delivery/security/protocol tests and copied server/provisioner exports. Source fingerprint 818ddd3c681c352e70bb3bd66e4109d2e05e8644f4db9a12181842d9b2e7f7df. Live App qualification is recorded separately in LIVE-OPENING-REPORT.md; historical fixture/provenance unchanged.",
+  "sdk_source": "2aaf466b6a331846baea95116c6c0ebf26d953cb"
 }

@@ -18,3 +18,10 @@ export function readRouteAllowed(method: string | undefined, target: string): bo
     || /^\/v1\/matches\/[0-9a-f]{1,64}\/events\?after=[0-9]{1,20}&limit=[0-9]{1,2}&wait_ms=[0-9]{1,5}$/.test(target)
     || /^\/presentation\/[0-9a-f]{64}\.json$/.test(target);
 }
+/** Opening actions need one submission and authoritative disposition reads.
+ * No query, cancellation, operator, wildcard suffix or caller-selected viewer. */
+export function apiRouteAllowed(method: string | undefined, target: string): boolean {
+  return readRouteAllowed(method, target)
+    || (method === 'POST' && /^\/v1\/matches\/[0-9a-f]{1,64}\/commands$/.test(target))
+    || (method === 'GET' && /^\/v1\/matches\/[0-9a-f]{1,64}\/commands\/[0-9a-f]{32}$/.test(target));
+}

@@ -33,7 +33,7 @@ export function connectionDetail(snapshot: ReadSnapshot): string {
     case 'retrying': return `${snapshot.failure === 'rate-limited' ? 'The host reported HTTP 429.' : snapshot.failure === 'unavailable' ? 'The host reported HTTP 503.' : 'The network request failed.'} Retained observations may be stale; no action is sent.`;
     case 'pending': return 'The host has no committed observation for this seat yet. The session will keep reading.';
     case 'ended': return 'The host published a rules outcome. Read polling has stopped and this tab released ownership.';
-    case 'ready': return 'Read-only session. No choices or automatic moves are submitted.';
+    case 'ready': return snapshot.command.phase === 'disabled' ? 'Read-only session. No choices or automatic moves are submitted.' : 'Only explicit opening-hand confirmations can send a choice. Later decisions are unavailable.';
     default: return 'The capability stays in memory. Refreshing or closing this page requires importing the file again.';
   }
 }

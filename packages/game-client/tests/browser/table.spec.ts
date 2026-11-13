@@ -73,7 +73,7 @@ test('inspection build makes no API requests and persists no session data', asyn
   page.on('request', request => requests.push(request.url()));
   await page.goto('/');
   await page.getByRole('link', { name: 'About this build' }).click();
-  await expect(page.getByRole('heading', { name: 'A table for inspection' })).toBeVisible();
-  expect(requests.every(url => new URL(url).origin === 'http://127.0.0.1:4179' && !url.includes('/v1/'))).toBe(true);
+  await expect(page.getByRole('heading', { name: 'A table with opening choices' })).toBeVisible();
+  expect(requests.every(url => new URL(url).origin === new URL(page.url()).origin && !url.includes('/v1/'))).toBe(true);
   expect(await page.evaluate(async () => ({ local: localStorage.length, session: sessionStorage.length, databases: (await indexedDB.databases()).length, serviceWorkers: (await navigator.serviceWorker.getRegistrations()).length }))).toEqual({ local: 0, session: 0, databases: 0, serviceWorkers: 0 });
 });

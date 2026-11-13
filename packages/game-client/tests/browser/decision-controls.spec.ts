@@ -103,6 +103,6 @@ test('fixture route refresh makes no API request and stores no secrets or intent
   await page.getByRole('region', { name: 'Captured foundation choice' }).getByRole('radio', { name: 'Keep hand', exact: true }).check();
   await page.reload();
   await expect(page.getByRole('region', { name: 'Captured foundation choice' }).getByRole('radio', { name: 'Keep hand', exact: true })).not.toBeChecked();
-  expect(requests.every(url => new URL(url).origin === 'http://127.0.0.1:4179' && !/\/(v1|presentation)\/|client-config/.test(url))).toBe(true);
+  expect(requests.every(url => new URL(url).origin === new URL(page.url()).origin && !/\/(v1|presentation)\/|client-config/.test(url))).toBe(true);
   expect(await page.evaluate(async () => ({ local: localStorage.length, session: sessionStorage.length, databases: (await indexedDB.databases()).length, workers: (await navigator.serviceWorker.getRegistrations()).length, cache: (await caches.keys()).length, cookies: document.cookie }))).toEqual({ local: 0, session: 0, databases: 0, workers: 0, cache: 0, cookies: '' });
 });

@@ -1,10 +1,21 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { upstreamOrigin, localRequestAllowed, readRouteAllowed } from '../scripts/proxy-policy.ts';
+import { upstreamOrigin, localRequestAllowed, readRouteAllowed, apiRouteAllowed } from '../scripts/proxy-policy.ts';
 
 test('proxy destination is a canonical explicit numeric loopback, including port 80', () => {
   for (const value of ['http://127.0.0.1:80', 'http://127.0.0.1:18741', 'http://[::1]:65535']) assert.equal(upstreamOrigin(value), value);
   for (const value of ['http://localhost:18741', 'http://127.0.0.2:10', 'http://127.0.0.1:0', 'http://127.0.0.1:65536', 'http://127.0.0.1:080', 'http://127.0.0.1:1/', 'http://127.0.0.1:1\n', 'http://evil.test', 'http://u@127.0.0.1:2']) assert.throws(() => upstreamOrigin(value));
+});
+test('opening proxy exposes only exact submit and execution routes', () => {
+  const command = `/v1/matches/a1/commands/${'a'.repeat(32)}`;
+  assert.ok(apiRouteAllowed('POST', '/v1/matches/a1/commands'));
+  assert.ok(apiRouteAllowed('GET', command));
+  for (const [method, path] of [
+    ['GET', '/v1/matches/a1/commands'], ['POST', command], ['POST', `${command}/cancel`],
+    ['POST', '/v1/matches/a1/actions/query'], ['POST', '/v1/matches/a1/commands?viewer=0'],
+    ['GET', `${command}?x=1`], ['GET', `${command}/`], ['GET', command.slice(0, -1)],
+    ['POST', '/v1/matches/a1/%63ommands'], ['PUT', '/v1/matches/a1/commands'],
+  ]) assert.equal(apiRouteAllowed(method, path!), false);
 });
 test('local Host/Origin/Fetch Metadata are checked before upstream rewriting', () => {
   assert.ok(localRequestAllowed('127.0.0.1:4179', undefined, 'same-origin', 4179));

@@ -34,6 +34,7 @@ const empty = (): ReadSnapshot => immutable({ command: disabledCommand(), connec
 let nextIncarnation = 0;
 interface Run {
   readonly cancel: ReturnType<SessionEffects<unknown>['cancellation']>;
+  pollCancel: ReturnType<SessionEffects<unknown>['cancellation']> | null;
   release: (() => void) | null;
   commands: CommandLifecycle | null;
   commandsBinding?: import('./contracts.ts').JournalBinding;
@@ -55,7 +56,7 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
   #update(patch: Partial<ReadSnapshot>): void { this.#publish({ ...this.#snapshot, ...patch }); }
   #current(run: Run): boolean { return this.#run === run && !run.cancel.signal.aborted; }
   #finish(run: Run): void {
-    run.cancel.abort(); run.release?.(); run.release = null;
+    run.cancel.abort(); run.pollCancel?.abort(); run.release?.(); run.release = null;
     if (this.#run === run) this.#run = null;
   }
   commandContext = (): CommandContext | null => {
@@ -74,7 +75,7 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
    * late transport completion has no authority over a replacement session. */
   join = async (input: Input): Promise<void> => {
     this.stop();
-    const run: Run = { cancel: this.#effects.cancellation(), release: null, commands: null, refresh: false, incarnation: ++nextIncarnation };
+    const run: Run = { cancel: this.#effects.cancellation(), pollCancel: null, release: null, commands: null, refresh: false, incarnation: ++nextIncarnation };
     this.#run = run;
     this.#update({ connection: 'importing' });
     const signal = run.cancel.signal;
@@ -110,7 +111,13 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
               run.commandsBinding = journalBinding(binding, commands.protocol);
               run.commands = new CommandLifecycle({ effects: commands, binding: run.commandsBinding, signal,
                 active: () => this.#current(run), context: this.commandContext,
-                publish: command => this.#update({ command }), refresh: () => { run.refresh = true; run.incarnation = ++nextIncarnation; } });
+                publish: command => this.#update({ command }), refresh: () => {
+                  run.refresh = true; run.incarnation = ++nextIncarnation;
+                  // A terminal command needs a new coherent resume. Do not wait
+                  // for an otherwise idle 20s poll; abort is only a read wakeup,
+                  // never evidence that any command was cancelled or consumed.
+                  run.pollCancel?.abort();
+                } });
               await run.commands.recover();
               if (!this.#current(run)) return;
             }
@@ -118,7 +125,11 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
             initialized = true;
           } else {
             const current = this.#snapshot.read!;
-            const page = await transport.poll(current.next, signal);
+            const pollCancel = this.#effects.cancellation();
+            run.pollCancel = pollCancel;
+            let page: StreamPage;
+            try { page = await transport.poll(current.next, pollCancel.signal); }
+            finally { if (run.pollCancel === pollCancel) run.pollCancel = null; }
             if (!this.#current(run)) return;
             this.#update({ read: streamRead(binding, current, page) });
           }
@@ -135,6 +146,7 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
           await this.#effects.wait(100, signal);
         } catch (error) {
           if (!this.#current(run)) return;
+          if (polling && run.refresh) { initialized = false; continue; }
           const kind = error instanceof SessionFailure ? error.kind : this.#effects.classify(error);
           if (!['rate-limited', 'unavailable', 'disconnected'].includes(kind)) throw new SessionFailure(kind);
           consecutiveFailures += 1;

@@ -55,6 +55,9 @@ function visit(node) {
 }
 visit(ast);
 await mkdir(generated, { recursive: true });
+// Runtime receives only the schema identity verified above, never a draft/server
+// supplied hash. Vite bundles this named constant after explicit SDK preparation.
+await writeFile(new URL('sdk-identity.ts', generated), `export const protocolSchemaHash = '${sdkBuild.schema_sha256}' as const;\n`);
 await writeFile(new URL('presentation.d.ts', generated), declaration);
 await writeFile(new URL('fixture-verification.json', generated), JSON.stringify({
   native_source: pins.native_source, sdk_source: pins.sdk_source, fixture_protocol_schema_sha256: pins.protocol_schema_sha256,

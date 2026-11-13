@@ -28,8 +28,8 @@ async function bounded<T>(signal: AbortSignal, operation: (signal: AbortSignal) 
   finally { clearTimeout(timer); signal.removeEventListener('abort', abort); }
 }
 
-/** Opt-in factory for future composition. Schema identity must come from the
- * explicitly qualified SDK build; this never enables sends in the current app. */
+/** Command-enabled composition requires the explicitly qualified SDK build
+ * identity. The app separately gates reviewed opening-hand interactions. */
 export function browserCommandSession(protocolSchemaHash: string): ReadSession<File> {
   if (!/^[0-9a-f]{64}$/.test(protocolSchemaHash)) throw new SessionFailure('incompatible');
   return makeBrowserSession(protocolSchemaHash);

@@ -20,7 +20,7 @@ const emptyStorage = { local: 0, session: 0, databases: 0, caches: 0, workers: 0
 
 // These are real native reads. Assertions and reports contain only bounded counts
 // and public identities. No bearer/header/body/hand dump or trace is retained.
-test('four authenticated seats: native identity, permitted hands, CSP, empty storage and GET-only traffic', async ({ browser }, info) => {
+test('four authenticated seats: native identity, permitted hands, CSP, empty command journal and GET-only traffic', async ({ browser }, info) => {
   const contexts: BrowserContext[] = [];
   const evidence: { viewer: number; cursor: string; ownHand: number; methods: string[]; requests: number }[] = [];
   try {
@@ -56,11 +56,11 @@ test('four authenticated seats: native identity, permitted hands, CSP, empty sto
       await page.getByRole('link', { name: 'Open live table' }).click();
       await expect(page.getByRole('heading', { name: 'Commander table', exact: true })).toBeVisible();
       await expect(page.getByRole('region', { name: 'Your hand', exact: true }).getByRole('button')).toHaveCount(hand.length);
-      await expect(page.getByText('Read-only table. Choices cannot be submitted.')).toBeVisible();
+      await expect(page.getByText('Opening choices are ready. Nothing is sent until you confirm.', { exact: true })).toBeVisible();
       const input = page.getByRole('button', { name: 'Jump to decision' });
       await input.focus(); await page.keyboard.press('Enter');
       await expect(page.locator('section[aria-labelledby="decision-title"]')).toBeFocused();
-      expect(await storage(page)).toEqual(emptyStorage);
+      expect(await storage(page)).toEqual({ ...emptyStorage, databases: 1 });
       expect(await page.evaluate(() => (window as unknown as { cspViolations: number }).cspViolations)).toBe(0);
       expect(errors).toEqual([]);
       expect(methods.every(method => method === 'GET')).toBe(true);
@@ -86,7 +86,7 @@ test('same-profile duplicate tab is blocked, release allows explicit import, ref
   await expect(second.getByRole('heading', { name: 'Connected · Seat 1', exact: true })).toBeVisible();
   await second.reload();
   await expect(second.getByRole('heading', { name: 'Not connected', exact: true })).toBeVisible();
-  expect(await storage(second)).toEqual(emptyStorage);
+  expect(await storage(second)).toEqual({ ...emptyStorage, databases: 1 });
   await join(page);
   await second.close();
 });
