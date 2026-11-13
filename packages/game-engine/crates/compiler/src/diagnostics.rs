@@ -144,7 +144,7 @@ fn locate(raw: &str, path: &str, decoder: Decoder, context: &str) -> Failure {
             field!("replace", SourceReplacementAction, "leaf");
         }
         "damage-event" => {
-            field!("source", AnyDamageSource, "leaf");
+            field!("source", ReplacementDamageSource, "leaf");
         }
         "prevention" => {
             field!("shield", SourceShield, "shield");

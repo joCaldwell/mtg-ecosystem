@@ -242,6 +242,8 @@ mod cast_prohibition_tests;
 #[cfg(test)]
 mod cast_trigger_tests;
 #[cfg(test)]
+mod controlled_creature_damage_replacement_tests;
+#[cfg(test)]
 mod damage_controller_discard_tests;
 #[cfg(test)]
 mod damage_match_appearance_tests;

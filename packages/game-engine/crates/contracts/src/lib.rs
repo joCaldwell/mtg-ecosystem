@@ -199,6 +199,7 @@ pub enum Capability {
     CombatDamagePreventionV1,
     DamageBudgetPreventionV1,
     StaticDamageReplacementV1,
+    ControlledCreatureDamageReplacementV1,
     NormalLayoutV1,
     BasicLandManaV1,
     LandPlayV1,
@@ -688,6 +689,8 @@ pub enum StaticEffect {
         toughness: Quantity,
     },
     DoubleDamageToPermanentOrPlayer,
+    /// Double damage from creatures controlled by this battlefield source's controller.
+    DoubleControllerCreatureDamageToPermanentOrPlayer,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1302,6 +1305,9 @@ impl Definition {
                 StaticEffect::DoubleDamageToPermanentOrPlayer => {
                     Capability::StaticDamageReplacementV1
                 }
+                StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer => {
+                    Capability::ControlledCreatureDamageReplacementV1
+                }
                 StaticEffect::ControllerCreatureAnthem { .. } => Capability::CreatureAnthemV1,
                 StaticEffect::ModifyCreatures {
                     scope: CreatureScope::AttackingController,
@@ -1857,6 +1863,7 @@ impl Definition {
         if self.static_abilities.iter().any(|a| {
             a.effect != StaticEffect::EntersTapped
                 && a.effect != StaticEffect::OpponentsCantCastDuringControllerTurn
+                && a.effect != StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer
                 && !matches!(
                     a.effect,
                     StaticEffect::ModifyCreatures {
@@ -1885,6 +1892,18 @@ impl Definition {
             return Err("static damage replacement must function on battlefield".into());
         }
         for a in &self.static_abilities {
+            if a.effect == StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer {
+                if !matches!(
+                    c.kind,
+                    CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
+                ) {
+                    return Err(
+                        "controlled creature damage replacement requires a battlefield permanent"
+                            .into(),
+                    );
+                }
+                continue;
+            }
             if a.effect == StaticEffect::OpponentsCantCastDuringControllerTurn {
                 if !matches!(
                     c.kind,
@@ -3237,13 +3256,13 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["StaticAbility"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .push(serde_json::json!({
-            "if":{"properties":{"effect":{"const":StaticEffect::OpponentsCantCastDuringControllerTurn}},"required":["effect"]},
+            "if":{"properties":{"effect":{"enum":[StaticEffect::OpponentsCantCastDuringControllerTurn,StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer]}},"required":["effect"]},
             "then":{"properties":{"functioning_zone":{"const":"battlefield"}}}
         }));
     schema["$defs"]["Definition"].as_object_mut().unwrap()
         .get_mut("allOf").unwrap().as_array_mut().unwrap()
         .push(serde_json::json!({
-            "if":{"properties":{"static_abilities":{"contains":{"properties":{"effect":{"const":StaticEffect::OpponentsCantCastDuringControllerTurn}},"required":["effect"]}}},"required":["static_abilities"]},
+            "if":{"properties":{"static_abilities":{"contains":{"properties":{"effect":{"enum":[StaticEffect::OpponentsCantCastDuringControllerTurn,StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer]}},"required":["effect"]}}},"required":["static_abilities"]},
             "then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["creature","artifact","enchantment"]}}}}}
         }));
     schema["$defs"]["TriggerCondition"].as_object_mut().unwrap()
@@ -3652,7 +3671,11 @@ mod tests {
         // No released consumer requires another schema migration. New
         // capabilities need complete witnesses in the current development IR,
         // while already documented historical minimums remain intact.
-        let unreleased = [OpponentCastProhibitionV1, GroupedCreatureDamageTriggerV1];
+        let unreleased = [
+            OpponentCastProhibitionV1,
+            GroupedCreatureDamageTriggerV1,
+            ControlledCreatureDamageReplacementV1,
+        ];
         // Enumerate the public vocabulary, so a new capability cannot silently
         // escape this contract. Check full program-bearing definitions rather
         // than capability-only records that fail independent shape checks.
@@ -3786,6 +3809,13 @@ mod tests {
         }];
         prohibit.capabilities = prohibit.requirements();
         definitions.push(prohibit);
+        let mut controlled_replacement = damage.clone();
+        controlled_replacement.static_abilities = vec![StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer,
+        }];
+        controlled_replacement.capabilities = controlled_replacement.requirements();
+        definitions.push(controlled_replacement);
         let mut grouped = damage.clone();
         grouped.triggered[0].condition = TriggerCondition::GroupedDamageDealt {
             source: DamageTriggerSource::CreatureFilter {
@@ -5043,6 +5073,97 @@ mod tests {
         }];
         d.capabilities = d.requirements();
         assert!(d.validate().is_err());
+    }
+    #[test]
+    fn controlled_creature_replacement_requires_its_own_capability_and_battlefield_source() {
+        let c = Catalog::read(include_str!(
+            "../../../tests/fixtures/expected-wipes-ir.json"
+        ))
+        .unwrap();
+        let effect = StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer;
+        assert_eq!(
+            serde_json::to_value(&effect).unwrap(),
+            serde_json::json!("double_controller_creature_damage_to_permanent_or_player")
+        );
+        for invalid in [
+            serde_json::json!({"double_controller_creature_damage_to_permanent_or_player":{"controller":"opponent"}}),
+            serde_json::json!({"double_controller_creature_damage_to_permanent_or_player":{"factor":3}}),
+        ] {
+            assert!(serde_json::from_value::<StaticEffect>(invalid).is_err());
+        }
+        for name in ["Storm Crow", "Sol Ring", "Furnace of Rath"] {
+            let mut d = c
+                .definitions
+                .iter()
+                .find(|d| d.name == name)
+                .unwrap()
+                .clone();
+            d.static_abilities = vec![StaticAbility {
+                functioning_zone: FunctioningZone::Battlefield,
+                effect: effect.clone(),
+            }];
+            d.capabilities = d.requirements();
+            d.validate().unwrap();
+            assert!(
+                d.capabilities
+                    .contains(&Capability::ControlledCreatureDamageReplacementV1)
+            );
+            assert!(
+                !d.capabilities
+                    .contains(&Capability::StaticDamageReplacementV1)
+            );
+            Catalog {
+                schema_version: CURRENT_IR_VERSION,
+                rules_edition: RULES_EDITION.into(),
+                rules_sha256: RULES_SHA256.into(),
+                definitions: vec![d.clone()],
+            }
+            .validate()
+            .unwrap();
+            let mut missing = d.clone();
+            missing
+                .capabilities
+                .remove(&Capability::ControlledCreatureDamageReplacementV1);
+            assert!(missing.validate().is_err());
+            let mut wrong = d;
+            wrong.static_abilities[0].functioning_zone = FunctioningZone::Stack;
+            wrong.capabilities = wrong.requirements();
+            assert!(wrong.validate().is_err());
+        }
+        let mut both = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Furnace of Rath")
+            .unwrap()
+            .clone();
+        both.static_abilities.push(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: effect.clone(),
+        });
+        both.capabilities = both.requirements();
+        both.validate().unwrap();
+        assert!(
+            both.capabilities
+                .contains(&Capability::StaticDamageReplacementV1)
+        );
+        assert!(
+            both.capabilities
+                .contains(&Capability::ControlledCreatureDamageReplacementV1)
+        );
+        for name in ["Forest", "Lightning Bolt"] {
+            let mut invalid = c
+                .definitions
+                .iter()
+                .find(|d| d.name == name)
+                .unwrap()
+                .clone();
+            invalid.static_abilities = vec![StaticAbility {
+                functioning_zone: FunctioningZone::Battlefield,
+                effect: effect.clone(),
+            }];
+            invalid.capabilities = invalid.requirements();
+            assert!(invalid.validate().is_err());
+        }
     }
     #[test]
     fn incremental_sha256_matches_reference_across_byte_fragment_boundaries() {

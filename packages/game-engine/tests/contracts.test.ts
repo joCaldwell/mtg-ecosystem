@@ -2340,3 +2340,39 @@ test("exact-source Kutzil consumes grouped power and cast prohibition on the unr
     passed=true;
   } finally {if(passed) fs.rmSync(temporary,{recursive:true,force:true});}
 });
+
+test("exact-source Gratuitous Violence retains controlled-creature replacement scope", () => {
+  const source=fileURLToPath(new URL("fixtures/",import.meta.url));
+  const record=path.join(source,"gratuitous-violence.json");const raw=fs.readFileSync(record,"utf8");
+  const archived=JSON.parse(raw);
+  const parsed=parseOracleText(archived.source.oracle_text,archived.source.name,{
+    layout:archived.source.layout,typeLine:archived.source.type_line,includeSourceProvenance:true,
+  });
+  assert.equal(parsed.ok,true);
+  if(parsed.ok) assert.deepEqual(JSON.parse(JSON.stringify(parsed.abilities)),archived.faces[0].result.abilities);
+  assert.equal(archived.binding.fullyBound,false);
+  const temporary=fs.mkdtempSync(path.join(os.tmpdir(),"mtg-creature-replacement-schema-"));let passed=false;
+  try {
+    const manifest=path.join(temporary,"catalog.json");
+    fs.writeFileSync(manifest,JSON.stringify({schema_version:33,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
+    const report=run("catalog","build",manifest,"--write");assert.equal(report.definitions,1);
+    const catalog=JSON.parse(fs.readFileSync(report.expected_ir,"utf8"));const d=catalog.definitions[0];
+    assert.equal(d.name,"Gratuitous Violence");assert.equal(d.characteristics.kind,"enchantment");
+    assert.deepEqual(d.characteristics.mana_cost,{generic:"2",colored:["R","R","R"]});
+    assert.ok(d.capabilities.includes("controlled_creature_damage_replacement_v1"));
+    assert.equal(d.capabilities.includes("static_damage_replacement_v1"),false);
+    assert.deepEqual(d.static_abilities,[{functioning_zone:"battlefield",effect:"double_controller_creature_damage_to_permanent_or_player"}]);
+    const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
+    assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
+    for(const mutate of [
+      (x:any)=>{x.static_abilities[0].functioning_zone="stack";},
+      (x:any)=>{x.static_abilities[0].effect={double_controller_creature_damage_to_permanent_or_player:{}};},
+      (x:any)=>{x.characteristics.kind="instant";},
+    ]) {
+      const bad=structuredClone(catalog);mutate(bad.definitions[0]);assert.equal(validate(bad),false);
+    }
+    assert.equal(validate(loadCatalog("effects")),true,JSON.stringify(validate.errors));
+    assert.equal(fs.readFileSync(record,"utf8"),raw,"source and diagnostic binding remain archived evidence");
+    passed=true;
+  } finally {if(passed) fs.rmSync(temporary,{recursive:true,force:true});}
+});

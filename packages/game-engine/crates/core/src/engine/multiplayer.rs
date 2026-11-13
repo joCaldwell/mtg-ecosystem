@@ -339,6 +339,8 @@ impl Game {
                     .get_mut(&object.id.card)
                     .ok_or("missing control object")?
                     .attack_ready = false;
+                let fact = self.object_before(object.id)?;
+                self.retain_damage_control_facts(&fact);
                 self.record_event(Event::ControlChanged {
                     object: object.id,
                     previous: object.controller,

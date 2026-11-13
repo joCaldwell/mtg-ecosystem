@@ -21,6 +21,35 @@ fn update_entry(entry: &mut StackInstance, fact: &ObjectBefore) {
         entry.source_facts = Some(fact.clone());
     }
 }
+fn update_replacement_sources(
+    tx: &mut DamageTransaction,
+    fact: &ObjectBefore,
+    control_change: bool,
+) {
+    for entry in &mut tx.entries {
+        if entry.source.object == fact.object
+            && (control_change || entry.replacement_source.is_some())
+        {
+            entry.replacement_source = Some(Box::new(fact.clone()));
+        }
+    }
+}
+fn update_replacement_frame(frame: &mut Frame, fact: &ObjectBefore) {
+    match frame {
+        Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
+            update_replacement_sources(transaction, fact, true);
+        }
+        Frame::Stabilize { resume, .. } => update_replacement_frame(resume, fact),
+        Frame::CommanderReturn { continuation, .. } => match continuation.as_mut() {
+            CommanderContinuation::StateBased { resume }
+            | CommanderContinuation::StateBasedBatch { resume, .. } => {
+                update_replacement_frame(resume, fact)
+            }
+            _ => {}
+        },
+        _ => {}
+    }
+}
 fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
     match frame {
         Frame::Resolve { frame }
@@ -52,6 +81,7 @@ fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
         | Frame::ForcedSacrifice { frame, .. }
         | Frame::OptionalDamage { frame } => update_entry(&mut frame.spell, fact),
         Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
+            update_replacement_sources(transaction, fact, false);
             if let DamageContinuation::Instruction { frame } = transaction.continuation.as_mut() {
                 update_entry(&mut frame.spell, fact);
             }
@@ -72,6 +102,11 @@ fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
     }
 }
 impl Game {
+    /// The typed control transition owns this refresh. A changed controller
+    /// cannot be excused merely by recomputing or discarding assignment facts.
+    pub(super) fn retain_damage_control_facts(&mut self, fact: &ObjectBefore) {
+        update_replacement_frame(&mut self.state.rules.frame, fact);
+    }
     pub(super) fn object_before(&self, object: ObjectId) -> Result<ObjectBefore, String> {
         let o = self.current(object)?;
         Ok(ObjectBefore {
@@ -575,13 +610,16 @@ impl Game {
                 (previous, o.marked_damage.clone())
             }
         };
-        let life_gains = self.damage_keywords(&[ActualDamage {
-            id: DamageId(0),
-            source: damage.source.clone(),
-            controller: damage.controller,
-            recipient: damage.recipient.clone(),
-            amount: damage.amount.clone(),
-        }])?;
+        let life_gains = self.damage_keywords(
+            &[ActualDamage {
+                id: DamageId(0),
+                source: damage.source.clone(),
+                controller: damage.controller,
+                recipient: damage.recipient.clone(),
+                amount: damage.amount.clone(),
+            }],
+            None,
+        )?;
         Ok(EventOutcome::NoncombatDamageDealt {
             life_gains,
             damage: Box::new(damage.clone()),

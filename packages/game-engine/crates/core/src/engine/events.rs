@@ -697,10 +697,11 @@ impl Game {
                     if let Ok(tx) = self.damage_transaction() {
                         for d in &tx.entries {
                             damage_sources.push(d.source.clone());
+                            let controller = self.damage_source_controller(d)?;
                             if self.has_keyword(&d.source, KeywordAbility::Lifelink)
-                                && self.is_live(d.source.controller)
+                                && self.is_live(controller)
                             {
-                                players.insert(d.source.controller);
+                                players.insert(controller);
                             }
                             match d.recipient {
                                 DamageRecipient::Player { player } => {
@@ -2126,7 +2127,7 @@ impl Game {
                 current,
             });
         }
-        let life_gains = self.damage_keywords(&actual)?;
+        let life_gains = self.damage_keywords(&actual, None)?;
         Ok(EventOutcome::DamageDealt {
             life_gains,
             damage: damage.to_vec(),

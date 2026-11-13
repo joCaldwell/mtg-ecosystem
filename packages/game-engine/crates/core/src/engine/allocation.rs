@@ -220,6 +220,7 @@ impl Game {
             let before_budget = next_budget.clone();
             next_budget.subtract(prevented);
             applications.push(DamageApplication {
+                qualification: None,
                 damage: *damage,
                 effect: effect.clone(),
                 before: d.amount.clone(),
@@ -426,6 +427,7 @@ impl Game {
             let previous = budget.clone();
             budget.subtract(prevention);
             expected.push(DamageApplication {
+                qualification: None,
                 damage: *id,
                 effect: group.effect.clone(),
                 before: before.clone(),

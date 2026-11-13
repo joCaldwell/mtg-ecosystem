@@ -51,17 +51,31 @@ impl Game {
     pub(super) fn damage_keywords(
         &mut self,
         actual: &[ActualDamage],
+        // Transactional assignment facts may predate a typed control change.
+        // None is reserved for genuine legacy leaves with fresh source facts.
+        source_controllers: Option<&BTreeMap<DamageId, PlayerId>>,
     ) -> Result<Vec<LifelinkGain>, String> {
+        if let Some(controllers) = source_controllers
+            && (controllers.len() != actual.len()
+                || controllers.values().any(|p| p.0 >= 4)
+                || actual.iter().any(|d| !controllers.contains_key(&d.id)))
+        {
+            return Err("incomplete damage-time controller facts".into());
+        }
         let mut gains: BTreeMap<(ObjectId, PlayerId), Quantity> = BTreeMap::new();
         for d in actual {
             if d.amount <= Quantity::zero() {
                 continue;
             }
-            if self.has_keyword(&d.source, KeywordAbility::Lifelink)
-                && self.is_live(d.source.controller)
-            {
+            let controller = match source_controllers {
+                Some(controllers) => *controllers
+                    .get(&d.id)
+                    .ok_or("missing damage-time controller")?,
+                None => d.source.controller,
+            };
+            if self.has_keyword(&d.source, KeywordAbility::Lifelink) && self.is_live(controller) {
                 gains
-                    .entry((d.source.object, d.source.controller))
+                    .entry((d.source.object, controller))
                     .or_default()
                     .add(&d.amount);
             }

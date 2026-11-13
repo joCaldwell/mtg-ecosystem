@@ -62,6 +62,8 @@ features evolve it in place with capability validation and exact build fencing.
 Current in-place support covers [grouped power-qualified damage and opponent
 casting prohibition](game-engine-grouped-damage.md); its capability scope is
 separate from historical version gates.
+The [controlled-creature damage replacement](game-engine-controlled-damage-replacement.md)
+extension uses the same unreleased schema with separate current/LKI source facts.
 Read Rust types and validation at the edited source; old reports retain their
 original version numbers. Do not update historical catalogs or expected hashes
 just to match the newest IR version. No new quiet P7 performance, offline
