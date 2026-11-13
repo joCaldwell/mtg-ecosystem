@@ -1830,6 +1830,76 @@
     {
       "capabilities": [
         "normal_layout_v1",
+        "cast_instant_v1",
+        "owner_hand_move_v1",
+        "permanent_owner_hand_move_v1",
+        "permanent_removal_v1"
+      ],
+      "characteristics": {
+        "basic": false,
+        "color_identity": [
+          "U"
+        ],
+        "colors": [
+          "U"
+        ],
+        "kind": "instant",
+        "legendary": false,
+        "mana_cost": {
+          "colored": [
+            "U"
+          ],
+          "generic": "2"
+        },
+        "power": null,
+        "subtypes": [],
+        "toughness": null
+      },
+      "intrinsic_zone": null,
+      "name": "Regress",
+      "oracle_id": "2fa763ad-4d94-4c3a-a099-13ac22c09ce4",
+      "provenance": {
+        "abilities_json": "[{\"kind\":\"spell\",\"effects\":[{\"steps\":[{\"effect\":\"return-to-hand\",\"what\":{\"ref\":\"target\",\"filter\":{\"cls\":\"permanent\"},\"count\":{\"amount\":\"fixed\",\"value\":1},\"selectionId\":\"line:0:1\"},\"to\":\"owner\"}]}]}]",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "ast_sha256": "1da067ce1046d7b3d008d02cdf3994a9a78a5f6bc55a2cc6559a8fe7c7e280c1",
+        "binding_sha256": "9f515633ad2f44c0548dbc1fd2bd9101ccdcce0d84aa7eed5ff2f1a06aebabd5",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "printing_id": "b7aba8e0-34e7-43ec-bce5-b6b472daa841",
+        "source_index": 7095,
+        "source_json": "{\"object\":\"card\",\"id\":\"b7aba8e0-34e7-43ec-bce5-b6b472daa841\",\"oracle_id\":\"2fa763ad-4d94-4c3a-a099-13ac22c09ce4\",\"multiverse_ids\":[193603],\"mtgo_id\":36594,\"mtgo_foil_id\":36595,\"tcgplayer_id\":34777,\"cardmarket_id\":22538,\"name\":\"Regress\",\"lang\":\"en\",\"released_at\":\"2010-04-23\",\"uri\":\"https://api.scryfall.com/cards/b7aba8e0-34e7-43ec-bce5-b6b472daa841\",\"scryfall_uri\":\"https://scryfall.com/card/roe/83/regress?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T11:26:32Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/b/7/b7aba8e0-34e7-43ec-bce5-b6b472daa841.jpg?1783941992\",\"normal\":\"https://cards.scryfall.io/normal/front/b/7/b7aba8e0-34e7-43ec-bce5-b6b472daa841.jpg?1783941992\",\"large\":\"https://cards.scryfall.io/large/front/b/7/b7aba8e0-34e7-43ec-bce5-b6b472daa841.jpg?1783941992\",\"png\":\"https://cards.scryfall.io/png/front/b/7/b7aba8e0-34e7-43ec-bce5-b6b472daa841.png?1783941992\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/b/7/b7aba8e0-34e7-43ec-bce5-b6b472daa841.jpg?1783941992\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/b/7/b7aba8e0-34e7-43ec-bce5-b6b472daa841.jpg?1783941992\",\"thumb\":\"https://cards.scryfall.io/thumb/front/b/7/b7aba8e0-34e7-43ec-bce5-b6b472daa841.webp?1783941992\",\"grid\":\"https://cards.scryfall.io/grid/front/b/7/b7aba8e0-34e7-43ec-bce5-b6b472daa841.webp?1783941992\",\"display\":\"https://cards.scryfall.io/display/front/b/7/b7aba8e0-34e7-43ec-bce5-b6b472daa841.webp?1783941992\",\"art\":\"https://cards.scryfall.io/art/front/b/7/b7aba8e0-34e7-43ec-bce5-b6b472daa841.webp?1783941992\",\"crop\":\"https://cards.scryfall.io/crop/front/b/7/b7aba8e0-34e7-43ec-bce5-b6b472daa841.webp?1783941992\"},\"mana_cost\":\"{2}{U}\",\"cmc\":3,\"type_line\":\"Instant\",\"oracle_text\":\"Return target permanent to its owner's hand.\",\"colors\":[\"U\"],\"color_identity\":[\"U\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"not_legal\",\"timeless\":\"not_legal\",\"gladiator\":\"not_legal\",\"pioneer\":\"not_legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"not_legal\",\"competitivebrawl\":\"not_legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"eadb8a82-ec56-4623-b50e-42e7e60cb535\",\"set\":\"roe\",\"set_name\":\"Rise of the Eldrazi\",\"set_type\":\"expansion\",\"set_uri\":\"https://api.scryfall.com/sets/eadb8a82-ec56-4623-b50e-42e7e60cb535\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Aroe&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/roe?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/b7aba8e0-34e7-43ec-bce5-b6b472daa841/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A2fa763ad-4d94-4c3a-a099-13ac22c09ce4&unique=prints\",\"collector_number\":\"83\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"\\\"Never look too deep, where the waters turn dark. What the sea has hidden there may not stay down forever.\\\"\\n—Jaby, Silundi Sea nomad\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Izzy\",\"artist_ids\":[\"2c3d2473-ff5d-4309-8194-e0b2def2ab65\"],\"illustration_id\":\"d744b949-9ac9-4485-bd49-be0d576d7306\",\"border_color\":\"black\",\"frame\":\"2003\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":26478,\"penny_rank\":11792,\"prices\":{\"usd\":\"0.08\",\"usd_foil\":\"0.46\",\"usd_etched\":null,\"eur\":\"0.03\",\"eur_foil\":\"0.25\",\"tix\":\"0.03\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=193603&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DRegress\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DRegress\",\"edhrec\":\"https://edhrec.com/route/?cc=Regress\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F34777%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=22538&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/36594?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "source_sha256": "eeb15b5a2bad7b0533627f6c44fd7e0ba608aa4f8474313e19fc0fcec46a290f"
+      },
+      "spell": {
+        "functioning_zone": "stack",
+        "instructions": [
+          {
+            "op": "return_to_owner_hand",
+            "source_block": 0,
+            "target_slot": 0
+          }
+        ],
+        "resolution": "instructions",
+        "targets": [
+          {
+            "chooser": "controller",
+            "domain": "battlefield_permanent",
+            "filter": {
+              "non_colors": [],
+              "non_types": [],
+              "opponent": false,
+              "types": []
+            },
+            "selection_id": "line:0:1",
+            "slot": 0,
+            "stage": "announcement"
+          }
+        ],
+        "timing": "instant"
+      }
+    },
+    {
+      "capabilities": [
+        "normal_layout_v1",
         "cast_sorcery_v1",
         "life_gain_v1"
       ],
@@ -6933,6 +7003,78 @@
           }
         }
       ]
+    },
+    {
+      "capabilities": [
+        "normal_layout_v1",
+        "cast_instant_v1",
+        "owner_hand_move_v1",
+        "permanent_owner_hand_move_v1",
+        "permanent_removal_v1"
+      ],
+      "characteristics": {
+        "basic": false,
+        "color_identity": [
+          "U"
+        ],
+        "colors": [
+          "U"
+        ],
+        "kind": "instant",
+        "legendary": false,
+        "mana_cost": {
+          "colored": [
+            "U"
+          ],
+          "generic": "1"
+        },
+        "power": null,
+        "subtypes": [],
+        "toughness": null
+      },
+      "intrinsic_zone": null,
+      "name": "Disperse",
+      "oracle_id": "9d8fe3f8-5027-4f9e-999e-e277caa96478",
+      "provenance": {
+        "abilities_json": "[{\"kind\":\"spell\",\"effects\":[{\"steps\":[{\"effect\":\"return-to-hand\",\"what\":{\"ref\":\"target\",\"filter\":{\"nonTypes\":[\"land\"],\"cls\":\"permanent\"},\"count\":{\"amount\":\"fixed\",\"value\":1},\"selectionId\":\"line:0:1\"},\"to\":\"owner\"}]}]}]",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "ast_sha256": "183f75204d24677bea7d64c7d450b5bbfe16e0df3c2d4c75b0b11aef65918725",
+        "binding_sha256": "fa88842d9873a69da27f98b404d4e9fe233e887f16fd56164559d7ad7bf733bd",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "printing_id": "2ff7c89c-41dc-4ac3-bbce-38ab86f435ea",
+        "source_index": 23756,
+        "source_json": "{\"object\":\"card\",\"id\":\"2ff7c89c-41dc-4ac3-bbce-38ab86f435ea\",\"oracle_id\":\"9d8fe3f8-5027-4f9e-999e-e277caa96478\",\"multiverse_ids\":[447186],\"mtgo_id\":68261,\"arena_id\":67780,\"tcgplayer_id\":166703,\"cardmarket_id\":360305,\"name\":\"Disperse\",\"lang\":\"en\",\"released_at\":\"2018-07-13\",\"uri\":\"https://api.scryfall.com/cards/2ff7c89c-41dc-4ac3-bbce-38ab86f435ea\",\"scryfall_uri\":\"https://scryfall.com/card/m19/50/disperse?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T09:23:10Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/2/f/2ff7c89c-41dc-4ac3-bbce-38ab86f435ea.jpg?1783934590\",\"normal\":\"https://cards.scryfall.io/normal/front/2/f/2ff7c89c-41dc-4ac3-bbce-38ab86f435ea.jpg?1783934590\",\"large\":\"https://cards.scryfall.io/large/front/2/f/2ff7c89c-41dc-4ac3-bbce-38ab86f435ea.jpg?1783934590\",\"png\":\"https://cards.scryfall.io/png/front/2/f/2ff7c89c-41dc-4ac3-bbce-38ab86f435ea.png?1783934590\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/2/f/2ff7c89c-41dc-4ac3-bbce-38ab86f435ea.jpg?1783934590\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/2/f/2ff7c89c-41dc-4ac3-bbce-38ab86f435ea.jpg?1783934590\",\"thumb\":\"https://cards.scryfall.io/thumb/front/2/f/2ff7c89c-41dc-4ac3-bbce-38ab86f435ea.webp?1783934590\",\"grid\":\"https://cards.scryfall.io/grid/front/2/f/2ff7c89c-41dc-4ac3-bbce-38ab86f435ea.webp?1783934590\",\"display\":\"https://cards.scryfall.io/display/front/2/f/2ff7c89c-41dc-4ac3-bbce-38ab86f435ea.webp?1783934590\",\"art\":\"https://cards.scryfall.io/art/front/2/f/2ff7c89c-41dc-4ac3-bbce-38ab86f435ea.webp?1783934590\",\"crop\":\"https://cards.scryfall.io/crop/front/2/f/2ff7c89c-41dc-4ac3-bbce-38ab86f435ea.webp?1783934590\"},\"mana_cost\":\"{1}{U}\",\"cmc\":2,\"type_line\":\"Instant\",\"oracle_text\":\"Return target nonland permanent to its owner's hand.\",\"colors\":[\"U\"],\"color_identity\":[\"U\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"legal\",\"tlr\":\"legal\"},\"games\":[\"arena\",\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"2f5f2509-56db-414d-9a7e-6e312ec3760c\",\"set\":\"m19\",\"set_name\":\"Core Set 2019\",\"set_type\":\"core\",\"set_uri\":\"https://api.scryfall.com/sets/2f5f2509-56db-414d-9a7e-6e312ec3760c\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Am19&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/m19?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/2ff7c89c-41dc-4ac3-bbce-38ab86f435ea/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A9d8fe3f8-5027-4f9e-999e-e277caa96478&unique=prints\",\"collector_number\":\"50\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"It's pointless to hold on when you have nothing to hold on with.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Ryan Yee\",\"artist_ids\":[\"8955dca7-3e37-42b4-83a9-167c78a2178f\"],\"illustration_id\":\"74dbe86f-c808-41db-8e6e-e59ca3d73aea\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":12706,\"penny_rank\":4769,\"prices\":{\"usd\":\"0.19\",\"usd_foil\":\"0.48\",\"usd_etched\":null,\"eur\":\"0.10\",\"eur_foil\":\"0.35\",\"tix\":\"0.03\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=447186&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DDisperse\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DDisperse\",\"edhrec\":\"https://edhrec.com/route/?cc=Disperse\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F166703%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=360305&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/68261?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "source_sha256": "4af37f5be33ff53776983580bca31202b9f4c32ea5a3c38b5d41f3dda3b8145f"
+      },
+      "spell": {
+        "functioning_zone": "stack",
+        "instructions": [
+          {
+            "op": "return_to_owner_hand",
+            "source_block": 0,
+            "target_slot": 0
+          }
+        ],
+        "resolution": "instructions",
+        "targets": [
+          {
+            "chooser": "controller",
+            "domain": "battlefield_permanent",
+            "filter": {
+              "non_colors": [],
+              "non_types": [
+                "land"
+              ],
+              "opponent": false,
+              "types": []
+            },
+            "selection_id": "line:0:1",
+            "slot": 0,
+            "stage": "announcement"
+          }
+        ],
+        "timing": "instant"
+      }
     },
     {
       "capabilities": [

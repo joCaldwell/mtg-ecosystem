@@ -95,10 +95,23 @@ below.
 | R | Mogg Fanatic | {R} 1/1: sacrifice this: 1 damage to any target |
 | R | Goblin Arsonist | {R} 1/1: when it dies, you may have it deal 1 damage to any target |
 | R | Siege-Gang Commander | {3}{R}{R} 2/2: enters with three 1/1 red Goblin tokens; {1}{R}, sacrifice a Goblin: 2 damage to any target |
+| U | Regress | {2}{U} instant: return target permanent to its owner's hand |
+| U | Disperse | {1}{U} instant: return target nonland permanent to its owner's hand |
 | W | Requiem Angel | {5}{W} 5/5 flying: when another non-Spirit creature you control dies, create a 1/1 white flying Spirit |
 
-The current development pool has 154 definitions. Shrapnel Blast is the later
-source-backed addition; all previous 153 definitions are preserved. Its complete
+The current development pool has 156 definitions. Regress and Disperse are the
+latest source-backed additions; all previous 154 definitions are preserved.
+They use the separately fenced [permanent owner-hand movement](game-engine-removal.md#permanent-owner-hand-movement)
+contract, with no new runtime mechanic or capacity rule. The blue deck replaces
+two Islands with those singleton spells. This headless admission grants no
+hosting/search support or downstream consumer qualification. The focused
+[accepted-pod witnesses](../packages/game-engine/crates/core/tests/permanent_bounce_admission.rs)
+use real Ring/Island mana to return an opponent's Island with Regress and the
+caster's Ring with Disperse. They reject a Disperse land target without mutation
+and verify owner-hand movement, snapshot restore, replay and budgets 1/4096.
+The opening seed is selected only for its two-card opening, before gameplay.
+
+Shrapnel Blast is the preceding source-backed addition. Its complete
 record is `d3c623f3-c7c9-47c0-8096-6dee3267baff.json`, pinned to physical archive
 line 31967 by `provenance.json`. It uses existing artifact sacrifice, ordinary
 noncombat damage and target/payment contracts: one consumed permanent and one
@@ -112,7 +125,7 @@ Before admission, verify each record's:
 - oracle text, AST, power and toughness;
 - Commander legality and color identity.
 
-For the original 18 additions (excluding Shrapnel Blast), the archive line numbers
+For the original 18 additions (excluding Shrapnel Blast, Regress and Disperse), the archive line numbers
 in table order are: 24338, 25615, 8089, 21180, 1914,
 17831, 30059, 2691, 35051, 2711, 25302, 34271, 35838, 5439, 19100, 29025, 33396
 and 13487. Costs and stats come from the source records, not from this table.
@@ -123,7 +136,7 @@ Each deck adds its colored cards. Basics fill each deck to 100 cards:
 | --- | --- | --- |
 | White | Requiem Angel | 57 Plains |
 | Black/green | the eleven black cards and Sakura-Tribe Elder | 9 Forest, 10 Swamp |
-| Blue | nothing | 71 Islands |
+| Blue | Regress and Disperse | 69 Islands |
 | Red | the six red cards | 69 Mountains |
 
 The default pod and the batch pods are those of removal-v1. The seed domain is

@@ -91,7 +91,10 @@ remain separate.
 Ordinary [permanent return to owner's hand](game-engine-removal.md#permanent-owner-hand-movement)
 supports complete Regress and Disperse sources through the existing move and
 Commander-replacement path. A separate capability fences this broader target
-domain from the existing creature-bounce hosting/search support.
+domain from the existing creature-bounce hosting/search support. The later
+[headless sacrifice-pool admission](game-engine-sacrifice.md#profile) adds both
+spells to the blue default deck; hosting/search and consumer qualification remain
+separate.
 Read Rust types and validation at the edited source; old reports retain their
 original version numbers. Active catalogs are regenerated at schema 1; distinct
 source/admission pools remain separate. Historical decoder gates and downgrade

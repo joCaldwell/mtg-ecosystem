@@ -156,7 +156,7 @@ fn artifact_sacrifice_setup_only_seed_probe() {
 #[test]
 fn artifact_sacrifice_default_decks_and_feature_boundaries_remain_legal() {
     let c = catalog();
-    assert_eq!(c.definitions.len(), 154);
+    assert_eq!(c.definitions.len(), 156);
     let profile = match_profile(PROFILE).unwrap();
     assert!(!profile.hosted && !profile.search);
     let config = MatchConfig::for_profile(PROFILE, [29; 32], PlayerId(0)).unwrap();
@@ -251,6 +251,95 @@ fn artifact_sacrifice_default_decks_and_feature_boundaries_remain_legal() {
         }
         assert!(
             matches!(enabled.validate_requested_features(&c), Err(ProfileError::UnreviewedCapabilities { feature: actual, capabilities }) if actual == feature && capabilities.contains(&Capability::SacrificeV1))
+        );
+    }
+}
+
+#[test]
+fn permanent_bounce_admission_preserves_deck_and_feature_guards() {
+    let c = catalog();
+    let profile = match_profile(PROFILE).unwrap();
+    let config = MatchConfig::for_profile(PROFILE, [31; 32], PlayerId(0)).unwrap();
+    let island = oracle(&c, "Island");
+    for name in ["Regress", "Disperse"] {
+        let id = oracle(&c, name);
+        let d = c.definition_by_oracle_id(&id).unwrap();
+        assert!(
+            d.capabilities
+                .contains(&Capability::PermanentOwnerHandMoveV1)
+        );
+        assert!(d.capabilities.contains(&Capability::OwnerHandMoveV1));
+        assert!(d.capabilities.contains(&Capability::PermanentRemovalV1));
+        for (seat, deck) in config.decks.iter().enumerate() {
+            assert_eq!(
+                deck.cards
+                    .iter()
+                    .filter(|r| r.oracle_id == id)
+                    .map(|r| r.count)
+                    .sum::<u32>(),
+                u32::from(seat == 2)
+            );
+        }
+        let mut duplicate = config.clone();
+        duplicate.decks[2]
+            .cards
+            .iter_mut()
+            .find(|r| r.oracle_id == id)
+            .unwrap()
+            .count += 1;
+        duplicate.decks[2]
+            .cards
+            .iter_mut()
+            .find(|r| r.oracle_id == island)
+            .unwrap()
+            .count -= 1;
+        assert!(matches!(
+            validate_pod(&c, &duplicate),
+            Err(MatchAdmissionError::SingletonName {
+                player: PlayerId(2),
+                ..
+            })
+        ));
+        let mut off_color = config.clone();
+        off_color.decks[0]
+            .cards
+            .iter_mut()
+            .find(|r| {
+                c.definition_by_oracle_id(&r.oracle_id)
+                    .unwrap()
+                    .characteristics
+                    .basic
+            })
+            .unwrap()
+            .count -= 1;
+        off_color.decks[0].cards.push(DeckEntry {
+            oracle_id: id.clone(),
+            count: 1,
+        });
+        assert!(
+            matches!(validate_pod(&c, &off_color), Err(MatchAdmissionError::ColorIdentity { player: PlayerId(0), oracle_id }) if oracle_id == id)
+        );
+    }
+    assert_eq!(
+        config.decks[2]
+            .cards
+            .iter()
+            .find(|r| r.oracle_id == island)
+            .unwrap()
+            .count,
+        69
+    );
+    for feature in [Feature::Hosting, Feature::Search] {
+        assert!(
+            matches!(profile.require_feature(&c, feature), Err(ProfileError::FeatureNotRequested { feature: actual }) if actual == feature)
+        );
+        let mut enabled = profile.clone();
+        match feature {
+            Feature::Hosting => enabled.hosted = true,
+            Feature::Search => enabled.search = true,
+        }
+        assert!(
+            matches!(enabled.validate_requested_features(&c), Err(ProfileError::UnreviewedCapabilities { feature: actual, capabilities }) if actual == feature && capabilities.contains(&Capability::PermanentOwnerHandMoveV1))
         );
     }
 }

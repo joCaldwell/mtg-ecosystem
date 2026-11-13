@@ -566,6 +566,10 @@
         },
         {
           "count": 1,
+          "oracle_id": "2fa763ad-4d94-4c3a-a099-13ac22c09ce4"
+        },
+        {
+          "count": 1,
           "oracle_id": "30cc8f7b-3c28-40f5-8f8f-157e8212280b"
         },
         {
@@ -606,10 +610,14 @@
         },
         {
           "count": 1,
+          "oracle_id": "9d8fe3f8-5027-4f9e-999e-e277caa96478"
+        },
+        {
+          "count": 1,
           "oracle_id": "a09cce6f-c957-49d7-af99-a7b2bce786e8"
         },
         {
-          "count": 71,
+          "count": 69,
           "oracle_id": "b2c6aa39-2d2a-459c-a555-fb48ba993373"
         },
         {

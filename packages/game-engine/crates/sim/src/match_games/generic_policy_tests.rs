@@ -2001,3 +2001,187 @@ mod defensive_untap_policy_tests {
 
 #[path = "combined_type_policy_tests.rs"]
 mod combined_type_policy_tests;
+
+// Synthetic public payload probes over the admitted complete source catalog;
+// these do not claim accepted-pod gameplay or replay coverage.
+mod permanent_owner_hand_policy_tests {
+    use super::*;
+
+    fn fixture(name: &str, target: &str) -> (Catalog, PermittedView) {
+        let c = mtg_compiler::catalog::embedded_catalog("sacrifice").unwrap();
+        assert_eq!(
+            &c,
+            mtg_core::match_profile("commander-sacrifice-v1")
+                .unwrap()
+                .catalog()
+        );
+        let d = c.definitions.iter().find(|d| d.name == name).unwrap();
+        assert!(
+            d.capabilities
+                .contains(&mtg_contracts::Capability::PermanentOwnerHandMoveV1)
+        );
+        let mut v = wipe_tests::view(&mtg_compiler::catalog::embedded_catalog("wipes").unwrap());
+        v.active = Some(v.viewer);
+        v.turn_owner = v.viewer;
+        v.priority = Some(v.viewer);
+        v.turn.step = TurnStep::PrecombatMain;
+        v.turn.lands_played = 1;
+        v.players
+            .iter_mut()
+            .find(|p| p.player == v.viewer)
+            .unwrap()
+            .mana = BTreeMap::from([(Color::U, 1.into()), (Color::C, 2.into())]);
+        v.objects = vec![
+            wipe_tests::card(&c, name, v.viewer.0, Zone::Hand { owner: v.viewer }),
+            wipe_tests::card(&c, "Grizzly Bears", v.viewer.0, Zone::Battlefield),
+            wipe_tests::card(&c, target, 0, Zone::Battlefield),
+        ];
+        v.objects[2].owner = v.viewer; // Harmful preference follows control, not ownership.
+        (c, v)
+    }
+
+    #[test]
+    fn permanent_bounce_develops_against_opposing_noncreatures_and_honors_offered_targets() {
+        for (name, target) in [("Regress", "Island"), ("Disperse", "Sol Ring")] {
+            let (c, mut v) = fixture(name, target);
+            let d = c.definitions.iter().find(|d| d.name == name).unwrap();
+            let p = d.spell.as_ref().unwrap();
+            let selected = ObjectHandle(target.into());
+            let before = canonical(&v).unwrap();
+            assert_eq!(
+                strategy(&c).priority(&observation(v.clone())).unwrap(),
+                PlayerResponse::Cast {
+                    card: ObjectHandle(name.into())
+                }
+            );
+            assert_eq!(
+                strategy(&c).object_target(&v, d, p, &p.targets[0], None),
+                Some(selected.clone())
+            );
+            assert_eq!(
+                strategy(&c).object_target(&v, d, p, &p.targets[0], Some(&[selected.clone()])),
+                Some(selected.clone())
+            );
+            assert_eq!(
+                strategy(&c).object_target(
+                    &v,
+                    d,
+                    p,
+                    &p.targets[0],
+                    Some(&[ObjectHandle("Grizzly Bears".into())])
+                ),
+                None
+            );
+            assert_eq!(canonical(&v).unwrap(), before);
+
+            let unsummon = c.definitions.iter().find(|d| d.name == "Unsummon").unwrap();
+            let old = unsummon.spell.as_ref().unwrap();
+            assert_eq!(
+                strategy(&c).object_target(&v, unsummon, old, &old.targets[0], None),
+                None,
+                "the old creature-only domain must not acquire permanent targets"
+            );
+            if name == "Disperse" {
+                v.objects
+                    .push(wipe_tests::card(&c, "Island", 0, Zone::Battlefield));
+                assert_eq!(
+                    strategy(&c).object_target(
+                        &v,
+                        d,
+                        p,
+                        &p.targets[0],
+                        Some(&[ObjectHandle("Island".into())])
+                    ),
+                    None,
+                    "an offered handle does not erase the nonland filter"
+                );
+            }
+            v.objects.remove(0);
+            let viewer = v.viewer.0;
+            stack_spell(&mut v, &c, name, viewer);
+            v.stack.last_mut().unwrap().cast_complete = false;
+            let mut o = observation(v);
+            o.decision = Some(PlayerRequest::Targets {
+                token: mtg_core::DecisionToken("permanent-bounce-payload".into()),
+                player: o.view.viewer,
+                occurrences: p.targets.clone(),
+                candidates: vec![ObjectHandle("Grizzly Bears".into()), selected.clone()],
+            });
+            let before = canonical(&o).unwrap();
+            assert_eq!(
+                strategy(&c).choose(&o).unwrap(),
+                PlayerResponse::Targets {
+                    objects: vec![selected]
+                }
+            );
+            assert_eq!(canonical(&o).unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn permanent_bounce_requires_current_enemy_targetability_payment_and_development_timing() {
+        for (name, target) in [("Regress", "Island"), ("Disperse", "Sol Ring")] {
+            let (c, v) = fixture(name, target);
+            for case in [
+                "own",
+                "shroud",
+                "hexproof",
+                "departed",
+                "graveyard",
+                "unaffordable",
+                "opponent-priority",
+            ] {
+                let mut v = v.clone();
+                match case {
+                    "own" => v.objects[2].controller = v.viewer,
+                    "shroud" => v.objects[2].keywords.push(KeywordAbility::Shroud),
+                    "hexproof" => v.objects[2].keywords.push(KeywordAbility::Hexproof),
+                    "departed" => {
+                        v.objects.remove(2);
+                    }
+                    "graveyard" => v.objects[2].zone = Zone::Graveyard { owner: v.viewer },
+                    "unaffordable" => v
+                        .players
+                        .iter_mut()
+                        .find(|p| p.player == v.viewer)
+                        .unwrap()
+                        .mana
+                        .clear(),
+                    "opponent-priority" => {
+                        v.active = Some(PlayerId(0));
+                        v.turn_owner = PlayerId(0);
+                    }
+                    _ => unreachable!(),
+                }
+                let before = canonical(&v).unwrap();
+                assert_eq!(
+                    strategy(&c).priority(&observation(v.clone())).unwrap(),
+                    PlayerResponse::Pass,
+                    "{name}: {case}"
+                );
+                assert_eq!(canonical(&v).unwrap(), before);
+            }
+            let d = c.definitions.iter().find(|d| d.name == name).unwrap();
+            let p = d.spell.as_ref().unwrap();
+            for candidates in [vec![], vec![ObjectHandle("stale-incarnation".into())]] {
+                assert_eq!(
+                    strategy(&c).object_target(&v, d, p, &p.targets[0], Some(&candidates)),
+                    None
+                );
+            }
+            let mut departed = v;
+            departed.objects.remove(2);
+            assert_eq!(
+                strategy(&c).object_target(
+                    &departed,
+                    d,
+                    p,
+                    &p.targets[0],
+                    Some(&[ObjectHandle(target.into())])
+                ),
+                None,
+                "direct preference never invents a disappeared object; existing mandatory-choice fallback is separate"
+            );
+        }
+    }
+}
