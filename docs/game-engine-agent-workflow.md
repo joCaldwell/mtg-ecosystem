@@ -66,6 +66,17 @@ links to logs and preserved failures. Use completion notifications or bounded
 waits instead of rapid status polling; keep user updates meaningful and within
 the session's communication cadence.
 
+Signing or authentication delays block publication, not implementation. Request
+the user's required unlock/approval once, keep the measured source and index
+frozen while a signer is running, and continue useful work in separate owned
+checkouts. Preserve each verified batch as an exact patch/source snapshot with
+its base, dependencies, checks and omissions; qualify dependent work against the
+actual pending source rather than calling it accepted main. Queue integration
+and signed publication until access returns. Do not disable signing, weaken
+runtime guards, discard evidence or call an unpublished batch published. A
+signing delay alone is not a reason to pause the development loop or wait idle
+while independent or explicitly source-qualified dependent work is available.
+
 ## Commands and machine output
 
 Run from repository root. These direct entry points avoid npm's display output:
