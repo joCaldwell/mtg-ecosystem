@@ -41,7 +41,9 @@ receipt, seed or other-seat history enters the DTO.
 Consumer validates protocol/match/viewer/build/catalog against the imported
 bootstrap and expected session before installing state. Compatibility is explicit:
 route/schema addition changes SDK generation inputs even though transport version
-remains 1. Older SDK generators reject the new envelope until adapted. Host build
+remains 1. This checkpoint adapts the existing SDK generator and verification
+contract to the six-route envelope and emits Rust-owned `SeatResume` declarations;
+browser packaging and callable resume support remain in the separate SDK PR. Host build
 identity changes and existing different-build durable matches remain incompatible;
 there is no live migration. The index is derived from existing publication data,
 not an alternative semantic projection. SQLite documents the required exact
@@ -233,3 +235,56 @@ Catalog identity (canonical compiled catalog):
 Presentation/artifact manifest additionally pins the catalog file bytes, producer
 source and generated schema bytes. Fixture export is development-only; the native
 server does not expose seeds or raw catalogs through resume.
+
+
+### Post-checkpoint integration evidence
+
+Native dependency commit is `5ff4fd94b6dace1cdee0f0223305e054c42af8f3`;
+this report-only follow-up does not change its executable/schema identity.
+The SDK lane supplied a real-browser read proof, inspected and copied to
+`generated/client-native/sdk-browser-host-proof.json` (SHA256
+`f05e70dc29a367454b341388f3fe8d22c8d452aab6491f2c48350dbd24983348`). It binds that native commit/binary,
+the schema/build IDs above, SDK bundle digest, harness source digests and lockfile.
+Chromium 158.0.8127.18 and Firefox 159.0 each used separate seat-0/seat-1 contexts:
+16 authenticated manifest/resume/stream/repeated-resume GETs total, matching
+identities/viewers and committed boundary, no-store, zero CSP violations.
+This establishes that narrow browser-to-real-host read path, not full M0, four-seat
+browser privacy, command recovery, semantic queries or natural-game acceptance.
+
+After the SDK released the host, a focused terminal check sent three explicit test
+concessions. Each became ConsumedByRules, exact-envelope retries returned the
+original Accepted result, and all four resumes returned win/player 0 at own cursor
+5 with empty subsequent streams. `http-terminal-resume.json` retains the exact
+result; this is deliberately **not** natural-game evidence. The task-owned host
+received graceful SIGINT and exited successfully; no task-owned native processes
+remain. Private registry/credentials, original failed fixture and all evidence are
+retained. The native build slot was released to the engine lane.
+
+## Independent review correction: standalone SDK compatibility
+
+The independent review reproduced the existing SDK generator rejecting this
+checkpoint's new schema envelope. The native PR now includes the minimal generator
+and verification update, so it can merge before the browser SDK PR without
+breaking existing SDK checks. Generation remains strict and atomic; regression
+cases reject a missing resume schema/route and external observation references.
+
+On Node 26.13.1, a fresh package-local locked install and `verify` against the
+retained `generated/client-native/protocol.schema.json` passed generation, strict
+TypeScript, and all 47 Node tests (33 response variants). Evidence is in
+`packages/game-server/sdk/generated/verification.{log,json}`. This check uses the
+original source-qualified native export; it does not establish current-main native
+compatibility or browser/live-game acceptance. No Rust source changed in this fix.
+
+Current-main integration was then verified at `3372b40aba4f6eca29ea946d136745f83996b4c3`,
+which incorporates main `e2bfcb6a85fd0b9dbbb0f2f12ca6982baaec8bb7`. Under the shared
+Cargo lock and pinned toolchain, all 56 server library tests and the server binary
+build passed. The freshly exported protocol schema has SHA-256
+`9457a3fb0d62606530a86166cd2c921b1a20646e9268d4f2e2242c9283d14134`; bootstrap
+remains `0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a`.
+SDK verification on pinned Node 26.11.1 passed strict TypeScript and all 47 tests
+against that export, including main's newer projected effect type proof. Native
+logs, schema exports and an exact binary are retained in
+`generated/client-review-main/`; SDK verification remains under its `generated/`.
+The earlier SDK verification was copied into `client-review-main/sdk-before-main.*`
+before rechecking. This focused integration run does not repeat Clippy, browser
+HTTP or full-game acceptance, whose prior evidence keeps its original source pin.

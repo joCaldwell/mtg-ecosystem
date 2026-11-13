@@ -2,10 +2,17 @@
 
 `mtg_contracts::CURRENT_IR_VERSION` is the current IR authority.
 `MIN_IR_VERSION` is the earliest admitted catalog (3). Validation, generated
-schema and compiler coverage use these constants. Future-version negatives use
-`CURRENT_IR_VERSION + 1`; capability introduction versions and historical catalog
-fixtures remain their original literals. This does not upgrade acceptance status,
-public wire versions, hosting/search capabilities, or historical evidence.
+schema and compiler coverage use these constants. The current unreleased IR
+schema stays at **33** while there are no external consumers. Add supported
+semantics in place with strict capability/shape validation; do not introduce a
+new version, minimum-version gate or downgrade-test matrix per feature. Exact
+engine build identity fences saved-state recovery. Revisit versioning when a
+consumer needs an explicit compatibility contract.
+
+Existing future-version negatives use `CURRENT_IR_VERSION + 1`. Historical
+capability gates, catalogs and evidence retain their original literals and source
+qualification; they do not require a migration for new work. This policy does
+not expand acceptance status or reviewed hosting/search capabilities.
 
 Run `python3 scripts/engine-structure-check.py` without Cargo. It checks the
 contracts/compiler/core dependency boundaries, including target-specific tables,

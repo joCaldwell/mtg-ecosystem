@@ -31,6 +31,7 @@ export function boundaryViolations(file: string, source: string): string[] {
         } else if (part !== '.') path.push(part);
       }
       const target = path[0] ?? '';
+      if (path[0] === 'session' && path[1] === 'effects' && layer !== 'app' && !canEffect) issues.push(`Session effects may only be composed by app or other effects: ${specifier}`);
       if (!(layers[layer] ?? []).includes(target)) issues.push(`Forbidden layer import: ${specifier}`);
       return;
     }

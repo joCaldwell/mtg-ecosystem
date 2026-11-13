@@ -16,10 +16,14 @@ test('boundaries reject IO, SDK runtime, private packages and layer inversions',
     ['session/effects/a.ts', 'import { policy } from "@multiverse/game-server-sdk/src/examples/policy"'],
     ['presentation/a.ts', 'export { GameClient } from "@multiverse/game-server-sdk"'],
     ['app/a.ts', 'import("remote")'],
+    ['features/a.ts', 'import { connect } from "../session/effects/connect.ts"'],
+    ['session/generation.ts', 'export { connect } from "./effects/connect.ts"'],
+    ['session/generation.ts', 'import type { Connection } from "./effects/connect.ts"'],
   ];
   for (const [file, source] of invalid) assert.ok(boundaryViolations(file, source).length, source);
 });
 test('pure generated types and correctly owned effects are allowed', () => {
+  assert.deepEqual(boundaryViolations('app/session.ts', 'import { connect } from "../session/effects/connect.ts"'), []);
   assert.deepEqual(boundaryViolations('presentation/a.ts', 'import type { Observation } from "@multiverse/game-server-sdk"'), []);
   assert.deepEqual(boundaryViolations('session/effects/a.ts', 'import { GameClient } from "@multiverse/game-server-sdk"; fetch("/api")'), []);
   assert.deepEqual(boundaryViolations('presentation/a.ts', 'import type { PresentationArtifact } from "../../generated/presentation.d.ts"'), []);

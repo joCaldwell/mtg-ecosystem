@@ -54,6 +54,14 @@ pub struct CastOccurrence {
     pub cast_from: Zone,
     pub spell: ObjectBefore,
 }
+/// One positive actual damage member and its separate ordinary trigger-time
+/// battlefield appearance. Assigned source LKI is never replaced by this fact.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GroupedDamageMember {
+    pub damage: ActualDamage,
+    pub match_source: ObjectBefore,
+}
 /// Actual trigger-event evidence, independent of whether the event has an object.
 /// Source/controller facts are frozen separately at collection (CR 603.3a).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,6 +78,12 @@ pub enum TriggerEventWitness {
         /// the damage event, separately from assigned damage-source LKI.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         match_source: Option<Box<ObjectBefore>>,
+    },
+    GroupedDamageDealt {
+        kind: DamageKind,
+        transaction: Option<DamageTransactionId>,
+        recipient: PlayerId,
+        members: Vec<GroupedDamageMember>,
     },
     CreatureAttacked {
         attacker: Box<ObjectBefore>,
@@ -101,7 +115,9 @@ impl TriggerEventWitness {
             Self::TokenEntered { object } => Some(*object),
             Self::CreatureAttacked { attacker, .. } => Some(attacker.object),
             Self::DamageDealt { damage, .. } => Some(damage.source.object),
-            Self::StepBegan { .. } | Self::SpellCast { .. } => None,
+            Self::StepBegan { .. } | Self::SpellCast { .. } | Self::GroupedDamageDealt { .. } => {
+                None
+            }
         }
     }
     pub(super) fn event_player(&self) -> Option<PlayerId> {
@@ -236,6 +252,46 @@ fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
     }
 }
 impl Game {
+    fn grouped_damage_member_matches(
+        &self,
+        condition: &TriggerCondition,
+        controller: PlayerId,
+        kind: DamageKind,
+        member: &GroupedDamageMember,
+    ) -> Result<bool, String> {
+        let TriggerCondition::GroupedDamageDealt {
+            source:
+                DamageTriggerSource::CreatureFilter {
+                    controller: DamageSourceRelation::Controller,
+                    types,
+                },
+            kind: TriggerDamageKind::Combat,
+            recipient: DamageTriggerRecipient::Player,
+            source_power: DamageSourcePowerPredicate::GreaterThanBase,
+        } = condition
+        else {
+            return Ok(false);
+        };
+        let appearance = &member.match_source;
+        // CR 208.4b/613.4: all currently admitted P/T changes are additive.
+        // Base power is therefore this exact object's immutable definition's
+        // power, including a token's retained generated definition. Future
+        // setting/CDA/copy/swap families must extend the base-stat evaluator.
+        let base = self
+            .definition(appearance.object.card)?
+            .characteristics
+            .power
+            .as_ref();
+        Ok(kind == DamageKind::Combat
+            && member.damage.amount > Quantity::zero()
+            && matches!(member.damage.recipient, DamageRecipient::Player { .. })
+            && appearance.object == member.damage.source.object
+            && appearance.zone == Zone::Battlefield
+            && appearance.characteristics.has_type(CardKind::Creature)
+            && types.matches(&appearance.characteristics)
+            && appearance.controller == controller
+            && matches!((&appearance.characteristics.power, base), (Some(power), Some(base)) if power > base))
+    }
     pub(super) fn stack_limit(&self) -> usize {
         capacities::STACK_LIMIT
     }
@@ -375,6 +431,47 @@ impl Game {
                     })
                     .unwrap_or_default(),
             };
+            // CR 510.2/603.2c/700.1: "one or more ... to a player" groups
+            // qualifying members of this actual occurrence by damaged player.
+            // Ordered leaves, separate damage steps and separate transactions
+            // never share a group. Per-observer qualification follows below.
+            let mut damage_groups: BTreeMap<PlayerId, Vec<GroupedDamageMember>> = BTreeMap::new();
+            let mut group_transaction = None;
+            for witness in &witnesses {
+                if let TriggerEventWitness::DamageDealt {
+                    kind: DamageKind::Combat,
+                    transaction,
+                    damage,
+                    ..
+                } = witness
+                    && let DamageRecipient::Player { player } = damage.recipient
+                    && self
+                        .current(damage.source.object)
+                        .is_ok_and(|o| o.zone == Zone::Battlefield)
+                {
+                    group_transaction = *transaction;
+                    damage_groups
+                        .entry(player)
+                        .or_default()
+                        .push(GroupedDamageMember {
+                            damage: damage.as_ref().clone(),
+                            match_source: self.object_before(damage.source.object)?,
+                        });
+                }
+            }
+            for (recipient, mut members) in damage_groups {
+                members.sort_by_key(|m| m.damage.id);
+                self.collect_trigger_witness(
+                    Some(before),
+                    TriggerOccurrenceId::Batch(occurrence.id.clone()),
+                    TriggerEventWitness::GroupedDamageDealt {
+                        kind: DamageKind::Combat,
+                        transaction: group_transaction,
+                        recipient,
+                        members,
+                    },
+                )?;
+            }
             for witness in witnesses {
                 if witness.dies()
                     || witness.enters()
@@ -464,7 +561,30 @@ impl Game {
                 .iter()
                 .enumerate()
             {
+                let mut grouped_members = None;
                 let matches = match &definition.condition {
+                    TriggerCondition::GroupedDamageDealt { .. } => {
+                        if let TriggerEventWitness::GroupedDamageDealt { kind, members, .. } =
+                            &witness
+                        {
+                            let mut qualifying = vec![];
+                            for member in members {
+                                if observers.grouped_damage_member_matches(
+                                    &definition.condition,
+                                    object.controller,
+                                    *kind,
+                                    member,
+                                )? {
+                                    qualifying.push(member.clone());
+                                }
+                            }
+                            let matches = !qualifying.is_empty();
+                            grouped_members = Some(qualifying);
+                            matches
+                        } else {
+                            false
+                        }
+                    }
                     TriggerCondition::DamageDealt { source, .. } => {
                         let appearance = match source {
                             DamageTriggerSource::Source {} => None,
@@ -531,6 +651,11 @@ impl Game {
                     && observers.is_live(object.controller)
                 {
                     let mut matched_witness = witness.clone();
+                    if let TriggerEventWitness::GroupedDamageDealt { members, .. } =
+                        &mut matched_witness
+                    {
+                        *members = grouped_members.ok_or("missing grouped damage qualification")?;
+                    }
                     if let TriggerEventWitness::DamageDealt { match_source, .. } =
                         &mut matched_witness
                     {
@@ -1048,6 +1173,66 @@ impl Game {
     ) -> Result<(), String> {
         let condition = &self.definition(source.card)?.triggered[ability as usize].condition;
         let valid = match witness {
+            TriggerEventWitness::GroupedDamageDealt {
+                kind,
+                transaction,
+                recipient,
+                members,
+            } => {
+                if members.is_empty()
+                    || members.len() > self.damage_limit()
+                    || recipient.0 >= 4
+                    || controller.0 >= 4
+                    || death_controller.is_some()
+                    || transaction
+                        .is_some_and(|id| id.0 >= self.state.rules.next_damage_transaction_id)
+                    || members
+                        .windows(2)
+                        .any(|pair| pair[0].damage.id >= pair[1].damage.id)
+                {
+                    return Err("snapshot grouped damage shape invariant".into());
+                }
+                let mut sources = BTreeSet::new();
+                for member in members {
+                    let damage = &member.damage;
+                    let fact = &damage.source;
+                    let appearance = &member.match_source;
+                    self.validate_characteristic_identity(fact.object, &fact.characteristics)?;
+                    self.validate_characteristic_identity(
+                        appearance.object,
+                        &appearance.characteristics,
+                    )?;
+                    if (damage.id.0 as usize) >= self.damage_limit()
+                        || !sources.insert(fact.object)
+                        || damage.amount <= Quantity::zero()
+                        || fact.zone != Zone::Battlefield
+                        || !fact.characteristics.has_type(CardKind::Creature)
+                        || fact.controller != damage.controller
+                        || fact.controller.0 >= 4
+                        || fact.default_controller.0 >= 4
+                        || appearance.object != fact.object
+                        || appearance.owner != fact.owner
+                        || appearance.default_controller != fact.default_controller
+                        || appearance.controller.0 >= 4
+                        || appearance.marked_damage.is_negative()
+                        || self
+                            .state
+                            .rules
+                            .cards
+                            .get(&fact.object.card)
+                            .is_none_or(|c| c.owner != fact.owner)
+                        || damage.recipient != (DamageRecipient::Player { player: *recipient })
+                        || !self
+                            .grouped_damage_member_matches(condition, controller, *kind, member)?
+                    {
+                        return Err("snapshot grouped damage member invariant".into());
+                    }
+                }
+                // No current-object/recipient-liveness check: the complete
+                // matching set and its controller freeze at collection. Replay
+                // proves completeness and rejects coherent subset/fact lies.
+                true
+            }
             TriggerEventWitness::DamageDealt {
                 kind,
                 transaction,
@@ -1177,7 +1362,8 @@ impl Game {
                         TriggerCondition::StepBegan { .. }
                         | TriggerCondition::SpellCast { .. }
                         | TriggerCondition::CreatureAttacked { .. }
-                        | TriggerCondition::DamageDealt { .. } => false,
+                        | TriggerCondition::DamageDealt { .. }
+                        | TriggerCondition::GroupedDamageDealt { .. } => false,
                         TriggerCondition::SelfDies | TriggerCondition::SelfAuraToGraveyard => {
                             witness.dies() && m.previous == source
                         }

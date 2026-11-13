@@ -339,6 +339,8 @@ impl Game {
                     .get_mut(&object.id.card)
                     .ok_or("missing control object")?
                     .attack_ready = false;
+                let fact = self.object_before(object.id)?;
+                self.retain_damage_control_facts(&fact);
                 self.record_event(Event::ControlChanged {
                     object: object.id,
                     previous: object.controller,
@@ -550,7 +552,22 @@ impl Game {
                 && (matches!(self.state.rules.frame, Frame::EntityTargets { .. })
                     || matches!(self.top()?.kind, StackKind::Activated {ability,..} if self.top().is_ok_and(|top| self.definition(top.source.card).is_ok_and(|d| d.activated.get(ability as usize).is_some_and(|a| matches!(a.cost, ActivationCost::Composite {..}))))))
                 && self.current(self.top()?.source).is_err();
-            if targets_bad || pending_bad || no_domain || source_bad {
+            // CR 601.2e/601.6: proposal legality is checked before the
+            // mana/payment stages (601.2f-h). A prohibition that appears
+            // during those later stages cannot undo the legal proposal.
+            let cast_prohibited = matches!(
+                self.state.rules.frame,
+                Frame::AnnounceX { .. }
+                    | Frame::Modes { .. }
+                    | Frame::EntityTargets { .. }
+                    | Frame::Targets { .. }
+                    | Frame::StackTargets { .. }
+                    | Frame::PlayerTargets { .. }
+            ) && self.top()?.kind.is_spell()
+                && self
+                    .validate_cast_permission(self.top()?.controller)
+                    .is_err();
+            if targets_bad || pending_bad || no_domain || source_bad || cast_prohibited {
                 self.reverse_departure_cast(cast)?;
             }
         }

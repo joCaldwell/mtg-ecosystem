@@ -4,6 +4,10 @@
 > with the [generic capacity policy](game-engine-capacity-policy.md). The original
 > arithmetic and evidence below describe the historical release only.
 
+Current [damage-source appearances](game-engine-controlled-damage-replacement.md)
+separate immutable assignments from current/LKI damage-time keywords and static
+replacement predicates. The historical evidence below retains its source scope.
+
 Frozen contract for the next bounded P4 slice, prepared October 15, 2026.
 The parent, runtime and independent rules review approve the six source-backed
 positives, three paired negatives, exact five configurations, data/decision

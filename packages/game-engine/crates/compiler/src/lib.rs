@@ -234,6 +234,8 @@ enum SourceTrigger {
         #[serde(default, deserialize_with = "damage_combat_qualifier")]
         combat: Option<bool>,
         to: serde_json::Value,
+        #[serde(default, deserialize_with = "present_damage_filter_field")]
+        grouping: Option<String>,
     },
     Attacks {
         what: SourceAttacker,
@@ -301,6 +303,8 @@ struct SourceDamageFilter {
     any_of: Option<Vec<SourceTypeFilter>>,
     #[serde(default, deserialize_with = "present_damage_filter_field")]
     control: Option<String>,
+    #[serde(default, deserialize_with = "present_damage_filter_field")]
+    properties: Option<Vec<serde_json::Value>>,
 }
 fn present_damage_filter_field<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
@@ -315,7 +319,9 @@ fn lower_damage_subject(what: &SourceDamageObject) -> Result<DamageTriggerSource
             Ok(DamageTriggerSource::Source {})
         }
         SourceDamageObject::Filter { filter, count }
-            if fixed_one(count) && filter.types.iter().any(|t| t == "creature") =>
+            if fixed_one(count)
+                && filter.types.iter().any(|t| t == "creature")
+                && filter.properties.is_none() =>
         {
             let controller = match filter.control.as_deref() {
                 Some("you") => DamageSourceRelation::Controller,
@@ -815,6 +821,9 @@ enum AnyTargetReference {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "static", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceStaticEffect {
+    Prohibit {
+        prohibition: serde_json::Value,
+    },
     EntersTapped {
         what: serde_json::Value,
         #[serde(rename = "conditionKind")]
@@ -850,19 +859,16 @@ struct SourceReplacement {
 enum SourceDamageEvent {
     Damage {
         kind: String,
-        source: AnyDamageSource,
+        source: ReplacementDamageSource,
         to: Vec<ReplacementRecipient>,
     },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct EmptyFilter {}
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AnyDamageSource {
+struct ReplacementDamageSource {
     #[serde(rename = "ref")]
     reference: String,
-    filter: EmptyFilter,
+    filter: serde_json::Value,
     count: Count,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -2556,6 +2562,25 @@ fn lower_prevention(
     }
 }
 fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
+    if let SourceStaticEffect::Prohibit { prohibition } = effect {
+        // CR 101.2/109.5/601.3/611.3b: the current battlefield controller
+        // defines opponents and whose turn. Consume the whole action scope;
+        // archived unsupported-scope diagnostics are not executable authority.
+        if *prohibition
+            != serde_json::json!({"prohibition":"cast","who":{"player":"each-opponent"},
+            "what":{"ref":"each","filter":{"cls":"spell"}},"when":{"during":"turn","whose":{"player":"you"}}})
+        {
+            return Err(unsupported(
+                "static.prohibition",
+                "unsupported complete casting prohibition scope",
+            ));
+        }
+        return Ok(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::OpponentsCantCastDuringControllerTurn,
+        });
+    }
+
     // CR 614.1c/614.12: only unconditional entry of this source is supported.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     if let SourceStaticEffect::EntersTapped {
@@ -2817,7 +2842,7 @@ fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
     };
     let player = |recipient: &ReplacementRecipient| {
         matches!(recipient,
-        ReplacementRecipient::Player(p) if p.player == "a-player" && p.selection_id.is_none())
+        ReplacementRecipient::Player(p) if p.player == "a-player" && p.selection_id.is_none() && p.of.is_none())
     };
     if kind != "all"
         || source.reference != "filter"
@@ -2834,11 +2859,23 @@ fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
             "unsupported complete damage replacement scope",
         ));
     }
+    // Consume the complete source predicate. The old global source remains
+    // exactly empty; no controller, property or type qualifier may be dropped.
+    let effect = if source.filter == serde_json::json!({}) {
+        StaticEffect::DoubleDamageToPermanentOrPlayer
+    } else if source.filter == serde_json::json!({"types":["creature"],"control":"you"}) {
+        StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer
+    } else {
+        return Err(unsupported(
+            "abilities.static",
+            "unsupported complete damage replacement source",
+        ));
+    };
     // CR 611.3b/614.5: battlefield-only static rule, once per damage lineage.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     Ok(StaticAbility {
         functioning_zone: FunctioningZone::Battlefield,
-        effect: StaticEffect::DoubleDamageToPermanentOrPlayer,
+        effect,
     })
 }
 
@@ -3104,12 +3141,26 @@ fn lower_trigger(
         ));
     }
     let condition=match trigger {
-        SourceTrigger::DealsDamage { what, combat: Some(true), to }
+        SourceTrigger::DealsDamage { what:SourceDamageObject::Filter {filter,count},combat:Some(true),to,grouping:Some(grouping) }
+            if grouping == "one-or-more" && *to == serde_json::json!("any")
+                && fixed_one(count) && filter.types == ["creature"]
+                && filter.control.as_deref() == Some("you") && filter.non_types.is_none()
+                && filter.all_of.is_none() && filter.any_of.is_none()
+                && filter.properties.as_deref() == Some(&[serde_json::json!({"property":"power","comparison":{"op":"gt","value":{"amount":"attribute","of":{"ref":"it"},"attribute":"base-power"}}})]) => {
+            // CR 208.4b/603.2c/603.10: the property's "it" is EACH candidate
+            // creature, not the observing source. Diagnostic references remain
+            // unchanged even when their earlier binder chose another object.
+            TriggerCondition::GroupedDamageDealt {
+                source:DamageTriggerSource::CreatureFilter {controller:DamageSourceRelation::Controller,types:TypePredicate::Type {kind:CardKind::Creature}},
+                kind:TriggerDamageKind::Combat,recipient:DamageTriggerRecipient::Player,source_power:DamageSourcePowerPredicate::GreaterThanBase,
+            }
+        },
+        SourceTrigger::DealsDamage { what, combat: Some(true), to, grouping:None }
             if *to == serde_json::json!("any") => {
             TriggerCondition::DamageDealt { source: lower_damage_subject(what)?,
                 kind: TriggerDamageKind::Combat, recipient: DamageTriggerRecipient::Player }
         },
-        SourceTrigger::DealsDamage { what, combat: None, to }
+        SourceTrigger::DealsDamage { what, combat: None, to, grouping:None }
             if *to == serde_json::json!({"player":"an-opponent"}) => {
             TriggerCondition::DamageDealt { source: lower_damage_subject(what)?,
                 kind: TriggerDamageKind::Any, recipient: DamageTriggerRecipient::OpponentPlayer }
@@ -3163,6 +3214,17 @@ fn lower_trigger(
             && events.iter().filter(|event|matches!(event,SourceTrigger::Dies {what} if is_other_creature(what))).count()==1 =>TriggerCondition::AnyCreatureDies,
         _=>return Err(unsupported("abilities.trigger","unsupported complete event/source/other/alternative trigger binding")),
     };
+    if matches!(condition, TriggerCondition::GroupedDamageDealt { .. })
+        && (intervening.is_some()
+            || !matches!(effects, [Sentence {bindings,steps}] if bindings.is_empty()
+            && matches!(steps.as_slice(), [Step::Draw {who,amount:DrawAmount::Fixed {value:1},optional:false}]
+                if who.player == "you" && who.of.is_none() && who.selection_id.is_none())))
+    {
+        return Err(unsupported(
+            "effects.grouped_damage",
+            "grouped damage requires one standalone mandatory controller draw",
+        ));
+    }
     let mut program = SpellProgram {
         additional_sacrifice: None,
         timing: SpellTiming::Instant,
@@ -5036,6 +5098,228 @@ mod tests {
         })
     }
     #[test]
+    fn controlled_creature_replacement_lowers_complete_gratuitous_source_without_rewriting_furnace()
+    {
+        let raw = effect_record("gratuitous-violence");
+        let source: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
+            panic!("complete retained Gratuitous Violence must lower");
+        };
+        assert_eq!(definition.name, "Gratuitous Violence");
+        assert_eq!(
+            source["source"]["oracle_text"],
+            "If a creature you control would deal damage to a permanent or player, it deals double that damage instead."
+        );
+        assert_eq!(definition.characteristics.kind, CardKind::Enchantment);
+        assert_eq!(
+            definition.characteristics.mana_cost,
+            ManaCost {
+                generic: 2.into(),
+                colored: vec![Color::R; 3]
+            }
+        );
+        assert_eq!(
+            definition.spell.as_ref().unwrap().resolution,
+            SpellResolution::Permanent
+        );
+        assert_eq!(
+            definition.static_abilities,
+            [StaticAbility {
+                functioning_zone: FunctioningZone::Battlefield,
+                effect: StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer
+            }]
+        );
+        assert!(
+            definition.activated.is_empty()
+                && definition.triggered.is_empty()
+                && definition.keywords.is_empty()
+        );
+        assert!(
+            definition
+                .capabilities
+                .contains(&Capability::ControlledCreatureDamageReplacementV1)
+        );
+        assert!(
+            !definition
+                .capabilities
+                .contains(&Capability::StaticDamageReplacementV1)
+        );
+        assert_eq!(definition.capabilities, definition.requirements());
+        assert_eq!(definition.provenance.source_sha256, source["sourceSha256"]);
+        assert_eq!(definition.provenance.ast_sha256, source["astSha256"]);
+        assert_eq!(
+            definition.provenance.binding_sha256,
+            source["bindingSha256"]
+        );
+        assert_eq!(source["binding"]["fullyBound"], false);
+        assert!(
+            !source["binding"]["diagnostics"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        Catalog {
+            schema_version: CURRENT_IR_VERSION,
+            rules_edition: RULES_EDITION.into(),
+            rules_sha256: RULES_SHA256.into(),
+            definitions: vec![definition.as_ref().clone()],
+        }
+        .validate()
+        .unwrap();
+        for reversed in [false, true] {
+            let synthetic = effect_mutant("gratuitous-violence", |a| {
+                if reversed {
+                    a["effect"]["replacement"]["event"]["to"]
+                        .as_array_mut()
+                        .unwrap()
+                        .reverse();
+                }
+            });
+            let CompileResult::Lowered { definition: order } =
+                compile(fixtures::MANIFEST, &synthetic)
+            else {
+                panic!("equivalent recipient union rejected");
+            };
+            assert_eq!(order.static_abilities, definition.static_abilities);
+            assert_eq!(order.characteristics, definition.characteristics);
+        }
+        // The original global source remains its historical complete definition,
+        // including original provenance and capabilities, without regeneration.
+        let old = embedded_catalog("effects").unwrap();
+        let expected = old
+            .definitions
+            .iter()
+            .find(|d| d.name == "Furnace of Rath")
+            .unwrap();
+        let CompileResult::Lowered {
+            definition: furnace,
+        } = compile(fixtures::MANIFEST, effect_record("furnace-of-rath"))
+        else {
+            panic!("Furnace source");
+        };
+        assert_eq!(furnace.as_ref(), expected);
+        assert!(
+            !furnace
+                .capabilities
+                .contains(&Capability::ControlledCreatureDamageReplacementV1)
+        );
+    }
+
+    #[test]
+    fn controlled_creature_replacement_rejects_partial_sources_and_qualified_recipients() {
+        type Mutation = fn(&mut serde_json::Value);
+        for mutate in [
+            (|r: &mut serde_json::Value| {
+                r["event"]["source"]["filter"]["control"] = "opponent".into()
+            }) as Mutation,
+            |r| r["event"]["source"]["filter"]["control"] = serde_json::Value::Null,
+            |r| {
+                r["event"]["source"]["filter"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("control");
+            },
+            |r| r["event"]["source"]["filter"]["types"] = serde_json::json!(["artifact"]),
+            |r| {
+                r["event"]["source"]["filter"]["types"] =
+                    serde_json::json!(["artifact", "creature"])
+            },
+            |r| {
+                r["event"]["source"]["filter"]["types"] =
+                    serde_json::json!(["creature", "creature"])
+            },
+            |r| r["event"]["source"]["filter"]["types"] = serde_json::json!([]),
+            |r| r["event"]["source"]["filter"]["types"] = serde_json::Value::Null,
+            |r| r["event"]["source"]["filter"]["owner"] = "you".into(),
+            |r| r["event"]["source"]["filter"]["subtypes"] = serde_json::json!(["Goblin"]),
+            |r| r["event"]["source"]["filter"]["other"] = true.into(),
+            |r| r["event"]["source"]["filter"]["properties"] = serde_json::json!([]),
+            |r| r["event"]["source"]["filter"]["status"] = serde_json::json!(["attacking"]),
+            |r| r["event"]["source"]["filter"] = serde_json::Value::Null,
+            |r| r["event"]["source"]["ref"] = "this".into(),
+            |r| r["event"]["source"]["count"]["value"] = 0.into(),
+            |r| r["event"]["source"]["count"]["value"] = 2.into(),
+            |r| r["event"]["source"]["count"]["amount"] = "that-much".into(),
+            |r| r["event"]["source"]["selectionId"] = "unbound".into(),
+            |r| r["event"]["kind"] = "combat".into(),
+            |r| r["event"]["to"][1]["of"] = serde_json::json!({"ref":"it"}),
+            |r| r["event"]["to"][1]["selectionId"] = "unbound-player".into(),
+            |r| r["event"]["to"][0]["filter"]["types"] = serde_json::json!(["creature"]),
+            |r| r["event"]["to"] = serde_json::json!([{"player":"a-player"}]),
+            |r| r["occurrence"] = "next".into(),
+            |r| r["replace"]["change"]["factor"] = 3.into(),
+            |r| r["replace"]["change"]["operation"] = "add".into(),
+            |r| r["replace"]["change"]["optional"] = true.into(),
+        ] {
+            let raw = effect_mutant("gratuitous-violence", |a| {
+                mutate(&mut a["effect"]["replacement"])
+            });
+            assert!(
+                matches!(
+                    compile(fixtures::MANIFEST, &raw),
+                    CompileResult::Unsupported { .. }
+                ),
+                "unsupported complete replacement must reject"
+            );
+        }
+    }
+    #[test]
+    fn furnace_replacement_rejects_qualified_player_scope_in_either_union_order() {
+        let catalog = embedded_catalog("effects").unwrap();
+        let expected = catalog
+            .definitions
+            .iter()
+            .find(|d| d.name == "Furnace of Rath")
+            .unwrap();
+        let CompileResult::Lowered { definition } =
+            compile(fixtures::MANIFEST, effect_record("furnace-of-rath"))
+        else {
+            panic!("complete frozen Furnace of Rath must lower");
+        };
+        assert_eq!(definition.as_ref(), expected);
+        for reversed in [false, true] {
+            let raw = effect_mutant("furnace-of-rath", |a| {
+                if reversed {
+                    a["effect"]["replacement"]["event"]["to"]
+                        .as_array_mut()
+                        .unwrap()
+                        .reverse();
+                }
+            });
+            let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, &raw) else {
+                panic!("equivalent complete recipient union rejected: reversed={reversed}");
+            };
+            assert_eq!(definition.static_abilities, expected.static_abilities);
+            assert_eq!(definition.characteristics, expected.characteristics);
+            assert_eq!(definition.capabilities, expected.capabilities);
+            for (field, value) in [
+                ("of", serde_json::json!({"ref":"it"})),
+                ("selectionId", serde_json::json!("unbound-player")),
+            ] {
+                // Synthetic near-miss of the exact archived Furnace source:
+                // neither a qualified object relation nor a selected player is
+                // represented by the all-permanent/player doubling instruction.
+                let qualified = effect_mutant("furnace-of-rath", |a| {
+                    let to = a["effect"]["replacement"]["event"]["to"]
+                        .as_array_mut()
+                        .unwrap();
+                    let player = to.iter_mut().find(|r| r["player"] == "a-player").unwrap();
+                    player[field] = value;
+                    if reversed {
+                        to.reverse();
+                    }
+                });
+                assert!(
+                    matches!(
+                        compile(fixtures::MANIFEST, &qualified),
+                        CompileResult::Unsupported { .. }
+                    ),
+                    "unsupported player {field} must not be dropped: reversed={reversed}"
+                );
+            }
+        }
+    }
+    #[test]
     fn complete_effects_catalog_binds_all_six_sources_and_preserves_historical_definitions() {
         let c = embedded_catalog("effects").unwrap();
         assert_eq!(c.schema_version, 9);
@@ -5141,12 +5425,10 @@ mod tests {
     }
     #[test]
     fn complete_effects_sources_reject_filtered_modal_and_optional_near_misses() {
-        for name in [
-            "righteousness",
-            "gratuitous-violence",
-            "flame-rift",
-            "deathgreeter",
-        ] {
+        // Gratuitous Violence's original source negative is now a complete
+        // controlled-creature replacement positive above; other partial sources
+        // remain unsupported. Historical catalogs and expected IR stay frozen.
+        for name in ["righteousness", "flame-rift", "deathgreeter"] {
             assert!(
                 matches!(
                     compile(fixtures::MANIFEST, effect_record(name)),

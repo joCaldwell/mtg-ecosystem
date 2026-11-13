@@ -6,14 +6,21 @@ is not connected human play or M1 acceptance. The Join
 route explains the boundary; it does not collect credentials or make requests.
 
 From the repository root, using its pinned Node 26.11.1, first prepare the SDK
-from the native lane's **explicit pinned exports** (never from an arbitrary local
-server). The fixture protocol SHA-256 is
-`519ce989ecc98c87e4aba0a14c1c7aa04fffa1aa552c7f2905cdb42f290b93ae`;
+from the native lane's **explicit qualified integration exports** (never from an
+arbitrary local server). The current integration protocol SHA-256 is
+`9457a3fb0d62606530a86166cd2c921b1a20646e9268d4f2e2242c9283d14134`;
 bootstrap SHA-256 is
 `0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a`.
-See `fixtures/foundations-opening/provenance.json` and the native handoff report
-for exact source and artifact identities. Obtain these retained files from the
-native build owner; native rebuilding is a separate coordinated operation.
+These exports come from native source `3372b40aba4f6eca29ea946d136745f83996b4c3`
+(current main plus native integration). Obtain the retained exports from the native
+build owner, or explicitly build this integrated source under the shared native
+verification lock and export `schema` and `bootstrap-schema`. No client command
+performs that build. The native handoff report records the retained locations.
+
+The fixture's original capture source and schema hash remain unchanged in
+`fixtures/foundations-opening/provenance.json`; `sdk_qualification` separately
+pins the current schema used to validate those historical bytes. The SDK and client
+use one current SDK build, without replacing it with historical declarations.
 
 ```sh
 sh scripts/engine-env.sh npm --prefix packages/game-server/sdk ci --workspaces=false --ignore-scripts

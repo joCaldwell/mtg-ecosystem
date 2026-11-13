@@ -145,3 +145,11 @@ void [x,badX];
 type CatalogSnow = Assert<Equal<Catalog['definitions'][number]['characteristics']['snow'], boolean | undefined>>;
 type ViewSnow = Assert<Equal<NonNullable<Extract<Publication, { kind: 'view_replaced' }>['observation']['view']['objects'][number]['characteristics']>['snow'], boolean | undefined>>;
 export type SnowCharacteristicProofs = [CatalogSnow, ViewSnow];
+
+// Scoped doubling stays distinct in the generated public effect union. Its
+// trusted application and source-matching facts never enter the projection.
+type ProjectedEffect = NonNullable<Extract<Publication, { kind: 'view_replaced' }>['observation']['view']['effects']>[number];
+type ControlledCreatureDoubling = Extract<ProjectedEffect, { effect: 'double_controller_creature_damage_to_permanent_or_player' }>;
+type ControlledCreatureEffectHandle = Assert<Equal<ControlledCreatureDoubling['handle'], string>>;
+type PrivateReplacementFacts = Assert<Equal<Extract<keyof ControlledCreatureDoubling, 'qualification' | 'replacement_source' | 'source_appearance' | 'damage_source'>, never>>;
+export type ControlledCreatureReplacementProofs = [ControlledCreatureEffectHandle, PrivateReplacementFacts];

@@ -121,3 +121,31 @@ submission, available-action query, privacy-paired real-host test, dense board o
 natural game acceptance ran. No M0-wide/M1/M2/M3/M4 acceptance is claimed. Native
 action beginnings, decision semantic context and compiler source-ability labels
 remain later producer gates; the client will not substitute rule heuristics.
+
+## Independent review integration corrections
+
+The exact-head fixture checks passed independent review, but the historical SDK
+schema conflicted with the newer effect type on main. The capture bytes and all
+original provenance remain unchanged. A separate `sdk_qualification` now pins
+native source `3372b40aba4f6eca29ea946d136745f83996b4c3` and protocol
+`9457a3fb0d62606530a86166cd2c921b1a20646e9268d4f2e2242c9283d14134`. Fixture
+preparation validates the historical capture against that current schema and
+checks its SDK build/generation/source fingerprints. It records historical and
+validation schema identities separately, without replacing current SDK artifacts
+with historical ones. The bootstrap hash is unchanged.
+
+The branch incorporates reviewed native source/report `f327979` and SDK integration
+`e9c172bfdbb1f0b1daaf08227f648c967157a49e`. Prerequisite conflicts were reconciled
+using their complete current reports and generator tests; native/SDK ownership
+remains intact. The boundary guard also now rejects component or pure-session
+imports/re-exports from `session/effects`, including type imports. App composition
+and effects-to-effects imports remain permitted. Regression cases cover both
+forbidden imports/re-exports and allowed app composition.
+
+On pinned Node 26.11.1, the same current SDK build passed strict TypeScript and all
+54 SDK tests, then client fixture preparation, strict types, boundaries, 15 Node
+tests, production module guard/build, and 10 Chromium/Firefox browser tests. SDK
+artifacts were not switched between package checks. These are fixture/browser
+checks, not live gameplay. Evidence is in root `generated/client-review-main/`,
+SDK `generated/verification.*` and client `generated/`; previous fixture/checkpoint
+and browser receipts were preserved before rebuilding. No Cargo ran in this lane.
