@@ -21,7 +21,7 @@ fn prepared(empty: bool, commander: bool, artist: bool) -> Prepared {
         panic!("complete Demon of Loathing source must lower");
     };
     c.definitions.push(*definition);
-    c.schema_version = 29;
+    c.schema_version = mtg_contracts::CURRENT_IR_VERSION;
     c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     c.validate().unwrap();
     let mut config = ScenarioConfig::turns_permanents();

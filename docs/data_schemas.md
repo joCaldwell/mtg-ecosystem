@@ -146,24 +146,21 @@ recomputes raw-snapshot, source-record, successful-AST, and binding hashes. Inva
 source edits, or verification failures preserve the previous archive. JSONL
 allows verification to stream rather than load a second bulk corpus in memory.
 
-## Proposed output: versioned Card IR
+## Executable Card IR and proposed bulk output
 
 The semantic compiler and emitter use **Rust**, as fixed by
 the [language decision](runtime-language-decision.md). The source parser/archive
-stays TypeScript; Card IR is language-neutral JSON. The initial scenario schema
-exists; broader schema and emission design remain implementation work.
+stays TypeScript; Card IR is language-neutral JSON. Rust types in
+`packages/game-engine/crates/contracts/` are authoritative. The only active IR
+schema is 1, evolved in place until an external consumer needs a compatibility
+contract; capability and shape validation reject unsupported semantics.
 
-The initial scenario catalog is implemented by Rust types in
-`packages/game-engine/crates/contracts/`; `mtg-sim schema` exports its generated
-JSON Schema and `mtg-sim compile` emits the five-definition fixture catalog.
-Current IR version 2 explicitly retains the legendary characteristic; the
-[Commander/departure slice](game-engine-departure-slice.md) adds the source-backed
-Isamaru definition. Archive schema 3 remains unchanged.
-The [first scenario brief](game-engine-first-scenario.md) defines this narrow
-contract and its source adapter. General/per-set bulk emission remains a
-**proposal**; `scripts/build-ir.ts` fails explicitly. The previous schema
-examples used retired discriminator names and unresolved JSON Schema references;
-they were not an implemented contract and have been removed.
+`mtg-sim schema` exports the generated JSON Schema. Named source-qualified pools
+are compiled with `mtg-sim catalog build MANIFEST [--write]`; see the
+[current engine map](game-engine-current.md) and [catalog workflow](game-engine-catalogs.md).
+Archive schema 3 is independent and unchanged. General/per-set bulk emission
+remains a **proposal**; `scripts/build-ir.ts` fails explicitly. Retired schema
+examples are not an implemented contract.
 
 The [Layer 1 contract proposal](game-engine-spec.md#3-card-compiler-and-executable-contract)
 now specifies compilation stages, executable admission, capability profiles,

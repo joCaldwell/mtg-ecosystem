@@ -212,7 +212,7 @@ fn flash_and_enters_tapped_are_not_implicitly_hosted_or_search_reviewed() {
     let profile = match_profile("commander-foundations-v1").unwrap();
     for enters_tapped in [false, true] {
         let mut catalog = profile.catalog().clone();
-        catalog.schema_version = 20;
+        catalog.schema_version = mtg_contracts::CURRENT_IR_VERSION;
         let d = catalog
             .definitions
             .iter_mut()

@@ -342,14 +342,13 @@ fn trigger_admission_requires_exact_catalog_and_all_five_closed_profiles() {
     ] {
         Prepared::admit(catalog(), c).unwrap();
     }
-    for mutation in 0..5 {
+    for mutation in 0..4 {
         let mut c = catalog();
         match mutation {
-            0 => c.schema_version = 7,
-            1 => {
+            0 => {
                 c.definitions.pop();
             }
-            2 => {
+            1 => {
                 c.definitions
                     .iter_mut()
                     .find(|d| d.name == "Blood Artist")
@@ -357,7 +356,7 @@ fn trigger_admission_requires_exact_catalog_and_all_five_closed_profiles() {
                     .triggered[0]
                     .condition = TriggerCondition::SelfEntersBattlefield
             }
-            3 => {
+            2 => {
                 c.definitions
                     .iter_mut()
                     .find(|d| d.name == "Essence Warden")

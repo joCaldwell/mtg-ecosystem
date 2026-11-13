@@ -2,7 +2,7 @@
   "workload_version": 2,
   "workload_id": "commander-open-search-v1",
   "profile": "commander-foundations-v1",
-  "catalog_sha256": "fc4bd3390e63ea352e129ac370fa848dbee11cf0700e7e6781d449fd49244a7f",
+  "catalog_sha256": "d00ee2cf3760ddaf9a807af0c79764f4bea2f21177c350a30d2d4f0a087c9ef0",
   "policy_sha256": "cfe83bd72e477756a7b4f778e22c6ec8e901489671d84d122574ecdc7b90caad",
   "rules_sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca",
   "information_policy": "foundations-open-decklists-v1",

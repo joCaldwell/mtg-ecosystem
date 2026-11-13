@@ -30,7 +30,7 @@ fn profiles() -> [(ScenarioConfig, Catalog); 3] {
 }
 
 #[test]
-fn profile_pool_and_ir_vocabulary_versions_are_independent_admission_requirements() {
+fn each_scenario_requires_its_exact_pool_and_current_catalog_schema() {
     for (config, catalog) in profiles() {
         assert!(Prepared::admit(catalog.clone(), config.clone()).is_ok());
         for wrong in [
@@ -49,14 +49,12 @@ fn profile_pool_and_ir_vocabulary_versions_are_independent_admission_requirement
             assert!(Prepared::admit(missing, config.clone()).is_err());
         }
     }
-    let mut downgrade = library();
-    downgrade.schema_version = 3;
-    assert!(downgrade.validate().is_err());
-    assert!(Catalog::read(&mtg_contracts::canonical(&downgrade).unwrap()).is_err());
-    let mut wrong_version = damage();
-    wrong_version.schema_version = 4;
-    wrong_version.validate().unwrap();
-    assert!(Prepared::admit(wrong_version, ScenarioConfig::commander_damage()).is_err());
+    for unsupported in [0, mtg_contracts::CURRENT_IR_VERSION + 1] {
+        let mut invalid = library();
+        invalid.schema_version = unsupported;
+        assert!(Catalog::read(&mtg_contracts::canonical(&invalid).unwrap()).is_err());
+        assert!(Prepared::admit(invalid, ScenarioConfig::commander_library()).is_err());
+    }
     assert!(Prepared::admit(damage(), ScenarioConfig::command_casting()).is_err());
     assert!(Prepared::admit(library(), ScenarioConfig::command_casting()).is_err());
 }

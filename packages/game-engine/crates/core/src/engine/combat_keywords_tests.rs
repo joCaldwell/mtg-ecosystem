@@ -784,54 +784,51 @@ fn first_strike_blocker_of_departed_attacker_still_starts_first_step() {
 }
 
 #[test]
-fn catalog_instructions_and_cr_drive_combat_under_any_label_or_schema() {
+fn catalog_instructions_and_cr_drive_combat_under_any_label() {
     for label in [
         "independent-catalog",
         "commander-foundations-v1",
         "commander-wipes-v1",
     ] {
-        for version in [13, 20] {
-            let mut p = prepared(&[("Grizzly Bears", 0, false), ("Youthful Knight", 1, false)]);
-            Arc::make_mut(&mut p.catalog).schema_version = version;
-            p.catalog.validate().unwrap();
-            p.catalog_digest = digest(&*p.catalog).unwrap();
-            p.config.profile = label.into();
-            p.profile_digest = digest(&p.config).unwrap();
-            let mut g = Game::new(p);
-            attackers(&mut g);
-            let attacker = object(&g, 0);
-            answer(
-                &mut g,
-                Response::Attackers {
-                    attacks: vec![(attacker, PlayerId(1))],
-                },
-            );
-            loop {
-                if matches!(request(&mut g), Request::Blockers { .. }) {
-                    break;
-                }
-                answer(&mut g, Response::Pass);
+        let mut p = prepared(&[("Grizzly Bears", 0, false), ("Youthful Knight", 1, false)]);
+        p.catalog.validate().unwrap();
+        p.catalog_digest = digest(&*p.catalog).unwrap();
+        p.config.profile = label.into();
+        p.profile_digest = digest(&p.config).unwrap();
+        let mut g = Game::new(p);
+        attackers(&mut g);
+        let attacker = object(&g, 0);
+        answer(
+            &mut g,
+            Response::Attackers {
+                attacks: vec![(attacker, PlayerId(1))],
+            },
+        );
+        loop {
+            if matches!(request(&mut g), Request::Blockers { .. }) {
+                break;
             }
-            let QueryResult::Complete(QueryValue::Observation(o)) =
-                g.observe(PlayerId(1), Budget::unlimited())
-            else {
-                panic!("observation")
-            };
-            assert!(
-                matches!(o.decision, Some(PlayerRequest::Blockers {ref legal_attackers, ..}) if !legal_attackers.is_empty())
-            );
-            let blocker = object(&g, 1);
-            answer(
-                &mut g,
-                Response::Blockers {
-                    blocks: vec![(blocker, attacker)],
-                },
-            );
-            reach(&mut g, TurnStep::FirstStrikeDamage);
-            assert_eq!(g.turn().step, TurnStep::FirstStrikeDamage);
-            assert_eq!(g.token_capacity(), capacities::TOKEN_CAPACITY);
-            assert_eq!(g.stack_limit(), capacities::STACK_LIMIT);
-            check(&g);
+            answer(&mut g, Response::Pass);
         }
+        let QueryResult::Complete(QueryValue::Observation(o)) =
+            g.observe(PlayerId(1), Budget::unlimited())
+        else {
+            panic!("observation")
+        };
+        assert!(
+            matches!(o.decision, Some(PlayerRequest::Blockers {ref legal_attackers, ..}) if !legal_attackers.is_empty())
+        );
+        let blocker = object(&g, 1);
+        answer(
+            &mut g,
+            Response::Blockers {
+                blocks: vec![(blocker, attacker)],
+            },
+        );
+        reach(&mut g, TurnStep::FirstStrikeDamage);
+        assert_eq!(g.turn().step, TurnStep::FirstStrikeDamage);
+        assert_eq!(g.token_capacity(), capacities::TOKEN_CAPACITY);
+        assert_eq!(g.stack_limit(), capacities::STACK_LIMIT);
+        check(&g);
     }
 }

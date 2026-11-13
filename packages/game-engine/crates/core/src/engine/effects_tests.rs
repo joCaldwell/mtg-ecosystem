@@ -93,11 +93,6 @@ fn effects_admission_is_exact_and_retains_historical_catalog_closure() {
         let mut changed = config.clone();
         changed.cards[1].oracle_id = BEARS.into();
         assert!(Prepared::admit(catalog(), changed).is_err());
-        for version in 3..=8 {
-            let mut c = catalog();
-            c.schema_version = version;
-            assert!(Prepared::admit(c, config.clone()).is_err());
-        }
     }
     assert!(Prepared::admit(catalog(), ScenarioConfig::triggers()).is_err());
     let mut wrong = catalog();

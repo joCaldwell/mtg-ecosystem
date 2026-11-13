@@ -143,7 +143,7 @@ export const engineCheckPlans = {
   },
   contracts: {
     phases: [...tooling, { label: "contract-preflight", command: "node", args: ["--test", "packages/game-engine/tests/contracts.test.ts"], preflight: true }],
-    coverage: "Tooling and all source/schema/catalog Node contracts, including downgrade negatives; may build release mtg-sim.",
+    coverage: "Tooling and all source/schema/catalog Node contracts, including strict semantic/header negatives; may build release mtg-sim.",
     omitted: "Rust formatting/lints/unit tests; runtime-backed Node contracts/demo; SDK; release test/profile/replay/retention gates.",
   },
   full: {

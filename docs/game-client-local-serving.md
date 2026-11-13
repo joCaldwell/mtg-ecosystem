@@ -149,7 +149,7 @@ cache reused schema-1 contracts against baseline source. The full failure is
 existing local contracts/build-identity sources; `cache-invalidation.json`
 records identical before/after byte hashes. No core bytes/catalogs/guards changed,
 no cache or historical evidence was deleted. The retry and final results are
-recorded below as they complete.
+recorded below.
 
 Focused producer/export tests: three passed, including exact source extraction,
 face preservation, path restrictions, symlinks and explicit copying. Native: 60 server library tests passed, including four new delivery/security
@@ -180,3 +180,165 @@ Initial exact artifact qualification (debug, Rust 1.99.0):
 | presentation/artifacts.json | `84d1b578929ddad8baab9754072c8914b21702cf5a04f32028dbe99c13192891` |
 
 Engine build `8804fe0e03df54a16a04abf87ea7b1883da559dd880909cbf000ee4c9385d568`; server build `f0f48e58088f88a4092badc0c1160b8391eb3646c05cbd99b3fe875722034eae`.
+
+
+## Production integration checkpoint
+
+Native source checkpoint is `bb41898b5eeca0c3357c63f03ecdf7180c51e76c`
+([draft PR 16](https://github.com/joCaldwell/mtg-ecosystem/pull/16)). The session
+lane carries that unchanged as prerequisite; production UI source is
+`20bb013c1ef7f6c3c2f7fbee0a9c47f499086d28`. The exported three-file public bundle
+manifest SHA-256 is
+`a9e9c6f16377dd9133f2c5dc41bd5b3b4f67573fc2f266c15be24c4dde0fbc81`.
+The real host serves this bundle and the exact native executable above together
+at `http://127.0.0.1:18741` with four human-owned seats and no bot processes.
+
+The source-controlled `tools/check-local-serving.ts` probe passed 25 HTTP
+route/security cases and all four seats' authenticated manifest/resume/presentation/
+stream reads. It verified own-hand projection, source/build/catalog binding,
+no-store APIs, immutable metadata, unauthenticated rejection, disallowed origins,
+traversal, excluded operator/native paths, explicit methods, bounded errors and
+empty continuation from the committed cursor. Its report contains only public
+identity/status/cursor data, never capabilities or observations.
+Receipt: `generated/local-serving/http-read-proof.json`; runtime source digest is
+recorded with the final evidence index. This is HTTP proof, not browser proof.
+A separate T3 browser opened the actual production `/join` successfully without
+console errors, imported no seat, and was closed after inspection.
+
+A clean source export of client commit `20bb013c` was extracted into the lane-owned
+`generated/local-serving/clean-build/`. Fresh real local SDK/client `node_modules`
+directories were installed from their lockfiles. Explicit native protocol/bootstrap
+exports built the SDK; the normal client production build then succeeded without
+Cargo, root dependencies or shared node_modules. All three dist hashes exactly
+match the served bundle. `clean-build-proof.json` and `clean-build.log` preserve
+this reproducibility evidence. Vite's large-chunk and React Router directive
+warnings are retained; no performance claim follows from the successful build.
+
+Both pinned browsers additionally passed all 12 SDK production-fixture checks
+(Chromium 158.0.8127.18, Firefox 159.0). Receipt:
+`packages/game-server/sdk/generated/browser-proof-1794543001840.json`.
+The client lane owns the separate real-host four-seat and lifecycle browser proof;
+its final qualified evidence is recorded below.
+
+For the lifecycle test only, `pause_client REGISTRY MATCH_ID` is an explicitly
+built offline helper. The supervisor must first stop; the exclusive registry lock
+rejects concurrent ownership. It invokes existing `Worker::clock(Pause)`, never
+edits a ledger or synthesizes a publication. Restart the identical native binary
+with the same pinned public artifacts. This is a durable resource-paused lifecycle
+boundary, not a Magic result, gameplay action or operator API exposed to browsers.
+
+### Distinct core-query follow-up
+
+The core lane published draft PR 17 at
+`93515a3f1236a53cee9e6b5141361be76572fe74`, native source
+`d1d039539d63aa17cd411c654e22086ccf3c9322` on schema-1 base `2c18fd3`.
+Its explicit action-query outcome schema SHA-256 is
+`5eb6c30f6939eadb3192eb86b3f7e2f63f6ca769aea7abefe7ddd49a5e2125e5`.
+That schema is **not** an input to this M1 SDK/server protocol. Future transport
+must own seat/token correlation, opaque continuation IDs, quotas/expiry and
+scheduling, while core owns eligibility, budgets and private continuation work.
+Incremental pages never repeat entries and a full page may need a final empty
+completion; zero-budget context null does not establish token validity. Labels
+remain unavailable without compiler source mapping. No M1 route or schema was
+expanded for that handoff.
+
+### Final loader correction
+
+A source audit found that checking file type only after `File::open` could block
+startup on a FIFO. The loader now rejects nonregular and oversized files before
+open and retains its descriptor check afterward. The new real-FIFO regression
+requires bounded rejection within two seconds. Five focused delivery/security
+tests passed (56 unrelated server tests omitted on this final rerun); all three
+executables rebuilt and server all-targets `clippy --no-deps -D warnings` passed.
+The first final-pass process was externally interrupted with exit 143 without a
+Rust diagnostic; `final/native.log` is retained. No owner reported cancelling it.
+The unchanged-source retry passed in `final/native-retry.log`; no source/guard
+change was made in response to the interruption.
+
+Final binary SHA-256:
+`11a68dab211e45ab237e383580007da2cd5895cc904942c6e1e68df309edd966`.
+Final server build:
+`4248a94314b70f9dc823e227afdb5702c9056d16982c5b108b36413dcd887fcf`.
+Engine build remains `8804fe0e03df54a16a04abf87ea7b1883da559dd880909cbf000ee4c9385d568`.
+Both freshly exported protocol/bootstrap schemas are byte-identical to the first
+checkpoint's `59deeafe…` / `0655664d…` exports. Producer, artifact, SDK runtime and
+client production bytes are unchanged. Final executables/exports and new private
+registry/seats live separately in `generated/local-serving/final/`; the earlier
+binary, registry, failed checks and browser evidence remain untouched. The final
+host receives fresh identities rather than attempting a different-build recovery.
+
+
+Final native source is `6bf0609eed12273f6dae44d7cc97766299ebbcc4`; SDK runtime
+remains byte-equal to `bb41898`, and the production client bundle remains
+byte-equal to `20bb013c`. The final real HTTP probe again passed all 25 security
+cases and all four seats' read paths, retained in `final/http-read-proof.json`.
+`final/artifact-identities.json` records exact final helper, binary, schema and
+receipt hashes. Fresh schema equality means no SDK runtime regeneration or
+unrelated repeat of the 59 SDK tests was needed after the loader-only correction.
+
+The initial browser lifecycle exercise retained the seven-card hand and keyboard
+focus during reconnection, then reached its existing bounded disconnected state
+before the manually coordinated restart completed. Explicit reimport recovered
+cursor 2, resource_paused and the identical rendered hand with no rules outcome.
+This establishes bounded-stop/reimport behavior, **not** automatic reconnect for
+that outage. The original lifecycle receipt remains separate from the timed
+final-binary exercise below; the retry budget was not raised to make a test pass.
+
+
+## Final M1 serving acceptance
+
+The session lane's final Playwright run against native source `6bf0609` passed
+**18/18** production native-browser scenarios in Chromium 158.0.8127.18 and
+Firefox 159.0, with zero skips, failures or retries. Four restricted-proxy browser
+scenarios and eleven proxy security probes also passed. These include actual
+four-seat read/privacy/ownership paths, not a synthetic host substituted for Rust.
+The native host served the exact production files reproduced by the clean build.
+
+A separate held T3 browser (Chrome 152.0.7977.169 / Electron 44.10.1) then proved
+automatic reconnect through the final same-binary durable pause/restart:
+
+- Shutdown: 70.45 ms; existing offline `Worker::clock(Pause)`: 1390.65 ms;
+  restart to HTTP readiness: 2299.98 ms; total: **3761.08 ms**.
+- Cursor advanced 1 → 2 with seven own-hand cards and the same rendered-hand
+  SHA-256; focus remained on `decision-title`.
+- Display stayed connected after recovery and reported resource paused, with no
+  rules outcome, credential reimport or gameplay command. Retry policy unchanged.
+- Four subsequent long polls returned HTTP 200 approximately 20.1 seconds apart.
+
+The redacted peer receipts were inspected, SHA-256 verified and copied to this
+lane's `generated/local-serving/final/client-proof/`:
+
+| Receipt | SHA-256 |
+| --- | --- |
+| final-native-browser-report.json | `5b165bca5890a64c45b6139cfdbb6934865102d33754f23f7a7a8a4dc10dd45b` |
+| final-proxy-browser-report.json | `b5fe44ebdd7d6315eb3df92bc1a5a51879a8a1059044dba2d6798c1d2bd3c437` |
+| proxy-security.json | `1615175ff62a1f383bb408b4530f8e0a82316d40645f97647945c069fdc0b861` |
+| final-lifecycle-browser.json | `f158bf90c6a230907c0c69ec12a89992b5f50db32357ea79864e8ba1772ce901` |
+
+Local receipts `final/transition-timing.json` and `final/lifecycle-resume.json`
+independently qualify the host timing and committed cursor/status. The final
+native runtime source is `6bf0609`, SDK runtime `bb41898`, and client production
+runtime `20bb013c`; report-only commits do not change those identities. No private
+capability/observation, HAR, browser trace or video was included in these receipts.
+
+After browser ownership was explicitly released, the task-owned host was stopped
+with SIGINT, validating its exact executable/PID first. `final/shutdown.json`
+records completion. All native slots and task browser contexts are released; no
+task-owned live server or bot remains. Private seat files, registries, exact
+executables, clean-build outputs and meaningful failed results are retained.
+
+This completes the assigned M1 **serving/SDK** deliverable. It does not accept
+M2 gameplay controls/journals, semantic query transport, natural matches, four-seat
+command recovery, human usability, deployment, or a full engine/release/performance/
+retention matrix. Integration with current main's separately merged schema-1 reset
+still requires explicit native/schema/catalog and client requalification before
+merge; no compatibility shim or silent artifact switch was introduced here.
+
+The browser harness and its source-qualified report are committed in the client
+lane at `2b4526b5c3d1a292490d3b45137fa268887f2500`,
+[draft PR 18](https://github.com/joCaldwell/mtg-ecosystem/pull/18), stacked on this
+serving PR. See its
+[immutable report](https://github.com/joCaldwell/mtg-ecosystem/blob/2b4526b5c3d1a292490d3b45137fa268887f2500/packages/game-client/LIVE-SESSION-REPORT.md)
+and committed `tests/live/read-only.spec.ts` / `playwright.live.config.ts`.
+That commit qualifies the final `6bf0609` native binary while retaining the exact
+`20bb013c` production runtime bytes; it is not a new server/native measurement.

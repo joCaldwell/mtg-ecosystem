@@ -19,10 +19,10 @@ sh scripts/engine-env.sh npm --prefix packages/game-client ci --workspaces=false
 ```
 
 Obtain the serving owner's exact native exports for source
-`6bf0609eed12273f6dae44d7cc97766299ebbcc4` (protocol/bootstrap bytes are
-identical to the SDK prerequisite `bb41898b5eeca0c3357c63f03ecdf7180c51e76c`):
+`147dec571e58a531b1229f61a9f78733c021eadf` (schema-1 main, reviewed core
+queries and serving integration):
 
-- Protocol SHA-256: `59deeafe34996f38e7a8905df9c75e9c4c424d54e9ae33bed2a4b23634f99bc6`.
+- Protocol SHA-256: `2796d38cc8dc4ef67d836fbe890ba31170869f4562c91b8edf7c6f1b91396e64`.
 - Bootstrap SHA-256: `0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a`.
 
 Generate and verify the SDK explicitly, then check/build the client using that

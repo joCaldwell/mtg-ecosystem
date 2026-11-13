@@ -863,9 +863,7 @@ fn batch_impl(
 ) -> Result<(serde_json::Value, VerifiedBatch), String> {
     let catalog_sha256 = mtg_contracts::digest(catalog)?;
     let profile_spec = mtg_core::match_profile(profile_name).ok_or("unknown batch profile")?;
-    if profile_spec.catalog_sha256 != catalog_sha256
-        || profile_spec.ir_version != catalog.schema_version
-    {
+    if profile_spec.catalog_sha256 != catalog_sha256 {
         return Err("batch catalog mismatch".into());
     }
     let profile = profile_spec.name.as_str();

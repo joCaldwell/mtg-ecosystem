@@ -50,11 +50,12 @@ full gate. Preserve exact failed/interrupted results and unrelated work.
   expected outcome without source/rules review.
 - Rust IR types are authoritative; schema exports are generated. AST archive,
   IR, snapshots, public projections and query recovery have separate versions.
-  While the engine has no external consumers, keep the current IR schema at 33:
+  While the engine has no external consumers, keep the only supported IR schema at 1:
   evolve it in place using capability validation and exact build identity. Do
   not add a schema version, feature introduction gate or downgrade test for each
   increment. Revisit versioning when a consumer needs a compatibility contract.
-  Historical catalogs and evidence keep their original version/source pins.
+  Active catalogs use schema 1; historical reports and external evidence retain
+  their original source qualification. Do not maintain old decoder compatibility.
 - All admitted catalogs execute common rules. Profiles are admission data;
   names/lineage/IR versions do not select mechanics or capacity ceilings.
   Hosting/search requests must fit their explicit reviewed capability sets.

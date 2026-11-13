@@ -37,8 +37,8 @@ fn damage_match_profile_binds_complete_catalog_and_exact_source_identity() {
     assert!(!p.completion.rotate);
     assert_eq!(p.completion.homogeneous_seats, [0, 1]);
     assert!(p.decks.iter().all(|deck| deck == &p.decks[0]));
-    assert_eq!(p.ir_version, 29);
-    assert_eq!(c.schema_version, 29);
+
+    assert_eq!(c.schema_version, mtg_contracts::CURRENT_IR_VERSION);
     assert_eq!(c.definitions.len(), 32);
     assert_eq!(digest(c).unwrap(), p.catalog_sha256);
     assert_eq!(p.commanders, [COMMANDER]);

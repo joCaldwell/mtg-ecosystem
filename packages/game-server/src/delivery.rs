@@ -91,6 +91,12 @@ fn read(path: &Path, maximum: usize) -> Result<Vec<u8>, String> {
             return Err(INVALID.into());
         }
     }
+    // Check before open: opening a FIFO can block before descriptor metadata is
+    // available. Operator-owned inputs must be regular files even on failure.
+    let before = fs::symlink_metadata(path).map_err(|_| INVALID)?;
+    if !before.is_file() || before.len() > maximum as u64 {
+        return Err(INVALID.into());
+    }
     let mut file = File::open(path).map_err(|_| INVALID)?;
     let metadata = file.metadata().map_err(|_| INVALID)?;
     if !metadata.is_file() || metadata.len() > maximum as u64 {
@@ -506,6 +512,28 @@ mod tests {
         ] {
             assert!(media(path).is_none());
         }
+    }
+    #[test]
+    fn rejects_fifo_before_open_without_blocking_startup() {
+        let dir = Scratch::new();
+        let fifo = dir.0.join("fifo.json");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let (send, receive) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = send.send(read(&fifo, 4096));
+        });
+        assert!(
+            receive
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .expect("nonregular public input must not block")
+                .is_err()
+        );
     }
     #[test]
     fn presentation_pins_producer_schema_catalog_and_source_and_excludes_other_files() {

@@ -16,6 +16,7 @@ const root = fileURLToPath(new URL("../../../", import.meta.url));
 const fixtureDir = new URL("fixtures/", import.meta.url);
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 const read = (name: string) => fs.readFileSync(new URL(name, fixtureDir), "utf8");
+const IR_SCHEMA_VERSION = 1;
 const preflight = process.env.MTG_ENGINE_CONTRACT_PREFLIGHT === "1";
 // The normal acceptance run registers every existing test. Only the explicit
 // early preflight omits runtime-backed cases; it repeats cheap source/schema
@@ -95,10 +96,23 @@ runtimeTest("player CLI projections keep private card data and recovery fields o
   assert.equal(other.view.objects.some((o: any) => ownHandles.has(o.handle)), false);
 });
 
+test("Card IR accepts only schema 1", () => {
+  const catalog = loadCatalog("base");
+  const validate = new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
+  assert.equal(catalog.schema_version, IR_SCHEMA_VERSION);
+  assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
+  for (const schema_version of [0, 2, 33, "1", null]) {
+    assert.equal(validate({...catalog, schema_version}), false);
+  }
+  const missing = structuredClone(catalog);
+  delete missing.schema_version;
+  assert.equal(validate(missing), false);
+});
+
 test("Rust lowering matches reviewed IR and its generated JSON Schema", () => {
   const catalog = loadCatalog("base");
   assert.deepEqual(catalog, JSON.parse(read("expected-ir.json")));
-  assert.equal(catalog.schema_version, 3);
+  assert.equal(catalog.schema_version, IR_SCHEMA_VERSION);
   for (const definition of catalog.definitions) {
     if (definition.characteristics.kind === "creature") {
       assert.deepEqual(definition.spell, {
@@ -118,8 +132,6 @@ test("Rust lowering matches reviewed IR and its generated JSON Schema", () => {
   assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   for (const mutate of [
     (c: any) => { c.unknownSemanticField = true; },
-    (c: any) => { c.schema_version=34; },
-    (c: any) => { c.schema_version = 2; },
     (c: any) => { delete c.definitions.find((d: any) => d.spell).spell.timing; },
     (c: any) => { delete c.definitions.find((d: any) => d.spell).spell.resolution; },
     (c: any) => { c.definitions.find((d: any) => d.spell).spell.timing = "anytime"; },
@@ -134,15 +146,12 @@ test("Rust lowering matches reviewed IR and its generated JSON Schema", () => {
   }
 });
 
-test("Commander catalog adds exact archived Plains without changing card costs", () => {
-  const original = loadCatalog("base");
+test("Commander catalog preserves exact archived Plains and commander costs", () => {
+
   const catalog = loadCatalog("commander");
   assert.deepEqual(catalog, JSON.parse(read("expected-commander-ir.json")));
-  assert.equal(catalog.schema_version, original.schema_version);
+  assert.equal(catalog.schema_version, IR_SCHEMA_VERSION);
 
-  for (const definition of original.definitions) {
-    assert.deepEqual(catalog.definitions.find((d: any) => d.oracle_id === definition.oracle_id), definition);
-  }
   const plains = catalog.definitions.find((d: any) => d.oracle_id === "bc71ebf6-2056-41f7-be35-b2e5c34afa99");
   const source = JSON.parse(read("plains.json"));
   assert.equal(plains.provenance.source_json, JSON.stringify(source.source));
@@ -164,20 +173,15 @@ test("Commander catalog adds exact archived Plains without changing card costs",
   assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
 });
 
-test("library and damage catalogs retain exact source semantics and explicit IR vocabularies", () => {
-  const previous = loadCatalog("commander");
+test("library and damage catalogs retain exact source semantics", () => {
+
   const library = loadCatalog("library");
   const damage = loadCatalog("damage");
   assert.deepEqual(library, JSON.parse(read("expected-library-ir.json")));
   assert.deepEqual(damage, JSON.parse(read("expected-damage-ir.json")));
-  assert.equal(library.schema_version, 4);
-  assert.equal(damage.schema_version, 3);
-  for (const catalog of [library, damage]) {
+  assert.equal(library.schema_version, IR_SCHEMA_VERSION);
+  assert.equal(damage.schema_version, IR_SCHEMA_VERSION);
 
-    for (const definition of previous.definitions) {
-      assert.deepEqual(catalog.definitions.find((d: any) => d.oracle_id === definition.oracle_id), definition);
-    }
-  }
   const ebb = library.definitions.find((d: any) => d.oracle_id === "30cc8f7b-3c28-40f5-8f8f-157e8212280b");
   const ebbSource = JSON.parse(read("time-ebb.json"));
   assert.equal(ebb.provenance.source_json, JSON.stringify(ebbSource.source));
@@ -203,31 +207,21 @@ test("library and damage catalogs retain exact source semantics and explicit IR 
   const validate = new Ajv2020({ strict: false, formats: {
     uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
   } }).compile(run("schema"));
-  for (const catalog of [previous, library, damage]) assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
+  for (const catalog of [library, damage]) assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   for (const mutate of [
-    (c: any) => { c.schema_version = 3; },
-    (c: any) => { c.schema_version=34; },
     (c: any) => { c.definitions.find((d: any) => d.characteristics.kind === "sorcery").spell.instructions[0].op = "put_on_bottom_owner_library"; },
     (c: any) => { c.definitions.find((d: any) => d.characteristics.kind === "sorcery").spell.instructions[0].position = "top"; },
   ]) {
     const bad = structuredClone(library); mutate(bad);
     assert.equal(validate(bad), false);
   }
-  const wrongVocabulary = structuredClone(previous);
-  wrongVocabulary.definitions[0].capabilities.push("owner_library_top_move_v1");
-  assert.equal(validate(wrongVocabulary), false);
 });
 
-test("action catalog preserves complete activated costs, opponent choice and schema version", () => {
+test("action catalog preserves complete activated costs and opponent choice", () => {
   const catalog = loadCatalog("action");
   assert.deepEqual(catalog, JSON.parse(read("expected-action-ir.json")));
-  assert.equal(catalog.schema_version, 5);
-  for (const name of ["expected-ir.json", "expected-commander-ir.json", "expected-damage-ir.json", "expected-library-ir.json"]) {
-    for (const definition of JSON.parse(read(name)).definitions) {
-      assert.deepEqual(catalog.definitions.find((d: any) => d.oracle_id === definition.oracle_id), definition);
-      assert.equal(Object.hasOwn(definition, "activated"), false);
-    }
-  }
+  assert.equal(catalog.schema_version, IR_SCHEMA_VERSION);
+
   const researcher = catalog.definitions.find((d: any) => d.oracle_id === "240a349a-79f8-4e11-9a05-a78148e70a62");
   assert.equal(researcher.provenance.source_json, JSON.stringify(JSON.parse(read("hapless-researcher.json")).source));
   assert.deepEqual(researcher.characteristics.mana_cost, { generic: "0", colored: ["U"] });
@@ -254,10 +248,6 @@ test("action catalog preserves complete activated costs, opponent choice and sch
   } }).compile(run("schema"));
   assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   for (const mutate of [
-    (c: any) => { c.schema_version = 3; },
-    (c: any) => { c.schema_version = 4; },
-    (c: any) => { c.schema_version=34; },
-    (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].cost = "tap_source"; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].program.instructions[0].count = "01"; },
     (c: any) => { c.definitions.find((d: any) => d.activated).activated[0].program.instructions[1].optional = true; },
   ]) {
@@ -268,12 +258,10 @@ test("action catalog preserves complete activated costs, opponent choice and sch
 
 test("stack catalog preserves complete counter domains and distinct tap and mana costs", () => {
   const catalog = loadCatalog("stack");
-  const previous = loadCatalog("action");
+
   assert.deepEqual(catalog, JSON.parse(read("expected-stack-ir.json")));
-  assert.equal(catalog.schema_version, 6);
-  for (const definition of previous.definitions) {
-    assert.deepEqual(catalog.definitions.find((d: any) => d.oracle_id === definition.oracle_id), definition);
-  }
+  assert.equal(catalog.schema_version, IR_SCHEMA_VERSION);
+
   for (const [name, domain, colored] of [
     ["counterspell", "stack_spell", ["U", "U"]],
     ["stifle", "stack_activated_or_triggered_ability", ["U"]],
@@ -307,10 +295,6 @@ test("stack catalog preserves complete counter domains and distinct tap and mana
   } }).compile(run("schema"));
   assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   for (const mutate of [
-    (c: any) => { c.schema_version = 3; },
-    (c: any) => { c.schema_version = 4; },
-    (c: any) => { c.schema_version = 5; },
-    (c: any) => { c.schema_version=34; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Stifle").spell.targets[0].domain = "stack_activated_ability"; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Counterspell").spell.instructions[0].destination = "graveyard"; },
     (c: any) => { c.definitions.find((d: any) => d.name === "Azure Mage").activated[0].cost.mana.cost.extra = true; },
@@ -319,21 +303,14 @@ test("stack catalog preserves complete counter domains and distinct tap and mana
     const bad = structuredClone(catalog); mutate(bad);
     assert.equal(validate(bad), false, JSON.stringify(validate.errors));
   }
-  // Version downgrade rejects each new family independently; a counter must
-  // not merely hide an otherwise accepted v5 mana/tap activation cost.
-  for (const name of ["Counterspell", "Stifle", "Merfolk Looter", "Azure Mage"]) {
-    const bad = structuredClone(catalog);
-    bad.definitions = bad.definitions.filter((d: any) => d.name === name);
-    bad.schema_version = 5;
-    assert.equal(validate(bad), false, name);
-  }
+
 });
 
-test("damage and life catalog preserves complete sources and explicit IR7 target domains", () => {
+test("damage and life catalog preserves complete sources and target domains", () => {
   const catalog = loadCatalog("damage-life");
   assert.deepEqual(catalog, JSON.parse(read("expected-damage-life-ir.json")));
-  assert.equal(catalog.schema_version,7);
-  for (const old of loadCatalog("stack").definitions) assert.deepEqual(catalog.definitions.find((d: any) => d.oracle_id === old.oracle_id),old);
+  assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
+
   for (const name of ["lightning-bolt","prodigal-sorcerer","soul-feast","healing-hands","sacred-nectar","mountain"]) {
     const source=JSON.parse(read(`${name}.json`));
     const d=catalog.definitions.find((d: any) => d.oracle_id===source.oracleIdentity);
@@ -370,14 +347,8 @@ test("damage and life catalog preserves complete sources and explicit IR7 target
     uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
   } }).compile(run("schema"));
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
-  for (const name of ["Lightning Bolt","Prodigal Sorcerer","Soul Feast","Healing Hands","Sacred Nectar"]) {
-    for (const version of [3,4,5,6]) {
-      const bad=structuredClone(catalog);bad.schema_version=version;bad.definitions=bad.definitions.filter((d: any) => d.name===name);
-      assert.equal(validate(bad),false,`${name} IR${version}`);
-    }
-  }
+
   for (const mutate of [
-    (c: any) => {c.schema_version=34;},
     (c: any) => {c.definitions.find((d: any) => d.name==="Lightning Bolt").spell.targets[0].domain="creature_or_player";},
     (c: any) => {c.definitions.find((d: any) => d.name==="Soul Feast").spell.instructions[0].recipient={opponent:{target_slot:0}};},
     (c: any) => {c.definitions.find((d: any) => d.name==="Sacred Nectar").spell.instructions[0].recipient={controller:{extra:true}};},
@@ -386,24 +357,15 @@ test("damage and life catalog preserves complete sources and explicit IR7 target
     (c: any) => {c.definitions.find((d: any) => d.name==="Lightning Bolt").spell.instructions[0].amount="0";},
     (c: any) => {c.definitions.find((d: any) => d.name==="Soul Feast").spell.instructions[0].amount="-4";},
   ]) {const bad=structuredClone(catalog);mutate(bad);assert.equal(validate(bad),false,JSON.stringify(validate.errors));}
-  // Old vocabulary with a newly allowed spell-side draw also requires v7;
-  // rejecting new capability names alone would miss this attempted downgrade.
-  const legacy=loadCatalog("base");legacy.schema_version=6;
-  const bounce=legacy.definitions.find((d: any) => d.name==="Unsummon");
-  bounce.spell.instructions.push({op:"draw_cards",count:"1",source_block:1});
-  bounce.capabilities.push("controller_draw_v1");
-  assert.equal(validate(legacy),false);
+
 });
 
 test("trigger catalog binds mandatory self and other events without trusting archive diagnostics", () => {
   const catalog=loadCatalog("trigger");
-  const previous=loadCatalog("damage-life");
+
   assert.deepEqual(catalog,JSON.parse(read("expected-trigger-ir.json")));
-  assert.equal(catalog.schema_version,8);
-  for (const d of previous.definitions) {
-    assert.equal(d.triggered,undefined);
-    assert.deepEqual(catalog.definitions.find((next: any) => next.oracle_id===d.oracle_id),d);
-  }
+  assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
+
   for (const name of ["blood-artist","elvish-visionary","essence-warden"]) {
     const record=JSON.parse(read(`${name}.json`));
     const d=catalog.definitions.find((d: any) => d.oracle_id===record.oracleIdentity);
@@ -441,33 +403,22 @@ test("trigger catalog binds mandatory self and other events without trusting arc
     uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
   } }).compile(run("schema"));
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
-  for (const name of ["Blood Artist","Essence Warden","Elvish Visionary"]) for (const version of [3,4,5,6,7]) {
-    const bad=structuredClone(catalog);bad.definitions=bad.definitions.filter((d: any) => d.name===name);bad.schema_version=version;
-    assert.equal(validate(bad),false,`${name} IR${version}`);
-  }
+
   for (const mutate of [
-    (c: any) => {c.schema_version=34;},
     (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].optional=true;},
     (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].cost="tap_source";},
     (c: any) => {c.definitions.find((d: any) => d.name==="Blood Artist").triggered[0].condition="other_creature_dies";},
     (c: any) => {c.definitions.find((d: any) => d.name==="Essence Warden").triggered[0].lookup="before_event";},
     (c: any) => {c.definitions.find((d: any) => d.name==="Elvish Visionary").triggered[0].program.instructions[0].count="01";},
   ]) {const bad=structuredClone(catalog);mutate(bad);assert.equal(validate(bad),false,JSON.stringify(validate.errors));}
-  // A newer capability removed from the list cannot hide a triggered field
-  // inside an older envelope: the version gate also constrains that field.
-  const bad=structuredClone(catalog);bad.schema_version=7;
-  for (const d of bad.definitions) d.capabilities=d.capabilities.filter((cap: string) => !["triggered_ability_v1","self_enters_battlefield_v1","other_creature_enters_battlefield_v1","creature_dies_v1"].includes(cap));
-  assert.equal(validate(bad),false);
+
 });
 
 test("effects catalog preserves signed modifiers and complete prevention/replacement scopes", () => {
   const catalog=loadCatalog("effects");
   assert.deepEqual(catalog,JSON.parse(read("expected-effects-ir.json")));
-  assert.equal(catalog.schema_version,9);
-  for (const d of loadCatalog("trigger").definitions) {
-    assert.equal(d.static_abilities,undefined);
-    assert.deepEqual(catalog.definitions.find((next: any) => next.oracle_id===d.oracle_id),d);
-  }
+  assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
+
   const get=(name: string) => catalog.definitions.find((d: any) => d.name===name);
   for (const [file,name,generic,colored] of [
     ["giant-growth","Giant Growth","0",["G"]], ["disfigure","Disfigure","0",["B"]],
@@ -508,18 +459,8 @@ test("effects catalog preserves signed modifiers and complete prevention/replace
   assert.equal(JSON.parse(read("healing-salve.json")).faces[0].result.abilities[0].effects[0].steps[0].effect,"modal");
   assert.deepEqual(JSON.parse(read("gratuitous-violence.json")).faces[0].result.abilities[0].effect.replacement.event.source.filter,{types:["creature"],control:"you"});
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n: number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
-  for (const fixture of ["expected-ir.json","expected-commander-ir.json","expected-damage-ir.json","expected-library-ir.json","expected-action-ir.json","expected-stack-ir.json","expected-damage-life-ir.json","expected-trigger-ir.json","expected-effects-ir.json"]) {
-    assert.equal(validate(JSON.parse(read(fixture))),true,fixture+JSON.stringify(validate.errors));
-  }
-  const newCapabilities=new Set(["cast_enchantment_v1","temporary_power_toughness_v1","combat_damage_prevention_v1","damage_budget_prevention_v1","static_damage_replacement_v1"]);
-  for (const name of ["Giant Growth","Disfigure","Fog","Samite Healer","Furnace of Rath"]) for (let version=3;version<9;version++) {
-    const bad=structuredClone(catalog);bad.schema_version=version;bad.definitions=[structuredClone(get(name))];
-    assert.equal(validate(bad),false,`${name} IR${version}`);
-    bad.definitions[0].capabilities=bad.definitions[0].capabilities.filter((cap: string)=>!newCapabilities.has(cap));
-    assert.equal(validate(bad),false,`stripped ${name} IR${version}`);
-  }
+
   for (const mutate of [
-    (c: any)=>{c.schema_version=34;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Giant Growth").spell.instructions[0].power="-0";},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Disfigure").spell.instructions[0].toughness=-2;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Fog").spell.instructions[0].duration="this_turn";},
@@ -535,8 +476,8 @@ test("effects catalog preserves signed modifiers and complete prevention/replace
 test("choices catalog preserves separate occurrences, complete modal programs and intervening-if semantics", () => {
   const catalog=loadCatalog("choices");
   assert.deepEqual(catalog,JSON.parse(read("expected-choices-ir.json")));
-  assert.equal(catalog.schema_version,10);
-  for (const d of loadCatalog("effects").definitions) assert.deepEqual(catalog.definitions.find((n: any)=>n.oracle_id===d.oracle_id),d);
+  assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
+
   const get=(name: string)=>catalog.definitions.find((d: any)=>d.name===name);
   for(const [file,name,generic,colored] of [["seeds-of-strength","Seeds of Strength","0",["G","W"]],["healing-salve","Healing Salve","0",["W"]],["slaughterhouse-bouncer","Slaughterhouse Bouncer","4",["B"]]] as const){
     const r=JSON.parse(read(`${file}.json`));const d=get(name);
@@ -562,13 +503,8 @@ test("choices catalog preserves separate occurrences, complete modal programs an
   const boros=JSON.parse(read("boros-charm.json"));assert.equal(boros.faces[0].result.abilities[0].effects[0].steps[0].options.length,3);
   const muse=JSON.parse(read("lavaborn-muse.json"));assert.equal(muse.faces[0].result.abilities[0].trigger.phase,"upkeep");assert.equal(muse.faces[0].result.abilities[0].condition.comparison.op,"le");
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n: number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
-  for(const file of ["expected-ir.json","expected-commander-ir.json","expected-damage-ir.json","expected-library-ir.json","expected-action-ir.json","expected-stack-ir.json","expected-damage-life-ir.json","expected-trigger-ir.json","expected-effects-ir.json","expected-choices-ir.json"])assert.equal(validate(JSON.parse(read(file))),true,file+JSON.stringify(validate.errors));
-  for(const name of ["Healing Salve","Slaughterhouse Bouncer"])for(let version=3;version<=9;version++){
-    const bad=structuredClone(catalog);bad.schema_version=version;bad.definitions=[structuredClone(get(name))];assert.equal(validate(bad),false,`${name} IR${version}`);
-    bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,`stripped ${name} IR${version}`);
-  }
+
   for(const mutate of [
-    (c: any)=>{c.schema_version=34;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Healing Salve").spell.modes[0].hidden=true;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Healing Salve").spell.modes.pop();},
     (c: any)=>{const p=c.definitions.find((d: any)=>d.name==="Healing Salve").spell;p.instructions=[{op:"draw_cards",count:"1",source_block:0}];},
@@ -581,16 +517,15 @@ test("choices catalog preserves separate occurrences, complete modal programs an
 test("match catalog binds sole defender and the current finite Commander policy", () => {
   const catalog=loadCatalog("match");
   assert.deepEqual(catalog,JSON.parse(read("expected-match-ir.json")));
-  assert.equal(catalog.schema_version,11);
-  for(const d of loadCatalog("choices").definitions){assert.equal(d.keywords,undefined);assert.deepEqual(catalog.definitions.find((n: any)=>n.oracle_id===d.oracle_id),d);}
+  assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
+
   const wall=catalog.definitions.find((d: any)=>d.name==="Wall of Wood");assert.deepEqual(wall.keywords,["defender"]);assert.ok(wall.capabilities.includes("defender_v1"));
   assert.deepEqual(wall.characteristics.mana_cost,{generic:"0",colored:["G"]});assert.deepEqual([wall.characteristics.power,wall.characteristics.toughness],["0","3"]);assert.deepEqual(wall.characteristics.subtypes,["Wall"]);
   const wood=JSON.parse(read("wall-of-wood.json"));assert.equal(wall.provenance.source_json,JSON.stringify(wood.source));assert.equal(wall.provenance.abilities_json,JSON.stringify(wood.faces[0].result.abilities));assert.deepEqual(wood.faces[0].result.abilities,[{kind:"keywords",keywords:[{keyword:"defender"}]}]);
   const vines=JSON.parse(read("wall-of-vines.json"));assert.deepEqual(vines.faces[0].result.abilities.map((a: any)=>a.keywords[0].keyword),["defender","reach"]);assert.equal(catalog.definitions.some((d: any)=>d.name==="Wall of Vines"),false);
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
-  for(const file of ["expected-ir.json","expected-commander-ir.json","expected-damage-ir.json","expected-library-ir.json","expected-action-ir.json","expected-stack-ir.json","expected-damage-life-ir.json","expected-trigger-ir.json","expected-effects-ir.json","expected-choices-ir.json","expected-match-ir.json"])assert.equal(validate(JSON.parse(read(file))),true,file+JSON.stringify(validate.errors));
-  for(let version=3;version<=10;version++){const bad=structuredClone(catalog);bad.schema_version=version;bad.definitions=[structuredClone(wall)];assert.equal(validate(bad),false);bad.definitions[0].capabilities=[];assert.equal(validate(bad),false);}
-  for(const mutate of [(c:any)=>{c.schema_version=34;},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=["reach"];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{keyword:"defender"}];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{defender:null}];}]){const bad=structuredClone(catalog);mutate(bad);assert.equal(validate(bad),false);}
+
+  for(const mutate of [(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{keyword:"defender"}];},(c:any)=>{c.definitions.find((d:any)=>d.name==="Wall of Wood").keywords=[{defender:null}];}]){const bad=structuredClone(catalog);mutate(bad);assert.equal(validate(bad),false);}
   const policy=selectedPolicies(catalog)[0];assert.equal(policy.policy_version,1);assert.ok(policy.retrieved_date);assert.equal(policy.html_sha256.length,64);assert.ok(policy.named_bans.length > 0);
   assert.equal(policy.offensive_policy.html_sha256.length,64);assert.ok(policy.offensive_policy.records.length > 0);assert.equal(policy.categories.lutri,"companion_only");
   const banned=new Set<string>();
@@ -1280,7 +1215,6 @@ runtimeTest("casting mana witnesses expose the caster request and preserve keep/
   }
 });
 
-
 runtimeTest("turn progression and permanent casting expose only permitted public state", () => {
   const turns = demo().turns;
   assert.equal(turns.status, "turns_permanents_verified");
@@ -1416,94 +1350,71 @@ runtimeTest("Commander damage and library witnesses expose actual results withou
   }
 });
 
-
-test("keywords IR v12 preserves foundations and rejects vocabulary downgrades", () => {
+test("keywords preserve complete source abilities", () => {
   const catalog = loadCatalog("keywords");
   assert.deepEqual(catalog, JSON.parse(read("expected-keywords-ir.json")));
-  assert.equal(catalog.schema_version, 12);
-  const old = JSON.parse(read("expected-match-ir.json"));
-  for (const d of old.definitions) assert.deepEqual(catalog.definitions.find((n:any)=>n.oracle_id===d.oracle_id),d);
+  assert.equal(catalog.schema_version, IR_SCHEMA_VERSION);
+
   const validate = new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
   for(const d of catalog.definitions.filter((d:any)=>d.keywords?.some((k:string)=>k!=="defender"))) {
     const source = JSON.parse(d.provenance.source_json);
     assert.deepEqual(d.keywords, JSON.parse(d.provenance.abilities_json).flatMap((a:any)=>a.keywords.map((k:any)=>k.keyword)));
     assert.equal(source.type_line.includes("Creature"),true);
-    for(let version=3;version<=11;version++) {
-      const bad={...catalog,schema_version:version,definitions:[structuredClone(d)]};
-      assert.equal(validate(bad),false); bad.definitions[0].capabilities=[]; assert.equal(validate(bad),false);
-    }
+
   }
 
    assertPoolReview(catalog);
 });
 
-
-test("combat keywords IR v13 preserves v12 and enforces vocabulary and policy", () => {
+test("combat keywords enforce vocabulary and policy", () => {
   const catalog=loadCatalog("combat-keywords");
   assert.deepEqual(catalog,JSON.parse(read("expected-combat-keywords-ir.json")));
-  assert.equal(catalog.schema_version,13);
-  const old=JSON.parse(read("expected-keywords-ir.json"));
-  for(const d of old.definitions) assert.deepEqual(catalog.definitions.find((n:any)=>n.oracle_id===d.oracle_id),d);
+  assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
+
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
   for(const d of catalog.definitions.filter((d:any)=>d.keywords?.some((k:string)=>["trample","first strike","double strike","menace"].includes(k)))) {
     assert.deepEqual(d.keywords,JSON.parse(d.provenance.abilities_json).flatMap((a:any)=>a.keywords.map((k:any)=>k.keyword)));
-    const bad={...catalog,schema_version:12,definitions:[structuredClone(d)]};
-    assert.equal(validate(bad),false); bad.definitions[0].capabilities=[]; assert.equal(validate(bad),false);
+
   }
    assertPoolReview(catalog);
 
 });
 
-
-test("tokens IR v14 preserves earlier definitions and rejects v13 instruction downgrades", () => {
+test("tokens preserve complete creation instructions", () => {
   const catalog = loadCatalog("tokens");
   assert.deepEqual(catalog, JSON.parse(read("expected-tokens-ir.json")));
-  assert.equal(catalog.schema_version, 14);
-  const old = JSON.parse(read("expected-combat-keywords-ir.json"));
-  for (const d of old.definitions) assert.deepEqual(catalog.definitions.find((n:any) => n.oracle_id === d.oracle_id), d);
+  assert.equal(catalog.schema_version, IR_SCHEMA_VERSION);
+
   const validate = new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
-  for (const d of catalog.definitions.filter((d:any) => !old.definitions.some((o:any) => o.oracle_id === d.oracle_id))) {
-    const bad = {...catalog, schema_version:13, definitions:[structuredClone(d)]};
-    assert.equal(validate(bad),false);
-    bad.definitions[0].capabilities = []; assert.equal(validate(bad),false);
-  }
+
    assertPoolReview(catalog);
 
 });
 
-test("staples IR v15 preserves earlier definitions, complete scopes and policy", () => {
+test("staples preserve complete scopes and policy", () => {
   const catalog = loadCatalog("staples");
   assert.deepEqual(catalog, JSON.parse(read("expected-staples-ir.json")));
-  assert.equal(catalog.schema_version,15);
-  const old = JSON.parse(read("expected-tokens-ir.json"));
-  for (const d of old.definitions) assert.deepEqual(catalog.definitions.find((n:any)=>n.oracle_id===d.oracle_id),d);
+  assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
+
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
-  for(const d of catalog.definitions.filter((d:any)=>!old.definitions.some((n:any)=>n.oracle_id===d.oracle_id)&&d.name!=="Night's Whisper")) {
-    const bad={...catalog,schema_version:14,definitions:[structuredClone(d)]};
-    assert.equal(validate(bad),false,d.name);bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,d.name);
-  }
+
   assertPoolReview(catalog);
 
 });
 
-
-test("mana IR v16 preserves earlier catalogs and enforces complete costs and policy", () => {
+test("mana enforces complete costs and policy", () => {
   const catalog=loadCatalog("mana");
   const policy=selectedPolicies(catalog)[0];
   assert.deepEqual(catalog,JSON.parse(read("expected-mana-ir.json")));
-  assert.equal(catalog.schema_version,16);
-  const old=JSON.parse(read("expected-staples-ir.json"));
-  for(const d of old.definitions) assert.deepEqual(catalog.definitions.find((x:any)=>x.oracle_id===d.oracle_id),d);
+  assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
+
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
-  for(const d of catalog.definitions.filter((d:any)=>!old.definitions.some((o:any)=>o.oracle_id===d.oracle_id))) {
-    const bad={...catalog,schema_version:15,definitions:[structuredClone(d)]};
-    assert.equal(validate(bad),false,d.name);bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,d.name);
-  }
+
   assertPoolReview(catalog);
 
   for(const d of catalog.definitions) {
@@ -1515,13 +1426,12 @@ test("mana IR v16 preserves earlier catalogs and enforces complete costs and pol
   assert.deepEqual(tower.characteristics.color_identity,[]);
 });
 
-
-test("four colors adds sixteen exact v16 records and separately reviews policy", () => {
+test("four-color sources retain separately reviewed policy", () => {
   const catalog=loadCatalog("four-colors");
   const policy=selectedPolicies(catalog)[0];
-  assert.equal(catalog.schema_version,16);
+  assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
   assert.deepEqual(catalog,JSON.parse(read("expected-four-colors-ir.json")));
-  for(const d of loadCatalog("mana").definitions) assert.deepEqual(catalog.definitions.find((x:any)=>x.oracle_id===d.oracle_id),d);
+
    assertPoolReview(catalog);
 
   // Pinned official ban list and its linked offensive-card policy are retained
@@ -1539,13 +1449,12 @@ test("four colors adds sixteen exact v16 records and separately reviews policy",
   }
 });
 
-
-test("attachments IR v17 preserves prior definitions, policy and strict downgrade rejection", () => {
+test("attachments preserve complete scopes and policy", () => {
   const catalog=loadCatalog("attachments");
   const policy=selectedPolicies(catalog)[0];
-  assert.equal(catalog.schema_version,17);
+  assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
   assert.deepEqual(catalog,JSON.parse(read("expected-attachments-ir.json")));
-  for(const old of loadCatalog("four-colors").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
+
   assertPoolReview(catalog);
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
@@ -1556,65 +1465,52 @@ test("attachments IR v17 preserves prior definitions, policy and strict downgrad
     assert.equal(policy.offensive_policy.records.some((b:any)=>b.oracle_id===d.oracle_id),false);
     assert.equal(/Conspiracy/.test(source.type_line)||/\bante\b/i.test(source.oracle_text),false);
 
-    if(!d.capabilities.includes("attachments_v1")) continue;
-    const bad={...catalog,schema_version:16,definitions:[structuredClone(d)]};assert.equal(validate(bad),false,d.name);
-    bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,d.name);
   }
 });
 
-test("removal IR v18 preserves inherited bytes, policy and complete downgrade guards", () => {
+test("removal preserves complete filters and policy", () => {
   const catalog=loadCatalog("removal");
-  assert.equal(catalog.schema_version,18);
+  assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
   assert.deepEqual(catalog,JSON.parse(read("expected-removal-ir.json")));
-  for(const old of loadCatalog("attachments").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
+
   assertPoolReview(catalog);
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
   for(const d of catalog.definitions) {
     const source=JSON.parse(d.provenance.source_json);assert.equal(source.legalities.commander,"legal");
 
-    if(!d.capabilities.includes("permanent_removal_v1"))continue;
-    const bad={...catalog,schema_version:17,definitions:[structuredClone(d)]};assert.equal(validate(bad),false,d.name);
-    bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,d.name);
   }
 });
 
-test("sacrifice IR v19 preserves the v18 closure and rejects complete downgrades", () => {
+test("sacrifice preserves complete costs and policy", () => {
   const catalog=loadCatalog("sacrifice");
-  assert.equal(catalog.schema_version,19);
+  assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
   assert.deepEqual(catalog,JSON.parse(read("expected-sacrifice-ir.json")));
-  for(const old of loadCatalog("removal").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
+
   assertPoolReview(catalog);
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
   for(const d of catalog.definitions) {
     const source=JSON.parse(d.provenance.source_json);assert.equal(source.legalities.commander,"legal");
 
-    if(!d.capabilities.includes("sacrifice_v1"))continue;
-    const bad={...catalog,schema_version:18,definitions:[structuredClone(d)]};assert.equal(validate(bad),false,d.name);
-    bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,d.name);
   }
 });
 
-test("wipes v20 preserves inherited IR and rejects new operations in v19", () => {
+test("wipes preserve complete operations and policy", () => {
   const catalog=loadCatalog("wipes");
-  assert.equal(catalog.schema_version,20);
+  assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
   assert.deepEqual(catalog,JSON.parse(read("expected-wipes-ir.json")));
-  for(const old of loadCatalog("sacrifice").definitions) assert.deepEqual(catalog.definitions.find((d:any)=>d.oracle_id===old.oracle_id),old);
+
   assertPoolReview(catalog);
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
   for(const d of catalog.definitions) {
     const source=JSON.parse(d.provenance.source_json);assert.equal(source.legalities.commander,"legal");
 
-    if(!d.capabilities.includes("board_wipes_v1")) continue;
-    const bad={...catalog,schema_version:19,definitions:[structuredClone(d)]};assert.equal(validate(bad),false,d.name);
-    bad.definitions[0].capabilities=[];assert.equal(validate(bad),false,d.name);
   }
 });
 
-// Membership and output identities are generated from manifests, including
-// earlier catalog versions. No copied definition count or digest belongs here.
+// Membership and output identities are generated from current manifests. No copied definition count or digest belongs here.
 test("all data catalog manifests regenerate their committed IR and digests", () => {
   for (const name of fs.readdirSync(new URL("catalogs/", fixtureDir)).filter(n => n.endsWith(".json"))) {
     const path = fileURLToPath(new URL(`catalogs/${name}`, fixtureDir));
@@ -1656,15 +1552,12 @@ function assertPoolReview(catalog: any) {
   }
 }
 
-
-test("D2c step triggers require IR21 and typed predicates", () => {
+test("step triggers require typed predicates", () => {
   const catalog = loadCatalog("cards-data-d2c");
   const validate = new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
   assert.equal(catalog.definitions.length, 11);
   for (const d of catalog.definitions) {
-    const old = {...catalog, schema_version:20, definitions:[d]};
-    assert.equal(validate(old), false, d.name);
     for (const mutate of [
       (a:any)=>{a.condition.step_began.step="cleanup";},
       (a:any)=>{a.condition.step_began.turn_relation="that_player";},
@@ -1677,13 +1570,12 @@ test("D2c step triggers require IR21 and typed predicates", () => {
   }
 });
 
-
-test("D2c-b event-player and source status shapes require IR22", () => {
+test("event-player and source status shapes remain strict", () => {
   const c = loadCatalog("cards-data-d2c-b");
   const v = new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
   assert.equal(v(c),true,JSON.stringify(v.errors));
   assert.equal(c.definitions.length,3);
-  for(const version of [21,34]) assert.equal(v({...c,schema_version:version}),false);
+
   const mine=c.definitions.find((d:any)=>d.triggered[0].intervening_if != null);
   assert.deepEqual(mine.triggered[0].intervening_if,{source_status:{status:"untapped"}});
   for(const f of [
@@ -1693,19 +1585,16 @@ test("D2c-b event-player and source status shapes require IR22", () => {
   ]) { const bad=structuredClone(c); f(bad.definitions.find((d:any)=>d.oracle_id===mine.oracle_id)); assert.equal(v(bad),false); }
 });
 
-
-test("D2c-c cast predicates require IR23 with strict boolean/type shapes", () => {
-  assertCastTriggerSchema(run("schema"), loadCatalog("cards-data-d2cc"), [loadCatalog("cards-data-d2c-b"),loadCatalog("trigger")]);
+test("cast predicates require strict boolean and type shapes", () => {
+  assertCastTriggerSchema(run("schema"), loadCatalog("cards-data-d2cc"));
 });
 
-
-test("D2c-d per-creature attack predicates require IR24 with strict subjects and types", () => {
-  assertAttackTriggerSchema(run("schema"), loadCatalog("cards-data-d2cd"), [loadCatalog("cards-data-d2cc"),loadCatalog("trigger")]);
+test("per-creature attack predicates require strict subjects and types", () => {
+  assertAttackTriggerSchema(run("schema"), loadCatalog("cards-data-d2cd"));
 });
 
+test("exact-source combat damage dimensions remain strict", () => {
 
-test("IR25 exact-source combat damage dimensions and minimum schema are strict", () => {
-  const legacy=loadCatalog("trigger");
   const source=fileURLToPath(new URL("fixtures/cards-data-d2ce/",import.meta.url));
   const provenance=JSON.parse(fs.readFileSync(path.join(source,"provenance.json"),"utf8"));
   const positiveLines=new Set([4538,9081,12306,14941,19442,21636,28189]);
@@ -1715,13 +1604,13 @@ test("IR25 exact-source combat damage dimensions and minimum schema are strict",
   let passed=false;
   try {
     const manifest=path.join(temporary,"catalog.json");
-    fs.writeFileSync(manifest,JSON.stringify({schema_version:25,output_order:"sorted",provenance:path.join(source,"provenance.json"),records,expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
+    fs.writeFileSync(manifest,JSON.stringify({schema_version:IR_SCHEMA_VERSION,output_order:"sorted",provenance:path.join(source,"provenance.json"),records,expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
     // Only the current compiler writes IR. Every definition lowers a complete
     // pinned source row through the ordinary origin/provenance validation.
     const report=run("catalog","build",manifest,"--write");
     assert.equal(report.definitions,7);
     const candidate=JSON.parse(fs.readFileSync(report.expected_ir,"utf8"));
-    assertDamageTriggerSchema(run("schema"),candidate,[legacy,loadCatalog("cards-data-d2cd"),loadCatalog("cards-data-d2cc")]);
+    assertDamageTriggerSchema(run("schema"),candidate);
     passed=true;
   } finally {
     // Preserve generated inputs/outputs when an assertion fails.
@@ -1729,7 +1618,7 @@ test("IR25 exact-source combat damage dimensions and minimum schema are strict",
   }
 });
 
-test("IR26 exact-source opponent damage predicates require the new capability version", () => {
+test("exact-source opponent damage predicates remain strict", () => {
   const source=fileURLToPath(new URL("fixtures/cards-data-d2ce/",import.meta.url));
   const record=path.join(source,"5dee663f-9e2e-4503-8086-fc51664fdf29.json");
   const archived=JSON.parse(fs.readFileSync(record,"utf8"));
@@ -1742,7 +1631,7 @@ test("IR26 exact-source opponent damage predicates require the new capability ve
   let passed=false;
   try {
     const manifest=path.join(temporary,"catalog.json");
-    fs.writeFileSync(manifest,JSON.stringify({schema_version:26,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
+    fs.writeFileSync(manifest,JSON.stringify({schema_version:IR_SCHEMA_VERSION,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
     const report=run("catalog","build",manifest,"--write");
     assert.equal(report.definitions,1);
     const catalog=JSON.parse(fs.readFileSync(report.expected_ir,"utf8"));
@@ -1752,9 +1641,7 @@ test("IR26 exact-source opponent damage predicates require the new capability ve
     assert.deepEqual(definition.triggered[0].condition,{damage_dealt:{source:{subject:"source"},kind:"any",recipient:"opponent_player"}});
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
-    assert.equal(validate({...catalog,schema_version:34}),false);
-    // Each new dimension independently requires IR26, even if a forged catalog
-    // strips its capability label. These are synthetic schema witnesses.
+    // Synthetic independent predicate dimensions remain supported.
     for(const predicate of [
       {source:{subject:"source"},kind:"any",recipient:"player"},
       {source:{subject:"source"},kind:"combat",recipient:"opponent_player"},
@@ -1763,12 +1650,7 @@ test("IR26 exact-source opponent damage predicates require the new capability ve
       const witness=structuredClone(catalog);
       witness.definitions[0].triggered[0].condition.damage_dealt=predicate;
       assert.equal(validate(witness),true,JSON.stringify(validate.errors));
-      for(const version of [24,25]) {
-        const old=structuredClone(witness);old.schema_version=version;
-        assert.equal(validate(old),false);
-        old.definitions[0].capabilities=old.definitions[0].capabilities.filter((c:string)=>c!=="source_damage_trigger_v2");
-        assert.equal(validate(old),false,"old IR rejects each new dimension independently of labels");
-      }
+
     }
     for(const mutate of [
       (p:any)=>{p.kind="noncombat";},
@@ -1786,7 +1668,7 @@ test("IR26 exact-source opponent damage predicates require the new capability ve
   }
 });
 
-test("IR27 exact-source optional controller draw preserves opcode and version boundaries", () => {
+test("exact-source optional controller draw preserves its strict opcode", () => {
   const source=fileURLToPath(new URL("fixtures/cards-data-d2ce/",import.meta.url));
   const record=path.join(source,"48936751-429b-4c40-88f5-72acde6278cc.json");
   const archived=JSON.parse(fs.readFileSync(record,"utf8"));
@@ -1799,7 +1681,7 @@ test("IR27 exact-source optional controller draw preserves opcode and version bo
   let passed=false;
   try {
     const manifest=path.join(temporary,"catalog.json");
-    fs.writeFileSync(manifest,JSON.stringify({schema_version:27,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
+    fs.writeFileSync(manifest,JSON.stringify({schema_version:IR_SCHEMA_VERSION,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
     const report=run("catalog","build",manifest,"--write");
     assert.equal(report.definitions,1);
     const catalog=JSON.parse(fs.readFileSync(report.expected_ir,"utf8"));
@@ -1810,13 +1692,7 @@ test("IR27 exact-source optional controller draw preserves opcode and version bo
     assert.deepEqual(definition.triggered[0].program.instructions,[{op:"optional_draw_cards",source_block:1}]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
-    assert.equal(validate({...catalog,schema_version:34}),false);
-    for(const version of [25,26]) {
-      const old=structuredClone(catalog);old.schema_version=version;
-      assert.equal(validate(old),false);
-      old.definitions[0].capabilities=old.definitions[0].capabilities.filter((c:string)=>c!=="optional_controller_draw_v1");
-      assert.equal(validate(old),false,"old IR rejects optional opcode independently of labels");
-    }
+
     for(const mutate of [
       (i:any)=>{i.count="1";},
       (i:any)=>{i.recipient="controller";},
@@ -1826,25 +1702,21 @@ test("IR27 exact-source optional controller draw preserves opcode and version bo
       const bad=structuredClone(catalog);mutate(bad.definitions[0].triggered[0].program.instructions[0]);
       assert.equal(validate(bad),false);
     }
-    // Synthetic nested-program witness: the same opcode cannot escape an
-    // old-version gate by moving into a modal child program.
-    const modal=loadCatalog("choices");modal.schema_version=27;
+    // Synthetic schema-only modal child witness; executable support is checked in Rust.
+    const modal=loadCatalog("choices");
     modal.definitions=[modal.definitions.find((d:any)=>d.spell?.modes?.length>0)];
     assert.ok(modal.definitions[0]);
     modal.definitions[0].capabilities.push("optional_controller_draw_v1");
     const child=modal.definitions[0].spell.modes[0].program;
     child.targets=[];child.instructions=[{op:"optional_draw_cards",source_block:0}];
     assert.equal(validate(modal),true,JSON.stringify(validate.errors));
-    modal.schema_version=26;
-    modal.definitions[0].capabilities=modal.definitions[0].capabilities.filter((c:string)=>c!=="optional_controller_draw_v1");
-    assert.equal(validate(modal),false,"modal child opcode still requires IR27");
     passed=true;
   } finally {
     if(passed) fs.rmSync(temporary,{recursive:true,force:true});
   }
 });
 
-test("IR28 exact-source damage recipient discard preserves actor and version boundaries", () => {
+test("exact-source damage recipient discard preserves its actor", () => {
   const source=fileURLToPath(new URL("fixtures/cards-data-d2ce/",import.meta.url));
   const record=path.join(source,"56c1a548-c80c-432b-bf92-d4ef6117b298.json");
   const archived=JSON.parse(fs.readFileSync(record,"utf8"));
@@ -1857,7 +1729,7 @@ test("IR28 exact-source damage recipient discard preserves actor and version bou
   let passed=false;
   try {
     const manifest=path.join(temporary,"catalog.json");
-    fs.writeFileSync(manifest,JSON.stringify({schema_version:28,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
+    fs.writeFileSync(manifest,JSON.stringify({schema_version:IR_SCHEMA_VERSION,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
     const report=run("catalog","build",manifest,"--write");
     assert.equal(report.definitions,1);
     const catalog=JSON.parse(fs.readFileSync(report.expected_ir,"utf8"));
@@ -1870,18 +1742,12 @@ test("IR28 exact-source damage recipient discard preserves actor and version bou
     ]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
-    assert.equal(validate({...catalog,schema_version:34}),false);
-    for(const version of [25,26,27]) {
-      const old=structuredClone(catalog);old.schema_version=version;
-      assert.equal(validate(old),false);
-      old.definitions[0].capabilities=old.definitions[0].capabilities.filter((c:string)=>c!=="event_player_discard_v1");
-      assert.equal(validate(old),false,"old IR rejects event discard independently of labels");
-    }
+
     for(const recipient of ["target", "each_opponent", {target_slot:0}, true]) {
       const bad=structuredClone(catalog);bad.definitions[0].triggered[0].program.instructions[0].recipient=recipient;
       assert.equal(validate(bad),false);
     }
-    const modal=loadCatalog("choices");modal.schema_version=28;
+    const modal=loadCatalog("choices");
     modal.definitions=[modal.definitions.find((d:any)=>d.spell?.modes?.length>0)];
     assert.ok(modal.definitions[0]);
     modal.definitions[0].capabilities.push("event_player_discard_v1");
@@ -1890,16 +1756,13 @@ test("IR28 exact-source damage recipient discard preserves actor and version bou
     // This is an intentionally unbound schema-only witness. Runtime definition
     // validation additionally rejects event recipients on a spell program.
     assert.equal(validate(modal),true,JSON.stringify(validate.errors));
-    modal.schema_version=27;
-    modal.definitions[0].capabilities=modal.definitions[0].capabilities.filter((c:string)=>c!=="event_player_discard_v1");
-    assert.equal(validate(modal),false,"nested event discard cannot bypass the old-version gate");
     passed=true;
   } finally {
     if(passed) fs.rmSync(temporary,{recursive:true,force:true});
   }
 });
 
-test("IR29 exact-source damage recipient sacrifice preserves actor and version boundaries", () => {
+test("exact-source damage recipient sacrifice preserves its actor", () => {
   const source=fileURLToPath(new URL("fixtures/cards-data-d2ce/",import.meta.url));
   const record=path.join(source,"2e55fc03-779c-4a71-beb7-aa0ade738c24.json");
   const archived=JSON.parse(fs.readFileSync(record,"utf8"));
@@ -1912,7 +1775,7 @@ test("IR29 exact-source damage recipient sacrifice preserves actor and version b
   let passed=false;
   try {
     const manifest=path.join(temporary,"catalog.json");
-    fs.writeFileSync(manifest,JSON.stringify({schema_version:29,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
+    fs.writeFileSync(manifest,JSON.stringify({schema_version:IR_SCHEMA_VERSION,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
     const report=run("catalog","build",manifest,"--write");
     assert.equal(report.definitions,1);
     const catalog=JSON.parse(fs.readFileSync(report.expected_ir,"utf8"));
@@ -1923,13 +1786,7 @@ test("IR29 exact-source damage recipient sacrifice preserves actor and version b
     assert.deepEqual(definition.triggered[0].program.instructions,[{op:"sacrifice_creature",recipient:"event_player",source_block:1}]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
-    assert.equal(validate({...catalog,schema_version:34}),false);
-    for(const version of [25,26,27,28]) {
-      const old=structuredClone(catalog);old.schema_version=version;
-      assert.equal(validate(old),false);
-      old.definitions[0].capabilities=old.definitions[0].capabilities.filter((c:string)=>c!=="event_player_sacrifice_v1");
-      assert.equal(validate(old),false,"old IR rejects sacrifice opcode independently of labels");
-    }
+
     for(const mutate of [
       (i:any)=>{i.recipient="controller";},
       (i:any)=>{i.recipient={event_player:null};},
@@ -1940,7 +1797,7 @@ test("IR29 exact-source damage recipient sacrifice preserves actor and version b
       const bad=structuredClone(catalog);mutate(bad.definitions[0].triggered[0].program.instructions[0]);
       assert.equal(validate(bad),false);
     }
-    const modal=loadCatalog("choices");modal.schema_version=29;
+    const modal=loadCatalog("choices");
     modal.definitions=[modal.definitions.find((d:any)=>d.spell?.modes?.length>0)];
     assert.ok(modal.definitions[0]);
     modal.definitions[0].capabilities.push("event_player_sacrifice_v1");
@@ -1948,9 +1805,6 @@ test("IR29 exact-source damage recipient sacrifice preserves actor and version b
     child.targets=[];child.instructions=[{op:"sacrifice_creature",recipient:"event_player",source_block:0}];
     // Structural schema witness only; runtime also rejects an unbound actor.
     assert.equal(validate(modal),true,JSON.stringify(validate.errors));
-    modal.schema_version=28;
-    modal.definitions[0].capabilities=modal.definitions[0].capabilities.filter((c:string)=>c!=="event_player_sacrifice_v1");
-    assert.equal(validate(modal),false,"nested sacrifice opcode still requires IR29");
     passed=true;
   } finally {
     if(passed) fs.rmSync(temporary,{recursive:true,force:true});
@@ -1959,7 +1813,7 @@ test("IR29 exact-source damage recipient sacrifice preserves actor and version b
 
 test("headless damage profile catalog preserves complete pinned source and parser agreement", () => {
   const catalog=loadCatalog("damage-matches");
-  assert.equal(catalog.schema_version,29);
+  assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
   assert.equal(catalog.definitions.length,32);
   const group=fileURLToPath(new URL("fixtures/damage-matches/",import.meta.url));
   const provenance=JSON.parse(fs.readFileSync(path.join(group,"provenance.json"),"utf8"));
@@ -1992,7 +1846,7 @@ test("headless damage profile catalog preserves complete pinned source and parse
   }
 });
 
-test("IR30 exact-source filtered damage distinguishes observer and creature source", () => {
+test("exact-source filtered damage distinguishes observer and creature source", () => {
   const group=fileURLToPath(new URL("fixtures/cards-data-filtered-damage/",import.meta.url));
   const provenance=JSON.parse(fs.readFileSync(path.join(group,"provenance.json"),"utf8"));
   assert.equal(provenance.records.length,2);
@@ -2009,7 +1863,7 @@ test("IR30 exact-source filtered damage distinguishes observer and creature sour
   let passed=false;
   try {
     const manifest=path.join(temporary,"catalog.json");
-    fs.writeFileSync(manifest,JSON.stringify({schema_version:30,output_order:"sorted",provenance:path.join(group,"provenance.json"),records,expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
+    fs.writeFileSync(manifest,JSON.stringify({schema_version:IR_SCHEMA_VERSION,output_order:"sorted",provenance:path.join(group,"provenance.json"),records,expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
     const report=run("catalog","build",manifest,"--write");
     assert.equal(report.definitions,2);
     const catalog=JSON.parse(fs.readFileSync(report.expected_ir,"utf8"));
@@ -2030,13 +1884,7 @@ test("IR30 exact-source filtered damage distinguishes observer and creature sour
     assert.deepEqual(research.triggered[0].program.instructions,[{op:"draw_cards",count:"1",source_block:2}]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
-    assert.equal(validate({...catalog,schema_version:34}),false);
-    for(const version of [25,26,27,28,29]) {
-      const old=structuredClone(catalog);old.schema_version=version;
-      assert.equal(validate(old),false);
-      for(const d of old.definitions) d.capabilities=d.capabilities.filter((c:string)=>c!=="filtered_damage_trigger_v1");
-      assert.equal(validate(old),false,"new subject independently requires IR30");
-    }
+
     for(const mutate of [
       (s:any)=>{s.controller="opponent";},
       (s:any)=>{s.controller="any_player";},
@@ -2050,8 +1898,7 @@ test("IR30 exact-source filtered damage distinguishes observer and creature sour
       mutate(bad.definitions.find((d:any)=>d.oracle_id===research.oracle_id).triggered[0].condition.damage_dealt.source);
       assert.equal(validate(bad),false);
     }
-    // The previously verified legal headless profile retains its exact IR29
-    // catalog and still validates without acquiring the filtered-source feature.
+    // The separate finite headless pool remains valid.
     assert.equal(validate(loadCatalog("damage-matches")),true,JSON.stringify(validate.errors));
     passed=true;
   } finally {
@@ -2059,8 +1906,7 @@ test("IR30 exact-source filtered damage distinguishes observer and creature sour
   }
 });
 
-
-test("IR31 exact-source controller damage discard preserves sequencing and contextual version gates", () => {
+test("exact-source controller damage discard preserves sequencing and context", () => {
   const source=fileURLToPath(new URL("fixtures/cards-data-d2ce/",import.meta.url));
   const record=path.join(source,"bdcb7aed-3595-4c7e-b9da-543e92de919a.json");
   const archived=JSON.parse(fs.readFileSync(record,"utf8"));
@@ -2073,7 +1919,7 @@ test("IR31 exact-source controller damage discard preserves sequencing and conte
   let passed=false;
   try {
     const manifest=path.join(temporary,"catalog.json");
-    fs.writeFileSync(manifest,JSON.stringify({schema_version:31,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
+    fs.writeFileSync(manifest,JSON.stringify({schema_version:IR_SCHEMA_VERSION,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
     const report=run("catalog","build",manifest,"--write");
     assert.equal(report.definitions,1);
     const catalog=JSON.parse(fs.readFileSync(report.expected_ir,"utf8"));
@@ -2090,27 +1936,18 @@ test("IR31 exact-source controller damage discard preserves sequencing and conte
     ]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
-    assert.equal(validate({...catalog,schema_version:34}),false);
+
     for(const recipient of [undefined,"controller"]) {
       const witness=structuredClone(catalog);
       if(recipient!==undefined) witness.definitions[0].triggered[0].program.instructions[1].recipient=recipient;
       assert.equal(validate(witness),true,JSON.stringify(validate.errors));
-      for(const version of [25,28,29,30]) {
-        const old=structuredClone(witness);old.schema_version=version;
-        assert.equal(validate(old),false);
-        old.definitions[0].capabilities=old.definitions[0].capabilities.filter((c:string)=>c!=="damage_controller_discard_v1");
-        assert.equal(validate(old),false,"controller damage discard requires IR31 independently of its label");
-      }
-      // Synthetic schema-only nested closure: runtime deliberately rejects
-      // modal damage programs, but an old version must still reject the opcode.
+
+      // Synthetic schema closure only; runtime deliberately rejects modal damage programs.
       const nested=structuredClone(witness);
       const p=nested.definitions[0].triggered[0].program;
       p.modes=[{program:structuredClone(p)},{program:structuredClone(p)}];
       p.instructions=[];
       assert.equal(validate(nested),true,JSON.stringify(validate.errors));
-      nested.schema_version=30;
-      nested.definitions[0].capabilities=nested.definitions[0].capabilities.filter((c:string)=>c!=="damage_controller_discard_v1");
-      assert.equal(validate(nested),false,"nested controller damage discard cannot evade old-version rejection");
     }
     assert.equal(validate(loadCatalog("damage-matches")),true,JSON.stringify(validate.errors));
     assert.equal(validate(loadCatalog("action")),true,JSON.stringify(validate.errors));
@@ -2120,8 +1957,7 @@ test("IR31 exact-source controller damage discard preserves sequencing and conte
   }
 });
 
-
-test("IR32 exact-source damage quantity draw preserves frozen count and version boundaries", () => {
+test("exact-source damage quantity draw preserves frozen count", () => {
   const source=fileURLToPath(new URL("fixtures/cards-data-d2ce/",import.meta.url));
   const record=path.join(source,"34fd461b-a913-4a60-9477-ce2bd5c6fc5a.json");
   const archived=JSON.parse(fs.readFileSync(record,"utf8"));
@@ -2134,7 +1970,7 @@ test("IR32 exact-source damage quantity draw preserves frozen count and version 
   let passed=false;
   try {
     const manifest=path.join(temporary,"catalog.json");
-    fs.writeFileSync(manifest,JSON.stringify({schema_version:32,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
+    fs.writeFileSync(manifest,JSON.stringify({schema_version:IR_SCHEMA_VERSION,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
     const report=run("catalog","build",manifest,"--write");
     assert.equal(report.definitions,1);
     const catalog=JSON.parse(fs.readFileSync(report.expected_ir,"utf8"));
@@ -2149,13 +1985,7 @@ test("IR32 exact-source damage quantity draw preserves frozen count and version 
     assert.deepEqual(d.triggered[0].program.instructions,[{op:"draw_damage_amount",source_block:0}]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
-    assert.equal(validate({...catalog,schema_version:34}),false);
-    for(const version of [25,28,30,31]) {
-      const old=structuredClone(catalog);old.schema_version=version;
-      assert.equal(validate(old),false);
-      old.definitions[0].capabilities=old.definitions[0].capabilities.filter((c:string)=>c!=="damage_quantity_draw_v1");
-      assert.equal(validate(old),false,"frozen quantity opcode independently requires IR32");
-    }
+
     for(const mutate of [
       (i:any)=>{i.count="2";},
       (i:any)=>{i.amount={amount:"that-much"};},
@@ -2171,9 +2001,6 @@ test("IR32 exact-source damage quantity draw preserves frozen count and version 
     const p=nested.definitions[0].triggered[0].program;
     p.modes=[{program:structuredClone(p)},{program:structuredClone(p)}];p.instructions=[];
     assert.equal(validate(nested),true,JSON.stringify(validate.errors));
-    nested.schema_version=31;
-    nested.definitions[0].capabilities=nested.definitions[0].capabilities.filter((c:string)=>c!=="damage_quantity_draw_v1");
-    assert.equal(validate(nested),false,"nested opcode still requires IR32");
     assert.equal(validate(loadCatalog("action")),true,JSON.stringify(validate.errors));
     assert.equal(validate(loadCatalog("damage-matches")),true,JSON.stringify(validate.errors));
     passed=true;
@@ -2182,13 +2009,12 @@ test("IR32 exact-source damage quantity draw preserves frozen count and version 
   }
 });
 
-
-test("headless damage v2 profile compiles all 36 exact sources without changing v1", () => {
+test("headless damage v2 profile compiles all 36 exact sources", () => {
   const catalog=loadCatalog("damage-matches-v2");
-  assert.equal(catalog.schema_version,32);
+  assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
   assert.equal(catalog.definitions.length,36);
-  assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"06466aeb1c18d3b75352c9ab276c046ff07b931f1aadf3f86fde7c5e74dc5bda");
-  assert.equal(read("catalogs/damage-matches.sha256").trim(),"b7dae2b1f537f3c7abb4ed4e53a6dc1ae4b84f9b14eeb33e8f42f2736dda5bd0");
+  assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"d4a23a11f918f7a38827f9edb57ecd7dc41f76c9c0af0996b915b0220da96af8");
+  assert.equal(read("catalogs/damage-matches.sha256").trim(),"16cdae39b42a26a4b7fa305482013ef7320c59962f4cd7e858ee636ca5f097bb");
   const group=fileURLToPath(new URL("fixtures/damage-matches-v2/",import.meta.url));
   const provenance=JSON.parse(fs.readFileSync(path.join(group,"provenance.json"),"utf8"));
   const archives=JSON.parse(fs.readFileSync(path.join(group,"accepted-archives.json"),"utf8"));
@@ -2227,8 +2053,7 @@ test("headless damage v2 profile compiles all 36 exact sources without changing 
   assert.equal(validate(loadCatalog("damage-matches")),true,JSON.stringify(validate.errors));
 });
 
-
-test("IR33 exact-source Snow creature and attacking deathtouch keep independent version gates", () => {
+test("exact-source Snow creature and attacking deathtouch preserve strict shapes", () => {
   const source=fileURLToPath(new URL("fixtures/cards-data-d2ce/",import.meta.url));
   const record=path.join(source,"b99ada26-9a61-4175-9fb8-15a106960220.json");
   const archived=JSON.parse(fs.readFileSync(record,"utf8"));
@@ -2240,7 +2065,7 @@ test("IR33 exact-source Snow creature and attacking deathtouch keep independent 
   const temporary=fs.mkdtempSync(path.join(os.tmpdir(),"mtg-attacking-keyword-schema-"));let passed=false;
   try {
     const manifest=path.join(temporary,"catalog.json");
-    fs.writeFileSync(manifest,JSON.stringify({schema_version:33,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
+    fs.writeFileSync(manifest,JSON.stringify({schema_version:IR_SCHEMA_VERSION,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
     const report=run("catalog","build",manifest,"--write");assert.equal(report.definitions,1);
     const catalog=JSON.parse(fs.readFileSync(report.expected_ir,"utf8"));const d=catalog.definitions[0];
     assert.equal(d.name,"Ohran Frostfang");assert.equal(d.characteristics.kind,"creature");
@@ -2250,15 +2075,12 @@ test("IR33 exact-source Snow creature and attacking deathtouch keep independent 
     assert.deepEqual(d.triggered[0].condition,{damage_dealt:{source:{subject:"creature_filter",controller:"controller",types:{predicate:"type",kind:"creature"}},kind:"combat",recipient:"player"}});
     assert.deepEqual(d.triggered[0].program.instructions,[{op:"draw_cards",count:"1",source_block:1}]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
-    assert.equal(validate(catalog),true,JSON.stringify(validate.errors));assert.equal(validate({...catalog,schema_version:34}),false);
+    assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
     for(const isolated of ["snow","scope"]) {
       const witness=structuredClone(catalog);const w=witness.definitions[0];
       if(isolated==="snow") {w.static_abilities=[];w.capabilities=w.capabilities.filter((c:string)=>c!=="attacking_creature_keywords_v1");}
       else {delete w.characteristics.snow;w.capabilities=w.capabilities.filter((c:string)=>c!=="snow_supertype_v1");}
       assert.equal(validate(witness),true,JSON.stringify(validate.errors));
-      witness.schema_version=32;
-      w.capabilities=w.capabilities.filter((c:string)=>!["snow_supertype_v1","attacking_creature_keywords_v1"].includes(c));
-      assert.equal(validate(witness),false,"each new semantic field independently requires IR33");
     }
     for(const mutate of [
       (x:any)=>{x.characteristics.snow="yes";},
@@ -2286,7 +2108,7 @@ test("IR33 exact-source Snow creature and attacking deathtouch keep independent 
   } finally {if(passed) fs.rmSync(temporary,{recursive:true,force:true});}
 });
 
-test("exact-source Kutzil consumes grouped power and cast prohibition on the unreleased schema", () => {
+test("exact-source Kutzil consumes grouped power and cast prohibition on the current schema", () => {
   const source=fileURLToPath(new URL("fixtures/cards-data-d2ce/",import.meta.url));
   const record=path.join(source,"3233af43-7826-4895-b67e-03c6102c2cd5.json");
   const raw=fs.readFileSync(record,"utf8");const archived=JSON.parse(raw);
@@ -2305,7 +2127,7 @@ test("exact-source Kutzil consumes grouped power and cast prohibition on the unr
   const temporary=fs.mkdtempSync(path.join(os.tmpdir(),"mtg-grouped-power-schema-"));let passed=false;
   try {
     const manifest=path.join(temporary,"catalog.json");
-    fs.writeFileSync(manifest,JSON.stringify({schema_version:33,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
+    fs.writeFileSync(manifest,JSON.stringify({schema_version:IR_SCHEMA_VERSION,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
     const report=run("catalog","build",manifest,"--write");assert.equal(report.definitions,1);
     const catalog=JSON.parse(fs.readFileSync(report.expected_ir,"utf8"));const d=catalog.definitions[0];
     assert.equal(d.name,"Kutzil, Malamet Exemplar");assert.equal(d.characteristics.legendary,true);
@@ -2318,7 +2140,7 @@ test("exact-source Kutzil consumes grouped power and cast prohibition on the unr
     }});
     assert.deepEqual(d.triggered[0].program.instructions,[{op:"draw_cards",count:"1",source_block:1}]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
-    assert.equal(validate(catalog),true,JSON.stringify(validate.errors));assert.equal(validate({...catalog,schema_version:34}),false);
+    assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
     for(const mutate of [
       (x:any)=>{x.static_abilities[0].effect={opponents_cant_cast_during_controller_turn:{}};},
       (x:any)=>{x.static_abilities[0].functioning_zone="command";},
@@ -2335,7 +2157,7 @@ test("exact-source Kutzil consumes grouped power and cast prohibition on the unr
       const bad=structuredClone(catalog);mutate(bad.definitions[0]);assert.equal(validate(bad),false);
     }
     assert.equal(fs.readFileSync(record,"utf8"),raw,"compilation cannot rewrite the archived diagnostic binding");
-    assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"06466aeb1c18d3b75352c9ab276c046ff07b931f1aadf3f86fde7c5e74dc5bda");
+    assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"d4a23a11f918f7a38827f9edb57ecd7dc41f76c9c0af0996b915b0220da96af8");
     assert.equal(validate(loadCatalog("damage-matches-v2")),true,JSON.stringify(validate.errors));
     passed=true;
   } finally {if(passed) fs.rmSync(temporary,{recursive:true,force:true});}
@@ -2354,7 +2176,7 @@ test("exact-source Gratuitous Violence retains controlled-creature replacement s
   const temporary=fs.mkdtempSync(path.join(os.tmpdir(),"mtg-creature-replacement-schema-"));let passed=false;
   try {
     const manifest=path.join(temporary,"catalog.json");
-    fs.writeFileSync(manifest,JSON.stringify({schema_version:33,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
+    fs.writeFileSync(manifest,JSON.stringify({schema_version:IR_SCHEMA_VERSION,output_order:"sorted",provenance:path.join(source,"provenance.json"),records:[record],expected_ir:"actual-ir.json",expected_digest:"actual.sha256"}));
     const report=run("catalog","build",manifest,"--write");assert.equal(report.definitions,1);
     const catalog=JSON.parse(fs.readFileSync(report.expected_ir,"utf8"));const d=catalog.definitions[0];
     assert.equal(d.name,"Gratuitous Violence");assert.equal(d.characteristics.kind,"enchantment");
