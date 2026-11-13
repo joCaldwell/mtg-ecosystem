@@ -84,7 +84,9 @@ review and exact comparison; old values and full reports remain retained in
 `blocking-target-scenario-equivalence.json` and adjacent evidence.
 
 Production focused Clippy/builds, generated SDK strict TypeScript and 54 tests,
-and the small smoke plus explicit replay passed. Full runtime suites, full demo,
+and the small smoke plus explicit replay passed. The read-only client's unchanged
+capture passed current-schema qualification, strict types, boundaries, 15 tests and
+a production build. Full runtime suites, full demo,
 legal-pod/profile or release-test matrices, live hosting/browser acceptance and
 offline retention rebuilds were omitted. New pool admission and hosting/search
 review remain separate work.

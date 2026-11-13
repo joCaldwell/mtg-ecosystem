@@ -32,10 +32,10 @@
   "sdk_source": "2fd07521cc8f342defe05b02b0cb2e00dde226b2",
   "sdk_browser_base": "f2fb12910bcc4a4d52d6c88b98f61647f4246b24",
   "sdk_qualification": {
-    "native_source": "ef237b21db575a9f06518dc1f7cb4a6f99cc4147",
-    "protocol_schema_sha256": "2b6881f59cdfc2adbcddff0129d82498fa573862cd63a699f7a167802777ce71",
+    "native_source": "5d9c6fbd24bc4745cb66e18a0c32dfe1f9b910c4",
+    "protocol_schema_sha256": "18d1b8007acca14e0909fabdeaa6e3aa191598c1dddc4515b6301a3eefa1037c",
     "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
-    "scope": "Historical capture bytes validated against the single-IR-schema engine and current browser SDK; original capture source, catalog binding, and file hashes remain unchanged.",
-    "sdk_source": "ef237b21db575a9f06518dc1f7cb4a6f99cc4147"
+    "scope": "Historical capture bytes validated against the schema-1 blocking-target extension and current browser SDK; original capture source, catalog binding, and file hashes remain unchanged.",
+    "sdk_source": "5d9c6fbd24bc4745cb66e18a0c32dfe1f9b910c4"
   }
 }
