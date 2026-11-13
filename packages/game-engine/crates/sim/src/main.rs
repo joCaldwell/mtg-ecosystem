@@ -811,6 +811,11 @@ fn source_files_from(root: &Path) -> Result<Vec<SourceFile>, String> {
     walk(root, &root.join("packages/game-server/tests"), &mut files)?;
     walk(
         root,
+        &root.join("packages/game-server/examples"),
+        &mut files,
+    )?;
+    walk(
+        root,
         &root.join("packages/game-engine/tests/fixtures"),
         &mut files,
     )?;
@@ -2053,6 +2058,7 @@ mod tests {
             "packages/game-server/tools/presentation.schema.json",
             "packages/game-server/src/authority.rs",
             "packages/game-server/tests/protocol.rs",
+            "packages/game-server/examples/action_fixture.rs",
         ];
         for path in real {
             let path = root.join(path);

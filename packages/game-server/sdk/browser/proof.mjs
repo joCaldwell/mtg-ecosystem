@@ -40,6 +40,20 @@ try {
     await sdk.submit(envelope({ response: 'damage', assignments: [['h', '90071992547409931234567890']] }));
     assert(calls === 1 && JSON.stringify(sdk) === '{}', 'send count or credential exposure');
   });
+  await test('exact journal commands and bounded action queries use generated validators under CSP', async () => {
+    const exact=' \n'+JSON.stringify(envelope({response:'pass'}),null,1)+'\n';
+    let calls=0;
+    const sdk=client(async (_url,init)=>{
+      calls++;
+      if(calls===1) { assert(init.body===exact,'exact journal bytes changed'); return json({status:'accepted',command_id:commandId}); }
+      return json({protocol_version:1,match_id:'a',viewer:0,outcome:{status:'incomplete',page:{token:'synthetic-token',scope:{scope:'window'},context:{window:'priority'},beginnings:[]},required_minimum:1,cursor:'a'.repeat(64)}});
+    });
+    await sdk.submitExact(exact);
+    const result=await sdk.queryActions({operation:'start',token:'synthetic-token',scope:{scope:'window'},page_size:1,work:1});
+    assert(result.outcome.status==='incomplete' && calls===2,'query status/send count');
+    await reject(()=>sdk.queryActions({operation:'start',token:'synthetic-token',scope:{scope:'window'},page_size:33,work:1}),error=>error instanceof ProtocolError);
+    assert(calls===2,'invalid query sent');
+  });
   await test('custom formats and tuples reject before transport', async () => {
     let calls = 0;
     const sdk = client(async () => { calls++; return json({}); });

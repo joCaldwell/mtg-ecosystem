@@ -12,6 +12,7 @@
     "check:boundaries": "node scripts/check-boundaries.ts",
     "test": "node --test tests/*.test.ts",
     "test:browser": "playwright test",
+    "test:journal:browser": "node --test tests/command-journal.browser.ts",
     "test:browser:live": "playwright test --config playwright.live.config.ts",
     "check": "npm run prepare:fixtures && npm run typecheck && npm run check:boundaries && npm test && npm run build"
   },

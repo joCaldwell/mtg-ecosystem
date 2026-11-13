@@ -310,3 +310,18 @@ rules inference is performed. Producer types and standalone validators are gener
 from `../tools/presentation.schema.json`; its producer source and exact schema
 hashes are recorded beside the Rust export. Do not mix schemas/builds from a
 concurrent engine source; see `docs/game-client-local-serving.md` at repository root.
+
+Action transport adds `GameClient.queryActions(request, { signal })`: one bounded
+start/continue/cancel POST, using generated `ActionQueryRequest` and
+`ActionQueryResponse`. The caller owns pagination, cursor/token/viewer binding,
+expiry, retries and recovery. An incomplete result is never an empty legal menu;
+a stale cursor can occur without a changed public decision token. Labels and
+missing source contexts stay explicitly unavailable.
+
+For durable session journals, `prepareCommand(envelope)` returns a detached,
+deeply frozen `{ envelope, exactBody }`. Persist `exactBody` before sending.
+`parsePreparedCommand(exactBody)` strictly validates recovered bytes without
+reserializing them. `submitExact(exactBody, { signal })` validates and sends that
+exact string once, checking the returned command ID. The SDK does not persist,
+retry or settle an unknown command outcome. See the source-qualified
+[action transport report](../../../docs/game-client-action-transport.md).
