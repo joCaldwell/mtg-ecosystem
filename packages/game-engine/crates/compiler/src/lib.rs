@@ -231,7 +231,7 @@ struct SourceComparison {
 enum SourceTrigger {
     DealsDamage {
         what: SourceDamageObject,
-        #[serde(default, deserialize_with = "damage_combat_qualifier")]
+        #[serde(default, deserialize_with = "present_bool_field")]
         combat: Option<bool>,
         to: serde_json::Value,
         #[serde(default, deserialize_with = "present_damage_filter_field")]
@@ -539,8 +539,13 @@ enum Step {
     },
     Destroy {
         what: serde_json::Value,
+        #[serde(default, deserialize_with = "present_bool_field")]
         optional: Option<bool>,
-        #[serde(rename = "regenerationForbidden")]
+        #[serde(
+            default,
+            rename = "regenerationForbidden",
+            deserialize_with = "present_bool_field"
+        )]
         regeneration_forbidden: Option<bool>,
     },
     Search {
@@ -584,6 +589,7 @@ enum Step {
         source: DamageSource,
         amount: serde_json::Value,
         to: DamageDestination,
+        #[serde(default, deserialize_with = "present_bool_field")]
         optional: Option<bool>,
     },
     GainLife {
@@ -599,11 +605,13 @@ enum Step {
     ReturnToHand {
         what: serde_json::Value,
         to: String,
+        #[serde(default, deserialize_with = "present_bool_field")]
         optional: Option<bool>,
     },
     MoveZone {
         what: serde_json::Value,
         to: serde_json::Value,
+        #[serde(default, deserialize_with = "present_bool_field")]
         tapped: Option<bool>,
     },
     Sacrifice {
@@ -3119,8 +3127,8 @@ fn is_source_creature(subject: &TriggerObject) -> bool {
 fn is_other_creature(subject: &TriggerObject) -> bool {
     matches!(subject,TriggerObject::Filter {filter,count} if filter.other && filter.types==["creature"] && filter.control.is_none() && !filter.non_token && filter.non_subtypes.is_empty() && fixed_one(count))
 }
-// Omission denotes any damage kind. An explicit null is not that AST shape.
-fn damage_combat_qualifier<'de, D: serde::Deserializer<'de>>(
+// Optional AST flags may be omitted, but a present value must be a boolean.
+fn present_bool_field<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<bool>, D::Error> {
     bool::deserialize(deserializer).map(Some)
@@ -8319,3 +8327,6 @@ mod tap_tests;
 
 #[cfg(test)]
 mod permanent_owner_hand_tests;
+
+#[cfg(test)]
+mod null_flag_tests;
