@@ -234,7 +234,7 @@ enum SourceTrigger {
         #[serde(default, deserialize_with = "present_bool_field")]
         combat: Option<bool>,
         to: serde_json::Value,
-        #[serde(default, deserialize_with = "present_damage_filter_field")]
+        #[serde(default, deserialize_with = "present_ast_field")]
         grouping: Option<String>,
     },
     Attacks {
@@ -283,30 +283,18 @@ enum SourceDamageObject {
 #[serde(deny_unknown_fields)]
 struct SourceDamageFilter {
     types: Vec<String>,
-    #[serde(
-        default,
-        rename = "nonTypes",
-        deserialize_with = "present_damage_filter_field"
-    )]
+    #[serde(default, rename = "nonTypes", deserialize_with = "present_ast_field")]
     non_types: Option<Vec<String>>,
-    #[serde(
-        default,
-        rename = "allOf",
-        deserialize_with = "present_damage_filter_field"
-    )]
+    #[serde(default, rename = "allOf", deserialize_with = "present_ast_field")]
     all_of: Option<Vec<SourceTypeFilter>>,
-    #[serde(
-        default,
-        rename = "anyOf",
-        deserialize_with = "present_damage_filter_field"
-    )]
+    #[serde(default, rename = "anyOf", deserialize_with = "present_ast_field")]
     any_of: Option<Vec<SourceTypeFilter>>,
-    #[serde(default, deserialize_with = "present_damage_filter_field")]
+    #[serde(default, deserialize_with = "present_ast_field")]
     control: Option<String>,
-    #[serde(default, deserialize_with = "present_damage_filter_field")]
+    #[serde(default, deserialize_with = "present_ast_field")]
     properties: Option<Vec<serde_json::Value>>,
 }
-fn present_damage_filter_field<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+fn present_ast_field<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: Deserialize<'de>,
@@ -746,7 +734,8 @@ struct CounterTarget {
 #[serde(tag = "cls", rename_all = "snake_case", deny_unknown_fields)]
 enum CounterFilter {
     Spell {
-        #[serde(rename = "allOf")]
+        // ObjectFilter.allOf is optional in the parser AST; present null is not omission.
+        #[serde(default, rename = "allOf", deserialize_with = "present_ast_field")]
         all_of: Option<Vec<serde_json::Value>>,
     },
     Ability {
@@ -8330,3 +8319,6 @@ mod permanent_owner_hand_tests;
 
 #[cfg(test)]
 mod null_flag_tests;
+
+#[cfg(test)]
+mod counter_null_filter_tests;
