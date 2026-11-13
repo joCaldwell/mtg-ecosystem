@@ -3,5 +3,5 @@
   "protocol_schema_sha256": "2796d38cc8dc4ef67d836fbe890ba31170869f4562c91b8edf7c6f1b91396e64",
   "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
   "scope": "Combined schema-1 main, reviewed core queries, local serving and retained-input correction. Fresh native exports; historical fixture capture/provenance remains unchanged. SDK and client use one qualified build.",
-  "sdk_source": "147dec571e58a531b1229f61a9f78733c021eadf"
+  "sdk_source": "9046c4f10795cb83f4160953f16f71d73f26adb7"
 }

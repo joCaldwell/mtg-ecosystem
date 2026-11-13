@@ -267,3 +267,35 @@ records binary/build/schema/asset hashes and copied client receipts.
 
 Earlier source-qualified receipts above remain history. This closes the schema-1
 integration gap, not command journal/send/reconciliation or gameplay acceptance.
+
+### Independent-review response-body recovery correction
+
+SDK source `9046c4f10795cb83f4160953f16f71d73f26adb7` distinguishes a
+rejected response-body read from a completed invalid response. It reports the
+existing sanitized `TransportError`, which this client's existing adapter maps
+to disconnected recovery. No retry policy moved into the SDK and no rules work
+moved into the client. Native source/build/schema pins above are unchanged;
+`sdk-qualification.json` now records the corrected SDK source separately.
+
+Four new regression cases run the actual browser session adapter and production
+SDK against a local Node HTTP server. After a valid initial view, it sends headers
+and partial JSON then drops the socket. The client retains the exact permitted
+view, resumes successfully, or stops after four retries if every poll drops.
+Recovery resumes do not replenish that budget. Completed malformed JSON and
+schema-invalid responses instead clear the view and never retry. Lock release
+and GET-only requests are checked. Browser window/Web Lock availability is
+injected; these cases are not native-host or cross-tab browser evidence.
+
+With one unchanged current schema setup: all 62 SDK tests and strict types,
+38 client tests/types/boundaries, production build, and 10 production fixture
+browser cases pass. The SDK source also passed 12 CSP checks in each browser in
+the serving worktree. Root `generated/review-m1/interrupted-body-qualification.json`
+hashes the updated logs and artifact manifests. The first regression run exposed
+test-harness timing of the asynchronous lock callback; it is retained as
+`interrupted-body-client.log`. The corrected test awaits callback completion;
+`interrupted-body-client-fixed.log` records all 38 passing. Product locking was
+unchanged.
+
+Prior native live/proxy/lifecycle acceptance keeps its original SDK/client source
+qualification. This correction required no Rust change or new native build;
+the new checks qualify the transport failure through the actual client adapter.
