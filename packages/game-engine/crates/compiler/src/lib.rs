@@ -1617,11 +1617,23 @@ fn append_spell_effects(
                     }
                 }
                 Step::Tap { what } => {
-                    let target: Target = serde_json::from_value(what.clone()).map_err(|_| {
-                        unsupported("effects.tap", "unsupported complete creature tap target")
-                    })?;
+                    let target_slot = if what["filter"] == serde_json::json!({"types":["creature"]})
+                    {
+                        let target: Target =
+                            serde_json::from_value(what.clone()).map_err(|_| {
+                                unsupported(
+                                    "effects.tap",
+                                    "unsupported complete creature tap target",
+                                )
+                            })?;
+                        bind_creature_target(program, slots, &target)?
+                    } else {
+                        // Definition validation fences this broader selector to
+                        // the reviewed activated artifact tap program.
+                        bind_permanent_target(program, slots, what)?
+                    };
                     Instruction::TapPermanent {
-                        target_slot: bind_creature_target(program, slots, &target)?,
+                        target_slot,
                         source_block,
                     }
                 }
@@ -3663,6 +3675,24 @@ fn lower_activation(
                     } | Step::Search { .. }
                 )
             }))
+    {
+        append_spell_effects(
+            &mut program,
+            effects,
+            block,
+            &mut BTreeMap::new(),
+            PlayerBinding::Unbound,
+        )?;
+        return Ok(ActivatedAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            cost,
+            program,
+        });
+    }
+    if effects
+        .iter()
+        .flat_map(|s| &s.steps)
+        .any(|step| matches!(step, Step::Tap { .. }))
     {
         append_spell_effects(
             &mut program,
@@ -8322,3 +8352,6 @@ mod null_flag_tests;
 
 #[cfg(test)]
 mod counter_null_filter_tests;
+
+#[cfg(test)]
+mod activated_permanent_tap_tests;

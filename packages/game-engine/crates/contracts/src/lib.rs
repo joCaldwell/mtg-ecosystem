@@ -214,6 +214,7 @@ pub enum Capability {
     TappedPermanentTargetV1,
     UntapPermanentV1,
     TapPermanentV1,
+    ActivatedTapPermanentV1,
     OwnerHandMoveV1,
     PermanentOwnerHandMoveV1,
     CastSorceryV1,
@@ -1220,6 +1221,9 @@ impl Definition {
         }
         for ability in &self.activated {
             set.insert(Capability::ActivatedAbilityV1);
+            if has_tap(&ability.program) {
+                set.insert(Capability::ActivatedTapPermanentV1);
+            }
             set.insert(match ability.cost {
                 ActivationCost::SacrificePermanent { .. } => Capability::SacrificeV1,
                 ActivationCost::SacrificeSource => Capability::SacrificeSourceCostV1,
@@ -1362,14 +1366,13 @@ impl Definition {
         {
             return Err("permanent owner-hand movement requires an ordinary nonmodal spell".into());
         }
-        if self.activated.iter().any(|a| has_tap(&a.program))
-            || self.triggered.iter().any(|a| has_tap(&a.program))
+        if self.triggered.iter().any(|a| has_tap(&a.program))
             || self.spell.as_ref().is_some_and(|p| {
                 has_tap(p)
                     && (!matches!(
                         self.characteristics.kind,
                         CardKind::Instant | CardKind::Sorcery
-                    ) || !p.modes.is_empty())
+                    ) || !ordinary_tap_program(p))
             })
         {
             return Err("tap requires an ordinary nonmodal spell".into());
@@ -1637,6 +1640,13 @@ impl Definition {
             return Err("activated programs require supported creature characteristics".into());
         }
         for ability in &self.activated {
+            if has_tap(&ability.program) {
+                if c.kind != CardKind::Artifact || !activated_permanent_tap_ability(ability) {
+                    return Err("activated tap requires an artifact, fixed mana plus source tap, and one artifact/creature/land target".into());
+                }
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
             if let ActivationCost::SacrificePermanent { filter, mana } = &ability.cost {
                 filter.validate()?;
                 if mana
@@ -2147,6 +2157,52 @@ fn validate_permanent_costs(c: &PermanentActivationCosts) -> Result<(), String> 
     }
     Ok(())
 }
+fn ordinary_tap_program(p: &SpellProgram) -> bool {
+    p.additional_sacrifice.is_none()
+        && p.modes.is_empty()
+        && p.functioning_zone == FunctioningZone::Stack
+        && p.resolution == SpellResolution::Instructions
+        && p.targets.len() == 1
+        && p.targets[0].domain == TargetDomain::BattlefieldCreature
+        && p.targets[0].filter.is_none()
+        && matches!(
+            p.instructions.first(),
+            Some(Instruction::TapPermanent { target_slot: 0, .. })
+        )
+        && (p.instructions.len() == 1
+            || (p.instructions.len() == 2
+                && matches!(&p.instructions[1], Instruction::DrawCards { recipient: None, count, .. } if *count == Quantity::from(1))))
+}
+fn activated_permanent_tap_program(p: &SpellProgram) -> bool {
+    p.additional_sacrifice.is_none()
+        && p.modes.is_empty()
+        && p.functioning_zone == FunctioningZone::Stack
+        && p.timing == SpellTiming::Instant
+        && p.resolution == SpellResolution::Instructions
+        && matches!(
+            p.instructions.as_slice(),
+            [Instruction::TapPermanent { target_slot: 0, .. }]
+        )
+        && p.targets.len() == 1
+        && p.targets[0].domain == TargetDomain::BattlefieldPermanent
+        && p.targets[0].filter.as_ref().is_some_and(|f| {
+            f.types.len() == 3
+                && [CardKind::Artifact, CardKind::Creature, CardKind::Land]
+                    .iter()
+                    .all(|kind| f.types.contains(kind))
+                && f.non_types.is_empty()
+                && f.non_colors.is_empty()
+                && !f.opponent
+                && !f.tapped
+        })
+}
+fn activated_permanent_tap_ability(a: &ActivatedAbility) -> bool {
+    a.functioning_zone == FunctioningZone::Battlefield
+        && matches!(&a.cost, ActivationCost::Composite { costs }
+            if costs.tap && !costs.sacrifice && costs.mana.as_ref().is_some_and(|m|
+                !m.generic.is_negative() && !m.colored.contains(&Color::C)))
+        && activated_permanent_tap_program(&a.program)
+}
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     if has_permanent_owner_hand(p)
         && (p.additional_sacrifice.is_some()
@@ -2169,23 +2225,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     {
         return Err("permanent owner-hand movement requires one unqualified or nonland permanent target and one instruction".into());
     }
-    if has_tap(p)
-        && (p.additional_sacrifice.is_some()
-            || !p.modes.is_empty()
-            || p.functioning_zone != FunctioningZone::Stack
-            || p.resolution != SpellResolution::Instructions
-            || p.targets.len() != 1
-            || p.targets[0].domain != TargetDomain::BattlefieldCreature
-            || p.targets[0].filter.is_some()
-            || !matches!(
-                p.instructions.first(),
-                Some(Instruction::TapPermanent { target_slot: 0, .. })
-            )
-            || !(p.instructions.len() == 1
-                || (p.instructions.len() == 2
-                    && matches!(&p.instructions[1],
-                    Instruction::DrawCards { recipient: None, count, .. } if *count == Quantity::from(1)))))
-    {
+    if has_tap(p) && !ordinary_tap_program(p) && !activated_permanent_tap_program(p) {
         return Err("tap requires one creature target, then at most one controller draw".into());
     }
     if has_untap(p)
@@ -2429,7 +2469,18 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 Some((*target_slot, TargetDomain::BattlefieldPermanent))
             }
             Instruction::TapPermanent { target_slot, .. } => {
-                Some((*target_slot, TargetDomain::BattlefieldCreature))
+                let domain = p
+                    .targets
+                    .get(*target_slot as usize)
+                    .ok_or("unbound tap target")?
+                    .domain;
+                if !matches!(
+                    domain,
+                    TargetDomain::BattlefieldCreature | TargetDomain::BattlefieldPermanent
+                ) {
+                    return Err("unsupported tap target domain".into());
+                }
+                Some((*target_slot, domain))
             }
             Instruction::ChangeLifeFromTarget {
                 recipient, amount, ..
@@ -3112,32 +3163,71 @@ pub fn catalog_schema() -> serde_json::Value {
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/TapFreeProgram"}}}}
     }});
     let tap = serde_json::json!({"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"tap_permanent"}}}}});
+    schema["$defs"]["OrdinaryTapProgram"] = serde_json::json!({"properties":{
+        "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
+        "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
+        "instructions":{"minItems":1,"maxItems":2,"prefixItems":[
+            {"properties":{"op":{"const":"tap_permanent"},"target_slot":{"const":0}}},
+            {"properties":{"op":{"const":"draw_cards"},"recipient":{"type":"null"},"count":{"const":"1"}}}
+        ],"items":false},
+        "targets":{"minItems":1,"maxItems":1,"items":{"properties":{
+            "domain":{"const":"battlefield_creature"},"filter":{"type":"null"}
+        }}}
+    }});
+    schema["$defs"]["ActivatedPermanentTapProgram"] = serde_json::json!({"required":["targets","instructions"],"properties":{
+        "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
+        "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
+        "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"tap_permanent"},"target_slot":{"const":0}}}},
+        "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
+            "slot":{"const":0},"domain":{"const":"battlefield_permanent"},
+            "filter":{"type":"object","required":["types"],"properties":{
+                "types":{"minItems":3,"maxItems":3,"uniqueItems":true,"items":{"enum":["artifact","creature","land"]}},
+                "non_types":{"maxItems":0},"non_colors":{"maxItems":0},"opponent":{"const":false},"tapped":{"const":false}
+            }}
+        }}}
+    }});
+    schema["$defs"]["ActivatedPermanentTapAbility"] = serde_json::json!({"required":["program","cost"],"properties":{
+        "functioning_zone":{"const":"battlefield"},
+        "cost":{"type":"object","required":["composite"],"properties":{"composite":{"type":"object","required":["costs"],"properties":{"costs":{"type":"object","required":["mana"],"properties":{
+            "tap":{"const":true},"sacrifice":{"const":false},
+            "mana":{"type":"object","properties":{"generic":{"pattern":"^(0|[1-9][0-9]*)$"},"colored":{"items":{"enum":["W","U","B","R","G"]}}}}
+        }}}}}},
+        "program":{"$ref":"#/$defs/ActivatedPermanentTapProgram"}
+    }});
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["instructions"],"properties":tap},
-        "then":{"properties":{
-            "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
-            "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
-            "instructions":{"minItems":1,"maxItems":2,"prefixItems":[
-                {"properties":{"op":{"const":"tap_permanent"},"target_slot":{"const":0}}},
-                {"properties":{"op":{"const":"draw_cards"},"recipient":{"type":"null"},"count":{"const":"1"}}}
-            ],"items":false},
-            "targets":{"minItems":1,"maxItems":1,"items":{"properties":{
-                "domain":{"const":"battlefield_creature"},"filter":{"type":"null"}
-            }}}
-        }}
+        "then":{"anyOf":[{"$ref":"#/$defs/OrdinaryTapProgram"},{"$ref":"#/$defs/ActivatedPermanentTapProgram"}]}
     }));
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "properties":{"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/TapFreeProgram"}}}}}
     }));
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["spell"],"properties":{"spell":{"type":"object","required":["instructions"],"properties":tap}}},
-        "then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},"capabilities":{"contains":{"const":Capability::TapPermanentV1}}}}
+        "then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},
+            "spell":{"$ref":"#/$defs/OrdinaryTapProgram"},"capabilities":{"contains":{"const":Capability::TapPermanentV1}}}}
+    }));
+    schema["$defs"]["ActivatedAbility"].as_object_mut().unwrap().entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["program"],"properties":{"program":{"required":["instructions"],"properties":tap}}},
+        "then":{"$ref":"#/$defs/ActivatedPermanentTapAbility"}
+    }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["activated"],"properties":{"activated":{"contains":{"required":["program"],"properties":{"program":{"required":["instructions"],"properties":tap}}}}}},
+        "then":{"properties":{"characteristics":{"properties":{"kind":{"const":"artifact"}}},"capabilities":{"allOf":[
+            {"contains":{"const":Capability::ActivatedTapPermanentV1}}, {"contains":{"const":Capability::TapPermanentV1}},
+            {"contains":{"const":Capability::ActivatedAbilityV1}}, {"contains":{"const":Capability::CompositeActivationCostV1}},
+            {"contains":{"const":Capability::PermanentRemovalV1}}, {"contains":{"const":Capability::CastArtifactV1}}
+        ]}}}
+    }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["capabilities"],"properties":{"capabilities":{"contains":{"const":Capability::ActivatedTapPermanentV1}}}},
+        "then":{"required":["activated"],"properties":{"characteristics":{"properties":{"kind":{"const":"artifact"}}},
+            "activated":{"contains":{"$ref":"#/$defs/ActivatedPermanentTapAbility"}}
+        }}
     }));
     schema["$defs"]["Definition"]["allOf"]
         .as_array_mut()
         .unwrap()
         .push(serde_json::json!({"properties":{
-            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/TapFreeProgram"}}}},
             "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/TapFreeProgram"}}}}
         }}));
     // The untap opcode is a complete ordinary spell, not a capability that
@@ -3239,6 +3329,9 @@ mod untap_tests;
 mod tap_tests;
 
 #[cfg(test)]
+mod activated_permanent_tap_tests;
+
+#[cfg(test)]
 mod permanent_owner_hand_tests;
 
 #[cfg(test)]
@@ -3304,6 +3397,7 @@ mod tests {
             TappedPermanentTargetV1,
             UntapPermanentV1,
             TapPermanentV1,
+            ActivatedTapPermanentV1,
             OwnerHandMoveV1,
             PermanentOwnerHandMoveV1,
             CastSorceryV1,
@@ -3440,6 +3534,7 @@ mod tests {
         // retained source and its complete unqualified target selection.
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
+        definitions.push(activated_permanent_tap_tests::activated_tap());
         definitions.push(permanent_owner_hand_tests::permanent_owner_hand());
         // Synthetic contract-shape witness only. Complete D2c-e source lowering
         // is checked in compiler/core tests, without fabricated expected IR.

@@ -94,7 +94,10 @@ Commander-replacement path. A separate capability fences this broader target
 domain from the existing creature-bounce hosting/search support. The later
 [headless sacrifice-pool admission](game-engine-sacrifice.md#profile) adds both
 spells to the blue default deck; hosting/search and consumer qualification remain
-separate.
+separate. A separately fenced
+[activated artifact tap](game-engine-untap-permanents.md#activated-artifact-tap)
+source/runtime slice supports complete Icy Manipulator through existing payment,
+targeting and tap events, without pool or consumer admission.
 Read Rust types and validation at the edited source; old reports retain their
 original version numbers. Active catalogs are regenerated at schema 1; distinct
 source/admission pools remain separate. Historical decoder gates and downgrade

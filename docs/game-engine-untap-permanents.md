@@ -6,7 +6,7 @@ Schema 1 also supports `TapPermanent { target_slot, source_block }` with
 `TapPermanentV1`: one unqualified battlefield-creature target in an ordinary
 instant/sorcery spell, followed by at most one mandatory controller draw-one.
 Other instructions, target filters, additional costs, modes and activated/triggered
-contexts reject. The complete Pressure Point source is pinned at
+contexts reject in this ordinary-spell form. The complete Pressure Point source is pinned at
 `tests/fixtures/d4bbdd0c-e578-49ed-b2f7-b1decb04ee87.json`, archive physical line
 32118/source index 32116: `{1}{W}`, Instant, “Tap target creature. Draw a card.”
 
@@ -17,6 +17,32 @@ repeat that legality check. Execution reuses the strict tap event and existing
 draw, payment, visibility and replay machinery (pinned CR110.5,608.2b/c,701.26a).
 This source/runtime increment adds no pool, hosting or search admission, and
 does not qualify downstream consumers for the changed schema/build.
+
+## Activated artifact tap
+
+The same tap instruction also supports a separately fenced artifact activation
+with `ActivatedTapPermanentV1` alongside `TapPermanentV1`. Its existing composite
+cost must include finite mana and tapping the source, without sacrifice. The
+battlefield ability has exactly one tap instruction and one battlefield-permanent
+target matching the artifact/creature/land union. Other filters, target domains,
+effects, modes and triggered contexts reject; ordinary tap spells keep their
+creature-only scope. No IR version, instruction field or runtime event is added.
+
+The complete Icy Manipulator record is
+`tests/fixtures/3608f1f7-8dc5-4dd1-ae91-c830e1de9529.json`, physical archive line
+8054/source index 8052: artifact `{4}`, with `{1}, {T}: Tap target artifact,
+creature, or land.` Costs, type union and provenance come from that exact source.
+The source may target itself: payment taps it, so resolution produces no second
+tap. A paid ability remains on the stack after its source leaves; a departing
+sole target instead makes the ability fail to resolve (pinned CR113.7a,
+205.2b,602.1a/2b,608.2b,701.26a in the retained 2026-09-25 rules).
+
+Focused private source configurations verify real mana/tap payments, the target
+union and atomic invalid-target rejection, source/target bounce responses,
+snapshot restore, accepted-input replay and budget/trace parity. These are not
+100-card pod witnesses. No pool, hosting/search or consumer qualification follows
+from this source/runtime slice; both tap capabilities remain outside the reviewed
+hosting/search sets.
 
 ## Permanent untap
 
