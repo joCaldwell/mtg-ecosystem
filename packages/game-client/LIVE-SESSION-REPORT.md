@@ -234,3 +234,36 @@ across builds, durable pending/unknown reconciliation, and explicit human intent
 against generated core action/context contracts. Accepted/pending, missing status,
 local stop, refresh, changed observation and timeout cannot resolve a journal.
 The read-side session is not full M0/M2–M4 acceptance or playable Commander.
+
+## Parent integration review: schema-1 requalification
+
+Runtime source `865df11bd13373b38192878764fcfc3303ae8f0b` integrates serving
+`147dec571e58a531b1229f61a9f78733c021eadf` and current schema-1/query main.
+The separate SDK qualification now pins native protocol
+`2796d38cc8dc4ef67d836fbe890ba31170869f4562c91b8edf7c6f1b91396e64`; bootstrap
+is unchanged. Historical fixture capture and provenance bytes were preserved.
+This integration includes the final loader fix and retained-input corrections,
+not only the earlier copied prerequisite. README conflict resolution keeps the
+new live setup instructions with current exports.
+
+Against the newly built native binary and fresh catalog/presentation/registry/seat
+files, one current SDK build passed 59 tests and strict types, then client fixture
+validation, types, boundaries, 34 tests and build. All 18 native browser cases,
+four restricted-proxy cases, 11 proxy security checks and 10 fixture browser cases
+passed. Initial proxy invocation ran Vite from repository cwd and failed its four
+browser cases; failure log/report is retained, corrected package-cwd launch passed
+all four afresh. No guards, retry budget or product behavior were changed to pass.
+
+The new production client automatically recovered after a 4.122-second native
+stop/durable-pause/restart. Cursor 1 became 2; the same seven-card hand and decision
+focus remained; resource_paused was distinct from a rules outcome; four subsequent
+long polls completed. No reimport, game commands, traces or capability logging.
+The standalone harness closed its browser; the native owner stopped the exact
+task host. Root `generated/review-m1/lifecycle.{mjs,json,log}` preserves this proof.
+Other new logs are in root `generated/review-m1/`; browser reports are client
+`generated/review-native-browser-report.json`, `review-proxy-fixed-browser-report.json`
+and `browser-report.json`. The native lane's `generated/review-m1/qualification.json`
+records binary/build/schema/asset hashes and copied client receipts.
+
+Earlier source-qualified receipts above remain history. This closes the schema-1
+integration gap, not command journal/send/reconciliation or gameplay acceptance.
