@@ -274,3 +274,17 @@ TypeScript, and all 47 Node tests (33 response variants). Evidence is in
 `packages/game-server/sdk/generated/verification.{log,json}`. This check uses the
 original source-qualified native export; it does not establish current-main native
 compatibility or browser/live-game acceptance. No Rust source changed in this fix.
+
+Current-main integration was then verified at `3372b40aba4f6eca29ea946d136745f83996b4c3`,
+which incorporates main `e2bfcb6a85fd0b9dbbb0f2f12ca6982baaec8bb7`. Under the shared
+Cargo lock and pinned toolchain, all 56 server library tests and the server binary
+build passed. The freshly exported protocol schema has SHA-256
+`9457a3fb0d62606530a86166cd2c921b1a20646e9268d4f2e2242c9283d14134`; bootstrap
+remains `0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a`.
+SDK verification on pinned Node 26.11.1 passed strict TypeScript and all 47 tests
+against that export, including main's newer projected effect type proof. Native
+logs, schema exports and an exact binary are retained in
+`generated/client-review-main/`; SDK verification remains under its `generated/`.
+The earlier SDK verification was copied into `client-review-main/sdk-before-main.*`
+before rechecking. This focused integration run does not repeat Clippy, browser
+HTTP or full-game acceptance, whose prior evidence keeps its original source pin.
