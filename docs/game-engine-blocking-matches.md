@@ -112,3 +112,14 @@ matrices, complete runtime/source-tooling suites, server/SDK/browser reacceptanc
 and offline retention rebuilds were omitted. This is focused development
 qualification for the named producer, not expanded hosting/search or renewed
 combined acceptance.
+
+After preserving the ordered client-stack integration, combined checkpoint
+`2de1ffb5908d2c77eb4ee4d5b007b2e6d6220225` passed workspace all-target compilation,
+the two admission tests, the accepted-pod witness, all 20 policy tests and the
+source-collector test. A fresh copied simulator identifies core build
+`5a39a51f75897cee17cced3085b449742dd5d07fc4b710816f9e302ec02f6735`;
+its complete source closure, small smoke and explicit smoke replay passed.
+These receipts use `blocking-match-combined-*`. The full completion-game evidence
+above remains qualified to its earlier producer; it was not rebuilt or relabeled.
+The client SDK qualification retains its independent native source `e86df7e7`;
+no server/SDK/browser acceptance is inferred for this newer simulator producer.
