@@ -56,7 +56,7 @@ that deals damage; CR 113.7a and 608.2h distinguish that object's action from th
 ability and retain source/LKI behavior. Synthetic, coherently rebound source
 regressions test the rejection boundary; they are not new archived card facts.
 
-Compiler-only verification passed all 131 library tests, including freshness of
+The trigger-source correction passed all 131 library tests, including freshness of
 every committed catalog, formatting and production compiler Clippy. The actual
 TypeScript parser/binder reproduction matches the retained synthetic record and
 reference graph byte for byte. Paired probes cover eight nonself event contexts,
@@ -69,6 +69,8 @@ intermediate test-classification failure remain retained alongside the passing
 `~/.local/share/mtg-ecosystem/engine-verification/correctness-loop-20261113/`.
 Runtime/replay, server/SDK, full source-tooling and release/profile matrices were
 not repeated for this compiler-only correction.
+The subsequent [damage-source binding contract](game-engine-damage-source-binding.md)
+also covers activated costs and recursively checked spell modes.
 
 The previously verified 32-definition headless profile, its IR29 catalog/digest,
 hosting/search sets and snapshot/public formats are unchanged. New capabilities
