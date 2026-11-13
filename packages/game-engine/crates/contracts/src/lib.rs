@@ -212,6 +212,7 @@ pub enum Capability {
     CreatureTargetV1,
     BlockingCreatureTargetV1,
     TappedPermanentTargetV1,
+    UntapPermanentV1,
     OwnerHandMoveV1,
     CastSorceryV1,
     OwnerLibraryTopMoveV1,
@@ -498,6 +499,10 @@ pub enum Instruction {
         source_block: u32,
     },
     ExilePermanent {
+        target_slot: u32,
+        source_block: u32,
+    },
+    UntapPermanent {
         target_slot: u32,
         source_block: u32,
     },
@@ -1333,6 +1338,18 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        if self.activated.iter().any(|a| has_untap(&a.program))
+            || self.triggered.iter().any(|a| has_untap(&a.program))
+            || self.spell.as_ref().is_some_and(|p| {
+                has_untap(p)
+                    && (!matches!(
+                        self.characteristics.kind,
+                        CardKind::Instant | CardKind::Sorcery
+                    ) || !p.modes.is_empty())
+            })
+        {
+            return Err("untap requires an ordinary nonmodal spell".into());
+        }
         if self
             .activated
             .iter()
@@ -2095,6 +2112,27 @@ fn validate_permanent_costs(c: &PermanentActivationCosts) -> Result<(), String> 
     Ok(())
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
+    if has_untap(p)
+        && (p.additional_sacrifice.is_some()
+            || !p.modes.is_empty()
+            || p.functioning_zone != FunctioningZone::Stack
+            || p.resolution != SpellResolution::Instructions
+            || p.targets.len() != 1
+            || p.targets[0].domain != TargetDomain::BattlefieldPermanent
+            || p.targets[0].filter.as_ref().is_none_or(|f| {
+                !f.types.is_empty()
+                    || !f.non_types.is_empty()
+                    || !f.non_colors.is_empty()
+                    || f.opponent
+                    || f.tapped
+            })
+            || !matches!(
+                p.instructions.as_slice(),
+                [Instruction::UntapPermanent { target_slot: 0, .. }]
+            ))
+    {
+        return Err("untap requires one unqualified permanent target and one instruction".into());
+    }
     if p.targets
         .iter()
         .any(|t| t.domain == TargetDomain::BlockingBattlefieldCreature)
@@ -2310,7 +2348,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 Some((*target_slot, TargetDomain::BattlefieldPermanent))
             }
-            Instruction::ExilePermanent { target_slot, .. } => {
+            Instruction::ExilePermanent { target_slot, .. }
+            | Instruction::UntapPermanent { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::BattlefieldPermanent))
             }
             Instruction::ChangeLifeFromTarget {
@@ -2549,6 +2588,13 @@ fn has_blocking_creature_target(program: &SpellProgram) -> bool {
             .iter()
             .any(|m| has_blocking_creature_target(&m.program))
 }
+fn has_untap(program: &SpellProgram) -> bool {
+    program
+        .instructions
+        .iter()
+        .any(|i| matches!(i, Instruction::UntapPermanent { .. }))
+        || program.modes.iter().any(|m| has_untap(&m.program))
+}
 fn has_damage_quantity_draw(program: &SpellProgram) -> bool {
     program
         .instructions
@@ -2671,6 +2717,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::DrawCards { .. } => Capability::ControllerDrawV1,
             Instruction::OptionalDrawCards { .. } => Capability::OptionalControllerDrawV1,
             Instruction::DrawDamageAmount { .. } => Capability::DamageQuantityDrawV1,
+            Instruction::UntapPermanent { .. } => Capability::UntapPermanentV1,
             Instruction::DiscardCards {
                 recipient: Some(ActionRecipient::EventPlayer),
                 ..
@@ -2892,6 +2939,39 @@ pub fn catalog_schema() -> serde_json::Value {
             "triggered":{"items":{"properties":{"program":{"properties":{"targets":{"items":{"properties":{"domain":{"not":{"const":"blocking_battlefield_creature"}}}}}}}}}}
         }
     }));
+    // The untap opcode is a complete ordinary spell, not a capability that
+    // implicitly admits activations, triggers or modal child programs.
+    schema["$defs"]["UntapFreeProgram"] = serde_json::json!({"properties":{
+        "instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"const":"untap_permanent"}}}}},
+        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/UntapFreeProgram"}}}}
+    }});
+    let untap = serde_json::json!({"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"untap_permanent"}}}}});
+    schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["instructions"],"properties":untap},
+        "then":{"properties":{
+            "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
+            "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
+            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"untap_permanent"},"target_slot":{"const":0}}}},
+            "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
+                "domain":{"const":"battlefield_permanent"},
+                "filter":{"type":"object","properties":{"types":{"maxItems":0},"non_types":{"maxItems":0},"non_colors":{"maxItems":0},"opponent":{"const":false},"tapped":{"const":false}}}
+            }}}
+        }}
+    }));
+    schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "properties":{"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/UntapFreeProgram"}}}}}
+    }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["spell"],"properties":{"spell":{"type":"object","required":["instructions"],"properties":untap}}},
+        "then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},"capabilities":{"contains":{"const":Capability::UntapPermanentV1}}}}
+    }));
+    schema["$defs"]["Definition"]["allOf"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({"properties":{
+            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/UntapFreeProgram"}}}},
+            "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/UntapFreeProgram"}}}}
+        }}));
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -2950,6 +3030,9 @@ mod catalog_lookup_tests;
 
 #[cfg(test)]
 mod tapped_target_tests;
+
+#[cfg(test)]
+mod untap_tests;
 
 #[cfg(test)]
 mod tests {
@@ -3012,6 +3095,7 @@ mod tests {
             CreatureTargetV1,
             BlockingCreatureTargetV1,
             TappedPermanentTargetV1,
+            UntapPermanentV1,
             OwnerHandMoveV1,
             CastSorceryV1,
             OwnerLibraryTopMoveV1,
@@ -3143,6 +3227,9 @@ mod tests {
             .tapped = true;
         tapped.capabilities = tapped.requirements();
         definitions.push(tapped);
+        // Complete typed untap witness; the compiler separately checks the
+        // retained source and its complete unqualified target selection.
+        definitions.push(untap_tests::untap());
         // Synthetic contract-shape witness only. Complete D2c-e source lowering
         // is checked in compiler/core tests, without fabricated expected IR.
         let mut damage = definitions

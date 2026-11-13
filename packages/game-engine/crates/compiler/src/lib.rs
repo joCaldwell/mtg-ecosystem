@@ -531,6 +531,9 @@ enum Step {
     Exile {
         what: serde_json::Value,
     },
+    Untap {
+        what: serde_json::Value,
+    },
     Destroy {
         what: serde_json::Value,
         optional: Option<bool>,
@@ -1601,6 +1604,18 @@ fn append_spell_effects(
                     target_slot: bind_permanent_target(program, slots, what)?,
                     source_block,
                 },
+                Step::Untap { what } => {
+                    if what["filter"] != serde_json::json!({"cls":"permanent"}) {
+                        return Err(unsupported(
+                            "effects.untap",
+                            "requires an unqualified permanent target",
+                        ));
+                    }
+                    Instruction::UntapPermanent {
+                        target_slot: bind_permanent_target(program, slots, what)?,
+                        source_block,
+                    }
+                }
                 Step::Destroy {
                     what,
                     optional,
@@ -8262,3 +8277,6 @@ mod activation_source_tests;
 
 #[cfg(test)]
 mod tapped_target_tests;
+
+#[cfg(test)]
+mod untap_tests;

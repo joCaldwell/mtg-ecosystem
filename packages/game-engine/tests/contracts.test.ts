@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { assertDamageTriggerSchema } from "./damage-trigger-contracts.ts";
 import { assertAttackTriggerSchema } from "./attack-trigger-contracts.ts";
 import { assertCastTriggerSchema } from "./cast-trigger-contracts.ts";
+import { assertUntapSchema } from "./untap-contracts.ts";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -37,6 +38,13 @@ function loadCatalog(name: string) {
   const report = run("catalog", "build", `packages/game-engine/tests/fixtures/catalogs/${name}.json`);
   return JSON.parse(fs.readFileSync(report.expected_ir, "utf8"));
 }
+
+test("untap schema stays within a complete ordinary spell", () => {
+  const validate = new Ajv2020({ strict: false, formats: {
+    uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
+  } }).compile(run("schema"));
+  assertUntapSchema(validate, loadCatalog("removal"));
+});
 
 test("retained archive hashes agree with JavaScript and source parser", () => {
   const provenance = JSON.parse(read("provenance.json"));
