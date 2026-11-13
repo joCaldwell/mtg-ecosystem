@@ -21,29 +21,23 @@ fn update_entry(entry: &mut StackInstance, fact: &ObjectBefore) {
         entry.source_facts = Some(fact.clone());
     }
 }
-fn update_replacement_sources(
-    tx: &mut DamageTransaction,
-    fact: &ObjectBefore,
-    control_change: bool,
-) {
+fn update_source_appearances(tx: &mut DamageTransaction, fact: &ObjectBefore) {
     for entry in &mut tx.entries {
-        if entry.source.object == fact.object
-            && (control_change || entry.replacement_source.is_some())
-        {
-            entry.replacement_source = Some(Box::new(fact.clone()));
+        if entry.source.object == fact.object {
+            entry.source_appearance = Some(Box::new(fact.clone()));
         }
     }
 }
-fn update_replacement_frame(frame: &mut Frame, fact: &ObjectBefore) {
+fn update_source_appearance_frame(frame: &mut Frame, fact: &ObjectBefore) {
     match frame {
         Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
-            update_replacement_sources(transaction, fact, true);
+            update_source_appearances(transaction, fact);
         }
-        Frame::Stabilize { resume, .. } => update_replacement_frame(resume, fact),
+        Frame::Stabilize { resume, .. } => update_source_appearance_frame(resume, fact),
         Frame::CommanderReturn { continuation, .. } => match continuation.as_mut() {
             CommanderContinuation::StateBased { resume }
             | CommanderContinuation::StateBasedBatch { resume, .. } => {
-                update_replacement_frame(resume, fact)
+                update_source_appearance_frame(resume, fact)
             }
             _ => {}
         },
@@ -81,7 +75,11 @@ fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
         | Frame::ForcedSacrifice { frame, .. }
         | Frame::OptionalDamage { frame } => update_entry(&mut frame.spell, fact),
         Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
-            update_replacement_sources(transaction, fact, false);
+            // CR 608.2h/702.2e/702.15c: every prepared source departure
+            // retains its actual last appearance, even without scoped effects.
+            // The simultaneous event path replaces this with its common prior
+            // view after all independent leaves, preserving grant/source LKI.
+            update_source_appearances(transaction, fact);
             if let DamageContinuation::Instruction { frame } = transaction.continuation.as_mut() {
                 update_entry(&mut frame.spell, fact);
             }
@@ -105,7 +103,7 @@ impl Game {
     /// The typed control transition owns this refresh. A changed controller
     /// cannot be excused merely by recomputing or discarding assignment facts.
     pub(super) fn retain_damage_control_facts(&mut self, fact: &ObjectBefore) {
-        update_replacement_frame(&mut self.state.rules.frame, fact);
+        update_source_appearance_frame(&mut self.state.rules.frame, fact);
     }
     pub(super) fn object_before(&self, object: ObjectId) -> Result<ObjectBefore, String> {
         let o = self.current(object)?;

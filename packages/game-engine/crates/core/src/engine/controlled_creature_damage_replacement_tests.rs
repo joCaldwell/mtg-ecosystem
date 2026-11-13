@@ -644,7 +644,7 @@ fn controlled_creature_damage_replacement_private_kernel_control_return_is_commo
         );
         assert_eq!(
             g.damage_transaction().unwrap().entries[0]
-                .replacement_source
+                .source_appearance
                 .is_some(),
             gv
         );
@@ -660,7 +660,7 @@ fn controlled_creature_damage_replacement_private_kernel_control_return_is_commo
         assert_eq!(g.current(damager).unwrap().controller, PlayerId(1));
         let tx = g.damage_transaction().unwrap();
         assert_eq!(tx.entries[0].source.controller, PlayerId(0));
-        let fresh = tx.entries[0].replacement_source.as_ref().unwrap();
+        let fresh = tx.entries[0].source_appearance.as_ref().unwrap();
         assert_eq!(fresh.controller, PlayerId(1));
         assert!(!fresh.attack_ready);
         if owner_leaves {
@@ -670,7 +670,7 @@ fn controlled_creature_damage_replacement_private_kernel_control_return_is_commo
             let _ = g.advance(Budget::new(1));
             assert!(g.current(damager).is_err());
             let latest = g.damage_transaction().unwrap().entries[0]
-                .replacement_source
+                .source_appearance
                 .as_ref()
                 .unwrap();
             assert_eq!(latest.owner, PlayerId(2));
@@ -828,6 +828,165 @@ fn controlled_creature_damage_replacement_private_kernel_lifelink_uses_current_c
     );
 }
 
+#[test]
+fn controlled_creature_damage_replacement_warhammer_departure_uses_current_or_latest_keywords() {
+    // All setup is source-backed: a borrowed creature/equipment is allowed by
+    // ScenarioConfig, equip is paid, and departures are accepted inputs. The
+    // common-owner case deliberately removes the lower-ID equipment first, so
+    // its creature's LKI must come from the common pre-departure battlefield.
+    for (case, damager_owner, departures, lifelink) in [
+        ("equipment_only", 0, vec![2], false),
+        ("equipment_then_creature", 3, vec![2, 3], false),
+        ("creature_then_equipment", 3, vec![3, 2], true),
+        ("common_owner", 2, vec![2], true),
+    ] {
+        let common = case == "common_owner";
+        let (pinger, hammer) = if common { (5, 1) } else { (1, 5) };
+        let mut g = game(&[
+            (FOREST, 0, 0, Zone::Battlefield),
+            (
+                if common { HAMMER } else { PRODIGAL },
+                if common { 2 } else { damager_owner },
+                0,
+                Zone::Battlefield,
+            ),
+            (HEALER, 0, 0, Zone::Battlefield),
+            (FURNACE, 0, 0, Zone::Battlefield),
+            (MOUNTAIN, 0, 0, Zone::Battlefield),
+            (
+                if common { PRODIGAL } else { HAMMER },
+                if common { damager_owner } else { 2 },
+                0,
+                Zone::Battlefield,
+            ),
+        ]);
+        let source = object(&g, pinger);
+        let equipment = object(&g, hammer);
+        answer(
+            &mut g,
+            Response::ActivateAbility {
+                object: equipment,
+                ability: 0,
+            },
+        );
+        answer(
+            &mut g,
+            Response::Targets {
+                objects: vec![source],
+            },
+        );
+        announce_tail(
+            &mut g,
+            TargetEntity::Player {
+                player: PlayerId(1),
+            },
+            None,
+        );
+        resolve(&mut g);
+        assert!(
+            g.current_keywords(source)
+                .contains(&KeywordAbility::Lifelink)
+        );
+        shield(&mut g, 2);
+        ordering(&mut g, pinger);
+        assert!(
+            g.damage_transaction().unwrap().entries[0]
+                .source
+                .keywords
+                .contains(&KeywordAbility::Lifelink)
+        );
+        recover(&g);
+        for departing in departures {
+            g.concede(PlayerId(departing)).unwrap();
+            let outcome = g.advance(Budget::new(1));
+            assert!(
+                matches!(
+                    outcome,
+                    Advance::Suspended { .. } | Advance::AwaitingDecision(_)
+                ),
+                "{case}: {outcome:?}"
+            );
+            recover(&g);
+        }
+        if damager_owner == 0 {
+            assert!(g.current(source).is_ok());
+            assert!(
+                !g.current_keywords(source)
+                    .contains(&KeywordAbility::Lifelink)
+            );
+        } else {
+            assert!(g.current(source).is_err());
+        }
+        if case == "equipment_then_creature" {
+            // This would restore the assignment-time grant instead of the
+            // actual latest LKI. Its shape is plausible; replay must reject it.
+            let mut forged: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
+            let appearance = transaction_mut(&mut forged).entries[0]
+                .source_appearance
+                .as_mut()
+                .unwrap();
+            assert!(!appearance.keywords.contains(&KeywordAbility::Lifelink));
+            appearance.keywords.push(KeywordAbility::Lifelink);
+            let mut structural = g.fork();
+            structural.state = forged.state.clone();
+            structural.validate_effect_state().unwrap();
+            forged.state_sha256 = digest(&forged.state).unwrap();
+            assert!(
+                Game::restore(
+                    g.prepared.as_ref().clone(),
+                    &serde_json::to_string(&forged).unwrap()
+                )
+                .is_err()
+            );
+        }
+        let furnace = EffectKey::Static {
+            source: object(&g, 3),
+            ability: 0,
+        };
+        choose(&mut g, furnace);
+        finish_ability(&mut g);
+        let damage = actual(&g);
+        assert_eq!(damage.len(), 1, "{case}");
+        assert_eq!(damage[0].source.object, source);
+        assert_eq!(damage[0].amount, 1.into(), "{case}");
+        assert_eq!(g.state.rules.players[1].life, 39.into(), "{case}");
+        assert_eq!(
+            g.state.rules.players[0].life,
+            if lifelink { 41.into() } else { 40.into() },
+            "{case}: current/LKI lifelink must follow the real departure order"
+        );
+        let gains = g
+            .trace
+            .records
+            .iter()
+            .filter_map(|record| {
+                let EvidenceRecord::Batch { batch } = &record.record else {
+                    return None;
+                };
+                Some(
+                    batch
+                        .occurrences
+                        .iter()
+                        .filter_map(|o| {
+                            let EventOutcome::DamageCommitted { life_gains, .. } = &o.actual else {
+                                return None;
+                            };
+                            Some(life_gains.iter())
+                        })
+                        .flatten(),
+                )
+            })
+            .flatten()
+            .collect::<Vec<_>>();
+        assert_eq!(gains.len(), usize::from(lifelink), "{case}");
+        if lifelink {
+            assert_eq!(gains[0].player, PlayerId(0));
+            assert_eq!(gains[0].amount, 1.into());
+        }
+        recover(&g);
+    }
+}
+
 fn transaction_mut(snapshot: &mut Snapshot) -> &mut DamageTransaction {
     let Frame::DamageEffects { transaction } = &mut snapshot.state.rules.frame else {
         panic!("damage effect frame");
@@ -874,7 +1033,7 @@ fn controlled_creature_damage_replacement_prefix_recovery_features_and_public_pr
                 .any(|o| matches!(o.zone, Zone::Library { .. }))
         );
         let wire = serde_json::to_string(&o).unwrap();
-        assert!(!wire.contains("replacement_source"));
+        assert!(!wire.contains("source_appearance"));
         assert!(!wire.contains("qualification"));
     }
     recover(&g);
@@ -882,7 +1041,7 @@ fn controlled_creature_damage_replacement_prefix_recovery_features_and_public_pr
     for wrong_zone in [false, true] {
         let mut bad = pending.clone();
         let source = transaction_mut(&mut bad).entries[0]
-            .replacement_source
+            .source_appearance
             .as_mut()
             .unwrap();
         if wrong_zone {

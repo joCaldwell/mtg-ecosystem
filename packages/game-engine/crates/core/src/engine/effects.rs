@@ -77,7 +77,7 @@ pub enum ResolvedEffectKind {
 #[serde(deny_unknown_fields)]
 pub struct PreparedDamage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub replacement_source: Option<Box<ObjectBefore>>,
+    pub source_appearance: Option<Box<ObjectBefore>>,
     pub source_handles: Vec<ObjectHandle>,
     pub id: DamageId,
     pub source: ObjectBefore,
@@ -433,7 +433,7 @@ impl Game {
             .enumerate()
             .map(|(i, d)| {
                 Ok(PreparedDamage {
-                    replacement_source: None,
+                    source_appearance: None,
                     source_handles: self.capture_trigger_source_handles(d.source)?,
                     id: DamageId(i as u32),
                     source: self.object_before(d.source)?,
@@ -473,7 +473,7 @@ impl Game {
             StackKind::Spell => frame.spell.effect_source_handles.clone(),
         };
         let entries = vec![PreparedDamage {
-            replacement_source: None,
+            source_appearance: None,
             source_handles: handles,
             id: DamageId(0),
             source: damage.source,
@@ -516,7 +516,7 @@ impl Game {
             .into_iter()
             .enumerate()
             .map(|(n, t)| PreparedDamage {
-                replacement_source: None,
+                source_appearance: None,
                 source_handles: handles.clone(),
                 id: DamageId(n as u32),
                 source: source.clone(),
@@ -572,7 +572,7 @@ impl Game {
             })
         }) {
             for entry in &mut entries {
-                entry.replacement_source = Some(Box::new(entry.source.clone()));
+                entry.source_appearance = Some(Box::new(entry.source.clone()));
             }
         }
         let id = DamageTransactionId(self.state.rules.next_damage_transaction_id);
@@ -613,43 +613,28 @@ impl Game {
                 .flatten(),
         }
     }
-    fn replacement_damage_source(&self, damage: &PreparedDamage) -> Result<ObjectBefore, String> {
-        // CR 609.7c/608.2h: source-property static replacements also apply to
-        // absent sources. Use current information in the expected public zone,
-        // otherwise the latest exact-incarnation LKI, never a successor.
-        if let Ok(current) = self.object_before(damage.source.object)
-            && current.zone == damage.source.zone
-        {
-            return Ok(current);
-        }
-        damage
-            .replacement_source
-            .as_deref()
-            .cloned()
-            .ok_or("missing scoped replacement source LKI".into())
-    }
-    /// CR 120.3f/702.15b/608.2h: lifelink's beneficiary follows current
-    /// control, or the latest exact-incarnation LKI after departure. Assigned
-    /// damage and its frozen keyword set remain separate immutable facts.
-    pub(super) fn damage_source_controller(
+    /// CR 608.2h/609.7c/702.2e/702.15b-c: damage-time properties use the
+    /// exact source's current public-zone appearance or its latest departure
+    /// LKI. Assignment facts separately preserve quantities and legality.
+    pub(super) fn damage_source_appearance(
         &self,
         damage: &PreparedDamage,
-    ) -> Result<PlayerId, String> {
-        let controller = if let Ok(current) = self.current(damage.source.object)
+    ) -> Result<ObjectBefore, String> {
+        let appearance = if let Ok(current) = self.object_before(damage.source.object)
             && current.zone == damage.source.zone
         {
-            current.controller
+            current
         } else {
             damage
-                .replacement_source
+                .source_appearance
                 .as_deref()
                 .unwrap_or(&damage.source)
-                .controller
+                .clone()
         };
-        if controller.0 >= 4 {
+        if appearance.controller.0 >= 4 {
             return Err("invalid damage-time source controller".into());
         }
-        Ok(controller)
+        Ok(appearance)
     }
     fn application(
         &self,
@@ -683,7 +668,7 @@ impl Game {
                 match a.effect {
                     StaticEffect::DoubleDamageToPermanentOrPlayer => {}
                     StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer => {
-                        let damage_source = self.replacement_damage_source(d)?;
+                        let damage_source = self.damage_source_appearance(d)?;
                         if !damage_source.characteristics.has_type(CardKind::Creature)
                             || damage_source.controller != o.controller
                         {
@@ -1177,7 +1162,7 @@ impl Game {
             return Err("incomplete damage transformation".into());
         }
         let mut actual = vec![];
-        let mut source_controllers = BTreeMap::new();
+        let mut source_appearances = BTreeMap::new();
         let mut cancelled = vec![];
         let mut totals: BTreeMap<(u8, u32), Quantity> = BTreeMap::new();
         let mut commanders: BTreeMap<(CardId, PlayerId), Quantity> = BTreeMap::new();
@@ -1212,7 +1197,7 @@ impl Game {
                 DamageRecipient::Creature { object } => (1, object.card.0),
             };
             totals.entry(key).or_default().add(&d.amount);
-            source_controllers.insert(d.id, self.damage_source_controller(d)?);
+            source_appearances.insert(d.id, self.damage_source_appearance(d)?);
             actual.push(ActualDamage {
                 id: d.id,
                 source: d.source.clone(),
@@ -1275,7 +1260,7 @@ impl Game {
                 current,
             });
         }
-        let life_gains = self.damage_keywords(&actual, Some(&source_controllers))?;
+        let life_gains = self.damage_keywords(&actual, Some(&source_appearances))?;
         Ok(EventOutcome::DamageCommitted {
             life_gains,
             transaction: id,
@@ -1932,7 +1917,7 @@ impl Game {
             ..current
         } == *frozen
     }
-    fn validate_replacement_source(
+    fn validate_source_appearance(
         &self,
         damage: &PreparedDamage,
         fact: &ObjectBefore,
@@ -1972,8 +1957,8 @@ impl Game {
         // Only the bounded fact refreshed by a typed ControlChanged can
         // justify changed control/readiness. Every other consumed fact remains
         // bound, and coherent historical lies still require input replay.
-        damage.replacement_source.as_deref().is_some_and(|latest| {
-            self.validate_replacement_source(damage, latest).is_ok()
+        damage.source_appearance.as_deref().is_some_and(|latest| {
+            self.validate_source_appearance(damage, latest).is_ok()
                 && self.frozen_damage_source_matches(latest, current)
         })
     }
@@ -2023,8 +2008,8 @@ impl Game {
                 return Err("damage source identity/quantity invariant".into());
             }
             self.validate_characteristic_identity(d.source.object, &d.source.characteristics)?;
-            if let Some(fact) = &d.replacement_source {
-                self.validate_replacement_source(d, fact)?;
+            if let Some(fact) = &d.source_appearance {
+                self.validate_source_appearance(d, fact)?;
             } else if scoped_live {
                 return Err("scoped replacement missing bounded source facts".into());
             }
@@ -2212,8 +2197,8 @@ impl Game {
                                 provider.object,
                                 &provider.characteristics,
                             )?;
-                            self.validate_replacement_source(d, &qualification.damage_source)?;
-                            if d.replacement_source.is_none()
+                            self.validate_source_appearance(d, &qualification.damage_source)?;
+                            if d.source_appearance.is_none()
                                 || provider.object != *source
                                 || provider.zone != Zone::Battlefield
                                 || provider.controller.0 >= 4

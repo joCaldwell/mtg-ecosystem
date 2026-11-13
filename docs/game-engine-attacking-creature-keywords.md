@@ -21,10 +21,12 @@ The scope matches current battlefield controllers and exact attacking object
 incarnations. The grant source need not attack. Tapping, attack readiness, active
 player and whether a defender remains alive do not define attacking status.
 Recipients are evaluated dynamically; granted keywords are a deduplicated union.
-Existing pre-damage source facts and simultaneous-departure LKI retain the keyword
-when appropriate. Losing a grant before damage preparation changes the current
-lethal trample assignment requirement; a prepared actual source retains its
-frozen damage facts.
+Assignment facts and simultaneous-departure LKI retain their separate meanings.
+Losing a grant before preparation changes lethal trample assignment requirements.
+Losing it after preparation preserves assigned quantities, while actual damage
+checks the surviving source's current keyword or its latest departure LKI.
+The later [damage-source appearance correction](game-engine-controlled-damage-replacement.md)
+fixes the former frozen-keyword expectation without rewriting assignments.
 
 Snow is retained on non-mana creatures only. Snow lands, other Snow card kinds,
 Snow mana producers, `{S}` payments and Snow selectors remain unsupported. The
