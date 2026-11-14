@@ -140,7 +140,7 @@ under `generated/next-three/` and `generated/five-more/`. Production compiler/co
 simulator Clippy passed; contracts used only its inherited `collapsible_if` exception.
 Full runtime, release/profile/completion, host/SDK and consumer matrices were omitted.
 
-### Current temporary-keyword family qualification
+### Temporary-keyword family qualification
 
 The controlled-target/Hexproof extension is qualified at source
 `b505e32cfb29bbfdcf5183b7480fbbd41a750ce1`, CLI producer
@@ -154,9 +154,8 @@ original engine lane. Exported schema SHA-256:
 Compiler/core/simulator production Clippy passed strictly; contracts retains only
 its inherited `collapsible_if` exception. No production-core change was needed.
 Initial owner/controller distinctions, target revalidation, Hexproof queries,
-cleanup, reentry and replay were exercised through supported actions. Current
-inputs have no control-changing operation, so same-incarnation dynamic-control
-scenarios remain explicitly unqualified rather than simulated by state mutation.
+cleanup, reentry and replay were exercised through supported actions. Those inputs had no control-changing operation, so that pass did not qualify
+same-incarnation dynamic control or substitute state mutation for such evidence.
 Existing catalog IR, playable pools, policy and host/search sets are unchanged.
 Full runtime, release/profile/completion, server/SDK and consumer matrices remain
 omitted. Later documentation-only commits do not relabel the retained producer.
@@ -191,7 +190,7 @@ four digests on the new producer and retained pre-change `b505e32c` producer. On
 historical combat golden mismatch was reproduced on both; its expected value is
 unchanged. Full demo/bundle acceptance, full runtime/release/profile/completion,
 server/SDK/consumer matrices and Node suites requiring absent dependencies remain
-unrun. Continuous Aura control sources remain wholly unsupported.
+unrun. At that source, continuous Aura control sources remained wholly unsupported.
 
 ### Continuous Aura-control family qualification
 
