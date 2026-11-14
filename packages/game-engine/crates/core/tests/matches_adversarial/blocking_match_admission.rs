@@ -7,7 +7,7 @@ fn blocking_catalog() -> Catalog {
         .expect("embedded blocking development profile")
         .catalog()
         .clone();
-    assert_eq!(catalog.definitions.len(), 40);
+    assert_eq!(catalog.definitions.len(), 42);
     catalog
 }
 fn blocking_oracle(name: &str) -> String {

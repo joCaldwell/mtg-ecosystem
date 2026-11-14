@@ -28,6 +28,7 @@
     "../healing-salve.json",
     "../samite-healer.json",
     "../yargle-and-multani.json",
+    "../9ed6f28f-a3db-48c5-9ab0-b90a7fba5f57.json",
     "../mountain.json",
     "../wall-of-wood.json",
     "../island.json",
@@ -41,7 +42,8 @@
     "../ce979f36-84f2-4419-b400-971263494cc6.json",
     "../isamaru.json",
     "../d4bbdd0c-e578-49ed-b2f7-b1decb04ee87.json",
-    "../seeds-of-strength.json"
+    "../seeds-of-strength.json",
+    "../f2902dfd-888f-4b02-b8ad-1056f0059fc3.json"
   ],
   "expected_ir": "../expected-blocking-matches-ir.json",
   "expected_digest": "blocking-matches.sha256",

@@ -3,7 +3,7 @@
 `commander-blocking-targets-v1` is a separate finite development profile. Its
 schema-1 `blocking-matches` catalog contains the 34 exact records selected by the
 foundations match catalog plus Righteousness, Swift Response, Assassinate,
-Burst of Energy, Pressure Point and Icy Manipulator.
+Burst of Energy, Pressure Point, Icy Manipulator, Royal Assassin and Ertai, Wizard Adept.
 This development pool evolves in place; its name does not select runtime rules.
 Other catalogs and decks remain unchanged.
 Neither hosting nor sampled search is requested by this profile; their reviewed
@@ -42,7 +42,7 @@ with these explicit additions to the foundations decks:
 | Seats | Commander | Composition including commander |
 | --- | --- | --- |
 | 0, 2 | Isamaru, Hound of Konda | Eleven singleton nonbasic cards, including Righteousness, Swift Response, Burst of Energy, Pressure Point and Icy Manipulator, and 89 Plains |
-| 1, 3 | Yargle and Multani | Fourteen singleton nonbasic cards, including Assassinate and Icy Manipulator, 43 Swamps and 43 Forests |
+| 1, 3 | Yargle and Multani | Fifteen singleton nonbasic cards, including Assassinate, Icy Manipulator and Royal Assassin, 43 Swamps and 42 Forests |
 
 Each deck contains 100 cards. The profile retains the frozen 2026-10-15 Commander
 policy, color-identity restrictions and completion layout; it does not claim a
@@ -76,9 +76,33 @@ provide membership authority, including for orphans. Current visible type,
 targetability and friendly control still guide selection. Ordinary Growth spells
 do not become generally reactive. No card/profile identity selects policy rules.
 
-## Current activated-tap admission
+## Current activated-interaction admission
 
-The current pool has 40 definitions, canonical digest
+The current pool has 42 definitions, canonical digest
+`3ce9a86f116df9a68a9b97f15c06315bf96d4955b44306da8956d6be0daf1093`.
+All prior 40 definitions are preserved. Royal Assassin joins each black/green
+default deck in place of one Forest. Ertai is an additional permitted blue
+commander; the four default commander choices remain unchanged. Its source is
+already legendary, a creature, blue and legal in the retained Commander data.
+This is admission through the existing source, eligibility and color rules.
+
+Separate legal-pod witnesses use actual casts and costs. The
+[Royal witness](../packages/game-engine/crates/core/tests/matches_adversarial/royal_match_admission.rs)
+casts and ages the creature, then destroys a commander tapped by real combat.
+The [Ertai witness](../packages/game-engine/crates/core/tests/matches_adversarial/activated_counter_match_admission.rs)
+casts its commander, pays its separate activation and counters an opposing
+commander spell. Both follow the affected commander's return choice and verify
+snapshots, accepted-input replay and budgets 1/4096. Royal's opening is selected
+only during setup; the counter pod uses a fixed seed without outcome selection.
+
+Public-IR policy proofs cover current target eligibility, readiness and actual
+costs. No card/profile name selects strategy. Hosting/search capability sets and
+other profiles remain unchanged, and no fresh completion or client acceptance is
+claimed for this increment.
+
+## 40-definition activated-tap admission
+
+The preceding pool has 40 definitions, canonical digest
 `0da422bca2d84ab5edb8dffcb023a1966b51b60cb35e12efae067504e504a521`.
 All prior 39 definition bodies are preserved. The complete
 [Icy Manipulator source and activation contract](game-engine-untap-permanents.md#activated-artifact-tap)

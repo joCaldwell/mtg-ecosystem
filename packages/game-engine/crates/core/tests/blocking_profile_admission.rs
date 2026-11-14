@@ -22,14 +22,14 @@ fn oracle(catalog: &Catalog, name: &str) -> String {
 }
 
 #[test]
-fn development_profile_adds_six_complete_definitions_and_admits_four_legal_decks() {
+fn development_profile_adds_eight_complete_definitions_and_admits_four_legal_decks() {
     let catalog = catalog();
     let original = Catalog::read(include_str!(
         "../../../tests/fixtures/expected-match-ir.json"
     ))
     .unwrap();
     assert_eq!(catalog.schema_version, 1);
-    assert_eq!(catalog.definitions.len(), original.definitions.len() + 6);
+    assert_eq!(catalog.definitions.len(), original.definitions.len() + 8);
     for definition in &original.definitions {
         assert_eq!(
             catalog
@@ -51,6 +51,23 @@ fn development_profile_adds_six_complete_definitions_and_admits_four_legal_decks
     let burst = oracle(&catalog, "Burst of Energy");
     let pressure = oracle(&catalog, "Pressure Point");
     let icy = oracle(&catalog, "Icy Manipulator");
+    let royal = oracle(&catalog, "Royal Assassin");
+    let ertai = oracle(&catalog, "Ertai, Wizard Adept");
+    assert!(profile.commanders.contains(&ertai));
+    assert!(
+        catalog
+            .definition_by_oracle_id(&royal)
+            .unwrap()
+            .capabilities
+            .contains(&Capability::TapSourceDestroyV1)
+    );
+    assert!(
+        catalog
+            .definition_by_oracle_id(&ertai)
+            .unwrap()
+            .capabilities
+            .contains(&Capability::ActivatedSpellCounterV1)
+    );
     assert!(
         catalog
             .definition_by_oracle_id(&icy)
@@ -73,6 +90,8 @@ fn development_profile_adds_six_complete_definitions_and_admits_four_legal_decks
             (&burst, u32::from(seat.is_multiple_of(2))),
             (&pressure, u32::from(seat.is_multiple_of(2))),
             (&icy, 1),
+            (&royal, u32::from(!seat.is_multiple_of(2))),
+            (&ertai, 0),
             (&assassinate, u32::from(!seat.is_multiple_of(2))),
         ] {
             assert_eq!(
@@ -159,6 +178,8 @@ fn blocking_profile_retains_singleton_color_and_feature_rejection() {
                     && capabilities.contains(&Capability::TappedPermanentTargetV1)
                     && capabilities.contains(&Capability::UntapPermanentV1)
                     && capabilities.contains(&Capability::ActivatedTapPermanentV1)
+                    && capabilities.contains(&Capability::TapSourceDestroyV1)
+                    && capabilities.contains(&Capability::ActivatedSpellCounterV1)
         ));
     }
 }

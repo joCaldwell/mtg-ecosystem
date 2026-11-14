@@ -1540,3 +1540,8 @@ mod untap_match_defense;
 
 #[path = "matches_adversarial/activated_tap_match_admission.rs"]
 mod activated_tap_match_admission;
+
+#[path = "matches_adversarial/activated_counter_match_admission.rs"]
+mod activated_counter_match_admission;
+#[path = "matches_adversarial/royal_match_admission.rs"]
+mod royal_match_admission;

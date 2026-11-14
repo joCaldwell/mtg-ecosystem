@@ -1820,6 +1820,99 @@
       }
     },
     {
+      "oracle_id": "9ed6f28f-a3db-48c5-9ab0-b90a7fba5f57",
+      "name": "Royal Assassin",
+      "characteristics": {
+        "kind": "creature",
+        "subtypes": [
+          "Human",
+          "Assassin"
+        ],
+        "basic": false,
+        "legendary": false,
+        "mana_cost": {
+          "generic": "1",
+          "colored": [
+            "B",
+            "B"
+          ]
+        },
+        "colors": [
+          "B"
+        ],
+        "color_identity": [
+          "B"
+        ],
+        "power": "1",
+        "toughness": "1"
+      },
+      "intrinsic_zone": null,
+      "spell": {
+        "timing": "main_phase",
+        "resolution": "permanent",
+        "functioning_zone": "stack",
+        "targets": [],
+        "instructions": []
+      },
+      "activated": [
+        {
+          "functioning_zone": "battlefield",
+          "cost": "tap_source",
+          "program": {
+            "timing": "instant",
+            "resolution": "instructions",
+            "functioning_zone": "stack",
+            "targets": [
+              {
+                "slot": 0,
+                "selection_id": "line:0:3",
+                "chooser": "controller",
+                "stage": "announcement",
+                "domain": "battlefield_permanent",
+                "filter": {
+                  "types": [
+                    "creature"
+                  ],
+                  "non_types": [],
+                  "non_colors": [],
+                  "opponent": false,
+                  "tapped": true
+                }
+              }
+            ],
+            "instructions": [
+              {
+                "op": "destroy_permanent",
+                "target_slot": 0,
+                "source_block": 0
+              }
+            ]
+          }
+        }
+      ],
+      "capabilities": [
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "tapped_permanent_target_v1",
+        "tap_source_destroy_v1",
+        "activated_ability_v1",
+        "tap_source_cost_v1",
+        "permanent_removal_v1"
+      ],
+      "provenance": {
+        "printing_id": "67ef9842-7142-4c63-8aea-fa73f02722a5",
+        "source_index": 23960,
+        "source_sha256": "54841f5273ac6fe42a52c8f6d2b76c714ebe648f2f97ce4aaedc522a44569872",
+        "ast_sha256": "f5300678d7d31104d7ec9bb3d40099f7aa78bc2dbe2c36e39bc5ebe8904ba254",
+        "binding_sha256": "d4b95e0216d6f1ac8dade0b60e1f3c6f35e4b809a601713724c25fb23172767b",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "source_json": "{\"object\":\"card\",\"id\":\"67ef9842-7142-4c63-8aea-fa73f02722a5\",\"oracle_id\":\"9ed6f28f-a3db-48c5-9ab0-b90a7fba5f57\",\"multiverse_ids\":[598975],\"mtgo_id\":107691,\"tcgplayer_id\":457186,\"cardmarket_id\":688501,\"name\":\"Royal Assassin\",\"lang\":\"en\",\"released_at\":\"2023-01-13\",\"uri\":\"https://api.scryfall.com/cards/67ef9842-7142-4c63-8aea-fa73f02722a5\",\"scryfall_uri\":\"https://scryfall.com/card/dmr/101/royal-assassin?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T04:54:31Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/6/7/67ef9842-7142-4c63-8aea-fa73f02722a5.jpg?1783918471\",\"normal\":\"https://cards.scryfall.io/normal/front/6/7/67ef9842-7142-4c63-8aea-fa73f02722a5.jpg?1783918471\",\"large\":\"https://cards.scryfall.io/large/front/6/7/67ef9842-7142-4c63-8aea-fa73f02722a5.jpg?1783918471\",\"png\":\"https://cards.scryfall.io/png/front/6/7/67ef9842-7142-4c63-8aea-fa73f02722a5.png?1783918471\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/6/7/67ef9842-7142-4c63-8aea-fa73f02722a5.jpg?1783918471\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/6/7/67ef9842-7142-4c63-8aea-fa73f02722a5.jpg?1783918471\",\"thumb\":\"https://cards.scryfall.io/thumb/front/6/7/67ef9842-7142-4c63-8aea-fa73f02722a5.webp?1783918471\",\"grid\":\"https://cards.scryfall.io/grid/front/6/7/67ef9842-7142-4c63-8aea-fa73f02722a5.webp?1783918471\",\"display\":\"https://cards.scryfall.io/display/front/6/7/67ef9842-7142-4c63-8aea-fa73f02722a5.webp?1783918471\",\"art\":\"https://cards.scryfall.io/art/front/6/7/67ef9842-7142-4c63-8aea-fa73f02722a5.webp?1783918471\",\"crop\":\"https://cards.scryfall.io/crop/front/6/7/67ef9842-7142-4c63-8aea-fa73f02722a5.webp?1783918471\"},\"mana_cost\":\"{1}{B}{B}\",\"cmc\":3,\"type_line\":\"Creature — Human Assassin\",\"oracle_text\":\"{T}: Destroy target tapped creature.\",\"power\":\"1\",\"toughness\":\"1\",\"colors\":[\"B\"],\"color_identity\":[\"B\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"not_legal\",\"timeless\":\"not_legal\",\"gladiator\":\"not_legal\",\"pioneer\":\"not_legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"not_legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"not_legal\",\"competitivebrawl\":\"not_legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"not_legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"legal\",\"predh\":\"legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"ca4c2884-e539-4b7f-980d-5d6a50220f2a\",\"set\":\"dmr\",\"set_name\":\"Dominaria Remastered\",\"set_type\":\"masters\",\"set_uri\":\"https://api.scryfall.com/sets/ca4c2884-e539-4b7f-980d-5d6a50220f2a\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Admr&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/dmr?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/67ef9842-7142-4c63-8aea-fa73f02722a5/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A9ed6f28f-a3db-48c5-9ab0-b90a7fba5f57&unique=prints\",\"collector_number\":\"101\",\"digital\":false,\"rarity\":\"rare\",\"flavor_text\":\"Trained in the arts of stealth, royal assassins choose their victims carefully, relying on timing and precision rather than brute force.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Mark Zug\",\"artist_ids\":[\"48e2b98c-5467-4671-bd42-4c3746115117\"],\"illustration_id\":\"6c24a711-fc33-4cd0-9fe8-a4dca296a0a6\",\"border_color\":\"black\",\"frame\":\"2015\",\"security_stamp\":\"oval\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":2289,\"penny_rank\":8384,\"prices\":{\"usd\":\"0.40\",\"usd_foil\":\"0.50\",\"usd_etched\":null,\"eur\":\"0.44\",\"eur_foil\":\"0.59\",\"tix\":\"0.03\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=598975&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DRoyal%2BAssassin\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DRoyal%2BAssassin\",\"edhrec\":\"https://edhrec.com/route/?cc=Royal+Assassin\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F457186%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=688501&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/107691?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "abilities_json": "[{\"kind\":\"activated\",\"costs\":[{\"cost\":\"tap-self\"}],\"effects\":[{\"steps\":[{\"effect\":\"destroy\",\"what\":{\"ref\":\"target\",\"filter\":{\"status\":[\"tapped\"],\"types\":[\"creature\"]},\"count\":{\"amount\":\"fixed\",\"value\":1},\"selectionId\":\"line:0:3\"}}]}]}]"
+      }
+    },
+    {
       "oracle_id": "a3fb7228-e76b-4e96-a40e-20b5fed75685",
       "name": "Mountain",
       "characteristics": {
@@ -2673,6 +2766,104 @@
         "parser_sha256": "98980a967a70d57008847ce0952edf0cc277af9ad26b8cb8739a555d97082b8d",
         "source_json": "{\"object\":\"card\",\"id\":\"bfa1ac13-adbd-439a-90b2-9c506aec0836\",\"oracle_id\":\"dd3d4d96-1e88-49e1-8276-7f62c22ad91a\",\"multiverse_ids\":[89075],\"mtgo_id\":23468,\"mtgo_foil_id\":23469,\"tcgplayer_id\":13406,\"cardmarket_id\":13521,\"name\":\"Seeds of Strength\",\"lang\":\"en\",\"released_at\":\"2005-10-07\",\"uri\":\"https://api.scryfall.com/cards/bfa1ac13-adbd-439a-90b2-9c506aec0836\",\"scryfall_uri\":\"https://scryfall.com/card/rav/227/seeds-of-strength?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T11:53:33Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/b/f/bfa1ac13-adbd-439a-90b2-9c506aec0836.jpg?1783943613\",\"normal\":\"https://cards.scryfall.io/normal/front/b/f/bfa1ac13-adbd-439a-90b2-9c506aec0836.jpg?1783943613\",\"large\":\"https://cards.scryfall.io/large/front/b/f/bfa1ac13-adbd-439a-90b2-9c506aec0836.jpg?1783943613\",\"png\":\"https://cards.scryfall.io/png/front/b/f/bfa1ac13-adbd-439a-90b2-9c506aec0836.png?1783943613\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/b/f/bfa1ac13-adbd-439a-90b2-9c506aec0836.jpg?1783943613\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/b/f/bfa1ac13-adbd-439a-90b2-9c506aec0836.jpg?1783943613\",\"thumb\":\"https://cards.scryfall.io/thumb/front/b/f/bfa1ac13-adbd-439a-90b2-9c506aec0836.webp?1783943613\",\"grid\":\"https://cards.scryfall.io/grid/front/b/f/bfa1ac13-adbd-439a-90b2-9c506aec0836.webp?1783943613\",\"display\":\"https://cards.scryfall.io/display/front/b/f/bfa1ac13-adbd-439a-90b2-9c506aec0836.webp?1783943613\",\"art\":\"https://cards.scryfall.io/art/front/b/f/bfa1ac13-adbd-439a-90b2-9c506aec0836.webp?1783943613\",\"crop\":\"https://cards.scryfall.io/crop/front/b/f/bfa1ac13-adbd-439a-90b2-9c506aec0836.webp?1783943613\"},\"mana_cost\":\"{G}{W}\",\"cmc\":2,\"type_line\":\"Instant\",\"oracle_text\":\"Target creature gets +1/+1 until end of turn.\\nTarget creature gets +1/+1 until end of turn.\\nTarget creature gets +1/+1 until end of turn.\",\"colors\":[\"G\",\"W\"],\"color_identity\":[\"G\",\"W\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"not_legal\",\"timeless\":\"not_legal\",\"gladiator\":\"not_legal\",\"pioneer\":\"not_legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"not_legal\",\"competitivebrawl\":\"not_legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":false,\"variation\":false,\"set_id\":\"15fccbe8-2825-41ca-9d0a-67aebdf91c4a\",\"set\":\"rav\",\"set_name\":\"Ravnica: City of Guilds\",\"set_type\":\"expansion\",\"set_uri\":\"https://api.scryfall.com/sets/15fccbe8-2825-41ca-9d0a-67aebdf91c4a\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Arav&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/rav?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/bfa1ac13-adbd-439a-90b2-9c506aec0836/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3Add3d4d96-1e88-49e1-8276-7f62c22ad91a&unique=prints\",\"collector_number\":\"227\",\"digital\":false,\"rarity\":\"common\",\"watermark\":\"selesnya\",\"flavor_text\":\"Beneath the beauty of light and seed is the might of Vitu-Ghazi.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Ralph Horsley\",\"artist_ids\":[\"a51444a8-eb4b-4615-a663-d1d418591ccb\"],\"illustration_id\":\"fd4e7ef1-6e45-47fe-994a-8c7732dac4d0\",\"border_color\":\"black\",\"frame\":\"2003\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":26747,\"penny_rank\":17636,\"prices\":{\"usd\":\"0.09\",\"usd_foil\":\"0.83\",\"usd_etched\":null,\"eur\":\"0.12\",\"eur_foil\":\"0.26\",\"tix\":\"0.03\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=89075&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DSeeds%2Bof%2BStrength\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DSeeds%2Bof%2BStrength\",\"edhrec\":\"https://edhrec.com/route/?cc=Seeds+of+Strength\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F13406%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=13521&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/23468?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
         "abilities_json": "[{\"kind\":\"spell\",\"effects\":[{\"steps\":[{\"effect\":\"pump\",\"what\":{\"ref\":\"target\",\"filter\":{\"types\":[\"creature\"]},\"count\":{\"amount\":\"fixed\",\"value\":1},\"selectionId\":\"line:0:0\"},\"power\":{\"sign\":1,\"amount\":{\"amount\":\"fixed\",\"value\":1}},\"toughness\":{\"sign\":1,\"amount\":{\"amount\":\"fixed\",\"value\":1}},\"duration\":{\"duration\":\"end-of-turn\"}}]}]},{\"kind\":\"spell\",\"effects\":[{\"steps\":[{\"effect\":\"pump\",\"what\":{\"ref\":\"target\",\"filter\":{\"types\":[\"creature\"]},\"count\":{\"amount\":\"fixed\",\"value\":1},\"selectionId\":\"line:1:0\"},\"power\":{\"sign\":1,\"amount\":{\"amount\":\"fixed\",\"value\":1}},\"toughness\":{\"sign\":1,\"amount\":{\"amount\":\"fixed\",\"value\":1}},\"duration\":{\"duration\":\"end-of-turn\"}}]}]},{\"kind\":\"spell\",\"effects\":[{\"steps\":[{\"effect\":\"pump\",\"what\":{\"ref\":\"target\",\"filter\":{\"types\":[\"creature\"]},\"count\":{\"amount\":\"fixed\",\"value\":1},\"selectionId\":\"line:2:0\"},\"power\":{\"sign\":1,\"amount\":{\"amount\":\"fixed\",\"value\":1}},\"toughness\":{\"sign\":1,\"amount\":{\"amount\":\"fixed\",\"value\":1}},\"duration\":{\"duration\":\"end-of-turn\"}}]}]}]"
+      }
+    },
+    {
+      "oracle_id": "f2902dfd-888f-4b02-b8ad-1056f0059fc3",
+      "name": "Ertai, Wizard Adept",
+      "characteristics": {
+        "kind": "creature",
+        "subtypes": [
+          "Human",
+          "Wizard"
+        ],
+        "basic": false,
+        "legendary": true,
+        "mana_cost": {
+          "generic": "2",
+          "colored": [
+            "U"
+          ]
+        },
+        "colors": [
+          "U"
+        ],
+        "color_identity": [
+          "U"
+        ],
+        "power": "1",
+        "toughness": "1"
+      },
+      "intrinsic_zone": null,
+      "spell": {
+        "timing": "main_phase",
+        "resolution": "permanent",
+        "functioning_zone": "stack",
+        "targets": [],
+        "instructions": []
+      },
+      "activated": [
+        {
+          "functioning_zone": "battlefield",
+          "cost": {
+            "composite": {
+              "costs": {
+                "tap": true,
+                "mana": {
+                  "generic": "2",
+                  "colored": [
+                    "U",
+                    "U"
+                  ]
+                },
+                "sacrifice": false
+              }
+            }
+          },
+          "program": {
+            "timing": "instant",
+            "resolution": "instructions",
+            "functioning_zone": "stack",
+            "targets": [
+              {
+                "slot": 0,
+                "selection_id": "line:0:7",
+                "chooser": "controller",
+                "stage": "announcement",
+                "domain": "stack_spell"
+              }
+            ],
+            "instructions": [
+              {
+                "op": "counter_stack_object",
+                "target_slot": 0,
+                "source_block": 0
+              }
+            ]
+          }
+        }
+      ],
+      "capabilities": [
+        "composite_activation_cost_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "commander_identity_v1",
+        "cast_creature_v1",
+        "activated_spell_counter_v1",
+        "activated_ability_v1",
+        "stack_spell_target_v1",
+        "counter_stack_object_v1"
+      ],
+      "provenance": {
+        "printing_id": "91971e19-61ce-45ac-b700-9ffca5091a27",
+        "source_index": 36694,
+        "source_sha256": "83a1f96cd65c927188b3f53e50a4979df0e3ce6e04a9a0ad355b7dcb2eaee53d",
+        "ast_sha256": "f80cfe06818916986406db7c11b49354787f462b5ef6a61e5dc48df212359d4d",
+        "binding_sha256": "57b10b00209edd7a49accbe640eb07291b2c0efff4303fca761f8cd94abb8435",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "source_json": "{\"object\":\"card\",\"id\":\"91971e19-61ce-45ac-b700-9ffca5091a27\",\"oracle_id\":\"f2902dfd-888f-4b02-b8ad-1056f0059fc3\",\"multiverse_ids\":[5146],\"mtgo_id\":10457,\"mtgo_foil_id\":10458,\"tcgplayer_id\":4323,\"cardmarket_id\":9261,\"name\":\"Ertai, Wizard Adept\",\"lang\":\"en\",\"released_at\":\"1998-06-15\",\"uri\":\"https://api.scryfall.com/cards/91971e19-61ce-45ac-b700-9ffca5091a27\",\"scryfall_uri\":\"https://scryfall.com/card/exo/33/ertai-wizard-adept?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T12:42:05Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.jpg?1783946525\",\"normal\":\"https://cards.scryfall.io/normal/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.jpg?1783946525\",\"large\":\"https://cards.scryfall.io/large/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.jpg?1783946525\",\"png\":\"https://cards.scryfall.io/png/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.png?1783946525\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.jpg?1783946525\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.jpg?1783946525\",\"thumb\":\"https://cards.scryfall.io/thumb/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.webp?1783946525\",\"grid\":\"https://cards.scryfall.io/grid/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.webp?1783946525\",\"display\":\"https://cards.scryfall.io/display/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.webp?1783946525\",\"art\":\"https://cards.scryfall.io/art/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.webp?1783946525\",\"crop\":\"https://cards.scryfall.io/crop/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.webp?1783946525\"},\"mana_cost\":\"{2}{U}\",\"cmc\":3,\"type_line\":\"Legendary Creature — Human Wizard\",\"oracle_text\":\"{2}{U}{U}, {T}: Counter target spell.\",\"power\":\"1\",\"toughness\":\"1\",\"colors\":[\"U\"],\"color_identity\":[\"U\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"not_legal\",\"timeless\":\"not_legal\",\"gladiator\":\"not_legal\",\"pioneer\":\"not_legal\",\"modern\":\"not_legal\",\"legacy\":\"legal\",\"pauper\":\"not_legal\",\"vintage\":\"legal\",\"penny\":\"not_legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"not_legal\",\"competitivebrawl\":\"not_legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"not_legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"legal\",\"predh\":\"legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"mtgo\"],\"reserved\":true,\"game_changer\":false,\"foil\":false,\"nonfoil\":true,\"finishes\":[\"nonfoil\"],\"oversized\":false,\"promo\":false,\"reprint\":false,\"variation\":false,\"set_id\":\"1401f7af-2e71-476d-9813-991084ed0bb9\",\"set\":\"exo\",\"set_name\":\"Exodus\",\"set_type\":\"expansion\",\"set_uri\":\"https://api.scryfall.com/sets/1401f7af-2e71-476d-9813-991084ed0bb9\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Aexo&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/exo?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/91971e19-61ce-45ac-b700-9ffca5091a27/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3Af2902dfd-888f-4b02-b8ad-1056f0059fc3&unique=prints\",\"collector_number\":\"33\",\"digital\":false,\"rarity\":\"rare\",\"flavor_text\":\"\\\"Was that *it*?\\\"\\n—Ertai, wizard adept\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Terese Nielsen\",\"artist_ids\":[\"eb55171c-2342-45f4-a503-2d5a75baf752\"],\"illustration_id\":\"482f321e-c579-4693-91bc-034e5c75c2c8\",\"border_color\":\"black\",\"frame\":\"1997\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":18657,\"prices\":{\"usd\":\"12.83\",\"usd_foil\":null,\"usd_etched\":null,\"eur\":\"4.12\",\"eur_foil\":null,\"tix\":\"0.07\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=5146&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DErtai%252C%2BWizard%2BAdept\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DErtai%252C%2BWizard%2BAdept\",\"edhrec\":\"https://edhrec.com/route/?cc=Ertai%2C+Wizard+Adept\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F4323%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=9261&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/10457?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "abilities_json": "[{\"kind\":\"activated\",\"costs\":[{\"cost\":\"mana\",\"symbols\":[\"2\",\"U\",\"U\"]},{\"cost\":\"tap-self\"}],\"effects\":[{\"steps\":[{\"effect\":\"counter\",\"what\":{\"ref\":\"target\",\"filter\":{\"cls\":\"spell\"},\"count\":{\"amount\":\"fixed\",\"value\":1},\"selectionId\":\"line:0:7\"}}]}]}]"
       }
     }
   ]

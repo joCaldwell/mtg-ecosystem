@@ -106,7 +106,11 @@ through the existing activation completion path, without pool or consumer
 admission.
 A separate [activated spell-counter foundation](game-engine-stack-costs.md#activated-spell-counter-foundation)
 supports complete Ertai, Wizard Adept with stack-target routing, composite
-payment and invocation/snapshot validation, without pool or consumer admission.
+payment and invocation/snapshot validation. Their subsequent
+[headless interaction admission](game-engine-blocking-matches.md#current-activated-interaction-admission)
+adds Royal to black/green defaults and permits Ertai as a blue commander, with
+paid legal-pod and commander-return/replay proofs. Hosting/search and consumer
+qualification remain separate.
 Read Rust types and validation at the edited source; old reports retain their
 original version numbers. Active catalogs are regenerated at schema 1; distinct
 source/admission pools remain separate. Historical decoder gates and downgrade

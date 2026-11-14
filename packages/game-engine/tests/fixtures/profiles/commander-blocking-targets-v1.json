@@ -7,7 +7,8 @@
   },
   "commanders": [
     "cfb756dd-6fe1-430a-8f04-8b10cac62a86",
-    "980e1721-3717-4425-95a4-938dbf2ac661"
+    "980e1721-3717-4425-95a4-938dbf2ac661",
+    "f2902dfd-888f-4b02-b8ad-1056f0059fc3"
   ],
   "decks": [
     {
@@ -114,11 +115,15 @@
           "oracle_id": "980e1721-3717-4425-95a4-938dbf2ac661"
         },
         {
+          "oracle_id": "9ed6f28f-a3db-48c5-9ab0-b90a7fba5f57",
+          "count": 1
+        },
+        {
           "count": 1,
           "oracle_id": "aa5e6894-8c97-46f8-a0fd-07c6db51e9a7"
         },
         {
-          "count": 43,
+          "count": 42,
           "oracle_id": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6"
         },
         {
@@ -236,11 +241,15 @@
           "oracle_id": "980e1721-3717-4425-95a4-938dbf2ac661"
         },
         {
+          "oracle_id": "9ed6f28f-a3db-48c5-9ab0-b90a7fba5f57",
+          "count": 1
+        },
+        {
           "count": 1,
           "oracle_id": "aa5e6894-8c97-46f8-a0fd-07c6db51e9a7"
         },
         {
-          "count": 43,
+          "count": 42,
           "oracle_id": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6"
         },
         {

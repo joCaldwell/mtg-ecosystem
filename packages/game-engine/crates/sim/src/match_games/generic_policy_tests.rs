@@ -2432,3 +2432,289 @@ mod activated_permanent_tap_policy_tests {
         );
     }
 }
+
+// Synthetic permitted-view probes over admitted source IR; paid game inputs
+// and replay are qualified separately by core's accepted-pod witnesses.
+mod activated_headless_policy_tests {
+    use super::*;
+
+    fn baseline() -> (Catalog, PermittedView) {
+        let c = mtg_compiler::catalog::embedded_catalog("blocking-matches").unwrap();
+        assert_eq!(
+            &c,
+            mtg_core::match_profile("commander-blocking-targets-v1")
+                .unwrap()
+                .catalog()
+        );
+        let mut v = wipe_tests::view(&mtg_compiler::catalog::embedded_catalog("wipes").unwrap());
+        v.active = Some(v.viewer);
+        v.turn_owner = v.viewer;
+        v.priority = Some(v.viewer);
+        v.turn.step = TurnStep::PrecombatMain;
+        v.turn.lands_played = 1;
+        v.players
+            .iter_mut()
+            .find(|p| p.player == v.viewer)
+            .unwrap()
+            .mana
+            .clear();
+        (c, v)
+    }
+    fn proposed_activation(v: &mut PermittedView, d: &Definition, source: &str) {
+        v.stack.push(VisibleStackEntry {
+            x: None,
+            mana_value: None,
+            mode: None,
+            triggered: None,
+            entity_targets: vec![],
+            handle: Some(StackHandle("policy-activation".into())),
+            stack_targets: vec![],
+            spell: None,
+            ability: Some(mtg_core::VisibleAbility {
+                oracle_id: d.oracle_id.clone(),
+                ability: 0,
+                handle: StackHandle("policy-activation".into()),
+                source: mtg_core::VisibleTarget {
+                    announced: ObjectHandle(source.into()),
+                    current: Some(ObjectHandle(source.into())),
+                },
+            }),
+            player_targets: vec![],
+            controller: v.viewer,
+            cast_complete: false,
+            targets: vec![],
+        });
+    }
+
+    #[test]
+    fn royal_policy_uses_mature_zero_mana_source_and_current_enemy_tapped_creature() {
+        let (c, mut v) = baseline();
+        let d = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Royal Assassin")
+            .unwrap();
+        assert!(
+            d.capabilities
+                .contains(&mtg_contracts::Capability::TapSourceDestroyV1)
+        );
+        assert_eq!(d.activated[0].cost, ActivationCost::TapSource);
+        let p = &d.activated[0].program;
+        assert!(p.targets[0].filter.as_ref().unwrap().tapped);
+        let mut source = wipe_tests::card(&c, "Royal Assassin", v.viewer.0, Zone::Battlefield);
+        source.handle = ObjectHandle("royal-source".into());
+        let mut tapped = wipe_tests::card(&c, "Isamaru, Hound of Konda", 0, Zone::Battlefield);
+        tapped.handle = ObjectHandle("enemy-tapped".into());
+        tapped.tapped = true;
+        let mut untapped = wipe_tests::card(&c, "Grizzly Bears", 0, Zone::Battlefield);
+        untapped.handle = ObjectHandle("enemy-untapped".into());
+        let mut own =
+            wipe_tests::card(&c, "Isamaru, Hound of Konda", v.viewer.0, Zone::Battlefield);
+        own.handle = ObjectHandle("own-tapped".into());
+        own.tapped = true;
+        v.objects = vec![source, tapped, untapped, own];
+        let before = canonical(&v).unwrap();
+        let mut s = strategy(&c);
+        assert_eq!(
+            s.priority(&observation(v.clone())).unwrap(),
+            PlayerResponse::ActivateAbility {
+                object: ObjectHandle("royal-source".into()),
+                ability: 0
+            }
+        );
+        assert!(s.mana_plan.is_empty(), "source-tap has no mana payment");
+        assert_eq!(
+            s.object_target(&v, d, p, &p.targets[0], None),
+            Some(ObjectHandle("enemy-tapped".into()))
+        );
+        for handle in ["enemy-untapped", "own-tapped", "stale"] {
+            assert_eq!(
+                s.object_target(
+                    &v,
+                    d,
+                    p,
+                    &p.targets[0],
+                    Some(&[ObjectHandle(handle.into())])
+                ),
+                None
+            );
+        }
+        assert_eq!(canonical(&v).unwrap(), before);
+        for case in [
+            "fresh",
+            "source-tapped",
+            "enemy-untapped",
+            "own",
+            "opponent-priority",
+            "combat-priority",
+        ] {
+            let mut v = v.clone();
+            match case {
+                "fresh" => v.objects[0].attack_ready = false,
+                "source-tapped" => v.objects[0].tapped = true,
+                "enemy-untapped" => v.objects[1].tapped = false,
+                "own" => v.objects[1].controller = v.viewer,
+                "opponent-priority" => {
+                    v.active = Some(PlayerId(0));
+                    v.turn_owner = PlayerId(0);
+                }
+                "combat-priority" => v.turn.step = TurnStep::DeclareAttackers,
+                _ => unreachable!(),
+            }
+            let before = canonical(&v).unwrap();
+            assert_eq!(
+                strategy(&c).priority(&observation(v.clone())).unwrap(),
+                PlayerResponse::Pass,
+                "{case}"
+            );
+            assert_eq!(canonical(&v).unwrap(), before);
+        }
+        proposed_activation(&mut v, d, "royal-source");
+        let mut o = observation(v);
+        o.decision = Some(PlayerRequest::Targets {
+            token: mtg_core::DecisionToken("royal-payload".into()),
+            player: o.view.viewer,
+            occurrences: p.targets.clone(),
+            candidates: vec![
+                ObjectHandle("own-tapped".into()),
+                ObjectHandle("enemy-tapped".into()),
+            ],
+        });
+        let before = canonical(&o).unwrap();
+        assert_eq!(
+            strategy(&c).choose(&o).unwrap(),
+            PlayerResponse::Targets {
+                objects: vec![ObjectHandle("enemy-tapped".into())]
+            }
+        );
+        assert_eq!(canonical(&o).unwrap(), before);
+    }
+
+    #[test]
+    fn ertai_policy_reacts_to_completed_enemy_spell_with_independent_four_island_plan() {
+        let (c, mut v) = baseline();
+        let d = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Ertai, Wizard Adept")
+            .unwrap();
+        assert!(
+            d.capabilities
+                .contains(&mtg_contracts::Capability::ActivatedSpellCounterV1)
+        );
+        assert!(
+            matches!(&d.activated[0].cost, ActivationCost::Composite { costs }
+            if costs.tap && !costs.sacrifice && costs.mana.as_ref().is_some_and(|m| m.generic == Quantity::from(2) && m.colored == [Color::U, Color::U]))
+        );
+        let p = &d.activated[0].program;
+        v.active = Some(PlayerId(0));
+        v.turn_owner = PlayerId(0);
+        let mut source = wipe_tests::card(&c, "Ertai, Wizard Adept", v.viewer.0, Zone::Battlefield);
+        source.handle = ObjectHandle("ertai-source".into());
+        v.objects = vec![source];
+        for n in 0..4 {
+            let mut island = wipe_tests::card(&c, "Island", v.viewer.0, Zone::Battlefield);
+            island.handle = ObjectHandle(format!("counter-island-{n}"));
+            v.objects.push(island);
+        }
+        // cast_complete is the public completed-payment/cast boundary; this
+        // synthetic payload does not itself claim a gameplay payment receipt.
+        stack_spell(&mut v, &c, "Icy Manipulator", 0);
+        assert!(v.stack[0].cast_complete);
+        let enemy_spell = StackHandle("Icy Manipulator".into());
+        let before = canonical(&v).unwrap();
+        let mut s = strategy(&c);
+        assert_eq!(
+            s.priority(&observation(v.clone())).unwrap(),
+            PlayerResponse::ActivateAbility {
+                object: ObjectHandle("ertai-source".into()),
+                ability: 0
+            }
+        );
+        let mut plan = s
+            .mana_plan
+            .iter()
+            .map(|p| p.source.0.clone())
+            .collect::<Vec<_>>();
+        plan.sort();
+        assert_eq!(
+            plan,
+            (0..4)
+                .map(|n| format!("counter-island-{n}"))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            s.stack_target(&v, &p.targets[0], None),
+            Some(enemy_spell.clone())
+        );
+        assert_eq!(
+            s.stack_target(&v, &p.targets[0], Some(&[StackHandle("foreign".into())])),
+            None
+        );
+        assert_eq!(canonical(&v).unwrap(), before);
+        for case in [
+            "fresh",
+            "source-tapped",
+            "three-islands",
+            "empty-stack",
+            "own-spell",
+            "incomplete",
+            "ability",
+        ] {
+            let mut v = v.clone();
+            match case {
+                "fresh" => v.objects[0].attack_ready = false,
+                "source-tapped" => v.objects[0].tapped = true,
+                "three-islands" => v.objects[1].tapped = true,
+                "empty-stack" => v.stack.clear(),
+                "own-spell" => v.stack[0].controller = v.viewer,
+                "incomplete" => v.stack[0].cast_complete = false,
+                "ability" => {
+                    v.stack[0].spell = None;
+                    v.stack[0].ability = Some(mtg_core::VisibleAbility {
+                        oracle_id: d.oracle_id.clone(),
+                        ability: 0,
+                        handle: enemy_spell.clone(),
+                        source: mtg_core::VisibleTarget {
+                            announced: ObjectHandle("departed-counter-source".into()),
+                            current: None,
+                        },
+                    });
+                }
+                _ => unreachable!(),
+            }
+            let before = canonical(&v).unwrap();
+            assert_eq!(
+                strategy(&c).priority(&observation(v.clone())).unwrap(),
+                PlayerResponse::Pass,
+                "{case}"
+            );
+            assert_eq!(canonical(&v).unwrap(), before);
+        }
+        proposed_activation(&mut v, d, "ertai-source");
+        assert_eq!(
+            strategy(&c).stack_target(
+                &v,
+                &p.targets[0],
+                Some(&[StackHandle("policy-activation".into())])
+            ),
+            None,
+            "direct preference cannot turn an offered ability handle into a spell target; mandatory fallback is separate"
+        );
+        let mut o = observation(v);
+        o.decision = Some(PlayerRequest::StackTargets {
+            token: mtg_core::DecisionToken("ertai-payload".into()),
+            player: o.view.viewer,
+            occurrences: p.targets.clone(),
+            candidates: vec![enemy_spell.clone()],
+        });
+        let before = canonical(&o).unwrap();
+        assert_eq!(
+            strategy(&c).choose(&o).unwrap(),
+            PlayerResponse::StackTargets {
+                entries: vec![enemy_spell]
+            }
+        );
+        assert_eq!(canonical(&o).unwrap(), before);
+    }
+}
