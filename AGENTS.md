@@ -44,6 +44,9 @@ not repeated release counts here. Old onboarding is preserved in the
   through deprecation. Internals may be rewritten freely.
 - Use package-specific npm/Cargo checks. Engine verification favors focused,
   substantially faster checks with explicit omissions; no automatic full matrix.
+- Autonomous engine commits use `git config --local commit.gpgsign false` so
+  interactive 1Password signing cannot block checkpoints or publication. Follow
+  the [agent workflow](docs/game-engine-agent-workflow.md).
 - Commit and push coherent engine checkpoints after relevant focused checks.
   Preserve unrelated changes, historical source/evidence/worktrees, and failed
   results. Never force-push shared branches or merge to main incidentally.

@@ -66,16 +66,20 @@ links to logs and preserved failures. Use completion notifications or bounded
 waits instead of rapid status polling; keep user updates meaningful and within
 the session's communication cadence.
 
-Signing or authentication delays block publication, not implementation. Request
-the user's required unlock/approval once, keep the measured source and index
-frozen while a signer is running, and continue useful work in separate owned
-checkouts. Preserve each verified batch as an exact patch/source snapshot with
-its base, dependencies, checks and omissions; qualify dependent work against the
-actual pending source rather than calling it accepted main. Queue integration
-and signed publication until access returns. Do not disable signing, weaken
-runtime guards, discard evidence or call an unpublished batch published. A
-signing delay alone is not a reason to pause the development loop or wait idle
-while independent or explicitly source-qualified dependent work is available.
+Autonomous engine checkpoints use unsigned commits so local 1Password prompts
+cannot gate implementation or publication. At task entry, ensure the repository
+setting with `git config --local commit.gpgsign false`, then use ordinary
+`git commit`. This setting applies to the repository's linked worktrees and leaves
+global Git and 1Password configuration intact. Interactive signing is reserved
+for work Josh explicitly requests to sign; do not queue routine checkpoints
+behind a password or signing approval.
+
+For any other authentication delay, request the required access once and continue
+useful work in separate owned checkouts. Preserve verified batches as exact
+patches/source snapshots with their bases, dependencies, checks and omissions;
+qualify dependent work against the actual pending source. Keep measured source
+and index frozen while a Git operation runs, then publish queued checkpoints when
+access returns. Report the actual blocker and unpublished state accurately.
 
 ## Commands and machine output
 
