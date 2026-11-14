@@ -170,15 +170,19 @@ impl Game {
             let grants = match &effect.kind {
                 ResolvedEffectKind::GrantKeywords {
                     target, keywords, ..
-                } if *target == object => Some(keywords),
+                } if *target == object && self.is_battlefield_creature(object) => Some(keywords),
                 ResolvedEffectKind::GrantKeywordsSet {
                     targets, keywords, ..
-                } if targets.contains(&object) => Some(keywords),
+                } if targets.contains(&object)
+                    && self
+                        .current(object)
+                        .is_ok_and(|o| o.zone == Zone::Battlefield) =>
+                {
+                    Some(keywords)
+                }
                 _ => None,
             };
-            if let Some(grants) = grants
-                && self.is_battlefield_creature(object)
-            {
+            if let Some(grants) = grants {
                 for keyword in grants {
                     if !keywords.contains(keyword) {
                         keywords.push(*keyword);
