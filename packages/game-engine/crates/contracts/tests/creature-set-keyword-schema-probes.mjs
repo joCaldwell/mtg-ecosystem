@@ -18,8 +18,8 @@ function control(set, keywords, modifier, sorcery = false) {
   const d = clone(frozen.definitions.find(d => d.name === 'Giant Growth'));
   d.spell.targets = [];
   const grant = { op: 'grant_keywords_set', set, keywords: clone(keywords), duration: 'until_end_of_turn', source_block: 0 };
-  const pump = { op: 'pump_set', set, power: '-2', toughness: '99999999999999999999999999999999999', source_block: 0 };
-  d.spell.instructions = modifier ? [pump, grant] : [grant];
+  if (modifier) grant.modifier = { power: '-2', toughness: '99999999999999999999999999999999999' };
+  d.spell.instructions = [grant];
   if (sorcery) { d.characteristics.kind = 'sorcery'; d.spell.timing = 'main_phase'; }
   d.capabilities = [...new Set(['normal_layout_v1', sorcery ? 'cast_sorcery_v1' : 'cast_instant_v1', 'board_wipes_v1', family, ...keywords.map(k => keywordCaps[k])])];
   return { ...clone(frozen), definitions: [d] };
@@ -80,13 +80,28 @@ for (const set of sets) for (const modifier of [false, true]) {
     ['intrinsic-flash', d => { d.keywords = ['flash']; }],
     ['static', d => { d.static_abilities = [{ functioning_zone: 'battlefield', effect: 'cant_be_countered' }]; }],
   ]) negative(`${name}:context:${label}`, base, change);
-  if (modifier) for (const [label, change] of [
-    ['reverse', p => { p.instructions.reverse(); }],
-    ['mixed-sets', p => { p.instructions[0].set = sets.find(s => s !== set); }],
-    ['pump-block', p => { p.instructions[0].source_block = 1; }],
-    ['dynamic-power', p => { p.instructions[0].power = { amount: 'source-power' }; }],
-    ['noncanonical-quantity', p => { p.instructions[0].toughness = '-0'; }],
+  for (const [label, change] of [
+    ['modifier-empty', p => { p.instructions[0].modifier = {}; }],
+    ['modifier-missing-power', p => { p.instructions[0].modifier = { toughness: '0' }; }],
+    ['modifier-missing-toughness', p => { p.instructions[0].modifier = { power: '1' }; }],
+    ['modifier-extra', p => { p.instructions[0].modifier = { power: '1', toughness: '0', extra: true }; }],
+    ['modifier-dynamic-power', p => { p.instructions[0].modifier = { power: { amount: 'source-power' }, toughness: '0' }; }],
+    ['modifier-numeric', p => { p.instructions[0].modifier = { power: 1, toughness: '0' }; }],
+    ['modifier-noncanonical', p => { p.instructions[0].modifier = { power: '1', toughness: '-0' }; }],
+    ['modifier-leading-zero', p => { p.instructions[0].modifier = { power: '01', toughness: '0' }; }],
+    ['modifier-plus-sign', p => { p.instructions[0].modifier = { power: '+1', toughness: '0' }; }],
+    ['modifier-scalar', p => { p.instructions[0].modifier = '1'; }],
+    ['modifier-array', p => { p.instructions[0].modifier = ['1', '0']; }],
+    ['top-level-power', p => { p.instructions[0].power = '1'; }],
   ]) negative(`${name}:${label}`, base, d => change(d.spell));
+  for (const reverse of [false, true]) for (const mixed of [false, true]) {
+    negative(`${name}:old-split-pair:${reverse}:${mixed}`, base, d => {
+      const grant = d.spell.instructions[0]; delete grant.modifier;
+      d.spell.instructions.unshift({ op: 'pump_set', set: mixed ? sets.find(s => s !== set) : set,
+        power: '-2', toughness: '0', source_block: 0 });
+      if (reverse) d.spell.instructions.reverse();
+    });
+  }
   for (const host of ['Samite Healer', 'Blood Artist']) negative(`${name}:ability:${host}`, base, d => {
     const program = d.spell;
     const source = clone(frozen.definitions.find(d => d.name === host));
@@ -94,6 +109,17 @@ for (const set of sets) for (const modifier of [false, true]) {
     else source.triggered[0].program = program;
     Object.assign(d, source);
   });
+}
+for (const set of sets) {
+  for (const [power, toughness] of [['0', '0'], ['-2', '3'],
+    ['99999999999999999999999999999999999999999', '-99999999999999999999999999999999999999999']]) {
+    const value = control(set, ['first strike', 'trample'], true);
+    value.definitions[0].spell.instructions[0].modifier = { power, toughness };
+    positive(`${set}:exact-modifier:${power}:${toughness}`, value);
+  }
+  const value = control(set, ['haste'], false);
+  value.definitions[0].spell.instructions[0].modifier = null;
+  positive(`${set}:explicit-none`, value);
 }
 for (const keyword of Object.keys(keywordCaps)) {
   const base = control('controller_creatures', [keyword], false);

@@ -1666,6 +1666,61 @@ fn append_spell_effects(
         return Err(unsupported("abilities.effects", "empty spell effects"));
     }
     let source_block = source_block(block)?;
+    // CR 608.2c/h, 611.2c, 613.5–6: consume the whole typed sentence as one
+    // continuous effect, with one membership capture across all its layers.
+    // Never join distinct sentences or scan arbitrary later instruction pairs.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    if source_block == 0
+        && player_binding == PlayerBinding::Unbound
+        && program.functioning_zone == FunctioningZone::Stack
+        && program.resolution == SpellResolution::Instructions
+        && program.additional_sacrifice.is_none()
+        && program.targets.is_empty()
+        && program.instructions.is_empty()
+        && let [Sentence { bindings, steps }] = effects
+        && bindings.is_empty()
+        && let [
+            Step::Pump {
+                what: pump_what,
+                power,
+                toughness,
+                duration: pump_duration,
+            },
+            Step::GainAbilities {
+                what,
+                abilities,
+                duration,
+            },
+        ] = steps.as_slice()
+        && matches!(pump_what["ref"].as_str(), Some("all" | "each"))
+        && matches!(what["ref"].as_str(), Some("all" | "each"))
+        && pump_duration == duration
+        && duration.duration == "end-of-turn"
+    {
+        let set = lower_object_set(what)?;
+        if lower_object_set(pump_what)? != set
+            || !matches!(
+                set,
+                ObjectSet::ControllerCreatures | ObjectSet::AttackingCreatures
+            )
+        {
+            return Err(unsupported(
+                "set",
+                "compound set effect requires the same reviewed selector",
+            ));
+        }
+        program.instructions.push(Instruction::GrantKeywordsSet {
+            set,
+            modifier: Some(CreatureSetModifier {
+                power: signed_fixed(power)?,
+                toughness: signed_fixed(toughness)?,
+            }),
+            keywords: lower_temporary_creature_keywords(abilities)?,
+            duration: Duration::UntilEndOfTurn,
+            source_block,
+        });
+        return Ok(());
+    }
     for sentence in effects {
         let counted = if sentence.bindings.is_empty() {
             false
@@ -2342,6 +2397,7 @@ fn lower_wipes_step(
         {
             Instruction::GrantKeywordsSet {
                 set: lower_object_set(what)?,
+                modifier: None,
                 keywords: lower_temporary_creature_keywords(abilities)?,
                 duration: Duration::UntilEndOfTurn,
                 source_block,
