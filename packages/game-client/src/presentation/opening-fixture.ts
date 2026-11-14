@@ -1,6 +1,6 @@
 import type { Observation, PlayerRequest, SeatResume } from '@multiverse/game-server-sdk';
 import type { PresentationArtifact } from '../../generated/presentation.d.ts';
-import type { CardView, TableView } from './table-model.ts';
+import type { CardView, TableView } from '@multiverse/game-ui';
 
 type VisibleObject = Observation['view']['objects'][number];
 

@@ -36,7 +36,7 @@ import { OWNER, agent } from "./actors.ts";
 // modules, renderers, cards and prices, is discovered and must be classified.
 const excludedModules: Record<string,string> = {
   "logging.ts":"transport observability only; secrecy and request isolation covered by logging.test.ts",
-  "server.ts":"server entry point", "cli.ts":"operator CLI entry point", "mcp/stdio.ts":"stdio entry point",
+  "host.ts":"process composition; lifecycle and lease isolation covered by host.test.ts", "cli.ts":"operator CLI entry point", "mcp/stdio.ts":"stdio entry point",
   "app.ts":"HTTP registry tested below", "mcp/http.ts":"authenticated MCP transport tested below", "mcp/tools.ts":"tool registry tested below",
   "sqlite.ts":"SQLite constructor/backup primitives", "backups.ts":"operator backup/restore",
   "ingest.ts":"shared card ingest", "jobs.ts":"operator scheduler", "json-array.ts":"stream parser",

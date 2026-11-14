@@ -1,3 +1,4 @@
+/// <reference path="./node-sqlite.d.ts" />
 import * as sqlite from "node:sqlite";
 
 // Node 26.11 renamed the class (DEP0210). Prefer that name, while honoring

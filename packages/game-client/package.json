@@ -3,13 +3,15 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": "26.11.1" },
+  "engines": {
+    "node": "26.11.1"
+  },
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "node scripts/prepare-fixtures.mjs && vite build",
     "prepare:fixtures": "node scripts/prepare-fixtures.mjs",
     "typecheck": "tsc --noEmit",
-    "check:boundaries": "node scripts/check-boundaries.ts",
+    "check:boundaries": "node scripts/check-boundaries.ts && node scripts/check-preview-boundaries.ts && node ../game-ui/scripts/check-boundaries.mjs",
     "test": "node --test tests/*.test.ts",
     "test:browser": "playwright test",
     "test:journal:browser": "node --test tests/command-journal.browser.ts",
@@ -20,7 +22,8 @@
     "@multiverse/game-server-sdk": "file:../game-server/sdk",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "react-router": "8.5.1"
+    "react-router": "8.5.1",
+    "@multiverse/game-ui": "file:../game-ui"
   },
   "devDependencies": {
     "@playwright/test": "1.65.0",
@@ -29,5 +32,15 @@
     "@types/react-dom": "19.3.0",
     "typescript": "6.0.3",
     "vite": "8.3.8"
+  },
+  "exports": {
+    "./preview": {
+      "types": "./src/preview/public.d.ts",
+      "default": "./src/preview/index.ts"
+    },
+    "./verify-preview": {
+      "types": "./scripts/verify-preview.d.mts",
+      "default": "./scripts/verify-preview.mjs"
+    }
   }
 }

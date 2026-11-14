@@ -77,3 +77,49 @@ test('inspection build makes no API requests and persists no session data', asyn
   expect(requests.every(url => new URL(url).origin === new URL(page.url()).origin && !url.includes('/v1/'))).toBe(true);
   expect(await page.evaluate(async () => ({ local: localStorage.length, session: sessionStorage.length, databases: (await indexedDB.databases()).length, serviceWorkers: (await navigator.serviceWorker.getRegistrations()).length }))).toEqual({ local: 0, session: 0, databases: 0, serviceWorkers: 0 });
 });
+
+test('desktop workspace keeps hand, decision and inspection available together', async ({ page }, testInfo) => {
+  for (const viewport of [{ width: 1280, height: 720 }, { width: 2560, height: 1440 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+    const hand = page.getByRole('region', { name: 'Your hand', exact: true });
+    const choice = page.getByRole('region', { name: 'Opening hand', exact: true });
+    const inspector = page.getByRole('complementary', { name: 'Card inspector' });
+    await expect(hand.getByRole('heading')).toBeInViewport({ ratio: 1 });
+    await expect(choice).toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole('region', { name: 'Command zone', exact: true }).getByRole('button')).toBeInViewport({ ratio: 1 });
+    // Reaching the last same-name card must scroll only its hand, leaving the
+    // current choice accessible. Selection still uses its exact object handle.
+    const last = hand.getByRole('button').last();
+    await last.focus(); await page.keyboard.press('Enter');
+    await expect(last).toHaveAttribute('aria-pressed', 'true');
+    await expect(inspector.getByRole('heading', { name: 'Plains', exact: true })).toBeFocused();
+    await expect(choice).toBeInViewport({ ratio: 1 });
+    await expect(hand.getByRole('heading')).toBeInViewport({ ratio: 1 });
+    await page.getByRole('button', { name: 'Jump to decision' }).click();
+    await expect(choice).toBeFocused();
+    await expect(inspector.getByRole('heading', { name: 'Plains', exact: true })).toBeInViewport({ ratio: 1 });
+    await inspector.getByText('Source & identity', { exact: true }).click();
+    await expect(inspector.getByText('Object:', { exact: false })).toContainText('Object:');
+    await inspector.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(last).toBeFocused();
+    await expect(choice).toBeInViewport({ ratio: 1 });
+    await page.screenshot({ path: testInfo.outputPath(`workspace-${viewport.width}.png`), fullPage: true });
+  }
+});
+
+test('intermediate and narrow windows retain decision jump and inspection focus return', async ({ page }) => {
+  for (const width of [960, 800, 640, 375]) {
+    await page.setViewportSize({ width, height: 720 });
+    await page.goto('/');
+    const card = page.getByRole('region', { name: 'Your hand', exact: true }).getByRole('button').last();
+    await card.focus(); await page.keyboard.press('Enter');
+    const inspector = page.getByRole('complementary', { name: 'Card inspector' });
+    await expect(inspector.getByRole('heading', { name: 'Plains', exact: true })).toBeFocused();
+    await page.getByRole('button', { name: 'Jump to decision' }).click();
+    await expect(page.getByRole('region', { name: 'Opening hand', exact: true })).toBeFocused();
+    await inspector.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(card).toBeFocused();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
+});
