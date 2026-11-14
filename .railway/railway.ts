@@ -13,11 +13,16 @@ export default defineRailway(ctx => {
     source: github("joCaldwell/mtg-ecosystem", { branch: production ? "release" : "main" }),
     build: {
       builder: "DOCKERFILE", dockerfilePath: "packages/deck-builder/Dockerfile",
-      watchPatterns: ["/packages/deck-builder/**", "/package.json", "/package-lock.json", "/tsconfig.base.json", "/.dockerignore"],
+      watchPatterns: [
+        "/packages/multiverse/**", "/packages/deck-builder/**",
+        "/packages/game-ui/**", "/packages/game-client/**",
+        "/packages/game-server/sdk/package.json", "/package.json",
+        "/package-lock.json", "/tsconfig.base.json", "/.dockerignore",
+      ],
     },
     replicas: { ams: 1 }, healthcheck: "/api/health", healthcheckTimeout: 300,
     deploy: { drainingSeconds: 30 },
-    start: "sh /usr/local/bin/deck-builder-entrypoint node src/server.ts",
+    start: "sh /usr/local/bin/deck-builder-entrypoint node ../multiverse/src/server.ts",
     volumeMounts: { "/data": data },
     env: {
       NODE_ENV: "production", DECKBUILDER_MODE: "hosted", DECKBUILDER_DATA: "/data",
