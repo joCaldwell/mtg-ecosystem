@@ -209,6 +209,31 @@ fn ramos_m3c_complete_source_near_misses_cannot_discard_cost_or_condition() {
         );
     }
 }
+
+#[test]
+fn ramos_m3c_nonempty_source_line_with_empty_effects_rejects() {
+    lower(BLOW);
+    let raw = tests::changed_source(BLOW, |r| {
+        let text = "Draw a card.";
+        let source = r["source"]["oracle_text"].as_str().unwrap();
+        r["source"]["oracle_text"] = format!("{source}\n{text}").into();
+        let result = &mut r["faces"][0]["result"];
+        let ability = serde_json::json!({"kind":"spell","effects":[]});
+        result["abilities"]
+            .as_array_mut()
+            .unwrap()
+            .push(ability.clone());
+        result["lines"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({"text":text,"ok":true,"ability":ability}));
+    });
+    let result = compile(MANIFEST, &raw);
+    assert!(
+        matches!(&result, CompileResult::Unsupported { path, .. } if path == "effects"),
+        "complete source must not discard an empty AST block: {result:?}"
+    );
+}
 #[test]
 fn ramos_m3c_fixed_mana_and_draw_quantities_are_parameters() {
     let raw = tests::changed_source(BLOW, |r| {
