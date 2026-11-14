@@ -1,3 +1,5 @@
+import { createGameCoordinator } from "./games.ts";
+import type { GameCoordinatorOptions } from "./game-contracts.ts";
 import { executeCommand } from "./commands.ts";
 import { commandResources, type Change } from "./changes.ts";
 export type { Change } from "./changes.ts";
@@ -88,6 +90,7 @@ export const APP_VERSION = "2.0.0";
 const WEB_DIST = join(PKG_ROOT, "web", "dist");
 
 export interface AppOptions {
+  games?: GameCoordinatorOptions;
   mode?: Mode;
   auth?: HostedAuth;
   /** Optional request-to-Actor override; production uses the hosted session resolver. */
@@ -139,6 +142,7 @@ function validateNumbers(body: Record<string, any>) {
 }
 
 export function createApp(db: Database, opts: AppOptions = {}) {
+  const games = createGameCoordinator(db, opts.games);
   const mode = opts.mode ?? getMode();
   const auth = mode === "hosted" ? opts.auth ?? (process.env.BETTER_AUTH_SECRET ? createHostedAuth(db) : undefined) : undefined;
   const rateLimit = createRateLimiter();
@@ -687,6 +691,27 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         if (serveStatic(url.pathname, res, null, req)) return;
         return json(404, { error: `Not found: ${req.method} ${url.pathname}` });
       }
+      // Coordinator owns short reentrant SQL reservations. Native I/O must
+      // never run under the HTTP handler's database reservation.
+      if (url.pathname === "/api/games" || url.pathname.startsWith("/api/games/")) {
+        const actor = await resolveActor(req, mode);
+        logging.actor(actor);
+        if (!actor) return json(401, { error: "Sign in is required" });
+        if (mode === "hosted") {
+          rateLimit("ui", String(actor.user_id));
+          if (!["GET", "HEAD"].includes(req.method ?? "") && req.headers.origin !== publicOrigin()) return json(403, { error: "Origin is required" });
+        }
+        res.setHeader("Cache-Control", "no-store");
+        const body = req.method === "POST" ? await readJson(req) : {};
+        const match = url.pathname.match(/^\/api\/games\/([a-f0-9]{32})(\/(resume|seat))?$/);
+        if (req.method === "POST" && url.pathname === "/api/games/admission") return json(200, { admission: await games.admission(actor, num(body.deck_id, "deck_id", 1), num(body.expected_revision, "expected_revision")) });
+        if (req.method === "POST" && url.pathname === "/api/games") return json(200, await games.launch(actor, num(body.deck_id, "deck_id", 1), num(body.expected_revision, "expected_revision"), body.request_id));
+        if (req.method === "GET" && url.pathname === "/api/games") return json(200, { games: await games.list(actor) });
+        if (match && req.method === "GET" && !match[2]) return json(200, { game: await games.get(actor, match[1]) });
+        if (match && req.method === "POST" && match[3] === "resume") return json(200, await games.resume(actor, match[1]));
+        if (match && req.method === "POST" && match[3] === "seat") return json(200, await games.humanSeat(actor, match[1]));
+        return json(404, { error: "Game operation not found" });
+      }
       return await withDatabase(async () => {
       if (req.method === "GET" && url.pathname === "/api/session") {
         const sessionActor = await resolveActor(req,mode);
@@ -794,7 +819,9 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     server,
     routes: routes.map(({ method, pattern, mutates }) => ({ method, pattern, mutates })),
     notify, notifyAll, withDatabase,
+    startGames: () => games.start(),
     close: async () => {
+      await games.close();
       await agents.close();
       await new Promise<void>((resolve) => {
         for (const responses of listeners.values()) for (const res of responses) res.end();
