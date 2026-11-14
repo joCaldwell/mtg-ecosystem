@@ -21,6 +21,8 @@ test("default coverage is bounded and deeper runtime work is explicit", () => {
   assert.equal("preflight" in full.find(phase => phase.label === "node-tests")!, false);
   assert.match(engineCheckPlans.fast.omitted, /Core\/simulator\/server runtime tests/);
   for (const plan of Object.values(engineCheckPlans)) {
+    assert.equal(plan.phases.filter(phase => phase.args.includes("scripts/check-docs.py")).length, 1);
+    assert.equal(plan.phases.filter(phase => phase.args.includes("scripts/test-check-docs.py")).length, 1);
     assert.equal(plan.phases.filter(phase => phase.args.includes("scripts/test-engine-storage.py")).length, 1);
     assert.equal(plan.phases.filter(phase => phase.args.includes("scripts/test-retention-workspace.py")).length, 1);
     assert.ok(plan.phases.some(phase => phase.args.includes("scripts/retention-workspace.test.ts")));

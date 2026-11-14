@@ -1,9 +1,9 @@
 # Supported engine mechanics
 
 This is the current semantic map, not a claim of general Magic support. Read
-[runtime invariants](game-engine-invariants.md) before editing rules. Exact Rust
+the runtime invariants below before editing rules. Exact Rust
 IR validation and complete archived source fixtures define executable shapes;
-[profiles](game-engine-profiles.md) independently admit decks and consumers.
+[profiles](game-engine-catalogs.md#match-profile-data) independently admit decks and consumers.
 Source/compiler support, private runtime witnesses, accepted-pod prefixes,
 completion games, hosting/search review and browser acceptance are separate.
 
@@ -13,14 +13,41 @@ Use exact `tests/fixtures` records/provenance under `packages/game-engine`, neve
 card facts from memory or live refresh. Historical IR11–33 labels are evidence
 vocabulary; the only active executable schema is 1. No name/ID/profile dispatch.
 
+<a id="source-identity-and-execution-boundaries"></a>
+<a id="atomic-events-diagnostics-and-departures"></a>
+
+## Runtime invariants
+
+Compile complete exact archived source or reject; Rust contracts own executable
+IR and [catalog/profile admission](game-engine-catalogs.md) is separate. Core
+imports contracts only at runtime: no compiler/parser, I/O, clocks, OS randomness,
+async inference or unsafe code. Keep physical IDs, zone incarnations, stack IDs,
+owners, default control and explicit grants distinct; quantities are exact and
+structural arithmetic checked. Frames/inputs/events/outcomes serialize as data;
+clones are independent and restore proves accepted-input replay with exact identity.
+
+Stage complete rule mutations atomically. Capture consumed pre-event facts and
+actual typed outcomes. Simultaneous groups permit only independent read/write
+footprints; unsupported composition faults. Freeze all loss candidates before
+simultaneous departures/cleanup/adjudication. Restore must prove fault reachability.
+Capacity/budget suspension never invents a win/draw, truncation or partial mutation.
+
+`Game::with_trace` selects Off/Compact/Detailed. Diagnostics enter neither semantic
+hashes nor permitted views; `events()` populates only in Detailed, while `trace()`
+is trusted evidence. Trace/budget choices cannot change rules behavior.
+
+<a id="hosting-boundary"></a>
+
+The host owns auth, HTTP, OS/SQLite, clocks and resources; Rust DTOs generate the
+SDK. Derive viewers from authorization, retain bearer capabilities only in headers,
+and never expose seeds/snapshots/receipts/raw IDs/sidecars/internal traces, another
+seat's history or global private counters. Host faults remain distinct from rules
+outcomes. [Hosting](game-engine-server.md) owns transport/recovery details.
+
 ## Execution, turns and queries
 
-Core owns exact quantities, physical identity versus incarnation, ownership versus
-control, typed events and continuations. `advance(Budget)` suspends without changing
-rules meaning. Check a complete response before accepting it; illegal responses
-are atomic. A resource/capacity fault has no Magic winner or draw. Clones/forks
-are independent; restore binds exact build/catalog and authenticates history by
-accepted-input replay. Diagnostics and budget partitioning cannot affect outcomes.
+`advance(Budget)` suspends without changing rules meaning. Check a complete
+response before accepting it; illegal responses are atomic.
 
 Priority, announcements, payment and resolving frames are separate states. No
 priority exists during announcement/resolution; retain the frozen invocation
@@ -29,13 +56,22 @@ active-player main priority and an empty stack; supported flash is explicit.
 Untap, upkeep, draw, combat, end and cleanup use recorded transitions. Cleanup
 atomically clears temporary effects and marked damage. Concessions are trusted
 recorded external inputs processed before ordinary work/query exposure.
+Land usage resets only when a new turn begins.
+
+<a id="player-visibility-and-query-recovery"></a>
 
 Public queries return only existing viewer-permitted handles and context. They
 cannot publish views/history, mint handles, mutate semantics or authorize later
 submission. Receipts and recovery sidecars remain private and executor/state
-bound. Payment queries and [action beginnings](game-client-core-queries.md) use
+bound. Payment queries and [action beginnings](game-client.md#core-action-discovery) use
 existing validators, with explicit incomplete/stale/unavailable outcomes. A
 complete initiation menu does not enumerate every eventual target/payment choice.
+Raw IDs, `decision_for`, full-state getters and snapshots are trusted host APIs;
+public code consumes Observation/PlayerRequest/PlayerResponse. Public revisions
+change only with permitted information. Real restore rejects sampled origins;
+[search](game-engine-search.md) separately proves hypothetical origin/reconstruction.
+
+<a id="commander-movement-and-hidden-libraries"></a>
 
 ## Commander and hidden information
 
@@ -49,17 +85,29 @@ Command-zone tax is physical and per caster, incremented only after a completed
 command-origin cast. Failed casts restore original zone/incarnation. Graveyard/
 exile Commander return is an owner SBA choice after actual movement (CR 903.9a);
 hand/library return replaces movement (903.9b). Decline consumes that incarnation's
-opportunity. Drawing a tucked commander performs the replacement without revealing
-a hidden object handle, completes that draw once and preserves the next card.
-Commander combat damage tracks physical source/recipient across control and zone
-changes, independently of life changes and noncombat damage.
+opportunity. Commander combat damage tracks physical source/recipient across
+control and zone changes, independently of life changes and noncombat damage.
+Drawing a tucked commander uses an existing public designation with `None` object
+handle; visible return choices use `Some(handle)`. One replaced draw completes
+once and preserves the next card.
+Library-top events preserve order and cannot compose with a conflicting order write.
+Drain concessions and revalidate owner choices before exposing queries.
+Commander-return decisions are resumable continuations, never priority windows.
 
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
 Surviving activators retain paid abilities when a borrowed source's owner leaves.
 Personal effects for a departed invocation controller skip rather than redirect.
 
+<a id="announcement-priority-and-payment"></a>
+
 ## Casting, costs, targets and stack
+
+Stack projections run bottom to top. Saved announcement handles are historical:
+never rebind to a later incarnation or authorize a new response. Lower entries
+stay completed while the top is announced; reversal restores prior passes filtered
+by living seats. Resolving frames retain frozen instances through supported source
+departure (CR 608.2m). Only the caster answers targets/casting mana.
 
 Targets are selected before costs. Casting always offers its mana window, even
 when already funded. FinishMana attempts full payment and cannot cancel a payable
@@ -73,6 +121,9 @@ self-cost reduction cannot erase colored costs.
 Activated abilities use a separate stack ID/historical source handle; their card
 stays in place. Tap-source costs enforce readiness/continuous control, subject to
 supported haste. Mana, tap and additional sacrifice costs retain separate guards.
+Mana-cost activations announce, offer their mana window and require exact spending;
+costs without mana offer no mana opportunity. Failed payment removes the proposal
+and optionally reverses only its receipt-recorded mana activations.
 Sacrifice costs use ordinary post-activation SBAs; resolution sacrifices/discards
 wait for the complete invocation. Additional costs never change mana value.
 
@@ -122,13 +173,17 @@ Complete Pressure Point, Icy Manipulator, Burst of Energy, Seeker of Skybreak,
 Royal Assassin, Temporal Adept and Unsummon source fixtures witness these shapes;
 they do not authorize broader combinations. See compiler tests for exact fencing.
 
+<a id="combat-damage-and-state-based-actions"></a>
+
 ## Combat, damage and life
 
 Attacker/blocker declarations and damage are typed atomic events. Readiness uses
 continuous control stamped at turn entry, reset on control/incarnation change.
 Multiple blockers have no damage-assignment order in the pinned rules. Preserve
 blocked status after blocker departure and blocking status after attacker departure.
-First/double strike have distinct participant sets; trample assignment, deathtouch
+Skip blocker/damage steps only when no attackers were declared; blocking lasts
+through EndCombat priority until combat ends (CR 509.1g/511.3), independently of
+damage links. First/double strike have distinct participant sets; trample assignment, deathtouch
 lethal assignment, actual dealt damage and prevention are different facts.
 Vigilance, flying/reach, haste, defender, menace, hexproof/shroud, lifelink and
 other admitted keywords use common predicates, never card text in the runtime.
@@ -137,6 +192,8 @@ Validate an entire simultaneous damage group before life/history writes. Capture
 assignment facts separately from current or latest-departure damage-time source
 appearance. Damage-time deathtouch/lifelink and its beneficiary use that current/
 LKI source, including equipment departure and simultaneous common-prior facts.
+Noncombat damage retains the source incarnation and frozen invocation controller;
+that controller is distinct from the source's current or last-known controller.
 Old assignment-time keywords cannot fabricate damage-time benefits. Commander
 combat history uses only actual combat damage. Direct life gain/loss is distinct.
 Run SBAs after the complete program: intermediate life loss/gain is not an early loss.
@@ -347,6 +404,8 @@ No install/generation is implicit. Qualification is source-bound in
 [engine evidence](game-engine-evidence.md#current-temporary-keyword-family-qualification).
 This foundation expands no playable pool, policy, hosting/search or consumer acceptance.
 
+<a id="abilities-targets-and-triggers"></a>
+
 ## Trigger families and event witnesses
 
 Collect triggers from actual typed occurrences, wait through SBAs/Commander
@@ -402,4 +461,4 @@ fixed-index completion game must remain separately labeled in evidence.
 
 See [source-qualified evidence](game-engine-evidence.md) for current producers,
 proof locations and omissions, [catalog commands](game-engine-catalogs.md) for
-reproduction, and [invariants](game-engine-invariants.md) for atomicity/privacy.
+reproduction.

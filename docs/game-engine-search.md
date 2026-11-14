@@ -33,9 +33,7 @@ Rules bytes SHA256 remains
 `8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca`.
 Relevant rules are [CR103.5/.5c/.8c,117.3–.4,302.6,400.2/.7,401.2–.3,
 402.3,701.24a,704.3 and733.1–.2](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.pdf).
-The [search specification](game-engine-mechanics.md)
-and [P7 workload](game-engine-mechanics.md)
-remain authoritative. P5 retained snapshots17 and prior source/build evidence are
+The supported root and frozen workload below remain authoritative. P5 retained snapshots17 and prior source/build evidence are
 separate historical identities; they are not rewritten as P7 evidence.
 
 ## Supported root family
@@ -258,6 +256,6 @@ concurrent P5 gates and a cheap fork microbenchmark cannot close this gate.
 Full historical search measurement/source tables are linked from [evidence](game-engine-evidence.md).
 New engine/compiler support does not admit new search capabilities. Current
 requirements are checked through profile capability admission and exact build/
-catalog identity; [build policy](game-engine-builds.md) owns the active schema.
+catalog identity; [build policy](game-engine-catalogs.md#ir-and-build-identity) owns the active schema.
 No current-Build quiet P7 result follows from older measurements. No playing-strength,
 arbitrary-root, full-game-browser or resource-fit claim follows from this contract.

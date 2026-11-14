@@ -1,117 +1,43 @@
-# 🔮 oracle-parser — Layer 0: Oracle Text Parser & Card IR
+# Oracle parser
 
-Parse every Magic card's oracle text into a typed AST and versioned source
-archive. The Rust semantic compiler under `packages/game-engine/` binds and lowers
-supported complete archived sources to executable Card IR. Bulk per-set emission
-remains unimplemented; see [the current engine map](../../docs/game-engine-current.md).
-The parser and its ingestion/archive tooling remain TypeScript; see the
-[adopted language decision](../../docs/architecture.md).
-See [docs/oracle_parser.md](../../docs/oracle_parser.md) for the design and
-[docs/architecture.md](../../docs/architecture.md) for where it sits.
+Read the root manual and [parser guide](../../docs/oracle_parser.md). This package
+owns the TypeScript syntax AST and diagnostic reference analysis; root scripts own
+ingestion/archive tooling. Rust owns complete-source semantic lowering/executable
+IR. Broad grammar expansion is paused; `build-ir` deliberately fails. See
+[system ownership](../../README.md#system-architecture) and
+[current engine scope](../../docs/game-engine-current.md).
 
-**Stack**: hand-written, zero-dependency TypeScript. No ANTLR, no Java, no
-build step — Node ≥ 23 runs the `.ts` sources directly (imports use explicit
-`.ts` extensions; no TS constructor parameter properties — Node strip-only
-mode rejects them). The previous ANTLR/antlr4ts pipeline was audited and
-replaced on 2026-08-01; see the git history if you need the archaeology.
+## Constraints
 
-## Status and authority
+- Compile the complete supported syntax into typed nodes or fail; no lossy raw-text
+  fallback, unknown keyword/character dropping or `any` AST. Wrong success is worse
+  than rejection. Prefer a clear experimental AST change over compatibility shims.
+- Preserve line/ability boundaries and modal grouping. Every `null` parser result
+  restores cursor and effect context. Keep complete source and explicit diagnostics.
+- `src/ast.ts` owns shapes; `parser/keywords.ts` owns accepted keyword vocabulary.
+  Source/archive contracts are in the guide, not parallel module/type inventories.
+- Reference-bound/fully-bound/parsed remain separate from compiler/runtime support.
+  Use exact data and cited rules; preserve unresolved scopes and target provenance.
+- Downloaded corpora, raw snapshots and generated archives/reports remain ignored
+  and protected. Never refresh a frozen corpus to improve a comparison percentage.
 
-The broad parsing tail is paused. Historical 2026-10-16 acceptance/binding counts
-are source-qualified in [parser checkpoints](../../docs/oracle_parser.md#source-qualified-checkpoint-and-remaining-work),
-not current executable support. Complete binding still needs compiler validation.
-[AST/archive contracts](../../docs/data_schemas.md) and `src/ast.ts` are authority;
-bulk `build-ir` emission remains deliberately unimplemented.
+## Focused workflow
 
-## 🧠 Architecture
+Use pinned Node through `sh scripts/engine-env.sh` from repository root. Reuse
+healthy dependencies; missing/broken installs use the
+[conditional bootstrap](../../docs/game-engine-development.md#fresh-worktree).
+No root `npm install`, implicit toolchain download, Java or emitted build step.
+Node executes explicit `.ts` imports with erasable syntax only.
 
+```sh
+sh scripts/engine-env.sh npm --prefix packages/oracle-parser run check --workspaces=false
 ```
-oracle text ──normalize──▶ lines ──lex──▶ tokens ──parse──▶ typed AST
-```
 
-| Module | Job |
-|---|---|
-| `src/normalize.ts` | Strip reminder text, `~`-ify self-references (exact-case, word-bounded), canonicalize unicode, **preserve line boundaries** (one line = one ability). |
-| `src/lexer.ts` | Tokens: words (possessive-flagged, contractions kept whole), numbers, `{…}` symbols, punctuation. Unknown characters throw — never silently dropped. |
-| `src/symbols.ts` | Shared mana-symbol validation for costs, production, and payment conditions. |
-| `src/vocab.ts` | Closed word classes (card types, zones, colors…) + singularization. |
-| `src/ast.ts` | The typed AST. Discriminated unions, no `any`. This is the source contract the Rust compiler consumes through its versioned archive adapter — treat changes as API changes. |
-| `src/parser/cursor.ts` | Backtracking token cursor; tracks farthest failure for diagnostics. |
-| `src/parser/refs.ts` | Shared grammar: filters, object/player refs, amounts, zones, durations, conditions, counters. |
-| `src/parser/keywords.ts` | Table-driven keyword abilities. The `KEYWORDS` table is the single source of truth; unknown keywords fail the line. |
-| `src/parser/costs.ts` | Activation and keyword-parameter costs. |
-| `src/parser/triggers.ts` | "When/Whenever/At …" clauses. |
-| `src/parser/effects.ts` | Imperative resolution text (the largest surface). |
-| `src/parser/statics.ts` | Continuous effects: anthems, CDAs, enters-tapped, can't. |
-| `src/parser/index.ts` | Line classification, modal bullet grouping, card-level API. |
-
-Parse results are per-line: `parseOracleText(text, name)` returns `ok` plus a
-`lines[]` array where each failed line carries a diagnostic pointing at the
-farthest failure in the original parse attempts. Sliced classifier cursors retain
-header offsets; modal failures identify their option. Success/failure results
-are discriminated unions. `ok` is complete supported parsing, not a certificate
-of engine execution support. See the design doc for symbolic reference limits.
-
-## 🚀 Commands
-
-From this directory:
-
-*   `npm test` — `node --test`, structural AST assertions.
-*   `npm run build` — `tsc --noEmit` typecheck (nothing is emitted; consumers
-    import the TS sources directly).
-*   `npm run check` — both.
-
-From the repo root:
-
-*   `npm run ingest` — cache Scryfall bulk data to `.scryfall-cache/`.
-*   `npm run validate` — acceptance scoreboard for the cached corpus. Reports
-    corpus/source hashes, Git revision, a versioned scope and exclusions,
-    card/block acceptance (also for the Commander-legal subset, the current
-    coverage target), and failure-location groups with complete examples.
-    `npm run validate -- --json` includes per-card AST hashes for comparison.
-    Empty text is valid; missing face text fails. The historical 33% cards /
-    53% lines baseline used a different denominator and is not a target.
-*   `npm run archive-parser` — rebuild `generated/oracle-ast.jsonl` from the
-    cached corpus, with verified source snapshots, ASTs, and reference bindings.
-*   `npm run build-ir` — deliberately fails. Bulk per-set emission
-    remains unimplemented; executable catalog compilation exists in the Rust
-    engine package. Acceptance percentage alone does not justify emission.
-
-Local reports and archives are snapshots, not live parser results. Before using
-one to assess current support, compare its `parser.sourceSha256` with
-`sourceIdentity()` from `scripts/validate-parser.ts`, and check its corpus hash
-and scope. Rebuild stale results with the commands above. Files named
-`parser-98-*` and checkpoint audit files are historical evidence; they do not
-describe the current parser. See [the checkpoint history](../../docs/oracle_parser.md#source-qualified-checkpoint-and-remaining-work).
-
-## 🔄 Development loop: correctness before coverage
-
-1. Fix known false successes before expanding coverage. Use the largest
-   in-scope failure groups as investigation hints once correctness checks pass.
-2. Read the relevant Comprehensive Rules and check card facts in data. Cite the
-   source in code; choose an AST shape that preserves all meaningful clauses.
-3. Extend the relevant module and `src/ast.ts`, or reject constructs that cannot
-   yet be represented. Prefer clear breaking changes to compatibility shims.
-4. Add full structural tests and negative cases. Pair similar wording when it
-   changes logic, event grouping, ownership, restrictions, or effect scope.
-5. Run `npm run check`, then `npm run validate`. Inspect changed acceptance and
-   ASTs using the same corpus hash and scope. Correctness fixes may lower
-   coverage; never retain a false success to protect a percentage.
-
-The check includes ingestion/reporting tests through imports from `test/`.
-These use temporary directories and simulated network responses, not the local
-bulk cache. Generated reports and bulk data must stay ignored.
-
-## ⚠️ Constraints
-
-*   **A wrong parse is worse than a failed parse.** Parsers return complete
-    typed nodes or `null` — never a lossy approximation. Unknown keywords,
-    unrepresentable clauses, and unlexable characters all fail loudly.
-*   **No `any` in the AST.** If you can't type it, you don't understand the
-    mechanic yet — go back to the rules.
-*   **Every parse function backtracks cleanly.** Return `null` ⇒ cursor
-    position restored (use `Cursor.attempt`); restore effect context too.
-*   **Line = ability.** Never flatten newlines out of oracle text; modal
-    bullets are grouped with their header by `parser/index.ts`.
-*   **Clean design beats backward compatibility.** This AST is early; prefer
-    reshaping a bad node over layering variants on top of it.
+Fix false positives before expanding grammar; read complete source/rules, extend
+AST/parser or reject, add meaningful structural positives and paired negatives,
+then run the gate. Typechecking and Node tests include tooling fixtures without
+network/cache access. Source/report changes can invalidate coverage evidence.
+Use [corpus comparison commands](../../docs/oracle_parser.md#development-and-verification)
+only when needed, with matching corpus/scope/source hashes. Acceptance may fall
+when correctness improves. Existing reports are historical until their identities
+match; never derive execution support from percentages or filenames.

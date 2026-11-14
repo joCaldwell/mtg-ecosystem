@@ -1,7 +1,7 @@
 # Client and product acceptance evidence
 
 [Client contracts](game-client.md) own current behavior and delivery gates;
-[application contracts](multiverse-app.md) own product launch. These records retain
+[application launch gates](../packages/multiverse/web/ARCHITECTURE.md#game-launch) own product launch. These records retain
 their exact producer/source/schema qualification; they are not current-engine-HEAD
 acceptance or a requirement to repeat the entire matrix for documentation edits.
 Original source/proof identities are preserved in their named evidence locations
@@ -10,8 +10,7 @@ or the explicit retirement archive below; no raw evidence was discarded.
 ## Opening and recovery evidence
 
 The parent opening lane retained `generated/opening-integration/`, separate from
-all earlier producer evidence. Historical 2aaf/e86 captures and reports above
-retain their original scope. Updated `sdk-qualification.json` and regenerated
+all earlier producer evidence. Historical 2aaf/e86 captures retain their original scope. Updated `sdk-qualification.json` and regenerated
 coverage change only current native/SDK source references and explanatory scope;
 historical capture provenance and UI evidence hashes remain untouched.
 
@@ -35,13 +34,10 @@ artifacts, review receipts, checks and proof scripts; private registry/seat file
 are excluded from that public fingerprint list and remain under the private
 0700 evidence root. No authenticated traces/HAR/video were recorded.
 
-The shared build lock was released immediately after copying/validating native
-outputs, and the engine lane was notified. This build used the surviving standard
-target `/home/josh/.cache/mtg-ecosystem/cargo/d5481adfe9c96682/8bf11357d0994b4b`,
-starting empty and ending at about 3.72 GB, with incremental compilation disabled.
-No retired performance path was accessed. All owned test hosts/browsers closed;
-the selected ports were independently checked free. No failures occurred in this
-parent combined pass; earlier meaningful failed evidence remains preserved.
+All copied native/artifact bytes retain their qualified source. Earlier meaningful
+failures remain preserved; no raw proof was discarded. The historical opening
+matrix and operational details are frozen in the
+[original record](https://github.com/joCaldwell/mtg-ecosystem/blob/33dcbe9df5c0cc7fef5f8d67f97adb85a3af4cdb/docs/game-client-evidence.md#opening-and-recovery-evidence).
 
 No new full game, human usability, full M2, query-menu composition, expanded
 hosting/search, natural match, Safari, performance or full retention claim follows.
@@ -65,25 +61,15 @@ their original preserved locations.
 Workspace source prerequisite `a80c2f5251c07de92245d085b63fd7c5f4937ccb`;
 clean-consumer proof `generated/multiverse-clean-consumer-59576cab.json`.
 
-| Check | Result |
-| --- | --- |
-| Backend `check` | Strict types and 103 tests passed |
-| Product `check` | Server/browser types and 31 tests passed |
-| Shared game UI `check` | Types, boundary guard and 3 tests passed |
-| Client `check` | Types, boundaries, qualified fixtures, 116 tests and build passed |
-| Standalone production browser checks | 28 Chromium/Firefox checks passed |
-| Integrated product browser checks | Seven groups passed: account/deck setup, preview/draft/focus/return, deep links, delayed deck reads, cross-account denial, signed-out gating, desktop/tablet/phone access |
-| Product production build/public budget | Build passed; public closure 104,509 gzip bytes, below existing 110,000-byte gate |
-| Clean product consumer | Types and production build passed with SDK/client generated directories absent; all held bytes restored identically |
-| Runtime import audit | Backend 389 imports and product 3 imports passed |
-| Moby Docker context | 604 included files and 11 sensitive/generated exclusion checks passed |
-
-The final browser fixture uses a disposable source-backed seed copy and mocked
-test actors, rather than production auth or owner records. The optional review
-server's default actor is a fixture-only option; production has no such setting.
-Screenshots were inspected at desktop and phone sizes. Shared controls were also
-inspected against the host reset: visible button borders/padding and original
-card padding remain intact. The game chunk stays lazy.
+The source-qualified product pass covered backend/product/game-ui/client checks,
+production fixture browsers, account-scoped setup/preview/deep links, delayed reads,
+isolation and responsive access. Public initial JS was 104,509 gzip bytes; clean
+consumer types/build passed without SDK/client generated directories. Runtime
+imports and Moby context exclusions passed. Exact command/count tables remain in
+[the immutable product record](https://github.com/joCaldwell/mtg-ecosystem/blob/33dcbe9df5c0cc7fef5f8d67f97adb85a3af4cdb/docs/game-client-evidence.md#productshared-display-evidence-pr24).
+Fixtures mocked actors over disposable source-backed data, never production auth
+or owner records. Screenshots covered desktop/phone; scoped styles and lazy game
+loading retained their boundaries.
 
 ### Retained proofs and omissions
 
@@ -99,15 +85,56 @@ The actual Docker image build was not run successfully: this environment has no
 Docker daemon/socket (`generated/product-docker-build.log`). No deployment,
 native host game, automated match launch, full-game browser play, dense-board
 acceptance or strategic-opponent quality is claimed. Those require the explicit
-coordinator and admission work in `docs/multiverse-app.md`.
+[coordinator and admission gates](../packages/multiverse/web/ARCHITECTURE.md#game-launch).
 
-### Pre-merge integration
+Pre-merge integration at `ac95b1cf` changed only the decision inventory's map
+digest; client check passed, with receipt `generated/pr24-current-main-client-check.log`.
+No native matrix was repeated and qualification pins were unchanged.
 
-Integrated main at `ac95b1cf` before the requested fresh review. Its engine/doc
-changes required refreshing only the decision inventory's current-map digest;
-no application runtime or qualification pins changed. The client `check` passed
-again, including all 116 tests and the production build. The log is
-`generated/pr24-current-main-client-check.log`. No native matrix was repeated.
+## Core action discovery evidence
+
+Native-only implementation `d1d039539d63aa17cd411c654e22086ccf3c9322` was qualified
+on the integrated schema-1 baseline, separately from later serving/session/browser
+work. Original-lane `generated/core-queries/attempt02/` retains exact before/after
+source manifest, schema, copied schema exporter/test executable and bounded admitted
+foundations/attachments prefixes. These were initiation witnesses, not completed
+games, all requests or universal byte/work maxima. The full artifact hashes,
+commands and source closure are in the
+[immutable core report](https://github.com/joCaldwell/mtg-ecosystem/blob/33dcbe9df5c0cc7fef5f8d67f97adb85a3af4cdb/docs/game-client-core-queries.md#executed-checks-and-retained-evidence).
+
+Standalone native schema SHA-256:
+`5eb6c30f6939eadb3192eb86b3f7e2f63f6ca769aea7abefe7ddd49a5e2125e5`.
+Test build (opt-level 2):
+`3358a490195c117cea0a0f94371ebb4661563cfad558b25c076afdbac55dfea9`;
+schema-export build (opt-level 0):
+`76f5c0b792ff7488605ba811d76a2e7203c92413c6b9fe7bbbb18b59c09e1e02`.
+Both used pinned Rust 1.99.0, x86_64 and assertions with IR schema 1; differing settings
+intentionally yield different identities. The standalone schema is not the SDK's
+server protocol input. Focused proof ran 21 runtime cases, one compile-fail doc
+case and production library/schema-example Clippy; it proved progress partitions,
+privacy, scope, validation and stale/restore isolation only.
+
+`generated/core-queries/action-tests-01.log` retains the first build-constant setup
+failure. `attempt02/core-clippy.log` retains inherited all-target failures in
+architecture_exploration (`filter_map_bool_then`), engine/events
+(`items_after_test_module`) and shared_history_work_tests (`large_enum_variant`).
+Strict production/example Clippy later passed without suppressions; all-target
+Clippy was not passing. Missing Node dependencies/doctor failure remain retained;
+no implicit bootstrap occurred. Full runtime/compiler/server/SDK/browser, release,
+dense performance and retention were omitted. Host clock/quota proof is separate.
+
+## Frontend modernization
+
+Source `4ad114fa554b1c14e4b0d89566f6219706bfca19` retains its full
+[immutable frontend audit](https://github.com/joCaldwell/mtg-ecosystem/blob/4ad114fa554b1c14e4b0d89566f6219706bfca19/docs/frontend-modern-web-audit.md).
+Original-lane `generated/frontend-modern-web/`, including `previous-sdk`, preserves
+reviews, command logs and meaningful failures. The final source-qualified follow-up
+recorded 44 client browser cases in Chromium 158 / Firefox 159, 16 primitive native/
+fallback contracts each in Chromium 151 / Firefox 153, and 109,060 gzip public JS bytes.
+These numbers qualify that producer, not current source. Earlier overlapping-dist,
+authoring and Firefox automation failures remain; WebKit could not launch because
+host libraries were missing. No Safari/VoiceOver/human usability, live OAuth/native
+host, full-game/engine/retention/deployment or performance acceptance follows.
 
 ## Earlier prerequisites and unique provenance
 
@@ -117,7 +144,7 @@ are recoverable at the documentation baseline below. Tracked fixture provenance,
 prefix-provenance, inventory and qualification pins remain in place. In particular,
 `generated/action-transport/attempt02` and `generated/m2-integration` belong to the
 original action transport/controls lanes; `generated/core-queries/attempt02` belongs
-to the core query lane, whose source/schema pins are retained in its contract.
+to the native discovery proof above.
 No raw ignored evidence or source fixture was deleted.
 
 - [Original game-client-action-transport](https://github.com/joCaldwell/mtg-ecosystem/blob/1c3eca4c37b90de02decca316fefab5c8035140e/docs/game-client-action-transport.md) — frozen source, artifact identities, failures and omissions.

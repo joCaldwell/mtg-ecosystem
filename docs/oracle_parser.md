@@ -1,23 +1,13 @@
 # Oracle text parser
 
-The parser is a hand-written, zero-runtime-dependency TypeScript package at
-`packages/oracle-parser`. It normalizes Oracle text, tokenizes it, and builds a
-structured AST. The ANTLR implementation was retired on 2026-08-01.
-
-The parser remains a limited supported subset. The deck-builder is active and
-standalone; it does not consume this AST. A narrow Rust scenario compiler and
-runtime are implemented; general parser-to-executable compilation and bulk IR
-emission remain unfinished. See [architecture.md](architecture.md) and the package
-[AGENTS.md](../packages/oracle-parser/AGENTS.md).
-
-The parser, ingestion, archive, and diagnostic reference analysis remain
-TypeScript. Production semantic binding, lowering, and Card IR emission belong
-to the Rust compiler alongside the rules engine; see the
-[adopted language decision](architecture.md).
-
-The [checkpoint history](oracle_parser.md#source-qualified-checkpoint-and-remaining-work) records verified coverage,
-reproduction inputs, and unfinished work, including the October 15–16 parsing
-and reference-binding results.
+The hand-written TypeScript parser at `packages/oracle-parser` owns normalization,
+syntax AST and diagnostic reference analysis. Rust owns supported complete-source
+binding/lowering and executable Card IR; see [system architecture](../README.md#system-architecture)
+and [catalog admission](game-engine-catalogs.md). The deck library has an independent
+Scryfall/SQLite store. Broad grammar expansion is paused; parsing/reference binding
+never certifies engine execution. This guide owns parser semantics, data/archive
+contracts and ingestion; [the package manual](../packages/oracle-parser/AGENTS.md)
+owns local development constraints.
 
 ## Pipeline and public API
 
@@ -25,64 +15,108 @@ and reference-binding results.
 Oracle text → normalize → ability blocks → lex → parse → typed AST
                                                        ↓
                                            reference binding analysis
-                                                       ↓ future
-                                         semantic validation/lowering → Card IR
 ```
 
-```typescript
-import { parseOracleText } from "@mtg-ecosystem/oracle-parser";
+`parseOracleText(text, cardName?, context?)` returns the discriminated
+`ParseCardResult` in [ast.ts](../packages/oracle-parser/src/ast.ts). Successful
+cards have aggregate `abilities`; failures have only per-block `lines`, retaining
+successful blocks and diagnostics. `lines[].text` is normalized, not an original
+source span. The AST intentionally permits breaking changes, with no separate
+implemented JSON Schema. Source types own the exact payload inventory.
 
-const result = parseOracleText("Flying\n{T}: Add {G}.");
-if (result.ok) {
-  // result.abilities is required here: KeywordLine, ActivatedAbility.
-  console.log(result.abilities);
-} else {
-  for (const line of result.lines) {
-    if (!line.ok) console.error(line.text, line.error);
-  }
-}
-```
-
-`src/ast.ts` is the authoritative current contract. `ParsedLine` and
-`ParseCardResult` are discriminated success/failure unions. A failed card has
-no aggregate `abilities`; successfully parsed individual blocks remain
-available in `lines` for diagnostics and coverage work.
-
-`ok: true` means every normalized ability block was consumed by supported
-productions and represented in the AST. It is not proof of semantic correctness
-or a promise that a downstream engine implements the represented mechanics.
-Unknown syntax must fail rather than be preserved as raw executable text.
-Acceptance statistics cannot detect an incorrect AST; structural tests and
-rules review are the correctness gate.
+`ok: true` means every block was consumed and represented by supported productions.
+It is not semantic certification: structural tests/rules review must catch wrong
+ASTs. Unknown syntax never becomes raw executable text.
 
 ## Responsibilities and invariants
 
-- **Normalization** canonicalizes punctuation, removes parenthetical reminder
-  text, replaces exact-case full/short self-references, and preserves newlines.
-  Input is assumed to be Oracle text. `lines[].text` is normalized text, not an
-  original-source span. Balanced nested parentheticals preserve line boundaries;
-  malformed parentheses remain errors. Literal names in `named`, `Partner
-  with`, and named-token creation clauses are protected from object-self
-  substitution. A `CardNameCatalog` built from the complete input snapshot
-  supplies canonical card, face, and token names; grammar decides which
-  catalog matches are actual name literals. Unknown or ambiguous names fail.
-- **Ability blocks** ordinarily follow lines. Modal headers own all immediately
-  following bullet, Spree `+`, or weighted `{P}` lines. A successful header must actually consume those
-  options. One failed option fails the entire block; orphaned bullets fail.
-  A paragraph that only replaces the preceding spell ability's instruction
-  (CR 614.15, "Morbid — ~ deals 5 damage instead if …") joins that ability's
-  block; its ability word is kept on the `self-replacement` node.
-- **Lexing** never drops unknown characters. Brace tokens remain generic game
-  symbols; costs, mana production, and payment conditions validate their own
-  supported symbols.
-- **Parsing** constructs nodes directly. No generated grammar or visitor exists.
-  A cursor parser returning `null` restores its starting position. Effect
-  parsers also restore elided-subject context when an attempt fails.
-- **Diagnostics** come from the original classifier attempts. Sliced cost,
-  loyalty, and ability-word cursors report offsets in the complete header;
-  failed modal options report their option number and local token position.
-  Backtracking expectations can still be noisy; token positions are not
-  original-text character offsets.
+- Normalize punctuation/reminder text and exact-case full/short self-references,
+  preserving newlines even inside balanced parentheticals; malformed parentheses
+  remain errors. Protect literal names in `named`, `Partner with` and named-token
+  clauses. A complete-input `CardNameCatalog` supplies card/face/token names;
+  grammar selects actual literals, rejecting unknown/ambiguous names.
+- Lines ordinarily delimit abilities. Modal headers own all following bullet,
+  Spree `+` or weighted `{P}` lines; consume every option or fail the whole block,
+  and reject orphan bullets. An instruction-only self-replacement paragraph joins
+  its preceding spell block and retains its ability word (CR 614.15).
+- Lexing never drops unknown characters; costs, production and payment conditions
+  validate their supported brace symbols. Parsers construct typed nodes directly,
+  never `any` or lossy approximations. Returning `null` restores both cursor and
+  elided-subject context through `Cursor.attempt`.
+- Diagnostics come from the original classifier attempts. Sliced cost/loyalty/
+  ability-word cursors retain full-header offsets; modal failures name option and
+  local position. Farthest-failure token locations are not original character offsets.
+
+## Data contracts
+
+The [Scryfall adapter](../scripts/lib/scryfall.ts) validates consumed fields while
+preserving unrelated fields. [Card objects](https://scryfall.com/docs/api/cards)
+and [bulk data](https://scryfall.com/docs/api/bulk-data) distinguish printing `id`
+from Oracle `oracle_id`; reversible faces carry Oracle identities. Missing/null
+Oracle text differs from present empty text. `oracle_cards` selects representative
+printings, not a complete set/printing index.
+
+Corpus calls pass each face's `typeLine`, layout and complete `cardNames` catalog,
+including token/excluded names without changing evaluation scope. Binding inputs
+require `includeSourceProvenance: true`; the validator/archive enable it. The type
+line prevents permanent text passing as a one-shot spell. Public product/backend
+contracts and generated gameplay SDK types remain separate from this AST.
+
+### AST archive
+
+`npm run archive-parser` reads the local cache and writes ignored
+`generated/oracle-ast.jsonl`; `--input PATH --output PATH` selects alternatives.
+It never downloads or emits executable Card IR. [Archive code](../scripts/archive-parser.ts)
+owns exact fields and serialization. The schema-3 manifest declares
+`artifactKind: "oracle-ast-archive"`, `executable: false`, corpus byte/canonical-record
+hashes, parser source hash/revision, rules edition, versioned scope, frozen paper
+evidence identity and acceptance/exclusion/binding summaries. Source changes
+during generation fail publication.
+
+Adjacent content-addressed `corpus.snapshotFile` preserves exact original bytes,
+including whitespace, numeric spellings and future fields. Decoded `source` is
+convenient metadata, not the raw-input authority. `paperEvidence.snapshotFile`
+preserves evidence bytes/hash/size and its complete printing download's hash,
+size, count, URL and update time. Existing snapshots are verified, never overwritten;
+missing/corrupt inputs block publication. Verification rechecks scope exclusions
+against actual paper-printing witnesses, never names or format legality.
+
+Each subsequent line retains one complete input record in original order:
+
+- `source`, `sourceIndex`, `oracleIdentity`, `sourceSha256`: complete Scryfall object,
+  every face/characteristic/unconsumed field and provenance.
+- `excluded`: original source plus exclusion/duplicate reason, outside acceptance.
+- `parsed`: all faces succeeded, full AST/normalized blocks and complete-card AST hash.
+- `unsupported`: all available face results/diagnostics, no complete-card AST hash;
+  missing/null text remains explicit `missing-oracle-text`, distinct from empty.
+
+Selection IDs distinguish repeated use of one target from independent selections.
+Original text stays in source; keywords and unresolved references remain symbolic.
+In-scope rows retain `binding`/`bindingSha256`: graph, runtime slots, resolved edges
+and diagnostics. `bindingSummary` separately counts reference-bound and fully-bound
+cards, obligations/diagnostics and engine needs; these meanings are defined below.
+Neither a parsed row nor a bound graph establishes executable support.
+
+Publish verified source/evidence snapshots first, then write a unique adjacent
+archive temporary file. Read every JSONL record back, verify exact serialization
+and raw/source/AST/binding hashes before atomic replacement. Invalid/nonfinite
+input, source edits or any verification failure preserve the prior archive;
+ordinary failures remove only owned temporary outputs. Streaming verification
+avoids a second whole-corpus allocation.
+
+### Executable output boundary
+
+Rust contracts own Card IR schema 1, evolved in place with strict capability/shape
+validation until external compatibility requires otherwise. Archive schema 3 is
+independent. `mtg-sim schema` and `catalog build MANIFEST [--write]` provide the
+implemented schema/catalog path, under native-owner tooling. Bulk/per-set
+`build-ir` remains unimplemented and fails explicitly. Future bulk output needs
+complete printing/set membership, reproducible source/rules/corpus identity,
+lossless faces/characteristics, strict binding and stable validated encoding;
+Oracle corrections may rebuild existing sets. It is not inherently append-only.
+Generated `packages/card-data/sets/` is never hand-edited/committed; engine catalogs
+remain small reviewed source fixtures. Retired proposal detail is in Git history,
+not another current schema contract.
 
 ## Semantic conventions
 
@@ -313,120 +347,103 @@ catalog. The type line prevents unsupported permanent text from passing as
 one-shot spell instructions. Card-name lookup uses all source records,
 including token and excluded records, without changing the validation scope.
 
-Semantic validation, linked-ability support, and execution lowering remain
-unfinished. They must reject unresolved or unsupported constructs before
-producing executable Card IR. `build-ir` continues to fail explicitly.
+General semantic lowering and linked-ability coverage remain unfinished. The Rust
+compiler lowers only complete supported source; unresolved/unsupported constructs
+must reject before executable emission. `build-ir` still fails explicitly.
 
 Rules references: [Comprehensive Rules](https://magic.wizards.com/en/rules),
 especially 107.4 (symbols), 602.5 (restrictions), 603.2c and 700.1 (events),
 and 611.2a (durations). Parser comments cite the rules edition used for the
 foundational fixes.
 
+## Ingestion
+
+These root scripts are independent of the deck-builder's ingestion/database.
+`npm run ingest` requests the Scryfall bulk manifest with descriptive User-Agent/
+Accept headers, selects `oracle_cards` and caches `.scryfall-cache/oracle-cards.json`.
+Reuse a cache younger than 24 hours only after complete validation. Stream a new
+download into a unique adjacent temporary file; validate then publish by
+same-directory rename. HTTP/stream/JSON/record failures retain the prior corpus;
+ordinary completion/failure removes the owned temporary file.
+
+The reader supports current gzip JSONL manifests and historical JSON arrays.
+Validate each JSONL line as exactly one card and frame an array without
+reserializing fields/numeric spellings. Invalid UTF-8, truncated gzip or multiple
+records on one printing-evidence line reject. Report/archive/evidence readers also
+reject malformed UTF-8. Keep frozen benchmark inputs unchanged between comparisons;
+downloads, generated reports and content-addressed snapshots stay ignored/preserved.
+
+Validation/archive require `.scryfall-cache/paper-printing-evidence.json`;
+ingestion does not create it. Current scope
+`paper-printing-evidence-non-silver-non-acorn-v2` requires an eligible nonsilver,
+nonacorn paper printing of each Oracle identity from source or frozen evidence.
+A digital representative may identify a paper card; its `digital` flag alone does
+not exclude that identity. Do not classify an entire Un-set as silver/acorn.
+Exclude token, double-faced token, emblem, art-series, planar, vanguard and scheme
+layouts; all other unsupported cards count as failures. Count exclusions separately,
+faces independently and grouped modal blocks as single ability blocks. Empty text
+is valid; missing/null face text fails.
+
+Build paper evidence only from an explicitly downloaded, frozen `default_cards`
+JSONL file and bulk manifest:
+
+```sh
+sh scripts/engine-env.sh node scripts/build-paper-evidence.ts default-cards.jsonl bulk-manifest.json .scryfall-cache/paper-printing-evidence.json
+```
+
+The builder refuses an existing output. It records one actual eligible printing
+per identity and hashes the complete originating download. Reports hash evidence
+separately from the unchanged Oracle corpus; missing evidence is an error, never
+a smaller-denominator fallback. Historical v1 scope used the representative's
+digital flag incorrectly and cannot supply comparable v2 percentages.
+
 ## Development and verification
 
-Use Node ≥ 23 and run `npm install` at the repository root. There is no Java
-requirement or emitted build. From `packages/oracle-parser`:
+Use the repository [.node-version](../.node-version) through
+`sh scripts/engine-env.sh COMMAND`. Reuse healthy dependencies; when missing/broken,
+follow [conditional engine/parser bootstrap](game-engine-development.md#fresh-worktree),
+not root `npm install`. No Java or emitted parser build is required.
+
+From repository root:
 
 ```sh
-npm run check
+sh scripts/engine-env.sh npm --prefix packages/oracle-parser run check --workspaces=false
 ```
 
-This runs TypeScript checking and Node's structural test suite, including
-parser rollback, meaning-distinction tests, complete-block failures, corpus
-reporting, and simulated interrupted downloads. Pipeline modules imported by
-tests are typechecked too. Tests do not require networking or the bulk cache.
-
-From the root:
+The gate runs TypeScript and structural/negative Node tests, including rollback,
+meaning distinctions, complete-block failures and tooling/interrupted-download
+fixtures. It needs no network or bulk cache. Fix false successes before extending
+coverage; inspect exact source/rules and paired supported/rejection cases. Corpus
+coverage is a separate check, run only when relevant:
 
 ```sh
-npm run ingest
-npm run validate
-npm run validate -- --json > .scryfall-cache/validation.json
-npm run archive-parser
+sh scripts/engine-env.sh npm run validate
+sh scripts/engine-env.sh npm run validate -- --json
+sh scripts/engine-env.sh npm run archive-parser
 ```
 
-Validation uses the existing cache without refreshing it. Reports identify the
-exact corpus by SHA-256, the Git revision, and a hash of parser and reporting
-sources including working changes. Per-card outcomes include successful AST
-hashes for comparing runs. Use the same corpus hash and scope when comparing;
-changed AST hashes need review and are not automatically regressions.
-
-Ingestion accepts the current Scryfall gzip JSONL bulk manifest as well as
-historical JSON-array downloads. JSONL records are validated and framed as an
-array without reserializing their fields or numeric spellings. Invalid UTF-8,
-truncated gzip, malformed records, and interrupted downloads leave the previous
-corpus intact. Benchmark work keeps its existing cache frozen instead of running
-ingestion between coverage checkpoints.
-
-Report, archive, and printing-evidence readers also reject invalid UTF-8.
-Each printing JSONL line must contain exactly one complete card; a second
-record on the same line cannot be silently omitted from the evidence.
-
-The current scope, `paper-printing-evidence-non-silver-non-acorn-v2`, requires
-an eligible paper printing of the Oracle identity, either the selected source
-record or a printing in the frozen `.scryfall-cache/paper-printing-evidence.json`.
-An Oracle bulk record can be an MTGO printing of a paper card; its `digital`
-flag alone cannot exclude the identity. Evidence records one actual nonsilver,
-nonacorn paper printing per identity and hashes the complete printing download
-from which it was derived. Reports hash this evidence separately from the
-unchanged Oracle text corpus. Missing evidence is an error, not permission to
-fall back to a smaller denominator.
-
-To rebuild evidence from an explicitly downloaded and frozen Scryfall
-`default_cards` JSONL file and its bulk manifest:
-
-```sh
-node scripts/build-paper-evidence.ts default-cards.jsonl bulk-manifest.json .scryfall-cache/paper-printing-evidence.json
-```
-
-The builder refuses to overwrite an existing evidence file. Archive generation
-also stores its exact bytes as a content-addressed snapshot. The historical
-v1 scope incorrectly used the representative's digital flag; checkpoints made
-with it are historical measurements, not comparable v2 percentages.
-
-The scope still excludes explicitly listed non-card layouts. Other unsupported cards remain failures. Exclusions
-are counted separately. Identity uses `oracle_id` (face IDs for reversible
-cards), not names or printing IDs. Empty rules text is valid; missing or null face text
-is reported as a failure. “Lines” count ability blocks, including grouped modes.
-
-The old rewrite baseline was 33% of cards / 53% of lines under a different
-population definition. It is historical, not a minimum acceptance target.
-Correcting false successes can lower coverage. Failure groups use the token at
-the failure location and retain complete example text; they are investigation
-hints, not proof that every example needs the same grammar extension.
-
+Validation reads existing inputs without refreshing them. Reports bind exact
+corpus/evidence/scope, Git revision and parser/reporting source hash including dirty
+changes, with full failure examples and per-card acceptance/AST hashes. Compare
+matching corpus/scope and review changed ASTs; reduced coverage may correct false
+successes. Failure groups are investigation hints, not uniform grammar obligations.
+Before reusing a report/archive, compare `parser.sourceSha256` to `sourceIdentity()`
+in `scripts/validate-parser.ts`; recreate stale results only when needed. Never
+infer current support from a filename such as `parser-98-*`.
 
 ## Source-qualified checkpoint and remaining work
 
-Broad grammar coverage is paused. The 2026-10-16 checkpoint accepted 29,634/32,115
-Commander-legal cards (92.27%) on its exact corpus; 23,395 had all references bound,
-21,998 fully bound, 1,397 awaiting engine features and 6,239 with reference gaps.
-The parser/report source SHA was
-`316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a`;
-corpus `f8cb9da28e34b01dbd72504f059e012bda62db7d332acd2e3b43e75570e92738`;
-paper evidence `d3a68c4ae14b1349a9d7b9972a19ca8176db06133020b690eb7348d0d972c699`.
-Those 2,906 passing checks and percentages are historical, not a current result.
+Broad grammar work is paused. The 2026-10-16 checkpoint's 92.27% Commander-card
+acceptance is historical, not current execution support. Exact parser source,
+corpus/evidence pins, counts and earlier checkpoint11 audit locators remain in
+[the immutable baseline](https://github.com/joCaldwell/mtg-ecosystem/blob/33dcbe9df5c0cc7fef5f8d67f97adb85a3af4cdb/docs/oracle_parser.md#source-qualified-checkpoint-and-remaining-work)
+and [original checkpoint](https://github.com/joCaldwell/mtg-ecosystem/blob/1c3eca4c37b90de02decca316fefab5c8035140e/docs/oracle-parser-checkpoint.md).
+Unique audits remain under `.scryfall-cache/{checkpoint11-review.json,checkpoint11-grammar-gain-audit-coverage.json,archive-checkpoint11-independent-audit.json}`;
+no source/evidence was removed. Reused archives identify their checkpoint through
+manifest hashes, not their path.
 
-Remaining work: independent review of later reference-binding rules (earlier
-sampled review checked 465 additions and fixed three defects; later rules used
-corpus diffs), unresolved reference groups, engine-required event history/
-prevention/layers, paused grammar tail and bulk per-set emission. A wrong binding
-is worse than an unresolved reference. The archive declares `executable: false`;
-Rust lowering/admission, not parser coverage, proves executable support.
-
-For comparisons keep the same frozen corpus/scope; run package check, root
-`node scripts/validate-parser.ts --json` and `npm run archive-parser` only when
-needed. Compare `parser.sourceSha256` with `sourceIdentity()` in
-`scripts/validate-parser.ts`, corpus hash and scope before using any local report.
-`parser-98-*` files are historical and not automatically refreshed. Content-addressed
-input snapshots and generated archives stay ignored and preserved.
-
-Earlier checkpoint11 used source
-`98980a967a70d57008847ce0952edf0cc277af9ad26b8cb8739a555d97082b8d`,
-corpus `5e97d5c4b94e8a080ec4615bbee6cc4528333ed921e47dd1d16990a28870ff60`
-and scope `paper-printing-evidence-non-silver-non-acorn-v2`; its 67.60% whole-card
-acceptance is not comparable to another scope/corpus. Unique audits remain in
-`.scryfall-cache/{checkpoint11-review.json,checkpoint11-grammar-gain-audit-coverage.json,archive-checkpoint11-independent-audit.json}`.
-The reused `generated/oracle-ast.jsonl` identifies its checkpoint through its manifest.
-Full dated counts and reference-gap groups are recoverable from
-[the original checkpoint](https://github.com/joCaldwell/mtg-ecosystem/blob/1c3eca4c37b90de02decca316fefab5c8035140e/docs/oracle-parser-checkpoint.md).
+Outstanding work includes independent review of later binding rules, unresolved
+reference groups, event-history/prevention/layer requirements, paused grammar and
+bulk output. Earlier sampled review found three defects in 465 additions; later
+rules relied on corpus diffs. Wrong binding is worse than an unresolved reference.
+Rust complete-source lowering/admission establishes execution, not a parser score.

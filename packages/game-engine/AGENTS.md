@@ -1,84 +1,36 @@
 # Engine development
 
-Read [the current map](../../docs/game-engine-current.md) first. This package
-contains Rust contracts/compiler/core/simulator: finite legal Commander matches,
-public-observation policies, replay and sampled search. It is not arbitrary Magic.
-Server and parser edits also require their own package manuals.
+Read [the current map](../../docs/game-engine-current.md),
+[development](../../docs/game-engine-development.md), and affected
+[runtime invariants](../../docs/game-engine-mechanics.md#runtime-invariants) before edits. This
+package owns Rust contracts/compiler/core/simulator; server/parser have their own
+manuals. [Mechanics](../../docs/game-engine-mechanics.md) owns supported semantics.
 
-## Start and verify
+- Lower complete exact archived source or reject. Use frozen fixtures/pinned rules
+  and meaningful positive/rejection tests; never bless a changed expected outcome
+  without source/rules review. Card names/IDs identify witnesses, never mechanics.
+- Deterministic core imports contracts only: no compiler/parser runtime dependency,
+  I/O, clocks, OS randomness, async inference or unsafe code. Compiler test fixtures
+  are development-only; [structure checks](../../docs/game-engine-catalogs.md#ir-and-build-identity)
+  enforce declared boundaries.
+- Rust IR types own executable contracts. Active schema stays 1 in place, with
+  strict capabilities/shapes and exact build/catalog recovery fencing. Other format
+  versions and historical evidence remain separate; no old decoder/downgrade matrix.
+- All admitted catalogs share rules/capacities. Profiles are admission data;
+  hosting/search requests need explicit reviewed capabilities. New IR fields
+  require reviewing capability mapping as well as exhaustive enum variants.
+- Preserve identity, ownership/control, exact arithmetic, atomic events, budget
+  suspension, privacy and recovery. Resource faults/truncation are not rules
+  outcomes; queries never mint handles/history or mutate semantics.
+- Use focused checks with actual executed selectors and explicit omissions.
+  Default compilation/compiler-contract tests do not qualify runtime games/host.
+  One native owner uses the shared Cargo lock; runners already own it internally.
+- Preserve unrelated work and ignored source/evidence/cache paths. Commit/push
+  coherent focused checkpoints; no incidental merge, mechanic or pool expansion.
+  [Storage](../../docs/game-engine-storage.md) governs cleanup and retirement.
 
-Development is agent-only. Follow the
-[agent execution and handoff protocol](../../docs/game-engine-agent-workflow.md).
-Inspect the actual checkout and existing environment before changing either.
-Run from repository root:
-
-```sh
-git status --short --branch
-sh scripts/engine-env.sh node scripts/engine-doctor.ts --json
-sh scripts/engine-env.sh node scripts/check-engine.ts --plan
-```
-
-Bootstrap only a fresh/missing/broken dependency installation; a healthy checkout
-does not need npm ci on every task. Then choose checks for the actual change.
-
-[Bootstrap/doctor/environment instructions](../../docs/game-engine-development.md)
-cover exact existing toolchains and minimal locked dependencies. No automatic
-toolchain installation or system downgrade. Preserve explicit cache overrides.
-
-Josh's 2026-11-09 preference is substantially faster focused verification, even
-with reduced coverage. The default engine check compiles all targets and runs
-tooling/source plus compiler/contracts library tests; it omits core/sim/server
-runtime tests, executable contracts, SDK, demo, release/profile matrices and
-retention. Add the smallest relevant test for the change, verify it actually ran,
-and report omissions. No mandatory full acceptance matrix follows each edit.
-See [verification modes and cadence](../../docs/game-engine-verification-workflow.md).
-
-One heavy owner coordinates native compilation. Standalone Cargo uses the shared
-`~/.local/share/mtg-ecosystem/engine-verification/cargo.lock`. The check runner owns
-that lock internally; do not acquire it twice. Work on source/docs while busy.
-Do not delete or move the preserved performance cache or evidence paths.
-Commit and push coherent checkpoints after focused checks; do not wait for a
-full gate. Preserve exact failed/interrupted results and unrelated work.
-
-## Non-negotiable boundaries
-
-- Core's runtime dependency is contracts; no compiler/parser, network, filesystem, clocks,
-  OS randomness, async work, inference or unsafe code in deterministic core.
-  Compiler-backed test fixtures are development dependencies; see [boundary checks](../../docs/game-engine-builds.md).
-- Complete archived card source must lower or reject. Use exact local fixtures,
-  pinned rules citations and paired positive/unsupported cases. Never change an
-  expected outcome without source/rules review.
-- Rust IR types are authoritative; schema exports are generated. AST archive,
-  IR, snapshots, public projections and query recovery have separate versions.
-  While the engine has no external consumers, keep the only supported IR schema at 1:
-  evolve it in place using capability validation and exact build identity. Do
-  not add a schema version, feature introduction gate or downgrade test for each
-  increment. Revisit versioning when a consumer needs a compatibility contract.
-  Active catalogs use schema 1; historical reports and external evidence retain
-  their original source qualification. Do not maintain old decoder compatibility.
-- All admitted catalogs execute common rules. Profiles are admission data;
-  names/lineage/IR versions do not select mechanics or capacity ceilings.
-  Hosting/search requests must fit their explicit reviewed capability sets.
-- Keep identity, ownership/control, exact arithmetic, atomic events, budget
-  suspension, query privacy and recovery contracts intact. Read the affected
-  sections of [runtime invariants](../../docs/game-engine-invariants.md) before
-  editing those paths; they are part of this manual's constraints.
-- Do not weaken guards or substitute resource faults/truncation for rules
-  outcomes. Queries do not mutate semantics or mint public handles/history.
-- Commit small fixtures and summaries; downloaded corpora, bulk IR, schema
-  exports, bundles, timings and build outputs stay ignored. Ignored evidence is
-  not permission to delete it. Do not expand a pool/mechanic incidentally.
-
-## Find the relevant contract
-
-[Catalog/source workflow](../../docs/game-engine-catalogs.md),
-[profile admission](../../docs/game-engine-profiles.md),
-[capacity policy](../../docs/game-engine-capacity-policy.md),
-[search](../../docs/game-engine-search.md), [hosting](../../docs/game-engine-server.md),
-and [storage](../../docs/game-engine-storage.md) are topical entry points.
-
-Accepted D2c-d at `394301d` excludes later IR25 and digest reuse. Candidate-focused
-checks are not combined acceptance or a renewed P7 claim. Use the
-[current evidence table](../../docs/game-engine-current.md#evidence-boundaries-at-the-platform-baseline)
-and [evidence guide](../../docs/game-engine-evidence.md). Older manuals are
-recoverable in Git; they do not override current constraints or release scope.
+[Catalogs/profiles](../../docs/game-engine-catalogs.md),
+[capacities](../../docs/game-engine-capacity-policy.md),
+[search](../../docs/game-engine-search.md) and [hosting](../../docs/game-engine-server.md)
+are topical contracts. [Evidence](../../docs/game-engine-evidence.md) retains the
+accepted D2c-d `394301d` freeze and later focused qualification separately.

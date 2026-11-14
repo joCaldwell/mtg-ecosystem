@@ -6,16 +6,16 @@ permitted display with scoped styles and host React. `multiverse` owns product
 account UX, navigation, Home, deck editor and Play setup; `deck-builder` retains
 the existing auth/Actor/SQLite backend. Rust host/core own admission, legality,
 visibility and durable execution. Product sign-in does not grant a Rust seat.
-Read [application launch gates](multiverse-app.md) and [client setup](../packages/game-client/README.md).
+Read [application launch gates](../packages/multiverse/web/ARCHITECTURE.md#game-launch) and [client setup](../packages/game-client/README.md).
 
 ## Delivered scope and remaining gates
 
 The production App joins through an operator-issued single-seat file and enables
 only explicit `mulligan` and `bottom_opening` commands. It journals and reconciles
-unknown outcomes. Other decisions explain missing live controls/context. Nine
-request shapes have local draft adapters; they do not establish live or whole-profile
-coverage. `fixtures/decision-controls/coverage.json` inventories 28 requests and
-33 responses with separate reachability, control, context and test evidence.
+unknown outcomes. Other decisions explain missing live controls/context. Local
+draft adapters do not establish live or whole-profile coverage.
+`fixtures/decision-controls/coverage.json` owns request/response coverage with
+separate reachability, control, context and test evidence.
 Review new variants explicitly; schema presence is never admission.
 
 Action transport exists; the pure action-query lifecycle controller is opt-in
@@ -27,17 +27,10 @@ Do not use legacy solo playtester briefs/components as guidance.
 
 ## Package, privacy and presentation boundaries
 
-- `app` composes routing/lifetime; components never fetch or access storage.
-- `session` owns SDK effects, authorization, exclusive ownership and recovery.
-  Pure controllers inject effects; no browser/React/SDK runtime dependency.
-- `decisions` owns local human drafts: syntax, supplied candidates, ordering and
-  context binding. It computes no eligibility, costs, payment or combat rules.
-- `presentation` maps permitted projections and producer-owned allowlisted public
-  metadata to display. Never inspect executable IR, snapshots or private fixtures.
-- `features` composes public `@multiverse/game-ui` display. No duplicate table.
-- `preview` is router-free and local-only; it imports no auth/session/SDK runtime.
-  Its public component types hide generated inputs; implementation parity remains
-  checked in the client. `verify-preview` is Node-only provenance verification.
+[The package manual](../packages/game-client/AGENTS.md#boundaries) owns layering:
+session effects are separate from pure local drafts and permitted presentation;
+shared display comes from game-ui. The router-free preview imports no session/auth/
+SDK runtime, and its Node-only verifier preserves historical fixture qualification.
 
 Core-observed current characteristics override printed reference values. Metadata
 is offline-produced from exact archived source with catalog/printing/face/source
@@ -114,11 +107,70 @@ manufacturing replacement. Browser command effects have a 30-second headers/body
 deadline. Local stop, missing rows, changed view or incompatible build are not
 terminal and never erase ambiguity. SDK itself has no journal/retry policy.
 
+## Core action discovery
+
+`PlayerSession::action_beginnings(token, scope, page_size, budget)` discovers only
+`Priority` and `Mana` initiation, including nested permanent-mana payment. Other
+requests return `unsupported_window`. Setup, pending inputs and concessions retain
+existing query-boundary rejections. The host authorizes the viewer; core has no
+HTTP/auth/clock/database dependency.
+
+`ActionScope` is `Window` or one permitted `Object { object: ObjectHandle }`;
+object scope omits global beginnings. Priority enumerates Pass, then objects in
+lexical handle order: PlayLand, Cast, ActivateMana and ascending compiled activated-
+ability indices. Mana enumerates FinishMana(false), FinishMana(true), then each
+permitted ActivateMana. Every emitted beginning passes the existing budgeted
+response validator; rejected-response text/receipts are discarded. Submission must
+validate again. Cast is not affordability, FinishMana retains payment/reversal
+semantics, and initiation completeness is not every later target/payment choice.
+No strategy ranking or complete target/payment/X combinations are supplied.
+
+`ActionQueryResult::outcome()` borrows its permitted outcome; `into_parts()` returns
+that plus optional opaque `ActionContinuation`. Only the outcome serializes. The
+host stores the continuation behind its authenticated cursor and calls
+`resume_actions`; it cannot inspect, clone, serialize or manufacture continuation
+state through the public API. Dropping/cancelling it discards scratch, never a
+command, receipt or durable recovery record. Restart restarts discovery.
+
+| Native outcome | Meaning |
+| --- | --- |
+| `complete { page }` | Scope exhausted; combine all preceding incremental pages |
+| `incomplete { page, required_minimum: 1 }` | Page/work capacity stopped discovery; continuation exists |
+| `stale` | Viewer/token/executor/state binding no longer matches; no private reason |
+| `unavailable { reason }` | Unsupported/invalid boundary, viewer, page size or object scope, or invariant failure; no trusted partial menu |
+
+Pages echo token/scope and never repeat entries. Exactly filling a page is still
+incomplete even on its last candidate; only a resumed `complete` establishes
+exhaustion, possibly with an empty final page. Native page size is 1–64 entries,
+not a byte/time/total-cardinality bound. Zero budget initializes/enumerates nothing
+and returns incomplete with null context; an echoed token is not validation.
+One initialization unit checks token/scope and builds context. Invalid viewer/
+page size and existing setup/concession guards may reject before initialization.
+Each syntax candidate costs one step, its existing validator resumes one unit at
+a time, and a final unit detects exhaustion. Continuation retains at most one
+candidate/validator, object cursor and context, never accumulated emitted entries.
+Logical work is not a CPU-instruction or constant-time guarantee. Unlimited budget
+is trusted native-only use; transport ceilings are independently stricter below.
+
+Context is `priority` or `mana { cost, source }` copied from the permitted request.
+Source is available only when that request supplies `mana_ability_source`; ordinary
+spell/ability payment source remains unavailable. All labels are unavailable:
+compiler source-label mappings do not exist in this qualified build. Never infer
+source blocks, mode/X meaning, instructions or legality from text/IR/card identity.
+
+Discovery traverses only the viewer's existing published handle map and rechecks
+visibility/incarnation; it never scans private IDs for order, mints handles,
+republishes views, advances rules/history/cursors or submits receipts. Continuations
+bind viewer and private executor/state identity; fork/restore/semantic changes
+invalidate them even if a public token matches. No state digest/private identity
+enters permitted output, and private object counts cannot affect public work
+transcripts. Host scheduling/quotas/serialization remain outside core. Exact native
+source/schema qualification and preserved failures are in [evidence](game-client-evidence.md#core-action-discovery-evidence).
+
 ## Action discovery transport
 
-[Core action beginnings](game-client-core-queries.md) defines only priority/mana
-initiation completeness. Rust DTOs/routes embed core outcomes; HTTP authenticates
-the viewer and forwards to the exclusive match worker. It never computes rules.
+Rust DTOs/routes embed the native outcomes above. HTTP authenticates the viewer
+and forwards to the exclusive match worker; it never computes rules.
 `POST /v1/matches/{match_id}/actions/query` accepts `start {token,scope,page_size,work}`,
 `continue {cursor,work}` or `cancel {cursor}` by `operation`; no URL query/viewer/
 unknown/duplicate fields. `complete`, `incomplete`, `stale`, nested `unavailable`
@@ -169,8 +221,8 @@ handles/scope/beginnings remain private in-memory facts, never URL/log/storage d
 
 Local ceilings: page 16, work 250/call, 32 charged attempts, 8,000 units, 256 aggregate
 entries, 131,072 aggregate UTF-8 response bytes, absolute 20-second chain, four-second
-operations, 100ms inter-page wait. Limits may only decrease. At most two total retries
-for HTTP429/explicit quota, with one-second wait and full charged budgets. Other
+operations, 100 ms inter-page wait. Limits may only decrease. At most two total retries
+for HTTP 429/explicit quota, with one-second wait and full charged budgets. Other
 transport/protocol failures retain uncertainty. At most one extra cancellation
 attempt per retired intent, four seconds, no work/budget replenishment.
 
@@ -240,15 +292,11 @@ video and automatic screenshots; receipts contain public identities/counts only.
 Keep Chromium/Firefox versions, exact source/schema/build hashes, failed attempts
 and explicit omissions. No full native matrix follows a docs/client-only edit.
 
-Qualification authority is `packages/game-client/sdk-qualification.json` plus
-fixture provenance; historical captures are unchanged. Current native/SDK pin is
-`ebfa6dde266139c45220959c4179ddedf6a38433`, preserving compiler fix `dc12222` and
-reviewed PR22/23. Protocol schema:
-`a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3`;
-bootstrap schema:
-`0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a`.
-This is separate from engine HEAD, original `2aaf`/`e86` captures and the later
-PR24 product extraction. Never switch SDK builds between qualification checks.
+Current native/SDK qualification is owned by
+[`sdk-qualification.json`](../packages/game-client/sdk-qualification.json), separate
+from historical capture provenance, current engine HEAD and later product changes.
+Use one qualified SDK throughout checks; never replace it with historical schemas
+to make fixtures pass.
 
 [Source-qualified opening and product evidence](game-client-evidence.md) retains
 exact producer/build identities, actual checks, proof locations, failures and
