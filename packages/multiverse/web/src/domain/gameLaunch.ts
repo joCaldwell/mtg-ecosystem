@@ -10,4 +10,3 @@ export function admissionMessage(admission: GameAdmission): string {
     case "supported": return admission.launch_ready ? "This exact deck revision is admitted for a game." : "This deck revision is admitted. Live sessions and automated opponents are not connected yet.";
   }
 }
-

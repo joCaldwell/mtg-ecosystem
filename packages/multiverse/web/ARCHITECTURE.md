@@ -214,6 +214,9 @@ requested revision as Oracle IDs/roles/quantities excluding maybes, and persists
 that immutable deck before native provisioning. The deck library has no engine
 or Card IR dependency. Games survive library deck edits/deletion; account export
 and deletion include their owner-scoped rows through the existing inventory.
+Deleting an unacknowledged game atomically leaves a minimal operational stop job
+containing only match ID and native identity. It has no account/deck/credential
+data, survives coordinator restart and is deleted only after stop acknowledgment.
 
 Authenticated `/api/games/admission` checks a selected revision. `/api/games`
 launches with `{deck_id,expected_revision,request_id}` or lists the owner's latest
@@ -224,7 +227,7 @@ uncertain creation must recover the same native match, never create a replacemen
 Records retain active/paused/interrupted/completed states, native win/draw outcomes,
 wait timestamps and durable consumer-stop acknowledgments. Resource/time failures
 are interruptions, never invented rules losses. Another launch remains blocked
-until the previous terminal game's consumers have acknowledged joining.
+until the previous terminal game's consumers have acknowledged stopping.
 
 Admission distinguishes not checked, checking, supported, unsupported, unavailable
 and stale revision. The product's opt-in `admit-client` process adapter checks

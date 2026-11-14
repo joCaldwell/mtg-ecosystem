@@ -6,7 +6,7 @@ import { accountInfo } from "./accounts.ts";
 import { databaseGate } from "./auth-database.ts";
 import { withTransaction } from "./db.ts";
 import { ServiceError } from "./errors.ts";
-import type { GameAdmission, GameCoordinatorOptions, GameDeck, GameIdentity, GameLaunchResult, GamePause, GameRecord, NativeGameStatus } from "./game-contracts.ts";
+import type { GameAdmission, GameCoordinatorOptions, GameDeck, GameIdentity, GameLaunchResult, GamePause, GameRecord, GameStopTarget, NativeGameStatus } from "./game-contracts.ts";
 
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const sameIdentity = (a: GameIdentity, b: GameIdentity) => a.catalog_sha256 === b.catalog_sha256 && a.profile === b.profile && a.engine_build_id === b.engine_build_id && a.server_build_id === b.server_build_id;
@@ -101,6 +101,9 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
   }
   async function reconcile(record: GameRecord): Promise<GameRecord> {
     if (!native?.lifecycle_qualified || closed) return record;
+    // Recovery must retain unacknowledged stop ownership before every state
+    // branch, including already paused/completed/interrupted records.
+    if (!record.consumers_stopped) owned.set(record.id, record);
     try {
       if (!sameIdentity(record.identity, native.identity)) { owned.set(record.id, record); await pause(record, "identity_mismatch"); return record; }
       if (record.state === "paused" || record.state === "completed" || record.state === "interrupted") {
@@ -153,8 +156,11 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
       const latest = capture(actor, deckId, revision);
       if ("state" in latest) return latest;
       if (admitted.state !== "supported" || !admitted.launch_ready) return null;
-      const existing = db.prepare("SELECT record_json FROM game_launches WHERE user_id=? AND request_id=?").get(actor.user_id, requestId) as { record_json: string } | undefined;
-      if (existing) return JSON.parse(existing.record_json) as GameRecord;
+      const existing = db.prepare("SELECT record_json,input_hash FROM game_launches WHERE user_id=? AND request_id=?").get(actor.user_id, requestId) as { record_json: string; input_hash: string } | undefined;
+      if (existing) {
+        if (existing.input_hash !== inputHash) throw new ServiceError("Launch request ID already used with different input", 409);
+        return JSON.parse(existing.record_json) as GameRecord;
+      }
       // No more than one live or uncertain match per owner. A failed create
       // must be reconciled with its exact key, never replaced by a new match.
       const busy = (db.prepare("SELECT record_json FROM game_launches WHERE user_id=?").all(actor.user_id) as { record_json: string }[]).some(r => { const game = JSON.parse(r.record_json) as GameRecord; return !["completed", "interrupted"].includes(game.state) || !game.consumers_stopped; });
@@ -180,14 +186,24 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
     await sql(() => read(actor, id));
     return { admission: admitted, game: result };
   }
+  async function drainStopJobs(): Promise<void> {
+    if (!native?.lifecycle_qualified) return;
+    const jobs = await sql(() => db.prepare("SELECT id,target_json FROM game_stop_jobs").all() as { id: string; target_json: string }[]);
+    for (const job of jobs) {
+      try {
+        const target = JSON.parse(job.target_json) as GameStopTarget;
+        await call(signal => native.stop(target, "owner_deleted", signal));
+        await sql(() => db.prepare("DELETE FROM game_stop_jobs WHERE id=? AND target_json=?").run(job.id, job.target_json));
+        owned.delete(job.id);
+      } catch { /* durable minimal handoff survives account/process deletion */ }
+    }
+  }
   async function tick(): Promise<void> {
     if (closed || !native?.lifecycle_qualified) return;
     const rows = await sql(() => db.prepare("SELECT record_json FROM game_launches").all() as { record_json: string }[]);
     const records = rows.map(row => JSON.parse(row.record_json) as GameRecord);
     for (const record of records) if ((!["completed", "paused", "interrupted"].includes(record.state)) || !record.consumers_stopped || owned.has(record.id)) await run(record);
-    for (const record of owned.values()) if (!records.some(r => r.id === record.id)) {
-      try { await call(signal => native.stop(record, "owner_deleted", signal)); owned.delete(record.id); } catch { /* retry next sweep */ }
-    }
+    await drainStopJobs();
   }
   return {
     admission, launch, resume,
@@ -212,6 +228,7 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
     async close() {
       closed = true; clearInterval(timer); await ticking; await Promise.allSettled(inflight.values());
       if (native) await Promise.allSettled([...owned.values()].map(record => call(signal => native.stop(record, "shutdown", signal))));
+      await drainStopJobs();
     },
   };
 }

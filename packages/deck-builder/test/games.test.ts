@@ -4,7 +4,7 @@ import { createGameCoordinator } from "../src/games.ts";
 import type { GameDeck, GameIdentity, GameRecord, NativeGameAdapter, NativeGameStatus } from "../src/game-contracts.ts";
 import { newDeck, testDb, add } from "./helpers.ts";
 import { OWNER, agent } from "./actors.ts";
-import { exportAccount, accountScopes } from "../src/accounts.ts";
+import { exportAccount, accountInfo, accountScopes, deleteAccount } from "../src/accounts.ts";
 
 const identity: GameIdentity = { catalog_sha256: "b".repeat(64), profile: "fixture", engine_build_id: "fixture-engine", server_build_id: "fixture-server" };
 function fixture() {
@@ -101,6 +101,26 @@ test("uncertain create is durable and recovers the same key across coordinator r
   } finally { await successor?.close(); await f.coordinator.close(); f.db.close(); }
 });
 
+test("concurrent conflicting launch inputs remain bound to the original stable request key", async () => {
+  const f = fixture();
+  try {
+    const other = newDeck(f.db); add(f.db, other, "id-atraxa", { role: "commander" });
+    const revision = (f.db.prepare("SELECT revision FROM decks WHERE id=?").get(other) as { revision: number }).revision;
+    const releases: (() => void)[] = [];
+    let entered!: () => void;
+    const bothEntered = new Promise<void>(resolve => { entered = resolve; });
+    f.setAdmit(() => new Promise<void>(resolve => { releases.push(resolve); if (releases.length === 2) entered(); }));
+    const a = f.coordinator.launch(OWNER, f.id, f.revision(), key);
+    const b = f.coordinator.launch(OWNER, other, revision, key);
+    await bothEntered; for (const release of releases) release();
+    const results = await Promise.allSettled([a, b]);
+    assert.equal(results.filter(result => result.status === "fulfilled").length, 1);
+    const rejected = results.find(result => result.status === "rejected");
+    assert.ok(rejected?.status === "rejected"); assert.equal(rejected.reason.status, 409);
+    assert.equal(f.matches.size, 1);
+  } finally { await f.coordinator.close(); f.db.close(); }
+});
+
 test("consumer failure and human timeout stop bots without fabricating a game result", async () => {
   for (const scenario of ["consumer_failed", "human_timeout"] as const) {
     const f = fixture();
@@ -187,6 +207,37 @@ test("bounded native waits pause uncertain launch; stop and account removal reta
     await f.coordinator.tick(); assert.ok(f.stops.includes("owner_deleted"));
     await assert.rejects(f.coordinator.get(OWNER, game.id), { status: 404 });
   } finally { await f.coordinator.close(); f.db.close(); }
+});
+
+test("recovered failed stop survives real account deletion and a second coordinator restart with only minimal native identity", async () => {
+  const f = fixture();
+  let successor: ReturnType<typeof createGameCoordinator> | undefined;
+  let recovered: ReturnType<typeof createGameCoordinator> | undefined;
+  try {
+    f.setEnsure(() => { throw Error("uncertain create"); });
+    let attempts = 0;
+    f.adapter.stop = async () => { attempts++; throw Error("stop unavailable"); };
+    const game = (await f.coordinator.launch(OWNER, f.id, f.revision(), key)).game!;
+    await f.coordinator.close();
+    successor = createGameCoordinator(f.db, { native: f.adapter, browser_session_qualified: true, now: () => 500 });
+    await successor.tick();
+    const beforeDelete = attempts;
+    f.db.prepare("UPDATE users SET is_admin=0 WHERE id=?").run(OWNER.user_id);
+    deleteAccount(f.db, OWNER, accountInfo(f.db, OWNER).handle);
+    assert.equal(f.db.prepare("SELECT id FROM game_launches WHERE id=?").get(game.id), undefined);
+    const job = f.db.prepare("SELECT target_json FROM game_stop_jobs WHERE id=?").get(game.id) as { target_json: string };
+    assert.deepEqual(JSON.parse(job.target_json), { id: game.id, identity });
+    assert.equal(job.target_json.includes("deck"), false);
+    assert.equal(accountScopes(f.db).some(scope => scope.table === "game_stop_jobs"), false, "stop handoff is explicitly global operational data");
+    await successor.tick(); assert.ok(attempts > beforeDelete);
+    await successor.close();
+    const stopped: unknown[] = [];
+    f.adapter.stop = async target => { stopped.push(target); };
+    recovered = createGameCoordinator(f.db, { native: f.adapter, browser_session_qualified: true, now: () => 500 });
+    await recovered.tick();
+    assert.deepEqual(stopped, [{ id: game.id, identity }]);
+    assert.equal(f.db.prepare("SELECT id FROM game_stop_jobs WHERE id=?").get(game.id), undefined);
+  } finally { await recovered?.close(); await successor?.close(); await f.coordinator.close(); f.db.close(); }
 });
 
 test("native secret-bearing extras never enter admission and invalid human delivery is refused", async () => {
