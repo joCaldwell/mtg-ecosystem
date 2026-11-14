@@ -198,7 +198,12 @@ fn paid_by(g: &mut Game, name: &str, player: PlayerId, target: Option<StackId>) 
                     let needed = cost
                         .colored
                         .iter()
-                        .find(|c| g.mana(r.player(), **c).unwrap_or_default() == Quantity::zero())
+                        .find(|c| {
+                            let required =
+                                cost.colored.iter().filter(|symbol| *symbol == *c).count();
+                            g.mana(r.player(), **c).unwrap_or_default()
+                                < Quantity::from(required as u64)
+                        })
                         .copied();
                     let source = g
                         .state
