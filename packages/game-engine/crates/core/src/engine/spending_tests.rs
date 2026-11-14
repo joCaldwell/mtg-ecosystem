@@ -317,46 +317,200 @@ fn pending_spending_survives_unrelated_departure_but_never_resurrects_a_departed
 }
 
 #[test]
-fn targeted_player_leaving_at_accepted_spending_reverses_the_incomplete_cast() {
+fn targeted_player_leaving_during_spending_preserves_payment_then_prevents_resolution() {
+    // Pinned CR 601.2e/g/h, 601.6, 608.2b (2026-09-25), SHA-256
+    // 8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca:
+    // proposal legality precedes mana/payment. A target leaving during costs
+    // cannot reverse that legal proposal; all-illegal targets stop resolution.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     let catalog = Catalog::read(include_str!(
         "../../../../tests/fixtures/expected-action-ir.json"
     ))
     .unwrap();
-    let mut g = Game::new(Prepared::admit(catalog, ScenarioConfig::actions()).unwrap());
-    answer(&mut g, Response::Cast { card: CardId(4) });
-    answer(
-        &mut g,
-        Response::PlayerTargets {
-            players: vec![PlayerId(1)],
-        },
-    );
-    for card in [2, 3] {
-        let object = g.object_id(CardId(card)).unwrap();
-        answer(&mut g, Response::ActivateMana { object });
-    }
-    answer(&mut g, Response::FinishMana { undo_mana: true });
-    assert!(matches!(settle(&mut g), Request::SpendMana { .. }));
-    answer(
-        &mut g,
-        Response::SpendMana {
-            spending: selection(1, 1),
-        },
-    );
-    g.concede(PlayerId(1)).unwrap();
-    settle(&mut g);
-    assert!(g.state.rules.stack.is_empty());
-    assert_eq!(
-        g.zone(g.object_id(CardId(4)).unwrap()),
-        Some(Zone::Hand { owner: PlayerId(0) })
-    );
-    assert!(g.state.rules.players[0].mana.is_empty());
-    for card in [2, 3] {
-        assert!(
-            !g.current(g.object_id(CardId(card)).unwrap())
-                .unwrap()
-                .tapped
+    let prepared = Prepared::admit(catalog, ScenarioConfig::actions()).unwrap();
+    // Before acceptance, accepted but unconsumed (the original failing case),
+    // and after consumption/payment must preserve the same target and costs.
+    for boundary in 0..3 {
+        let mut g = Game::new(prepared.clone());
+        answer(&mut g, Response::Cast { card: CardId(4) });
+        answer(
+            &mut g,
+            Response::PlayerTargets {
+                players: vec![PlayerId(1)],
+            },
         );
+        for card in [2, 3] {
+            let object = g.object_id(CardId(card)).unwrap();
+            answer(&mut g, Response::ActivateMana { object });
+        }
+        answer(&mut g, Response::FinishMana { undo_mana: true });
+        assert!(matches!(settle(&mut g), Request::SpendMana { .. }));
+        let stack = g.top().unwrap().clone();
+        assert!(stack.paid.is_none());
+        if boundary > 0 {
+            answer(
+                &mut g,
+                Response::SpendMana {
+                    spending: selection(1, 1),
+                },
+            );
+        }
+        if boundary == 2 {
+            settle(&mut g);
+            assert_eq!(g.top().unwrap().paid, Some(stack.total_cost.clone()));
+        }
+        g.concede(PlayerId(1)).unwrap();
+        // Recovery must preserve both queued external departure and accepted spend,
+        // without exposing a second decision before those inputs are processed.
+        assert!(g.decision_for(PlayerId(0)).unwrap().is_none());
+        spending_recovery(&g);
+        // The external departure runs first, in one atomic step. In the queued
+        // case the selected payment is still pending and no mana was consumed.
+        let _ = g.advance(Budget::new(1));
+        assert!(!g.is_live(PlayerId(1)));
+        assert_eq!(g.top().unwrap().id, stack.id);
+        assert_eq!(g.top().unwrap().paid.is_some(), boundary == 2);
+        for color in [Color::B, Color::G] {
+            assert_eq!(
+                g.mana(PlayerId(0), color),
+                Some(if boundary == 2 { 0.into() } else { 1.into() })
+            );
+        }
+        if boundary == 1 {
+            assert!(matches!(&g.state.rules.pending.as_ref().unwrap().response,
+                Response::SpendMana { spending } if spending == &selection(1, 1)));
+        }
+        spending_recovery(&g);
+        settle(&mut g);
+        if boundary == 0 {
+            assert!(matches!(g.state.rules.frame, Frame::SpendMana { .. }));
+            assert!(g.top().unwrap().paid.is_none());
+            answer(
+                &mut g,
+                Response::SpendMana {
+                    spending: selection(1, 1),
+                },
+            );
+            settle(&mut g);
+        }
+        assert_eq!(g.state.rules.stack.len(), 1);
+        assert_eq!(g.top().unwrap().id, stack.id);
+        assert_eq!(g.top().unwrap().source, stack.source);
+        assert_eq!(g.top().unwrap().player_targets, vec![PlayerId(1)]);
+        assert_eq!(g.top().unwrap().paid, Some(stack.total_cost));
+        assert_eq!(g.zone(g.object_id(CardId(4)).unwrap()), Some(Zone::Stack));
+        assert_eq!(g.mana(PlayerId(0), Color::B), Some(0.into()));
+        assert_eq!(g.mana(PlayerId(0), Color::G), Some(0.into()));
+        for card in [2, 3] {
+            assert!(
+                g.current(g.object_id(CardId(card)).unwrap())
+                    .unwrap()
+                    .tapped
+            );
+        }
+        assert_eq!(
+            g.events()
+                .iter()
+                .filter(|e| matches!(e, Event::SpellCast { stack_id } if *stack_id == stack.id))
+                .count(),
+            1
+        );
+        assert_eq!(
+            g.events()
+                .iter()
+                .filter(|e| matches!(e,
+                    Event::Committed { actual: EventOutcome::ManaPaidSelected { spending, .. }, .. }
+                        if spending == &selection(1, 1)
+                ))
+                .count(),
+            1
+        );
+        assert!(
+            !g.events()
+                .iter()
+                .any(|e| matches!(e, Event::CastReversed { .. }))
+        );
+        spending_recovery(&g);
+        for player in [PlayerId(0), PlayerId(2), PlayerId(3)] {
+            let request = settle(&mut g);
+            assert!(
+                matches!(request, Request::Priority { player: actual, .. } if actual == player)
+            );
+            g.respond(player, request.decision_id(), Response::Pass)
+                .unwrap();
+        }
+        settle(&mut g);
+        assert!(g.state.rules.stack.is_empty());
+        assert_eq!(
+            g.zone(g.object_id(CardId(4)).unwrap()),
+            Some(Zone::Graveyard { owner: PlayerId(0) })
+        );
+        assert!(g.events().contains(&Event::SpellCompleted {
+            stack_id: stack.id,
+            resolved: false,
+        }));
+        assert_eq!(g.mana(PlayerId(0), Color::B), Some(0.into()));
+        assert_eq!(g.mana(PlayerId(0), Color::G), Some(0.into()));
+        for card in [2, 3] {
+            assert!(
+                g.current(g.object_id(CardId(card)).unwrap())
+                    .unwrap()
+                    .tapped
+            );
+        }
+        assert!(
+            !g.events()
+                .iter()
+                .any(|e| matches!(e, Event::CastReversed { .. }))
+        );
+        spending_recovery(&g);
+        let replay = Game::replay(g.prepared.as_ref().clone(), &g.replay_journal()).unwrap();
+        assert_eq!(replay.state_digest().unwrap(), g.state_digest().unwrap());
     }
-    let replay = Game::replay(g.prepared.as_ref().clone(), &g.replay_journal()).unwrap();
+}
+
+fn spending_recovery(g: &Game) {
+    let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
+    // Intermediate accepted/queued inputs need the exact rule boundary;
+    // unbounded journal replay instead advances to the next decision.
+    let replay = Game::replay_to(
+        g.prepared.as_ref().clone(),
+        &g.replay_journal(),
+        Some(g.state.rules.rule_steps),
+        TraceMode::Detailed,
+    )
+    .unwrap();
+    assert_eq!(restored.state_digest().unwrap(), g.state_digest().unwrap());
     assert_eq!(replay.state_digest().unwrap(), g.state_digest().unwrap());
+    for player in g.live_players() {
+        let before = g.snapshot().unwrap();
+        if !g.state.rules.pending_concessions.is_empty() {
+            for executor in [g, &restored, &replay] {
+                assert!(matches!(
+                    executor.observe(player, Budget::new(1)),
+                    QueryResult::Rejected(QueryRejection::UnsupportedBoundary)
+                ));
+            }
+            assert_eq!(g.snapshot().unwrap(), before);
+            continue;
+        }
+        let QueryValue::Observation(own) = query(g, g.observe(player, Budget::new(1))) else {
+            panic!("observation")
+        };
+        let QueryValue::Observation(recovered) =
+            query(&restored, restored.observe(player, Budget::new(1)))
+        else {
+            panic!("restored observation")
+        };
+        assert_eq!(own, recovered);
+        assert_eq!(own.view.stack.len(), g.state.rules.stack.len());
+        for (visible, entry) in own.view.stack.iter().zip(&g.state.rules.stack) {
+            assert_eq!(visible.player_targets, entry.player_targets);
+            assert_eq!(visible.cast_complete, entry.paid.is_some());
+        }
+        if g.state.rules.pending.is_some() {
+            assert!(own.decision.is_none());
+        }
+        assert_eq!(g.snapshot().unwrap(), before);
+    }
 }
