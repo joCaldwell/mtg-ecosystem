@@ -62,7 +62,7 @@ Acceptance is source-qualified, never inherited by later code:
 | D2c-d `394301d` | Accepted declared-attack triggers at historical IR24, including reviewed demo/Bundle lifetimes |
 | Later D2c-e/IR25 and finite trigger/keyword/interaction additions | Candidate/focused source qualification; no renewed combined acceptance or P7 performance claim |
 | Schema-1 reset | Regenerated 29 active pools, 1,357 definitions unchanged; focused checks only |
-| Latest temporary-keyword family | Source `6b23e81bc5535e6f4f89224072f01141981c7675`; 787 compiled rows; focused qualification only, with exact producer and omissions in evidence guide |
+| Latest controlled temporary-keyword family | Source `b505e32cfb29bbfdcf5183b7480fbbd41a750ce1`; 794 compiled rows; focused qualification only, with exact producer and omissions in evidence guide |
 | Client/hosting consumers | Retain their own exact producer/schema/catalog/build qualification, separate from current engine HEAD |
 
 [The evidence guide](game-engine-evidence.md) retains exact source/digest and proof

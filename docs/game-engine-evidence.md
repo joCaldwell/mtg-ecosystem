@@ -142,20 +142,30 @@ Full runtime, release/profile/completion, host/SDK and consumer matrices were om
 
 ### Current temporary-keyword family qualification
 
-The later focused source is `6b23e81bc5535e6f4f89224072f01141981c7675`, CLI producer
-`cbcc7622ef4e4c163a562cdb88b3fc528033b6727ee2b21db36000b17af9a7f6`, 787 compiled
-source rows. The original lane retained 459 distinct selected Rust tests (460
-executions with one overlapping core filter), 230 exported-schema probes, workspace
-all-target compilation, formatting, production Clippy and CLI smoke/replay under
-`generated/temporary-keyword-family/`. Exported schema SHA-256:
-`1f632959eee76189b256d797c0ae07f6c838c8631dcd6654ef2aec31fbca66d6`.
+The controlled-target/Hexproof extension is qualified at source
+`b505e32cfb29bbfdcf5183b7480fbbd41a750ce1`, CLI producer
+`99b928452d95314d521379dcae9ef9020b71307a0541a25cc6c37f41a66c0656`,
+with 794 compiled source rows verified. It passed 473 selected Rust tests, 1,657
+exported-schema probes, workspace all-target compilation, formatting, production
+Clippy and CLI smoke/replay. Exact executed binaries, source/settings bridges and
+receipts remain under `generated/controlled-protection-family/combined01/` in the
+original engine lane. Exported schema SHA-256:
+`3f28372367ba186d4badf6f5ba8dc67152f0b4ae7ebd607f98ae1f801ec2de53`.
 Compiler/core/simulator production Clippy passed strictly; contracts retains only
-the inherited `collapsible_if` exception. Exact binaries, test/CLI optimization
-identities and failed attempts remain preserved. Full runtime, release/profile/
-completion, server/SDK and consumer matrices were omitted. Earlier mechanic-family,
-next-three/five-more and full-game/client proofs keep their own producers. No new
-playable pool or consumer acceptance follows from the source foundation, and no
-native checks were rerun merely to consolidate its documentation.
+its inherited `collapsible_if` exception. No production-core change was needed.
+Initial owner/controller distinctions, target revalidation, Hexproof queries,
+cleanup, reentry and replay were exercised through supported actions. Current
+inputs have no control-changing operation, so same-incarnation dynamic-control
+scenarios remain explicitly unqualified rather than simulated by state mutation.
+Existing catalog IR, playable pools, policy and host/search sets are unchanged.
+Full runtime, release/profile/completion, server/SDK and consumer matrices remain
+omitted. Later documentation-only commits do not relabel the retained producer.
+
+The preceding unfiltered family foundation retains source
+`6b23e81bc5535e6f4f89224072f01141981c7675`, its 787-row producer, 459 distinct
+selected tests and 230 probes under `generated/temporary-keyword-family/`.
+Earlier mechanic-family, next-three/five-more and full-game/client proofs keep
+their own source identities. No new consumer acceptance follows from these passes.
 
 ### Selected current proof locators
 
