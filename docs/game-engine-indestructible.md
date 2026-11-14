@@ -20,7 +20,11 @@ Destruction checks the exact incarnation before invoking movement or
 movement replacement. A forbidden attempt records `DestructionPrevented`, with
 no fabricated movement. Lethal-damage and deathtouch destruction SBAs ignore
 indestructible creatures, so stabilization terminates. Damage remains marked,
-with ordinary lifelink and damage-trigger processing. Each completed SBA check
+with ordinary lifelink and damage-trigger processing. Damage-source historical
+keyword validation includes grants from validated ordinary spell programs as
+well as intrinsic and static abilities. This vocabulary check does not prove a
+grant occurred: departure-invariant facts and restore replay authenticate the
+captured appearance, allowing legitimate attachment departure during damage. Each completed SBA check
 consumes the checked deathtouch window, including protected survivors, after
 committing that check's simultaneous actions and before any repeat check, trigger
 placement or priority. This bookkeeping is an atomic recorded event, not an SBA
