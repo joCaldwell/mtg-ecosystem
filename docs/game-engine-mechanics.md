@@ -194,6 +194,29 @@ abilities and resolved spell effects retain independent lifetimes. Unsupported
 CDA/setting/copying/swapping or general layer combinations must be implemented
 before admitting sources that need them.
 
+### Attachment entry and ordering
+
+Resolving admitted Auras enter the battlefield already attached to their exact
+legal target, before entry observers capture the resulting state (CR 608.3c).
+The typed entry occurrence owns both movement and attachment; its outcome retains
+the successor incarnation, target and semantic attachment timestamp. Ordinary
+completion still owns stack removal, completion notification and stabilization.
+
+Actual attachments receive a checked monotonic timestamp (CR 613.7e, 701.3c).
+Reattaching to the same object changes neither timestamp nor allocator (701.3b);
+unattachment and zone changes clear the source's attachment metadata. Target
+movement never redirects a grant to a successor incarnation. A reachable pause
+before attachment SBAs may retain the historical target until cleanup. Ordering
+never comes from object IDs, map iteration or trace retention. Simultaneous
+competing attachments require the unimplemented APNAP/player-selected timestamp
+ordering of CR 613.7m and reject explicitly.
+
+Private snapshot format 22 includes attachment timestamps and their allocator in
+canonical state and replay verification. Card IR remains 1; public/query formats
+and catalog/hosting/search admission are unchanged. This infrastructure does not
+admit continuous control effects: complete Control Magic and Mind Control source
+still rejects pending layer-2 control, departure and reversal implementation.
+
 `indestructible_v1` supports intrinsic creature/artifact/enchantment/land keywords.
 Its separately fenced equipped grant requires Artifact + exactly Equipment subtype,
 Equipped scope, zero P/T, exactly Indestructible and no restrictions. Other scopes,
