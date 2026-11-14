@@ -9,7 +9,7 @@ export const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const DATA_DIR = resolve(process.env.DECKBUILDER_DATA ?? join(PKG_ROOT, "data"));
 export const DEFAULT_DB_PATH = resolve(process.env.DECKBUILDER_DB ?? join(DATA_DIR, "deck-builder.db"));
 
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 19;
 
 const SCHEMA = `
 -- Explicit physical evidence survives deck membership, forks and deletion.
@@ -570,6 +570,34 @@ const MIGRATIONS: Array<{ version: number; up: (db: Database) => void }> = [
       BEGIN UPDATE decks SET edit_version=edit_version+1 WHERE id=NEW.id; END`);
   } },
 
+  { version: 18, up(db) {
+    db.exec(`CREATE TABLE IF NOT EXISTS game_launches (
+      id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      request_id TEXT NOT NULL, input_hash TEXT NOT NULL, record_json TEXT NOT NULL CHECK(json_valid(record_json)),
+      UNIQUE(user_id, request_id)
+    );
+    CREATE TRIGGER IF NOT EXISTS game_launches_immutable BEFORE UPDATE ON game_launches
+      WHEN OLD.id IS NOT NEW.id OR OLD.user_id IS NOT NEW.user_id
+        OR OLD.request_id IS NOT NEW.request_id OR OLD.input_hash IS NOT NEW.input_hash
+        OR json_extract(OLD.record_json,'$.deck') IS NOT json_extract(NEW.record_json,'$.deck')
+        OR json_extract(OLD.record_json,'$.identity') IS NOT json_extract(NEW.record_json,'$.identity')
+      BEGIN SELECT RAISE(ABORT, 'Game capture is immutable'); END;`);
+  } },
+
+  { version: 19, up(db) {
+    // Operational stop handoff has no account/deck data and deliberately no
+    // cascading owner FK. Delete it only after native stop acknowledgment.
+    db.exec(`CREATE TABLE IF NOT EXISTS game_stop_jobs (
+      id TEXT PRIMARY KEY, target_json TEXT NOT NULL CHECK(json_valid(target_json))
+    );
+    CREATE TRIGGER IF NOT EXISTS game_launches_stop_handoff BEFORE DELETE ON game_launches
+      WHEN json_extract(OLD.record_json,'$.consumers_stopped') IS NOT 1
+      BEGIN INSERT INTO game_stop_jobs(id,target_json)
+        VALUES(OLD.id,json_object('id',OLD.id,'identity',json_extract(OLD.record_json,'$.identity')))
+        ON CONFLICT(id) DO NOTHING;
+      END;`);
+  } },
+
 ];
 
 function removeDeckStatus(db: Database) {
@@ -747,7 +775,7 @@ function assertOurs(db: Database, path: string) {
   } catch {
     /* no meta table at all */
   }
-  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6" || found === "7" || found === "8" || found === "9" || found === "10" || found === "11" || found === "12" || found === "13" || found === "14" || found === "15" || found === "16") return found;
+  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6" || found === "7" || found === "8" || found === "9" || found === "10" || found === "11" || found === "12" || found === "13" || found === "14" || found === "15" || found === "16" || found === "17" || found === "18") return found;
   throw new SchemaError(
     `${path} is not a database this version of the deck builder can open ` +
       `(it reports schema ${found ?? "unknown"}; this version uses ${SCHEMA_VERSION}). ` +

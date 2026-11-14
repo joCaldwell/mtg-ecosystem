@@ -1,3 +1,5 @@
+import type { GameCoordinatorOptions } from "./game-contracts.ts";
+export type { GameCoordinatorOptions, NativeGameAdapter } from "./game-contracts.ts";
 import { join } from "node:path";
 import { createHostedAuth } from "./auth.ts";
 import { createApp } from "./app.ts";
@@ -17,6 +19,7 @@ export interface HostOptions {
   databasePath?: string;
   dataDirectory?: string;
   backgroundJobs?: boolean;
+  games?: GameCoordinatorOptions;
 }
 
 /** Public process composition boundary. Accounts, tenancy, database migrations,
@@ -42,7 +45,7 @@ export async function createHost(options: HostOptions = {}) {
     });
     const auth = mode === "hosted" ? createHostedAuth(db) : undefined;
     await auth?.ready;
-    app = createApp(db, { mode, port, jobs, auth, webDist: options.webDist, isApplicationPath: options.isApplicationPath });
+    app = createApp(db, { mode, port, jobs, auth, webDist: options.webDist, isApplicationPath: options.isApplicationPath, games: options.games });
   } catch (error) {
     try { await jobs?.close(); }
     finally { db?.close(); release(); }
@@ -82,6 +85,7 @@ export async function createHost(options: HostOptions = {}) {
         const address = application.server.address();
         if (!address || typeof address === "string") { void close().then(() => reject(new Error("Application listener unavailable"))); return; }
         jobs?.start();
+        application.startGames();
         resolve({ port: address.port, mode });
       });
     });
