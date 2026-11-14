@@ -2097,6 +2097,10 @@ impl Game {
                 return Err("scoped replacement missing bounded source facts".into());
             }
             let expected_keywords = { self.definition(d.source.object.card)?.keywords.as_slice() };
+            // This bounds the vocabulary of possible LKI grants, not their
+            // occurrence. Departure-invariant facts below and restore's input
+            // replay still authenticate the captured historical appearance.
+            // Validated ordinary spell grants belong here alongside static ones.
             let keywords_valid = {
                 let can_have_grants = d.source.zone == Zone::Battlefield
                     && d.source.characteristics.kind == CardKind::Creature;
@@ -2104,7 +2108,13 @@ impl Game {
                     && d.source.keywords.iter().enumerate().all(|(n,k)| {
                         !d.source.keywords[..n].contains(k)
                             && (expected_keywords.contains(k) || (can_have_grants && self.prepared.catalog.definitions.iter()
-                                .flat_map(|d| &d.static_abilities).any(|a|matches!(&a.effect,StaticEffect::ModifyCreatures {keywords,..} if keywords.contains(k)))))
+                                .any(|definition| {
+                                    definition.static_abilities.iter().any(|a| matches!(&a.effect,
+                                        StaticEffect::ModifyCreatures {keywords,..} if keywords.contains(k)))
+                                        || definition.spell.as_ref().is_some_and(|program|
+                                            program.instructions.iter().any(|instruction| matches!(instruction,
+                                                Instruction::GrantKeywords {keywords,..} if keywords.contains(k))))
+                                })))
                     })
             };
             if !keywords_valid {
