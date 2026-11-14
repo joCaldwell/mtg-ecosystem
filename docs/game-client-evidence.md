@@ -123,6 +123,21 @@ Clippy was not passing. Missing Node dependencies/doctor failure remain retained
 no implicit bootstrap occurred. Full runtime/compiler/server/SDK/browser, release,
 dense performance and retention were omitted. Host clock/quota proof is separate.
 
+## Live discovery composition
+
+The `t3/game-client-live-actions` checkout starts at `c1cb81a3` and retains
+`packages/game-client/generated/live-actions-checkpoint/` command logs, plus
+`generated/live-actions-browser-attempt01*` and `attempt02*` browser failures
+under that package. Sources use the unchanged `sdk-qualification.json` pin;
+SDK generated/dist were copied from the root checkout and their manifests,
+source hashes and artifact bytes verified by fixture preparation. Tests prove
+session ownership, captured contexts, exact-byte journal-before-send, revocation,
+late-cursor cleanup, synthetic production-App discovery and restricted real Vite
+proxy forwarding. Browser cases use Chromium/Firefox with authenticated capture
+disabled; synthetic envelopes do not establish native legality. Real-host/full-game,
+new producer labels/payment context, Safari and human usability remain unqualified.
+Original native evidence is preserved separately; this lane invokes no Cargo.
+
 ## Frontend modernization
 
 Source `4ad114fa554b1c14e4b0d89566f6219706bfca19` retains its full

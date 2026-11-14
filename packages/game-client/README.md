@@ -1,8 +1,8 @@
 # Multiverse desktop client
 
 The standalone React/Vite harness owns operator-issued joining, session recovery
-and explicit opening mulligan/bottom choices. Shared permitted table/inspection
-comes from game-ui. Later decisions, natural complete games and automated launch
+and explicit opening mulligan/bottom choices plus bounded live action discovery.
+Shared permitted table/inspection comes from game-ui. Later decisions, natural complete games and automated launch
 retain separate [client gates](../../docs/game-client.md#delivered-scope-and-remaining-gates).
 
 ## Public integration boundary
@@ -52,8 +52,8 @@ sh scripts/engine-env.sh npm --prefix packages/game-client run dev --workspaces=
 
 Open numeric `http://127.0.0.1:5173/join`, import exactly one seat, then `/table`.
 Capability is memory-only; refresh requires reimport. Config/Host/Origin guards
-precede the allowlisted proxy. It admits reads, opening submissions and execution
-status, not action queries/cancellation/operator routes. An imported file cannot
+precede the allowlisted proxy. It admits reads, submissions/execution status and exact action-query/queued-command
+cancel routes. Operator and arbitrary routes remain blocked. An imported file cannot
 select upstream. Unconfigured Vite serves fixtures but live config fails explicitly.
 
 ## Focused checks and evidence
