@@ -275,6 +275,41 @@ not run core/simulator/server runtime or builds, schema probes, SDK/consumer or
 full matrices. The composed-Aura runtime producer above remains qualified only
 for its earlier source, not this compiler correction.
 
+### Temporary combat-keyword family qualification
+
+Source `b7d5f51f02b4cd523ab656bc979b04b4939a9643` passed 405 distinct Rust tests:
+248 compiler, 103 contracts and 54 selected core tests. The eight new paid test
+functions cover complete frozen Haste, Trample and First Strike sources through
+shared GrantKeywords operations, both budget/trace variants, source/target
+lifecycle, cleanup, query atomicity, normalized forgeries and suspended replay.
+Actual combat proves new-creature Haste authority, late First Strike eligibility,
+Trample excess and Deathtouch/Lifelink composition. All committed catalog IR is
+unchanged; no profile, policy, host/search or consumer admission was added.
+
+All 1,955 exported-schema probes passed, preserving the previous 1,657 controls.
+Schema 1 SHA-256 is
+`5b737a69103375f8a7e7c603683ddac8bf260169fcb1dde83687e7a79b22363b`.
+The 814-row CLI producer is
+`9a964011be1bc37855379e6b5938e0b1bf8950e37b1b5ebc275a2ed28f160eaf`;
+optimized executed tests independently match
+`e446dd1d7d5795fd312f9d4fcf05362f29000425a8dfa1295be3c4d04934d12d`.
+Workspace all-target compilation, formatting, production Clippy and CLI smoke/replay
+passed. Compiler/core/simulator Clippy is strict; contracts retains only its
+inherited `collapsible_if` exception.
+
+One consolidated review found missing grant primitive requirements and incomplete
+schema capability rules; both were repaired and exact-capability tests passed.
+Failed attempts retain an invalid same-ability sentence-partition rejection
+expectation and inconsistent First Strike wire-spelling assertions/probes. The
+final schema uses Rust keyword serialization; the existing wire spelling remains
+`first strike`. No runtime guard or source semantics were weakened. Exact final
+binaries, source/settings proof, schema results, commands and failures remain in
+`generated/temporary-combat-keywords/combined04/`, `review.json` and
+`integration.json` in the original engine lane; earlier attempts remain alongside.
+Full runtime/simulator-policy/server, release/profile/completion/performance,
+SDK/host/search/consumer matrices and Node suites requiring missing dependencies
+remain unrun. Prior source-qualified evidence keeps its own identities.
+
 ### Selected current proof locators
 
 `generated/` below is relative to each original implementation lane, not assumed
