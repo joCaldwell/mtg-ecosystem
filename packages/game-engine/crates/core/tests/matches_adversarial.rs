@@ -1548,3 +1548,5 @@ mod royal_match_admission;
 
 #[path = "matches_adversarial/permanent_return_match_admission.rs"]
 mod permanent_return_match_admission;
+#[path = "matches_adversarial/untap_activation_match_admission.rs"]
+mod untap_activation_match_admission;

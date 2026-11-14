@@ -114,9 +114,17 @@ qualification remain separate.
 [Activated permanent return](game-engine-removal.md#activated-permanent-return)
 supports complete Temporal Adept through existing cost and movement paths, with
 private ownership, self/source bounce, reentry and Commander/replay witnesses;
-its later [headless admission](game-engine-blocking-matches.md#current-permanent-return-admission)
+its later [headless admission](game-engine-blocking-matches.md#43-definition-permanent-return-admission)
 adds a paid legal-pod owner-choice and hand-recast witness. Hosting/search and
 consumer qualification remain separate.
+A separately fenced [tap-source creature untap](game-engine-untap-permanents.md#tap-source-creature-untap)
+slice supports complete Seeker of Skybreak through existing activation payment,
+creature-filtered permanent targets and untap events, with private casting,
+natural-aging, mana reuse, self-target and source/target departure replay proofs.
+Its later [headless admission](game-engine-blocking-matches.md#current-tap-source-untap-admission)
+adds Seeker and Llanowar to black/green defaults, with a paid mana-reuse pod and
+public-IR policy excluding untapper cycles. Hosting/search and downstream consumer
+qualification remain separate.
 Read Rust types and validation at the edited source; old reports retain their
 original version numbers. Active catalogs are regenerated at schema 1; distinct
 source/admission pools remain separate. Historical decoder gates and downgrade

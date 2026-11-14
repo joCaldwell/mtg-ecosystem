@@ -3,7 +3,7 @@
 `commander-blocking-targets-v1` is a separate finite development profile. Its
 schema-1 `blocking-matches` catalog contains the 34 exact records selected by the
 foundations match catalog plus Righteousness, Swift Response, Assassinate,
-Burst of Energy, Pressure Point, Icy Manipulator, Royal Assassin, Ertai, Wizard Adept and Temporal Adept.
+Burst of Energy, Pressure Point, Icy Manipulator, Royal Assassin, Ertai, Wizard Adept, Temporal Adept, Seeker of Skybreak and Llanowar Elves.
 This development pool evolves in place; its name does not select runtime rules.
 Other catalogs and decks remain unchanged.
 Neither hosting nor sampled search is requested by this profile; their reviewed
@@ -42,7 +42,7 @@ with these explicit additions to the foundations decks:
 | Seats | Commander | Composition including commander |
 | --- | --- | --- |
 | 0, 2 | Isamaru, Hound of Konda | Eleven singleton nonbasic cards, including Righteousness, Swift Response, Burst of Energy, Pressure Point and Icy Manipulator, and 89 Plains |
-| 1, 3 | Yargle and Multani | Fifteen singleton nonbasic cards, including Assassinate, Icy Manipulator and Royal Assassin, 43 Swamps and 42 Forests |
+| 1, 3 | Yargle and Multani | Seventeen singleton nonbasic cards, including Assassinate, Icy Manipulator, Royal Assassin, Seeker of Skybreak and Llanowar Elves, 43 Swamps and 40 Forests |
 
 Each deck contains 100 cards. The profile retains the frozen 2026-10-15 Commander
 policy, color-identity restrictions and completion layout; it does not claim a
@@ -76,9 +76,46 @@ provide membership authority, including for orphans. Current visible type,
 targetability and friendly control still guide selection. Ordinary Growth spells
 do not become generally reactive. No card/profile identity selects policy rules.
 
-## Current permanent-return admission
+## Current tap-source untap admission
 
-The current pool has 43 definitions, canonical digest
+The current schema-1 pool has 45 complete definitions, canonical digest
+`6cdb9eaff6a4176c69f7fae4e7fb7f04c01ec0942f7cc52434fd6a1147df834d`. All prior 43 definition bodies are preserved.
+The exact Seeker source and existing `llanowar-elves.json` enter through the ordinary
+manifest/compiler/digest path. Each black/green default deck replaces two Forests
+with one singleton of each; white decks and commanders remain unchanged.
+Hosting/search and other profiles remain separate.
+
+Develop recognizes the strict public-IR creature activation with pure source-tap
+cost and one creature untap target. It uses the existing own-main activation path,
+selecting a current friendly tapped, targetable Creature intersected with offered
+handles. It conservatively excludes every target whose visible catalog definition
+has an untap activation, including itself and another Seeker, preventing autonomous
+untapper cycles. Ordinary threatened-target Burst behavior remains unchanged.
+Mandatory legal-choice recovery after initiation is separate from this preference.
+
+The [paid legal-pod witness](../packages/game-engine/crates/core/tests/matches_adversarial/untap_activation_match_admission.rs)
+uses Yargle, Seeker, Llanowar and 97 Forests against three simple legal white decks.
+A bounded opening-only scan pins index 169; no gameplay outcome is selected.
+Actual Forest payments cast Llanowar for G and Seeker for 1G, reject the fresh source
+with an independent legal creature target, and naturally age both creatures.
+Actual Elf tap/Seeker source-tap untap/Elf tap produces two real green mana.
+Noncreature, stale hand and unknown target responses reject atomically. Snapshot,
+restore, accepted-input replay and budgets 1/4096 are checked separately from
+synthetic public-policy observations. The source-qualified producer is
+`7c7bd79700491209ef79792a07a9a6e5566be1e5d5a41f48d0072e7623692e00`,
+based on `fafbd9f5` plus the Temporal admission, modal-binding rejection and Seeker
+source/runtime inputs recorded in `generated/untap-activation-admission/`.
+
+One prespecified index-zero Develop game on that producer completed naturally
+in 31 turns and 1,336 accepted decisions, without concessions; its saved evidence
+replayed independently. Llanowar was cast once and activated for mana three times.
+Seeker was not cast in this game, so its activation remains qualified by the
+separate paid-pod witness. This is one completion witness, not a full profile or
+consumer acceptance claim.
+
+## 43-definition permanent-return admission
+
+The preceding pool has 43 definitions, canonical digest
 `f4ab9466a85c5f82c6acf81d0b6497846c892de010edfd9766a11aef9da603c0`.
 All prior 42 definitions and the complete profile bytes are preserved. Temporal
 Adept becomes available for legal blue custom decks; all four default decks and

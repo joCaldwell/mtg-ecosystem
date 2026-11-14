@@ -39,6 +39,8 @@ mod sacrifice;
 mod sacrifice_tests;
 #[cfg(test)]
 mod tap_source_destroy_tests;
+#[cfg(test)]
+mod tap_source_untap_tests;
 mod wipes;
 #[cfg(test)]
 mod wipes_tests;

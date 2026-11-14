@@ -44,7 +44,9 @@
     "../d4bbdd0c-e578-49ed-b2f7-b1decb04ee87.json",
     "../seeds-of-strength.json",
     "../f2902dfd-888f-4b02-b8ad-1056f0059fc3.json",
-    "../fd9b5462-6578-4bf6-8026-23eaf5af3eee.json"
+    "../fd9b5462-6578-4bf6-8026-23eaf5af3eee.json",
+    "../704723f3-0490-4d96-930a-aacc6d19ba8d.json",
+    "../llanowar-elves.json"
   ],
   "expected_ir": "../expected-blocking-matches-ir.json",
   "expected_digest": "blocking-matches.sha256",

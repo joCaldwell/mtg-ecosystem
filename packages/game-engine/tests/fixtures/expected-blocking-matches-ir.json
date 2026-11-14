@@ -1206,6 +1206,73 @@
       }
     },
     {
+      "oracle_id": "68954295-54e3-4303-a6bc-fc4547a4e3a3",
+      "name": "Llanowar Elves",
+      "characteristics": {
+        "kind": "creature",
+        "subtypes": [
+          "Elf",
+          "Druid"
+        ],
+        "basic": false,
+        "legendary": false,
+        "mana_cost": {
+          "generic": "0",
+          "colored": [
+            "G"
+          ]
+        },
+        "colors": [
+          "G"
+        ],
+        "color_identity": [
+          "G"
+        ],
+        "power": "1",
+        "toughness": "1"
+      },
+      "intrinsic_zone": null,
+      "spell": {
+        "timing": "main_phase",
+        "resolution": "permanent",
+        "functioning_zone": "stack",
+        "targets": [],
+        "instructions": []
+      },
+      "mana_abilities": [
+        {
+          "costs": {
+            "tap": true,
+            "sacrifice": false
+          },
+          "production": {
+            "mana": "fixed",
+            "symbols": [
+              "G"
+            ]
+          },
+          "source_block": 0
+        }
+      ],
+      "capabilities": [
+        "permanent_mana_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1"
+      ],
+      "provenance": {
+        "printing_id": "6a0b230b-d391-4998-a3f7-7b158a0ec2cd",
+        "source_index": 15683,
+        "source_sha256": "e89ba1f5614f9fc7fea9fa7e3375f52dfb10b19f9777aa987db872b756be8822",
+        "ast_sha256": "a2f82dac8450c4f4df02797b58e62e7c07469a08db1cd4c89e951132e58a5523",
+        "binding_sha256": "bd8660d71761eae6e40643a35961d53c60c11e07ac127319536b94ec7a3425b3",
+        "archive_manifest_sha256": "b20406acec7b9af4610324af8848c76a2966315f1bb4043de2b03d53aa1a6f1b",
+        "parser_sha256": "98980a967a70d57008847ce0952edf0cc277af9ad26b8cb8739a555d97082b8d",
+        "source_json": "{\"object\":\"card\",\"id\":\"6a0b230b-d391-4998-a3f7-7b158a0ec2cd\",\"oracle_id\":\"68954295-54e3-4303-a6bc-fc4547a4e3a3\",\"multiverse_ids\":[679969],\"mtgo_id\":133480,\"arena_id\":93940,\"tcgplayer_id\":557921,\"cardmarket_id\":795132,\"name\":\"Llanowar Elves\",\"lang\":\"en\",\"released_at\":\"2024-11-15\",\"uri\":\"https://api.scryfall.com/cards/6a0b230b-d391-4998-a3f7-7b158a0ec2cd\",\"scryfall_uri\":\"https://scryfall.com/card/fdn/227/llanowar-elves?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T02:17:37Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/6/a/6a0b230b-d391-4998-a3f7-7b158a0ec2cd.jpg?1783909057\",\"normal\":\"https://cards.scryfall.io/normal/front/6/a/6a0b230b-d391-4998-a3f7-7b158a0ec2cd.jpg?1783909057\",\"large\":\"https://cards.scryfall.io/large/front/6/a/6a0b230b-d391-4998-a3f7-7b158a0ec2cd.jpg?1783909057\",\"png\":\"https://cards.scryfall.io/png/front/6/a/6a0b230b-d391-4998-a3f7-7b158a0ec2cd.png?1783909057\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/6/a/6a0b230b-d391-4998-a3f7-7b158a0ec2cd.jpg?1783909057\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/6/a/6a0b230b-d391-4998-a3f7-7b158a0ec2cd.jpg?1783909057\",\"thumb\":\"https://cards.scryfall.io/thumb/front/6/a/6a0b230b-d391-4998-a3f7-7b158a0ec2cd.webp?1783909057\",\"grid\":\"https://cards.scryfall.io/grid/front/6/a/6a0b230b-d391-4998-a3f7-7b158a0ec2cd.webp?1783909057\",\"display\":\"https://cards.scryfall.io/display/front/6/a/6a0b230b-d391-4998-a3f7-7b158a0ec2cd.webp?1783909057\",\"art\":\"https://cards.scryfall.io/art/front/6/a/6a0b230b-d391-4998-a3f7-7b158a0ec2cd.webp?1783909057\",\"crop\":\"https://cards.scryfall.io/crop/front/6/a/6a0b230b-d391-4998-a3f7-7b158a0ec2cd.webp?1783909057\"},\"mana_cost\":\"{G}\",\"cmc\":1,\"type_line\":\"Creature — Elf Druid\",\"oracle_text\":\"{T}: Add {G}.\",\"power\":\"1\",\"toughness\":\"1\",\"colors\":[\"G\"],\"color_identity\":[\"G\"],\"keywords\":[],\"produced_mana\":[\"G\"],\"all_parts\":[{\"object\":\"related_card\",\"id\":\"11bd6cef-f887-4b07-a957-4c53cb3c9c87\",\"component\":\"combo_piece\",\"name\":\"Llanowar Elves\",\"type_line\":\"Creature — Elf Druid\",\"uri\":\"https://api.scryfall.com/cards/11bd6cef-f887-4b07-a957-4c53cb3c9c87\"},{\"object\":\"related_card\",\"id\":\"8ef95e7a-9f07-41f8-908b-2df93e03d391\",\"component\":\"combo_piece\",\"name\":\"Marwyn's Kindred\",\"type_line\":\"Sorcery\",\"uri\":\"https://api.scryfall.com/cards/8ef95e7a-9f07-41f8-908b-2df93e03d391\"}],\"legalities\":{\"standard\":\"legal\",\"future\":\"legal\",\"historic\":\"legal\",\"timeless\":\"legal\",\"gladiator\":\"legal\",\"pioneer\":\"legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"not_legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"legal\",\"brawl\":\"legal\",\"competitivebrawl\":\"legal\",\"alchemy\":\"legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"legal\",\"predh\":\"legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"arena\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"a7ecb771-d1b6-4dec-8cf5-8d45179f21e0\",\"set\":\"fdn\",\"set_name\":\"Foundations\",\"set_type\":\"core\",\"set_uri\":\"https://api.scryfall.com/sets/a7ecb771-d1b6-4dec-8cf5-8d45179f21e0\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Afdn&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/fdn?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/6a0b230b-d391-4998-a3f7-7b158a0ec2cd/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A68954295-54e3-4303-a6bc-fc4547a4e3a3&unique=prints\",\"collector_number\":\"227\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"The elves of the Llanowar forest have defended it for generations. It is their sacred duty to keep outside influences from corrupting their ancestral home.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Kev Walker\",\"artist_ids\":[\"f366a0ee-a0cd-466d-ba6a-90058c7a31a6\"],\"illustration_id\":\"96ffb0f9-113f-4fff-a45f-69cbb8d60890\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"promo_types\":[\"beginnerbox\",\"startercollection\"],\"edhrec_rank\":58,\"penny_rank\":289,\"preview\":{\"source\":\"Wizards of the Coast\",\"source_uri\":\"https://twitter.com/wizards_magic/status/1806644973263302981\",\"previewed_at\":\"2024-06-28\"},\"prices\":{\"usd\":\"0.30\",\"usd_foil\":\"1.41\",\"usd_etched\":null,\"eur\":\"0.24\",\"eur_foil\":\"0.56\",\"tix\":\"0.03\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=679969&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DLlanowar%2BElves\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DLlanowar%2BElves\",\"edhrec\":\"https://edhrec.com/route/?cc=Llanowar+Elves\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F557921%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=795132&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/133480?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "abilities_json": "[{\"kind\":\"activated\",\"costs\":[{\"cost\":\"tap-self\"}],\"effects\":[{\"steps\":[{\"effect\":\"add-mana\",\"who\":{\"player\":\"you\"},\"mana\":{\"mana\":\"fixed\",\"symbols\":[\"G\"]}}]}]}]"
+      }
+    },
+    {
       "oracle_id": "6ca2a89e-7032-4864-b4e9-66f3178f90ab",
       "name": "Essence Warden",
       "characteristics": {
@@ -1277,6 +1344,96 @@
         "parser_sha256": "98980a967a70d57008847ce0952edf0cc277af9ad26b8cb8739a555d97082b8d",
         "source_json": "{\"object\":\"card\",\"id\":\"31ca84d1-30a6-432b-966c-089fb6652a89\",\"oracle_id\":\"6ca2a89e-7032-4864-b4e9-66f3178f90ab\",\"multiverse_ids\":[430325],\"tcgplayer_id\":133620,\"cardmarket_id\":298055,\"name\":\"Essence Warden\",\"lang\":\"en\",\"released_at\":\"2017-06-09\",\"uri\":\"https://api.scryfall.com/cards/31ca84d1-30a6-432b-966c-089fb6652a89\",\"scryfall_uri\":\"https://scryfall.com/card/cma/106/essence-warden?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T09:51:04Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/3/1/31ca84d1-30a6-432b-966c-089fb6652a89.jpg?1783936264\",\"normal\":\"https://cards.scryfall.io/normal/front/3/1/31ca84d1-30a6-432b-966c-089fb6652a89.jpg?1783936264\",\"large\":\"https://cards.scryfall.io/large/front/3/1/31ca84d1-30a6-432b-966c-089fb6652a89.jpg?1783936264\",\"png\":\"https://cards.scryfall.io/png/front/3/1/31ca84d1-30a6-432b-966c-089fb6652a89.png?1783936264\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/3/1/31ca84d1-30a6-432b-966c-089fb6652a89.jpg?1783936264\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/3/1/31ca84d1-30a6-432b-966c-089fb6652a89.jpg?1783936264\",\"thumb\":\"https://cards.scryfall.io/thumb/front/3/1/31ca84d1-30a6-432b-966c-089fb6652a89.webp?1783936264\",\"grid\":\"https://cards.scryfall.io/grid/front/3/1/31ca84d1-30a6-432b-966c-089fb6652a89.webp?1783936264\",\"display\":\"https://cards.scryfall.io/display/front/3/1/31ca84d1-30a6-432b-966c-089fb6652a89.webp?1783936264\",\"art\":\"https://cards.scryfall.io/art/front/3/1/31ca84d1-30a6-432b-966c-089fb6652a89.webp?1783936264\",\"crop\":\"https://cards.scryfall.io/crop/front/3/1/31ca84d1-30a6-432b-966c-089fb6652a89.webp?1783936264\"},\"mana_cost\":\"{G}\",\"cmc\":1,\"type_line\":\"Creature — Elf Shaman\",\"oracle_text\":\"Whenever another creature enters, you gain 1 life.\",\"power\":\"1\",\"toughness\":\"1\",\"colors\":[\"G\"],\"color_identity\":[\"G\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"not_legal\",\"timeless\":\"not_legal\",\"gladiator\":\"not_legal\",\"pioneer\":\"not_legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"not_legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"not_legal\",\"competitivebrawl\":\"not_legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"legal\",\"tlr\":\"legal\"},\"games\":[\"paper\"],\"reserved\":false,\"game_changer\":false,\"foil\":false,\"nonfoil\":true,\"finishes\":[\"nonfoil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"fd4d8463-0156-4c60-a40e-778762bb90e4\",\"set\":\"cma\",\"set_name\":\"Commander Anthology\",\"set_type\":\"commander\",\"set_uri\":\"https://api.scryfall.com/sets/fd4d8463-0156-4c60-a40e-778762bb90e4\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Acma&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/cma?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/31ca84d1-30a6-432b-966c-089fb6652a89/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A6ca2a89e-7032-4864-b4e9-66f3178f90ab&unique=prints\",\"collector_number\":\"106\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"\\\"The more our numbers grow, the more I gain hope that Volrath and his cursed stronghold will one day fall.\\\"\\n—Eladamri, Lord of Leaves\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Terese Nielsen\",\"artist_ids\":[\"eb55171c-2342-45f4-a503-2d5a75baf752\"],\"illustration_id\":\"3a1452d5-bf61-4472-8c1c-8935f463140a\",\"border_color\":\"black\",\"frame\":\"2015\",\"full_art\":false,\"textless\":false,\"booster\":false,\"story_spotlight\":false,\"edhrec_rank\":1188,\"prices\":{\"usd\":\"7.14\",\"usd_foil\":null,\"usd_etched\":null,\"eur\":\"3.80\",\"eur_foil\":null,\"tix\":null},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=430325&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DEssence%2BWarden\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DEssence%2BWarden\",\"edhrec\":\"https://edhrec.com/route/?cc=Essence+Warden\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F133620%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=298055&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards?affiliate_id=scryfall&data%5Bsearch%5D=Essence+Warden&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
         "abilities_json": "[{\"kind\":\"triggered\",\"trigger\":{\"trigger\":\"enters\",\"what\":{\"ref\":\"filter\",\"filter\":{\"other\":true,\"types\":[\"creature\"]},\"count\":{\"amount\":\"fixed\",\"value\":1}}},\"effects\":[{\"steps\":[{\"effect\":\"gain-life\",\"who\":{\"player\":\"you\"},\"amount\":{\"amount\":\"fixed\",\"value\":1}}]}]}]"
+      }
+    },
+    {
+      "oracle_id": "704723f3-0490-4d96-930a-aacc6d19ba8d",
+      "name": "Seeker of Skybreak",
+      "characteristics": {
+        "kind": "creature",
+        "subtypes": [
+          "Elf"
+        ],
+        "basic": false,
+        "legendary": false,
+        "mana_cost": {
+          "generic": "1",
+          "colored": [
+            "G"
+          ]
+        },
+        "colors": [
+          "G"
+        ],
+        "color_identity": [
+          "G"
+        ],
+        "power": "2",
+        "toughness": "1"
+      },
+      "intrinsic_zone": null,
+      "spell": {
+        "timing": "main_phase",
+        "resolution": "permanent",
+        "functioning_zone": "stack",
+        "targets": [],
+        "instructions": []
+      },
+      "activated": [
+        {
+          "functioning_zone": "battlefield",
+          "cost": "tap_source",
+          "program": {
+            "timing": "instant",
+            "resolution": "instructions",
+            "functioning_zone": "stack",
+            "targets": [
+              {
+                "slot": 0,
+                "selection_id": "line:0:3",
+                "chooser": "controller",
+                "stage": "announcement",
+                "domain": "battlefield_permanent",
+                "filter": {
+                  "types": [
+                    "creature"
+                  ],
+                  "non_types": [],
+                  "non_colors": [],
+                  "opponent": false
+                }
+              }
+            ],
+            "instructions": [
+              {
+                "op": "untap_permanent",
+                "target_slot": 0,
+                "source_block": 0
+              }
+            ]
+          }
+        }
+      ],
+      "capabilities": [
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "untap_permanent_v1",
+        "tap_source_untap_creature_v1",
+        "activated_ability_v1",
+        "tap_source_cost_v1",
+        "permanent_removal_v1"
+      ],
+      "provenance": {
+        "printing_id": "d1f20175-8bfa-417a-912b-d6d472f091ab",
+        "source_index": 16865,
+        "source_sha256": "55f1beb544167b6ac4ab5d4c2435b3b84cce6f9928b50b8b90558a629d60c8fc",
+        "ast_sha256": "44e9e9a861888434c8290871f1c95dfebe6eadc7b3b53940abe1fa54e47f87d5",
+        "binding_sha256": "317976d6b07c03f2b6f20a0dd150fc2472ddefdfb2e174bffe07bdecd0021cce",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "source_json": "{\"object\":\"card\",\"id\":\"d1f20175-8bfa-417a-912b-d6d472f091ab\",\"oracle_id\":\"704723f3-0490-4d96-930a-aacc6d19ba8d\",\"multiverse_ids\":[13046],\"mtgo_id\":15822,\"mtgo_foil_id\":15823,\"tcgplayer_id\":3068,\"cardmarket_id\":3030,\"name\":\"Seeker of Skybreak\",\"lang\":\"en\",\"released_at\":\"2001-04-11\",\"uri\":\"https://api.scryfall.com/cards/d1f20175-8bfa-417a-912b-d6d472f091ab\",\"scryfall_uri\":\"https://scryfall.com/card/7ed/268/seeker-of-skybreak?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T12:23:34Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/d/1/d1f20175-8bfa-417a-912b-d6d472f091ab.jpg?1783945414\",\"normal\":\"https://cards.scryfall.io/normal/front/d/1/d1f20175-8bfa-417a-912b-d6d472f091ab.jpg?1783945414\",\"large\":\"https://cards.scryfall.io/large/front/d/1/d1f20175-8bfa-417a-912b-d6d472f091ab.jpg?1783945414\",\"png\":\"https://cards.scryfall.io/png/front/d/1/d1f20175-8bfa-417a-912b-d6d472f091ab.png?1783945414\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/d/1/d1f20175-8bfa-417a-912b-d6d472f091ab.jpg?1783945414\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/d/1/d1f20175-8bfa-417a-912b-d6d472f091ab.jpg?1783945414\",\"thumb\":\"https://cards.scryfall.io/thumb/front/d/1/d1f20175-8bfa-417a-912b-d6d472f091ab.webp?1783945414\",\"grid\":\"https://cards.scryfall.io/grid/front/d/1/d1f20175-8bfa-417a-912b-d6d472f091ab.webp?1783945414\",\"display\":\"https://cards.scryfall.io/display/front/d/1/d1f20175-8bfa-417a-912b-d6d472f091ab.webp?1783945414\",\"art\":\"https://cards.scryfall.io/art/front/d/1/d1f20175-8bfa-417a-912b-d6d472f091ab.webp?1783945414\",\"crop\":\"https://cards.scryfall.io/crop/front/d/1/d1f20175-8bfa-417a-912b-d6d472f091ab.webp?1783945414\"},\"mana_cost\":\"{1}{G}\",\"cmc\":2,\"type_line\":\"Creature — Elf\",\"oracle_text\":\"{T}: Untap target creature.\",\"power\":\"2\",\"toughness\":\"1\",\"colors\":[\"G\"],\"color_identity\":[\"G\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"not_legal\",\"timeless\":\"not_legal\",\"gladiator\":\"not_legal\",\"pioneer\":\"not_legal\",\"modern\":\"not_legal\",\"legacy\":\"legal\",\"pauper\":\"banned\",\"vintage\":\"legal\",\"penny\":\"not_legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"not_legal\",\"competitivebrawl\":\"not_legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"legal\",\"predh\":\"legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":false,\"nonfoil\":true,\"finishes\":[\"nonfoil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"230f38aa-9511-4db8-a3aa-aeddbc3f7bb9\",\"set\":\"7ed\",\"set_name\":\"Seventh Edition\",\"set_type\":\"core\",\"set_uri\":\"https://api.scryfall.com/sets/230f38aa-9511-4db8-a3aa-aeddbc3f7bb9\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3A7ed&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/7ed?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/d1f20175-8bfa-417a-912b-d6d472f091ab/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3A704723f3-0490-4d96-930a-aacc6d19ba8d&unique=prints\",\"collector_number\":\"268\",\"digital\":false,\"rarity\":\"common\",\"flavor_text\":\"Seekers spend their lives protecting a home they rarely visit.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Alex Horley-Orlandelli\",\"artist_ids\":[\"1631a2ad-bf03-4ab9-b86c-60da982d58a1\"],\"illustration_id\":\"bc32b141-e884-47b9-a9d7-520425e4f9de\",\"border_color\":\"white\",\"frame\":\"1997\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":3895,\"penny_rank\":11813,\"prices\":{\"usd\":\"6.50\",\"usd_foil\":null,\"usd_etched\":null,\"eur\":\"2.16\",\"eur_foil\":null,\"tix\":\"0.10\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=13046&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DSeeker%2Bof%2BSkybreak\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DSeeker%2Bof%2BSkybreak\",\"edhrec\":\"https://edhrec.com/route/?cc=Seeker+of+Skybreak\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F3068%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=3030&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/15822?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "abilities_json": "[{\"kind\":\"activated\",\"costs\":[{\"cost\":\"tap-self\"}],\"effects\":[{\"steps\":[{\"effect\":\"untap\",\"what\":{\"ref\":\"target\",\"filter\":{\"types\":[\"creature\"]},\"count\":{\"amount\":\"fixed\",\"value\":1},\"selectionId\":\"line:0:3\"}}]}]}]"
       }
     },
     {

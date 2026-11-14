@@ -22,14 +22,14 @@ fn oracle(catalog: &Catalog, name: &str) -> String {
 }
 
 #[test]
-fn development_profile_adds_nine_complete_definitions_and_admits_four_legal_decks() {
+fn development_profile_adds_eleven_complete_definitions_and_admits_four_legal_decks() {
     let catalog = catalog();
     let original = Catalog::read(include_str!(
         "../../../tests/fixtures/expected-match-ir.json"
     ))
     .unwrap();
     assert_eq!(catalog.schema_version, 1);
-    assert_eq!(catalog.definitions.len(), original.definitions.len() + 9);
+    assert_eq!(catalog.definitions.len(), original.definitions.len() + 11);
     for definition in &original.definitions {
         assert_eq!(
             catalog
@@ -54,6 +54,15 @@ fn development_profile_adds_nine_complete_definitions_and_admits_four_legal_deck
     let royal = oracle(&catalog, "Royal Assassin");
     let ertai = oracle(&catalog, "Ertai, Wizard Adept");
     let temporal = oracle(&catalog, "Temporal Adept");
+    let seeker = oracle(&catalog, "Seeker of Skybreak");
+    let elf = oracle(&catalog, "Llanowar Elves");
+    assert!(
+        catalog
+            .definition_by_oracle_id(&seeker)
+            .unwrap()
+            .capabilities
+            .contains(&Capability::TapSourceUntapCreatureV1)
+    );
     assert!(
         catalog
             .definition_by_oracle_id(&temporal)
@@ -101,6 +110,16 @@ fn development_profile_adds_nine_complete_definitions_and_admits_four_legal_deck
             (&royal, u32::from(!seat.is_multiple_of(2))),
             (&ertai, 0),
             (&temporal, 0),
+            (&seeker, u32::from(!seat.is_multiple_of(2))),
+            (&elf, u32::from(!seat.is_multiple_of(2))),
+            (
+                &oracle(&catalog, "Forest"),
+                if seat.is_multiple_of(2) { 0 } else { 40 },
+            ),
+            (
+                &oracle(&catalog, "Swamp"),
+                if seat.is_multiple_of(2) { 0 } else { 43 },
+            ),
             (&assassinate, u32::from(!seat.is_multiple_of(2))),
         ] {
             assert_eq!(
@@ -190,6 +209,7 @@ fn blocking_profile_retains_singleton_color_and_feature_rejection() {
                     && capabilities.contains(&Capability::TapSourceDestroyV1)
                     && capabilities.contains(&Capability::ActivatedSpellCounterV1)
                     && capabilities.contains(&Capability::ActivatedPermanentOwnerHandV1)
+                    && capabilities.contains(&Capability::TapSourceUntapCreatureV1)
         ));
     }
 }

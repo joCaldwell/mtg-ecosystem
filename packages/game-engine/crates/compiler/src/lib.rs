@@ -1613,10 +1613,12 @@ fn append_spell_effects(
                     source_block,
                 },
                 Step::Untap { what } => {
-                    if what["filter"] != serde_json::json!({"cls":"permanent"}) {
+                    if what["filter"] != serde_json::json!({"cls":"permanent"})
+                        && what["filter"] != serde_json::json!({"types":["creature"]})
+                    {
                         return Err(unsupported(
                             "effects.untap",
-                            "requires an unqualified permanent target",
+                            "requires an ordinary permanent or activated creature target",
                         ));
                     }
                     Instruction::UntapPermanent {
@@ -3699,8 +3701,10 @@ fn lower_activation(
         });
     }
     if effects.iter().flat_map(|s| &s.steps).any(|step| {
-        matches!(step, Step::Tap { .. } | Step::Counter { .. })
-            || matches!(step, Step::ReturnToHand { what, to, .. }
+        matches!(
+            step,
+            Step::Tap { .. } | Step::Counter { .. } | Step::Untap { .. }
+        ) || matches!(step, Step::ReturnToHand { what, to, .. }
                 if to == "owner" && what["filter"]["cls"] == "permanent")
             || (matches!(cost, ActivationCost::TapSource) && matches!(step, Step::Destroy { .. }))
     }) {
@@ -8368,6 +8372,8 @@ mod activated_permanent_tap_tests;
 
 #[cfg(test)]
 mod tap_source_destroy_tests;
+#[cfg(test)]
+mod tap_source_untap_tests;
 
 #[cfg(test)]
 mod activated_spell_counter_tests;

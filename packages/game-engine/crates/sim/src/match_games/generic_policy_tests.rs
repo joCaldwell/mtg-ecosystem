@@ -2949,3 +2949,158 @@ mod temporal_adept_policy_tests {
         assert_eq!(canonical(&stack).unwrap(), before);
     }
 }
+
+// Synthetic public observations: preference/readiness only, separate from pod evidence.
+mod untap_activation_policy_tests {
+    use super::*;
+    fn fixture() -> (Catalog, PermittedView) {
+        let c = mtg_compiler::catalog::embedded_catalog("blocking-matches").unwrap();
+        let mut v = wipe_tests::view(&mtg_compiler::catalog::embedded_catalog("wipes").unwrap());
+        v.active = Some(v.viewer);
+        v.turn_owner = v.viewer;
+        v.priority = Some(v.viewer);
+        v.turn.step = TurnStep::PrecombatMain;
+        v.turn.lands_played = 1;
+        let source = wipe_tests::card(&c, "Seeker of Skybreak", v.viewer.0, Zone::Battlefield);
+        let mut elf = wipe_tests::card(&c, "Llanowar Elves", v.viewer.0, Zone::Battlefield);
+        elf.tapped = true;
+        v.objects = vec![source, elf];
+        (c, v)
+    }
+    #[test]
+    fn strict_untap_activation_uses_current_control_and_offered_useful_creature() {
+        let (c, mut v) = fixture();
+        let d = definition(&c, &v.objects[0].oracle_id).unwrap();
+        let p = &d.activated[0].program;
+        assert!(tap_source_creature_untap(d, p));
+        let expected = Some(v.objects[1].handle.clone());
+        assert_eq!(
+            strategy(&c).object_target(&v, d, p, &p.targets[0], None),
+            expected
+        );
+        assert_eq!(
+            strategy(&c).priority(&observation(v.clone())).unwrap(),
+            PlayerResponse::ActivateAbility {
+                object: v.objects[0].handle.clone(),
+                ability: 0
+            }
+        );
+        assert_eq!(
+            strategy(&c).object_target(&v, d, p, &p.targets[0], Some(&[])),
+            None
+        );
+        assert_eq!(
+            strategy(&c).object_target(
+                &v,
+                d,
+                p,
+                &p.targets[0],
+                Some(&[ObjectHandle("stale".into())])
+            ),
+            None
+        );
+        assert_eq!(
+            strategy(&c).object_target(
+                &v,
+                d,
+                p,
+                &p.targets[0],
+                Some(&[v.objects[1].handle.clone()])
+            ),
+            expected
+        );
+        v.objects[1].owner = PlayerId(0); // Current control, not ownership.
+        assert_eq!(
+            strategy(&c).object_target(&v, d, p, &p.targets[0], None),
+            expected
+        );
+        v.objects[1].controller = PlayerId(0);
+        assert_eq!(
+            strategy(&c).priority(&observation(v.clone())).unwrap(),
+            PlayerResponse::Pass
+        );
+    }
+    #[test]
+    fn strict_untap_activation_declines_fresh_tapped_foreign_and_wrong_timing_sources() {
+        let (c, v) = fixture();
+        for n in 0..6 {
+            let mut v = v.clone();
+            match n {
+                0 => v.objects[0].attack_ready = false,
+                1 => v.objects[0].tapped = true,
+                2 => v.objects[0].controller = PlayerId(0),
+                3 => v.active = Some(PlayerId(0)),
+                4 => v.turn.step = TurnStep::End,
+                5 => v.objects[0].zone = Zone::Graveyard { owner: v.viewer },
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                strategy(&c).priority(&observation(v)).unwrap(),
+                PlayerResponse::Pass,
+                "case{n}"
+            );
+        }
+    }
+    #[test]
+    fn strict_untap_activation_declines_untapped_ineligible_missing_and_stale_targets() {
+        let (c, v) = fixture();
+        let d = definition(&c, &v.objects[0].oracle_id).unwrap();
+        let p = &d.activated[0].program;
+        for n in 0..7 {
+            let mut v = v.clone();
+            match n {
+                0 => v.objects[1].tapped = false,
+                1 => v.objects[1].keywords.push(KeywordAbility::Shroud),
+                2 => v.objects[1].zone = Zone::Hand { owner: v.viewer },
+                3 => v.objects[1] = wipe_tests::card(&c, "Forest", v.viewer.0, Zone::Battlefield),
+                4 => {
+                    v.objects.pop();
+                }
+                5 => v.objects[1].oracle_id = "unknown-definition".into(),
+                6 => v.objects[1].characteristics = None,
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                strategy(&c).object_target(&v, d, p, &p.targets[0], None),
+                None,
+                "case{n}"
+            );
+            assert_eq!(
+                strategy(&c).priority(&observation(v)).unwrap(),
+                PlayerResponse::Pass,
+                "case{n}"
+            );
+        }
+    }
+    #[test]
+    fn two_untappers_never_autonomously_alternate_and_postcombat_creatures_are_useful() {
+        let (c, mut v) = fixture();
+        let mut second = v.objects[0].clone();
+        second.handle = ObjectHandle("second-untapper".into());
+        second.tapped = true;
+        v.objects[1] = second;
+        assert_eq!(
+            strategy(&c).priority(&observation(v.clone())).unwrap(),
+            PlayerResponse::Pass
+        );
+        v.objects[0].tapped = true;
+        v.objects[1].tapped = false;
+        assert_eq!(
+            strategy(&c).priority(&observation(v.clone())).unwrap(),
+            PlayerResponse::Pass
+        );
+        v.objects[0].tapped = false;
+        let mut creature =
+            wipe_tests::card(&c, "Yargle and Multani", v.viewer.0, Zone::Battlefield);
+        creature.tapped = true;
+        v.objects.push(creature);
+        v.turn.step = TurnStep::PostcombatMain;
+        assert_eq!(
+            strategy(&c).priority(&observation(v.clone())).unwrap(),
+            PlayerResponse::ActivateAbility {
+                object: v.objects[0].handle.clone(),
+                ability: 0
+            }
+        );
+    }
+}

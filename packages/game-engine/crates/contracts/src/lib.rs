@@ -216,6 +216,7 @@ pub enum Capability {
     TapPermanentV1,
     ActivatedTapPermanentV1,
     TapSourceDestroyV1,
+    TapSourceUntapCreatureV1,
     ActivatedSpellCounterV1,
     ActivatedPermanentOwnerHandV1,
     OwnerHandMoveV1,
@@ -1224,6 +1225,9 @@ impl Definition {
         }
         for ability in &self.activated {
             set.insert(Capability::ActivatedAbilityV1);
+            if has_untap(&ability.program) {
+                set.insert(Capability::TapSourceUntapCreatureV1);
+            }
             if has_tap(&ability.program) {
                 set.insert(Capability::ActivatedTapPermanentV1);
             }
@@ -1386,14 +1390,17 @@ impl Definition {
         {
             return Err("tap requires an ordinary nonmodal spell".into());
         }
-        if self.activated.iter().any(|a| has_untap(&a.program))
+        if self
+            .activated
+            .iter()
+            .any(|a| has_untap(&a.program) && !tap_source_untap_ability(a))
             || self.triggered.iter().any(|a| has_untap(&a.program))
             || self.spell.as_ref().is_some_and(|p| {
                 has_untap(p)
                     && (!matches!(
                         self.characteristics.kind,
                         CardKind::Instant | CardKind::Sorcery
-                    ) || !p.modes.is_empty())
+                    ) || !ordinary_untap_program(p))
             })
         {
             return Err("untap requires an ordinary nonmodal spell".into());
@@ -1649,6 +1656,13 @@ impl Definition {
             return Err("activated programs require supported creature characteristics".into());
         }
         for ability in &self.activated {
+            if has_untap(&ability.program) {
+                if c.kind != CardKind::Creature || !tap_source_untap_ability(ability) {
+                    return Err("tap-source untap requires a creature, pure source tap and one creature target".into());
+                }
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
             if has_permanent_owner_hand(&ability.program) {
                 if c.kind != CardKind::Creature || !activated_permanent_owner_hand_ability(ability)
                 {
@@ -2235,6 +2249,36 @@ fn activated_permanent_tap_ability(a: &ActivatedAbility) -> bool {
                 !m.generic.is_negative() && !m.colored.contains(&Color::C)))
         && activated_permanent_tap_program(&a.program)
 }
+// Pinned CR302.6,602.2b,608.2b,701.26b: the contextual definition guard
+// admits only this pure source-tap activation; ordinary spells stay unqualified.
+// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+fn untap_program(p: &SpellProgram, types: &[CardKind]) -> bool {
+    p.functioning_zone == FunctioningZone::Stack
+        && p.resolution == SpellResolution::Instructions
+        && p.additional_sacrifice.is_none()
+        && p.modes.is_empty()
+        && matches!(
+            p.instructions.as_slice(),
+            [Instruction::UntapPermanent { target_slot: 0, .. }]
+        )
+        && matches!(p.targets.as_slice(), [t] if t.slot == 0
+            && !t.selection_id.is_empty() && t.chooser == Chooser::Controller
+            && t.stage == EvaluationStage::Announcement
+            && t.domain == TargetDomain::BattlefieldPermanent
+            && t.filter.as_ref().is_some_and(|f| f.types == types && f.non_types.is_empty()
+                && f.non_colors.is_empty() && !f.opponent && !f.tapped))
+}
+fn ordinary_untap_program(p: &SpellProgram) -> bool {
+    untap_program(p, &[])
+}
+fn tap_source_untap_program(p: &SpellProgram) -> bool {
+    p.timing == SpellTiming::Instant && untap_program(p, &[CardKind::Creature])
+}
+fn tap_source_untap_ability(a: &ActivatedAbility) -> bool {
+    a.functioning_zone == FunctioningZone::Battlefield
+        && a.cost == ActivationCost::TapSource
+        && tap_source_untap_program(&a.program)
+}
 fn tap_source_destroy_ability(a: &ActivatedAbility) -> bool {
     let p = &a.program;
     a.cost == ActivationCost::TapSource
@@ -2332,26 +2376,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     if has_tap(p) && !ordinary_tap_program(p) && !activated_permanent_tap_program(p) {
         return Err("tap requires one creature target, then at most one controller draw".into());
     }
-    if has_untap(p)
-        && (p.additional_sacrifice.is_some()
-            || !p.modes.is_empty()
-            || p.functioning_zone != FunctioningZone::Stack
-            || p.resolution != SpellResolution::Instructions
-            || p.targets.len() != 1
-            || p.targets[0].domain != TargetDomain::BattlefieldPermanent
-            || p.targets[0].filter.as_ref().is_none_or(|f| {
-                !f.types.is_empty()
-                    || !f.non_types.is_empty()
-                    || !f.non_colors.is_empty()
-                    || f.opponent
-                    || f.tapped
-            })
-            || !matches!(
-                p.instructions.as_slice(),
-                [Instruction::UntapPermanent { target_slot: 0, .. }]
-            ))
-    {
-        return Err("untap requires one unqualified permanent target and one instruction".into());
+    if has_untap(p) && !ordinary_untap_program(p) && !tap_source_untap_program(p) {
+        return Err("untap requires one ordinary permanent or activated creature target and one instruction".into());
     }
     if p.targets
         .iter()
@@ -3498,8 +3524,7 @@ pub fn catalog_schema() -> serde_json::Value {
         "if":{"required":["capabilities"],"properties":{"capabilities":{"contains":{"const":Capability::ActivatedPermanentOwnerHandV1}}}},
         "then":{"$ref":"#/$defs/ActivatedPermanentOwnerHandDefinition"}
     }));
-    // The untap opcode is a complete ordinary spell, not a capability that
-    // implicitly admits activations, triggers or modal child programs.
+    // Untap has two disjoint complete contexts; modes and triggers stay excluded.
     schema["$defs"]["UntapFreeProgram"] = serde_json::json!({"properties":{
         "instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"const":"untap_permanent"}}}}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/UntapFreeProgram"}}}}
@@ -3513,7 +3538,8 @@ pub fn catalog_schema() -> serde_json::Value {
             "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"untap_permanent"},"target_slot":{"const":0}}}},
             "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
                 "domain":{"const":"battlefield_permanent"},
-                "filter":{"type":"object","properties":{"types":{"maxItems":0},"non_types":{"maxItems":0},"non_colors":{"maxItems":0},"opponent":{"const":false},"tapped":{"const":false}}}
+                "slot":{"const":0},"selection_id":{"minLength":1},"chooser":{"const":"controller"},"stage":{"const":"announcement"},
+                "filter":{"type":"object","properties":{"types":{"enum":[[],["creature"]]},"non_types":{"maxItems":0},"non_colors":{"maxItems":0},"opponent":{"const":false},"tapped":{"const":false}}}
             }}}
         }}
     }));
@@ -3522,15 +3548,46 @@ pub fn catalog_schema() -> serde_json::Value {
     }));
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["spell"],"properties":{"spell":{"type":"object","required":["instructions"],"properties":untap}}},
-        "then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},"capabilities":{"contains":{"const":Capability::UntapPermanentV1}}}}
+        "then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},"spell":{"properties":{"targets":{"items":{"properties":{"filter":{"properties":{"types":{"maxItems":0}}}}}}}},"capabilities":{"contains":{"const":Capability::UntapPermanentV1}}}}
     }));
     schema["$defs"]["Definition"]["allOf"]
         .as_array_mut()
         .unwrap()
         .push(serde_json::json!({"properties":{
-            "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/UntapFreeProgram"}}}},
             "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/UntapFreeProgram"}}}}
         }}));
+    schema["$defs"]["TapSourceUntapAbility"] = serde_json::json!({"required":["cost","program"],"properties":{
+        "cost":{"const":"tap_source"},"functioning_zone":{"const":"battlefield"},
+        "program":{"required":["instructions","targets"],"properties":{
+            "timing":{"const":"instant"},"modes":{"maxItems":0},
+            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"untap_permanent"}}}},
+            "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
+                "filter":{"type":"object","required":["types"],"properties":{"types":{"const":["creature"]}}}
+            }}}
+        }}
+    }});
+    let activated_untap = serde_json::json!({"required":["program"],"properties":{"program":{"not":{"$ref":"#/$defs/UntapFreeProgram"}}}});
+    schema["$defs"]["ActivatedAbility"]["allOf"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "if":activated_untap,"then":{"$ref":"#/$defs/TapSourceUntapAbility"}
+        }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["activated"],"properties":{"activated":{"contains":activated_untap}}},
+        "then":{"properties":{"characteristics":{"properties":{"kind":{"const":"creature"}}},"capabilities":{"allOf":[
+            {"contains":{"const":Capability::TapSourceUntapCreatureV1}}, {"contains":{"const":Capability::UntapPermanentV1}},
+            {"contains":{"const":Capability::PermanentRemovalV1}}, {"contains":{"const":Capability::TapSourceCostV1}},
+            {"contains":{"const":Capability::ActivatedAbilityV1}}, {"contains":{"const":Capability::BaseCreatureV1}},
+            {"contains":{"const":Capability::CastCreatureV1}}, {"contains":{"const":Capability::NormalLayoutV1}}
+        ]}}}
+    }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["capabilities"],"properties":{"capabilities":{"contains":{"const":Capability::TapSourceUntapCreatureV1}}}},
+        "then":{"required":["activated"],"properties":{"characteristics":{"properties":{"kind":{"const":"creature"}}},
+            "activated":{"contains":{"$ref":"#/$defs/TapSourceUntapAbility"}}
+        }}
+    }));
     // Match requirements(): legendary creatures carry Commander identity even
     // when this particular configuration does not designate them commanders.
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
@@ -3615,6 +3672,8 @@ mod activated_permanent_tap_tests;
 
 #[cfg(test)]
 mod tap_source_destroy_tests;
+#[cfg(test)]
+mod tap_source_untap_tests;
 
 #[cfg(test)]
 mod activated_spell_counter_tests;
@@ -3690,6 +3749,7 @@ mod tests {
             TapPermanentV1,
             ActivatedTapPermanentV1,
             TapSourceDestroyV1,
+            TapSourceUntapCreatureV1,
             ActivatedSpellCounterV1,
             ActivatedPermanentOwnerHandV1,
             OwnerHandMoveV1,
@@ -3830,6 +3890,7 @@ mod tests {
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());
         definitions.push(tap_source_destroy_tests::tap_source_destroy());
+        definitions.push(tap_source_untap_tests::tap_source_untap());
         definitions.push(activated_spell_counter_tests::activated_counter());
         definitions.push(activated_permanent_return_tests::activated_return());
         definitions.push(permanent_owner_hand_tests::permanent_owner_hand());

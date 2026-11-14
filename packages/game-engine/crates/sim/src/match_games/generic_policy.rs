@@ -110,6 +110,37 @@ fn defensive_untap_spell(d: &Definition, p: &SpellProgram) -> bool {
                 && !f.tapped
         })
 }
+// Match the complete strict public IR contract, without card/profile identity.
+fn tap_source_creature_untap(d: &Definition, p: &SpellProgram) -> bool {
+    use mtg_contracts::{Chooser, EvaluationStage, FunctioningZone};
+    d.characteristics.kind == CardKind::Creature
+        && p.timing == SpellTiming::Instant
+        && p.functioning_zone == FunctioningZone::Stack
+        && p.resolution == SpellResolution::Instructions
+        && p.modes.is_empty()
+        && p.additional_sacrifice.is_none()
+        && matches!(
+            p.instructions.as_slice(),
+            [I::UntapPermanent { target_slot: 0, .. }]
+        )
+        && matches!(p.targets.as_slice(), [t] if t.slot == 0
+            && !t.selection_id.is_empty() && t.chooser == Chooser::Controller
+            && t.stage == EvaluationStage::Announcement
+            && t.domain == TargetDomain::BattlefieldPermanent
+            && t.filter.as_ref().is_some_and(|f| f.types == [CardKind::Creature]
+                && f.non_types.is_empty() && f.non_colors.is_empty() && !f.opponent && !f.tapped))
+        && d.activated.iter().any(|a| {
+            a.program == *p
+                && a.functioning_zone == FunctioningZone::Battlefield
+                && a.cost == ActivationCost::TapSource
+        })
+}
+fn contains_untap(p: &SpellProgram) -> bool {
+    p.instructions
+        .iter()
+        .any(|i| matches!(i, I::UntapPermanent { .. }))
+        || p.modes.iter().any(|m| contains_untap(&m.program))
+}
 fn activated_permanent_tap_program(d: &Definition, p: &SpellProgram) -> bool {
     d.characteristics.kind == CardKind::Artifact
         && p.modes.is_empty()
@@ -279,6 +310,18 @@ impl Strategy<'_> {
             .iter()
             .any(|i| matches!(i, I::UntapPermanent { .. }))
         {
+            if tap_source_creature_untap(d, p) {
+                return v.objects.iter().filter(|o| {
+                    o.controller == v.viewer && o.tapped
+                        && o.characteristics.as_ref().is_some_and(|c| c.has_type(CardKind::Creature))
+                        && candidates.is_none_or(|cs| cs.contains(&o.handle))
+                        && self.object_matches(v, o, t, candidates.is_some())
+                        // Conservatively exclude every visible catalog untapper,
+                        // including self, so autonomous activations cannot cycle.
+                        && definition(self.catalog, &o.oracle_id).is_ok_and(|target|
+                            !target.activated.iter().any(|a| contains_untap(&a.program)))
+                }).max_by_key(|o| (self.value(o), o.handle.0.clone())).map(|o| o.handle.clone());
+            }
             return self.defensive_untap_target(v, d, p, t, candidates);
         }
         let own = self.target_beneficial(d, p, t.slot)
@@ -1004,6 +1047,7 @@ impl Strategy<'_> {
             .iter()
             .any(|i| matches!(i, I::UntapPermanent { .. }))
             && !defensive_untap_spell(d, p)
+            && !tap_source_creature_untap(d, p)
         {
             return false;
         }

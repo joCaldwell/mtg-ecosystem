@@ -48,10 +48,11 @@ hosting/search sets.
 
 Card IR remains at schema **1**. `UntapPermanent { target_slot, source_block }`
 requires `UntapPermanentV1`, alongside the existing permanent-filter capability.
-Its bounded program is one ordinary instant/sorcery spell, one instruction and
-one unqualified battlefield-permanent target. Modes, activated/triggered programs,
-additional costs, qualified targets and extra instructions reject as complete
-programs. Capability derivation and rejection inspect modal descendants too;
+Its ordinary spell program is one instant/sorcery spell, one instruction and
+one unqualified battlefield-permanent target. Modes, triggered programs, additional
+costs, qualified ordinary targets and extra instructions reject as complete
+programs. Activations require the separate tap-source creature contract below.
+Capability derivation and rejection inspect modal descendants too;
 labels cannot authorize another execution context.
 
 The compiler consumes the complete retained Burst of Energy record at
@@ -115,3 +116,49 @@ executable remain under `generated/permanent-untap/`. Full Node/runtime/tooling
 suites, completion/release/profile matrices, offline retention and client/server
 requalification were omitted. Earlier consumer qualification keeps its exact
 producer identity.
+
+## Tap-source creature untap
+
+Schema 1 additionally admits `TapSourceUntapCreatureV1` for one separately fenced
+creature activation: battlefield source, pure `TapSource` cost, instant-timed stack
+instructions, one `UntapPermanent` at slot zero and one mandatory
+`BattlefieldPermanent` target with exactly the creature type filter. All other
+filter fields are empty/false. Target binding remains controller-chosen at
+announcement. Additional sacrifice, modes, triggers, extra instructions and other
+activation costs reject. Ordinary Burst keeps its unqualified permanent target;
+the shared instruction does not widen ordinary spell semantics.
+
+The complete Seeker of Skybreak fixture is
+`tests/fixtures/704723f3-0490-4d96-930a-aacc6d19ba8d.json`, extracted at physical
+line 16867/source index 16865 from the fully hashed accepted `d705222b…` archive.
+Its retained source is `{1}{G}`, Creature — Elf, 2/1, green identity, with exactly
+“{T}: Untap target creature.” Raw record/source/AST/binding hashes are pinned by
+the fixture and provenance; compilation retains the complete source. The retained
+2026-09-25 CR302.6,602,608.2b,113.7a and701.26b govern continuous-control readiness,
+announcement/payment, exact target legality, independent paid abilities and
+untapping. Existing generic target routing, tap payment and untap execution need
+no production core changes.
+
+Four private source-backed runtime tests use accepted inputs, budgets 1/4096,
+detailed/off traces, trusted snapshot restoration and accepted-input replay. The
+principal case casts Seeker for real `{1}{G}` from two Forests, rejects a fresh
+activation despite an available creature target and independent untapped mana,
+ages it through a natural turn, and obtains two real green mana by tapping
+Llanowar Elves, resolving Seeker's paid untap, then tapping that Elf again. Other
+cases prove self-targeting while initially untapped, two explicitly requested
+self invocations without automatic looping, source bounce after payment, and
+target departure followed by genuine Flash Research Thief reentry without
+rebinding. Research Thief uses its own `cards-data-d2ce` archive header. Initial
+battlefield zones/readiness in the response cases are declared private setup;
+no gameplay outcome is injected. Invalid target responses remain atomic.
+
+This is a source/runtime slice; pod, hosting, search and downstream consumer
+admission remain separate. The producer
+`31e667f275d2a49f6ee0503ec48503ae0fb5d47449b69720a59ab6fcc72f927a`
+qualifies the isolated source based on `fafbd9f5`, with 249 focused Rust tests,
+four schema positives/38 negatives, smoke and explicit replay. Formatting,
+workspace checking, structure and compiler/core production Clippy passed.
+Contracts Clippy retained the unchanged grouped-damage `collapsible_if` failure.
+Raw source identities, receipts, omissions and copied artifacts remain under
+`generated/tap-source-untap/`; this evidence does not qualify other integrated
+changes or renew full acceptance.
