@@ -53,6 +53,21 @@ impl Game {
         ability: Option<u32>,
     ) -> Option<DecisionSource> {
         let definition = self.definition(object.card).ok()?;
+        if kind == DecisionSourceKind::ManaAbility && definition.mana_abilities.is_empty() {
+            // Use precisely the runtime's intrinsic CR 305.6 production query.
+            // Never describe a permanent ability as intrinsic when its labels are missing.
+            let colors = self.mana_abilities(object).ok()?;
+            let [color] = colors.as_slice() else {
+                return None;
+            };
+            return Some(DecisionSource {
+                kind,
+                oracle_id: definition.oracle_id.clone(),
+                object: Some(self.handle_for(viewer, object).ok()?),
+                ability: None,
+                text: format!("Tap: Add {{{color:?}}}. (Intrinsic basic land mana ability.)"),
+            });
+        }
         let labels = definition.source_labels.as_ref()?;
         let blocks = match kind {
             DecisionSourceKind::Spell => None,
@@ -181,19 +196,26 @@ impl Game {
         viewer: PlayerId,
         effect: &EffectKey,
     ) -> Option<DecisionContext> {
-        let (object, source_block) = match effect {
+        let (object, source_block, mode) = match effect {
             EffectKey::Static { source, ability } => {
                 let labels = self.definition(source.card).ok()?.source_labels.as_ref()?;
-                (*source, *labels.statics.get(*ability as usize)?)
+                (*source, *labels.statics.get(*ability as usize)?, None)
             }
             EffectKey::Resolved { id } => {
                 let effect = self.state.rules.effects.iter().find(|e| e.id == *id)?;
-                (effect.origin.source, effect.origin.source_block)
+                (
+                    effect.origin.source,
+                    effect.origin.source_block,
+                    effect.origin.mode,
+                )
             }
         };
         let definition = self.definition(object.card).ok()?;
         let labels = definition.source_labels.as_ref()?;
-        let text = labels.blocks.get(source_block as usize)?.clone();
+        let text = mode
+            .and_then(|mode| labels.spell_modes.get(mode as usize))
+            .or_else(|| labels.blocks.get(source_block as usize))?
+            .clone();
         Some(DecisionContext {
             source: Some(DecisionSource {
                 kind: DecisionSourceKind::Effect,

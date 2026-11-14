@@ -442,7 +442,13 @@ impl Game {
                 }),
             ),
         };
-        if matches!(action, ActionInitiation::ActivateAbility { .. }) && source.is_none() {
+        if matches!(
+            action,
+            ActionInitiation::ActivateAbility { .. }
+                | ActionInitiation::ActivateMana { .. }
+                | ActionInitiation::Cast { .. }
+        ) && source.is_none()
+        {
             return ActionLabel::Unavailable;
         }
         ActionLabel::Available {

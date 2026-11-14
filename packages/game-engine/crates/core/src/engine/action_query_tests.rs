@@ -118,6 +118,23 @@ fn check_agreement(game: &Game, viewer: PlayerId) -> Vec<ActionBeginning> {
         })
         .collect::<Vec<_>>();
     let (actual, _) = collect(game, viewer, ActionScope::Window, 64, u64::MAX);
+    for beginning in &actual {
+        if matches!(
+            beginning.initiation,
+            ActionInitiation::Cast { .. }
+                | ActionInitiation::ActivateMana { .. }
+                | ActionInitiation::ActivateAbility { .. }
+        ) {
+            assert!(matches!(
+                &beginning.label,
+                ActionLabel::Available {
+                    source: Some(_),
+                    ..
+                }
+            ));
+        }
+    }
+
     assert_eq!(
         actual
             .iter()

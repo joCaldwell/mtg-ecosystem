@@ -214,6 +214,29 @@ fn applied_prefix_and_finite_shared_allocation_are_not_vector_order() {
     };
     assert_eq!(player, PlayerId(1));
     assert_eq!(candidates.len(), 4);
+    for candidate in &candidates {
+        let visible = g
+            .visible_damage_effect_candidate(player, candidate)
+            .unwrap();
+        let definition = g
+            .prepared
+            .catalog
+            .definition_by_oracle_id(&visible.effect_oracle_id)
+            .unwrap();
+        let label = visible
+            .label
+            .as_ref()
+            .expect("source-bound replacement label");
+        assert!(
+            definition
+                .source_labels
+                .as_ref()
+                .unwrap()
+                .blocks
+                .contains(label)
+        );
+    }
+
     let shield_key = EffectKey::Resolved { id: shield };
     apply(&mut g, shield_key.clone(), DamageId(1));
     assert_eq!(g.state.rules.players[1].life, 40.into());
