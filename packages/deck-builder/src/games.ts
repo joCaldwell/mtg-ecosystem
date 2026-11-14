@@ -138,15 +138,28 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
     }
     return record;
   }
-  function run(record: GameRecord): Promise<GameRecord> {
-    const existing = inflight.get(record.id); if (existing) return existing;
+  function run(record: GameRecord, restartActor?: Actor): Promise<GameRecord> {
+    const existing = inflight.get(record.id); if (existing && !restartActor) return existing;
     // Tick/admission may have awaited other work since their initial read.
     // Serialize by game and re-read current durable state before applying any
     // lifecycle transition; a stale snapshot must never erase a rules outcome.
     const task = (async () => {
-      const row = await sql(() => db.prepare("SELECT record_json FROM game_launches WHERE id=?").get(record.id) as { record_json: string } | undefined);
-      return row ? reconcile(JSON.parse(row.record_json) as GameRecord) : record;
-    })().finally(() => inflight.delete(record.id));
+      // An explicit resume queues AFTER a pending stop acknowledgment. Ordinary
+      // sweeps coalesce; they must not consume and lose a human restart intent.
+      if (existing) await existing;
+      const current = await sql(() => withTransaction(db, () => {
+        const row = restartActor ? read(restartActor, record.id) : (() => {
+          const saved = db.prepare("SELECT record_json FROM game_launches WHERE id=?").get(record.id) as { record_json: string } | undefined;
+          return saved ? JSON.parse(saved.record_json) as GameRecord : null;
+        })();
+        if (row && restartActor && !closed && row.state === "paused" && row.pause !== "human_timeout" && row.pause !== "lifetime_exceeded") {
+          row.state = "provisioning"; row.pause = null; row.consumers_stopped = false;
+          if (!writeRecord(row)) throw new ServiceError("Game not found", 404);
+        }
+        return row;
+      }));
+      return current ? reconcile(current) : record;
+    })().finally(() => { if (inflight.get(record.id) === task) inflight.delete(record.id); });
     inflight.set(record.id, task); return task;
   }
   async function launch(actor: Actor, deckId: number, revision: number, requestId: string): Promise<GameLaunchResult> {
@@ -192,16 +205,9 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
     if (closed || !native?.lifecycle_qualified || !options.browser_session_qualified) return { admission: unavailable("session_incomplete"), game: initial };
     // Reconcile the immutable game deck, never the mutable library deck.
     const admitted = await check(initial.deck);
-    const game = await sql(() => withTransaction(db, () => {
-      const current = read(actor, id);
-      if (admitted.state === "supported" && sameIdentity(current.identity, admitted.identity) && current.state === "paused" && current.pause !== "human_timeout" && current.pause !== "lifetime_exceeded") {
-        current.state = "provisioning"; current.pause = null; current.consumers_stopped = false;
-        if (!writeRecord(current)) throw new ServiceError("Game not found", 404);
-      }
-      return current;
-    }));
+    const game = await sql(() => read(actor, id));
     if (admitted.state !== "supported" || !sameIdentity(game.identity, admitted.identity)) return { admission: unavailable("identity_mismatch"), game };
-    const result = await run(game);
+    const result = await run(game, actor);
     await sql(() => read(actor, id));
     return { admission: admitted, game: result };
   }
