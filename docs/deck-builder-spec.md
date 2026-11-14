@@ -1,136 +1,60 @@
 # MTG Commander Deck Builder — Build Spec (v3)
 
-> Rewritten 2026-10-10. This replaces the 2026-07-26 spec, which is in git
-> history. It was designed as if no code existed. `packages/deck-builder` was
-> then rebuilt against it the same day; places where building it corrected or
-> sharpened this document are marked *(as built)*.
->
-> **Decisions settled with Josh on 2026-10-10:**
-> - The app makes no AI model calls. Agents are external and reach it through a documented interface (§10).
-> - Local mode remains the daily product. Hosted accounts and remote access are v3 goals (§17).
-> - Typed rejections, hard filters and the 3–5 item proposal cap are gone. A rejection carries an optional free-text reason (§8).
-> - Memories replace card notes, hard filters and playtest notes. They are written by agents without approval and are always visible to the owner (§7).
-> - The player profile and deck briefs are the owner's documents; agent edits to them are proposed (§6).
-> - Agents edit Theorycrafted cards freely; Paper cards and all brief edits require approval (§5.2). Archived is read-only.
-> - Physical assembly is tracked with ordinary deck tags (§5.5); the dedicated toggle was removed on 2026-10-11.
-> - Slots describe purpose: one optional primary plus any number of secondary slots. Targets count primary assignments only; tags track sourcing and status (2026-10-14, §5.4).
-> - Cross-deck membership is off by default in card search and is turned on per call (§4.2).
-
----
+Current deck/account behavior and public compatibility. Section numbers remain
+stable for source comments. Browser implementation and visual rules belong to
+[Multiverse architecture](../packages/multiverse/web/ARCHITECTURE.md) and
+[design](../packages/multiverse/web/DESIGN.md); operating commands belong to
+[operations](../packages/deck-builder/OPERATIONS.md). Historical decisions and
+build receipts are recoverable at Git revision `33dcbe9df5c0cc7fef5f8d67f97adb85a3af4cdb`.
 
 ## 1. What this is
 
-An application for building Magic: The Gathering Commander decks, with a
-local implicit user and a hosted multi-user mode (§17), designed to be driven by a person and by external AI agents through the
-same capabilities.
-
-The app is the source of truth. It stores structured data, enforces
-validation and permissions, does every calculation, and keeps an auditable
-record of every change. People use it directly through its UI. Agents use it
-through an MCP interface. Interpretation, planning and conversation happen in
-whatever agent the owner points at it (Claude Code, a desktop assistant,
-anything that speaks MCP), never inside the app. The app is fully usable with
-no agent attached.
-
-What it models that a list-with-tags tool does not: **what each deck is trying
-to do** (its brief), **what the owner has decided and why** (decisions), and
-**what agents have learned about the owner** (memories and the profile).
+A Commander deck library driven by humans and external MCP agents through one
+Actor-scoped capability layer. The app stores validated records, computes state
+and audits writes; interpretation and conversation happen outside it.
 
 ### Design rules
 
-1. **Card facts come from the database, never from model memory.** Names, oracle text and legality are looked up, on every path.
-2. **If the app can compute it or look it up, nobody else derives it.** Counts, deltas, legality and cross-deck statistics are computed by the app and handed over. This applies to agents and to memories alike (§3).
-3. **One capability layer, two front doors.** The UI and the agent interface call the same service functions. Validation lives below both.
-4. **The owner rules on membership of Paper decks.** An agent changes which cards are in a Paper deck only through an accepted proposal.
-5. **Everything an agent writes is attributed and visible.** No write is hidden, whether or not it needed approval.
-
----
+Exact installed card facts, computed counts/checks, human approval of Paper
+membership, attributed visible agent writes and authorization below both front
+doors are mandatory. Full capability constraints live in the package manual.
 
 ## 2. Non-goals
 
-- No model calls inside the app. This includes embeddings and any "smart" ranking that needs a model.
-- No chat UI, no transcript storage, no context management. Those belong to the agent's own harness.
-- Hosting, deployment, accounts and multi-user support are v3 goals (§17).
-  Phase 1 established identity and tenancy; login, sessions, Better Auth and
-  OAuth arrived in Phase 2, hosting in Phase 3, and visibility, public
-  pages and cross-owner forks in Phase 4a (§18).
-- No collaborators, co-owners, shared memories, chat, paid tiers or formats
-  beyond Commander. Forks and later suggestions are the collaboration unit.
-- No lifecycle or decisions terminology changes in the identity phase.
-- No external knowledge sources (EDHREC, Commander Spellbook, vendor sites). An agent may consult them itself; whatever it finds must resolve through the app's card search before it can be proposed. Scryfall is the one card-data source the app reads (§4.1, §4.4, §4.5).
-- No collection or inventory management; ordinary deck tags can record organization such as cards to obtain (§5.5).
-- No live sync with any external service.
-- No formats other than Commander.
-
-Reopened on 2026-10-25 (planned in the
-[v3 plan](deck-builder-spec.md); each entry becomes a description of
-built behaviour when its phase lands):
-
-- **Phones read and rule; agents edit** (D17, built in phase 4a, §11). Below
-  720 px the app is a read-and-rule view: the deck list, each deck
-  read-only, the inbox, and accept/reject on pending proposals with the
-  optional reason. A phone user changes a deck by prompting an agent and
-  decision on its proposals. No direct editing, hotkeys, playtester or
-  Settings on phones. 720 px and wider keep the full app. The playtester
-  stays desktop-only.
-- **Price source per user — built** (D18, phase 1b). Each user picks a currency (USD
-  or EUR) and a store in it (TCGplayer, Cardmarket) or the lowest in that
-  currency. The chosen price is shown, totalled, searched and given to
-  agents, always labelled with its store and date. Scryfall's bulk data
-  remains the only source: no other price data, no exchange rates.
-- **Commander art on public pages** (D20, built in phase 4a, §18): the
-  public deck page's header and its link preview, with the artist line.
-  The editor stays a text list.
-- **Moxfield import** (built in phase 4a, §12): paste-in text, alongside
-  Archidekt. No URL fetching and no sync.
-- **Sharing** (D8, built in phase 4a, §18): decks can be unlisted or public,
-  read without an account, and forked by another user.
-
-Reopened on 2026-10-11: **cards carry a price** (§4.4). It is an estimate
-from the same Scryfall refresh that loads the cards. There is still no price
-history and no record of which printing the owner holds.
-
-Reopened on 2026-10-10: **card images are shown on demand.** The deck stays a
-text list; a card's picture appears only in its hover card and its detail
-panel, using image URLs stored from Scryfall bulk data (§4.1, §13).
-No image lookup by name is sent to the Scryfall API. `get_cards` includes
-image facts in its structured result; its compact text stays unchanged.
-
----
+No model calls/embeddings, chat/transcripts, external recommendation data, sync,
+printing inventory/reservations, collaborators/co-owners or non-Commander formats.
+Scryfall supplies card facts/prices; stored CDN images load on demand. Local and
+hosted accounts/sharing are implemented; suggestions and native full-game launch
+retain separate gates. The library does not depend on Card IR or engine support.
 
 ## 3. The knowledge model
 
-Three kinds of knowledge, separated by who is authoritative for them.
+| Kind | Authority and use |
+| --- | --- |
+| Records | App-owned cards, decks, decisions/proposals, counts and Activity; read on demand |
+| Documents | Owner's global profile/per-deck brief; agents propose edits |
+| Memories | Attributed preference/reason/outcome statements; loaded by scope and searched |
 
-| Kind | Contents | Written by | Reaches an agent |
-| --- | --- | --- | --- |
-| **Records** | Cards, decks, proposals, decisions, computed state, activity log | The app, from actions | Through tools, on demand |
-| **Documents** | Player profile (global), deck brief (per deck) | The owner; agents propose edits | Always loaded at their scope |
-| **Memories** | Short notes about preferences, reasons and outcomes | Agents, without approval; the owner too | Loaded by scope; the rest searched |
-
-**A record is never copied into a memory.** "The owner has three Golgari
-decks" is a query. Memory that duplicates the source of truth is the main way
-memory goes stale, so the app offers computed answers (§10.3, `player_stats`)
-and the playbook forbids storing them.
-
----
+Never copy a computable record or card text into memory. Documents are confirmed
+owner voice; memories capture learning, with inferred statements marked explicitly.
 
 ## 4. Card data and search
 
 ### 4.1 Card data
 
-**Source:** Scryfall bulk data, the `oracle-cards` file: one entry per unique
-card, not per printing.
+The independent SQLite/FTS5 store ingests Scryfall `oracle_cards`, one representative
+per Oracle identity. `oracle_id` keys facts; retain exact name/cost/value/type/text,
+characteristics, colour identity, Commander legality, layout/faces, nullable Game
+Changer flag, stored image/art URLs/artist and retirement. Never derive identity
+from text. Commander eligibility is a separate check. `src/cards.ts` owns the
+consumed field contract; [operations](../packages/deck-builder/OPERATIONS.md#card-refresh-and-scheduled-jobs)
+owns schedules, staging, thresholds, locks and failure recovery.
 
-- SQLite, with an FTS5 index over name and oracle text. The server schedules a refresh child process daily and on boot when stale, retrying failed refreshes one hour after their last run; the CLI runs the same operation. Settings enqueues it and returns immediately. A shared timestamped lease prevents overlapping refresh/backup jobs; leases expire after two hours. Job result, last run and next run appear in Settings. Backups retry after
-one hour on failure and expose last_success_at plus a 36-hour stale flag in
-admin job status, without expanding public health.
-- Oracle data is streamed and staged on disk, then upserted in savepoint batches of roughly 500. Malformed input and a file with fewer than 90% of the currently active cards are refused before publishing. Missing IDs become `retired=1`, preserving exact resolution, references, history and images. General search excludes retired IDs; a named deck may still find retired cards it holds, and its checks flag “retired printing/oracle id”. Returning IDs are reactivated. Retired rows are excluded from the next truncation threshold.
-- The per-instance oracle cache lives under `DATA_DIR/.scryfall-cache`, reused for 24 hours. The Settings path never forces a download; CLI `--force` remains available. All connections wait up to five seconds for SQLite locks. Refresh and nightly backup run outside the serving event loop; see `packages/deck-builder/OPERATIONS.md`.
-- Keyed on `oracle_id` internally.
-- Retain: `oracle_id`, `name`, `mana_cost`, `cmc`, `type_line`, `oracle_text`, `power`, `toughness`, `loyalty`, `color_identity`, `legalities.commander`, `layout`, `card_faces`, nullable `game_changer` (§5.7), `image_small`, `image_normal`, `image_art_crop` (front-face imagery for double-sided layouts), `artist` (the illustrator of the same imagery: Scryfall's print-field `artist`, or the front face's when the image comes from the face; added in phase 4a for the art-crop credit, §18.5), and `retired`. Discard everything else.
-- Use Scryfall's `color_identity` directly. Do not compute it.
-- `legalities.commander` supplies the banned list. Commander eligibility is a separate check.
+Absent IDs retire rather than delete: references/history/images remain resolvable,
+search hides them except in a named containing deck, checks flag them, and returning
+IDs reactivate. Images are ingested facts, never runtime name lookups. Malformed or
+truncated refreshes cannot delete deck contents. Token/price refresh has its own
+atomic publication (§§4.4–4.5).
 
 ### 4.2 Search
 
@@ -167,111 +91,59 @@ short integer ids, always shown beside their names.
 
 ### 4.4 Prices
 
-Every card has at most one estimate **per store**: its cheapest playable
-paper printing, in whole cents. Decks record cards, not printings (§4.1):
-this estimates acquiring a copy, never the value of the owner's copy.
-
-**Source:** only Scryfall's daily `default-cards` bulk file. `usd`,
-`usd_foil`, `usd_etched` are TCGplayer USD prices; `eur`, `eur_foil`, and
-`eur_etched` when present are Cardmarket EUR prices. Per store, take the
-lowest across those finishes and all counted printings. A printing counts
-only when paper, not oversized, and not from a `memorabilia` set. Ties use
-set code, then collector number; finish order is nonfoil, foil, etched.
+Prices estimate the cheapest playable paper printing per store, in whole cents,
+not the owner's actual copy. Only Scryfall `default_cards` supplies prices:
+TCGplayer USD and Cardmarket EUR, across nonfoil/foil/etched values when present.
+Exclude oversized/memorabilia; ties use set, collector number, then finish order.
 Sources: [Card objects](https://scryfall.com/docs/api/cards),
-[Scryfall price sources](https://scryfall.com/docs/faqs/where-do-scryfall-prices-come-from-7),
-and [search syntax](https://scryfall.com/docs/syntax#prices).
+[price sources](https://scryfall.com/docs/faqs/where-do-scryfall-prices-come-from-7),
+[syntax](https://scryfall.com/docs/syntax#prices).
 
-`card_prices` has a primary key `(oracle_id, store)`, currency, cents,
-printing and finish. Migration preserves existing USD rows as TCGplayer.
-Refresh streams the file into a bounded reduction, stages rows in batches
-of 500, then swaps prices and timestamp atomically. Failure retains the old
-prices; lost prices become unpriced. A missing or old `price_stores_version`
-marker makes refresh due at scheduler boot and in next-run status, even when
-the last refresh was recent. Failed jobs retain the hourly retry schedule.
-That refresh loads both stores even if the bulk timestamp is unchanged.
+Per-user currency/store selects USD or EUR and its compatible store/Lowest.
+Lowest compares within that currency; no exchange rate or cross-currency fallback.
+Missing/corrupt preferences resolve USD/lowest. `setPriceSource` is UI-only and
+validates/saves the pair atomically; explicit null rejects writes. Every personal
+consumer uses the same actor-taking resolver; public reads use viewer or explicit
+null (USD/lowest), never owner preferences. Agents read prices but cannot set source.
 
-**Personal choice:** `price_currency` (`USD` default or `EUR`) and
-`price_store` (`lowest` default, `tcgplayer` for USD, `cardmarket` for EUR)
-are keys in per-user `user_settings`. `getPriceSource(db, actor)` reads;
-`setPriceSource(db, actor, source)` requires UI and rejects mismatched stores.
-Both `getPriceSource(db, null)` and `priceResolver(db, null)` accept an explicit
-anonymous viewer and resolve USD/lowest without reading any user's settings.
-`setPriceSource(db, null, source)` is refused with 401 before any write.
-Both are capability-layer permissions, not transport policy. Settings saves
-the pair atomically (along with other settings in the same request). Any
-invalid stored currency/store pair reads as USD/lowest, so old/corrupt
-preferences cannot produce an undefined store. `lowest` compares only stores
-in the same currency;
-there are no exchange rates or cross-currency fallbacks. With one store per
-currency today it resolves to TCGplayer or Cardmarket. Missing prices in the
-selected store remain unpriced, even if another currency has a price.
+Wire fields are `cents`, `currency`, `store`, `as_of`, `source: "Scryfall"`.
+Label estimates with store/date; missing price is unknown, not free. Totals count
+copies/companions, exclude maybes, and report distinct unpriced cards. Pending
+projections simulate one-copy changes/whole-card parking in order; unpriced delta
+is signed. Price-bearing tool responses label source once; exports/history/memory
+writes stay price-free. `get_cards` includes structured price metadata.
 
-**Every consumer** uses the same actor-taking resolver: card facts, search
-results, deck rows/totals, sourcing and proposal deltas. Wire amounts use
-`cents` with `currency`, `store`, `as_of` metadata, never a USD-labelled EUR
-amount. Deck totals count copies and companions, exclude the maybe list,
-and report the number of distinct unpriced cards. Agents read prices but
-cannot change preferences. Compact card lines retain $/€ amounts; each
-price-bearing response/view names the resolved store and Scryfall as-of date
-once. `start_session` also names the source; exports, decision lists and
-memory writes retain their price-free text.
-`get_cards` includes resolved price metadata in structured results.
+`usd`/`eur` comparisons use that currency's cheapest playable printing under the
+chosen compatible store, otherwise Lowest. Unpriced cards match no comparison,
+including `!=`; negating a comparison includes them. Bulk data older than 24 hours
+is stale, never a live offer. No price history, buy links or printing collection.
 
-`usd<=2` and `eur<=2` compare the respective currency's cheapest playable
-printing under the user's chosen store when it belongs to that currency,
-otherwise `lowest`. Unpriced cards match no direct comparison, including `!=`.
-Negating a comparison (`-usd>5` or `-eur>5`) includes unpriced cards:
-it complements the predicate, as for power/toughness searches.
-This preserves Scryfall's operators while applying the app's card-level
-printing rules. Price is on by default for agents; budgets belong in briefs.
-
-Public pages call `priceResolver(db, viewer | null)`: the signed-in
-viewer's choice, or explicit USD/lowest for anonymous readers without reading
-any principal's settings (v3 plan §4). They never use the deck owner's actor.
-Phase 4a wires this into `PublicDeckState` (§18.3): `getDeck` prices for the viewer there and counts nothing pending.
-Every shown total is labelled an estimate with store/date. Scryfall warns
-bulk prices are dangerously stale after 24 hours: these are general
-estimates, never live offers. No history, collection, buy links, foil-only
-preferences, vendor API or other price source is introduced.
+Refresh streams bounded staging batches, then atomically replaces both stores/date;
+failure preserves old quotes and missing new quotes become unpriced. Marker/version
+changes force boot refresh even with a recent timestamp; failure retries hourly.
+Operations owns schema/refresh commands and the `(oracle_id,store)` storage detail.
 
 ### 4.5 Tokens and emblems
 
-Deck reads include a sorted, distinct list of Scryfall-related tokens and
-emblems, with their stored image URLs, printed characteristics and producing
-cards. Main-deck cards, commanders and companions contribute; maybe-list cards
-and pending proposals do not. `producer_count` counts distinct producing cards,
-not quantities of tokens. Tokens never enter deck membership, card counts,
-checks, prices, or exports.
+Deck reads return distinct sorted Scryfall-related tokens/emblems with stored
+characteristics/images and visible producers. Main membership, commanders and
+companions contribute; maybes/pending proposals do not. `producer_count` counts
+producing cards, not token quantities. Tokens never enter membership/counts/checks/
+prices/exports. Same names with different Oracle IDs remain distinct. These are
+reference relationships, not rules evaluation, quantities or inferred text.
 
-This is a reference list from Scryfall's relationships, including copy markers
-and conditional effects, not rules evaluation or a prediction of quantities.
-Same-name tokens with different Oracle identities remain separate. Source
-relationships and facts refresh automatically for new cards, without card-name
-lists, text heuristics, or changes to application code.
+Global token/link tables publish atomically with prices after bounded staging and
+coverage/link validation. Failure retains prior facts/date; retirement retains
+known links. Missing catalog marker forces refresh. `tokens_status` distinguishes
+uninitialized from ready-empty and carries source date. Serving uses local joins;
+`get_deck sections:["tokens"]` and allowlisted public state expose the same facts.
 
-Migration v16 adds global `token_catalog` and `card_token_links` tables, without
-changing user data. The existing refresh child streams `default_cards` once for
-both prices and tokens. Related Card Objects identify printings, so staging
-resolves their exact IDs to token Oracle identities before publishing. Emblems
-use `combo_piece` relationships and are recognized by their type. Flip Role
-tokens and reversible-card faces are supported. A bounded collection lookup
-resolves rare related non-English printings absent from the default file;
-this is the sole refresh-time supplement to bulk data, and uses only Scryfall.
-Sources: [Related Card Objects](https://scryfall.com/docs/api/cards#related-card-objects),
-[collection endpoint](https://scryfall.com/docs/api/cards/collection).
-
-The catalog stages on disk in bounded batches and validates card coverage and
-unresolved links before an atomic price/catalog publish. Failed refreshes keep
-the previous token facts, links and freshness marker. Retired cards retain
-known links. Missing `token_catalog_version` triggers the scheduled refresh,
-even when prices are current. `tokens_status` distinguishes an uninitialized
-catalog from a ready deck with no related tokens and includes Scryfall's as-of
-date. Serving a deck uses an indexed local join; it never parses Oracle text or
-contacts Scryfall. Private and explicitly allow-listed public state carry the
-same token reference facts; public producers reveal only visible membership.
-`get_deck sections: ["tokens"]` exposes the same capability to agents.
-
----
+Related printing IDs resolve to token Oracle IDs; `combo_piece` identifies emblems,
+with Flip Role/reversible faces supported. Rare non-English related printings may
+use a bounded Scryfall collection lookup, the only refresh-time bulk supplement.
+Sources: [relationships](https://scryfall.com/docs/api/cards#related-card-objects),
+[collection](https://scryfall.com/docs/api/cards/collection). No card-name lists or
+browser Scryfall API calls.
 
 ## 5. Decks
 
@@ -305,7 +177,6 @@ Theorycrafted. Pending proposals stay stored, leave the actionable inbox
 while archived, and return on restoration. All writes are attributed and
 membership changes retain their revision and history behavior.
 
----
 
 ### 5.3 Forks
 
@@ -336,260 +207,152 @@ still read it; card history never crosses the owner boundary.
 
 ### 5.4 Slots, tags and the maybe list
 
-- **Slots:** purposes such as ramp, interaction, card advantage, and a deck's particular engines. A card may have one optional **primary** slot and any number of **secondary** slots. A slot cannot be both primary and secondary on the same card. New decks define no slots. Primary assignments group the ordinary deck list; the command zone remains separate. Secondary purposes are available in expandable contributor lists for each slot. Card rows do not repeat the card's secondary slots beneath its name in either grouping mode, including in the command zone, proposed additions and maybe list. The card panel and bulk actions edit primary and secondary assignments separately.
-- **Targets:** a number or min–max range, soft and visibly checked. **Only primary assignments count toward targets.** The server reports primary count, secondary count, and total coverage separately, weighted by quantity. Coverage counts a card once per slot; secondary coverage never changes target status or pending target deltas. Parked cards and companions contribute to neither primary nor secondary counts; commanders in the 100 contribute according to their assignments. Slot totals must not be used to derive the deck's card count.
-- **Tags:** sourcing, ownership, assembly, and overall status (for example Have, Ordered, or From another deck), from a per-deck vocabulary. Additional card purposes belong in secondary slots. The card panel uses a searchable checkbox dropdown and shows only assigned tags beneath it; an untagged card shows no tag chips. The deck list can be filtered by one or more tags, matching **any** (union) or **all** (intersection), together with its name search. **Invert filter** negates the selected any/all tag condition, so selecting Have and inverting matches cards without that tag, including untagged cards. Name search still applies normally. The closed filter shows the inversion; clearing all selected tags resets it. Filters apply to commanders, companions and the maybe list as well as ordinary cards. Following repeated blind review and the owner’s 2026-10-28 decision, name and tag filters hide nonmatching cards and empty groups. Matching rows need no highlight. Group and maybe headers state matched versus full counts; targets and group costs are omitted while filtering. Totals elsewhere and review decisions still describe the full deck. Clearing restores the unfiltered scroll position; selection and open card details survive filtering. Selected cards support adding and removing tags in bulk.
-- **Maybe list:** cards under consideration, outside the 100. A parked card keeps its primary slot, secondary slots, and tags.
-- **Naming rule:** slot and tag names may not equal a card type in singular or plural (`land`, `lands`), nor any search prefix. Slot and card type are independent axes; whole-name matches only, so `land destruction` is allowed.
+Slots describe purpose; tags describe sourcing/status. Each card has an optional
+primary slot and any number of distinct secondary slots, never the same in both
+roles. New decks have no slots. Only primary copies count toward soft targets;
+secondary counts and total coverage are separate server values. Commanders in the
+100 count; parked cards and companions do not. Never derive card count from slots.
+Primary assignment groups ordinary membership; the command zone stays separate.
+Secondary contributors are expandable, not repeated on every card row.
 
-**All of this is organization, not membership, and agents do it directly** on
-any deck: define and retarget slots, file cards, tag, shortlist candidates
-onto the maybe list. None of it changes the 100 or bumps the revision. To keep
-the tag vocabulary from drifting, creating a tag that closely matches an
-existing one fails and names the existing tag. Renaming follows the same rule.
-Tag assignments are unique per deck-card-tag and constrained to the same deck
-at the database level. A filing update replaces a card's tag set atomically.
-Secondary assignments are likewise unique and deck-scoped. Deleting a slot
-removes only that purpose, preserving the card's other assignments. Changing
-a primary slot to an existing secondary promotes it and removes the duplicate;
-explicitly assigning the same slot in both roles fails atomically. Clearing
-the primary slot leaves secondary purposes intact. Forks remap both kinds of
-assignments; membership undo restores surviving purposes. Schema 8 preserves
-all existing primary assignments and starts with empty secondary assignments;
-it does not guess roles from existing tags. `slot:` search matches either
-kind of assignment; `slot:none` means no primary slot on an ordinary in-deck card.
-For an explicit cleanup, `file_cards` accepts `remove_unused_tags`: named
-vocabulary entries are removed after filing only if no card still uses them.
-Other unused tags are preserved; an assigned tag aborts the entire filing.
-Choosing tags in the list filter is temporary UI state, independent of assigning
-tags to a card; a deleted tag is removed from that filter.
+Tags form a per-deck vocabulary with stable IDs, case-insensitive uniqueness,
+reserved-name and near-duplicate validation on creation/rename. Assignments are
+unique per deck/card/tag and constrained to same-deck membership by composite
+foreign keys. Every copy in an Oracle-card row shares its tags. Global, hierarchical,
+named saved-filter or per-copy tags are not modeled. Archidekt categories map to
+slots/roles; native tag sets do not round-trip through that format (§12).
+
+The card panel shows assigned chips and a searchable native-checkbox dropdown;
+async writes disable choices and preserve focus. Deck filters combine name search
+with any/all selected tags, optionally inverted. They cover commanders, companions,
+ordinary cards and maybes; proposed additions use existing assignments and new
+untagged proposals do not match tag filters. Nonmatches and empty groups hide;
+headers show matched/full counts and omit group targets/costs while filtered.
+Global totals and review scope remain the whole deck. Clearing restores scroll;
+selection and inspection persist. Deleted tags leave filters and assignments.
+
+Organization writes are direct on Paper/Theorycrafted decks, attributed, and do
+not bump membership revision. Filing replaces tags and purposes atomically.
+Primary-to-secondary promotion removes the duplicate; explicitly assigning both
+roles fails. Removing a slot preserves other purposes; parking preserves all
+filing; forks remap IDs and undo restores surviving assignments. `slot:` searches
+either purpose; `slot:none` means no primary on an ordinary in-deck card. Names
+cannot equal a card type (singular/plural) or search prefix; `land destruction`
+is valid. `file_cards.remove_unused_tags` removes only explicitly named unused
+vocabulary; an assigned tag aborts the batch.
 
 ### 5.5 Physical assembly through tags
 
-Physical assembly and cards to obtain use ordinary per-deck tags (§5.4).
-The owner chooses their vocabulary; agents can assign and remove those tags
-with `file_cards` on Paper or Theorycrafted decks, with attribution in Activity.
-The app gives no tag special inventory or ownership meaning, and makes no
-inference about which physical copies are available elsewhere.
+Physical assembly uses ordinary per-deck tags. **Have is an explicit ownership
+statement:** assigning it or renaming an assigned tag to Have records owned status
+with unknown physical quantity/availability, preserving an already more precise
+owned statement. Removing Have does not retract evidence. Keep, Ordered and source
+membership do not prove ownership. Evidence survives membership, tags, forks and
+originating-deck deletion; corrections require a new statement with its basis.
+Source quantities are never added into an inventory. See [ownership workflows](deck-builder-mcp-workflows.md#record-ownership-without-inventing-quantities).
 
-The dedicated per-card assembly field, toggle, counts, markers, Paper panel,
-pull/buy lists, agent tool and missing-only export option were removed on
-2026-10-11 at the owner's request. Schema 6 discards the previous marks rather
-than converting them to tags, preserves other deck-card fields and tag links,
-and removes the obsolete mark from historical undo snapshots.
-
----
+The removed dedicated assembly field/tool/export is not restored by these tags.
+Schema 6 discarded its marks without inventing tags and preserved other fields,
+filing and historical undo. Whole-deck lifecycle remains independent.
 
 ### 5.6 Deck lifecycle
 
-The owner marks each deck **Paper** (a physical deck), **Theorycrafted** (an
-idea being explored), or **Archived** (a read-only archive). Lifecycle controls
-editing permissions (§5.2); per-card tags remain independent (§5.4). Changing
-lifecycle never changes the card list or its revision.
+Only the owner changes Paper/Theorycrafted/Archived lifecycle; it never changes
+membership revision. New decks/forks default Theorycrafted. Archived decks remain
+read-only until restored (§5.2), except owner-controlled sharing (§18.2). Rename
+and delete are available to owners and their agents only on editable decks.
+Deletion removes associated records, including deck memories, while preserving
+global memories and other forks; agent actions are attributed.
 
-The UI shows one Lifecycle control in the deck header and one column in All
-decks. The archived read-only notice sits inside the art header above the
-title, using its existing space rather than a row below the toolbar. Fork
-is a visible header action on desktop/tablet and remains in the 56 px compact
-bar when the full notice scrolls away. Phones put a shortened notice beside
-Back above the title, preserving their existing frame and read-and-decide
-scope (§11.2). Non-archived proposal notices keep their placement.
-New decks and forks default to Theorycrafted. Schema 9 preserves
-existing categories and removes the Draft/Active column; it does not infer a
-lifecycle from the former flag. The internal field remains `category`.
-Schema 15 (v3 4b, after sharing's 14) changes only the persisted lifecycle
-value `legacy` to `archived`, preserving every deck id, relation, high-water
-sequence, and user-authored string. Its rebuilt CHECK accepts only Paper,
-Theorycrafted and Archived values. Internal log storage keeps `ruling_reason`;
-HTTP/MCP render it as `decision_reason`. D19 permits this beta rename before
-public sign-up; there is no compatibility alias for the old tools.
+Only Paper contributes to collection/player statistics. Ancestry traverses other
+lifecycles without counting their cards. Display lifecycle in neutral text; phone,
+tablet and desktop archive notices/navigation follow the product design manual.
 
-The sidebar labels Theorycrafted and Archived decks in readable neutral text
-below their names; collapsed links retain the words in accessible names and
-tooltips. Paper has no extra sidebar label. My decks lifecycle pills are
-neutral too: colour remains reserved for actions, selection and warnings.
-
-Only Paper decks contribute to My decks statistics and `player_stats`.
-Changing lifecycle immediately updates statistics. Fork-family ancestry is
-preserved through Theorycrafted and Archived ancestors, whose cards and totals
-are excluded.
-
-My decks has a menu for rename, change lifecycle and delete. Agents can
-rename or delete Paper and Theorycrafted decks through `rename_deck` and
-`delete_deck`; lifecycle changes are owner-only and have no MCP tool. Archived
-rename and delete actions are disabled. Deletion permanently removes the
-associated records, including deck-scoped memories; global memories and
-fork decks remain. Agent actions are attributed in Activity.
-
----
+The internal field is `category`. Schema 9 removed the former Draft/Active flag;
+schema 15 renamed persisted `legacy` to `archived` without changing identities,
+relations, sequences or user prose. Historical storage keeps `ruling_reason`,
+rendered as `decision_reason`. D19 allowed these beta renames; current compatibility
+is additive or explicitly deprecated, with no old-tool aliases (§19).
 
 ### 5.7 Deck power: target and current assessment
 
-Power is a structured description of gameplay, with an explained suggestion
-for the community's Commander bracket (1–5). It is not an averaged score,
-a certification or an automatically evaluated card list.
+Optional target and revision-bound current assessment describe intent, usual and
+occasional win turns, consistency, resilience, interaction, win conditions, infinite
+combos, extra turns and mass land denial. Unknown stays unknown. The target's
+acceptable usual range contains a fitting assessment; occasional outliers are not
+usual turns. The target may cap Game Changers and carry preferences. Actual counts
+come from ingested nullable `game_changer`, including commanders/companions but
+not maybes; missing metadata stays unknown and prompts refresh.
 
-**Two independent profiles.** The optional target describes the experience
-being built toward. The optional current assessment describes one exact deck
-revision. Both describe intent (theme, social, strong synergy, optimized,
-cEDH metagame), usual win-turn range, an occasional early win, consistency,
-resilience, interaction, win conditions, infinite combos, extra turns and
-mass land denial. Named choices have gameplay anchors. Unknown is allowed;
-new decks receive no guessed power profile. The usual range describes normal
-win attempts under representative conditions, not a perfect opening draw.
-The target's range is acceptable; a current range contained within it fits.
-An occasional early win is an outlier, not a frequently accessible line.
+Suggested brackets 1–5 explain inputs/conflicts; no dimension is averaged and no
+list is certified. Usual turn 7/8 exceeds Core's eight-turn development expectation;
+turn 6 or earlier exceeds Upgraded's six-turn expectation. Outliers alone do not
+raise a bracket. Game Changers, early two-card infinites, chained extra turns and
+mass land denial can impose higher brackets. Exhibition exceptions need pod
+agreement; fast casual does not imply competitive metagame intent. The versioned
+mapping follows [October expectations](https://magic.wizards.com/en/news/announcements/commander-brackets-beta-update-october-21-2025)
+and [February update](https://magic.wizards.com/en/news/announcements/commander-brackets-beta-update-february-9-2026),
+independently of Commander legality.
 
-The target also sets an optional maximum Game Changer count and freeform
-preferences. Actual Game Changers are computed from Scryfall's nullable
-`game_changer` flag, retained on ingestion. Commanders and companions count;
-maybe cards do not. Missing metadata stays unknown and prompts a card-data
-refresh. No hand-maintained card list or agent-supplied count is accepted.
-
-**Mapping.** The app translates intent, speed and declared restricted play
-patterns into a suggested bracket, reports which inputs led there, and calls
-out unknowns and conflicts. It follows Wizards' October 2025 expectations and
-February 2026 update, with source links and a guidance version in the view.
-Speed refers to usual win attempts: a usual turn-7 or turn-8 win exceeds Core's
-eight-turn development expectation; turn 6 or earlier exceeds Upgraded's
-six-turn expectation. Outliers alone do not raise a bracket. Game Changers,
-early two-card infinites, chained extra turns and mass land denial may impose
-a higher ordinary bracket. Thematic exceptions in Exhibition need pod
-agreement. Fast casual decks do not become cEDH without competitive metagame
-intent. Descriptive dimensions are not averaged, and cheap interaction alone
-never determines power. The result is a conversation aid; ambiguous gameplay
-needs judgment and testing. This is separate from Commander legality (§9).
-
-**Assessment evidence.** Every assessment carries author, creation time,
-revision, evidence (`list`, `goldfish`, `games`), confidence (`tentative`,
-`supported`) and required reasoning. Notes are linted for card references.
-The app makes no model calls: an owner or connected external agent supplies
-judgments. Agents must not fabricate playtest observations. Assessments are
-retained as history (the most recent 20 are returned), with captured Game
-Changer facts for the assessed list. Current-list bracket suggestions use
-current Scryfall metadata; historical lists use captured facts. A card change
-flags the assessment for review; submission against an outdated revision fails
-with the current revision. Slots, tags and target edits do not
-invalidate it. An agent cannot replace the owner's assessment of the same
-revision; after the list changes it may assess the new revision.
-
-**Permissions.** The owner sets or clears the target directly. Agents always propose target changes on Paper and Theorycrafted decks through the existing
-document-edit workflow (§6), with a reason. The owner sees a readable diff,
-including a warning if the target changed since proposal. Assessments may be
-recorded by agents on Paper and Theorycrafted decks without approval, are visibly
-attributed, and land in Activity. Target and assessment writes never change
-membership or bump the deck revision.
-
-**UI and tools.** A Power tab compares target and current values, shows
-reasoning, evidence, gaps and bracket explanations, and edits each separately.
-The header opens it. Differences from target and stale assessments surface in
-Checks. `get_deck` includes a selectable `power` section with field anchors;
-`propose_power_target` and `assess_deck_power` provide the write capabilities.
-Forks inherit the target and start unassessed. Deletion removes target and
-assessment history along with the deck.
-
-Sources: [Scryfall card objects](https://scryfall.com/docs/api/cards),
-[Wizards bracket expectations](https://magic.wizards.com/en/news/announcements/commander-brackets-beta-update-october-21-2025),
-[Wizards February update](https://magic.wizards.com/en/news/announcements/commander-brackets-beta-update-february-9-2026).
-
----
+Assessments retain author/date/revision, `list|goldfish|games` evidence,
+`tentative|supported` confidence, linted reasoning and captured Game Changer facts;
+never invent games. Return the latest 20. Current suggestions use current facts,
+historical assessments captured facts. Membership changes flag review and stale
+writes reject; organization/target edits do not invalidate. An agent cannot replace
+an owner's same-revision assessment. Owners edit targets directly; agents always
+propose target changes. Assessments write directly on editable decks with Activity;
+neither changes membership revision. Forks copy targets, start unassessed; deck
+deletion removes power history. The Power view compares values/reasons/gaps and
+Checks flags stale/target mismatches. `get_deck` exposes power; tools are §10.3.
 
 ## 6. Documents
 
-Two documents, both short, both the owner's voice, both always in context at
-their scope.
-
-**Player profile** (one per user, global within their account): tastes, playgroup and power level, budget
-stance, standing dislikes, anything durably true about the owner as a
-builder. Freeform markdown with a soft cap of about 600 words; over the cap,
-the app flags it.
-
-**Deck brief** (one per deck): the thesis, constraints, and **engines**.
-Thesis and constraints are freeform markdown. An engine is a structured
-record: a name, a description, and its required pieces as card references, so
-that "is every piece of this engine in the deck" is a check (§9), not a
-judgement.
-
-**Editing:** the owner edits either directly. An agent calls
-`propose_profile_edit` or `propose_brief_edit` with the replacement text and a
-reason that cites what prompted it (decisions, memories). The owner sees a diff
-and accepts or rejects it. Agents always propose brief changes on both Paper and Theorycrafted decks; Archived is read-only.
-
-Memories are where an agent learns; documents are what the owner has
-confirmed. When a group of memories has settled into something durable, the
-playbook tells the agent to propose folding it into the relevant document and
-to retire the memories once accepted.
-
----
+The owner directly edits one global profile (tastes/playgroup/power/budget, freeform
+Markdown, soft cap about 600 words) and a brief per deck (thesis, constraints and
+named engines with descriptions/exact required card pieces). Piece presence is
+computed, not an agent judgment. Both always load at their scope. Agents propose
+replacement profile/brief text with a reason through the document workflow on
+Paper/Theorycrafted; Archived is read-only. The owner reviews a diff. Confirmed
+learning may move from memories into documents, retiring memories after approval.
 
 ## 7. Memories
 
 ### 7.1 Shape
 
-One memory is one statement with its reason, a few sentences at most, stored
-as a row:
-
-| Field | Meaning |
-| --- | --- |
-| `text` | The statement, with `[[Card Name]]` for any card mentioned (§10.5) |
-| `scope` | `global` or `deck` (with the deck) |
-| `cards` | Optional links to cards |
-| `basis` | `stated` (the owner said it, including in a decision reason) or `inferred` (the agent concluded it) |
-| `author` | Compact author text, with `author_user_id`, `author_via`, `author_label` and UI `author_display` (§17.3) |
-| `source` | Optional: the decision that prompted it, and the deck revision if deck-scoped |
-| `status` | `active`, `superseded` (with a link to the replacement), or `retired` |
-| timestamps | Created, last revised |
-
-Rows, not files, so that the app can attach a memory to a card or deck and
-surface it without relying on the agent to go looking.
+A row holds one short statement/reason, linted `text`, global or deck scope,
+optional card links, stated/inferred basis, principal/via/label attribution,
+optional source decision/revision, timestamps and active/superseded/retired status.
+Supersession links the retained old row to its replacement.
 
 ### 7.2 Scope and surfacing
 
-- **Global** memories belong to one principal and load at their session start.
-- **Deck** memories load with the deck.
-- **Card-linked** memories, of either scope, are attached to that card wherever it appears: search results, card lookups, and the response to a proposal that includes it. A global memory linked to a card follows the card into every deck that principal owns.
-- Everything else is reached with `search_memories` (full-text, filterable by scope, deck and card).
+Principal-global memories load at session start, deck memories with the deck,
+and linked-card memories follow that principal's cards into lookups, searches and
+proposal responses. Everything else uses scoped FTS `search_memories`.
 
 ### 7.3 Writing
 
-- **No approval.** `remember` writes immediately for the authenticated
-  principal. Global, deck, FTS, similarity and card-linked reads are tenant
-  scoped; a source decision and any replacement deck must belong to that same
-  principal. Another principal cannot revise, supersede, retire, restore or
-  confirm the memory, regardless of label. Human/agent semantics use
-  `actor.via`; `owner_touched` remains the human-control flag.
-- **Revise before adding.** `remember` returns existing memories that resemble the new one, so the agent can update or supersede instead of duplicating. Similarity search filters to reachable scopes before taking its top results; unrelated decks cannot crowd out duplicates.
-- **Nothing is deleted by an agent.** Superseding keeps the old row, marked and linked. Retiring hides a memory from loading and search but keeps it on disk.
-- **The owner outranks the agent.** An agent cannot edit, supersede, retire, restore **or confirm** a memory the owner wrote or edited. Confirm changes its epistemic basis, so it is subject to the same owner-control check as an edit. It may write a new memory that disagrees and say so.
-- **Inferred memories are hypotheses.** They load marked as inferred. When the owner confirms one, it becomes stated.
-- Deck-scoped memories written after a playtest carry the deck revision, so a note about how the deck played attaches to the list that was played.
-
-What belongs in a memory is set by the playbook (§10.4): preferences,
-corrections, reasons, playgroup facts and outcomes. Never anything a tool can
-answer, never card text, never something read from a web page presented as
-the owner's preference.
+`remember` writes without approval and returns similar reachable memories so an
+agent revises before adding; irrelevant scopes cannot crowd out duplicates.
+Every scope, source decision/replacement and mutation stays principal-owned.
+Agents never delete memories, or edit/supersede/retire/restore/confirm an
+owner-touched memory; `actor.via` controls human authority. They may write a
+separate disagreement. Confirm changes inferred to stated and is owner-controlled.
+Retired rows disappear from normal loading/search but remain stored. Deck-game
+observations retain the revision actually observed; never invent evidence or store
+computable records/card text/web claims as owner preferences.
 
 ### 7.4 Budgets and upkeep
 
-Loaded memory has a budget: about 1,500 estimated tokens of global memories
-and about 1,000 per deck. Both are settings. When a scope is over budget, the
-app loads the most recently revised memories that fit, reports how many were
-left out, and says the scope needs consolidating.
-
-Consolidation is the agent's work, prompted by the app's signals: merge
-duplicates, supersede what has changed, promote a deck memory to global when
-the same thing has shown up in several decks, and propose a document edit when
-a cluster has settled (§6). The app never consolidates by itself; that would
-need a model.
+Configurable defaults are about 1,500 estimated global tokens and 1,000 per deck.
+Load newest-revised memories that fit, reporting omissions/over-budget scope.
+Agents consolidate duplicates, supersede changes, promote cross-deck preferences
+and propose durable document edits. The app never uses a model to consolidate.
 
 ### 7.5 Visibility
 
-A Memories page in the app: browse by scope, deck and card; see basis, author
-and source; edit, retire or restore. The activity feed (§11) shows what each
-agent session wrote. Memories are written without asking; they are never
-hidden.
-
----
+The owner can browse/filter/edit/retire/restore by scope/card/deck with basis,
+author/source visible. Agent writes appear in Activity; no hidden learning store.
 
 ## 8. Proposals and decisions
 
@@ -659,7 +422,6 @@ anchor decision, within the authenticated principal. Explicit ID batches
 validate every tenant before changing any row; a foreign anchor or ID is
 404. A cross-deck result gives explicit IDs to mark instead.
 
----
 
 ## 9. Checks
 
@@ -683,77 +445,35 @@ Judgement about a deck (does it have a path to its win condition, what are
 its anti-synergies) is an agent's work. It reaches the app as proposals,
 memories and proposed brief edits, not as a stored report.
 
----
 
 ## 10. The agent interface
 
 ### 10.1 Transport and security
 
-One process serves the UI, HTTP API and Streamable HTTP MCP endpoint. Both
-front doors pass an authenticated `Actor` to the same capability layer (§17).
-Local mode binds loopback and builds the implicit user-1 UI actor without a
-login. Hosted mode binds all interfaces and resolves cookie sessions through Better
-Auth to `users.auth_id`. Unauthenticated UI APIs return 401. Health remains
-unauthenticated, behind the same Host/Origin boundary.
+One process serves UI/API and stateless Streamable HTTP MCP. Both use verified
+Actors and the same capability layer (§17); every tool names its deck. The official
+SDK v2 supports 2026-07-28 and stateless 2025 fallback. Host/Origin checks precede
+the SDK; configured proxy headers are trusted only behind one explicit trusted
+ingress. Local requests remain loopback. Hosted GET `/api/health` alone bypasses
+Host/Origin and returns `{ok,schema_version}` without cookies/auth/tenant facts.
 
-MCP always requires a bearer token. Personal agent tokens are per user,
-`dbk_` plus 32 random bytes in base64url, hashed at rest, and shown exactly
-once when created. Settings lists labels, prefixes and last-used timestamps,
-creates tokens and revokes them. It never returns stored secrets. Verification
-looks up the prefix and compares hashes with `timingSafeEqual`; usage updates
-at most once per minute. `DECKBUILDER_TOKEN` is removed. On first local boot,
-the old `data/agent-token` file is imported, hashed for user 1 and renamed to `data/stdio-token` (0600) only
-after durable insertion; existing HTTP client configurations remain valid.
-The migrated credential is the deliberate exception to the new `dbk_` format.
+MCP always requires a personal bearer or verified resource-bound OAuth token.
+Settings creates/revokes personal tokens, reveals secrets once and stores hashes;
+URL labels grant no identity/UI/amendment rights (§17.3). Missing/invalid credentials
+return 401 with resource metadata (invalid bearer adds `invalid_token`). Hosted
+OAuth supports authorization code + S256 PKCE, consent, refresh rotation, CIMD and
+native/loopback-only DCR; local mode exposes no OAuth endpoints. JWKS checks pin
+issuer, EdDSA signature, expiry, `at+jwt` and exact resource audience. DPoP-bound
+tokens reject. Deleted identities/disconnected grants fail even before JWT expiry.
 
-The stdio shim proxies to the running endpoint. Because hashes cannot recover
-a token, its command accepts `--token-file <private-file>` or
-`DECKBUILDER_TOKEN_FILE`; local mode defaults to `data/stdio-token`. The old
-no-argument stdio configuration therefore survives migration. New tokens are
-saved privately by the user. Secrets in `--token` argv are rejected.
-No shim read creates or rotates credentials. Missing credentials fail clearly.
-Configuration snippets use a placeholder until creation, then the once-shown
-value. Existing HTTP Claude Code and Codex configurations need no changes.
+Cookies are HttpOnly/SameSite=Lax and Secure on HTTPS; explicit loopback development
+permits non-Secure cookies. Mutations require configured same-origin CSRF checks.
+CSP/nosniff/referrer/HSTS and bounded rate limits protect hosted requests. 429 has
+Retry-After; unreadable targets are 404, forbidden readable actions 403. Concrete
+bootstrap, token-file, redirects and secret commands belong to operations.
 
-Host and Origin checks precede the SDK. Local requests require loopback
-Host/Origin; hosted requests require the configured public origin. Unauthenticated
-MCP requests return 401 (a presented invalid bearer adds `error="invalid_token"`) and `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp"`;
-Hosted mode serves RFC 9728 resource metadata and RFC 8414 authorization
-server metadata. Better Auth 1.7.13 with JWT, MCP and CIMD plugins implements
-authorization code + S256 PKCE, resource-bound JWTs, refresh rotation, consent,
-CIMD (MCP 2026-07-28 profile) and DCR fallback limited to native/loopback clients.
-The api-key plugin is omitted: existing `agent_tokens` satisfies D7. Local
-mode exposes no OAuth endpoints.
-
-OAuth tokens are verified against this issuer’s JWKS, signature, expiry and
-EdDSA algorithm (30-second JWKS cache), the `at+jwt` type and exact `<public-origin>/mcp` audience; another resource’s token is 401.
-This Bearer endpoint rejects DPoP-bound tokens rather than discarding their
-proof requirement. Subjects map through `users.auth_id`; the OAuth client name is the agent
-label. Deleted identities and disconnected grants cannot use MCP. Both
-credential kinds yield the same agent Actor and capability checks. Consent
-identifies the client and the single application scope `deck-builder`;
-`offline_access` permits renewal. Protocol reference:
-https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization.
-Pinned library reference:
-https://github.com/better-auth/better-auth/tree/v1.7.13/docs/content/docs/plugins.
-
-Hosted mode allows only `DECKBUILDER_PUBLIC_ORIGIN`. Forwarded host, protocol
-and client IP are trusted only with `DECKBUILDER_TRUST_PROXY=1`, intended for
-one trusted ingress and one service instance. Headers include CSP (own
-scripts/styles, Scryfall images), nosniff, Referrer-Policy and HSTS on HTTPS.
-Mutating browser routes retain same-origin CSRF checks. Sessions use
-HttpOnly, SameSite=Lax cookies, Secure on HTTPS; explicit loopback HTTP
-development uses non-Secure cookies for the documented Discord callback.
-In-memory sliding-window limits apply by unauthenticated IP, UI principal
-and MCP credential, with stricter auth/search/compare limits. Rejection is
-429 with Retry-After. Unreadable targets stay 404; 403 is reserved for
-forbidden actions on readable targets. A local URL suffix (`/mcp/claude-code`) is an attribution hint only; hosted
-labels come from the stored token or registered OAuth client name:
-it never changes the principal or token ownership and cannot impersonate UI.
-
-Use the official MCP TypeScript SDK v2: the same stateless handler supports
-2026-07-28 and 2025-revision clients. No connection carries tenant state;
-every request resolves its bearer and every tool names its deck.
+Sources: [MCP authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization),
+[pinned auth documentation](https://github.com/better-auth/better-auth/tree/v1.7.13/docs/content/docs/plugins).
 
 ### 10.2 Design principles
 
@@ -800,15 +520,8 @@ every request resolves its bearer and every tool names its deck.
 | | `revise_proposal` | Amend or withdraw the calling agent's own pending card/document proposals, retaining history and links |
 | Write freely | `assess_deck_power` | Attributed, revision-bound gameplay assessment (§5.7) |
 
-Price-bearing structured results use `cents`, `currency`, `store`, `as_of`
-and `source: "Scryfall"`; `get_cards` attaches these to each card. Amounts
-are resolved for the calling principal, not the deck owner. Price-bearing
-tools and start_session have one store/date line; card lines keep compact $/€
-amounts. HTTP and local calls use the same execution/formatting helper.
-Export text, decision lists and memory writes have no price-source line.
-`computed.pending.projected_cost` and `cost_delta` use the same price source
-and simulate pending one-copy adds/cuts and whole-card parking in item order.
-The delta's `unpriced` is signed (change in distinct unpriced cards).
+Price and ownership semantics are §§4.4 and 5.5; the calling principal
+controls resolution. Workflow examples below use actual returned IDs/revisions.
 
 **Focus.** The most recently interacted visible deck/playtest tab owns the
 per-user context. Pointer-down, key-down and window focus claim it; hover,
@@ -847,20 +560,11 @@ global resources. Reconnect and unknown legacy events invalidate all reads.
 Request-local read reuse clears after SQLite writes and never persists between
 requests; brief-only reads avoid building the full deck composite.
 
-Ownership evidence persists after cutting, moving, untagging, forking or deleting
-a deck. An explicit `Have` tag records ownership with unknown physical quantity
-and availability. Source-deck appearances and `Keep` preferences do not prove
-ownership; source quantities must never be added into a physical inventory.
-Unknown ownership is separate from an explicit statement of being unowned.
-
-Proposal amendments create linked replacements. Superseded/withdrawn drafts
-cannot be ruled on; their payloads and earlier owner decisions remain in history.
-Naming one document-group member for approval, rejection, withdrawal or
-supersession covers the whole group. Pending proposals record their membership
-revision and document bases (including engines). Changed bases/revisions require
-owner review and explicit stale acknowledgment before acceptance; expected
-revisions reject conflicting writes. Checks are recomputed in the returned state.
-The inbox shows each approval group once, with read-only history available.
+Proposal amendments create linked replacements; superseded/withdrawn work cannot
+be ruled on. Naming a document-group member covers the entire group for ruling,
+withdrawal/supersession. Changes to membership/document/engine bases require explicit
+owner stale acknowledgment and expected-revision checks; prior payloads/decisions
+remain immutable. The inbox presents one group and read-only history.
 
 See [MCP workflow examples and migration details](deck-builder-mcp-workflows.md)
 for tool arguments, evidence semantics, response fields and limitations.
@@ -871,25 +575,13 @@ undo.
 
 ### 10.4 The playbook
 
-The rules an agent needs to work well with this app. It is delivered three
-ways because clients differ in what they read:
-
-1. The MCP server `instructions`: within 512 characters and self-contained, covering only cross-tool rules. *(As built: 512 is the figure Codex's documentation gives for what it can rely on; a test holds the text to it.)*
-2. The `start_session` result, which carries the full playbook. The instructions tell the agent to call it first.
-3. An optional **Agent Skill** in the repository, holding method rather than rules: how to evaluate a deck against its brief, how to build from a commander, how to run a memory tidy-up.
-
-The playbook's rules:
-
-- Call `start_session` first. Review unreviewed decisions before proposing anything.
-- Mention a card only if it is in a deck you have read or came back from a search or lookup in this conversation. A hunch is a search query, not a fact.
-- When an argument depends on what a card does, quote the oracle clause.
-- Never count or compute what the app reports.
-- Re-proposing a rejected card requires citing the decision and what changed. One push-back, then defer.
-- What to remember and what not to (§7.3). Revise before adding.
-- When a memory scope is over budget, consolidate it.
-
-Rules live in the app's playbook; validation lives in the app's code. Nothing
-that matters is enforced only by a sentence in a prompt.
+`src/mcp/playbook.ts` owns runtime agent rules; optional SKILL.md adds method.
+Server instructions stay self-contained within 512 characters and tell clients
+to call `start_session`, which returns the full playbook. Review unread decisions
+before proposing; use only cards read/looked up in this conversation, quote the
+Oracle clause when reasoning depends on it, use computed values, cite prior
+rejections and what changed, and consolidate memories when signalled. Validation
+lives below tools, never solely in prompt instructions.
 
 ### 10.5 Linting what agents write
 
@@ -899,270 +591,80 @@ app resolves every reference exactly; one unresolvable name fails the call
 with suggestions. Whatever the app displays therefore contains no invented
 card.
 
----
 
 ## 11. The app for people
 
-- **Decks:** list, create, fork, delete; Paper, Theorycrafted or Archived lifecycle.
-- **Deck view:** the list grouped by slot or by card type, slot targets and deltas, the maybe list, the brief, a live checks count, tags, direct editing, card search. The panel exposes visible Review, Brief, Power, Stats, Checks, Memories and History controls, with an unmistakable active destination. Card inspection replaces those controls with the card title and icon-only Back to the original deck view. The hidden deck view retains its drafts, scroll and review cursor while cards are inspected; switching cards creates no back stack. The same composition serves the narrower details sheet.
-  Card details offers Board only when there is a choice beyond Main deck,
-  without a visible Board label. Server-computed `can_be_commander` shares
-  the checks' ingested front-face/explicit-text classification;
-  `can_be_companion` recognizes the printed Companion keyword, without
-  evaluating its deck condition. Options always retain the current role,
-  including an ineligible assignment, so it can be moved back to Main deck.
-  Archived details follows the same visibility rule. Board and compact Copies
-  share a row and wrap when needed. These presentation hints add no restrictions
-  to patch, proposals, MCP or import.
-  On tablets, an active review keeps Reviewing, its remaining decision count,
-  Current proposal and Done pinned beneath navigation. Current proposal opens
-  the existing Review sheet at the current cursor.
-  Window-scrolling phone and tablet decks retain the name and lifecycle in a
-  compact header after their art has left view, keeping existing navigation
-  paths. Review and active filters stack beneath that compact header.
-  Phone maybe rows keep one centred line of name, mana and right-aligned price,
-  truncating only the name.
-  Archived decks retain existing tag filters and omit Create tags.
-  An empty catalogue search omits add/maybe shortcut hints while retaining
-  Escape, query guidance and Search every colour.
-  Card inspection pairs the picture with type, price and source in its top
-  row, then gives rules text a separate full-width block with one reading
-  measure. The card's form, Back control and remaining composition stay as-is.
-- **Proposals inbox:** everything waiting on the owner across decks. A proposal is ruled on in its deck's list, where each change is drawn in place among the cards around it — per item, per group or all at once, with an optional reason; the inbox links there. Proposed brief and profile edits are ruled in the inbox as diffs. (Settled 2026-10-10: the owner preferred reviewing in the list to decision from the inbox.)
-- **Decisions log:** per deck, with undo.
-- **Memories:** §7.5.
-- **Activity:** its own page and sidebar item after Memories, showing every agent write with the agent's name, time and target: the audit trail for unapproved writes.
-- **Profile:** a single page for editing the profile directly, with no tabs.
-  **Owner decision following review, 2026-10-27:** restore standalone Activity
-  for discoverability and give the feed its own Activity page title.
-- **Settings:** connection details for agents, memory budgets, card data refresh,
-  and a currency then store/Lowest price-source control (§4.4). Saving is
-  UI-only and invalidates that principal's views, including hover lookups.
-  The deck estimate and card panel name the resolved store and Scryfall date.
-- **Sharing:** the deck header's Share dialog sets visibility, publishes the decisions log, copies the link and opens what viewers see. Public deck pages (`/d/<slug>`) and profiles (`/u/<handle>`) are described in §18.
-
-The UI updates live when an agent writes (server-sent events from the app to
-the browser). A proposal made in a terminal appears in the inbox without a
-reload.
+The product hosts deck editing/review, Inbox, Memories, Activity, Profile and
+Settings under the existing account. SSE exposes agent writes without reloading.
+Membership, organization, documents and permission behavior remain defined above;
+[frontend architecture](../packages/multiverse/web/ARCHITECTURE.md) owns composition,
+routes, loading/recovery and API effects. [Design](../packages/multiverse/web/DESIGN.md)
+owns controls, typography, layout, art, review/inspection and focus contracts.
 
 ### 11.1 Routes *(phase 4a)*
 
-The client uses path routes, so a deck has a real URL and a public page can
-carry server-rendered link-preview tags: `/` (Home) and `/decks` (library), `/deck/:id`,
-`/deck/:id/review`, `/deck/:id/playtest`, `/inbox`, `/memories`, `/profile`,
-`/activity`, `/settings`, `/design`, `/signin`, `/privacy`, `/terms`,
-`/d/:slug` and `/u/:handle`, plus `/play` and `/play/preview` (§19).
-`href()` in `packages/multiverse/web/src/app/routes.ts` is the only
-place a URL is built; same-origin links navigate without a reload. `/activity`
-opens the standalone Activity page, and `/profile` opens Profile. Both
-remain in the server’s app-route allow-list (D16). A
-bookmark from the hash-route era (`/#/deck/5`) is rewritten once to its
-path on load, and a malformed escape in a path is a missing page. Going
-back restores the scroll position of the phone and shared pages once their
-data has rendered. Signing in from a shared page returns to it
-(`/signin?next=/d/<slug>`); `next` must be a same-origin path, so a
-crafted link cannot redirect elsewhere. The server serves `index.html` for those app routes only;
-`/api/*`, `/mcp*`, `/.well-known/*`, `/assets/*` and any path with an
-unknown file extension return 404 (D16).
+The product's typed `href()` and server page allowlist own current routes and
+legacy hash-bookmark conversion. Home, library and Play coexist with existing
+deck/shared URLs. Sign-in return paths are same-origin only; unknown pages and
+unreadable public targets are 404. Public link previews use permitted data (§18).
 
 ### 11.2 Phones *(phase 4a, D17)*
 
-Below 720 px (`PHONE_MAX_WIDTH` in `packages/multiverse/web/src/app/breakpoints.ts`, the one
-constant shared with the public page) the signed-in app is a phone shell
-with a top bar instead of the sidebar, and only these screens:
-
-- **Home and Play setup (§19):** account-scoped deck information and navigation,
-  with no direct deck writes or match creation. The game table preview retains
-  its explicit larger-screen fallback on phones.
-- **Decks:** the deck list, one tappable row per deck with its pending count.
-- **A deck:** the same read-only composition as the public page
-  (`ReadOnlyDeck`), fed by the owner's own deck state, with its pending
-  proposals drawn in place in the list as on desktop. Each decision (an add,
-  a cut, a swap or a group) has Accept and Reject; above them Accept all and
-  Reject all cover every open proposal. Each takes the optional reason (at
-  most 500 characters; blank is none), which stays in its field until the
-  decision has landed, and every decision goes through the existing capabilities
-  and routes. The owner's own decisions name the agent that acted
-  (DESIGN.md principle 5); a viewer's say only "an agent". The reason is recorded on the log entry whichever way the owner
-  ruled; on desktop an accept still takes none, so nothing changes there.
-- **Inbox:** the cross-deck list; card proposals open their deck in review,
-  and brief and profile edits rule in place as diffs.
-
-Accept and reject are the only writes on a phone, with one clarification of
-D17: forking another user's shared deck from its public page. A fork edits
-nothing; it makes a new private deck in the forker's account, which fits
-D17's workflow of forking and then prompting an agent. The owner's own
-public page hides "Fork your deck" on a phone. *(Recorded 2026-10-25 in the
-phase 4a review; the owner can veto it.)* An address that is no page says
-so on a phone as on desktop; only real desktop screens say "Open on a
-larger screen". Direct editing, hotkeys,
-the playtester, memories, profile, activity, Settings and the design page
-each render "Open on a larger screen" with what the screen is for. Live
-updates work as on desktop: an agent's new proposal appears without a
-reload. Changing a deck from a phone means prompting an agent (Claude or
-ChatGPT through the hosted connectors) and decision on what it proposes; a
-loopback app cannot be reached from a phone.
-
-At 720–1099 px the full editor uses the tablet shell (§11.3). At 1100 px
-and wider it keeps the desktop panes. Phones retain this read-and-rule scope.
+Below 720px, signed-in users can access Home, library, Play setup, read-only decks
+and Inbox; preview/game displays retain explicit larger-screen requirements.
+Phone writes are proposal accept/reject (individual/group/all) with an optional
+reason up to 500 characters, plus cross-owner public-deck forks. The owner's own
+public page hides self-fork on phones. Direct edits, playtest, Memories, Profile,
+Activity, Settings and design tools require a larger screen. No new capability
+is granted by responsive presentation. The owner sees actual agent attribution;
+public readers see generic attribution. Decisions preserve draft reasons until
+committed and use the same capability layer as desktop.
 
 ### 11.3 First run and tablet editor *(phase 4b)*
 
-- An empty account at 720+ px has three actions: Create a deck; Import an
-  Archidekt or Moxfield text export; Try the sample deck. Import first names
-  its destination and then opens the existing import preview (`?import=1`);
-  no membership changes happen without that preview's approval. The query is
-  consumed when the Import tab opens, so reloading does not reopen it.
-- `POST /api/demo` calls human-only `createDemo(db, actor)` in the capability
-  layer, within a transaction. It creates one private sample for that user,
-  including illustrative proposals, decisions and deck-scoped memories. The
-  synthetic actor is explicitly labelled `sample-agent` with the same
-  principal; every illustrative agent write (proposals, deck memories, the
-  brief edit) carries that label, and none is written to activity. It is
-  demonstration data, not a claim that an external model connected. The
-  label is reserved: a connected client that claims it is attributed as
-  `sample-agent (connected)`. Nothing touches the profile, global memories or physical ownership evidence.
-  Sample tags are sourcing/status examples (Testing, Wishlist, Keep), with
-  purposes recorded as slots. A repeat call
-  returns the recorded sample id while that user's deck exists, including
-  after a rename; deleting it allows another. The CLI calls this capability
-  too and never replaces user content. Missing optional cards are skipped
-  and returned (`missing` beside `state`); a missing commander fails the whole transaction with a
-  card-data recovery message. Hosted, `/api/demo` has its own per-user
-  rate-limit bucket. An intentionally unfinished list demonstrates
-  checks and slot targets rather than pretending it is ready to play.
-- `/api/settings.has_agent_activity` means an agent has written activity,
-  a memory, proposal, document edit or log entry for this principal. Token
-  creation, read-only agent calls and the sample's `sample-agent` writes do
-  not enable it, before or after the sample deck is deleted. Each table is
-  probed through an index. Agent-sensitive empty states, subtitles and
-  help have a deck-first and an agent-connected voice. Neutral hints and
-  errors are identical in both. A first-run pointer leads to Settings →
-  Connect an agent, without making connection a prerequisite.
-- **Owner direction, 2026-10-27:** help is sparse and specifically labelled,
-  for unfamiliar concepts such as lifecycle consequences, slot targets and
-  proposal mechanics. Remove generic Learn more affordances and prose that
-  explains obvious controls. Keep warnings, permissions, destructive consequences
-  and relevant validation visible at the decision point. Help does not mutate
-  data or infer card facts.
-- **Owner decision, 2026-10-27:** remove the Advanced disclosure and its
-  account preference. Show revision numbers in History and
-  card decisions; put memory and assessment revision metadata in titles where
-  those records appear. Deck headers carry no revision chip. Memory budgets,
-  scope usage and omitted counts live only in Settings. Secondary slots are
-  a compact field below the primary slot in the card panel, never repeated on
-  deck-list rows. Show agent review status plainly in decisions and the
-  unreviewed count in the inbox. Card panels show ownership evidence only
-  when it exists, with its basis and attribution. No replacement explanations
-  or preference migration; historical stored rows remain unused. Authorship,
-  reasons, checks and stale-approval warnings remain visible.
-- `PHONE_MAX_WIDTH=719` retains the phone boundary. Named constants
-  `DRAWER_BREAKPOINT=960` and `PANEL_BREAKPOINT=1100` select the tablet
-  drawer and deck-details sheet. Under 960 the normal sidebar lives in a
-  modal drawer. Under 1100 the list scrolls the window and the owner opens
-  the panel as a bottom sheet. That explicit request is the reason a sheet
-  may cover the list without changing DESIGN.md principle 1. The tablet
-  shell calls `useWindowScroll()` like the phone and shared shells. At
-  1100+ the body stays pinned and panes scroll. Playtest needs 1100+ px.
-- **Sidebar:** My decks leads navigation, above Inbox; Memories, Activity, Profile and
-  Settings follow. A divider separates the deck links. At 1100+ px an
-  accessible collapse/expand control switches to an icon rail, preserving nav
-  icons, the inbox badge, and deck thumbnails or dots with names in titles
-  and accessible labels. Its `aria-expanded` reflects the layout. The boolean
-  `sidebar_collapsed` is UI-only, per account in existing `user_settings`,
-  defaults false and needs no migration. Save failure keeps the saved state
-  and reports an error. The 960–1099 rail deliberately remains expanded for
-  visible tablet navigation; the drawer under 960 also remains expanded.
-  Widening restores the saved desktop choice. Layout changes keep `<main>`
-  mounted; tablet window scrolling and the phone shell are unchanged.
-  **Agent interaction audit, 2026-10-30:** the sidebar always exposes agent
-  setup/status, independently of the write-based first-run voice. It shows
-  the last authenticated MCP request among non-revoked tokens and authorized
-  OAuth clients, including reads, or says that no requests have arrived yet.
-  A request within five minutes gets the agent-colour dot; this is recent
-  contact, not proof of a persistent connection. Relative times update while
-  idle. The link reaches Settings in expanded and collapsed layouts, and the
-  open deck/selection remains visible as agent context. Write history stays
-  in Activity. Contact events refresh only the lightweight connection query;
-  ordinary mutations use resource-scoped invalidation, while reconnects
-  always refresh every subscribed query.
-- Tables scroll sideways inside their containers. MultiSelect is a
-  searchable multi-select listbox; card rows support `?` to inspect and a
-  tapped mana cost opens CardSheet. Archived titles are plain headings. A
-  skip link targets a labelled main landmark. Faint text meets AA contrast
-  on the app's neutral surfaces, and reduced-motion disables animation.
-- Playtest, settings, /design and public pages load lazily; public fork,
-  compare, export and card-inspection code loads on demand. System fonts
-  replace the unused Inter entry. `GET /api/activity/latest` returns at most
-  one row for this principal, never a `sample-agent` row. Activity and
-  Memories paginate at 100 by keyset, so writes between loads never shift
-  rows: `/api/activity?before_id=` (newest first, with `actor=<label>`
-  filtering before the page) returns `entries`, `has_more` and every agent
-  label of the principal as `actors`; `/api/memories` continues with the
-  previous page's last `before_id` and `before_revised_at`, a search
-  filtering the same newest-revision order.
-  Memories gets its filtered page, scope choices and budgets together.
-  Scope choices include empty owned decks, so the owner can add that deck's
-  first memory without another screen. UI components never call fetch.
+At 720+px, empty accounts offer New deck, Import and Try the sample deck. Import
+always previews before writes; its one-shot query is consumed on opening. Human-only
+`createDemo` is transactional and idempotent per user while its private sample
+exists (rename does not change that; deletion allows recreation). It resolves
+installed facts, returns missing optional cards, fails on a missing commander,
+and never replaces user content or writes profile/global memories/ownership.
+Illustrative writes use the same principal with reserved label `sample-agent`,
+never Activity; a real client choosing it becomes `sample-agent (connected)`.
+The deliberately unfinished list demonstrates checks, not completed gameplay.
 
-These choices preserve the five AGENTS.md rules and introduce no suggestions
-from other users. Public pricing, projection, attribution and phone editing
-limits are unchanged from §18 and §11.2.
+The first-run voice becomes connected only after real agent writes, excluding
+token creation, reads and sample writes, even after sample deletion. Sidebar
+presence independently reports last authenticated request, including reads from
+non-revoked credentials; it is recent contact, not a persistent connection count.
+Visible tabs own context through token/sequence guards and heartbeats (§10.3).
+
+Phone maximum is 719px. The full tablet editor uses a navigation drawer and window
+scrolling throughout 720–1099px; desktop panes/optional collapsed sidebar start at
+1100px. The requested details sheet preserves drafts, focus and list position.
+`DRAWER_BREAKPOINT=960` is not the shell's actual navigation boundary. MultiSelect
+uses labelled native checkboxes. Current control and breakpoint implementation
+belongs to the frontend manuals, not a duplicated build-phase recipe here.
 
 ### 11.4 Visual identity (Phase 4c; D21)
 
-Real Scryfall commander crops frame each home card and short deck header,
-including phones. The sidebar uses small commander thumbnails. Pairs split
-the frame; each known artist is credited. No commander or artist means no
-art, without changing deck content. Editor card rows stay text-only. Identity
-may colour a thin deck stripe; controls and semantic colours stay unchanged.
-Sign-in and first run use one blurred/darkened environment resolved from a
-small server-side exact-name set (Forest, Island, Mountain), randomly chosen
-per session bootstrap, with visible corner credit. This is shared card data,
-never tenant data or an external browser API request.
-
-Art credit is “Art by <artist> · <card>”, small and AA-legible. Thumbnail
-credits use accessible names/titles, and become visible on larger deck art.
-Decorative images use empty alt; every crop is lazy/async with fixed aspect
-and reserved space. Loading/error never moves surrounding content. The
-editor banner folds on actual desktop list scrolling (not panel scrolling);
-short tablet/phone/public banners scroll away naturally with the window.
-A desktop list too short to fold without clamping its scroll position keeps
-the short banner stable.
-Reduced motion is respected; no carousel or automatic animation. No art in
-inbox, activity, memories, Settings, dialogs or playtest content. Existing
-navigation thumbnails remain in the rail. DESIGN.md and /design define the
-variants, fallback states, overlay and identity tokens.
-
+Only exact stored Scryfall art with known artist is admitted. Missing/failed art
+has a reserved fallback, no invented facts. Partner crops retain individual
+credits; public pages use only public commander facts. Placement, contrast,
+loading and motion belong to the design manual. Account backdrop selection uses
+shared server-resolved facts, not tenant data or a browser Scryfall API request.
 
 ### Desktop statistics and content headers (owner direction, 2026-10-27)
 
-Stats compares W/U/B/R/G fixed printed cost symbols with recognized direct
-mana-source card copies, separately for lands and other permanents. Generic,
-variable, snow, colourless and flexible symbols stay explicit. First and other
-printed faces are alternatives, never simultaneous resources. Any-colour output
-stays separate; multi-colour source rows overlap. Conditional, indirect and
-unsupported text is unresolved. These are not available mana or casting odds.
-Primary colour distributions have separate normalized denominators: fixed
-WUBRG cost symbols and summed named-colour source-copy counts, including land
-and nonland sources. Exact named legends remain visible; a multicolour source
-contributes to each colour, not multiple unique cards. Mono and empty states
-remain explicit. Strong count-labelled curve and type-group bars complement
-the paired charts; exact exceptions/evidence remain in details.
-The capability layer computes the same additive analysis for UI and agents,
-without colour-identity proxies, permissions changes or schema migrations.
-
-Shared page headers use the black content frame with aligned h1 titles and
-actions. Remove decorative grey bands and explanatory header subtitles; retain
-useful state compactly. Centered widths, scroll owners, main/skip links and the
-approved commander art/collapse remain intact.
-
+Stats uses server-computed data. Fixed WUBRG cost symbols and recognized mana-source
+copies have separate denominators; multi-colour rows overlap, other printed faces
+are alternatives, and conditional/unknown output remains explicit. These estimates
+are not available mana, casting odds or engine legality. Design owns chart/layout
+presentation; the capability layer supplies the same analysis to UI and agents.
 
 ## 12. Archidekt and Moxfield interop
 
-Construction and desktop solo goldfishing happen here. The manual playtester
-was added on 2026-10-13; see [its requirements](multiverse-app.md#first-increment-and-launch-boundary)
-and [implementation guide](multiverse-app.md#first-increment-and-launch-boundary). Archidekt interop remains available.
+Import/export is paste-based Archidekt/Moxfield interoperability, independent of
+the legacy manual playtester and native game launch.
 
 - **Export:** an Archidekt-importable list. With active name or tag filters, **Export matches** opens an export restricted to matching cards, including inverted tag filters. The export dialog can switch between current matches and the whole deck, independently include or exclude the maybe list (excluded by default), and toggle categories. Filtered exports default to plain quantity-and-name lines for a buying list. Included maybe-list cards use `Maybeboard` when categories are enabled. Quantities are preserved; commanders and companions are eligible, and pending proposed additions are excluded. An empty selection exports nothing. Export counts describe the exported copies and lines, and exporting changes no deck records.
 - **Import:** the owner pastes a list; the app diffs it against the deck, shows the diff with destructive cuts called out first, and applies it in full on confirmation. It is one decisions-log entry, so one undo reverts it. Lines in a `Maybeboard` or `Sideboard` category, or under a section header of that name, are shortlisted on the maybe list, not added, and the preview says so. A `Commander` category or section header puts the card in the command zone, including a card already in the deck.
@@ -1207,613 +709,185 @@ Verify Archidekt's and Moxfield's text formats against their own
 documentation (or, where none exists, a real export) and cite the sources in
 the code. Do not rely on model memory for them.
 
----
 
 ## 13. What is guaranteed about card facts
 
-| Guarantee | How |
-| --- | --- |
-| No invented card can enter a deck | Every card argument resolves exactly or the call fails (§4.3) |
-| No invented card appears anywhere in the app | Agent prose is linted on write (§10.5) |
-| An agent reads card text; it does not recall it | Deck views, searches and lookups all return oracle text |
-| Counts and legality are never an agent's arithmetic | Computed by the app and returned with every read and write (§9) |
-| Images use ingested facts | Scryfall bulk `image_uris` (card or front face), returned by table lookup/search/`get_cards`; all browser images use these stored CDN URLs and load lazily. Missing imagery has a placeholder; no `cards/named` URL is constructed. |
-
-**On public pages** *(phase 4a, §18)* the same guarantees hold, plus:
-
-| Guarantee | How |
-| --- | --- |
-| A viewer sees exactly the published shape | `publicDeckState` builds `PublicDeckState` through an allow-list; the permission matrix asserts its keys for every visibility and actor |
-| Nothing private reaches a viewer | Memories, proposals, pending edits, ownership evidence, activity, maybe-list notes and agent names are never in it; decision entries say "owner" or "an agent", never which |
-| Private decks are not discoverable | A private slug is 404 for everyone but the owner, as HTML and as API; numeric deck ids stay the owner's namespace |
-| Art is credited | The header's commander art crop is the stored Scryfall URL (D10) with the card's stored artist; the art is not shown without its artist line |
-| Prices are labelled | The total names Scryfall, the store, the currency and the as-of date |
-
-**Not guaranteed:** what an agent says in its own chat window. The app cannot
-lint text it never sees. The playbook's citation rule and the `get_cards`
-lookup reduce this; they do not remove it. The same goes for an agent
-reasoning wrongly from correct card text about timing, layers or replacement
-effects.
-
----
+Exact database resolution (§4.3), write-time card-reference linting (§10.5) and
+server-computed checks (§9) prevent invented stored cards and independent agent
+arithmetic. Images use ingested URLs. Public reads use an allowlist (§18.3), never
+the owner's full composite. This does not certify an external agent's chat,
+strategy or reasoning about correct Oracle text.
 
 ## 14. Build order
 
-Each phase is verified before the next begins, and each is testable without
-the one above it.
-
-1. **Capability core.** Card database and search; decks with lifecycle permissions, forks, slots, tags, maybe list; checks; the decisions log with undo. Tested with no UI and no agent.
-2. **Agent interface, read side.** MCP endpoint with token and Origin check, stdio shim, `start_session`, the read tools, the playbook. Verify by connecting a real agent and reading decks.
-3. **The gate.** `edit_cards`, organization tools, `propose_changes`, prior decisions following the card, linting on write; the proposals inbox and live UI updates.
-4. **Memories and documents.** The memory store, budgets, the review queue, the profile, proposed document edits, the Memories page and activity feed.
-5. **Cross-deck.** `player_stats`, `compare_decks`, focus.
-6. **Method and evaluation.** The Agent Skill, and a set of realistic multi-step tasks ("rework this fork toward a new thesis", "what should I build next") run against a real agent, with transcripts read and the tools revised from what they show.
-7. **Interop.** Archidekt export and import.
+Historical build order is complete. Current implementation/verification instructions
+are in the [backend manual](../packages/deck-builder/AGENTS.md#focused-test-gate).
+Section numbering is retained for source references; no new phase sequence is implied.
 
 ## 15. Verified at build time
 
-Checked on 2026-10-10 while building; recorded here so the next change starts
-from what is known.
-
-- **Protocol revisions.** The official SDK's v2 packages (2.3.1) implement 2026-07-28 and fall back statelessly for 2025-revision clients; both paths are covered by tests that use the official client. Claude Code 2.1.296 connected speaking 2026-07-28; Codex CLI 0.162.1 connected speaking the 2025 revision. Both work.
-- **Codex.** A real Codex run completed "find what most needs fixing in this deck and act on it" with no failed tool call, following the same loop as Claude Code (session, deck, unread decisions, memory, proposal). It connects with a static `Authorization` header in `~/.codex/config.toml`, which its CLI, desktop app and IDE extension share. Its `default_tools_approval_mode` honours the tools' read-only annotations: under `writes` a read ran and `remember` was held for approval; under `approve` nothing is asked. Without a label in the URL its writes are attributed to `codex-mcp-client`.
-- **Server `instructions`.** Delivered in both eras (asserted in tests). Claude Code called `start_session` first in every real run, unprompted. No other client was checked.
-- **Permission prompts.** Claude Code refuses each tool call until the server is allowed: a run without an allowlist was denied `start_session`. Allowing `mcp__deck-builder` (the `--allowedTools` flag, or `permissions.allow` in its settings) makes every tool, including the unapproved writes, run without asking. The Settings page shows the snippet.
-- **Real-agent evaluation.** Seven tasks against a copy of real decks, Claude Code with a Sonnet model, given nothing but the tools (one run also had the Agent Skill installed): find and fix what most needs fixing in a deck; say what the owner builds and draft the next deck; rework a deck as a fork; list what is missing in paper; evaluate a deck against its brief; catch up on decisions and suggest cards; tidy cluttered memories. All seven completed. Three tool calls failed across them, each recovered in one step: an unsupported search key, and the two below.
-- **What the transcripts changed.** (1) Forks now inherit their parents' decisions (§8.3). (2) `fork_deck` says to rewrite the thesis first; the agent that was not told left the parent's brief on a deck with a new aim. (3) The paper list carries type lines; an agent sorting bare names by kind got two wrong. (4) Every tool calls a body of prose `text`; an agent wrote `content` to `remember` after seeing it on another tool. (5) `list_decisions` ends with the exact `mark_decisions_reviewed` call; an agent first tried it with no arguments.
-- **Full-text search for memories.** Adequate at the two dozen that exist. Not tested at the hundreds §7.4 anticipates.
-- **Memory budgets.** The over-budget signal worked in a real run: a scope pushed past its budget was consolidated when the owner asked for a tidy-up. The default sizes themselves are untested against long use; they are settings.
-- **Output sizes.** A full 100-card deck reads at 4–7k estimated tokens; `start_session` at about 1.5k.
-
-Checked on 2026-10-11, when prices were added (§4.4):
-
-- **Scryfall's price data.** Read from the live `default-cards` file: 118,624 printings reduce to a price for 32,974 of 34,890 cards in about seven seconds. The unpriced remainder is digital-only cards and cards no counted printing prices.
-- **Bulk downloads decode correctly.** The oracle-cards download decoded each chunk separately, which corrupted a character that straddled two chunks: two cards in the owner's database had a mangled type line. Both downloads now decode as a stream; a refresh repairs the rows.
-
-Checked on 2026-10-11, when deck power profiles were added (§5.7):
-
-- Capability and protocol tests cover bracket boundaries, unknown metadata,
-  target approval and diffs, owner corrections, stale revisions, attribution,
-  forks, deletion, and schema migration preserving document-edit IDs.
-- A scripted session through the official MCP client read a demo deck,
-  recorded an illustrative assessment and proposed an active-deck target.
-  Its transcript was read. No agent model's assessment quality was measured.
-- Browser verification on an isolated database copy covered the target editor,
-  owner assessment editor, live agent assessment updates and target approval.
-  The comparison and dialog were inspected at desktop sizes.
-- The localhost app was rebuilt and restarted. Existing deck contents and
-  documents were verified against a pre-upgrade SQLite backup; targets and
-  assessments remain unset until deliberately written. Game Changer metadata
-  was populated from the installed Scryfall cache, without downloading it.
-
-Checked on 2026-10-25, v3 Phase 0 hardening:
-
-- A forced live Scryfall refresh on an isolated copy completed in 12.95 s:
-  35,134 active cards and 33,327 priced. The child peaked at 246.21 MiB RSS;
-  all 124 concurrent HTTP probes succeeded, maximum 6.55 ms. The serving
-  process stayed running through download, ingest and price swap.
-- An online backup with the serving process running restored to a separate
-  database, served 19 decks and returned healthy status on a second port.
-  Automated tests also verify committed WAL content, retention and refusal
-  while the server lease is held. Optional S3 delivery needs credentials and
-  has not been verified against a real bucket.
-- Chrome verified the seeded demo, a loaded CDN image, stale accept-all's
-  ConfirmDialog and successful decision, and styled proposal history. An
-  automated hover rendered the stored CDN URL with lazy loading; browser
-  resource entries showed zero `api.scryfall.com` requests. T3 snapshots
-  timed out; Chrome supplied visual inspection and T3 evaluation supplied
-  the hover/network evidence.
-- The official MCP client transcript was read through `start_session`,
-  `get_cards` (including structured image URLs), deck-scoped `list_decisions`
-  and `mark_decisions_reviewed`: other decks' unread decisions remained unread.
-- `npm run check` passes 449 tests on Node 26.12.1, and the same suite
-  passes on the declared Node 24.12.0 floor.
-- Phase 0 keeps schema version 10's existing additive-column migration style;
-  image/retirement columns and missing proposal baselines upgrade on open.
-  Phase 1 owns the ordered migration framework and schema 11 tenant rewrite.
-
-Checked on 2026-10-25, v3 Phase 1 identity foundation:
-
-- `npm run check` passes 910 tests on Node 26.12.1 after PR review. The permission matrix
-  globs `src/**/*.ts` with explicit exclusions, classifies every discovered
-  runtime function and all 30 MCP tools, requires real user-2 global probes,
-  and covers all 58 registered HTTP routes, tenant feeds and FTS, creator
-  credentials, archived reads/writes, hosted API 401s and per-user SSE.
-  Mixed-ID probes snapshot every personal table, FTS shadow and sequence.
-  Weakening `requireSlot` to ignore `deck_id` failed eight probes; adding an
-  unclassified export in a new module failed discovery. Both temporary
-  mutations were removed. The frozen actual main-v10 schema, preservation,
-  concurrent openers and complete rollback are tested explicitly.
-- An online read-only snapshot of the owner’s v10 database migrated to v11:
-  **18 decks → 18; 36 memories → 36**, with roster IDs/names/revisions,
-  memory text/scopes and profile identical. The copied legacy token file
-  imported and was renamed to `stdio-token` (0600) only in the copy. Its secret authenticated MCP;
-  both existing Claude Code and Codex HTTP configurations were checked to
-  use that same credential, without displaying their secrets.
-- The official MCP client, launching the stdio shim from `/tmp`, called
-  `start_session` and `get_deck` against both the Phase 0 baseline and the
-  migrated copy. The new shim used its default credential path, with no
-  token arguments. `get_deck` was byte-identical; `start_session` was
-  byte-identical after removing the new `# Identity` block. This is a
-  scripted transport/text check, not a new model-quality evaluation.
-- Seeded browser QA on the isolated copy exercised token creation, the
-  once-shown value, dismissal, placeholder snippets, reload and confirmed
-  revocation. Browser storage contained no credentials; desktop and narrow
-  Settings layouts were inspected. The owner’s live database, token file
-  and client configurations were not changed. Vite production build passes.
-
-Checked on 2026-10-25, v3 Phase 3 private beta deployment:
-
-- The repo-root Docker build uses `node:26-slim`, a selected npm workspace,
-  Vite assets and production-only runtime dependencies. Railway's root-owned
-  volume is prepared by a startup helper; the serving Node PID and its jobs
-  run as UID/GID 1000. Production follows `release` initialized at Phase 2's
-  merge `3e1798d`; staging follows `main`. One replica per environment.
-- A read-only online backup of the owner's schema-10 database migrated to
-  schema 12 on production: **18 decks and 36 memories preserved**, zero FK
-  errors, no legacy token file transferred. Production becomes primary at
-  go-live; local data is an unchanged development copy.
-- A forced production refresh completed in **15.14 s**, child peak
-  **264.10 MiB**, with **148/148** concurrent health probes passing and no
-  server restart. A **73,711,616-byte** online backup reached the Railway
-  bucket and was downloaded and restored into staging in **4.961 s** for
-  the restore/open step: the same 18 decks, 36 memories and schema 12.
-  Both exact deployments reached `SUCCESS` and passed Railway healthchecks.
-- A real internal probe with Railway's healthcheck Host and a wrong Origin
-  returned only `{ok:true,schema_version:12}`, with no cookies. A temporary
-  live staging ingress probe confirmed X-Real-IP matched the caller's public
-  IPv4, and spoofed client forwarding headers were overwritten. XFF's last
-  hop was a proxy. Real IPv6 ingress remains unverified.
-- Live Discord sign-in issued a Secure, HttpOnly, SameSite=Lax state cookie
-  behind Railway TLS. Request/tool JSON logs correlate generated request IDs
-  with resolved Actors and omit credentials, bodies, queries and tool data;
-  error logs contain stack frames without potentially sensitive messages.
-  All **961 tests** and both typechecks pass. OPERATIONS.md records commands,
-  deployment IDs and the claim lifecycle. The real owner then signed in and
-  confirmed all decks; user 1 is claimed as `jcaldwell`, with all 18 decks and
-  36 memories. The claim variable was removed and deployment
-  `b7c4ec34-dc77-47e5-acc4-ab8bbc34d235` reached SUCCESS without it. A temporary
-  personal token called `start_session` through the official MCP client from
-  the owner machine; authenticated SSE disconnected/reconnected across the
-  deployment and retained user 1. Temporary test credentials were revoked/removed.
-- The $25 workspace soft spending alert is configured. Railway rejected
-  native daily/weekly volume backups as Pro-only on this Hobby workspace;
-  the runbook explicitly records that unsatisfied redundancy requirement
-  and the owner upgrade/enablement steps. Nightly SQLite bucket backups are
-  configured and real bucket recovery was tested. External uptime monitor
-  setup remains an owner step because no monitor credentials were supplied.
-
-Round-1 Phase 3 review (2026-10-26 UTC), rebased on phase 1b **fc24ca8**:
-
-- Process locks record hostname, reclaim a previous container's reused PID 1
-  and still exclude live same-host operations. The real PID-namespace kill/
-  restart regression passes. Railway has a 30-second drain and a root tsconfig
-  watch path, verified in staging before the identical config-only production
-  patch (`skipDeploys:true`); production code is unchanged until owner promotion.
-- Build context is verified using Moby's actual matcher; explicit COPYs exclude
-  data/credentials. The final image copies nested workspace dependencies and
-  resolves every runtime import/exact pin, including jose 6.2.3; Node is pinned
-  by digest. Hosted job errors preserve redacted name/code/frames, backup failures
-  retry hourly, and admin status exposes backup age without public-health data.
-- Snapshots have unique UTC timestamp/UUID keys. Successful uploads retain 14
-  daily and six monthly recovery points plus the latest upload; upload/list
-  failures never prune. Archive keys are excluded, and no live bucket object
-  was deleted in this review. Privacy describes that policy and operational logs.
-- Staging successfully migrated v12→v13 and automatically loaded both stores:
-  33,327 TCGplayer/USD and 33,092 Cardmarket/EUR quotes; user 1's 18 decks,
-  36 memories, row fingerprints and per-deck USD totals stayed unchanged.
-  Both claim variables are removed. The read-only credential audit and exact
-  historical internal-adapter/HMAC smoke method are documented; future smoke
-  tests require owner-minted Settings tokens, never operator-made sessions.
-- The rebased gate passes **1003 tests** and both typechecks. Promotion must
-  use the verified #7 merge SHA and a fresh immutable post-claim v12 snapshot
-  immediately beforehand, because production still runs v12 and this promotion
-  includes v13. OPERATIONS documents old-variable rollback and schema refusal.
+Historical evaluations, migrations, deployment IDs and counts are preserved in
+[the source-qualified spec](https://github.com/joCaldwell/mtg-ecosystem/blob/33dcbe9df5c0cc7fef5f8d67f97adb85a3af4cdb/docs/deck-builder-spec.md#15-verified-at-build-time).
+They are not current acceptance. Current gate ownership belongs to the package
+manual; exact product/client evidence has its own source qualification.
 
 ## 16. Not verified
 
-Ownership-aware sourcing and proposal cleanup were added on 2026-10-15.
-`npm run check` passes 422 tests, including migration, evidence persistence,
-multi-source tagging, grouped approval, supersession, stale revisions and both
-MCP protocol eras. A scripted official-client transcript against an isolated
-database copy was read through sourcing, amendment and owner approval. At that time visual
-browser QA could not complete because preview automation failed. Phase 0
-subsequently verified the current approval/history controls on an isolated
-copy (see §15); the live owner database was not upgraded during that drill.
-
-The original local capabilities in §1–§14 and the Phase 1 identity foundation
-are built. Hosted login, sessions, OAuth, visibility and public pages are
-future v3 phases, not verified features. What has not been checked:
-
-- Any client other than Claude Code and Codex.
-- Longer real agent budgeting workflows remain unverified. Phase 1b read a
-  live-data tool transcript for a second EUR user (start_session, get_deck,
-  eur<=1 search) and verified USD isolation for user 1; it does not establish
-  how agents use those prices over a full deck-building conversation.
-- Claude.ai/ChatGPT web connector interoperability with the live hosted service. Hosted HTTPS OAuth/CIMD and consent are configured; completing these client connections remains owner testing. Remote clients cannot reach the local loopback instance.
-- The evaluation was run once per task, on one model, with tasks written by the same hand as the tools. It shows the interface works; it does not measure how often.
-
+Hosted login, OAuth, sharing and public pages are implemented. Open integration
+limits include broader connector interoperability, long-running agent/memory
+workflows and human usability. Old single-model evaluation is not a success-rate
+measurement. Native arbitrary-deck admission, account-to-seat provisioning,
+automated launch and full browser games retain the separate gates in §19.
 
 ## 17. Accounts, modes and roles
 
 ### 17.1 Modes and users
 
-`DECKBUILDER_MODE=local` is the default. It binds `127.0.0.1`, has no login
-page, and uses implicit user 1 for the UI while MCP requires a token. This is
-the owner's daily product. `DECKBUILDER_MODE=hosted` binds all interfaces and
-requires `DECKBUILDER_PUBLIC_ORIGIN`, `BETTER_AUTH_SECRET`, and at least one
-configured provider. Discord activates when both credentials are set; Google
-activates only when both of its credentials are set. Invalid modes
-fail startup instead of falling back to local.
+Local mode defaults to loopback/implicit UI user 1 without login; hosted mode
+requires public origin, secret and a complete provider credential pair. Invalid
+mode fails startup. Shared card/job data and tenant data coexist in one SQLite
+file. Every personal root carries principal ownership; validated children inherit
+it. Deck names are case-insensitively unique per user; profiles/settings/focus and
+playtest sessions are per principal. Deleted users cannot authenticate.
 
-One SQLite file holds shared card facts and tenant data. `users` has
-`id INTEGER PRIMARY KEY AUTOINCREMENT`, unique case-insensitive `handle`
-(`[a-z0-9_-]{3,24}`), `display_name`, unique nullable `auth_id`, `is_admin`
-(default 0), `created_at` and nullable `deleted_at`. Migration creates user 1
-(`owner`, `Owner`, admin, no auth id). Claiming user 1 requires `DECKBUILDER_CLAIM_CODE`, entered on sign-in in the
-same field as an invite. Compare code hashes timing-safely and link only
-while user 1 has `auth_id IS NULL`, in one transaction. A successful claim
-makes the code dead even if still configured; log one secret-free line
-telling the owner to remove the variable. Unset disables claims. Wrong or
-already-used claim codes confer no access; new identities must independently
-present a valid unused invite. This owner amendment replaces D5’s unsafe
-first-sign-in rule.
+User 1 is seeded owner/admin, initially unclaimed. Only an explicit timing-safe
+claim code may link it while `auth_id IS NULL`, transactionally. Unset disables
+claims; wrong/spent codes confer no access; success logs secret-free removal
+instructions and makes the code dead. New identities otherwise need an unused
+invite unless invites are explicitly disabled; existing accounts need none.
+Browser-bound registration intent revalidates/consumes codes at linkage. Handles
+are unique case-insensitive `[a-z0-9_-]{3,24}`, separate from display names, with
+sanitization/padding and first-run collision/reserved-name picker. No password
+signup, implicit provider linking or first-arrival owner claim.
 
-New identities need an unused invite unless claiming (or the operator sets
-`DECKBUILDER_INVITES_REQUIRED=0`). Existing identities need no code. A short
-lived, browser-bound registration intent carries the validated code through
-the redirect; revalidate and consume it atomically at identity linkage.
-Handles derive from provider identity, lowercase/sanitised to
-`[a-z0-9_-]{3,24}`, padded/truncated as needed. Collisions get a unique
-suffix and require a first-run handle picker. Display names stay separate.
-No email/password sign-up or implicit provider-account linking is exposed.
-
-Better Auth 1.7.13 uses the existing built-in node:sqlite connection, with
-no native dependency. Its CLI-generated SQL is committed as the ordered
-v12 migration, in our single migration transaction; never auto-migrate at
-runtime.
-
-Schema 11 uses ordered `{ version, up(db) }` migration steps, all within one
-`BEGIN IMMEDIATE` transaction after database identity validation. The schema
-version is re-read under that write reservation, so concurrent openers
-serialize migration rather than racing with an old version. Failed FK checks
-report the first five `{ table, rowid, parent }` rows before rolling back.
-It preserves old migration steps, Phase 0 image/retirement facts and proposal baselines. All existing
-rows backfill to user 1. `decks` names are unique within a user, case
-insensitively; decks, memories, document edits, log, activity and ownership
-evidence carry `user_id`. Deck-child tables inherit tenancy through their
-validated deck. Profile has one row per user; playtest sessions use
-`(deck_id, user_id)`. `user_settings(user_id,key,value)` replaces `meta`
-`setting:*` keys (focus and memory budgets); card freshness and jobs remain
-global. Deleted users cannot authenticate.
+Ordered migrations validate identity first, re-read schema under `BEGIN IMMEDIATE`,
+check foreign keys before commit and roll back atomically. Concurrent openers
+serialize. Existing user content/IDs/sequences, attributions and proposal bases
+are preserved; diagnostic FK failure reports only bounded table/row/parent facts.
+Auth-generated SQL participates in this same migration transaction (§17.6).
 
 ### 17.2 Actor and permissions
 
-```ts
-export type Actor = {
-  user_id: number;            // principal: whose data is being touched
-  via: "ui" | "agent";
-  label: string;              // "ui" or agent attribution label
-  token_id?: number;          // authenticated personal token, when present
-  oauth_client_id?: string;   // authenticated OAuth client, when present
-};
-```
+`src/actor.ts` owns Actor: principal `user_id`, `via: ui|agent`, attribution label
+and optional verified token/OAuth-client identity. Ownership is the relation to
+the deck, not an actor kind. All tenant capabilities require it explicitly.
+`requireDeck`/`requireDeckOwner` and `requireSelf` enforce access below HTTP/MCP;
+missing and unreadable reads/writes are 404, forbidden actions on readable targets
+403. Card-only shared facts remain global; any personal context is authorized.
 
-Ownership is a relation: `actor.user_id === decks.user_id`.
-`requireDeckOwner(db,actor,deckId,what)`, `requireSelf(actor,userId)` and
-`isDeckOwner` enforce it below both front doors. `requireDeck` returns the
-deck and caller role; an unreadable deck is 404. Writes on an unreadable deck
-also return 404, with the same missing-target behavior as reads.
-`PermissionError` (403) is reserved for readable targets whose action is
-forbidden (human-only, admin-only, or Archived writes). Every exported tenant
-capability requires an actor. Shared card-only utilities remain global, but any deck or memory
-context is authorized. No implicit actor is supplied by a service.
+Owners control lifecycle, decisions, undo, import, deletion and sharing; human-only
+actions additionally require UI. Agents may rename/delete their principal's editable
+decks, but Paper membership needs approval (§5.2). Viewer reads are slug-only §18.3;
+suggestions remain unimplemented, with no collaborator/co-owner model. Human versus
+agent semantics use `via`, never labels or deck ownership alone.
 
-V3 roles are owner, viewer (visibility admits them), and suggester (signed
-in on a deck accepting suggestions). No collaborators, co-owners or members
-table. Viewers arrived in phase 4a (§18.3) and read only by slug;
-suggestions arrive in phase 5.
-Lifecycle, decisions, undo, import, deletion and visibility belong to the deck
-owner; existing human-only actions additionally require `via === "ui"`.
-Agents retain attributed rename/delete on their principal's editable decks.
-No suggester may rule on their own proposal, including agent-via proposals;
-the existing owner-agent proposal reviewed by that owner's UI remains the
-local workflow. Paper membership always needs human approval. All current
-`owner_touched`, memory basis and review semantics distinguish `via`, never
-ownership or a self-asserted label.
-
-Profile edits, global memories, budgets, focus, stats, inbox, review queue,
-activity, ownership evidence and token management are per principal.
-`include_my_decks` means that principal's decks. Parent and fork sources must
-belong to that principal in Phase 1; card-history lineage stops at unreadable
-boundaries. Missing IDs never permit global/profile scope to bypass tenancy.
+Profile, memories, settings/budgets, focus, statistics, inbox/review, evidence and
+tokens remain principal-scoped; `include_my_decks` is opt-in for that principal.
+Lineage stops at unreadable/cross-owner boundaries; missing IDs never grant global
+scope. Public cross-owner forks use the explicit exception in §18.4.
 
 ### 17.3 Attribution, tokens and live updates
 
-Every existing `author` column gains `author_user_id` (FK users),
-`author_via` (`ui` or `agent`) and `author_label`, all NOT NULL. Old `owner`
-and `owner (from v1)` authors backfill to user 1/ui/ui,
-preserving their compact author string. System-authored `migration` rows use
-user 1/ui/`migration` and display **System migration**, avoiding an invented
-agent or a claim that the human performed the import. All remaining labels
-backfill to user 1/agent/original label. An actual agent choosing the label
-`migration` still displays `handle via migration`; via disambiguates them.
-The existing author string remains for wire compatibility; structured
-principal/via fields and credential ownership govern permissions. Attribution renders the human's
-handle for UI and `handle via label` for agents; a future external author
-renders `@handle`. The local `owner` handle preserves existing UI attribution.
-Activity records the owning `user_id` plus `actor_user_id`, `actor_via` and
-`actor_label` for every agent write.
+Store principal/via/label beside compact legacy author strings; UI shows handle
+or `handle via label`. System migration is distinguished by via, so an agent named
+migration cannot impersonate it. Agent writes have owning and acting principals.
+Token/client identity binds pending-work amendment rights independently of URL hints;
+trusted credential-less fixtures retain label identity. Migrated local drafts bind
+to the imported credential in the same transaction.
 
-`agent_tokens(id,user_id,label,prefix,token_hash,created_at,last_used_at,revoked_at)`
-stores hashes only. Token create/list/revoke require the principal's UI;
-revocation takes effect on the next request, including an already-created MCP
-handler. URL labels cannot grant another token's amendment rights: attribution
-checks use principal, via and `author_token_id` on proposals/document edits.
-The token’s configured label is the attribution fallback; URL labels never
-grant draft-amendment rights. Token credentials resolve to an Actor before
-tools execute. Trusted in-process actors without a credential retain label
-identity (fixtures and the operator’s demo seed).
+Personal tokens are `dbk_` + 32 random bytes, SHA-256 hashed, prefix-looked-up and
+constant-time verified. UI-only creation reveals once; list never reveals secrets;
+revocation applies on the next request. Last-use writes throttle to once/minute.
+Local old-token import commits before private-file rename and retries safely by
+hash; pre-v11 restores can reimport the saved file without reviving revoked rows.
+The old format is a deliberate migration exception. Shim reads never mint or
+rotate credentials and reject secret argv; operations owns exact file commands.
 
-SSE listeners use `Map<user_id,Set<response>>`; changes emit
-`notify(user_id,{deck_id?,kind})`. UI and MCP writes notify only that user.
-The browser initially refetches all queries for its own stream; the payload
-names what changed for later selective refetch. Global job changes may notify
-all connected users with `kind: "jobs"` and reveal no tenant data.
+SSE only reaches the principal. Payloads name resource families/deck IDs; ordinary
+changes invalidate matching reads and reconnect invalidates all. Global job changes
+may notify all but contain no tenant data. No per-connection tenant state/cache.
 
 ### 17.4 Phase 1 choices and handoff
 
-**Credential ownership of pending work.** Proposals and document edits also
-store nullable `author_token_id` (FK to `agent_tokens`). The canonical three
-author fields alone cannot distinguish credentials when a client changes its
-URL hint; letting a hint authorize amendments would violate D7. New MCP
-proposals bind to the verified credential. Archived-file import binds existing
-user-1 agent proposals/edits to that migrated credential in the same durable
-transaction, preserving outstanding work for existing CLI configurations.
-UI-authored proposals remain UI-only for amendments by agents. Changing a
-label cannot grant or remove a verified token’s rights; cross-principal
-checks always precede these creator checks.
-
-**Read/error contract.** Individual proposal/edit/log lookups, like deck and
-memory lookups, return 404 when unreadable or absent. Collection reads are
-filtered by principal; a memory list for a deleted deck remains empty (the
-existing cleanup behavior). Numeric write references reach owner guards and
-return 404 on foreign/unreadable data, including memory, log, proposal, edit
-and credential IDs. Human/admin action gates remain 403. Names resolve only in the
-principal’s roster, so an unknown name is 404 without searching other users.
-
-**Local text and attribution.** The existing compact `author` and `actor`
-strings stay stable in MCP prose; UI wire views add `author_display` or
-`actor_display` derived from the canonical fields and current handle. This
-preserves the agent playbook and deck transcript while giving UI attribution
-a principal. Focus and resumable playtest-table state remain usable on Archived
-lists; observations that write deck memories still require an editable deck.
-Audit recording can follow lifecycle changes; it is not a second deck-edit
-path. Pure calculations/card-fact utilities and operator migration/backup/
-ingest utilities are classified separately from tenant capabilities.
-
-Profile rows are created on first write for new users (empty profile reads remain
-valid); user 1 is seeded on migration. This avoids an identity-registration
-API before sessions exist. Shared card ingestion/backup functions are operator
-utilities rather than tenant capabilities; HTTP refresh additionally requires
-`users.is_admin=1`. Token management is UI-only to avoid granting an agent a
-way to mint durable credentials. Archived token import is idempotent by hash,
-then file rename follows the committed insert, so a crash cannot lose access.
-A missing credential after a pre-v11 restore is re-imported from the saved
-`stdio-token`; existing revoked rows stay revoked. No fresh token is minted at boot: the human explicitly creates and saves it
-once in Settings.
-
-Phase 2 plugs its session resolver into
-`resolveUiActor(req, mode): Actor | null` in `app.ts` (the async-capable
-`AppOptions.resolveUiActor` hook is called before API routes and SSE). Local
-mode keeps `localActor()`; hosted mode replaces the current `null` with the
-session’s principal. OAuth access-token verification goes beside
-`verifyToken(db, secret, now?): Actor | null` in `tokens.ts`; `mcp/http.ts`
-passes the verified Actor through the SDK’s `authInfo.extra.actor`. Phase 2
-implements these seams; visibility and public pages followed in phase 4a (§18); renames remain later work.
-
-
-Phase 1 review follow-up: the permission suite discovers `src/**/*.ts` exports
-with a documented exclusion list for executable front doors and operator-only
-modules. Every global classification has a real, invocation-counted user-2
-probe; outputs and user-1 snapshots are checked. Mixed-ID rows pair an owned
-deck with foreign slots/tags/engines and linked records, snapshotting all
-personal tables, FTS shadows and sequences before/after rejection. Child SQL
-writes bind both child and deck IDs. All private foreign targets return 404,
-including writes; this resolves the plan §3/§4 contradiction in favor of §4.
-
-The review migration fixture is frozen from the actual main v10 `openDb` at
-`8b6c012`, independently of v11. Tests compare its migrated `sqlite_master`
-with a fresh v11, verify historical human/system attribution and sequences,
-exercise bounded FK diagnostics/rollback, and run concurrent process openers
-behind a held SQLite writer lock. An INSERT audit requires every runtime
-personal-table insertion to name its tenant and attribution columns, so the
-migration-only defaults cannot silently authorize a future runtime write.
+Credential ownership, unreadable-target 404s and structured attribution are current
+contracts in §§17.2–17.3. Hosted session resolution and OAuth verification are
+implemented in `src/app.ts`/`src/auth.ts`; this is no longer a future handoff.
+Migration/runtime insertion tests must preserve tenant, credential and attribution
+fields, including grouped composite foreign keys and every personal table.
 
 ### 17.5 Account lifecycle and hosted UI
 
-`SessionProvider` wraps `LiveProvider`. Hosted sign-in offers configured
-providers and one invite/claim field; local mode never shows sign-in. Cookies
-automatically accompany requests and EventSource. `request()` maps 401 to
-sign-in, 403 to a readable-action toast, 429 to a slowdown toast with retry
-time. Hosted `/privacy` and `/terms` are public and identify the operator and
-contact from required non-secret `DECKBUILDER_OPERATOR_NAME` and
-`DECKBUILDER_CONTACT_EMAIL` environment values, served by `/api/session`.
-They describe stored data, cookies, retention, Railway, Scryfall browser
-requests, export/deletion and no warranty. The footer carries the WotC Fan
-Content notice and current daily Scryfall estimate/as-of wording until 1b.
+Session bootstrap precedes private providers/SSE. Hosted sign-in uses configured
+providers and one invite/claim field; local mode never signs in. UI maps 401 to
+sign-in, 403 to readable-action errors and 429 to Retry-After feedback. Only hosted
+mode serves legal pages/footer with required public operator/contact values;
+never commit personal contact details. Product architecture owns screen composition.
 
-Settings has hosted connection steps for Claude Code, Codex, Claude.ai and
-ChatGPT, inline CLI token creation and last-seen personal/OAuth usage. Remove
-Secure MCP Tunnel instructions. Local HTTP and stdio configs remain valid.
-
-`GET /api/account/export` is UI-only: all owned rows, deck
-children and Archidekt text per deck. Auth exports exclude all secrets
-(session/provider tokens, credentials, signing keys). `DELETE /api/account`
-requires UI and typed-handle confirmation, atomically removing all personal
-rows, FTS entries, tokens, sessions, linked providers, OAuth grants and owned
-clients. Foreign ownership is never inferred from authorship or invite use.
-Retain others’ content and spent invitations, anonymizing references/labels
-to non-login tombstone user 0 (`deleted_account`, deleted_at set). No author
-token/client identifiers survive on those records. Write no activity afterwards.
-Shared card/price/job data remain.
-A sqlite_master inventory test verifies every tenant table participates, so
-a new table cannot silently escape export/deletion. Backups expire under
-14 local snapshots; bucket retention keeps the newest snapshot
-for each of the last 14 UTC days and six UTC months, plus the latest upload.
-Retention runs after successful upload/listing and excludes `archive/`, including
-deliberate pre-change recovery snapshots and the owner-only pre-launch quarantine.
-The operator manually reviews pre-change archives after at least 30 days,
-verified recovery and an independent backup; never while old-schema rollback
-is still needed. Operational request/tool logs omit sensitive
-payloads; Railway Hobby exposes a seven-day log window. The last
-admin cannot delete their account because nobody would remain to manage
-invites/jobs; Settings explains why.
-
-Admins have a Settings card for jobs/enqueue, invite creation/listing, user
-count and database size. Invites are random and single-use. UI/admin guards
-live in the capability layer. No impersonation. Public deck visibility,
-profiles and path routing arrived in phase 4a (§18, §11.1); suggestions and renames remain later phases.
+UI-only export includes owned rows/children and Archidekt lists but no auth secrets.
+Typed-handle-confirmed deletion atomically removes owned data, FTS, credentials,
+sessions/providers, OAuth clients/grants/state; no Activity is written afterwards.
+Preserve foreign content/spent invites with non-login user-0 tombstone attribution,
+clearing identifying labels/token/client IDs. Never infer ownership from authorship
+or invite use. Shared card/price/jobs remain; the last admin cannot delete itself.
+Lifecycle inventory must classify every table/composite FK and fail closed for
+unknowns. Admin job/invite/user-count/storage actions recheck UI/admin permission;
+no impersonation. Operations owns retention, restoration and repeating erasures.
 
 ### 17.6 Phase 2 implementation choices
 
-- Pinned `better-auth`, `@better-auth/core`, `@better-auth/mcp`,
-  `@better-auth/cimd` and `@better-auth/oauth-provider` at **1.7.13**;
-  `jose` at **6.2.3** verifies access tokens. No api-key plugin or native
-  SQLite dependency. The official built-in driver supports our connection.
-  `scripts/auth-schema.ts` is the reproducible in-memory CLI input;
-  `src/migrations/auth-v12.sql` is its unmodified generated SQL.
-- A random browser registration ticket stores only a hash of the invite or
-  claim code. Provisioning runs in the social user-create **before** hook,
-  inside Better Auth's transaction, with an explicitly generated auth ID.
-  Provider access/refresh/ID tokens are encrypted with BETTER_AUTH_SECRET;
-  implicit provider-account linking is disabled. The after-commit hook logs
-  successful claims once. Invalid/reused tickets
-  cannot leave a principal behind. Existing accounts need no ticket.
-- CIMD registers **the connecting client's** metadata document (e.g. Claude
-  Code's document at claude.ai), with DCR as fallback. Deck builder is the
-  authorization/resource server, not an outbound OAuth client: it publishes
-  resource/AS metadata, rather than inventing a client document with a
-  nonfunctional callback. The real Claude Code flow verifies this choice.
-- The documented CIMD Node transport pins the first DNS result, which can
-  be unreachable IPv6. Our MIT-attributed adaptation uses the same public
-  address policy, checks every DNS answer, resolves once and pins one
-  IPv4-preferred answer, preserving Host/SNI/TLS and refusing redirects.
-  There is no fallback to unpinned fetch.
-- Hosted handlers buffer bounded bodies before database work. The native
-  auth dialect reserves the connection per query/transaction, and service
-  batches use the same gate. Neither outbound auth I/O nor an open MCP
-  stream holds a reservation. Scheduler failure persistence uses the same database reservation.
-  Limits remain single-instance in-memory windows. The local
-  handler stays unchanged. The launcher probes public health rather than
-  the now-authenticated roster to determine readiness.
-- OAuth identity and label come from subject/client metadata, and draft
-  amendments bind to `author_oauth_client_id`. Hosted personal labels use
-  the stored token label; local URL attribution hints preserve existing
-  configs. Consent and a live enabled client are rechecked for JWT usage,
-  so deleting a grant disconnects an otherwise unexpired signed token.
-- Lifecycle inventories group composite foreign keys as a single relation.
-  Matching columns separately would leak/delete rows for another user who
-  uses the same card. Global tables are explicitly listed; unknown tables
-  fail closed. Auth verification payloads are searched for the identity
-  when deleting codes/state, and omitted from export.
-- Railway's native healthcheck Host differs from the public domain. The
-  only exception to the hosted Host/Origin boundary is `GET /api/health`,
-  which returns exactly `{ok,schema_version}` without cookies, auth or tenant
-  data. It runs before session/body/database reservations so Railway probes
-  work directly. All other hosted requests keep the single-origin rule;
-  local health keeps its loopback Host/Origin check.
+Pinned dependencies and generated auth SQL are recorded in the package manifest,
+lock and `src/migrations/auth-v12.sql`. The reproducible in-memory schema-generation
+command belongs to operations; never run auth auto-migration or generate against
+production. Registration provisions identities atomically from browser-bound,
+revalidated invite/claim tickets; failed registration leaves no principal.
+Provider tokens are encrypted; implicit account linking is disabled.
 
-Existing runtime validation dependencies also receive compatible security
-patches: Zod's minimum is 4.6.7, and the lockfile selects fast-uri 3.1.9.
-These address the published constrained-collection resource-exhaustion and
-URI-normalization advisories without changing the tool contract.
+The official native SQLite dialect reserves per query/transaction; capability
+batches use the same reentrant gate. HTTP bodies buffer before database work.
+Never hold the reservation across auth HTTP handlers, open MCP streams, DNS or
+provider exchanges. Lifecycle inventories treat composite foreign keys as one
+relation, explicitly classify global tables and reject unknown tables.
+
+CIMD metadata identifies the connecting client, not this resource server. Public
+fetches validate every DNS answer and pin one IPv4-preferred address with original
+Host/SNI/TLS and no redirects; unpinned fetch is not a fallback. §17.7 owns limits.
 
 ### 17.7 Owner review security corrections
 
-Consent verifies the provider's signed oauth_query server-side before
-rendering. It prominently identifies the redirect host and complete URI,
-warns about local-app impersonation for loopback callbacks, and identifies
-CIMD clients by their document host. DCR names are self-asserted and labelled
-“Unverified app — its name was chosen by the app itself”. Anonymous DCR is
-limited to loopback HTTP/native-app callbacks; web connectors use CIMD.
-Unsigned/tampered/expired consent queries are refused, not rendered. See
-the MCP 2026-07-28 localhost redirect security considerations.
+Verify signed `oauth_query` before consent rendering; reject expired/tampered input.
+Show full redirect URI/host and CIMD identity host, loopback impersonation warning,
+and unverified-name notice for DCR. Anonymous DCR admits only native/loopback
+callbacks; web connectors use CIMD. Public metadata fetches have four slots,
+five-second abortable DNS-inclusive deadline, 64KiB bodies and 30-second/128-entry
+cache; late DNS never opens a connection. No auth HTTP/outbound I/O holds SQLite.
 
-The shared SQLite reservation now covers each auth query or transaction,
-using the official pinned node:sqlite dialect wrapped at its connection
-acquire/release boundary. Application service batches and job failure writes
-use the same reentrant gate. Auth handlers, CIMD DNS/fetch and provider token
-exchanges run outside it. A stalled anonymous auth request must not delay
-a concurrent authenticated roster read or health request. The public-document
-transport races DNS against the abort signal, limits concurrent fetches to
-four, bounds response bytes and caches successful public documents for
-30 seconds (128 entries). Late DNS answers never open a connection.
+Hosted startup rejects configured claim codes under 32 characters or blank public
+operator/contact. Open signup never implicitly claims user 1. Handles reserve route
+words and change only in the first-run picker. Trusted-proxy rate limits use
+X-Real-IP/rightmost XFF; otherwise socket only. IPv6 groups /64; separate bounded
+LRUs isolate verified traffic. Code guesses use 5/minute/IP; known OAuth exchange
+240/minute/client; sign-in 20/minute/IP. `src/ratelimit.ts` is numeric authority.
 
-
-Hosted startup rejects a configured claim code shorter than 32 characters,
-and missing/blank operator name or contact email. Blank-code sign-in creates
-an account when invites are disabled; it never implicitly claims user 1.
-Route words are reserved as handles; short names pad with neutral underscores.
-Only a collision/reserved-name first-run picker may change a handle. Once
-picked it is stable for future shared URLs.
-
-With trusted ingress, rate-limit IP comes from Railway’s documented
-X-Real-IP, falling back to the rightmost X-Forwarded-For hop; otherwise only
-the socket counts. IPv6 addresses share a /64 bucket. Independent bounded
-LRU stores per limit kind prevent anonymous capacity from denying verified
-users/credentials. Unknown-code attempts have their own 5/minute/IP bucket;
-known OAuth clients exchange tokens in a 240/minute/client bucket rather
-than the 20/minute/IP sign-in bucket. Phase 3 verifies ingress IP headers.
-
-Settings lists every connected OAuth consent, including unused grants, with
-Disconnect. UI-only `DELETE /api/account/oauth` removes that user/client’s
-consent, refresh/opaque tokens, pending codes and usage. A stored issuance
-cutoff also rejects previously issued JWTs after re-consent. JWT timestamps
-have one-second precision: a new grant issued in the disconnect second must
-be retried in the following second. Other clients/users retain access.
-Unused unconsented DCR registrations expire after one day (hourly cleanup
-on auth requests). Refresh retries have five seconds of rotation grace.
-Unused social linking/account listing/session listing/generic HTTP get-session/revoke endpoints are
-disabled; no browser API exposes raw session tokens. Callback state/provider
-errors ask the user to restart sign-in; registration errors mention the code.
-
-Hosted legal routes and legal footer are absent in local mode. Hashed SPA
-assets use `public, max-age=31536000, immutable`; APIs, auth, consent, HTML
-and the index route remain `no-store`.
-
----
+UI Disconnect removes consent, refresh/opaque tokens, codes and usage and records
+JWT issuance cutoff; re-consent cannot revive old JWTs. Same-second new grants may
+need next-second retry. Unused unconsented DCR expires after a day (hourly cleanup);
+refresh rotation has five-second grace. Unused auth/session/linking/list/revoke
+endpoints stay disabled, with no raw session-token browser API. Callback recovery
+restarts sign-in; registration errors mention the code. Hashed assets cache for a
+year; HTML/auth/API/consent are no-store. Local mode exposes no legal pages/footer.
 
 ## 18. Sharing
 
-*Built in v3 phase 4a (2026-10-25). The plan's decision is reproduced
-verbatim; the rest of this section records how it was built and the choices
-the plan left open.*
+Current visibility, public projection and cross-owner fork contracts follow.
 
-### 18.1 The decision (v3 plan D8, verbatim)
+<a id="181-the-decision-v3-plan-d8-verbatim"></a>
 
-> **D8. Visibility and sharing.**
->
-> ```sql
-> ALTER TABLE decks ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private'
->   CHECK (visibility IN ('private','unlisted','public'));
-> ALTER TABLE decks ADD COLUMN slug TEXT UNIQUE;          -- 10 chars base62, set when visibility first leaves private, never changes
-> ALTER TABLE decks ADD COLUMN publish_decisions INTEGER NOT NULL DEFAULT 0;
-> ALTER TABLE decks ADD COLUMN accept_suggestions INTEGER NOT NULL DEFAULT 0;
-> ALTER TABLE log   ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;   -- owner hides single entries from the public page
-> ```
->
-> Public URL: `/d/<slug>`. A public page shows the list by slot, brief, checks,
-> bracket target and the owner's latest assessment, price estimate with source
-> and date, and the decisions log only if `publish_decisions = 1`, minus hidden
-> entries. Never shown: memories, proposals, pending edits, ownership evidence,
-> activity, the owner's agent names. Cross-owner forks copy list, slots, tags,
-> brief and engines; never memories, ownership evidence, assessments or
-> unpublished log entries.
+### 18.1 Historical decision
 
-Schema 14 (following phase 1b's 13) adds exactly those columns, plus the fork lineage snapshot
-(`decks.parent_owner_handle`, `parent_slug`, `parent_name`, §18.4) and
-`cards.artist` (§18.5). `accept_suggestions` has no setter until phase 5.
+The historical D8 proposal is retained in Git; current behavior below supersedes
+its proposed tag copying and viewer authorization. Schema 14 added visibility,
+slug, published-decision/hidden flags and fork-lineage snapshots. The unused
+`accept_suggestions` column has no setter; suggestions remain unimplemented.
 
 ### 18.2 Visibility
 
@@ -1843,68 +917,30 @@ Schema 14 (following phase 1b's 13) adds exactly those columns, plus the fork li
 
 ### 18.3 Who reads what
 
-- **Viewers address a deck only by its slug.** Numeric deck ids stay the
-  owner's namespace: every id-addressed capability, tool and route is 404
-  for anyone but the owner, whatever the visibility, exactly as in phase 1.
-  `requireDeck` therefore remains the owner's read gate, and
-  `requireViewableDeck(db, viewer, slug)` admits viewers by visibility and
-  returns the role. Only the public capabilities call it:
-  `publicDeckState`, `exportPublicDeck`, forking or comparing by slug, and
-  `publicProfile`. *(Choice: the plan has `requireDeck` admit viewers. Doing
-  that would have opened every existing id-addressed read — proposals,
-  memories, log — to viewers, and made rule 1 depend on every caller
-  remembering to trim. A separate gate keeps viewers to one projection.)*
-- A viewer is a signed-in non-owner, any agent acting for one, or nobody at
-  all (`viewer = null`, hosted mode without a session). Private decks are
-  404 to all of them; unlisted and public decks return `PublicDeckState`.
-- The owner opening their own slug gets the same page with a banner saying
-  it is how viewers see it, including while the deck is private. That is
-  the Share dialog's "what viewers see" preview.
+Numeric IDs are owner-only in every capability/tool/route. Viewers (signed-in
+nonowners, their agents or anonymous null) read by slug through `requireViewableDeck`;
+private targets are 404. `publicDeckState` explicitly builds `PublicDeckState`, never
+trims a full owner composite. Even owner slug previews show exactly that projection.
 
-**`PublicDeckState`** (plan §4) is built by `publicDeckState()` in
-`src/state.ts` from an explicit allow-list, never by trimming the owner's
-composite:
+| Public field | Allowed content |
+| --- | --- |
+| deck | Name/slug, owner handle/display, commanders, identity/category/visibility; no ID/revision |
+| parent | Live public parent's handle/name/link; unlisted parent handle/name only; absent if private/gone |
+| cards | Visible list including maybes, stored facts/quantity/role/slots; empty `maybe_note` and `tag_ids` |
+| slots/tags | Slots/targets; tags always empty |
+| brief/engines | Thesis/constraints; engine names/descriptions/pieces/presence |
+| checks | Ordinary checks, excluding `power_*` findings that could disclose agent assessments |
+| power | Target and newest owner-UI assessment only, profile/evidence/confidence/notes/mapping/staleness; no attribution |
+| price/computed.cost | Viewer-resolved estimate/currency/store/date/Scryfall and distinct unpriced count |
+| decisions | Only when published: newest 100 nonhidden entries, generated card-change summary, reason/time/cards, generic owner/agent attribution |
+| computed/tokens | Server counts/curve/pips/slot deltas as if nothing pending; token producers only from visible membership |
 
-- `deck { name, slug, owner { handle, display_name }, commander,
-  color_identity, category, visibility, parent? { owner_handle, slug, name } }`.
-  `commander` lists the commander names. No deck id or revision. `parent`
-  is looked up live, not read from the fork's snapshot: with its link while
-  the parent is public, with only handle and name while it is unlisted (its
-  link is its owner's to give out), and absent once it is private or gone.
-- `cards`: the list including the maybe list, each with its card facts,
-  quantity, role and slots; `maybe_note` is always empty, because shortlist
-  notes are working notes, and `tag_ids` is always empty.
-- `slots`, `tags` (always empty), `brief { thesis, constraints_md }`,
-  `engines` (name, description, pieces and whether each is in the deck),
-  `checks` without the `power_*` findings, which read the latest assessment
-  and so may describe an agent's. *(Choice, overriding D8's "tags" on both
-  the page and forks: tags record sourcing and status (§5.4), and "Have"
-  creates ownership evidence (§5.5), which D8 never shows. The key stays so
-  the §4 shape holds.)*
-- `power { target, latest_owner_assessment }`: the target's profile, Game
-  Changer limit, notes and bracket mapping; and the newest assessment the
-  owner recorded themselves in the app (`author_via = 'ui'`), with its
-  profile, evidence, confidence, notes, mapping and whether the list has
-  changed since. No attribution on either, and agent assessments never
-  appear.
-- `price { total_cents, currency, store, unpriced, as_of, source: "Scryfall" }`.
-  Priced for the viewer (D18): a signed-in viewer's own currency and store,
-  else `USD`/`lowest`; never the owner's choice. Each card's price follows the
-  same choice, and `computed.cost` is the same total.
-- `decisions` only when `publish_decisions = 1`: the newest 100 log entries
-  that are not hidden (an undo of a hidden entry is hidden with it), each
-  with its kind, a summary the app writes from the cards it moved, the
-  owner's reason, time and cards. The stored summary is not used: it is
-  free text that can quote a proposal ("proposed because: …") or an agent.
-  Who acted is `by: "owner" | "agent"`, never an agent's name or handle.
-  Proposal and edit ids are dropped.
-- `computed`: the app's counts, curve, pips and slot deltas, computed as if
-  nothing were pending, so pending proposals leave no trace.
-
-The capability reads the owner's deck through the existing read functions
-with a read-only owner context and then projects; the projection is the
-only thing returned. The permission matrix asserts the exact key set for
-every viewer and visibility.
+Never expose memories, proposals/pending edits, private notes/tags/ownership evidence,
+Activity, owner pricing preferences, agent identities, proposal/edit IDs or private
+numeric IDs/revisions. Decision summaries must be generated, not stored free text
+that may quote agents/proposals; hidden-entry undo stays hidden. Parent lineage
+snapshots do not override live privacy. Assert exact projection keys across actors
+and visibility, with viewer-resolved pricing and no pending-state trace.
 
 ### 18.4 Forks across owners
 
@@ -1929,42 +965,18 @@ so a cross-owner parent's decisions never reach the fork.
 
 ### 18.5 Pages
 
-- **`/d/<slug>`** is one component, `ReadOnlyDeck`, also used by the phone
-  view (§11.2): the list by slot or type, checks, read-only brief and
-  engines, the power target and owner assessment, the price with its
-  source, store and date, and the decisions log when published. The header
-  carries the first commander's stored art crop with "Art by …" from
-  `cards.artist`; with no stored artist (a database not refreshed since
-  schema 14) the art is left out rather than shown uncredited. Cards stay
-  text rows; tapping one opens its card sheet, as hover does on desktop.
-- **Actions:** Copy link and Export (Archidekt text, no account) for anyone;
-  Fork and Compare with one of my decks when signed in. In local mode the
-  local user is always signed in. No sidebar, inbox, focus reporting or
-  decision hotkeys.
-- **`/u/<handle>`**: the display name and the user's public decks (not
-  unlisted ones), nothing else. 404 for unknown or deleted handles, and for
-  anyone without at least one public deck: the display name comes from the
-  sign-in provider (often a real name) and is not shown to someone who
-  merely guesses a handle. A display name the user sets themselves is
-  deferred to phase 4b or 6.
-- **Link previews.** For `/d/<slug>` and `/u/<handle>` the server injects
-  `<title>`, `<meta name="description">`, Open Graph (`og:title`,
-  `og:description`, `og:type`, `og:url`, `og:image`, `og:site_name`) and
-  `twitter:card` tags into `index.html` before serving it. The deck
-  description names the commander, colour identity, bracket target and
-  owner. `og:image` is the commander's stored art crop on
-  `cards.scryfall.io`, only when the card's artist is stored too, as on the
-  page. A slug the requester cannot read gets the plain page
-  with status 404. Nothing calls `api.scryfall.com` from a browser.
-- The page is laid out single-column below 720 px with wrapping rows and
-  44 px tap targets, and never scrolls horizontally at 375 px.
+`/d/<slug>` uses the shared read-only deck composition (also owner phones): list,
+brief/engines, checks, target/owner assessment, estimate and optionally published
+history. Anyone can copy/export; signed-in users may fork/compare through public
+capabilities. Public shells have no private providers, focus reporting or decision
+hotkeys. Phones retain 44px targets/no page overflow; DESIGN owns art/layout.
 
-Phase 4c (D21) shares the owner's `DeckArt` treatment: split credited
-commander crops, tokenized dark fade, small opaque artist caption and a thin
-identity stripe. Text content begins after the overlay reaches its AA-safe
-strength. Anonymous viewers receive no private art source: only the public
-commander card facts already in PublicDeckState. The public initial JS budget
-remains under 110,000 gzip bytes (owner raised the budget from 90,000 on 2026-10-27). Images are external art crops, never bundled.
+`/u/<handle>` exposes display name and public decks only; unknown/deleted users or
+users without any public decks return 404, preventing guessed-handle name disclosure.
+Server-rendered title/description/OpenGraph/Twitter preview uses only permitted
+commander, identity, bracket/owner and stored credited art; unreadable slugs return
+404 with plain preview. No browser Scryfall API lookup. The public initial JS budget
+is 110,000 gzip bytes; images remain external, not bundled.
 
 ### 18.6 Without an account
 
@@ -1996,32 +1008,12 @@ session.
 
 ## 19. Unified product shell and game setup
 
-Owner direction, 2026-11-14: Multiverse becomes one account-backed application
-for deck building and playing, with future public discovery and social features.
-The first game mode is one human against three automated opponents. Large
-internal refactors are allowed to establish clean package boundaries. The manual
-playtester guidance is not an accepted reference for this interface.
-
-Home becomes `/`, while `/decks` retains the complete existing library and
-existing deck/shared URLs remain available. Home links to real owned decks and
-game setup. `/play` carries an optional owned deck selection and its revision;
-an unreadable deck remains explicitly unavailable. Do not invent recent viewing
-activity or active-game records when their services do not exist.
-
-The first scaffold embeds the qualified sample table at `/play/preview`, through
-public shared game presentation and client preview exports. It is visibly a
-local preview, not a game using the selected deck. The existing SessionProvider
-and Actor capability boundary remain the sole application identity. There is no
-iframe, second login or direct import of another application's private features.
-Shared game styling is scoped and its React runtime is supplied by the host.
-
-Real game launch requires an owner-scoped coordinator for immutable deck revision
-snapshots, authoritative native admission, account-to-seat authorization and
-supervised automated consumers. Ordinary deck legality does not prove engine
-support. Keep Start game unavailable until that path exists, with a separate
-Preview table action. No fixture confirmation creates a match or durable result.
-See [application architecture and launch gates](multiverse-app.md).
-
+One account hosts deck building and game setup. Home, library and Play retain
+existing routes and data. The captured table preview is explicitly a sample,
+never the selected builder deck or a created match. Real one-human/three-automated
+launch requires immutable deck snapshots, authoritative native admission,
+account-to-seat authorization and supervised consumers. Ordinary Commander
+legality and product sign-in establish none of those. See [application launch gates](../packages/multiverse/web/ARCHITECTURE.md#game-launch).
 
 ## Compatibility and product ownership
 
@@ -2032,9 +1024,13 @@ implementations may be rewritten. Auth/account backend, Actor/SQLite services,
 API, CLI and MCP remain in deck-builder behind public `./host` and type-only
 `./contracts`; account/session UX, browser features, build/process composition
 belong to Multiverse. One existing account/data system remains, with no auth/DB
-migration from this move. See [application contracts](multiverse-app.md).
+migration from this move. See [application launch gates](../packages/multiverse/web/ARCHITECTURE.md#game-launch).
 
 The original solo manual playtest service is legacy functionality, not a rules
 engine, browser-play acceptance or approved game-client design reference. New
-games follow native admission and separate account-to-seat authorization. Real
-one-human/three-automated launch and full browser decisions remain unfinished.
+games follow native admission and separate account-to-seat authorization. The
+additive Actor-scoped coordinator captures immutable revision-bound game decks,
+retains owner-scoped launch/outcome/recovery records and requires explicit native
+admission. Its concrete CLI adapter provides admission only; real one-human/three-
+automated provisioning and full browser decisions remain gated by the
+[product launch contract](../packages/multiverse/web/ARCHITECTURE.md#game-launch).

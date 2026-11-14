@@ -612,6 +612,7 @@ impl Game {
             Instruction::Cascade { source_block, .. } => self.begin_cascade(frame, source_block),
             i @ (Instruction::MoveSet { .. }
             | Instruction::PumpSet { .. }
+            | Instruction::GrantKeywordsSet { .. }
             | Instruction::DamageSet { .. }
             | Instruction::GainLifeDestroyed { .. }
             | Instruction::ExileDamagedThisTurn { .. }

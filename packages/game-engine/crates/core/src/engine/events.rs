@@ -873,6 +873,7 @@ impl Game {
                     }
                     match &effect.kind {
                         ResolvedEffectKind::PumpSet { targets, .. }
+                        | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
                         | ResolvedEffectKind::ExileDamaged { targets } => objects.extend(targets),
                         ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
                             objects.insert(*target);

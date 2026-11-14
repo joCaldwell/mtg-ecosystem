@@ -1,27 +1,13 @@
 # Deck-builder operations
 
-Product ownership moved on 2026-11-14: browser/account UX, build, process entrypoint
-and local manager now live in `packages/multiverse`. Existing backend npm launch
-commands delegate there. Backend CLI/MCP/refresh/backup commands stay here; data,
-environment names, dotenv lookup and `.dev` PID/log locations remain unchanged.
-From this directory the direct entrypoint is `node ../multiverse/src/server.ts`.
-Historical deployment records below retain their original source paths; a future
-promotion must use the updated image entrypoint, without changing existing data
-mounts or account credentials. This refactor does not deploy anything.
-
-Use Node 26 (`nvm use`, `.nvmrc`). The package declares Node >=24.12 for
-stable native TypeScript stripping; `src/sqlite.ts` uses the renamed Node 26
-`Database` class and the equivalent constructor on Node 24. All connections
-use WAL, foreign keys and a 5-second SQLite busy timeout.
-
-Run commands from `packages/deck-builder`. No build is needed for server
-TypeScript. `npm start` builds the browser assets and starts the local server;
-`npm stop`, `npm run status`, and `npm run logs` manage the laptop launcher.
-Local mode (the default) binds `127.0.0.1` and builds implicit user 1 for UI
-requests without a login. `DECKBUILDER_MODE=hosted` binds all interfaces and
-requires `DECKBUILDER_PUBLIC_ORIGIN`, `BETTER_AUTH_SECRET` and provider
-credentials. Cookie sessions authorize UI requests; personal tokens or OAuth
-access tokens authorize MCP. Local mode is unchanged.
+Run from `packages/deck-builder` unless marked repository root, using pinned Node
+through `scripts/engine-env.sh`. Backend TypeScript executes directly; connections
+use WAL, foreign keys and five-second busy timeout. Product build/process manager
+lives in Multiverse; backend launch commands delegate there, preserving data,
+environment/dotenv and `.dev` PID/log paths. Direct entrypoint is
+`node ../multiverse/src/server.ts`. Package scripts own CLI/MCP/refresh/backup.
+The [spec](../../docs/deck-builder-spec.md) owns behavior/authorization; this guide
+owns operator commands. Historical receipts remain at Git `33dcbe9df5c0cc7fef5f8d67f97adb85a3af4cdb`.
 
 ## Card refresh and scheduled jobs
 
@@ -87,13 +73,8 @@ newest 14 local snapshots, then optionally upload the new snapshot. Never copy o
 `deck-builder.db` while the server is running: committed data may be in its
 WAL sidecar.
 
-At roughly 60 MB per snapshot, 14 local backups use about 840 MB (roughly
-850 MB allowing for growth); stored image URLs will increase that as the
-card database grows. Allow space for another snapshot while one is being
-written, plus the live database, WAL and download cache. Retention remains
-14 for all modes; operators who need less local disk use can prune older
-local snapshots between runs. The next backup still keeps at most 14 dated
-files. Bucket retention is enforced by the uploader as described below.
+Budget disk for 14 snapshots, one in-flight snapshot, live DB/WAL and download
+cache; measure current sizes rather than relying on historical database counts.
 
 To upload each snapshot to an S3-compatible bucket, configure all four:
 
@@ -153,72 +134,29 @@ older versions that predate the process-lock mechanism before restoring.
 
 ## Environment and tokens
 
-| Variable | Default / meaning |
-| --- | --- |
-| `DECKBUILDER_DATA` | Package `data/`; cache and backups live here |
-| `DECKBUILDER_DB` | `DATA_DIR/deck-builder.db`; also determines server lock path |
-| `DECKBUILDER_PORT` | `8787` |
-| `DECKBUILDER_WEB_PORT` | `5173` in the dev script |
-| `DECKBUILDER_TOKEN_FILE` | Optional private credential file for the stdio shim |
-| `DECKBUILDER_MODE` | `local`; or `hosted` for sessions and OAuth |
-| `DECKBUILDER_PUBLIC_ORIGIN` | Required in hosted mode, e.g. `https://decks.example` (no trailing slash) |
-| `BACKUP_S3_*` | Optional off-box backup credentials above |
+Local defaults: package `data/`, DB `DATA_DIR/deck-builder.db`, port 8787 and dev
+web port 5173. `DECKBUILDER_DATA`, `DECKBUILDER_DB`, `DECKBUILDER_PORT` and
+`DECKBUILDER_WEB_PORT` override them. Local mode is implicit UI user 1 with no
+login; MCP always needs a bearer. Hosted variables follow below.
 
-`DECKBUILDER_TOKEN` has been removed. Settings creates per-user tokens with
-labels, shows each secret exactly once, lists prefix/last-used/revoked state,
-and revokes individually. Newly minted secrets use `dbk_` plus 32 random
-bytes in base64url. SQLite stores SHA-256 hashes only. Verification reads the
-prefix, compares hashes with `timingSafeEqual`, and updates last-used at most
-once a minute. Revocation takes effect on the next MCP request; other clients
-keep working. Neither Settings reads nor server boot mint a token.
-
-On **first local boot**, the server imports an existing `DATA_DIR/agent-token`
-file into `agent_tokens` for user 1, labelled “Migrated local token”. It commits
-the hash before renaming the file to `DATA_DIR/stdio-token` with mode 0600, and retries safely by hash after a crash.
-The old secret remains valid, so existing Claude Code and Codex HTTP configs
-keep working. Existing user-1 agent proposals/edits bind to that credential
-within the import transaction, so their amendments continue to work too.
-New drafts record the verified token id; changing a URL label grants no rights. This migration preserves the old secret format; new tokens use
-`dbk_`. Back up before upgrading; never run the migration against a live file
-for a rehearsal. Use an online SQLite backup to a temporary destination, copy
-the legacy file privately there, and set both `DECKBUILDER_DB` and
-`DECKBUILDER_DATA` to that copy.
-
-In local mode, no-argument stdio clients read `DATA_DIR/stdio-token`, preserving
-existing configurations on first v11 boot. After restoring a pre-v11 backup,
-local boot re-imports that saved file into the newly migrated token table;
-existing v11 revoked records are never reactivated. If neither file exists,
-create a token in Settings and save it privately. Hosted Settings omits local
-stdio/tunnel snippets.
-
-The stdio shim cannot recover a secret from its hash. Create a token in
-Settings, save the once-shown value in a private file (`chmod 600`), then use:
+Settings creates labelled once-shown tokens; store secrets in a private mode0600
+file. SQLite holds hashes only. Revocation affects the next request. The shim
+cannot recover secrets and does not mint/rotate them:
 
 ```sh
 node /absolute/path/to/packages/deck-builder/src/mcp/stdio.ts --name my-agent --token-file /private/path/to/token
 ```
 
-Secrets in `--token` argv are rejected. `--token-file` takes precedence over
-`DECKBUILDER_TOKEN_FILE`, then local mode defaults to `DATA_DIR/stdio-token`.
-Missing credentials
-fail clearly; reads never create or rotate anything. Settings returns an
-absolute shim path, uses placeholders until creation, and clears the secret
-from its component after “I saved it” or leaving the page. No browser storage
-holds it. The `/mcp/<label>` suffix remains attribution only, never a
-principal selector or a way to become UI. Missing bearers receive a 401
-resource-metadata challenge; hosted mode supplies metadata and JWKS verification.
+Priority is `--token-file`, `DECKBUILDER_TOKEN_FILE`, then local
+`DATA_DIR/stdio-token`; missing credentials fail. Secret `--token` argv is rejected.
+`DECKBUILDER_TOKEN` is removed. Hosted mode never imports the laptop token.
 
-Schema 11 creates `users` and assigns all old records to user 1 (`owner`,
-`Owner`, admin, no auth id). Card data/jobs remain global; personal documents,
-memories, settings, focus, inbox, review queue, activity and evidence are scoped
-to that user. The migrations run as ordered steps within one `BEGIN IMMEDIATE` transaction,
-re-reading the schema version under the write reservation so concurrent
-server/CLI openers serialize. Foreign keys are checked before commit; failures
-name the first five offending tables/rowids/parents and roll back all steps.
-Unsupported databases are refused before changing journal/schema state.
-Historical `owner (from v1)` attribution is UI; `migration` displays as
-“System migration”, with the original compact author text retained. See spec
-§17 for safe claim-code bootstrap and the hosted account lifecycle.
+First local migration hashes/commits `agent-token` and binds its pending drafts
+before renaming to `stdio-token` (0600); retries are idempotent. Existing client
+secrets stay valid. Pre-v11 restores may reimport the saved file without reviving
+revoked rows. Rehearse only on an online snapshot plus private copied token with
+explicit DB/DATA overrides. Never migrate/test against the owner's live file.
+Spec §§10.1 and17 own credential, attribution, tenant and migration contracts.
 
 ## Hosted bootstrap, secrets and provider redirects
 
@@ -251,21 +189,11 @@ responses, or provider credentials. Local `.env` is ignored and mode 0600.
 a service credential. `DECKBUILDER_WEB_PORT` is dev-only. There is no Sentry integration. No Google provider button appears until both Google
 credentials exist.
 
-Set `DECKBUILDER_CLAIM_CODE` before exposing the service. Open `/signin`, enter
-that code in **Invite or owner claim code**, and sign in with Discord. This
-links user 1 and its decks to that identity. A stranger cannot claim it by
-arriving first; if the claim variable is unset, only invited new users can
-register. The comparison is timing-safe. Once user 1 has an auth_id, the code
-is dead even if configured. The single success log says to remove it; remove
-the environment variable and redeploy. Do not reset auth_id to reuse a code.
-Use distinct random codes for disposable local tests and actual service bootstrap.
-
-Sign in as an admin and open Settings → Admin → Create invite. Copy the
-unused code privately to the intended tester. They enter it on `/signin`;
-registration consumes it once. Existing accounts sign in with an empty field.
-Invited users have empty accounts and cannot see the owner's decks. A
-colliding provider handle opens a first-run picker. The last admin cannot
-delete their account because someone must remain to run jobs/manage invites.
+Initial owner bootstrap requires an explicit code before exposure; no first-arrival
+claim. Use the claim lifecycle below, then remove the variable and redeploy. Never
+reset auth_id. New invited identities start empty and cannot read owner decks;
+existing identities need no code. Admin Settings creates private single-use invites.
+The last admin cannot delete itself. Distinct environments use distinct secrets.
 
 Before using a new Railway domain, add this **exact redirect** in Discord's
 Developer Portal → application → OAuth2 → Redirects:
@@ -276,21 +204,12 @@ OAuth client's authorized redirect URIs. Set the service public origin to
 the same domain. A domain change changes the issuer/resource: reconnect OAuth
 clients and sign in again rather than accepting tokens for the old audience.
 
-Keep BETTER_AUTH_SECRET stable: it protects cookies and encrypts stored
-provider tokens. Changing it invalidates those credentials.
-
-HTTPS uses Secure, HttpOnly, SameSite=Lax cookies with no cross-domain cookie.
-Loopback HTTP development deliberately omits Secure so the supplied Discord
-callback works. TLS terminates at Railway; the public origin still stays
-HTTPS. The application trusts forwarded host/protocol/IP only when
-`DECKBUILDER_TRUST_PROXY=1`; configure exactly one ingress that overwrites
-host/protocol headers. Rate-limit IP uses Railway’s documented `X-Real-IP`,
-falling back to the rightmost XFF hop, never the spoofable leftmost entry.
-For a new ingress, confirm those headers on the live service (including IPv6); see
-[Railway network specs](https://docs.railway.com/networking/public-networking/specs-and-limits).
-Do not expose a second untrusted route to the container.
-Host and browser Origin must match the configured public origin. Auth uses a
-fixed base URL, never a forwarded-header-selected issuer.
+Keep BETTER_AUTH_SECRET stable: it protects sessions/encrypted provider tokens.
+TLS terminates at Railway; cookies stay Secure on public HTTPS. Only explicit
+loopback development omits Secure. Trust proxy headers only behind one ingress
+that overwrites them; verify X-Real-IP/rightmost XFF including IPv6 on a new ingress.
+Never add a second untrusted container route. Auth issuer/public Origin stay fixed.
+See [network specs](https://docs.railway.com/networking/public-networking/specs-and-limits).
 
 Hosted `GET /api/health` bypasses Host/Origin and authentication, returns only
 `{ok,schema_version}`, sets no cookies and reveals no card/tenant/session facts.
@@ -300,79 +219,40 @@ Every other path keeps the public-origin rule. Local health retains its
 loopback checks and existing payload. Deployment port must match `PORT`.
 See [Railway health-check hostname documentation](https://docs.railway.com/deployments/healthchecks#healthcheck-hostname).
 
-The service intentionally runs one replica: rate limits are in-memory and
-reset at restart. `src/ratelimit.ts` is the canonical limit table. A future
-replica rollout needs shared limit state and a shared transaction strategy.
-CIMD transport uses Better Auth's public-address policy and pins one checked
-DNS answer, preferring IPv4 to work without outbound IPv6. It validates all
-answers and never follows redirects. Do not substitute ordinary fetch.
+One replica is mandatory while limits are in-memory and SQLite has one writer.
+`src/ratelimit.ts` owns limits. Do not replace DNS-pinned CIMD transport with ordinary
+fetch; spec §17 owns its validation and concurrency contracts.
 
 ## Account lifecycle and auth schema
 
-Settings → Account exports JSON (all owned tables plus Archidekt deck text)
-and deletes after typed-handle confirmation. Export excludes credential
-secrets. Deletion removes auth sessions/accounts, OAuth grants/codes, personal
-tokens and all owned application rows, with no post-deletion activity.
-Other tenants’ content and spent invite records stay; attribution is replaced
-with non-login tombstone user 0 and identifying author labels are cleared. Local
-storage keeps the newest 14 snapshots; bucket retention keeps 14 daily and
-6 monthly recovery points plus the latest upload. Repeat deletions when
-restoring older backups.
+Settings exports/deletes the signed-in account under the spec's UI/tenant guards.
+Exports omit secrets; deletion preserves other users' data with tombstone
+attribution. Restoring old snapshots also restores credentials and deleted content:
+repeat erasures/revocations deliberately. No impersonation or manual auth_id rewrite.
 
-Schema generation uses the pinned config and an **in-memory database**:
+Generate auth SQL with the pinned config and **in-memory** database:
 `npx auth@1.7.13 generate --config scripts/auth-schema.ts --output <temporary.sql> --yes`.
-Compare its SQL to `src/migrations/auth-v12.sql`. Never generate against
-production and never run `auth migrate`. The schema SQL is applied only by
-our ordered v12 migration within the same BEGIN IMMEDIATE transaction.
-
-Hosted request bodies are capped at 1 MiB and buffered before reserving the
-shared database connection. Incomplete bodies time out after 10 seconds;
-slow uploads do not hold up other users’ reads. Open MCP subscriptions release
-the reservation after dispatch. Scheduler failure writes queue behind auth
-transactions on this connection; refresh/backup workers keep separate connections.
+Compare `src/migrations/auth-v12.sql`; never generate against production or run
+`auth migrate`. Ordered migrations apply it in the existing transaction. Body
+limits are 1MiB/10 seconds; database reservations are per query/transaction, never
+across outbound I/O or MCP streams. Spec §17 owns implementation constraints.
 
 ## OAuth review hardening
 
-Web connectors use CIMD; anonymous DCR accepts only loopback HTTP or native
-custom-scheme callbacks. Claude.ai publishes its client document at
-https://claude.ai/oauth/mcp-oauth-client-metadata (redirect
-https://claude.ai/api/mcp/auth_callback); ChatGPT publishes
-https://chatgpt.com/oauth/client.json (redirect
-https://chatgpt.com/connector_platform_oauth_redirect). Both documents were
-verified directly from their hosts. ChatGPT's documented CIMD flow is at
-https://developers.openai.com/plugins/build/auth#oauth-flow. Choose CIMD in
-the connector setup; no HTTPS DCR redirect allowlist is needed. Consent shows
-the identity and redirect hosts, plus an unverified-name notice for DCR and
-local-app impersonation warning for loopback callbacks.
+Web connectors use CIMD; anonymous DCR allows native/loopback callbacks only.
+Client documents: [Claude](https://claude.ai/oauth/mcp-oauth-client-metadata),
+[ChatGPT](https://chatgpt.com/oauth/client.json). Corresponding redirects are
+`https://claude.ai/api/mcp/auth_callback` and
+`https://chatgpt.com/connector_platform_oauth_redirect`; use the connector's actual
+current metadata and [documented flow](https://developers.openai.com/plugins/build/auth#oauth-flow).
+Consent/host validation, public fetch bounds and grant/JWT disconnect semantics
+are canonical in spec §17.7. Local mode exposes no legal pages/footer. Hosted public
+operator/contact configuration belongs in environment, never committed identity.
 
-The DB reservation is taken by the pinned native Kysely dialect per query
-or transaction. Never wrap the auth handler or outbound DNS/provider fetches
-in it. The public metadata fetcher has four slots, a five-second deadline
-including DNS waiting, a 64 KiB body cap and 30-second/128-entry public cache.
-Concurrent UI reads remain available during slow CIMD/provider requests.
-
-
-Hosted startup requires public `DECKBUILDER_OPERATOR_NAME` and
-`DECKBUILDER_CONTACT_EMAIL`; set them in Railway/environment, not source.
-Do not put personal contact details in the repository. Local mode needs
-neither and exposes no legal pages/footer. Set a cryptographically random
-claim code of at least 32 characters; shorter configured codes fail startup.
-If the owner's Discord identity first registers as an invited/open user,
-it cannot later claim user 1: delete that new account first, then sign in
-with the owner claim code. Never manually rewrite auth_id.
-
-Settings → Agent connection → Connected OAuth apps → Disconnect removes the
-grant and refresh tokens, and invalidates existing JWTs even after a later
-re-consent. Tokens minted within the same second as disconnect may need a
-retry the next second. Handles can only be changed in the first-run picker.
-Anonymous native client registrations with no grants expire after one day;
-cleanup runs at most hourly on auth requests. Refresh rotation permits a
-five-second retry grace. Auth/session/linking endpoints unused by the product (including generic HTTP
-get-session; the product uses /api/session)
-are disabled. Hashed assets are immutable for a year; HTML/auth/API responses
-are no-store. Rate buckets are isolated by kind, IPv6 shares a /64, claim
-attempts use 5/minute/IP, and OAuth token exchange uses 240/minute/client.
-
+If an invited/open identity was created before claiming, delete that new account
+through its own UI before claiming user 1. Never manually rewrite auth_id. UI
+Disconnect revokes a user/client grant; a new same-second grant may need next-second
+retry because JWT timestamps have one-second precision.
 
 ## Per-store prices
 
@@ -432,17 +312,10 @@ The allowlist `.dockerignore` includes the product, backend and only the shared
 game/preview inputs needed to build it. It excludes `.env`, database/token/cache
 files, tests, `.git`, native/generated artifacts and unrelated packages. Docker's `HEALTHCHECK`
 uses `/api/health`; Railway separately checks that path on target port 8787.
-The original phase used Railway to verify the image because the local Docker
-daemon was unavailable. The 2026-11-14 ownership refactor independently verified
-filtered install/build/prune, runtime imports and context exclusions, but did not
-execute an actual container image. A future promotion must verify that image and
-ensure watch paths include `packages/multiverse/**`, `packages/deck-builder/**`,
-the shared preview/display inputs and root lock/config files. The explicit Railway
-start override must be `sh /usr/local/bin/deck-builder-entrypoint node
-../multiverse/src/server.ts`, from `/app/packages/deck-builder`, matching the image
-command. The old `node src/server.ts` override points at a removed backend file
-and fails before health checks. Source configuration changes take effect only
-after applying the matching service settings and deploying the verified commit.
+Verify the actual image before promotion; build/runtime/context checks alone do
+not establish a working container. Watch paths must include product, backend,
+shared preview/display inputs and root lock/config. Deployment is explicit, never
+an effect of source/documentation changes.
 
 The image defaults to `USER node`. Railway requires `RAILWAY_RUN_UID=0` for
 its root-owned volume; the entrypoint prepares only the data directory,
@@ -476,22 +349,15 @@ those use the CLI/API below.
 
 ## Logs, health and monitoring
 
-Request and MCP tool logs are one JSON object per line with `ts`, `level`,
-`req_id`, resolved `user_id`, `via`, `label`, `method`, `path` or `tool`,
-`status` and elapsed `ms`. `X-Request-ID` correlates the two records. Requests
-log once on finish/close; open SSE requests log when closed (499 if aborted).
-5xx errors include their actual name, code and stack frames; 4xx errors are
-warn-level without stacks. Hosted logs exclude the message because provider/validation
-messages can contain credentials or submitted text. Query strings, headers,
-cookies, request bodies, tool arguments/results and raw IPs are never logged.
-Dynamic URL segments are replaced with placeholders; MCP paths log `/mcp`.
-Hosted children emit one redacted structured failure (name/code/stack frames),
-plus job completion; arbitrary child text is discarded. Local 500/startup
-errors still print the readable message. Successful health probes are skipped.
-Settings and `meta` retain job status, last successful backup and staleness.
-Railway Hobby provides a 7-day log window; there is no external log exporter.
-The privacy page describes these operational logs and retention. See
-[Railway log retention](https://docs.railway.com/observability/logs). Better Auth's own logger stays disabled.
+Logs contain generated request ID, time/level, resolved principal/via/label,
+method/redacted path or tool, status and duration. Finish/close logs once (aborted
+SSE is499). Hosted errors retain name/code/frames, never messages, payloads, queries,
+headers/cookies/tokens/raw IP; dynamic segments redact and MCP path is `/mcp`.
+Child output is similarly redacted, Better Auth logger disabled. Local errors remain
+readable; successful health probes are skipped. Settings/admin retains job status
+and backup age. No external log exporter; [Railway retention](https://docs.railway.com/observability/logs)
+is provider-owned. IDs correlate logs, never authorize requests.
+
 For example, grepping Railway's structured output:
 
 ```sh
@@ -584,21 +450,16 @@ or bucket-credential output. Feed sensitive values on stdin:
 railway variable set DECKBUILDER_CLAIM_CODE --stdin --environment production --service deck-builder < ~/.config/deck-builder/claim-code
 ```
 
-The initial bootstrap normalized the file's trailing newline before setting
-it. For subsequent stdin use, store the file without a trailing newline, or
-strip it in a small private process that pipes directly to Railway. Never
-paste a production claim code into the repository, shell argv, logs or chat.
-The owner's production file is `~/.config/deck-builder/claim-code`, mode 600;
-staging has a distinct random file at `~/.config/deck-builder/claim-code-staging`,
-mode 600. Auth secrets are distinct random values per environment. Discord
-credentials are shared by explicit owner choice; add both exact redirect URLs.
-Legal identity values are required public environment configuration, not
-source-controlled personal information.
+Files must contain no trailing newline (or strip it in a private stdin pipeline).
+Never expose secrets via argv/logs/chat. Owner bootstrap files are
+`~/.config/deck-builder/claim-code` and distinct `claim-code-staging`, mode0600.
+Auth secrets differ per environment; Discord credentials are shared only by explicit
+owner choice with both redirects. Operator legal identity is environment data.
 
 Owner bootstrap: open `https://deck-builder-production-00d7.up.railway.app/signin`,
 paste the production file contents into **Invite or owner claim code**, and
 sign in with Discord. Confirm user 1 has a non-null auth_id, remains admin,
-and owns all 18 decks and 36 memories. After the `owner_claimed` event:
+and matches the verified source roster/counts. After the `owner_claimed` event:
 
 ```sh
 railway variable delete DECKBUILDER_CLAIM_CODE --environment production --service deck-builder
@@ -625,13 +486,6 @@ to `railway variable set BETTER_AUTH_SECRET --stdin`; don't save it in a file.
 For bucket rotation, reset credentials only for that environment's bucket,
 capture the response privately, set both `BACKUP_S3_ACCESS_KEY` and
 `BACKUP_S3_SECRET_KEY` sealed, redeploy, run a backup and verify its object.
-
-Mint an invite as the signed-in admin: Settings → Admin → Create invite.
-Give the single-use code privately to one tester. They open `/signin`, enter
-it, sign in with Discord, and should see zero decks; requests for owner decks
-must return 404. Existing accounts sign in with an empty code field. Account
-delete/export stay self-service; never impersonate a tester or manually link
-a new identity to user 1.
 
 ## Spending alert and native volume snapshots
 
@@ -857,8 +711,7 @@ JS
 Disconnect/store the external copy independently, keep six monthly copies,
 and repeat erasures/revocations if recovering one. The quarantined pre-claim
 archive is excluded from normal restore selection and remains owner-only;
-review its disposition after an independent recovery copy exists. This review
-copied its archive key and deleted **nothing** in either bucket.
+review its disposition after an independent recovery copy exists. Documentation maintenance grants no bucket cleanup authorization.
 
 
 ## Owner release promotion
@@ -870,7 +723,7 @@ production snapshot immediately before promotion, verify the uploaded key/size,
 then push that SHA to `release`. Never push whichever `main` happens to name or
 use old PR7/v12→v13 instructions. Follow the exact resulting deployment to SUCCESS,
 then check health/schema, owner roster, jobs and backups. Build upload alone is
-not deployment success. No promotion/deployment occurred during doc consolidation.
+not deployment success. Documentation maintenance never grants production promotion authority.
 
 Protect `release` against unreviewed updates/deletion/force pushes, retaining an
 explicit owner promotion bypass. If repository plan limits prevent that protection,

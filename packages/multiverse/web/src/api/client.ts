@@ -1,4 +1,5 @@
 import type {
+  GameAdmission, GameLaunchResult, GameRecord,
   CommandMeta,
   Focus as ServerFocus, FocusReport,
   AgentConnection,
@@ -33,6 +34,7 @@ export type { PlaytestView, PlaytestAction, PlaytestUiPatch, TableCard, TableObj
 // a contract change fails typechecking instead of failing at runtime.
 
 
+export type { GameAdmission, GameRecord, GameLaunchResult };
 export type { Currency, Store, PriceSource, CardRow };
 
 export type {
@@ -125,6 +127,10 @@ type StateResponse = { state: DeckState; command?: CommandMeta };
 export type Outcome = "accept" | "reject";
 
 export const api = {
+  gameAdmission: (deck_id: number, expected_revision: number) => request<{ admission: GameAdmission }>("POST", "/api/games/admission", { deck_id, expected_revision }),
+  launchGame: (deck_id: number, expected_revision: number, request_id: string) => request<GameLaunchResult>("POST", "/api/games", { deck_id, expected_revision, request_id }),
+  listGames: () => request<{ games: GameRecord[] }>("GET", "/api/games"),
+  resumeGame: (id: string) => request<GameLaunchResult>("POST", `/api/games/${id}/resume`, {}),
   disconnectClient: (client_id:string) => request<{ok:boolean}>("DELETE","/api/account/oauth",{client_id}),
   session: () => request<Session>("GET","/api/session"),
   signup: (code:string) => request("POST","/api/signup",{code}),

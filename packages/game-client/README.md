@@ -1,139 +1,85 @@
 # Multiverse desktop client
 
-The standalone React/Vite harness owns live local joining, session recovery and
-explicit opening-hand choices. Its shared table, cards and inspection are consumed
-from `@multiverse/game-ui`; the unified product uses that same implementation.
-Import an operator's single-seat bootstrap at `/join`, then open `/table`.
-Capabilities stay in memory; refresh requires reimport. Later decision families
-and complete games remain outside the current client acceptance.
+The standalone React/Vite harness owns operator-issued joining, session recovery
+and explicit opening mulligan/bottom choices plus bounded live action discovery.
+Shared permitted table/inspection comes from game-ui. Later decisions, natural complete games and automated launch
+retain separate [client gates](../../docs/game-client.md#delivered-scope-and-remaining-gates).
 
 ## Public integration boundary
 
-`@multiverse/game-client/preview` exports `OpeningTablePreview()`, a router-free
-React component using the unchanged qualified opening capture. The host supplies
-its own account, navigation and a height-constrained content region. Scoped CSS
-Modules load automatically, use only `--game-*` variables and do not change the
-host document. Hosts deduplicate React/React DOM; there is no second app shell,
-iframe or authentication runtime. Confirming this preview only updates local
-feedback and never sends a game action or uses a selected builder deck.
+`@multiverse/game-client/preview` exports router-free `OpeningTablePreview()` over
+the qualified captured opening. The host supplies account/navigation, constrained
+content height and deduplicated React. Scoped CSS Modules use `--game-*`; no iframe,
+second app shell, auth/session/SDK runtime or host-document styles enter this path.
+Confirmation changes local feedback only, never a selected deck or game command.
 
-The public component declaration has no SDK/native-generated type dependencies.
-The concrete implementation remains checked inside this package against the
-qualified SDK. A consumer's typecheck and Vite bundle need no generated SDK or
-client artifacts. Runtime graph checks prevent routing, session effects and SDK
-runtime from entering the public preview.
+Public declarations need no SDK-generated inputs; implementation parity is checked
+inside this package. Node-only `/verify-preview` exports `verifyPreviewFixtures()`
+for consumer builds, verifying recorded fixture hashes and capture/catalog/viewer/
+source binding without native/SDK generation. Historical fixture provenance stays
+unchanged and establishes no fresh native acceptance.
 
-The Node-only `@multiverse/game-client/verify-preview` export provides
-`verifyPreviewFixtures()`. The unified product calls it before Vite builds; it
-checks every recorded fixture digest plus capture/catalog/viewer/source binding
-without generating a schema or starting native code. This preserves the recorded
-historical capture qualification; it makes no fresh native acceptance claim.
-
-The original inspection fixtures remain at `/`, `/fixtures/opening` and
-`/fixtures/missing-metadata`; `/fixtures/decisions#table` opens the local interactive
-preview, and `/fixtures/decisions` retains the independent controls gallery.
+Fixture routes remain `/`, `/fixtures/opening`, `/fixtures/missing-metadata` and
+`/fixtures/decisions`; its `#table` opens the local interactive preview.
 
 ## Explicit setup
 
-Use pinned Node 26.11.1 through `sh scripts/engine-env.sh`. Never run a root npm
-install, share node_modules or invoke Cargo from client/SDK commands. Install the
-packages locally with their own lockfiles:
+From repository root, use pinned Node and package-local locked installs:
 
 ```sh
 sh scripts/engine-env.sh npm --prefix packages/game-ui ci --workspaces=false --ignore-scripts
 sh scripts/engine-env.sh npm --prefix packages/game-server/sdk ci --workspaces=false --ignore-scripts
 sh scripts/engine-env.sh npm --prefix packages/game-client ci --workspaces=false --ignore-scripts
-```
-
-Obtain the serving owner's exact native exports for source
-`ebfa6dde266139c45220959c4179ddedf6a38433` (the current qualification pin;
-see `sdk-qualification.json` and [opening evidence](../../docs/game-client-evidence.md#opening-and-recovery-evidence)):
-
-- Protocol SHA-256: `a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3`.
-- Bootstrap SHA-256: `0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a`.
-
-Generate and verify the SDK explicitly, then check/build the client using that
-same SDK. Do not replace it with historical fixture declarations between checks.
-`sdk-qualification.json` pins current validation separately from unchanged capture
-provenance in `fixtures/foundations-opening/provenance.json`.
-
-```sh
 MTG_SERVER_SCHEMA=/absolute/protocol.schema.json \
 MTG_SERVER_BOOTSTRAP_SCHEMA=/absolute/bootstrap.schema.json \
 sh scripts/engine-env.sh npm --prefix packages/game-server/sdk run verify --workspaces=false
 sh scripts/engine-env.sh npm --prefix packages/game-client run check --workspaces=false
 ```
 
-The native operator exports an explicit allowlist from `dist/`, provisions a
-private match and four individual seat files, and serves the production bundle,
-API and catalog-bound presentation artifact at one numeric loopback origin.
-Follow [the serving contract](../../docs/game-client.md#native-delivery-and-operator-procedure) for the
-exact export/launch commands and native source identities. Never place operator
-credentials or seat files under client/dist, public bundle or presentation roots.
+Obtain exports matching [`sdk-qualification.json`](sdk-qualification.json), the
+canonical current native/schema pin. Keep one SDK through verification and client
+checks; do not substitute historical fixture declarations. Client/SDK commands
+never invoke Cargo or create native schemas. Do not replace shared root dependencies.
+[Native delivery](../../docs/game-client.md#native-delivery-and-operator-procedure)
+owns exact export/provision/serve commands and private file boundaries.
 
-For a Vite development session, explicitly allowlist the upstream:
+For Vite development, explicitly allowlist the upstream:
 
 ```sh
 MTG_CLIENT_UPSTREAM=http://127.0.0.1:18741 \
 sh scripts/engine-env.sh npm --prefix packages/game-client run dev --workspaces=false
 ```
 
-Open `http://127.0.0.1:5173/join`, not a localhost alias. Vite serves its public
-`/client-config.json`, checks local Host/Origin before proxying, and forwards only
-allowlisted read routes, opening command submissions and execution-status reads
-to the configured upstream. Action queries, cancellation and operator routes
-remain blocked by this proxy. An imported file cannot change that
-mapping. Production native mode supplies the same config schema. No wildcard
-CORS or cross-origin credential fetch is used. A plain unconfigured Vite instance
-still serves fixtures, but live config fails explicitly.
+Open numeric `http://127.0.0.1:5173/join`, import exactly one seat, then `/table`.
+Capability is memory-only; refresh requires reimport. Config/Host/Origin guards
+precede the allowlisted proxy. It admits reads, submissions/execution status and exact action-query/queued-command
+cancel routes. Operator and arbitrary routes remain blocked. An imported file cannot
+select upstream. Unconfigured Vite serves fixtures but live config fails explicitly.
 
 ## Focused checks and evidence
 
-`check` verifies fixture hashes, current SDK source/build/schema receipts, strict
-TypeScript, import/effect boundaries, pure/controller tests and the production
-runtime-module allowlist. No native schema/SDK generation happens implicitly.
-`test:browser` builds and starts an isolated production preview on port 4179,
-checks the fixture, keyboard/focus, narrow/reduced-motion and disconnected join
-routes, then stops it. Use the locked Playwright browser installs:
+`check` verifies qualified fixture/SDK receipts, strict types, boundaries, pure
+controllers and production runtime-module allowlist/build. No generation is implicit.
+`test:browser` builds/serves production fixtures on 4179 and closes its preview.
+Browser installation is an explicit setup step:
 
 ```sh
 sh scripts/engine-env.sh node packages/game-client/node_modules/@playwright/test/cli.js install chromium firefox
 sh scripts/engine-env.sh npm --prefix packages/game-client run test:browser --workspaces=false
-```
-
-`test:browser:live` requires the independently running, source-qualified native
-host (or the explicitly configured production preview proxy), with four separate
-human-owned seats and no bots. Set paths only; never print capability contents:
-
-```sh
 MTG_CLIENT_LIVE_ORIGIN=http://127.0.0.1:18741 \
 MTG_CLIENT_SEAT_FILES=/private/seat-0.json,/private/seat-1.json,/private/seat-2.json,/private/seat-3.json \
 sh scripts/engine-env.sh npm --prefix packages/game-client run test:browser:live --workspaces=false
 ```
 
-The read-only live smoke suite verifies four authenticated permitted views, separate browser
-contexts, same-profile duplicate-tab exclusion/release, reimport after refresh,
-CSP, empty browser persistence and GET-only traffic. Separately labeled injected
-browser faults test metadata loss/corruption, late responses and HTTP errors.
-Traces, HAR, videos and automatic screenshots are disabled for authenticated
-tests so Authorization headers cannot be captured. Reports retain public
-identities/counts only. Preserve failed evidence before repeating a run.
+Live smoke requires an independently running qualified host (or configured preview
+proxy), four human-owned seats and no bots; it starts neither host nor Cargo.
+It checks separate permitted read views/contexts, duplicate-tab lock ownership,
+reimport, CSP, empty persistence and GET-only traffic. Injected metadata/network
+faults are separately labelled. Authenticated traces/HAR/video/automatic screenshots
+stay off; preserve public identities/browser versions, failed evidence and omissions.
+[Evidence](../../docs/game-client-evidence.md) owns accepted sources; fixture and
+opening proofs do not qualify full-game/Safari/human usability.
 
-[Opening and recovery evidence](../../docs/game-client-evidence.md#opening-and-recovery-evidence)
-and [product/shared display evidence](../../docs/game-client-evidence.md#productshared-display-evidence-pr24)
-retain exact source identities, failures and omissions. Neither establishes full-game play.
-
-## Ownership and remaining work
-
-`app` owns composition/lifetime; `session` owns identity, one read loop, ownership
-and bounded recovery; `session/effects` owns SDK/file/browser I/O. Components
-consume immutable permitted snapshots and format human-readable views. Core
-semantics and visibility remain authoritative; the SDK validates wire data.
-Missing metadata keeps observed identity and characteristics; no card facts,
-active faces, legal actions or source-ability labels are inferred.
-
-Current source implements durable opening-choice journaling, submission and
-reconciliation; see [opening evidence](../../docs/game-client-evidence.md#opening-and-recovery-evidence) for exact accepted source and limits.
-Full decision/action-context integration, natural games, account-to-seat mapping,
-automated match supervision and M2–M4 acceptance remain separate. Safari and
-human usability studies are not claimed.
+See [the package manual](AGENTS.md) for ownership and
+[the session contract](../../docs/game-client.md) for authorization, exact command
+journaling, unavailable context and remaining integration gates.

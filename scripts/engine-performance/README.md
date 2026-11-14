@@ -93,7 +93,7 @@ modifier evaluators, repeated observations and repeated actual-world rollouts
 retain their declared scope. They are not legal-pod, network, strategic-strength
 or independent-hidden-world results. See
 [the measurement report](../../docs/game-engine-evidence.md) and
-[the full performance plan](../../docs/game-engine-mechanics.md).
+[the search workload contract](../../docs/game-engine-search.md#sampler-roots-and-outcome-accounting).
 
 
 Definition diversity and shrinking-choice diagnostics use

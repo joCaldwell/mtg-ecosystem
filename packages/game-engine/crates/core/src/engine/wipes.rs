@@ -26,6 +26,7 @@ impl Game {
                     ObjectSet::AttackingCreatures => {
                         creature && self.state.rules.combat.iter().any(|a| a.attacker == o.id)
                     }
+                    ObjectSet::ControllerCreatures => creature && o.controller == controller,
                     ObjectSet::OpponentCreatures => creature && o.controller != controller,
                     ObjectSet::FlyingCreatures => {
                         creature && self.has_keyword(o.id, KeywordAbility::Flying)
@@ -301,6 +302,7 @@ impl Game {
         };
         let targets = match &kind {
             ResolvedEffectKind::PumpSet { targets, .. }
+            | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
             | ResolvedEffectKind::ExileDamaged { targets } => targets,
             _ => return Err("not set effect".into()),
         };
@@ -360,6 +362,25 @@ impl Game {
                         targets,
                         power,
                         toughness,
+                    },
+                    source_block,
+                )
+            }
+            Instruction::GrantKeywordsSet {
+                set,
+                modifier,
+                keywords,
+                duration: Duration::UntilEndOfTurn,
+                source_block,
+            } => {
+                // CR 611.2c/613.5-6: capture once and create all layers atomically.
+                let targets = self.objects_in_set(&set, frame.spell.controller);
+                self.create_set_effect(
+                    frame,
+                    ResolvedEffectKind::GrantKeywordsSet {
+                        targets,
+                        modifier: modifier.clone(),
+                        keywords,
                     },
                     source_block,
                 )

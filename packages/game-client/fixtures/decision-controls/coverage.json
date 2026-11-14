@@ -18,16 +18,16 @@
   },
   "evidence": [
     {
-      "path": "docs/game-client-core-queries.md",
-      "sha256": "a86f6773eb3c4d6a0c970c0056c9d67480dd556ef69efaa2caeeedf95c5d92d1"
+      "path": "docs/game-client.md",
+      "sha256": "69a1c1817eaa3a96fd1035dbd3cf6874231a4f5eb106ae8c044a914280a5e1ee"
     },
     {
       "path": "docs/game-engine-current.md",
-      "sha256": "0aa37dbf076b76e5ba92a6296332d26d7e9ce9e5b00b93b5822e5205963e6c68"
+      "sha256": "404c494f5b3727cba80d59600b3ff9116238552465f99e1c32d69ce7e5f96ce5"
     },
     {
-      "path": "docs/game-engine-server-attachments.md",
-      "sha256": "eb0ed4a29fe9b2da92e29b53b0870561d064654e5e2d8caa99a3abc378b65177"
+      "path": "docs/game-engine-server.md",
+      "sha256": "29373ae12b229d164445c9ceee37f8b2fda53b587fc217fc1498bc6322e437e3"
     },
     {
       "path": "packages/game-engine/crates/core/src/engine/visibility.rs",
@@ -59,7 +59,7 @@
     },
     {
       "path": "packages/game-client/scripts/decision-inventory.mjs",
-      "sha256": "062dc8b8229722be3ec6fc9ce3085eab77df1f2943937c64b4a366f0df1588ed"
+      "sha256": "3ce1ec51d8108066cc19d86ee82b114d09c127a10484229ca87f1a62c95db42e"
     },
     {
       "path": "packages/game-client/tests/decision-controls.test.ts",
@@ -292,7 +292,7 @@
       ],
       "known_admitted_reachability": "Historical authenticated foundations opening plus fresh separately validated openings in both admitted profiles. Bounded captures only.",
       "reachability_evidence": [
-        "docs/game-client-core-queries.md",
+        "docs/game-client.md",
         "packages/game-client/fixtures/foundations-opening/provenance.json",
         "packages/game-client/fixtures/decision-controls/prefix-provenance.json"
       ],
@@ -710,7 +710,7 @@
       ],
       "known_admitted_reachability": "Fresh separately validated foundations and attachments main-priority-before-land/main-priority-before-cast captures, plus core query report. Bounded prefixes only.",
       "reachability_evidence": [
-        "docs/game-client-core-queries.md",
+        "docs/game-client.md",
         "packages/game-client/fixtures/decision-controls/prefix-provenance.json"
       ],
       "implemented_control_draft": "context-missing",
@@ -760,7 +760,7 @@
       ],
       "known_admitted_reachability": "Fresh separately validated foundations and attachments cast-mana captures, plus core query report. Bounded prefixes only.",
       "reachability_evidence": [
-        "docs/game-client-core-queries.md",
+        "docs/game-client.md",
         "packages/game-client/fixtures/decision-controls/prefix-provenance.json"
       ],
       "implemented_control_draft": "context-missing",
