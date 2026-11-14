@@ -372,7 +372,7 @@ fn finish_query(g: &Game, mut r: QueryResult) -> QueryValue {
         r = match r {
             QueryResult::Complete(v) => return v,
             QueryResult::Incomplete { work, .. } => g.resume_work(work, Budget::new(1)),
-            x => panic!("query {x:?}"),
+            _ => panic!("query rejected or did not complete"),
         };
     }
     panic!("bounded query")
