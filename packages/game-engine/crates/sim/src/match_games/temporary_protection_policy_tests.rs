@@ -263,7 +263,7 @@ fn temporary_protection_policy_fixed_announced_lethal_damage_and_prevention_cont
     assert_eq!(preferred(&c, &v, None), None);
 }
 #[test]
-fn temporary_protection_policy_synthetic_permitted_ir_controls_use_semantics_not_names() {
+fn temporary_protection_policy_synthetic_identity_and_invalid_shape_controls_are_separate() {
     let (mut c, v) = fixture();
     let id = v.objects[0].oracle_id.clone();
     let d = c
@@ -277,6 +277,8 @@ fn temporary_protection_policy_synthetic_permitted_ir_controls_use_semantics_not
         strategy(&c).priority(&observation(v.clone())).unwrap(),
         cast(&v)
     );
+    // Deliberately invalid shape mutations test the recognizer boundary only.
+    // They are not admitted definitions or legal-pod/permitted-IR evidence.
     for n in 0..3 {
         let mut altered = c.clone();
         let d = altered
