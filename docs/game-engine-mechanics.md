@@ -194,6 +194,65 @@ abilities and resolved spell effects retain independent lifetimes. Unsupported
 CDA/setting/copying/swapping or general layer combinations must be implemented
 before admitting sources that need them.
 
+### Attachment entry and ordering
+
+Resolving admitted Auras enter the battlefield already attached to their exact
+legal target, before entry observers capture the resulting state (CR 608.3c).
+The typed entry occurrence owns both movement and attachment; its outcome retains
+the successor incarnation, target and semantic attachment timestamp. Ordinary
+completion still owns stack removal, completion notification and stabilization.
+
+Actual attachments receive a checked monotonic timestamp (CR 613.7e, 701.3c).
+Reattaching to the same object changes neither timestamp nor allocator (701.3b);
+unattachment and zone changes clear the source's attachment metadata. Target
+movement never redirects a grant to a successor incarnation. A reachable pause
+before attachment SBAs may retain the historical target until cleanup. Ordering
+never comes from object IDs, map iteration or trace retention. Simultaneous
+competing attachments require the unimplemented APNAP/player-selected timestamp
+ordering of CR 613.7m and reject explicitly.
+
+Private snapshot format 22 includes attachment timestamps and their allocator in
+canonical state and replay verification. Card IR remains 1; public/query formats
+and catalog/hosting/search admission are unchanged. Continuous control uses the
+separate source family below.
+
+### Continuous creature control from Auras
+
+`aura_control_v1` admits the complete normal Aura shape: enchant one unfiltered
+creature, then a sole battlefield static operation giving its enchanted creature
+to the current source controller (CR 109.5, 110.2, 613.1b). Complete frozen Mind
+Control and Control Magic are witnesses with different printed mana costs; names,
+Oracle IDs and costs never select the control algorithm. Extra clauses, filters,
+abilities, durations, animation and dependent control-source forms reject.
+
+The current battlefield source, exact attached target incarnation and semantic
+attachment timestamp determine authority. The latest live Aura wins; removing it
+reveals the older Aura or default controller, independently of ownership. A
+source/target successor never inherits the predecessor's attachment. Existing
+synthetic control-effect ordering remains separate: an Aura and such a grant on
+the same creature reject rather than invent a shared clock.
+
+Reconciliation finishes each occurrence or complete simultaneous group before
+entry/ordinary observers. All cache transitions precede derived keyword facts;
+common-prior damage/death facts stay frozen. An actual controller change removes
+combat membership and resets readiness (302.6, 506.4); a same-controller grant or
+removal does neither. Counters, marked damage, tapping, ownership, default control
+and attachments persist. Controlled-target predicates, Hexproof, activation
+permissions and anthems use current control; paid invocations retain their own
+frozen controller. Queries never repair the cache by mutation.
+
+Departure removes every losing owner's objects before reconciling survivors.
+When the final grant ends and no living default/remaining controller exists,
+800.4a/c exile is immediate, recorded through typed movement with consumed control
+authority and ordinary incarnation/LKI facts. Unsupported synthetic source-exile
+dependencies reject. Reconciliation never grants priority, stabilizes, places
+triggers or replaces a casting/resolution continuation. Restored-object reversal
+reconciles surviving Aura authority without resurrecting departed owners; the
+sacrificed-source receipt regression is synthetic because current source admission
+rejects sacrifice mana costs. It establishes no paid sacrifice/recovery claim.
+No new snapshot/public/query format or playable/consumer admission follows.
+
+
 `indestructible_v1` supports intrinsic creature/artifact/enchantment/land keywords.
 Its separately fenced equipped grant requires Artifact + exactly Equipment subtype,
 Equipped scope, zero P/T, exactly Indestructible and no restrictions. Other scopes,

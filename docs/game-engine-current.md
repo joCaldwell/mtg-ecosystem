@@ -36,15 +36,18 @@ The shared temporary-keyword family supports reviewed unique combinations of Fly
 Deathtouch, Indestructible, Lifelink and Hexproof, optionally preceded by a fixed
 signed stat modifier. Targets may be ordinary creatures or creatures controlled
 by the invocation controller; old unfiltered subset requirements and consumer/pool
-admission remain unchanged. Current inputs do not provide a control-changing
-effect, so same-incarnation dynamic-control scenarios remain unqualified.
+admission remain unchanged. The separate complete Aura-control family derives current creature control from
+live source/target incarnations and attachment timestamps, preserving ownership
+and frozen invocation controllers. Dynamic controlled-target/Hexproof and
+departure/reentry behavior now has focused paid-source qualification. Admitted
+Auras enter already attached in one typed occurrence; checked semantic timestamps
+preserve attachment order independently of object IDs.
 The bounded [Ramos basic cascade family](game-engine-ramos-casting-contract.md#m3b-complete-basic-cascade-checkpoint)
 now lowers complete frozen Agent/Bloodbraid sources and executes owned resolution
 casting with self-cast triggers, sequential public exile and private random bottom.
 It is private source qualification; full M3 and profile/consumer admission remain
-open. Private snapshot 23 is reserved for its owned frame; public/context/query
-forms remain 18. Snapshot 22 belongs to the independent Aura lane; parent
-integration remains a separately qualified source.
+open. The combined private snapshot is 23; public/context/query forms remain 18.
+The individual producer results remain distinct from combined qualification.
 Features evolve in place with strict capability/shape validation and exact build/
 catalog fencing; old historical IR numbers describe earlier evidence only.
 Snapshots, bundles, public projections, query sidecars, AST archives and protocol
@@ -69,7 +72,7 @@ Acceptance is source-qualified, never inherited by later code:
 | D2c-d `394301d` | Accepted declared-attack triggers at historical IR24, including reviewed demo/Bundle lifetimes |
 | Later D2c-e/IR25 and finite trigger/keyword/interaction additions | Candidate/focused source qualification; no renewed combined acceptance or P7 performance claim |
 | Schema-1 reset | Regenerated 29 active pools, 1,357 definitions unchanged; focused checks only |
-| Latest controlled temporary-keyword family | Source `b505e32cfb29bbfdcf5183b7480fbbd41a750ce1`; 794 compiled rows; focused qualification only, with exact producer and omissions in evidence guide |
+| Latest continuous Aura-control family | Source `945c37a9da2902d7449caa4e1724a1d3d133f9f5`; 802 compiled rows; focused rules/source/recovery/schema qualification only |
 | Client/hosting consumers | Retain their own exact producer/schema/catalog/build qualification, separate from current engine HEAD |
 
 [The evidence guide](game-engine-evidence.md) retains exact source/digest and proof

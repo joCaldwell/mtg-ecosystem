@@ -1240,7 +1240,8 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
             );
             for a in &d.static_abilities {
                 match &a.effect {
-                    StaticEffect::EntersTapped
+                    StaticEffect::ControlEnchantedCreature
+                    | StaticEffect::EntersTapped
                     | StaticEffect::OpponentsCantCastDuringControllerTurn
                     | StaticEffect::ControllerCreaturePlusOneCounterReplacement { .. }
                     | StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer

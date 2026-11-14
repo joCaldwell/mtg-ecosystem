@@ -206,6 +206,7 @@ pub enum Capability {
     PermanentManaV1,
     CompositeActivationCostV1,
     CastEnchantmentV1,
+    AuraControlV1,
     TemporaryPowerToughnessV1,
     CombatDamagePreventionV1,
     DamageBudgetPreventionV1,
@@ -762,6 +763,10 @@ impl CounterPlacementModification {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
+    /// CR 109.5/303.4m/611.3/613.1b: the current source controller controls
+    /// its enchanted creature; this is not a frozen invocation recipient.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    ControlEnchantedCreature,
     /// CR 101.2/109.5/601.3: opponents cannot cast during this controller's turn.
     OpponentsCantCastDuringControllerTurn,
     EntersTapped,
@@ -1249,6 +1254,47 @@ pub struct Definition {
     pub capabilities: BTreeSet<Capability>,
     pub provenance: SourceProvenance,
 }
+/// The complete admitted Aura-control executable shape, without recursive
+/// validation, capability calculation, source identity or mana-cost dispatch.
+/// CR 303.4a/303.4m, 109.5 and 611.3: one creature target and one battlefield
+/// static effect using the current Aura controller. Other Aura families retain
+/// their existing admission rules.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+pub fn aura_control_source(definition: &Definition) -> bool {
+    let c = &definition.characteristics;
+    c.kind == CardKind::Enchantment
+        && c.additional_types.is_empty()
+        && c.subtypes == ["Aura"]
+        && !c.basic
+        && !c.legendary
+        && !c.snow
+        && c.power.is_none()
+        && c.toughness.is_none()
+        && !c.mana_cost.generic.is_negative()
+        && !definition.x_mana_cost
+        && definition.intrinsic_zone.is_none()
+        && definition.keywords.is_empty()
+        && definition.activated.is_empty()
+        && definition.mana_abilities.is_empty()
+        && definition.triggered.is_empty()
+        && matches!(definition.static_abilities.as_slice(), [a]
+            if a.functioning_zone == FunctioningZone::Battlefield
+                && a.effect == StaticEffect::ControlEnchantedCreature)
+        && definition.spell.as_ref().is_some_and(|p| {
+            p.timing == SpellTiming::MainPhase
+                && p.resolution == SpellResolution::Permanent
+                && p.functioning_zone == FunctioningZone::Stack
+                && p.additional_sacrifice.is_none()
+                && p.instructions.is_empty()
+                && p.modes.is_empty()
+                && matches!(p.targets.as_slice(), [t]
+                    if t.slot == 0 && !t.selection_id.is_empty()
+                        && t.domain == TargetDomain::BattlefieldCreature
+                        && t.chooser == Chooser::Controller
+                        && t.stage == EvaluationStage::Announcement
+                        && t.filter.is_none())
+        })
+}
 impl Definition {
     pub fn requirements(&self) -> BTreeSet<Capability> {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1]);
@@ -1438,6 +1484,7 @@ impl Definition {
                 set.insert(Capability::IndestructibleV1);
             }
             set.insert(match a.effect {
+                StaticEffect::ControlEnchantedCreature => Capability::AuraControlV1,
                 StaticEffect::OpponentsCantCastDuringControllerTurn => {
                     Capability::OpponentCastProhibitionV1
                 }
@@ -1469,6 +1516,14 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        if self
+            .static_abilities
+            .iter()
+            .any(|a| a.effect == StaticEffect::ControlEnchantedCreature)
+            && !aura_control_source(self)
+        {
+            return Err("unsupported complete Aura control family".into());
+        }
         if self.activated.iter().any(|a| has_keyword_grant(&a.program))
             || self.triggered.iter().any(|a| has_keyword_grant(&a.program))
             || self.spell.as_ref().is_some_and(|p| {
@@ -2268,6 +2323,10 @@ impl Definition {
                 ) {
                     return Err("counter replacement requires a battlefield permanent".into());
                 }
+                continue;
+            }
+            if a.effect == StaticEffect::ControlEnchantedCreature {
+                // The whole definition was checked by aura_control_source above.
                 continue;
             }
             if a.effect == StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer {
@@ -4322,6 +4381,51 @@ pub fn catalog_schema() -> serde_json::Value {
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::CastSpellColorCountersV1}}}}}
     }));
     cascade_schema(&mut schema);
+    // Keep the Aura-control operation and capability paired with its complete
+    // executable shape. This addition does not narrow other attachment families.
+    schema["$defs"]["AuraControlDefinition"] = serde_json::json!({
+        "required":["spell","static_abilities","capabilities"],"properties":{
+            "x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},
+            "characteristics":{"properties":{
+                "kind":{"const":"enchantment"},"additional_types":{"maxItems":0},
+                "subtypes":{"const":["Aura"]},"basic":{"const":false},
+                "legendary":{"const":false},"snow":{"const":false},
+                "power":{"type":"null"},"toughness":{"type":"null"},
+                "mana_cost":{"properties":{"generic":{"pattern":"^(0|[1-9][0-9]*)$"}}}
+            }},
+            "activated":{"maxItems":0},"mana_abilities":{"maxItems":0},
+            "triggered":{"maxItems":0},"keywords":{"maxItems":0},
+            "static_abilities":{"const":[{"functioning_zone":"battlefield","effect":"control_enchanted_creature"}]},
+            "spell":{"type":"object","properties":{
+                "timing":{"const":"main_phase"},"resolution":{"const":"permanent"},
+                "functioning_zone":{"const":"stack"},"additional_sacrifice":{"type":"null"},
+                "instructions":{"maxItems":0},"modes":{"maxItems":0},
+                "targets":{"minItems":1,"maxItems":1,"items":{"properties":{
+                    "slot":{"const":0},"selection_id":{"minLength":1},
+                    "chooser":{"const":"controller"},"stage":{"const":"announcement"},
+                    "domain":{"const":"battlefield_creature"},"filter":{"type":"null"}
+                }}}
+            }},
+            "capabilities":{"minItems":5,"maxItems":5,"uniqueItems":true,"items":{"enum":[
+                Capability::NormalLayoutV1,Capability::CastEnchantmentV1,
+                Capability::CreatureTargetV1,Capability::AttachmentsV1,Capability::AuraControlV1
+            ]}}
+        }
+    });
+    let aura_control = serde_json::json!({"required":["static_abilities"],"properties":{
+        "static_abilities":{"contains":{"required":["effect"],"properties":{
+            "effect":{"const":StaticEffect::ControlEnchantedCreature}
+        }}}
+    }});
+    schema["$defs"]["Definition"]["allOf"]
+        .as_array_mut()
+        .unwrap()
+        .extend([
+            serde_json::json!({"if":aura_control,"then":{"$ref":"#/$defs/AuraControlDefinition"}}),
+            serde_json::json!({"if":{"required":["capabilities"],"properties":{
+            "capabilities":{"contains":{"const":Capability::AuraControlV1}}
+        }},"then":{"$ref":"#/$defs/AuraControlDefinition"}}),
+        ]);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -4503,6 +4607,7 @@ mod tests {
             OtherCreatureEntersBattlefieldV1,
             CreatureDiesV1,
             CastEnchantmentV1,
+            AuraControlV1,
             TemporaryPowerToughnessV1,
             CombatDamagePreventionV1,
             DamageBudgetPreventionV1,
@@ -4622,6 +4727,9 @@ mod tests {
         definitions.push(tapped);
         // Complete typed untap witness; the compiler separately checks the
         // retained source and its complete unqualified target selection.
+        // Complete typed Aura-control witness; compiler tests independently
+        // qualify both exact frozen sources without a profile admission change.
+        definitions.push(aura_control_tests::aura());
         definitions.push(indestructible_tests::intrinsic());
         definitions.push(temporary_indestructible_tests::grant());
         definitions.push(temporary_flying_tests::grant());
@@ -6298,3 +6406,6 @@ mod counter_placement_tests;
 
 #[cfg(test)]
 mod temporary_creature_keyword_tests;
+
+#[cfg(test)]
+mod aura_control_tests;

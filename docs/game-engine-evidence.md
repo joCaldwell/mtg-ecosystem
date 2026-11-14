@@ -140,7 +140,7 @@ under `generated/next-three/` and `generated/five-more/`. Production compiler/co
 simulator Clippy passed; contracts used only its inherited `collapsible_if` exception.
 Full runtime, release/profile/completion, host/SDK and consumer matrices were omitted.
 
-### Current temporary-keyword family qualification
+### Temporary-keyword family qualification
 
 The controlled-target/Hexproof extension is qualified at source
 `b505e32cfb29bbfdcf5183b7480fbbd41a750ce1`, CLI producer
@@ -154,9 +154,8 @@ original engine lane. Exported schema SHA-256:
 Compiler/core/simulator production Clippy passed strictly; contracts retains only
 its inherited `collapsible_if` exception. No production-core change was needed.
 Initial owner/controller distinctions, target revalidation, Hexproof queries,
-cleanup, reentry and replay were exercised through supported actions. Current
-inputs have no control-changing operation, so same-incarnation dynamic-control
-scenarios remain explicitly unqualified rather than simulated by state mutation.
+cleanup, reentry and replay were exercised through supported actions. Those inputs had no control-changing operation, so that pass did not qualify
+same-incarnation dynamic control or substitute state mutation for such evidence.
 Existing catalog IR, playable pools, policy and host/search sets are unchanged.
 Full runtime, release/profile/completion, server/SDK and consumer matrices remain
 omitted. Later documentation-only commits do not relabel the retained producer.
@@ -166,6 +165,67 @@ The preceding unfiltered family foundation retains source
 selected tests and 230 probes under `generated/temporary-keyword-family/`.
 Earlier mechanic-family, next-three/five-more and full-game/client proofs keep
 their own source identities. No new consumer acceptance follows from these passes.
+
+### Attachment-entry foundation qualification
+
+Source `feece7d468b5618b8b5849341650b99a2ad6f331` passed 82 distinct selected
+Rust tests, workspace all-target compilation, formatting, strict core/simulator
+production Clippy and CLI smoke/replay. The 796-row CLI producer is
+`bf1377dded86288dc92b772471bee24d7ab5098a0d766c1b0326ed9824f46d7b`;
+the independently verified optimized test producer is
+`8d68587f0acd172d2682276844792f6c6b779794991406bb45a5d39ee2f9d3ee`.
+Card IR/schema remains byte-identical to the controlled-target family above.
+Private snapshots are format 22; public/query versions and consumer admission do
+not change. Exact binaries, source/settings proof, command receipts and failures
+are under `generated/attachment-foundation/combined03/` in the original engine
+lane, with earlier failed test setup attempts preserved alongside it.
+
+Paid Rancor, Pacifism and Unholy Strength prove atomic attached entry, chronological
+attachment allocation, same-target no-op, departure/reentry and normalized
+snapshot-forgery rejection at quanta 1/4096 with restore/replay. Nine snapshot/codec
+tests actually ran through the corrected copied-binary selector; the original two
+zero-match invocations are retained and confer no coverage. Four existing combat
+witnesses passed outcome and trace/budget checks and produced exactly the same
+four digests on the new producer and retained pre-change `b505e32c` producer. One
+historical combat golden mismatch was reproduced on both; its expected value is
+unchanged. Full demo/bundle acceptance, full runtime/release/profile/completion,
+server/SDK/consumer matrices and Node suites requiring absent dependencies remain
+unrun. At that source, continuous Aura control sources remained wholly unsupported.
+
+### Continuous Aura-control family qualification
+
+Source `945c37a9da2902d7449caa4e1724a1d3d133f9f5` passed 497 distinct Rust tests
+(499 executions, including two overlapping filters), 1,710 exported-schema
+probes, workspace all-target compilation, formatting and CLI smoke/replay. Its
+802 compiled rows match the retained CLI producer
+`cdf572262656e9aa9ea0ab6f2b2fe11d8c6d1164c43364dfa265e6702e83e522`;
+optimized executed tests independently match
+`d8963e5fa0eb7bc1d25c666c9a0f11c32a2a543625a6c286007d4777536f91bd`.
+Schema 1 evolves in place; exported SHA-256 is
+`263d0e04d3367c88466c0bf7d61a978921c76082d6a8bc5b0d6ef705f100d947`.
+Private snapshots remain 22; public/query formats and consumer qualification do
+not change. Exact binaries, source/settings proof, schema outcomes and command
+receipts are under `generated/aura-control-family/combined04/` in the original
+engine lane. Failed compilation/registration and private-driver attempts remain
+preserved alongside the successful pass.
+
+Eight paid functions use complete Mind Control and Control Magic sources for
+actual entry/control changes, opposing timestamp order, same-controller no-ops,
+combat/readiness, ownership/default control, dynamic controlled targets/Hexproof,
+frozen invocations, departures/simultaneous removal, reentry and normalized
+snapshot forgeries at quanta 1/4096 with restore/replay. Seven kernel functions
+cover bounded reconciliation and explicit unsupported composition. The sacrificed
+mana receipt is synthetic: source admission still rejects sacrifice mana, so it
+establishes no reachable paid reversal claim. Contracts/compiler libraries,
+adjacent attachment/targeting/departure/snapshot/mana/staples and public-policy
+groups actually executed. Compiler/core/simulator production Clippy passed
+strictly; contracts retains its inherited `collapsible_if` exception. Source
+review found no correctness issue; exhaustive test/witness registrations and two
+private response-driver omissions were corrected without changing gameplay
+expectations or runtime guards. Pools and hosting/search sets remain unchanged.
+Full runtime/demo/release/profile/completion, server/SDK/consumer matrices and
+Node suites requiring absent local dependencies remain omitted. Pending Ramos
+counter-choice/cascade work requires its own later combined qualification.
 
 ### Selected current proof locators
 

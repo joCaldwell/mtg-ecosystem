@@ -604,6 +604,7 @@ impl Game {
                     r.source.object.card,
                     Object {
                         attached_to: None,
+                        attachment_timestamp: None,
                         id: r.source.object,
                         controller: r.source.controller,
                         default_controller: r.source.default_controller,
@@ -615,6 +616,11 @@ impl Game {
                         plus_one_counters: r.counters.clone(),
                     },
                 );
+                // CR 733.1/800.4c: restore only the recorded object, then
+                // derive its controller from surviving exact-incarnation Auras.
+                // Departed owners/sources remain absent; payment authority and
+                // the receipt's mana/counter/use bookkeeping stay unchanged.
+                self.reconcile_controllers()?;
             } else {
                 let o = self
                     .state
