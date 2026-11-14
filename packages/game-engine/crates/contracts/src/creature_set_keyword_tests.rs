@@ -164,13 +164,128 @@ fn creature_set_keyword_shapes_and_old_routes_reject() {
     }
     let targeted = temporary_creature_keyword_tests::grant(&[KeywordAbility::Haste], false);
     reject(d.clone(), |p| p.targets = targeted.spell.unwrap().targets);
-    let mut nested = d.clone();
-    let program = nested.spell.take().unwrap();
-    // Reuse a valid activated context so the family-specific guard is exercised.
-    let mut host = temporary_creature_keyword_tests::grant(&[KeywordAbility::Haste], false);
-    host.spell = Some(program.clone());
-    host.characteristics.kind = CardKind::Creature;
-    host.capabilities = host.requirements();
-    assert!(host.validate().is_err());
+    let catalog = Catalog::read(include_str!(
+        "../../../tests/fixtures/expected-effects-ir.json"
+    ))
+    .unwrap();
+    for name in ["Samite Healer", "Blood Artist"] {
+        for program in [d.spell.as_ref().unwrap().clone(), {
+            let mut p = d.spell.as_ref().unwrap().clone();
+            p.instructions.pop();
+            p
+        }] {
+            let mut host = catalog
+                .definitions
+                .iter()
+                .find(|d| d.name == name)
+                .unwrap()
+                .clone();
+            if let Some(a) = host.activated.first_mut() {
+                a.program = program;
+            } else {
+                host.triggered[0].program = program;
+            }
+            host.capabilities = host.requirements();
+            assert!(host.validate().is_err(), "{name}");
+        }
+    }
+    reject(d.clone(), |p| {
+        let child = p.clone();
+        p.instructions.clear();
+        p.modes = vec![
+            SpellMode {
+                program: child.clone(),
+            },
+            SpellMode { program: child },
+        ];
+    });
+    reject(d.clone(), |p| {
+        p.additional_sacrifice = Some(SacrificeFilter {
+            types: vec![CardKind::Artifact],
+            subtypes: vec![],
+        })
+    });
     assert!(serde_json::from_value::<Instruction>(serde_json::json!({"op":"grant_keywords_set","set":"controller_creatures","keywords":["first_strike"],"duration":"until_end_of_turn","source_block":0})).is_err());
+}
+
+#[test]
+fn creature_set_keyword_signed_parameters_mixed_vectors_and_pure_blocks() {
+    let all = vec![
+        KeywordAbility::Flying,
+        KeywordAbility::Deathtouch,
+        KeywordAbility::Indestructible,
+        KeywordAbility::Lifelink,
+        KeywordAbility::Hexproof,
+        KeywordAbility::Haste,
+        KeywordAbility::Trample,
+        KeywordAbility::FirstStrike,
+    ];
+    let mut reverse = all.clone();
+    reverse.reverse();
+    for set in [
+        ObjectSet::ControllerCreatures,
+        ObjectSet::AttackingCreatures,
+    ] {
+        for keywords in [
+            all.clone(),
+            reverse.clone(),
+            vec![
+                KeywordAbility::FirstStrike,
+                KeywordAbility::Trample,
+                KeywordAbility::Lifelink,
+            ],
+        ] {
+            for (power, toughness) in [
+                ("0", "0"),
+                ("-2", "3"),
+                (
+                    "99999999999999999999999999999999999999999",
+                    "-99999999999999999999999999999999999999999",
+                ),
+            ] {
+                let mut d = grant(set.clone(), &keywords, true);
+                if let Instruction::PumpSet {
+                    power: p,
+                    toughness: t,
+                    ..
+                } = &mut d.spell.as_mut().unwrap().instructions[0]
+                {
+                    *p = power.parse().unwrap();
+                    *t = toughness.parse().unwrap();
+                }
+                d.validate().unwrap();
+                let p = d.spell.as_ref().unwrap();
+                let desc = temporary_creature_set_keyword_program(p).unwrap();
+                assert_eq!(desc.keywords, keywords);
+                assert_eq!(desc.modifier.unwrap().0.to_string(), power);
+                assert_eq!(desc.modifier.unwrap().1.to_string(), toughness);
+                d.characteristics.kind = CardKind::Sorcery;
+                d.spell.as_mut().unwrap().timing = SpellTiming::MainPhase;
+                d.capabilities = d.requirements();
+                d.validate().unwrap();
+            }
+        }
+        let pure = grant(set, &[KeywordAbility::Haste], false);
+        for block in [1, u32::MAX] {
+            reject(pure.clone(), |p| {
+                if let Instruction::GrantKeywordsSet { source_block, .. } = &mut p.instructions[0] {
+                    *source_block = block;
+                }
+            });
+        }
+        for variant in 0..4 {
+            let mut d = pure.clone();
+            match variant {
+                0 => d.keywords = vec![KeywordAbility::Flash],
+                1 => d.static_abilities.push(StaticAbility {
+                    functioning_zone: FunctioningZone::Battlefield,
+                    effect: StaticEffect::CantBeCountered,
+                }),
+                2 => d.spell.as_mut().unwrap().timing = SpellTiming::MainPhase,
+                _ => d.intrinsic_zone = Some(FunctioningZone::Battlefield),
+            }
+            d.capabilities = d.requirements();
+            assert!(d.validate().is_err());
+        }
+    }
 }
