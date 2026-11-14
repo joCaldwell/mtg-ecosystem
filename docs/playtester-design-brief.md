@@ -1,5 +1,11 @@
 # Commander playtester requirements and OpenDesign brief
 
+Historical solo-playtester brief (2026-10-13). Josh explicitly excluded this
+guidance and its implementation as references for the full game client's design
+on 2026-11-14. Retain the original requirements below as context for that legacy
+manual feature. Current product/game ownership and direction are in
+[application boundaries](multiverse-app.md) and [client UX](game-client-ux.md).
+
 Design a desktop solo playtester within the deck-builder, focused on opening
 hands and early turns. Make rules text easy to read and common actions fast.
 Develop reusable table components that can later serve the full Commander game
@@ -238,10 +244,11 @@ frontend layers and extract a shared package when another client exists.
 ## Existing design system
 
 Use the deck-builder's existing OpenDesign library when available, cross-checking
-it against [web/DESIGN.md](../packages/deck-builder/web/DESIGN.md),
-[web/ARCHITECTURE.md](../packages/deck-builder/web/ARCHITECTURE.md),
-[tokens.css](../packages/deck-builder/web/src/design/tokens.css), and the live
-style guide at `#/design`.
+it against the now product-owned [design system](../packages/multiverse/web/DESIGN.md),
+[frontend architecture](../packages/multiverse/web/ARCHITECTURE.md),
+[tokens.css](../packages/multiverse/web/src/design/tokens.css), and the live
+style guide at `/design`. These moved links do not adopt this historical brief
+as current game-client guidance.
 
 Preserve the dark surfaces, typography families, semantic colors, sentence-case
 labels, focus treatment, buttons, inputs, tags, menus, and resizable right

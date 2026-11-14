@@ -49,12 +49,12 @@ design intent.
 
 ## 🏗️ Stack and layout
 
-Use Node 26 (`nvm use`; the package floor is >=24.12). Both tsconfigs enforce
+Use Node 26 (`nvm use`; the package floor is >=24.12). The backend tsconfig enforces
 `erasableSyntaxOnly`. Node runs the `.ts` files directly via type stripping — **there is no build
 step for `src/`**. `node:sqlite` (built in, has FTS5) means no native deps. Use `Database`
 from `src/sqlite.ts` (Node 26 rename; the same constructor on Node 24).
 Connections have a 5-second busy timeout.
-Runtime dependencies: React, `@modelcontextprotocol/server` (the official MCP
+Runtime dependencies include `@modelcontextprotocol/server` (the official MCP
 TypeScript SDK, v2 line) and `zod` (minimum 4.6.7 for the collection-validation
 security patch). `@aws-sdk/client-s3` is the ops-only
 exception for optional S3-compatible backup uploads; it is loaded only when
@@ -156,7 +156,7 @@ skill/commander-deck-building/SKILL.md   method for agents (optional Agent Skill
   src/ui/            generic primitives (Button, Tabs, Dialog, Toast, useHotkeys…)
   src/mtg/           how a card is shown (ManaCost, CardRef + hover card, RichText)
   src/domain/        pure functions over wire types (grouping, review, marks)
-  src/api/           client.ts (typed client — wire types imported from src/, erased at build),
+  src/api/           typed client via public backend /contracts; type imports erased at build,
                      live.tsx (event stream), useQuery.ts
   src/app/           routes, sidebar shell, app-wide providers
   src/features/      one folder per screen: deck/ (incl. ReadOnlyDeck), inbox/, decisions/, memories/,
@@ -233,13 +233,14 @@ Local clients retain their HTTP and stdio configurations.
 
 ### Doing frontend work
 
-Run `npm run dev`, then `npm run seed:demo` once, then open
-`http://localhost:5173/deck/<id>`. **Seed the demo before judging any
-layout** — against an empty deck most panels render nothing.
+Work in `packages/multiverse` and follow its [setup](../multiverse/README.md).
+The backend `npm run dev` alias also delegates there. Against a disposable
+DB/DATA fixture, run this package's `npm run seed:demo` once before judging deck
+layouts; an empty deck omits most panels. Do not seed or test against owner data.
 
 **Read [the product frontend architecture](../multiverse/web/ARCHITECTURE.md) first.** The UI is layered
 (`design` → `ui` → `mtg` → `domain` → `api` → `app` → `features`) with
-one-way imports, and `test/web-architecture.test.ts` fails the build on an
+one-way imports, and `packages/multiverse/test/web-architecture.test.ts` fails on an
 import that goes the wrong way or a hex colour in a component's CSS. Every
 primitive is shown in every state at `/design`; a new screen is assembled
 from those, so it matches without new CSS for the basics. The rules behind
@@ -381,15 +382,18 @@ Phase 4b adds human-only `createDemo` (src/demo.ts) and first-run voice
 memory/profile writes, and resolves all cards against installed data. The CLI
 is a thin adapter and never replaces an existing sample. UI components call
 only api/ clients, never fetch directly. TabletShell must call useWindowScroll;
-keep the inherited phone and public contracts intact. See DESIGN.md and
-ARCHITECTURE.md for the 720/960/1100 boundaries and lazy-route budget check.
+keep the inherited phone and public contracts intact. See the product's
+[design system](../multiverse/web/DESIGN.md) and
+[architecture](../multiverse/web/ARCHITECTURE.md) for breakpoints and lazy-route checks.
 
 ## Focused test gate
 
 Keep tests for tenant isolation and actor permissions, public-state privacy, migrations
 and content preservation, backup/restore, card resolution, membership/undo, proposals,
-import parsing, hosted sessions/headers, MCP smoke and web architecture. Prefer a
+import parsing, hosted sessions/headers and MCP smoke. Product architecture and
+browser tests belong to Multiverse. Prefer a
 small representative regression over matrices or UI copy/markup/CSS assertions.
 Run `npm run check` before committing; browser regressions live separately in `browser-checks/`.
 
-See [TESTING.md](TESTING.md) for the 109-test baseline and deletion inventory.
+See [TESTING.md](TESTING.md) for current gate ownership and the historical
+109-test baseline/deletion inventory.

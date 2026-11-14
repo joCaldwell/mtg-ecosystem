@@ -1,6 +1,8 @@
 # Client, server and engine responsibility boundaries
 
-Status: normative planning constraints; no implementation is established here.
+Status: normative responsibility constraints. Implementation evidence lives in
+the source-qualified reports and [unified product architecture](multiverse-app.md),
+not in this ownership matrix.
 This document governs responsibility assignments in the [client plan](game-client-plan.md),
 [integration contracts](game-client-contracts.md) and [delivery plan](game-client-delivery.md).
 It refines the existing [system architecture](architecture.md) and
@@ -10,6 +12,9 @@ It refines the existing [system architecture](architecture.md) and
 
 | Component | Owns | Must delegate or exclude |
 | --- | --- | --- |
+| Multiverse product application | Account/session UX, product routing, Home, deck editor, game setup, frontend build and process composition | No second account store, inferred engine compatibility, fabricated matches or private cross-package feature imports |
+| Existing account/deck backend (TypeScript) | Authentication, Actor authorization, SQLite account/deck data, capabilities and MCP behind public host/type contracts | No client display ownership or assumption that product sign-in grants a Rust seat |
+| Shared game UI (TypeScript) | Permitted display models, table/cards/inspection and scoped presentation styles | No protocol definitions, fixtures, account, router, SDK/session effects or rules evaluation |
 | Offline ingestion/presentation tooling (TypeScript) | Exact source extraction; allowlisted text, face and artwork metadata; stable presentation identifiers and digests | No runtime legality or game-state computation; no live source fetch in a game turn |
 | Executable contracts (Rust) | Shared executable IR types, capability vocabulary and structural validation | No source parsing, hosting or UI; core and compiler may both import these contracts at runtime |
 | Semantic compiler (Rust) | Complete-source lowering and semantic validation, source-to-ability identity mapping | No player interaction or network hosting; not imported by deterministic core at runtime |

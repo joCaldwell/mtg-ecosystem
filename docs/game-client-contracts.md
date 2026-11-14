@@ -1,6 +1,12 @@
-# Proposed browser integration contracts
+# Browser integration contract design (original proposal)
 
-Status: planning only. Companion to [client plan](game-client-plan.md).
+Status: original pre-implementation proposal, retained for design rationale.
+The existing-surface inventory below describes that planning checkpoint, not the
+current API. Implemented wire spellings and limits belong to generated Rust/SDK
+contracts and the [native integration](game-client-native-integration.md),
+[action transport](game-client-action-transport.md) and source-qualified client
+reports. Current product/account ownership is in [application boundaries](multiverse-app.md).
+Companion to [client plan](game-client-plan.md).
 The [responsibility boundaries](game-client-boundaries.md) govern all contracts below.
 Names below describe contracts, not implemented routes or final wire spellings.
 Rust DTO/schema review must freeze gameplay fields and bounds before implementation;

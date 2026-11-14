@@ -1,7 +1,11 @@
 # Agent-First Design & AI Integration
 
 > [!NOTE]
-> This is a **vision document** spanning all layers of the MTG Ecosystem (Layers 0–3). Layer 0 currently exposes a limited typed AST. Card IR, rules evaluation, and the Layer 1+ examples below are future capabilities, not implemented APIs. The active deck-builder is standalone.
+> This is a **vision document** spanning Layers 0–3. Its examples are illustrative,
+> not implemented API contracts. Exact engine/server acceptance belongs in
+> [the current map](game-engine-current.md); current product ownership and remaining
+> launch work belong in [the unified application](multiverse-app.md). Account UX,
+> navigation and deck editing now live in the top-level Multiverse app.
 
 Detailed proposed execution and agent contracts now live in the
 [engine specification](game-engine-spec.md), with staged delivery and headless
@@ -16,8 +20,8 @@ assumption.
 The [adopted language stack](runtime-language-decision.md) uses Rust for native
 simulation/search policies and server-side agent/session orchestration.
 TypeScript owns browser/application integration, the client SDK, and the
-standalone deck-builder's MCP tools. External agents access the versioned
-protocol; browser-local rules reuse the Rust core compiled to WebAssembly.
+deck backend's MCP tools. External agents access the versioned protocol;
+browser-local Rust/WebAssembly rules remain a deferred capability.
 
 One of Project Multiverse's core tenets is that **artificial intelligence is a first-class participant**. Whether it's an LLM explaining rules to a beginner, a reinforcement learning (RL) agent playtesting a new set, or a deck-building assistant recommending synergies, the system must expose game data in formats optimized for AI consumption.
 
@@ -39,9 +43,10 @@ if (result.ok) {
 ```
 
 Per-set JSON, cross-set AST queries, semantic tags, and embeddings are future
-integration ideas. No compiled Card IR currently exists. Before consuming
-executable IR, agents need a validated contract for reference binding, supported
-mechanics, schema version, and source provenance. See
+integration ideas. Bulk per-set Card IR emission remains unimplemented; the
+native compiler produces reviewed executable catalogs. Consuming those catalogs
+requires validated reference binding, supported mechanics, schema/build identity
+and source provenance. See
 [data_schemas.md](data_schemas.md) and [oracle_parser.md](oracle_parser.md).
 
 ---
