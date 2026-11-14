@@ -257,7 +257,7 @@ release/profile/completion/performance, server/SDK/host/search/consumer matrices
 Node suites requiring absent dependencies remain unrun. Plain control source and
 all committed catalog IR remain unchanged; older proofs keep their own identities.
 
-### Absent nonland mana-cost rejection
+### Complete-source compiler input rejection
 
 Compiler source `6dc5e91c` rejects empty printed mana costs on nonlands rather
 than treating them as `{0}`. The guard is byte-identical to the separately
@@ -274,6 +274,23 @@ error; `red02` is the executed behavioral RED. This compiler-only increment did
 not run core/simulator/server runtime or builds, schema probes, SDK/consumer or
 full matrices. The composed-Aura runtime producer above remains qualified only
 for its earlier source, not this compiler correction.
+
+Compiler source `0eb054cfb50cc7b0d061392d53825017154c8d0e` additionally rejects
+present-null fields in strict cast/attacker/recursive damage type filters using
+the existing typed decoder. Omission and supported Boolean semantics remain
+unchanged. Baseline controls passed while three complete-source null regressions
+lowered; all six regressions then passed with 254 compiler and 103 contracts
+tests, catalog freshness, formatting, compiler all-target compilation and strict
+production compiler Clippy. Concurrent product launch/operations changes are
+preserved in that measured source.
+
+Exact frozen source hashes, executed binaries, commands and failures remain in
+`generated/null-type-filters/{red01,red02,green01}/` and `qualification.json` in
+the original engine lane. The first control used a fixture-directory label in
+place of its actual catalog; `red02` retains the corrected controls and genuine
+three-route rejection failures. No core/simulator/server build, runtime, schema,
+SDK/consumer or broader matrix ran for this compiler-only correction; the latest
+runtime producer below retains its earlier source identity.
 
 ### Temporary combat-keyword family qualification
 

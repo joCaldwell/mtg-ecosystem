@@ -69,6 +69,7 @@ Acceptance is source-qualified, never inherited by later code:
 | Later D2c-e/IR25 and finite trigger/keyword/interaction additions | Candidate/focused source qualification; no renewed combined acceptance or P7 performance claim |
 | Schema-1 reset | Regenerated 29 active pools, 1,357 definitions unchanged; focused checks only |
 | Latest temporary combat-keyword family | Source `b7d5f51f02b4cd523ab656bc979b04b4939a9643`; 814 compiled rows; focused compiler/contracts/rules/recovery/schema qualification only |
+| Latest compiler input rejection | Source `0eb054cfb50cc7b0d061392d53825017154c8d0e`; compiler-only malformed-filter qualification, separate from runtime producers |
 | Client/hosting consumers | Retain their own exact producer/schema/catalog/build qualification, separate from current engine HEAD |
 
 [The evidence guide](game-engine-evidence.md) retains exact source/digest and proof
