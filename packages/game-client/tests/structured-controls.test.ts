@@ -66,6 +66,7 @@ test('ordered mixed targets distinguish object and player identity and do not in
   const draft = values(['0', '["1"]'], ['1', '[1]']);
   assert.equal(completeDecision(request, [], draft), null);
   assert.deepEqual(completeDecision(request, [], draft, context), { response: 'entity_targets', entities: [{ entity: 'object', object: '1' }, { entity: 'player', player: 1 }] });
+  assert.deepEqual(completeDecision(request, [], draft, { source }), { response: 'entity_targets', entities: [{ entity: 'object', object: '1' }, { entity: 'player', player: 1 }] });
 });
 
 test('field reconciliation removes retired candidate choices and ambiguity fails closed', () => {

@@ -2,13 +2,13 @@
   "inventory_version": 1,
   "implementation_base": "144fe059ab2707877109d7e9dbe8751f204681dd",
   "qualification": {
-    "native_source": "ebfa6dde266139c45220959c4179ddedf6a38433",
-    "protocol_schema_sha256": "a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3",
+    "native_source": "6632c1add5daa41b9993fb684979af15b1ba0213",
+    "protocol_schema_sha256": "2eb874b2fa9e306b57d7da05d2e9a26b6965f2a639711d6705981e790d906ba5",
     "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
-    "scope": "Combined current-source producer preserving the dc12222 compiler fix and reviewed PR22/PR23. Passed 15 focused native delivery/HTTP/protocol tests; built server/provisioner; verified 677 source rows and independently rederived build identities. Source fingerprint b7e30b5e01dfba5a0ab9d3e76996840803b35745dae878009c512ae60e5c8191. SDK and production App opening/proxy qualification are recorded in docs/game-client-evidence.md#opening-and-recovery-evidence; historical 2aaf/e86 and fixture provenance remain unchanged.",
-    "sdk_source": "ebfa6dde266139c45220959c4179ddedf6a38433",
-    "sdk_build_manifest_sha256": "793333249d3f65e391505bb346415ef5ec010141e5c0e7574a9d4e9ee27f8123",
-    "sdk_generation_sha256": "c8507de687345e9df5b911f3ddb12e072e8b52d7533ee901ce8268d3e26bcb5b"
+    "scope": "Source-bound decision context and action-label protocol consumer. Candidate producer checkpoint passed 255 compiler tests, 11 native action tests and 66 SDK tests; intrinsic mana follow-up and final source-qualified host/browser evidence remain pending. Historical fixture capture provenance remains unchanged. No full-game or product-launch acceptance follows.",
+    "sdk_source": "6632c1add5daa41b9993fb684979af15b1ba0213",
+    "sdk_build_manifest_sha256": "7c917836490a43b2547e654359ea1fe141c2d623fd333c624b50ec4e011da541",
+    "sdk_generation_sha256": "9511c48b4aa086cb81d7fcf908930668dbe80652944afbf920a8b9dcd3f86929"
   },
   "capture_qualification": {
     "native_source": "5ff4fd94b6dace1cdee0f0223305e054c42af8f3",
@@ -19,7 +19,7 @@
   "evidence": [
     {
       "path": "docs/game-client.md",
-      "sha256": "69a1c1817eaa3a96fd1035dbd3cf6874231a4f5eb106ae8c044a914280a5e1ee"
+      "sha256": "30791be0b20b84e2b145c462efa5c22debdb46d681913bd5996ad49dbc721e74"
     },
     {
       "path": "docs/game-engine-current.md",
@@ -27,11 +27,11 @@
     },
     {
       "path": "docs/game-engine-server.md",
-      "sha256": "29373ae12b229d164445c9ceee37f8b2fda53b587fc217fc1498bc6322e437e3"
+      "sha256": "3584156f7e1ee11fd561475e55cb913988faf09dfadec61ed237da7e7067eaaa"
     },
     {
       "path": "packages/game-engine/crates/core/src/engine/visibility.rs",
-      "sha256": "5c43fb3b84c5b4b759fbd9383a5464c43f0e4e0eb50ddc8bfa279f08c75c541e"
+      "sha256": "065c4144c06a2491723d0332f874324cad3461b2d5852bd06dffc46693e9484c"
     },
     {
       "path": "packages/game-client/src/decisions/controls.ts",
@@ -39,7 +39,7 @@
     },
     {
       "path": "packages/game-client/src/decisions/structured-controls.ts",
-      "sha256": "acb6c0151dc41057367b2a050dabe590f37dd15366249e9581bfc5aebf4cfc5c"
+      "sha256": "93498c67377e19a59f4ccdf125b4178cb14c5c55b61edf5cc7426a1bbf6520c2"
     },
     {
       "path": "packages/game-client/src/features/decisions/LocalControls.tsx",
@@ -71,7 +71,7 @@
     },
     {
       "path": "packages/game-client/tests/structured-controls.test.ts",
-      "sha256": "ab938bd49722ddab34a97bcf16dadc532d887bedb4ff3aa56aef2d0158e2c1f0"
+      "sha256": "d259ba5eec035cbb0b31f4ac8f1019c564f2379e26c7975b033c240f1200b192"
     },
     {
       "path": "packages/game-client/tests/decision-inventory.test.ts",

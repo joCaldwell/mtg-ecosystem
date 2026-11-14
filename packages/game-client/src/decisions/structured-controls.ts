@@ -73,7 +73,7 @@ export function structuredDecisionSurface(request: PlayerRequest, labels: readon
       return quantities('Assign combat damage', `Source: ${object(request.source, labels).label} (${request.source}). Supplied power: ${request.power}. Enter every amount, including zero. The table validates assignment order and lethal requirements.`, fields, request.power);
     }
     case 'targets': case 'entity_targets': case 'player_targets': case 'stack_targets': {
-      if (!source || !instruction) return unavailable();
+      if (!source) return unavailable();
       const options: Option[] = request.request === 'player_targets' ? request.candidates.map(player)
         : request.request === 'entity_targets' ? request.candidates.map(candidate => candidate.entity === 'player' ? player(candidate.player) : object(candidate.object, labels))
         : request.candidates.map(handle => ({ ...object(handle, labels), label: request.request === 'stack_targets' ? `Stack entry ${handle}` : object(handle, labels).label }));
