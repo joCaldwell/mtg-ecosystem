@@ -44,8 +44,8 @@ To select the actual local lifecycle bridge, additionally configure
 `mtg-server lifecycle-profile commander-foundations-v1` reports actual native pins
 and its reviewed public pod. Retain that exact executable and private directory.
 The bridge owns one offline registry/server per game, at most two concurrent
-matches, and three separate seat consumers. Its native qualification bit remains
-closed pending the real-native suite, independently of browser qualification. Its finite foundations pass/draw
+matches, and three separate seat consumers. Native lifecycle proof is separate
+from browser qualification. Its finite foundations pass/draw
 policy pauses explicitly on unsupported requests; attachments have no automated
 launch qualification. No shared hot registry, remote HTTPS bootstrap or whole-
 profile play is claimed. Browser qualification remains false in the default

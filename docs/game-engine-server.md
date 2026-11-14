@@ -55,7 +55,11 @@ binding and randomly seeded four-deck config before registration. Existing bindi
 all four decks and native registry metadata must agree on recovery; an ambiguous
 partial registration fails closed rather than creating a replacement match.
 Each game owns one private offline registry and bounded local server, with the
-existing systemd worker resource limits. No shared hot registration is implemented.
+existing systemd worker resource limits. Before spawn, the exact generated worker
+unit is durably recorded; stop/join verifies that unit inactive and its resource
+group empty, including uncertain startup and parent death. Recovery quiesces that
+unit before replacing it. This lifecycle uses explicit adapter recovery, without
+hidden broker replacement units. No shared hot registration is implemented.
 
 The lifetime reader watches EOF during startup and hosting. Stop cancels startup
 or pauses permitted running execution, shuts the host and joins the worker owner.

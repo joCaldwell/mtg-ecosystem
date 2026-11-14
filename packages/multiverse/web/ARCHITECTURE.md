@@ -265,10 +265,15 @@ owns durable bridge semantics.
 
 Browser session composition, Web Locks, exact command journaling, unknown outcomes
 and every reachable decision also require qualification before enabling launch.
-The current product has no qualified live-session export; it offers compatibility
-checks and owner-scoped saved record/resume states without loading session/SDK
-runtime into preview. [Client contracts](../../../docs/game-client.md) own delivery
-and recovery scope. [Setup](../README.md) owns admission configuration.
+The product now lazily composes public `@multiverse/game-client/session` on the
+private `/play/games/:id` route, separately from preview. A successful active
+launch/resume navigates there; the route obtains a fresh Actor-authorized human
+seat File held only in component memory. Game/attempt keys, abort and cleanup
+fence late grants; unmount/reload discards that File. The app-selected match ID
+chooses the scoped endpoint. Phone retains an explicit larger-screen fallback.
+Default browser qualification remains false until actual product session proof;
+source/types and captured controls do not qualify full games. [Client contracts](../../../docs/game-client.md)
+own delivery and recovery scope. [Setup](../README.md) owns native configuration.
 
 ## Checking a change
 

@@ -45,6 +45,42 @@ Separate fixture/gallery, IndexedDB and CSP suites were already independently
 verified and were not repeated in this parent pass; actual App recovery and proxy
 qualification above used fresh current-source native binaries and new seats.
 
+## Product native lifecycle (observation 16)
+
+Native/product source checkpoint `981f585a` combines metadata source `565a1204`
+with the actual lifecycle bridge, private consumers, scoped Actor proxy and lazy
+human game route. Proof is retained at
+`~/.local/share/mtg-ecosystem/engine-evidence/native-game-lifecycle-observation16-981f585a-20261114/`.
+`native/` preserves the exact executable, protocol/bootstrap/config schemas,
+private disposable registries/Actor databases, source manifests and raw receipts;
+`source/` and `sdk/` retain reconstruction inputs without dependencies.
+`qualification.json` indexes their exact boundaries.
+
+Engine build is `719552cf7e12c01bdd608f8ccdf0ce65f25b968a6c8c36eb2322d657888f38dc`;
+server build is `6d7813dc1e4b21e41f66afe9f9377486d417d710441103df97bbfd43ccb69adc`.
+Both were independently rederived from source/toolchain/configuration; schema
+SHA-256 remains `2eb874b2fa9e306b57d7da05d2e9a26b6965f2a639711d6705981e790d906ba5`.
+Focused lifecycle/process/store checks passed 2/3/10 tests; SDK verification passed
+66. Real integration passed five tests: immutable same-match recovery and uncertain
+ensure fencing, three distinct capabilities/private consumers and joined leases,
+stable human waits, actual Actor-DB human bootstrap/proxy exact replay, and parent
+SIGKILL stop/recovery. A further real proxy check rejects raw dot/encoded aliases.
+Driver umask was 0077; fresh native children used 0022 to prove 0700/0600 explicitly.
+
+The first real run's 0644 SQLite failure, its original binary and independently
+reconstructed source remain under `before-store-permissions/` and
+`integration-1.log`. The independent original spending selector still failed at
+`spending_tests.rs:347`; its exit-101 receipt is `spending-baseline.log`. No rules
+or expected outcome was changed in this lane. Production Clippy, a full native
+matrix and release retention were omitted. Product types/tests/build/bundle and
+route boundaries passed separately; they do not qualify the new route in browsers.
+
+This is finite foundations pass/draw lifecycle proof on observation 16, with
+explicit pause on unsupported decisions. It grants no complete-profile game,
+search-policy, attachments-automation, remote-hosting or observation-20 acceptance.
+Default browser qualification remains false. Current-main integration requires
+fresh native/schema/SDK and actual product session proof.
+
 ## Product/shared display evidence (PR24)
 
 Former lane (now retired):
