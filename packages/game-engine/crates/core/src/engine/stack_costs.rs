@@ -107,16 +107,17 @@ impl Game {
                 mana_activations: vec![],
                 undo_mana: false,
             };
-            self.state.rules.frame = if matches!(
-                self.definition(object.card)?.activated[ability as usize]
-                    .program
-                    .targets[0]
-                    .domain,
-                TargetDomain::ControlledBattlefieldCreature | TargetDomain::BattlefieldPermanent
-            ) {
-                Frame::Targets { cast }
-            } else {
-                Frame::EntityTargets { cast }
+            self.state.rules.frame = match self.definition(object.card)?.activated[ability as usize]
+                .program
+                .targets[0]
+                .domain
+            {
+                TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
+                    Frame::StackTargets { cast }
+                }
+                TargetDomain::ControlledBattlefieldCreature
+                | TargetDomain::BattlefieldPermanent => Frame::Targets { cast },
+                _ => Frame::EntityTargets { cast },
             };
         } else if mana {
             self.state.rules.frame = Frame::Mana {
@@ -219,6 +220,7 @@ impl Game {
         let announcing = match self.underlying_mana_frame(&self.state.rules.frame) {
             Frame::Targets { cast }
             | Frame::EntityTargets { cast }
+            | Frame::StackTargets { cast }
             | Frame::Mana { cast }
             | Frame::SacrificeCost { cast }
             | Frame::SpendMana { cast }
@@ -240,7 +242,13 @@ impl Game {
                     )
                 }))
             || !entry.player_targets.is_empty()
-            || !entry.stack_targets.is_empty()
+            || (!entry.stack_targets.is_empty()
+                && activated.program.targets.first().is_none_or(|t| {
+                    !matches!(
+                        t.domain,
+                        TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility
+                    )
+                }))
             || entry.total_cost != expected
             || entry.cast_from != Zone::Battlefield
             || match &entry.paid {

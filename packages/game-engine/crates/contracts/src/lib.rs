@@ -216,6 +216,7 @@ pub enum Capability {
     TapPermanentV1,
     ActivatedTapPermanentV1,
     TapSourceDestroyV1,
+    ActivatedSpellCounterV1,
     OwnerHandMoveV1,
     PermanentOwnerHandMoveV1,
     CastSorceryV1,
@@ -1225,6 +1226,9 @@ impl Definition {
             if has_tap(&ability.program) {
                 set.insert(Capability::ActivatedTapPermanentV1);
             }
+            if has_counter_stack_object(&ability.program) {
+                set.insert(Capability::ActivatedSpellCounterV1);
+            }
             if ability.cost == ActivationCost::TapSource && has_destroy_permanent(&ability.program)
             {
                 set.insert(Capability::TapSourceDestroyV1);
@@ -1645,6 +1649,13 @@ impl Definition {
             return Err("activated programs require supported creature characteristics".into());
         }
         for ability in &self.activated {
+            if has_counter_stack_object(&ability.program) {
+                if c.kind != CardKind::Creature || !activated_spell_counter_ability(ability) {
+                    return Err("activated counter requires a creature, fixed mana plus source tap, and one unqualified spell target".into());
+                }
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
             if ability.cost == ActivationCost::TapSource && has_destroy_permanent(&ability.program)
             {
                 if c.kind != CardKind::Creature || !tap_source_destroy_ability(ability) {
@@ -2244,6 +2255,25 @@ fn tap_source_destroy_ability(a: &ActivatedAbility) -> bool {
                 && f.non_colors.is_empty()
         })
 }
+fn activated_spell_counter_ability(a: &ActivatedAbility) -> bool {
+    let p = &a.program;
+    a.functioning_zone == FunctioningZone::Battlefield
+        && matches!(&a.cost, ActivationCost::Composite { costs }
+            if costs.tap && !costs.sacrifice && costs.mana.as_ref().is_some_and(|m|
+                !m.generic.is_negative() && !m.colored.contains(&Color::C)))
+        && p.timing == SpellTiming::Instant
+        && p.functioning_zone == FunctioningZone::Stack
+        && p.resolution == SpellResolution::Instructions
+        && p.additional_sacrifice.is_none()
+        && p.modes.is_empty()
+        && matches!(
+            p.instructions.as_slice(),
+            [Instruction::CounterStackObject { target_slot: 0, .. }]
+        )
+        && p.targets.len() == 1
+        && p.targets[0].domain == TargetDomain::StackSpell
+        && p.targets[0].filter.is_none()
+}
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     if has_permanent_owner_hand(p)
         && (p.additional_sacrifice.is_some()
@@ -2781,6 +2811,16 @@ fn has_destroy_permanent(program: &SpellProgram) -> bool {
             .modes
             .iter()
             .any(|mode| has_destroy_permanent(&mode.program))
+}
+fn has_counter_stack_object(program: &SpellProgram) -> bool {
+    program
+        .instructions
+        .iter()
+        .any(|i| matches!(i, Instruction::CounterStackObject { .. }))
+        || program
+            .modes
+            .iter()
+            .any(|mode| has_counter_stack_object(&mode.program))
 }
 fn has_permanent_owner_hand(program: &SpellProgram) -> bool {
     program
@@ -3333,6 +3373,56 @@ pub fn catalog_schema() -> serde_json::Value {
             "activated":{"contains":{"$ref":"#/$defs/TapSourceDestroyAbility"}}
         }}
     }));
+    schema["$defs"]["CounterStackObjectFreeProgram"] = serde_json::json!({"properties":{
+        "instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"const":"counter_stack_object"}}}}},
+        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/CounterStackObjectFreeProgram"}}}}
+    }});
+    // The composite cost is the same already-reviewed external representation
+    // used by activated permanent tapping: {composite:{costs:{...}}}.
+    let fixed_mana_source_tap_cost =
+        schema["$defs"]["ActivatedPermanentTapAbility"]["properties"]["cost"].clone();
+    schema["$defs"]["ActivatedSpellCounterAbility"] = serde_json::json!({"required":["cost","program"],"properties":{
+        "cost":fixed_mana_source_tap_cost,"functioning_zone":{"const":"battlefield"},
+        "program":{"required":["targets","instructions"],"properties":{
+            "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
+            "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
+            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"counter_stack_object"},"target_slot":{"const":0}}}},
+            "targets":{"minItems":1,"maxItems":1,"items":{"properties":{
+                "slot":{"const":0},"domain":{"const":"stack_spell"},"filter":{"type":"null"}
+            }}}
+        }}
+    }});
+    let activated_counter = serde_json::json!({"required":["program"],"properties":{
+        "program":{"not":{"$ref":"#/$defs/CounterStackObjectFreeProgram"}}
+    }});
+    schema["$defs"]["ActivatedAbility"]
+        .as_object_mut()
+        .unwrap()
+        .entry("allOf")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "if":activated_counter,"then":{"$ref":"#/$defs/ActivatedSpellCounterAbility"}
+        }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["activated"],"properties":{"activated":{"contains":activated_counter}}},
+        "then":{"properties":{"characteristics":{"properties":{"kind":{"const":"creature"}}},"capabilities":{"allOf":[
+            {"contains":{"const":Capability::ActivatedSpellCounterV1}}, {"contains":{"const":Capability::CounterStackObjectV1}},
+            {"contains":{"const":Capability::StackSpellTargetV1}}, {"contains":{"const":Capability::CompositeActivationCostV1}},
+            {"contains":{"const":Capability::ActivatedAbilityV1}}, {"contains":{"const":Capability::BaseCreatureV1}},
+            {"contains":{"const":Capability::CastCreatureV1}}, {"contains":{"const":Capability::NormalLayoutV1}}
+        ]}}}
+    }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["capabilities"],"properties":{"capabilities":{"contains":{"const":Capability::ActivatedSpellCounterV1}}}},
+        "then":{"required":["activated"],"properties":{"characteristics":{"properties":{"kind":{"const":"creature"}}},
+            "activated":{"contains":{"$ref":"#/$defs/ActivatedSpellCounterAbility"}}
+        }}
+    }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({"properties":{
+        "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/CounterStackObjectFreeProgram"}}}}
+    }}));
     // The untap opcode is a complete ordinary spell, not a capability that
     // implicitly admits activations, triggers or modal child programs.
     schema["$defs"]["UntapFreeProgram"] = serde_json::json!({"properties":{
@@ -3366,6 +3456,20 @@ pub fn catalog_schema() -> serde_json::Value {
             "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/UntapFreeProgram"}}}},
             "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/UntapFreeProgram"}}}}
         }}));
+    // Match requirements(): legendary creatures carry Commander identity even
+    // when this particular configuration does not designate them commanders.
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["characteristics"],"properties":{"characteristics":{
+            "required":["kind","legendary"],"properties":{"kind":{"const":"creature"},"legendary":{"const":true}}
+        }}},
+        "then":{"properties":{"capabilities":{"contains":{"const":Capability::CommanderIdentityV1}}}}
+    }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["capabilities"],"properties":{"capabilities":{"contains":{"const":Capability::CommanderIdentityV1}}}},
+        "then":{"properties":{"characteristics":{"required":["kind","legendary"],
+            "properties":{"kind":{"const":"creature"},"legendary":{"const":true}}
+        }}}
+    }));
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -3438,6 +3542,9 @@ mod activated_permanent_tap_tests;
 mod tap_source_destroy_tests;
 
 #[cfg(test)]
+mod activated_spell_counter_tests;
+
+#[cfg(test)]
 mod permanent_owner_hand_tests;
 
 #[cfg(test)]
@@ -3505,6 +3612,7 @@ mod tests {
             TapPermanentV1,
             ActivatedTapPermanentV1,
             TapSourceDestroyV1,
+            ActivatedSpellCounterV1,
             OwnerHandMoveV1,
             PermanentOwnerHandMoveV1,
             CastSorceryV1,
@@ -3643,6 +3751,7 @@ mod tests {
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());
         definitions.push(tap_source_destroy_tests::tap_source_destroy());
+        definitions.push(activated_spell_counter_tests::activated_counter());
         definitions.push(permanent_owner_hand_tests::permanent_owner_hand());
         // Synthetic contract-shape witness only. Complete D2c-e source lowering
         // is checked in compiler/core tests, without fabricated expected IR.

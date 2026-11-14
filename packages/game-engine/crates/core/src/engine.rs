@@ -24,6 +24,8 @@ pub use commander_policy::policy_digest;
 #[cfg(test)]
 mod activated_permanent_tap_tests;
 #[cfg(test)]
+mod activated_spell_counter_tests;
+#[cfg(test)]
 mod permanent_owner_hand_tests;
 mod removal;
 #[cfg(test)]

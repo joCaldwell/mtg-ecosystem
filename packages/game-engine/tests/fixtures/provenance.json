@@ -1670,6 +1670,15 @@
       "ast_sha256": "f5300678d7d31104d7ec9bb3d40099f7aa78bc2dbe2c36e39bc5ebe8904ba254",
       "archive": "archive-manifest-current.json",
       "archive_line": 23962
+    },
+    {
+      "file": "f2902dfd-888f-4b02-b8ad-1056f0059fc3.json",
+      "oracle_id": "f2902dfd-888f-4b02-b8ad-1056f0059fc3",
+      "record_sha256": "c671cb99f15d2fa7d73514f9dd068045779783807fa5bca1345c3ae73839400c",
+      "source_sha256": "83a1f96cd65c927188b3f53e50a4979df0e3ce6e04a9a0ad355b7dcb2eaee53d",
+      "ast_sha256": "f80cfe06818916986406db7c11b49354787f462b5ef6a61e5dc48df212359d4d",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 36696
     }
   ]
 }

@@ -3633,6 +3633,7 @@ fn lower_activation(
             }
         }
         _ if kind == CardKind::Artifact
+            || matches!(costs, [SourceCost::Mana { .. }, SourceCost::TapSelf {}] if kind == CardKind::Creature)
             || matches!(costs, [SourceCost::Mana { .. }, SourceCost::Sacrifice { what }] if kind == CardKind::Creature && *what == serde_json::json!({"ref":"this","noun":"creature"})) =>
         {
             ActivationCost::Composite {
@@ -3690,7 +3691,7 @@ fn lower_activation(
         });
     }
     if effects.iter().flat_map(|s| &s.steps).any(|step| {
-        matches!(step, Step::Tap { .. })
+        matches!(step, Step::Tap { .. } | Step::Counter { .. })
             || (matches!(cost, ActivationCost::TapSource) && matches!(step, Step::Destroy { .. }))
     }) {
         append_spell_effects(
@@ -8357,3 +8358,6 @@ mod activated_permanent_tap_tests;
 
 #[cfg(test)]
 mod tap_source_destroy_tests;
+
+#[cfg(test)]
+mod activated_spell_counter_tests;

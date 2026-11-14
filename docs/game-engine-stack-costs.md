@@ -223,3 +223,26 @@ cost payment, historical source, continuation cursors and readiness facts.
 Off/compact/detailed traces must agree semantically. Complete formatting,
 Clippy, debug/release workspace tests, cross-language fixture checks,
 source-to-runtime demonstrations and a fresh retained offline rebuild/replay.
+## Activated spell-counter foundation
+
+Schema 1 separately fences `ActivatedSpellCounterV1`: a battlefield creature
+activation with fixed mana plus source tap, one unqualified spell target on the
+stack, and one `CounterStackObject` instruction. Sacrifice costs, other target
+domains/filters, modes and extra effects reject in this context. Ordinary counter
+spells retain their existing validation and capability requirements.
+
+The complete Ertai, Wizard Adept source is
+`tests/fixtures/f2902dfd-888f-4b02-b8ad-1056f0059fc3.json`, physical archive line
+36696/source index 36694: legendary 1/1 Human Wizard, cast cost `{2}{U}`, with
+`{2}{U}{U}, {T}: Counter target spell.` Source and cost facts come from that record.
+The activation uses the existing stack-target binder and composite payment path.
+Activated-entry restoration recognizes stack-target announcement and validates
+its bindings through the same domain, count and announced-handle checks used by
+ordinary counters. Paying the cost taps the source; losing the target or source
+later does not refund it (pinned CR302.6,602.2a/b,608.2b,701.6a/b,113.7a).
+
+Focused private source configurations check actual payment, sickness/tap guards,
+stack target privacy, restore/replay throughout announcement and payment, source
+departure and vanished targets. No pool, hosting/search or consumer qualification
+is added by this source/runtime slice. The new capability remains outside both
+reviewed feature sets; snapshot and public formats are unchanged.
