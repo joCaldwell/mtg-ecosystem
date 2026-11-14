@@ -80,10 +80,11 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
       return "state" in latest ? latest : result;
     });
   }
-  async function save(record: GameRecord): Promise<boolean> {
+  function writeRecord(record: GameRecord): boolean {
     record.updated_at = now();
-    return sql(() => db.prepare("UPDATE game_launches SET record_json=? WHERE id=?").run(JSON.stringify(record), record.id).changes > 0);
+    return db.prepare("UPDATE game_launches SET record_json=? WHERE id=?").run(JSON.stringify(record), record.id).changes > 0;
   }
+  const save = (record: GameRecord): Promise<boolean> => sql(() => writeRecord(record));
   async function pause(record: GameRecord, reason: GamePause | "completed") {
     // Persist intent before stop. Recovery keeps trying stop if its acknowledgment
     // was lost. A supervision fault has no invented rules outcome.
@@ -107,6 +108,7 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
     try {
       if (!sameIdentity(record.identity, native.identity)) { owned.set(record.id, record); await pause(record, "identity_mismatch"); return record; }
       if (record.state === "paused" || record.state === "completed" || record.state === "interrupted") {
+        if (record.consumers_stopped) return record;
         await pause(record, record.state === "completed" ? "completed" : record.pause!); return record;
       }
       record.consumers_stopped = false;
@@ -138,7 +140,13 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
   }
   function run(record: GameRecord): Promise<GameRecord> {
     const existing = inflight.get(record.id); if (existing) return existing;
-    const task = reconcile(structuredClone(record)).finally(() => inflight.delete(record.id));
+    // Tick/admission may have awaited other work since their initial read.
+    // Serialize by game and re-read current durable state before applying any
+    // lifecycle transition; a stale snapshot must never erase a rules outcome.
+    const task = (async () => {
+      const row = await sql(() => db.prepare("SELECT record_json FROM game_launches WHERE id=?").get(record.id) as { record_json: string } | undefined);
+      return row ? reconcile(JSON.parse(row.record_json) as GameRecord) : record;
+    })().finally(() => inflight.delete(record.id));
     inflight.set(record.id, task); return task;
   }
   async function launch(actor: Actor, deckId: number, revision: number, requestId: string): Promise<GameLaunchResult> {
@@ -180,15 +188,19 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
     return { admission: admitted, game };
   }
   async function resume(actor: Actor, id: string): Promise<GameLaunchResult> {
-    const game = await sql(() => read(actor, id));
-    if (closed || !native?.lifecycle_qualified || !options.browser_session_qualified) return { admission: unavailable("session_incomplete"), game };
+    const initial = await sql(() => read(actor, id));
+    if (closed || !native?.lifecycle_qualified || !options.browser_session_qualified) return { admission: unavailable("session_incomplete"), game: initial };
     // Reconcile the immutable game deck, never the mutable library deck.
-    const admitted = await check(game.deck);
+    const admitted = await check(initial.deck);
+    const game = await sql(() => withTransaction(db, () => {
+      const current = read(actor, id);
+      if (admitted.state === "supported" && sameIdentity(current.identity, admitted.identity) && current.state === "paused" && current.pause !== "human_timeout" && current.pause !== "lifetime_exceeded") {
+        current.state = "provisioning"; current.pause = null; current.consumers_stopped = false;
+        if (!writeRecord(current)) throw new ServiceError("Game not found", 404);
+      }
+      return current;
+    }));
     if (admitted.state !== "supported" || !sameIdentity(game.identity, admitted.identity)) return { admission: unavailable("identity_mismatch"), game };
-    if (game.state === "paused" && game.pause !== "human_timeout" && game.pause !== "lifetime_exceeded") {
-      game.state = "provisioning"; game.pause = null; game.consumers_stopped = false;
-      if (!await save(game)) throw new ServiceError("Game not found", 404);
-    }
     const result = await run(game);
     await sql(() => read(actor, id));
     return { admission: admitted, game: result };
