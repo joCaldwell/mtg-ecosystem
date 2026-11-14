@@ -170,7 +170,7 @@ fn temporary_indestructible_paid_response_source_departure_and_replay() {
                 3
             );
             assert!(
-                matches!(&g.state.rules.effects[0].kind,ResolvedEffectKind::GrantKeywords {target,..} if *target==object(g,1))
+                matches!(&g.state.rules.effects[0].kind,ResolvedEffectKind::GrantKeywords {target,modifier:None,..} if *target==object(g,1))
             );
             let before = g.state.clone();
             let trace = g.trace.clone();

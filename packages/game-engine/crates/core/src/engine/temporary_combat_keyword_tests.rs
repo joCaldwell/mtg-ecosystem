@@ -120,22 +120,16 @@ fn stats(g: &Game, id: u32, power: i64, toughness: i64) {
 fn assert_grant(g: &Game, witness: &Witness, id: u32) {
     let (p, t) = witness.modifier.unwrap_or((0, 0));
     stats(g, id, 2 + p, 2 + t);
-    assert_eq!(
-        g.state.rules.effects.len(),
-        1 + usize::from(witness.modifier.is_some())
-    );
-    if let Some((power, toughness)) = witness.modifier {
-        assert!(matches!(&g.state.rules.effects[0].kind,
-            ResolvedEffectKind::ModifyPowerToughness { target, power: p, toughness: t }
-            if *target == object(g, id) && *p == power.into() && *t == toughness.into()));
-    }
+    assert_eq!(g.state.rules.effects.len(), 1);
     let grant = g.state.rules.effects.last().unwrap();
     assert!(
-        matches!(&grant.kind, ResolvedEffectKind::GrantKeywords { target, keywords }
-        if *target == object(g, id) && keywords == witness.keywords)
+        matches!(&grant.kind, ResolvedEffectKind::GrantKeywords { target, modifier, keywords }
+        if *target == object(g, id) && keywords == witness.keywords
+        && modifier.as_ref().map(|m| (m.power.clone(), m.toughness.clone()))
+            == witness.modifier.map(|(p, t)| (p.into(), t.into())))
     );
     assert_eq!(grant.origin.source_block, 0);
-    assert_eq!(grant.origin.cursor, u32::from(witness.modifier.is_some()));
+    assert_eq!(grant.origin.cursor, 0);
     for keyword in witness.keywords {
         assert_eq!(
             g.current_keywords(object(g, id))
@@ -182,7 +176,10 @@ fn temporary_combat_keyword_paid_vectors_modifiers_cleanup_and_forgery() {
                 for variant in 0..9 {
                     let mut bad: Snapshot = strict_read(&good).unwrap();
                     let e = bad.state.rules.effects.last_mut().unwrap();
-                    let ResolvedEffectKind::GrantKeywords { target, keywords } = &mut e.kind else {
+                    let ResolvedEffectKind::GrantKeywords {
+                        target, keywords, ..
+                    } = &mut e.kind
+                    else {
                         unreachable!()
                     };
                     match variant {
@@ -246,11 +243,7 @@ fn temporary_combat_keyword_target_departure_reentry_and_resolution_recheck() {
                     cast(g, q, 2, target(g, 1));
                     assert_eq!(
                         g.state.rules.effects.len(),
-                        if before_resolution {
-                            0
-                        } else {
-                            1 + usize::from(witness.modifier.is_some())
-                        }
+                        if before_resolution { 0 } else { 1 }
                     );
                     cast(g, q, 1, vec![]);
                     assert_ne!(object(g, 1), old);
@@ -366,12 +359,11 @@ fn temporary_combat_keyword_suspended_compound_resolution_restore_and_replay() {
                 for _ in 0..2000 {
                     match g.advance(Budget::new(q)) {
                         Advance::Suspended { .. } => {
-                            if g.state.rules.effects.len() == 1 {
-                                let (p, t) = witness.modifier.unwrap();
-                                stats(g, 1, 2 + p, 2 + t);
+                            if g.state.rules.effects.is_empty() {
+                                stats(g, 1, 2, 2);
                                 assert!(g.current_keywords(object(g, 1)).is_empty());
-                                assert!(matches!(g.state.rules.frame, Frame::Resolve { .. }));
-                                assert!(g.state.rules.pending.is_none());
+                            } else {
+                                assert_grant(g, witness, 1);
                                 if prefixes == 0 {
                                     recover(g);
                                 }
@@ -388,7 +380,7 @@ fn temporary_combat_keyword_suspended_compound_resolution_restore_and_replay() {
                     }
                 }
                 if q == 1 {
-                    assert!(prefixes > 0, "actual intermediate modifier prefix");
+                    assert!(prefixes > 0, "actual suspended complete atomic grant");
                 }
                 assert_grant(g, witness, 1);
             },
