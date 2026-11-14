@@ -45,11 +45,16 @@ impl ActionInitiation {
     }
 }
 
-/// No compiler-owned semantic-to-source label mapping exists in this build.
+/// Core action wording with optional exact compiler-bound source description.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum ActionLabel {
     Unavailable,
+    Available {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<DecisionSource>,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -231,6 +236,11 @@ impl Game {
                     } => ActionDecisionContext::Mana {
                         cost,
                         source: mana_ability_source
+                            .or_else(|| {
+                                self.top()
+                                    .ok()
+                                    .and_then(|entry| self.handle_for(viewer, entry.source).ok())
+                            })
                             .map_or(ActionSourceContext::Unavailable, |object| {
                                 ActionSourceContext::Available { object }
                             }),
@@ -252,8 +262,8 @@ impl Game {
                 match self.resume_work(pending, Budget::new(1)) {
                     QueryResult::Complete(QueryValue::Validated(_)) => {
                         beginnings.push(ActionBeginning {
+                            label: self.action_label(viewer, &initiation),
                             initiation,
-                            label: ActionLabel::Unavailable,
                         });
                     }
                     QueryResult::Incomplete { work: pending, .. } => {
@@ -400,3 +410,44 @@ fn action_rejection(reason: QueryRejection) -> ActionQueryResult {
 #[cfg(test)]
 #[path = "action_query_tests.rs"]
 mod tests;
+
+impl Game {
+    fn action_label(&self, viewer: PlayerId, action: &ActionInitiation) -> ActionLabel {
+        let (text, source) = match action {
+            ActionInitiation::Pass => ("Pass priority", None),
+            ActionInitiation::FinishMana { undo_mana: false } => {
+                ("Finish adding mana; keep mana if payment fails", None)
+            }
+            ActionInitiation::FinishMana { undo_mana: true } => (
+                "Finish adding mana; reverse reversible mana if payment fails",
+                None,
+            ),
+            ActionInitiation::PlayLand { .. } => ("Play land", None),
+            ActionInitiation::Cast { card } => (
+                "Cast spell",
+                self.resolve_handle(viewer, card).ok().and_then(|id| {
+                    self.described_source(viewer, id, DecisionSourceKind::Spell, None)
+                }),
+            ),
+            ActionInitiation::ActivateAbility { object, ability } => (
+                "Activate ability",
+                self.resolve_handle(viewer, object).ok().and_then(|id| {
+                    self.described_source(viewer, id, DecisionSourceKind::Activated, Some(*ability))
+                }),
+            ),
+            ActionInitiation::ActivateMana { object } => (
+                "Activate mana ability",
+                self.resolve_handle(viewer, object).ok().and_then(|id| {
+                    self.described_source(viewer, id, DecisionSourceKind::ManaAbility, Some(0))
+                }),
+            ),
+        };
+        if matches!(action, ActionInitiation::ActivateAbility { .. }) && source.is_none() {
+            return ActionLabel::Unavailable;
+        }
+        ActionLabel::Available {
+            text: text.into(),
+            source,
+        }
+    }
+}

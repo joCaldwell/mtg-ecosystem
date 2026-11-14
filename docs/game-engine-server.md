@@ -27,6 +27,24 @@ retains original proof locators; this is not current-HEAD acceptance. Focused ho
 SDK checks follow [development](game-engine-development.md#choose-focused-checks).
 Resource/time failures never authorize weaker limits or broader admission.
 
+## Read-only product admission
+
+`mtg-server admit-client` reads at most 65,536 bytes of strict duplicate-aware JSON
+from stdin and emits one JSON result. Version 1 accepts only `operation: "admit"`,
+`profile`, `engine_build_id`, `server_build_id`, `catalog_sha256` and `deck` with
+`commander` plus unique `{oracle_id,count}` rows. The commander is included among
+the hundred cards. Source/catalog lookup uses the embedded reviewed profile;
+caller-selected paths, seeds, names and source hashes grant no admission.
+
+The command verifies both actual executable identities, exact catalog, reviewed
+Hosting capabilities and complete four-seat pod admission, using the selected
+profile's other three default decks. Success returns `status: "admitted"`, version,
+profile/build/catalog identities and canonical normalized deck; rejection returns
+`status: "rejected"`, version, reason (`identity`, `profile`, `deck`) and bounded
+public detail. Malformed input fails without reflecting input bytes. A configured
+Git/source hash is not an authoritative native field. Admission creates no game,
+credential or consumer and makes no launch/recovery/supervision claim.
+
 ## Protocol authority and private streams
 
 Rust DTOs embed the actual public core Observation, PlayerRequest and

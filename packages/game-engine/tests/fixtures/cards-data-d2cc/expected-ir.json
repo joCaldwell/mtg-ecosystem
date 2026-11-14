@@ -4,6 +4,19 @@
   "rules_sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca",
   "definitions": [
     {
+      "source_labels": {
+        "text": "Whenever you cast an enchantment spell, put a +1/+1 counter on target creature.",
+        "blocks": [
+          "Whenever you cast an enchantment spell, put a +1/+1 counter on target creature."
+        ],
+        "activated": [],
+        "triggered": [
+          0
+        ],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "0629747e-8dd8-4150-95ee-9d860264ccb0",
       "name": "Generous Visitor",
       "characteristics": {
@@ -97,6 +110,20 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Trample\nWhenever you cast an instant or sorcery spell, put a +1/+1 counter on this creature.",
+        "blocks": [
+          "Trample",
+          "Whenever you cast an instant or sorcery spell, put a +1/+1 counter on this creature."
+        ],
+        "activated": [],
+        "triggered": [
+          1
+        ],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "0a6f45e9-5c7a-4e2c-bf8a-fc5fe0ae0793",
       "name": "Pyre Hound",
       "characteristics": {
@@ -199,6 +226,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Whenever you cast a noncreature spell, you gain 2 life.",
+        "blocks": [
+          "Whenever you cast a noncreature spell, you gain 2 life."
+        ],
+        "activated": [],
+        "triggered": [
+          0
+        ],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "0adcf8d2-6eb9-4679-8ad5-f28e2f4aba39",
       "name": "Student of Ojutai",
       "characteristics": {
@@ -281,6 +321,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Whenever you cast an enchantment spell, you gain 1 life and draw a card.",
+        "blocks": [
+          "Whenever you cast an enchantment spell, you gain 1 life and draw a card."
+        ],
+        "activated": [],
+        "triggered": [
+          0
+        ],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "0fc64fd6-f057-4056-9dca-47accb7ff036",
       "name": "Sythis, Harvest's Hand",
       "characteristics": {
@@ -376,6 +429,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Whenever you cast a noncreature spell, this creature deals 1 damage to each opponent.",
+        "blocks": [
+          "Whenever you cast a noncreature spell, this creature deals 1 damage to each opponent."
+        ],
+        "activated": [],
+        "triggered": [
+          0
+        ],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "2e9289d6-dbc6-456d-88cf-d1f534e731d6",
       "name": "Firebrand Archer",
       "characteristics": {
@@ -463,6 +529,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Whenever you cast an enchantment spell, create a 4/4 white Angel creature token with flying.",
+        "blocks": [
+          "Whenever you cast an enchantment spell, create a 4/4 white Angel creature token with flying."
+        ],
+        "activated": [],
+        "triggered": [
+          0
+        ],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "3b9b5b22-5a7d-4e37-a870-ca0f0efa4f36",
       "name": "Sigil of the Empty Throne",
       "characteristics": {
@@ -554,6 +633,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Whenever an opponent casts a noncreature spell, that player loses 2 life and you gain 2 life.",
+        "blocks": [
+          "Whenever an opponent casts a noncreature spell, that player loses 2 life and you gain 2 life."
+        ],
+        "activated": [],
+        "triggered": [
+          0
+        ],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "4987c458-604a-4727-b360-170616e91e67",
       "name": "Kambal, Consul of Allocation",
       "characteristics": {
@@ -648,6 +740,20 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Trample\nWhenever a player casts a spell, put a +1/+1 counter on this creature.",
+        "blocks": [
+          "Trample",
+          "Whenever a player casts a spell, put a +1/+1 counter on this creature."
+        ],
+        "activated": [],
+        "triggered": [
+          1
+        ],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "b3f2265b-dd65-4b74-8b74-35ee0b147617",
       "name": "Managorger Hydra",
       "characteristics": {

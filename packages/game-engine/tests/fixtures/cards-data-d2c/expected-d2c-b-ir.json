@@ -4,6 +4,19 @@
   "rules_sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca",
   "definitions": [
     {
+      "source_labels": {
+        "text": "At the beginning of each player's upkeep, that player loses 2 life and draws two cards.",
+        "blocks": [
+          "At the beginning of each player's upkeep, that player loses 2 life and draws two cards."
+        ],
+        "activated": [],
+        "triggered": [
+          0
+        ],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "04d0d20f-720e-4cb6-a3ad-ea2b57bb7efa",
       "name": "Seizan, Perverter of Truth",
       "characteristics": {
@@ -99,6 +112,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "At the beginning of each player's draw step, if this artifact is untapped, that player draws an additional card.",
+        "blocks": [
+          "At the beginning of each player's draw step, if this artifact is untapped, that player draws an additional card."
+        ],
+        "activated": [],
+        "triggered": [
+          0
+        ],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "d26b27db-a567-4631-b4b6-7294222fbdd1",
       "name": "Howling Mine",
       "characteristics": {
@@ -176,6 +202,20 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Flying\nAt the beginning of your upkeep, this creature deals 1 damage to you.",
+        "blocks": [
+          "Flying",
+          "At the beginning of your upkeep, this creature deals 1 damage to you."
+        ],
+        "activated": [],
+        "triggered": [
+          1
+        ],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "dd520d83-297a-487f-b8f3-4997bbc056e0",
       "name": "Serendib Efreet",
       "characteristics": {

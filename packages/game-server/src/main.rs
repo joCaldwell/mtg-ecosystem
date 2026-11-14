@@ -169,6 +169,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     match args.first().and_then(|a|a.to_str()) {
         Some("schema") if args.len()==1=>schema(),
+        Some("admit-client") if args.len()==1=>mtg_server::admission::run(),
         Some("client-config-schema") if args.len()==1=>{println!("{}",serde_json::to_string(&mtg_server::protocol::client_config_schema())?);Ok(())},
         Some("native-info") if args.len()==1=>native_info(),
         Some("bootstrap-schema") if args.len()==1=>{println!("{}",serde_json::to_string(&mtg_server::protocol::bootstrap_schema())?);Ok(())},

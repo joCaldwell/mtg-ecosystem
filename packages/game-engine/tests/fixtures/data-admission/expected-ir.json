@@ -4,6 +4,15 @@
   "rules_sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca",
   "definitions": [
     {
+      "source_labels": {
+        "text": "",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "008290c2-499d-425b-9a6c-c4aeb47c33ff",
       "name": "Dakmor Scorpion",
       "characteristics": {
@@ -54,6 +63,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "017568ea-613f-4057-9a8d-61b087d6dc92",
       "name": "Minotaur Abomination",
       "characteristics": {
@@ -106,6 +124,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Destroy target creature. You gain 3 life.",
+        "blocks": [
+          "Destroy target creature. You gain 3 life."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "01b3af6d-ab7d-4137-a94a-1cf2cbfd9d44",
       "name": "Lich's Caress",
       "characteristics": {
@@ -177,6 +206,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "03a9ac3f-f6e4-4ade-9770-cf723434b7e8",
       "name": "Borderland Minotaur",
       "characteristics": {
@@ -229,6 +267,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "041cc2d0-eb67-484e-8da1-e91ddb2b3f70",
       "name": "Lowland Giant",
       "characteristics": {
@@ -280,6 +327,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "0c7163e6-f5a1-45a5-88c2-19dd9ef0a587",
       "name": "Canyon Minotaur",
       "characteristics": {
@@ -331,6 +387,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Target creature gets -5/-5 until end of turn.",
+        "blocks": [
+          "Target creature gets -5/-5 until end of turn."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "13228a22-d63a-4952-a482-4f84da696e88",
       "name": "Demon's Grasp",
       "characteristics": {
@@ -397,6 +464,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Target player loses 3 life and you gain 3 life.",
+        "blocks": [
+          "Target player loses 3 life and you gain 3 life."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "13718d93-fe46-4a18-a511-88649ef1c9de",
       "name": "Sovereign's Bite",
       "characteristics": {
@@ -472,6 +550,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Destroy target creature. It can't be regenerated.",
+        "blocks": [
+          "Destroy target creature. It can't be regenerated."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "2f05f3ed-e3b7-4225-b3f2-c12eda335237",
       "name": "Flesh to Dust",
       "characteristics": {
@@ -544,6 +633,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Creatures you control get +1/+1.",
+        "blocks": [
+          "Creatures you control get +1/+1."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [
+          0
+        ],
+        "spell_modes": []
+      },
       "oracle_id": "3754dce0-3e97-406f-8807-a4942a222c41",
       "name": "Gaea's Anthem",
       "characteristics": {
@@ -604,6 +706,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Flying, haste",
+        "blocks": [
+          "Flying, haste"
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "48fe0f52-1676-49d5-acf6-5476081e8e1b",
       "name": "Rorix Bladewing",
       "characteristics": {
@@ -663,6 +776,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "({T}: Add {B}.)",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68",
       "name": "Swamp",
       "characteristics": {
@@ -703,6 +825,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Open Fire deals 3 damage to any target.",
+        "blocks": [
+          "~ deals 3 damage to any target."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "8b218023-50b8-4d9d-b17b-9647479d3675",
       "name": "Open Fire",
       "characteristics": {
@@ -767,6 +900,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "980e1721-3717-4425-95a4-938dbf2ac661",
       "name": "Yargle and Multani",
       "characteristics": {
@@ -824,6 +966,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "({T}: Add {R}.)",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "a3fb7228-e76b-4e96-a40e-20b5fed75685",
       "name": "Mountain",
       "characteristics": {
@@ -864,6 +1015,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Shock deals 2 damage to any target.",
+        "blocks": [
+          "~ deals 2 damage to any target."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "a9d288b8-cdc1-4e55-a0c9-d6edfc95e65d",
       "name": "Shock",
       "characteristics": {
@@ -928,6 +1090,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "({T}: Add {G}.)",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6",
       "name": "Forest",
       "characteristics": {
@@ -968,6 +1139,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "({T}: Add {W}.)",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99",
       "name": "Plains",
       "characteristics": {
@@ -1008,6 +1188,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "cfb756dd-6fe1-430a-8f04-8b10cac62a86",
       "name": "Isamaru, Hound of Konda",
       "characteristics": {
@@ -1059,6 +1248,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Lightning Strike deals 3 damage to any target.",
+        "blocks": [
+          "~ deals 3 damage to any target."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "f34b9bc4-7bfe-47fd-ba23-4eeeb46026eb",
       "name": "Lightning Strike",
       "characteristics": {

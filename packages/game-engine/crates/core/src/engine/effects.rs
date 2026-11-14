@@ -1556,6 +1556,8 @@ pub enum DamageEffectKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleDamageEffectCandidate {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub allocation_required: bool,
     pub effect: EffectHandle,
@@ -1891,6 +1893,9 @@ impl Game {
         };
         let allocation_required = self.needs_allocation(tx, &pair.effect);
         Ok(VisibleDamageEffectCandidate {
+            label: self
+                .effect_decision_context(viewer, &pair.effect)
+                .and_then(|c| c.instruction.map(|i| i.text)),
             allocation_required,
             effect: self.effect_handle(viewer, &pair.effect)?,
             damage: self
