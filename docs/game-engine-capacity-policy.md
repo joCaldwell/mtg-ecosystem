@@ -101,7 +101,7 @@ own-source witness has its original outside its library, so scans are at most 99
 the shared unbiased sampler still supports 100, including tucked commanders.
 Random bottom consumes one word attempt per step, preserves the library prefix and
 does not use event-group depth as cascade depth or increment library shuffle history.
-See the [casting contract](game-engine-ramos-casting-contract.md#m3b-complete-basic-cascade-checkpoint)
+See the [casting contract](game-engine-ramos-plan.md#qualified-checkpoints-and-limits)
 for exact source qualification, recovery, Commander replacement and omissions.
 
 ## Cost model and validation
