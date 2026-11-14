@@ -58,7 +58,7 @@ fn temporary_deathtouch_complete_serpents_gift() {
     assert_eq!(p.targets.len(), 1);
     assert_eq!(p.targets[0].selection_id, "line:0:0");
     assert!(
-        matches!(p.instructions.as_slice(),[Instruction::GrantKeywords { target_slot:0, keywords, duration:Duration::UntilEndOfTurn, source_block:0 }] if keywords == &[KeywordAbility::Deathtouch])
+        matches!(p.instructions.as_slice(),[Instruction::GrantKeywords { modifier: None, target_slot:0, keywords, duration:Duration::UntilEndOfTurn, source_block:0 }] if keywords == &[KeywordAbility::Deathtouch])
     );
 }
 #[test]

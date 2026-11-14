@@ -1711,7 +1711,56 @@ fn append_spell_effects(
         }
         program.instructions.push(Instruction::GrantKeywordsSet {
             set,
-            modifier: Some(CreatureSetModifier {
+            modifier: Some(CreatureStatModifier {
+                power: signed_fixed(power)?,
+                toughness: signed_fixed(toughness)?,
+            }),
+            keywords: lower_temporary_creature_keywords(abilities)?,
+            duration: Duration::UntilEndOfTurn,
+            source_block,
+        });
+        return Ok(());
+    }
+    // The targeted family likewise consumes the WHOLE sole typed sentence.
+    // Binding both complete expressions preserves selection and domain checks.
+    if source_block == 0
+        && player_binding == PlayerBinding::Unbound
+        && program.functioning_zone == FunctioningZone::Stack
+        && program.resolution == SpellResolution::Instructions
+        && program.additional_sacrifice.is_none()
+        && program.targets.is_empty()
+        && program.instructions.is_empty()
+        && let [Sentence { bindings, steps }] = effects
+        && bindings.is_empty()
+        && let [
+            Step::Pump {
+                what: pump_what,
+                power,
+                toughness,
+                duration: pump_duration,
+            },
+            Step::GainAbilities {
+                what,
+                abilities,
+                duration,
+            },
+        ] = steps.as_slice()
+        && pump_duration == duration
+        && duration.duration == "end-of-turn"
+    {
+        let target_slot = bind_temporary_creature_target(program, slots, pump_what)?;
+        if bind_temporary_creature_target(program, slots, what)? != target_slot
+            || target_slot != 0
+            || program.targets.len() != 1
+        {
+            return Err(unsupported(
+                "targets",
+                "compound grant requires the same one target",
+            ));
+        }
+        program.instructions.push(Instruction::GrantKeywords {
+            target_slot,
+            modifier: Some(CreatureStatModifier {
                 power: signed_fixed(power)?,
                 toughness: signed_fixed(toughness)?,
             }),
@@ -1975,6 +2024,7 @@ fn append_spell_effects(
                 } if duration.duration == "end-of-turn" => {
                     let keywords = lower_temporary_creature_keywords(abilities)?;
                     Instruction::GrantKeywords {
+                        modifier: None,
                         target_slot: bind_temporary_creature_target(program, slots, what)?,
                         keywords,
                         duration: Duration::UntilEndOfTurn,

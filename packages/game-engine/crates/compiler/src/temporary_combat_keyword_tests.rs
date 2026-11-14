@@ -148,22 +148,16 @@ fn assert_program(d: &Definition, modifier: Option<(i64, i64)>, keywords: &[Keyw
             filter: None,
         }]
     );
-    let mut instructions = vec![];
-    if let Some((power, toughness)) = modifier {
-        instructions.push(Instruction::ModifyPowerToughness {
-            target_slot: 0,
+    let instructions = vec![Instruction::GrantKeywords {
+        modifier: modifier.map(|(power, toughness)| CreatureStatModifier {
             power: power.into(),
             toughness: toughness.into(),
-            duration: Duration::UntilEndOfTurn,
-            source_block: 0,
-        });
-    }
-    instructions.push(Instruction::GrantKeywords {
+        }),
         target_slot: 0,
         keywords: keywords.to_vec(),
         duration: Duration::UntilEndOfTurn,
         source_block: 0,
-    });
+    }];
     assert_eq!(p.instructions, instructions);
     let descriptor = temporary_creature_keyword_program(p).unwrap();
     let quantities = modifier.map(|(p, t)| (Quantity::from(p), Quantity::from(t)));

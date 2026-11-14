@@ -145,22 +145,16 @@ fn assert_program(
             .map(|(power, toughness)| (power, toughness))
     );
     assert_eq!(descriptor.keywords, keywords);
-    let mut expected = vec![];
-    if let Some((power, toughness)) = modifier {
-        expected.push(Instruction::ModifyPowerToughness {
-            target_slot: 0,
+    let expected = vec![Instruction::GrantKeywords {
+        modifier: modifier.map(|(power, toughness)| CreatureStatModifier {
             power: power.into(),
             toughness: toughness.into(),
-            duration: Duration::UntilEndOfTurn,
-            source_block: 0,
-        });
-    }
-    expected.push(Instruction::GrantKeywords {
+        }),
         target_slot: 0,
         keywords: keywords.to_vec(),
         duration: Duration::UntilEndOfTurn,
         source_block: 0,
-    });
+    }];
     assert_eq!(p.instructions, expected);
     let mut expected_caps = BTreeSet::from([
         Capability::NormalLayoutV1,
