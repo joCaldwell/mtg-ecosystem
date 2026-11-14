@@ -65,7 +65,7 @@ bounded/cancelled streams, native fetch/abort, Web Locks and IndexedDB in Chromi
 and Firefox. The runner closes browsers/server and records exact versions and
 hashes in a new `generated/browser-proof-*.json`. Fixture HTTP is explicitly
 synthetic; it does not establish real Rust hosting, seat isolation or human play.
-See [the browser SDK report](../../../docs/game-client-browser-sdk.md) for source
+See [the browser SDK report](../../../docs/game-client.md) for source
 qualification, actual evidence and remaining native integration gates.
 
 `parseSeatBootstrap(text)` validates the separately exported Rust `SeatBootstrap`
@@ -309,7 +309,7 @@ remains `HttpError(404)` for session-owned display fallback. No retry or local
 rules inference is performed. Producer types and standalone validators are generated
 from `../tools/presentation.schema.json`; its producer source and exact schema
 hashes are recorded beside the Rust export. Do not mix schemas/builds from a
-concurrent engine source; see `docs/game-client-local-serving.md` at repository root.
+concurrent engine source; see `docs/game-client.md#native-delivery-and-operator-procedure` at repository root.
 
 Action transport adds `GameClient.queryActions(request, { signal })`: one bounded
 start/continue/cancel POST, using generated `ActionQueryRequest` and
@@ -324,4 +324,4 @@ deeply frozen `{ envelope, exactBody }`. Persist `exactBody` before sending.
 reserializing them. `submitExact(exactBody, { signal })` validates and sends that
 exact string once, checking the returned command ID. The SDK does not persist,
 retry or settle an unknown command outcome. See the source-qualified
-[action transport report](../../../docs/game-client-action-transport.md).
+[action transport report](../../../docs/game-client.md#action-discovery-transport).

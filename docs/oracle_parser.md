@@ -13,9 +13,9 @@ emission remain unfinished. See [architecture.md](architecture.md) and the packa
 The parser, ingestion, archive, and diagnostic reference analysis remain
 TypeScript. Production semantic binding, lowering, and Card IR emission belong
 to the Rust compiler alongside the rules engine; see the
-[adopted language decision](runtime-language-decision.md).
+[adopted language decision](architecture.md).
 
-The [checkpoint history](oracle-parser-checkpoint.md) records verified coverage,
+The [checkpoint history](oracle_parser.md#source-qualified-checkpoint-and-remaining-work) records verified coverage,
 reproduction inputs, and unfinished work, including the October 15–16 parsing
 and reference-binding results.
 
@@ -395,17 +395,38 @@ Correcting false successes can lower coverage. Failure groups use the token at
 the failure location and retain complete example text; they are investigation
 hints, not proof that every example needs the same grammar extension.
 
-## Next milestones
 
-1. Keep all known meaning-loss regressions fixed or explicitly rejected. Review
-   newly accepted ASTs against card data and the rules.
-2. Expand supported constructs with full structural assertions and negative
-   tests; pair near-identical inputs when a word changes the meaning.
-3. Extend the conservative reference graph to linked abilities and nested
-   captures, then expand semantic validation, keyword expansion, and executable
-   admission beyond the existing Rust scenario compiler/runtime.
-4. Implement bulk emission only after the admitted subset passes validation
-   end to end. Corpus coverage alone is not an emission gate.
+## Source-qualified checkpoint and remaining work
 
-`npm run build-ir` deliberately fails. The proposed envelope and remaining
-storage decisions are described in [data_schemas.md](data_schemas.md).
+Broad grammar coverage is paused. The 2026-10-16 checkpoint accepted 29,634/32,115
+Commander-legal cards (92.27%) on its exact corpus; 23,395 had all references bound,
+21,998 fully bound, 1,397 awaiting engine features and 6,239 with reference gaps.
+The parser/report source SHA was
+`316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a`;
+corpus `f8cb9da28e34b01dbd72504f059e012bda62db7d332acd2e3b43e75570e92738`;
+paper evidence `d3a68c4ae14b1349a9d7b9972a19ca8176db06133020b690eb7348d0d972c699`.
+Those 2,906 passing checks and percentages are historical, not a current result.
+
+Remaining work: independent review of later reference-binding rules (earlier
+sampled review checked 465 additions and fixed three defects; later rules used
+corpus diffs), unresolved reference groups, engine-required event history/
+prevention/layers, paused grammar tail and bulk per-set emission. A wrong binding
+is worse than an unresolved reference. The archive declares `executable: false`;
+Rust lowering/admission, not parser coverage, proves executable support.
+
+For comparisons keep the same frozen corpus/scope; run package check, root
+`node scripts/validate-parser.ts --json` and `npm run archive-parser` only when
+needed. Compare `parser.sourceSha256` with `sourceIdentity()` in
+`scripts/validate-parser.ts`, corpus hash and scope before using any local report.
+`parser-98-*` files are historical and not automatically refreshed. Content-addressed
+input snapshots and generated archives stay ignored and preserved.
+
+Earlier checkpoint11 used source
+`98980a967a70d57008847ce0952edf0cc277af9ad26b8cb8739a555d97082b8d`,
+corpus `5e97d5c4b94e8a080ec4615bbee6cc4528333ed921e47dd1d16990a28870ff60`
+and scope `paper-printing-evidence-non-silver-non-acorn-v2`; its 67.60% whole-card
+acceptance is not comparable to another scope/corpus. Unique audits remain in
+`.scryfall-cache/{checkpoint11-review.json,checkpoint11-grammar-gain-audit-coverage.json,archive-checkpoint11-independent-audit.json}`.
+The reused `generated/oracle-ast.jsonl` identifies its checkpoint through its manifest.
+Full dated counts and reference-gap groups are recoverable from
+[the original checkpoint](https://github.com/joCaldwell/mtg-ecosystem/blob/1c3eca4c37b90de02decca316fefab5c8035140e/docs/oracle-parser-checkpoint.md).

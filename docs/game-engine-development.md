@@ -109,7 +109,7 @@ sh scripts/engine-env.sh npm run engine:smoke:replay -- generated/my-new-smoke.j
 ```
 
 These use the check driver's native lock, cache and environment controls. See
-[the smoke contract](game-engine-smoke.md) for the fixed seedless scenario,
+[the smoke contract](game-engine-verification-workflow.md#smoke-probe) for the fixed seedless scenario,
 create-new bounded artifact, replay diagnostics and omissions. The small probe
 does not replace an affected mechanic test or establish combined acceptance.
 
@@ -154,5 +154,5 @@ remote URL, npm configuration or child diagnostic stream is printed by doctor.
 Commit and push coherent checkpoints after relevant focused checks. Preserve
 historical source/evidence/worktrees and all failed/interrupted results. The
 coordinator integrates changes; publishing a branch is not release acceptance.
-Use [the worktree lifecycle guide](game-engine-worktrees.md) for inventory,
+Use [the worktree lifecycle guide](game-engine-storage.md#worktree-lifecycle) for inventory,
 checkpoint and cleanup commands; do not improvise historical worktree deletion.

@@ -1,5 +1,12 @@
 # Parser data contracts and proposed Card IR
 
+This document covers parser/archive inputs and outputs. The unified product's
+backend API types come through `@mtg-ecosystem/deck-builder/contracts`; gameplay
+wire contracts are generated from Rust into the SDK. `game-ui` display models
+are not another wire schema, and the client's public preview contains only a
+qualified captured sample. See [application ownership](multiverse-app.md) and
+[client boundaries](game-client.md) before crossing those interfaces.
+
 ## Implemented input
 
 The parser entry point accepts Oracle text, an optional card name, and optional
@@ -149,7 +156,7 @@ allows verification to stream rather than load a second bulk corpus in memory.
 ## Executable Card IR and proposed bulk output
 
 The semantic compiler and emitter use **Rust**, as fixed by
-the [language decision](runtime-language-decision.md). The source parser/archive
+the [language decision](architecture.md). The source parser/archive
 stays TypeScript; Card IR is language-neutral JSON. Rust types in
 `packages/game-engine/crates/contracts/` are authoritative. The only active IR
 schema is 1, evolved in place until an external consumer needs a compatibility
@@ -162,7 +169,7 @@ Archive schema 3 is independent and unchanged. General/per-set bulk emission
 remains a **proposal**; `scripts/build-ir.ts` fails explicitly. Retired schema
 examples are not an implemented contract.
 
-The [Layer 1 contract proposal](game-engine-spec.md#3-card-compiler-and-executable-contract)
+The [Layer 1 contract proposal](game-engine-mechanics.md)
 now specifies compilation stages, executable admission, capability profiles,
 source provenance, and strict cross-language interchange. It proposes canonical
 Oracle definitions with separate printing/set membership indexes, refining the
@@ -190,3 +197,8 @@ When implemented, derive or validate the machine-readable schema against the
 actual types and test serialization. Generated files stay ignored; small,
 curated structural fixtures belong in tests. No downstream layer should build
 against the retired example schema.
+
+`packages/card-data/sets/` is generated output for the proposed bulk pipeline.
+Do not hand-edit definitions or commit downloaded/generated corpora there. Exact
+engine development catalogs remain reviewed small fixtures under game-engine;
+the standalone deck library uses its own independent SQLite source store.

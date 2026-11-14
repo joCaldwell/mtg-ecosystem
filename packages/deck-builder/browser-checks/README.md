@@ -1,4 +1,4 @@
-# browser-checks: regression scripts for the deck-builder web app
+# Multiverse browser regressions (backend fixture tooling)
 
 Chromium scripts that drive a disposable, seeded copy of the app and assert on
 real behaviour: focus, layout, stored data and accessibility. They never touch
@@ -13,7 +13,8 @@ outside the Docker context's allow-list.
 | `playwright-core@1.62.1` | Drives Chromium. Pinned to the release whose browsers are already in `~/.cache/ms-playwright` (`chromium-1234`, `chromium_headless_shell-1234`, `webkit-2336`), so installing downloads nothing large. `playwright-core` never downloads browsers itself. Change the pin only together with the cached browsers. |
 | `axe-core@4.14.0` | Accessibility violations per screen, the version phase 4b's QA used. Injected with `page.evaluate`, which the page's CSP does not apply to, so the hosted CSP stays on. |
 
-Vite comes from the deck-builder's own dev dependencies.
+Vite and the public-bundle checker come from `packages/multiverse`. This tooling
+stays next to the backend's source-backed fixtures and capability services.
 
 ```
 cd packages/deck-builder/browser-checks && npm ci
@@ -72,10 +73,11 @@ fixture server without this flag.
 
 `createApp` with no background jobs, in hosted mode, against a fresh copy of
 the seed (so every start is the same state). The web app is built with
-`vite build --outDir` into a temporary folder, never `web/dist`; pass
+`vite build --outDir` into a temporary folder, never the product's
+`packages/multiverse/web/dist`; pass
 `--dist <dir>` to reuse a build, or `--build-only` to just build. Sessions
 are mocked through `createApp`'s `resolveUiActor` seam, as
-`test/sharing-http.test.ts` does: the cookie `checks_user=<id>` is that user,
+the capability/permission tests do: the cookie `checks_user=<id>` is that user,
 no cookie is signed out. Real hosted auth is configured (Discord and Google
 fixtures, a gated sign-up), so the sign-in page, legal footer and signed-out
 public pages render as in production. Rate limits are raised in-process,
@@ -87,6 +89,20 @@ browser (`lib/browser.mjs`): `Date` is frozen, `Math.random` seeded, and locale,
 time zone and colour scheme fixed.
 
 ## The checks
+
+### Unified product flow
+
+Start a disposable `serve.ts` fixture without `--default-user` when testing
+authentication. Then, from this directory:
+
+```sh
+node check-product-shell.mjs --origin http://127.0.0.1:8830 --out ../.dev/product-shell-check
+```
+
+This covers Home, real owned-deck setup, local preview/draft/focus/return,
+existing deep links, delayed prior deck reads, empty/foreign accounts, signed-out
+gating and responsive navigation. It sends no game commands and verifies the
+saved builder deck is unchanged. The captured table is not the selected deck.
 
 Start a fresh `serve.ts` for each script that changes its fixture.
 

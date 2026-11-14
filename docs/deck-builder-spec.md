@@ -63,7 +63,7 @@ to do** (its brief), **what the owner has decided and why** (decisions), and
 - No formats other than Commander.
 
 Reopened on 2026-10-25 (planned in the
-[v3 plan](deck-builder-v3-plan.md); each entry becomes a description of
+[v3 plan](deck-builder-spec.md); each entry becomes a description of
 built behaviour when its phase lands):
 
 - **Phones read and rule; agents edit** (D17, built in phase 4a, §11). Below
@@ -967,10 +967,13 @@ unknown file extension return 404 (D16).
 
 ### 11.2 Phones *(phase 4a, D17)*
 
-Below 720 px (`PHONE_MAX_WIDTH` in `web/src/app/breakpoints.ts`, the one
+Below 720 px (`PHONE_MAX_WIDTH` in `packages/multiverse/web/src/app/breakpoints.ts`, the one
 constant shared with the public page) the signed-in app is a phone shell
 with a top bar instead of the sidebar, and only these screens:
 
+- **Home and Play setup (§19):** account-scoped deck information and navigation,
+  with no direct deck writes or match creation. The game table preview retains
+  its explicit larger-screen fallback on phones.
 - **Decks:** the deck list, one tappable row per deck with its pending count.
 - **A deck:** the same read-only composition as the public page
   (`ReadOnlyDeck`), fed by the owner's own deck state, with its pending
@@ -1158,8 +1161,8 @@ approved commander art/collapse remain intact.
 ## 12. Archidekt and Moxfield interop
 
 Construction and desktop solo goldfishing happen here. The manual playtester
-was added on 2026-10-13; see [its requirements](playtester-design-brief.md)
-and [implementation guide](playtester.md). Archidekt interop remains available.
+was added on 2026-10-13; see [its requirements](multiverse-app.md#first-increment-and-launch-boundary)
+and [implementation guide](multiverse-app.md#first-increment-and-launch-boundary). Archidekt interop remains available.
 
 - **Export:** an Archidekt-importable list. With active name or tag filters, **Export matches** opens an export restricted to matching cards, including inverted tag filters. The export dialog can switch between current matches and the whole deck, independently include or exclude the maybe list (excluded by default), and toggle categories. Filtered exports default to plain quantity-and-name lines for a buying list. Included maybe-list cards use `Maybeboard` when categories are enabled. Quantities are preserved; commanders and companions are eligible, and pending proposed additions are excluded. An empty selection exports nothing. Export counts describe the exported copies and lines, and exporting changes no deck records.
 - **Import:** the owner pastes a list; the app diffs it against the deck, shows the diff with destructive cuts called out first, and applies it in full on confirmation. It is one decisions-log entry, so one undo reverts it. Lines in a `Maybeboard` or `Sideboard` category, or under a section header of that name, are shortlisted on the maybe list, not added, and the preview says so. A `Commander` category or section header puts the card in the command zone, including a card already in the deck.
@@ -2019,3 +2022,19 @@ support. Keep Start game unavailable until that path exists, with a separate
 Preview table action. No fixture confirmation creates a match or durable result.
 See [application architecture and launch gates](multiverse-app.md).
 
+
+## Compatibility and product ownership
+
+Public compatibility policy (v3 D19): never drop other users' data. From public
+sign-up, MCP tools, shared URLs and token formats evolve additively or through
+explicit deprecation; preserve/backfill content through migrations. Internal
+implementations may be rewritten. Auth/account backend, Actor/SQLite services,
+API, CLI and MCP remain in deck-builder behind public `./host` and type-only
+`./contracts`; account/session UX, browser features, build/process composition
+belong to Multiverse. One existing account/data system remains, with no auth/DB
+migration from this move. See [application contracts](multiverse-app.md).
+
+The original solo manual playtest service is legacy functionality, not a rules
+engine, browser-play acceptance or approved game-client design reference. New
+games follow native admission and separate account-to-seat authorization. Real
+one-human/three-automated launch and full browser decisions remain unfinished.

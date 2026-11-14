@@ -48,46 +48,6 @@ The report lists those PIDs. Never use that switch to bypass an actual reference
 The lock is cooperative: stop other work or coordinate ownership before apply;
 this does not protect against a noncooperating writer starting after the scan.
 
-## 2026-11-09 gardening audit and cleanup
-
-At the initial audit, registered worktrees held 82,151,342,080 allocated bytes in
-real `target` directories, 68,311,638,016 in generated directories and
-1,664,405,504 in the root Scryfall cache. External engine evidence held
-107,273,039,872 bytes; external toolchains held 386,232,320 bytes. Symlinked stores
-were not followed or counted again. At pre-gardening `9257d1b`, the source checkout held 1,417 tracked files
-and 72,304,656 apparent bytes. Its two largest tracked files were the reviewed
-scenario fixtures `expected-effects-scenario.json` (20,809,754 bytes) and
-`expected-choices-scenario.json` (16,564,245 bytes); these are historical pre-gardening sizes. See the integrated
-[fixture policy](../packages/game-engine/tests/fixtures/README.md) for the subsequent migration.
-
-The coordinator cleared three inactive worktrees after inspecting clean Git
-status, active T3 threads and process ownership. Only their incremental caches
-were removed, under the Cargo lock, with a final open-fd check. Uninspectable
-session PIDs were independently identified and acknowledged. All six existing
-final `mtg-*` executables were SHA-256 checked unchanged before/after. Every
-`deps`, `build`, generated/evidence path and the active
-`perf-engine-verification-loop/target` remained intact.
-
-Paths below are relative to `/home/josh/.t3/worktrees/mtg-ecosystem/`.
-
-| Target | Allocated before | Allocated after | Reclaimed |
-| --- | ---: | ---: | ---: |
-| `t3-a03d733d/target` | 23,576,166,400 | 11,608,154,112 | 11,968,012,288 |
-| `t3-fc170f1a/target` | 23,128,788,992 | 7,894,376,448 | 15,234,412,544 |
-| `t3-6d9553cf/target` | 12,856,012,800 | 4,696,502,272 | 8,159,510,528 |
-| **Total** | **59,560,968,192** | **24,199,032,832** | **35,361,935,360 (32.93 GiB)** |
-
-Exact removed paths were `target/debug/incremental` in all three worktrees;
-`target/release/incremental` in the first two; and
-`target/x86_64-unknown-linux-gnu/{debug,release}/incremental` in the first.
-Original final executables remain at their original paths, not relocated copies.
-Machine-readable receipts with their hashes are in this implementation worktree's
-ignored `generated/storage-cleanup/`; this checked-in table records the durable
-aggregate result. Future builds may take longer to reconstruct incremental state.
-
-Focused safety checks: `python3 scripts/test-engine-storage.py`. No engine gate,
-Cargo rebuild, release replay or corpus regeneration is needed for this command.
-
 ## Retention defaults
 
 `npm run retain:engine` and `npm run retain:server` now run through
@@ -160,3 +120,54 @@ content-addressed corpus/paper snapshots remain pinned inputs, not age-based
 cache candidates. No grammar or archive wire format changed. Existing ignore
 rules already cover generated output, targets, corpora and Python bytecode; no
 broader ignores were added to conceal source changes.
+
+## Worktree lifecycle
+
+Start new independent work from current `origin/main`. The engine/platform and
+architecture work are integrated there; `feat/engine-plan` is retired. In T3,
+use the thread/worktree tool with `origin/main` and `startFromOrigin: true` for
+independent work. Dependent unpublished work uses its explicitly assigned local
+base and `startFromOrigin: false`. Record base SHA and owned files. Do not create
+an unrelated shell worktree for a T3 thread. The retirement helper defaults to
+local `main` and the live remote `origin/main` publication proof.
+
+Commit a coherent change after its focused checks, then push the checkpoint.
+Push before a handoff, a long native measurement, or ending a work session.
+Report the exact commit, checks performed, omissions, active processes, and
+retained evidence paths. A failed broader gate does not prevent a clearly marked
+implementation checkpoint; never claim that failure passed. Avoid combining
+unrelated task changes merely to produce a clean checkout.
+
+After integration, retire a checkout only when its owner has finished and will
+not resume there. Keep source branches as inexpensive recovery references. Use:
+
+```sh
+python3 scripts/engine-worktrees.py --worktree /absolute/task/worktree
+# Review the report and confirm the owner has finished, then:
+python3 scripts/engine-worktrees.py --worktree /absolute/task/worktree \
+  --apply --inactive --expect-head FULL_SHA_FROM_REPORT
+```
+
+The default is a dry-run under the shared Cargo lock. The helper requires exact
+registered paths, no changed/untracked/ignored files, no documented branch/path
+references, no active process references, and ancestry in the integration base.
+It checks the remote server's current branch head against that exact base rather
+than trusting a stale tracking ref. Primary/invoking/protected/locked/detached
+trees are blocked. Apply rechecks everything and calls `git worktree remove`
+without force. Local and remote branches remain. It never runs `git clean` or
+removes generated evidence, dependencies, caches, or another repository's tree.
+
+Use `--base BRANCH --remote REMOTE --remote-branch BRANCH` for a different
+published integration branch. A moving remote blocks removal until the local
+base is reconciled. The tool is for cooperative local work: the Cargo lock
+serializes native work, but it cannot stop a separate editor from creating files.
+The owner must stop before retirement. If Linux denies inspection of same-user
+processes, inspect ownership independently before using `--allow-uninspectable`;
+actual detected process references always block removal.
+
+Ignored files are deliberately a blocker, including `node_modules`, `target`,
+and `generated`. Review those separately using the
+[storage policy](game-engine-storage.md); an old worktree can hold the only copy
+of an accepted binary or evidence. A path documented outside this repository
+also needs review even though the helper cannot discover it. Preserve or relocate
+that evidence and update references before trying retirement again.

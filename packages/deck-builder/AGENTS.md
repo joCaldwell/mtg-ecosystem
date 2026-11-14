@@ -1,21 +1,12 @@
-# Deck capabilities and existing application backend
+# Deck capabilities and existing account backend
 
-> **Status: ACTIVE.** Built against
-> [docs/deck-builder-spec.md](../../docs/deck-builder-spec.md) (2026-10-10).
-> Section numbers in code comments (§5.2 lifecycle, §7 memories, §8
-> decisions, §10 agent interface) refer to that document.
-
-The capability/backend service for building Commander decks, running locally for one person or hosted
-for many (`DECKBUILDER_MODE`, spec §17). It is designed to be used by people
-through its UI and by external AI agents through an MCP endpoint. **The app
-makes no AI model calls.** It stores structured data, validates, computes, and
-keeps an auditable record; interpretation and conversation happen in whatever
-agent the owner connects.
-
-**Read the spec before changing behaviour.** It is the source of truth for
-design intent.
-
----
+Read [the specification](../../docs/deck-builder-spec.md) before changing behavior.
+Its section numbers remain stable for source comments. This package owns the
+existing authentication/account implementation, Actor/SQLite capability services,
+deck data, API, CLI and MCP. `multiverse` owns browser/account UX, navigation,
+features, build and process composition, through public `./host` and type-only
+`./contracts`. There is one account/database system and no migration from the move.
+No model calls or embeddings; interpretation lives in the external agent.
 
 ## 🎯 The rules that explain most of the design
 
@@ -47,14 +38,12 @@ design intent.
 
 ---
 
-## 🏗️ Stack and layout
-
-Use Node 26 (`nvm use`; the package floor is >=24.12). Both tsconfigs enforce
+Use Node 26 (`nvm use`; the package floor is >=24.12). The backend tsconfig enforces
 `erasableSyntaxOnly`. Node runs the `.ts` files directly via type stripping — **there is no build
 step for `src/`**. `node:sqlite` (built in, has FTS5) means no native deps. Use `Database`
 from `src/sqlite.ts` (Node 26 rename; the same constructor on Node 24).
 Connections have a 5-second busy timeout.
-Runtime dependencies: React, `@modelcontextprotocol/server` (the official MCP
+Runtime dependencies include `@modelcontextprotocol/server` (the official MCP
 TypeScript SDK, v2 line) and `zod` (minimum 4.6.7 for the collection-validation
 security patch). `@aws-sdk/client-s3` is the ops-only
 exception for optional S3-compatible backup uploads; it is loaded only when
@@ -70,100 +59,6 @@ for the official native dialect with query/transaction-scoped reservations; `jos
 tokens satisfy D7, so do not install the api-key plugin. No native deps.
 The auth CLI is an offline schema-generation tool, not a runtime dependency. Prefer the platform and the existing set otherwise.
 
-## Product ownership (2026-11-14)
-
-The browser application, account UX/session, navigation, Home, deck editor and
-game entry now belong to [Multiverse](../multiverse/AGENTS.md). This package keeps
-the existing account/auth backend, Actor/SQLite capability layer, deck services,
-CLI and MCP. The product consumes public `./contracts` type exports and `./host`
-runtime composition; browser code never imports private backend files. There is
-one identity/database implementation and no account migration.
-
-Run browser/product checks in `packages/multiverse`; this package's gate covers
-backend types and tests. Existing launch commands delegate to the product-owned
-entrypoint. Preserve storage/environment/credential paths when changing launch
-composition. See [application boundaries](../../docs/multiverse-app.md).
-
-The unified product consumes local workspace dependencies `@multiverse/game-ui`
-(shared presentation) and `@multiverse/game-client/preview` (an explicit captured
-opening preview). They provide one table implementation, never another account
-or rules runtime. Vite deduplicates React/React DOM to the host. The Node-only
-`@multiverse/game-client/verify-preview` build hook validates retained fixture
-provenance without SDK generation. Do not import private game-client app/session
-modules or load its global styles. Full match provisioning/admission remains a
-separate capability-layer integration.
-
-For an isolated checkout, this package now retains its own install lock and local
-TypeScript compiler. From the repository root use
-`sh scripts/engine-env.sh npm --prefix packages/deck-builder ci --workspaces=false --ignore-scripts`.
-This does not install into or replace the root shared node_modules.
-
-
-```
-src/
-  errors.ts          AppError base — every user-facing failure carries its HTTP status
-  actor.ts           Actor with principal; requireDeckOwner, requireSelf, requireUi, PermissionError
-  db.ts              ordered migrations through v17, nested savepoints, per-user settings
-  cards.ts           ⭐ exact card resolution, suggestions, prose linting
-  ingest.ts          Scryfall bulk → SQLite            search/  Scryfall-syntax subset
-  prices.ts          actor-scoped estimates per store and personal price source (spec §4.4)
-  token-catalog.ts   global token facts and printing-ID links, staged during refresh (§4.5)
-  refresh.ts         refreshCardData(): streamed cards, then atomic price/token swap — CLI child only
-  jobs.ts            daily/stale-boot refresh and nightly backup scheduler; shared SQLite lease
-  backups.ts         online SQLite backup, optional S3 upload, validated offline restore
-  json-array.ts      incremental oracle JSON-array reader
-  deck/
-    service.ts       decks (lifecycle, parent), slots, tags, maybe list, computed state
-    membership.ts    ⭐ applyChanges — the one place a deck's contents change; undo
-    log.ts           the decisions log, per-card history, the review queue
-    proposals.ts     proposals; accept/reject per item, group or whole proposal
-    brief.ts         thesis / constraints / engines (direct writes)
-    power.ts         target, revision-bound assessments, explained bracket suggestions
-    tokens.ts        indexed token/emblem references and producers (excluding maybes)
-    checks.ts        deterministic checks
-    fork.ts          forkDeck, compareDecks
-    interop.ts       Archidekt export; Archidekt and Moxfield import (formats cited inline)
-  documents.ts       profile + proposed edits to profile and brief, and their decisions
-  memory.ts          ⭐ memories: scopes, card links, budgets, supersede/retire
-  playtest/          owner-only manual session service and action model; snapshot, undo, resume
-  stats.ts           player statistics across Paper decks only
-  commands.ts        shared transaction, retry receipts, guards and structured outcomes
-  changes.ts         resource/deck invalidation vocabulary
-  read-context.ts    request-local read reuse, invalidated by SQLite writes
-  activity.ts        the activity feed          focus.ts   what the owner has open
-  tokens.ts          per-user hashed personal credentials; create/list/revoke/verify, legacy import
-  auth.ts            hosted sessions, safe claim/invite registration and OAuth verification
-  auth-config.ts     pinned Better Auth configuration (same config for schema generation)
-  accounts.ts        UI account/export/delete/handle and admin capabilities
-  ratelimit.ts       single-instance in-memory sliding windows
-  cimd-transport.ts  resolve once, check all DNS answers, pin IPv4-preferred address
-  mode.ts            local/hosted mode, local actor, Host/Origin and proxy boundary
-  state.ts           deckState() — the composite the UI gets from every mutation; publicDeckState() — what a viewer gets
-  sharing.ts         visibility, slugs, publishing, public profiles (spec §18)
-  preview.ts         link-preview tags injected into index.html for /d/:slug and /u/:handle
-  app.ts             request-to-Actor seam, UI API, per-user event streams, static files, /mcp
-  host.ts            public backend lifecycle factory; product owns the process entrypoint
-  contracts.ts       public type-only boundary consumed by the product API client
-  mcp/
-    playbook.ts      INSTRUCTIONS (short) and PLAYBOOK (returned by start_session)
-    render.ts        text for agents — compact, grouped, counts stated
-    tools.ts         the 30 tools: thin adapters over the capability layer
-    http.ts          Streamable HTTP endpoint: Host/Origin checks, token, attribution
-    stdio.ts         stdio shim: a pipe to the running app
-skill/commander-deck-building/SKILL.md   method for agents (optional Agent Skill)
-../multiverse/web/   Product React UI; ARCHITECTURE.md and DESIGN.md are its manuals
-  src/design/        tokens.css, base.css — the only place raw colours and sizes exist
-  src/ui/            generic primitives (Button, Tabs, Dialog, Toast, useHotkeys…)
-  src/mtg/           how a card is shown (ManaCost, CardRef + hover card, RichText)
-  src/domain/        pure functions over wire types (grouping, review, marks)
-  src/api/           client.ts (typed client — wire types imported from src/, erased at build),
-                     live.tsx (event stream), useQuery.ts
-  src/app/           routes, sidebar shell, app-wide providers
-  src/features/      one folder per screen: deck/ (incl. ReadOnlyDeck), inbox/, decisions/, memories/,
-                     activity/, decks/, profile/, settings/, styleguide/, public/, phone/
-```
-
----
 
 ## 🚀 Commands
 
@@ -206,49 +101,6 @@ exact pins; the Go context checker uses Moby's real ignore matcher. Production
 code changes are promoted only by the owner, using an explicit verified SHA.
 `scripts/docker-context-check` needs Go, runs outside the gate, and uses Moby's own matcher to verify Docker exclusions exactly.
 
-### Connecting an agent
-
-The Settings page shows the endpoint and token list, creates labelled tokens
-(shown once), and revokes them. Save a new token before dismissing it;
-configuration snippets use a placeholder until creation. For Claude Code:
-
-```
-claude mcp add --transport http deck-builder http://127.0.0.1:8787/mcp/claude-code \
-  --header "Authorization: Bearer <token from Settings>"
-```
-
-For Codex (its CLI, desktop app and IDE extension share `~/.codex/config.toml`):
-
-```toml
-[mcp_servers.deck-builder]
-url = "http://127.0.0.1:8787/mcp/codex"
-http_headers = { Authorization = "Bearer <token from Settings>" }
-default_tools_approval_mode = "approve"
-```
-
-The name after `/mcp/` is a label for attribution in the activity feed.
-Hosted Settings also describes Claude Code OAuth, Claude.ai and ChatGPT
-connections to the public `/mcp` URL. Browser connectors require public HTTPS.
-Local clients retain their HTTP and stdio configurations.
-
-### Doing frontend work
-
-Run `npm run dev`, then `npm run seed:demo` once, then open
-`http://localhost:5173/deck/<id>`. **Seed the demo before judging any
-layout** — against an empty deck most panels render nothing.
-
-**Read [the product frontend architecture](../multiverse/web/ARCHITECTURE.md) first.** The UI is layered
-(`design` → `ui` → `mtg` → `domain` → `api` → `app` → `features`) with
-one-way imports, and `test/web-architecture.test.ts` fails the build on an
-import that goes the wrong way or a hex colour in a component's CSS. Every
-primitive is shown in every state at `/design`; a new screen is assembled
-from those, so it matches without new CSS for the basics. The rules behind
-the look are in [the product design system](../multiverse/web/DESIGN.md).
-
-`DECKBUILDER_PORT` and `DECKBUILDER_WEB_PORT` move the two dev servers; the
-Vite proxy follows the API port.
-
----
 
 ## ⚠️ Constraints — these are load-bearing, not style
 
@@ -337,6 +189,7 @@ Vite proxy follows the API port.
     Change a description or a rendered line deliberately, then read a real
     transcript (spec §14, phase 6) before trusting it.
 
+
 ## Hosted accounts and environment
 
 See spec §17 and OPERATIONS.md for the complete policy. `DISCORD_CLIENT_ID`
@@ -381,15 +234,28 @@ Phase 4b adds human-only `createDemo` (src/demo.ts) and first-run voice
 memory/profile writes, and resolves all cards against installed data. The CLI
 is a thin adapter and never replaces an existing sample. UI components call
 only api/ clients, never fetch directly. TabletShell must call useWindowScroll;
-keep the inherited phone and public contracts intact. See DESIGN.md and
-ARCHITECTURE.md for the 720/960/1100 boundaries and lazy-route budget check.
+keep the inherited phone and public contracts intact. See the product's
+[design system](../multiverse/web/DESIGN.md) and
+[architecture](../multiverse/web/ARCHITECTURE.md) for breakpoints and lazy-route checks.
 
 ## Focused test gate
 
 Keep tests for tenant isolation and actor permissions, public-state privacy, migrations
 and content preservation, backup/restore, card resolution, membership/undo, proposals,
-import parsing, hosted sessions/headers, MCP smoke and web architecture. Prefer a
+import parsing, hosted sessions/headers and MCP smoke. Product architecture and
+browser tests belong to Multiverse. Prefer a
 small representative regression over matrices or UI copy/markup/CSS assertions.
 Run `npm run check` before committing; browser regressions live separately in `browser-checks/`.
 
-See [TESTING.md](TESTING.md) for the 109-test baseline and deletion inventory.
+See [TESTING.md](TESTING.md) for current gate ownership, coverage and omissions.
+
+## Related manuals
+
+[Operations](OPERATIONS.md) owns environment, jobs, locks, online backup/restore,
+claim lifecycle and release procedures. [Testing](TESTING.md) owns the backend gate;
+[browser fixtures](browser-checks/README.md) exercise the product with disposable
+actors/data. [MCP workflows](../../docs/deck-builder-mcp-workflows.md) and the
+[optional skill](skill/commander-deck-building/SKILL.md) own client method/setup.
+Browser edits use [Multiverse](../multiverse/AGENTS.md), never private backend imports.
+Install locally with the package lock through pinned Node and `--workspaces=false`;
+never overwrite the root shared installation.

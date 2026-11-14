@@ -1,16 +1,16 @@
 # Desktop Commander client
 
-Read the root manual and `docs/game-client-{plan,contracts,boundaries,delivery}.md`.
-This package owns interaction, display and session recovery, never gameplay rules.
-Current source supports live joining and explicit opening-hand choices, plus
-retained inspection fixtures. Source-qualified opening acceptance belongs in
-LIVE-OPENING-REPORT.md; historical read-only evidence remains in LIVE-SESSION-REPORT.md.
-Later decision families and full M2 completion are not established.
+Read the root manual, [client contracts](../../docs/game-client.md) and
+[setup](README.md). This package owns decision/session adapters, recovery and the
+qualified captured preview; shared display belongs to game-ui, never gameplay rules.
+Production joins and explicit opening choices are qualified; later decisions and
+complete games are not. [Evidence](../../docs/game-client-evidence.md) binds exact
+source, artifacts, browser checks and omissions separately from current contracts.
 
 ## Boundaries
 
 - `app` composes routes and session lifetime. Components never fetch or access storage.
-- `session` owns eventual SDK effects, authorization, ownership and recovery.
+- `session` owns SDK effects, authorization, ownership and recovery.
   Pure session modules have no browser, React or SDK runtime dependencies. Inject
   effects. Generated SDK types are the only gameplay wire definitions.
 - `decisions` contains pure local drafts: syntax, supplied candidates/constraints,
@@ -37,7 +37,7 @@ Later decision families and full M2 completion are not established.
 ## Toolchain and checks
 
 Use repository `.node-version` via `sh scripts/engine-env.sh` from the root.
-This first slice uses a local isolated npm install/lockfile, always
+Use a local isolated npm install/lockfile, always
 `npm --prefix packages/game-client … --workspaces=false`. Do not run root installs,
 replace shared node_modules or modify root dependencies without coordination.
 No package command may implicitly invoke Cargo, generate native schemas or build
@@ -50,7 +50,7 @@ preview runtime and shared presentation package), pure tests and production buil
 single-seat file paths; it does not start Cargo, a host or bots. Keep authenticated
 traces/HAR/video off, and never record Authorization headers. Separate injected
 HTTP faults from unmodified host evidence. Keep Chromium/Firefox versions and
-exact source/artifact digests in the checkpoint report. No default full engine matrix.
+exact source/artifact digests in retained evidence and the handoff. No default full engine matrix.
 
 ## Live integration gates
 
@@ -67,8 +67,8 @@ fallback ownership. Fence async completions by generation and authorization bind
 Journal exact validated envelopes in IndexedDB before sending; failure blocks send.
 Accepted/pending and unknown outcomes retain the exact body/ID and original revision.
 Scan unresolved origin/match/seat records before changing build/catalog. Never clear
-ambiguity on local stop, missing status row or timeout. Gates and required fault
-cases remain in the delivery plan until actual integration tests establish them.
+ambiguity on local stop, missing status row or timeout. Follow the canonical client guide for delivery gates and required fault cases;
+actual integrated tests must establish each acceptance claim.
 
 Keep keyboard controls, visible focus, reduced motion, text fallbacks and deliberate
 focus restoration. Remote updates announce without stealing focus. Commit/push

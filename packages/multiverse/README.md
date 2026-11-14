@@ -40,3 +40,19 @@ saved revision into setup. `/play/preview` embeds the same shared table as the
 standalone client, using a qualified captured sample. It does not use the selected
 deck or start a game. Real automated-game launch needs the account-to-seat,
 admission and supervision services described in the application boundaries.
+
+## Verification and documentation
+
+Use this package's `check` for product/runtime types and frontend architecture/
+route tests, and `build:web` for the browser bundle. Backend capability/identity
+changes also require its separate [backend gate](../deck-builder/TESTING.md).
+Shared table or standalone session changes use the game-ui/game-client checks;
+their responsibilities are not combined into a root full-matrix command.
+Disposable cross-app regressions are documented in
+[browser-checks](../deck-builder/browser-checks/README.md).
+
+[Application boundaries](../../docs/multiverse-app.md) own the architecture;
+[design](web/DESIGN.md) and [frontend architecture](web/ARCHITECTURE.md) own browser
+conventions. [The integration report](../../docs/game-client.md#reproducibility-and-current-acceptance) preserves exact
+executed evidence and omissions. Historical release/audit documents remain
+source-qualified records, not current paths or deployment instructions.

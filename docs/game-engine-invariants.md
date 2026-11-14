@@ -38,7 +38,7 @@ to clients. Queries cannot mutate semantic state, mint handles or add observatio
 history. Recovered query work remains executor/state scoped; stale work cannot
 authorize choices. Public revisions change only with permitted information.
 Policies consume public observations/requests; host checkpoint/replay verification
-is separate. See [P2 handles and work recovery](game-engine-p2-slice.md).
+is separate. See [P2 handles and work recovery](game-engine-mechanics.md).
 
 Search captures contain only permitted facts/history. Sampled hands/libraries and
 independent future randomness construct hypothetical games constrained by known
@@ -55,7 +55,7 @@ actual typed outcome slots. Simultaneous groups admit only independent read/writ
 footprints; unsupported general interactions must fault explicitly. Validate the
 whole simultaneous damage group before writing life/history. Freeze all loss
 candidates before departures and adjudication. Restore proves fault reachability
-by replay. See [event groups](game-engine-event-slice.md).
+by replay. See [event groups](game-engine-mechanics.md).
 
 `Game::with_trace` selects off, compact or detailed retention. Diagnostics never
 enter semantic hashes or player projections. Native `events()` is populated only
@@ -68,7 +68,7 @@ Preserve original seating, departed-player facts and physical Commander history.
 All simultaneous losers are absent before cleanup/adjudication. A removed player
 never regains last-known mana or resurrects objects. Source departure preserves
 started supported resolution; owner departure never resurrects an object.
-See [departures](game-engine-departure-slice.md).
+See [departures](game-engine-mechanics.md#commander-and-hidden-information).
 
 ## Announcement, priority and payment
 
@@ -89,8 +89,8 @@ requires an explicit choice; do not invent generic payment colors.
 Land plays and ordinary creature casts require active-player main-phase priority
 and an empty stack; supported flash modifies casting timing explicitly. Land
 usage resets only on a new turn. Unsupported boundaries remain explicit faults.
-See [stack](game-engine-stack-slice.md), [payment](game-engine-payment-slice.md),
-[actions](game-engine-actions-payments.md) and [mana permanents](game-engine-mana-permanents.md).
+See [stack](game-engine-mechanics.md), [payment](game-engine-mechanics.md),
+[actions](game-engine-mechanics.md) and [mana permanents](game-engine-mechanics.md).
 
 ## Combat, damage and state-based actions
 
@@ -111,9 +111,9 @@ Direct life changes are separate typed events. Run SBAs after the complete
 program: an intermediate loss/gain must not cause an early loss. If every target
 is illegal at resolution start, skip the complete program. Replacement ordering
 and damage prevention stay limited to reviewed supported families.
-See [combat](game-engine-combat-games.md), [combat keywords](game-engine-combat-keywords.md),
-[damage/life](game-engine-damage-life.md), [effects](game-engine-effects.md) and
-[wipes](game-engine-board-wipes.md).
+See [combat](game-engine-mechanics.md), [combat keywords](game-engine-mechanics.md#keywords-attachments-and-temporary-effects),
+[damage/life](game-engine-mechanics.md), [effects](game-engine-mechanics.md) and
+[wipes](game-engine-mechanics.md#movement-sacrifice-and-board-wide-effects).
 
 ## Commander movement and hidden libraries
 
@@ -131,8 +131,8 @@ reveal library rows or mint hidden handles. Complete one draw attempt once and
 preserve the next card when movement is replaced. Library-top events preserve
 prior ordering and cannot compose with a conflicting order write.
 Commander damage belongs to the physical source/recipient and survives zone and
-controller changes. See [casting/returns](game-engine-commander-casting.md) and
-[damage/library](game-engine-commander-damage-library.md).
+controller changes. See [casting/returns](game-engine-mechanics.md#commander-and-hidden-information) and
+[damage/library](game-engine-mechanics.md#commander-and-hidden-information).
 
 ## Abilities, targets and triggers
 
@@ -159,7 +159,7 @@ departure preserves a surviving activator's frozen invocation. Failed payment
 removes that proposal and undoes only its recorded mana activations if requested.
 Targeted tap abilities choose targets before costs and have no mana window.
 Entity targets distinguish players/creatures; player targets and opponent-only
-targets retain their own domains. See [stack/costs](game-engine-stack-costs.md).
+targets retain their own domains. See [stack/costs](game-engine-mechanics.md).
 
 Triggers collect from actual typed occurrences, then wait through SBAs and
 Commander choices before APNAP placement/targets. Freeze controller, event-player
@@ -169,10 +169,10 @@ facts or departure-refreshed LKI bounded by live continuations, independent of
 trace retention. Do not retain an unbounded permanent LKI archive. Cast triggers
 collect only after successful complete casting/payment. Declared-attack triggers
 use the real batch occurrence and frozen attacker/defender witnesses.
-See [ordinary triggers](game-engine-triggers.md), [choices](game-engine-choices.md),
-[step triggers](game-engine-cards-as-data-d2c-a.md), [source status](game-engine-cards-as-data-d2c-b.md),
-[cast triggers](game-engine-cards-as-data-d2c-c.md) and [attack triggers](game-engine-cards-as-data-d2c-d.md).
-Later [IR25 damage triggers](game-engine-cards-as-data-d2c-e.md) retain their
+See [ordinary triggers](game-engine-mechanics.md), [choices](game-engine-mechanics.md),
+[step triggers](game-engine-evidence.md#later-focused-engine-qualification), [source status](game-engine-evidence.md#later-focused-engine-qualification),
+[cast triggers](game-engine-evidence.md#later-focused-engine-qualification) and [attack triggers](game-engine-evidence.md#later-focused-engine-qualification).
+Later [IR25 damage triggers](game-engine-evidence.md#later-focused-engine-qualification) retain their
 candidate qualification; none of these additions implicitly expands host/search.
 
 ## Hosting boundary

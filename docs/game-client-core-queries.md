@@ -1,24 +1,9 @@
 # Core action beginnings for player sessions
 
-This is a bounded native M2 prerequisite, independent of serving/client M1. Base
-source is `0b674d8872087bc96f6078d0daeb1fb2d6c17758` (merged server PR14, SDK
-PR13 and inspection PR15). Implementation owns the dedicated core query module,
-its tests/schema-export example, a narrow `engine.rs` module attachment,
-`PlayerSession` methods and a permitted-handle iterator in `visibility.rs`.
-Ownership was confirmed with the active engine lane before edits. No server,
-SDK, client, compiler, contracts, admission pool or shared planning document is
-changed by this feature. The concurrent Card IR reset is separately owned at source checkpoint
-`ef237b21db575a9f06518dc1f7cb4a6f99cc4147`, integrated in main
-`2c18fd30006f902ac616daf805a6311fdf014779`. Before native verification this
-lane rebased cleanly onto that committed main: current IR version 1, regenerated
-source-identical catalog bodies and updated admission digests. The query diff
-contains no reset implementation; test/schema identity is qualified below against
-this integrated baseline, not pre-reset artifacts.
-
-Implementation checkpoint: `d1d039539d63aa17cd411c654e22086ccf3c9322`,
-published on `origin/feat/game-client-action-queries`. All native files in that
-commit match the measured source manifest. This source-pin follow-up changes only
-this report and does not change executable/schema identity.
+This native contract defines supported action initiation discovery. Current
+[transport and session integration](game-client.md#action-discovery-transport) is
+separate from core and does not expand completeness or source-label availability.
+Exact original implementation/evidence qualification is retained below.
 
 ## Native contract
 
@@ -37,10 +22,10 @@ serialize, inspect, clone or manufacture this continuation through the public AP
 Dropping it or calling `cancel()` discards scratch work only. It is not a pending
 command, validation receipt, durable recovery sidecar or semantic cancellation.
 
-The serving owner agreed this separation for a **later transport integration**.
-M1 does not export a new query route or incorporate this schema. Cursor format,
-expiry, per-seat concurrency, byte limits and transport failures remain host-owned.
-A restart can restart the pure query; there is no serialized query recovery here.
+Core's continuation is process-private scratch. The host owns cursor format,
+expiry, per-seat concurrency, byte limits and transport failures; the implemented
+[transport contract](game-client.md#action-discovery-transport) bounds those separately.
+A restart restarts the pure query, not serialized query recovery.
 
 | Outcome | Meaning |
 | --- | --- |
@@ -131,7 +116,27 @@ quotas and response serialization remain outside this API. The client must rende
 permitted results and request human intent; it must not fill unavailable context
 using executable IR or printed card text.
 
-## Verification and source qualification
+## Original verification and source qualification
+
+This is a bounded native M2 prerequisite, independent of serving/client M1. Base
+source is `0b674d8872087bc96f6078d0daeb1fb2d6c17758` (merged server PR14, SDK
+PR13 and inspection PR15). Implementation owns the dedicated core query module,
+its tests/schema-export example, a narrow `engine.rs` module attachment,
+`PlayerSession` methods and a permitted-handle iterator in `visibility.rs`.
+Ownership was confirmed with the active engine lane before edits. No server,
+SDK, client, compiler, contracts, admission pool or shared planning document is
+changed by this feature. The concurrent Card IR reset is separately owned at source checkpoint
+`ef237b21db575a9f06518dc1f7cb4a6f99cc4147`, integrated in main
+`2c18fd30006f902ac616daf805a6311fdf014779`. Before native verification this
+lane rebased cleanly onto that committed main: current IR version 1, regenerated
+source-identical catalog bodies and updated admission digests. The query diff
+contains no reset implementation; test/schema identity is qualified below against
+this integrated baseline, not pre-reset artifacts.
+
+Implementation checkpoint: `d1d039539d63aa17cd411c654e22086ccf3c9322`,
+published on `origin/feat/game-client-action-queries`. All native files in that
+commit match the measured source manifest. This source-pin follow-up changes only
+this report and does not change executable/schema identity.
 
 Focused execution completed on the integrated schema-1 baseline plus this
 feature. Exact native-source hashes are retained with the tested executables. The pinned toolchain is Rust/Cargo 1.99.0 and Node
@@ -152,12 +157,11 @@ are ActionScope, ActionInitiation, ActionLabel, ActionBeginning,
 ActionSourceContext, ActionDecisionContext, ActionPage, ActionUnavailable and
 ActionQueryOutcome; referenced token/handle/cost types retain core authority.
 
-Remaining gates: separate server transport/cursor lifecycle and quota tests,
-generated SDK validation, session ownership/recovery, client interaction coverage,
-compiler source-label mapping and richer source/decision context. No full engine
-matrix, release/performance/retention run, arbitrary-card admission, natural game,
-browser interaction or deployment is claimed by this core prerequisite.
-
+At this original core-only checkpoint, transport/SDK/session/browser integration
+was unqualified. Later implemented transport/opening acceptance is recorded in
+[client evidence](game-client-evidence.md); source labels, richer decision context
+and full game controls remain separate gates. This native proof alone establishes
+no browser, full-game, release/performance/retention or arbitrary-card acceptance.
 
 ## Executed checks and retained evidence
 

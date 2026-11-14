@@ -92,8 +92,8 @@ outcomes, utility vectors and State hashes. Dense synthetic boards, pure
 modifier evaluators, repeated observations and repeated actual-world rollouts
 retain their declared scope. They are not legal-pod, network, strategic-strength
 or independent-hidden-world results. See
-[the measurement report](../../docs/game-engine-performance.md) and
-[the full performance plan](../../docs/game-engine-plan.md#6-performance-and-search-plan).
+[the measurement report](../../docs/game-engine-evidence.md) and
+[the full performance plan](../../docs/game-engine-mechanics.md).
 
 
 Definition diversity and shrinking-choice diagnostics use
@@ -111,7 +111,7 @@ workload retains all 105 attack/Edict cells, one warmup and five repetitions
 (630 total cell executions: 105 warmup and 525 measured), plus every declared
 native reference and budget/replay oracle. Synthetic payloads are not authentic card definitions;
 a partial matrix produces no complete-work throughput claim. Current actual
-results and remaining resource gaps are in `docs/game-engine-performance.md`.
+results and remaining resource gaps are in `docs/game-engine-evidence.md`.
 
 
 `run-final-pod-series-v1.py` schedules the unchanged eighteen-pod batch once for

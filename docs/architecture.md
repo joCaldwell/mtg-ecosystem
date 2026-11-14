@@ -2,7 +2,7 @@
 
 Project Multiverse separates source interpretation, executable rules, hosting and
 applications. The adopted stack is TypeScript plus Rust; see the
-[language decision](runtime-language-decision.md). Commander is the engine's
+[language decision](architecture.md). Commander is the engine's
 supported format, with four-player headless matches and agent search as the
 primary workload. The delivered scope is finite and explicitly reviewed.
 
@@ -88,7 +88,32 @@ public host protocol. A shared account does not itself grant a host seat. Comple
 browser play and automated match creation need their own admission and integration
 evidence; they are not implied by a table preview or parser/engine acceptance.
 
-For development, start at [the current map](game-engine-current.md) and
-[focused workflow](game-engine-development.md). Broader milestones remain in the
-[plan](game-engine-plan.md) and [specification](game-engine-spec.md); prior release
-proof and onboarding remain in the [historical index](history/engine/index.md).
+## Adopted decisions and vocabulary
+
+The language decision is final: TypeScript owns ingestion, normalization, parsing,
+archives, browser applications and generated SDK consumers; Rust owns semantic
+compilation, executable contracts, deterministic core, simulation/search policies
+and native hosting. Cargo and npm retain separate toolchains/locks. Browser-local
+Wasm reuse is deferred; do not add a second rules implementation. The product
+format is Commander. Runtime rules never invoke an LLM; external deck agents use
+MCP and the same Actor-scoped capability services as HTTP.
+
+An **Oracle identity** is a card's canonical rules identity, not a printing or
+physical game object. A **catalog** is exact compiled source data with a canonical
+digest; a **profile** adds reviewed deck/pod admission and consumer requests.
+A **capability** declares supported semantics, never permission for a user/seat.
+An **Actor** is a verified backend principal plus attribution, not deck ownership.
+A **seat capability** is separate Rust-host authorization. An **Observation** is
+viewer-permitted state; a snapshot, receipt or query sidecar is trusted host data.
+A **budget/capacity fault** is a resource boundary, never a rules win/draw.
+
+Canonical executable definitions are separate from printings/set indexes. Bulk
+per-set JSON remains proposed storage, not an implemented emitter. Parser
+acceptance, reference binding, compiler support, pod admission, hosting/search
+review and browser consumer qualification are separate claims.
+
+For engine development use [the current map](game-engine-current.md),
+[mechanics](game-engine-mechanics.md), [invariants](game-engine-invariants.md) and
+[source-qualified evidence](game-engine-evidence.md). For product coordination use
+[application contracts](multiverse-app.md); for current client integration use
+[the client guide](game-client.md). These replace historical plans as onboarding.
