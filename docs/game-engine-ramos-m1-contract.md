@@ -1,0 +1,254 @@
+# Ramos M1: implementation contract
+
+Preparatory design, inspected at `46ef08faedb8c5fa9c1c1fa9a8afefd1f85e1f6c`
+(planning-only child of main `bbdba9f5add0bfd0c75c0ec18eb2986581c3e534`).
+Implements no mechanics and establishes no new source, catalog, match, hosting or
+search acceptance. [M0 in the Ramos plan](game-engine-ramos-plan.md#ordered-milestones)
+owns the exact-target manifest, production diagnostics and support matrix; those
+results must be reconciled before implementation. This document owns the M1
+family design, not a second target matrix.
+
+## Frozen authority
+
+Read-only archive:
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/archives/oracle-ast-d705222b280a71cb.jsonl`.
+Full-file SHA-256 (including line terminators):
+`d705222b280a71cb5a5362f657d530b22402ca51687bac3227c1d6db403d0282`.
+Its header equals `packages/game-engine/tests/fixtures/archive-manifest-current.json`
+after trimming the terminator. Accepted manifest identity, hashed with
+`trim_end` as in `contracts/src/archives.rs`:
+`994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a`.
+Parser revision: `327b3360ea8e5cffb75b136223e75a348e903cbe`; parser source SHA-256:
+`316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a`.
+
+The following are exact-name, normal-layout records. Line numbers are one-based,
+including the manifest. Record pins use the catalog's trimmed-record convention;
+future extraction must preserve the original bytes and provenance, rather than
+reserializing these summaries.
+
+| Source | Archive line / Oracle ID | Record SHA-256 |
+| --- | --- | --- |
+| Ramos, Dragon Engine | 9460 / `3ed41d2d-211b-4013-8562-8c64d54cc43a` | `d7304ce7cd6fc6dc6eb8bb1c338b98d555c7797f6a0a07a1528bc70ba3c0c274` |
+| Hardened Scales | 24419 / `a1f3da21-af6d-450e-bf0b-985d158418e6` | `85bce2fae3c64503b8171550f73bbe7d5b76751ebf81597bc324ed7ffbbf3fc0` |
+| Corpsejack Menace | 30457 / `ca0cc02b-b106-4eca-9388-d4b48dd3be49` | `3fbecc04dbcbffa0022a5219e7b1f04b8e5d90b0b1a2d2acf28a0122a82c8b4d` |
+
+| Source | Raw source SHA-256 | AST SHA-256 | Binding SHA-256 |
+| --- | --- | --- | --- |
+| Ramos | `0062c9639e97d8e719819c156c845f7d534b849095cf96ff8bb6c360b712999f` | `b61d955c581e9e821e0b7e493a5af98506532574f2869700bda5484916494fc8` | `f2262acd35cfcb3561ff71151bcb50b5118dd58c7c6d271d474a6e6d93a70211` |
+| Scales | `19fe818b645e5db9195ad3c9aa3564e67765dfbcbd0a5c8739f8c4c2ecca537c` | `ce93656930a8d1581a7c52ae71db2db76ced36a0bb278d0036b8dc843aeb5ceb` | `45f53dad214a68fc8cffd5e9aa7dfec63f39ce84a90b2ac8bb693d73c242c467` |
+| Corpsejack | `5936c3792a9fe9098db3b73666da3a039a2edc15a6921ff16858aa46a2447845` | `91a2d004a0d0dcc9c325037126784d67d3b5b360fed14dd2cd816746e3650086` | `7cdf870d27db90c2a7b7081080a869e0220686cb24ff0b784b41de6725edd440` |
+
+All three records are parsed. Ramos's diagnostic binding has 7/7 obligations
+bound and no diagnostics. Each replacement record has 0/2 bound and four
+`unsupported-scope` diagnostics concerning replacement roles and would-be
+controller capture. These diagnostic archives are nonexecutable: compiler
+`lower_trigger` explicitly uses Rust semantic binding rather than treating the
+archive's `fullyBound` flag as executable authority. Replacement implementation
+must bind every consumed role correctly; it must neither erase the diagnostics
+nor infer that a parser/archive rewrite is automatically required. M0 records
+the separate archive-binding and production-lowering outcomes.
+
+Frozen Oracle obligations, paraphrased from those records: Ramos is a colorless
+{6} legendary 4/4 artifact creature Dragon with flying and five-color identity;
+its controller's spell casts trigger one counter per color of that spell. Its
+mana ability removes five of its own +1/+1 counters, produces exactly two each
+of W/U/B/R/G, and is restricted to once each turn. Scales is a {G} enchantment
+that adds one to each positive +1/+1 placement on a controlled creature.
+Corpsejack is a {2}{B}{G} 4/4 Fungus that doubles that placement instead.
+
+Rules authority is the local official **2026-09-25** text:
+`/home/josh/.local/share/mtg-ecosystem/engine-evidence/p2-9debc71c69aa5310-1Ju2o8/rules-20260925.txt`,
+SHA-256 `8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca`.
+The pin is sufficient; no newer rules or live card text were substituted.
+Semantic code should cite the [pinned official URL](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt)
+and the specific rules below.
+
+| Obligation | Exact pinned CR citations |
+| --- | --- |
+| Colors differ from mana paid and color identity; colorless contributes zero | 105.1–105.2c, 107.4a–c, 903.4–903.4a |
+| Successful casting creates the event; ordinary trigger waits for priority | 601.2g–i, 603.2, 603.3 |
+| Referenced spell information at resolution; departed source independence | 608.2h, 113.7a; exact named source: 201.5 |
+| Full payment, legal reversal, retained legal mana activations | 118.3, 601.2h, 602.2, 733.1–733.2 |
+| Immediate mana ability, payment windows, no reentrant activation | 605.1a, 605.3a–c |
+| No tap-symbol sickness restriction; use restriction survives control change | 602.5a–b |
+| New object on zone change; counters disappear; entry placements count | 400.7, 122.1a, 122.2, 122.6 |
+| Replacement is prospective, applies once, and uses affected controller's order | 614.1a, 614.4–614.5, 616.1, 616.1e–f |
+| Would-be entry characteristics and existing replacement sources | 614.12 |
+| Copying a spell alone is not casting it; mana empties normally | 707.10, 106.4 |
+
+## Concrete baseline and proposed interfaces
+
+Paths below are relative to `packages/game-engine/crates/`. These are inspected
+source gaps, not freshly executed compiler diagnostics.
+
+| Existing boundary | Reuse / required change |
+| --- | --- |
+| `core/src/engine/triggers.rs`: `CastOccurrence`, `collect_cast_triggers`; `payments.rs`: payment completion | Already freezes stack ID, caster, origin and stack `ObjectBefore` only after paid casting. Keep this sole event boundary; copies and aborted casts cannot call it. |
+| `contracts/src/lib.rs`: `PutPlusOneCounters`; compiler `Count`, `SourceCounterRecipient`, `SourceCost`, `Ability::Activated` | Only fixed positive counter amounts; no product/distinct-color binding, remove-counter cost or activation restriction field. Consume Ramos's complete exact AST, including `ref:self` binding and `restriction`; never ignore extra fields. |
+| Compiler `lower_mana_ability`; contracts `Definition::validate` | Both require tap-self mana costs. Fixed production already represents all ten symbols, including duplicates. Extend the admitted cost shape narrowly; do not turn production symbols into a color-choice list or add a choice for Ramos. |
+| `core/src/engine/mana_permanents.rs` | Eligibility and departure revalidation unconditionally reject tapped/unready creatures. Make those checks conditional on a tap cost. `reverse_permanent_mana` currently requires a surviving source to be tapped and restores only tap state; counter and use-ledger reversal are missing. |
+| `core/src/engine/state.rs`, `turns.rs` | No per-ability turn-use ledger. Reuse monotonic `turn.number`, not controller's turn count, land usage, tap state or commander cast ledger. |
+| `core/src/engine/tokens.rs`: `execute_token_instruction`, `apply_token_event` | Placement mutates counters directly and rejects zero. A resolved zero-color trigger must finish as no effect before this positive-event boundary. All actual placement producers need one replacement hook. |
+| `core/src/engine/effects.rs`: damage transactions and `EffectKey` | Existing ordering, applied-effect identities and serializable continuations are a pattern, not generic counter support. Counter placement needs its own typed transaction, request and validation. |
+| `core/src/engine/visibility.rs`, `action_query.rs`; `engine.rs` restore/validation; `recovery.rs` | Public counters and authenticated queries already exist. New replacement choices and use availability must survive projection/query/recovery; raw IDs and snapshots remain trusted only. |
+| `contracts/src/lib.rs`: requirements, validation, exported schema; `core/src/profile_data.rs` | Exact capability closure exists. The hosting allowlist includes ordinary counters/mana; search has a narrower set. New struct fields alone would escape the hosting fence without new requirements; review both consumer sets. |
+
+Recommended executable shape (names are proposals; the semantic boundaries are
+requirements):
+
+1. Add a narrow `PutSourcePlusOneCountersForCastColors { source_block }`
+   instruction and `CastSpellColorCountersV1` capability, retaining the existing
+   fixed-counter instruction. Validate it only in a controller-spell-cast
+   trigger with no targets, modes or unbound event reference. Lower exactly the
+   archive's `1 * distinct-count(color, that spell)` expression; do not introduce
+   an arbitrary AST evaluator. Count distinct W/U/B/R/G, never C, symbol
+   multiplicity, mana spent or commander identity.
+2. Preserve the frozen cast occurrence as identity/matching evidence, but use
+   current spell colors on the expected stack incarnation, otherwise bounded
+   spell-departure LKI, when the instruction resolves (608.2h). Cast-time color
+   facts coincide with resolution information in the current immutable-color
+   pool; this is not a universal event-time quantity rule. Before admitting
+   spell-color changes, departure must refresh that witness separately without
+   rewriting historical cast facts. Reentry of either spell or Ramos cannot
+   rebind it. A Ramos that has left its battlefield incarnation gets no counters.
+3. Extend shared `PermanentActivationCosts` with optional positive
+   `remove_source_plus_one_counters`; add a typed `OnceEachTurn` restriction to
+   `ManaAbility`. A distinct `CounterRemovalManaV1` capability must cover both
+   cost and restriction requirements, in addition to ordinary permanent mana.
+   Initially validate the exact supported shape: five source counters, no tap,
+   mana or sacrifice cost, once each turn, fixed ten-symbol production. Retain
+   existing validated tap-cost shapes. Reject unknown restrictions/counter
+   kinds/recipients and unsupported combinations, even after recomputing closure.
+4. Use an internal ability key `(ObjectId, ability kind, index)` and a bounded
+   current-turn use set. M1 can retain the existing one-mana-ability-per-source
+   action, with index zero; do not key by player, Oracle ID or `source_block`
+   alone. Successful activation marks use atomically with five-counter removal
+   and ten-mana production. It works while tapped or newly controlled and during
+   another player's turn. Control change does not reset use; a new turn or new
+   incarnation does. Prune departed incarnations/current-turn history safely.
+5. Extend `PermanentManaUndo` with the exact prior counter quantity and prior use
+   entry, plus the ability key. Reuse nested LIFO receipts and exact spent/
+   produced pool accounting. Validate the full action before mutation; illegal
+   input leaves counters, mana, use, passes, journal and IDs unchanged. On an
+   illegal enclosing cast, undo requested legal mana activations per 733.1;
+   if retained, their counter cost and use remain spent. Reversal restores the
+   counter quantity directly, not through a placement event or replacements.
+6. Add `ControllerCreaturePlusOneCounterReplacementV1` and a closed static
+   replacement operation (`AddOne` / `Double`). Bind the replacement source's
+   controller and affected creature separately. No card-name dispatch, generic
+   replacement language, counter removal, or damage-replacement reuse by alias.
+   Typed validation and exported-schema constraints must agree with capability
+   derivation. Keep IR schema **1**; preserve exact build/catalog fencing and
+   leave host/search sets unchanged.
+
+## Counter event, choice and recovery contract
+
+A placement transaction owns the exact recipient, original positive quantity,
+current quantity, cause/occurrence identity, applied static effect keys and an
+owned continuation. At each prefix recompute applicability: a replacement source
+must function on the battlefield, its controller must control the affected
+creature, and that key must not already have applied to this event. One Scales
+maps `n` to `n+1`; one Corpsejack maps `n` to `2n`. Distinct instances each apply
+once; enumeration order is not a rules decision. Zero creates no placement and
+cannot become one through Scales. Costs removing counters never enter this path.
+
+The affected creature's controller chooses one currently applicable effect
+under 616.1; with multiple affected players use APNAP. Recompute after each
+selection until none remain, then commit the resulting placement once. For
+base three, Scales then Corpsejack gives eight; reverse order gives seven.
+Do not mutate counters or expose a partially committed quantity while awaiting
+the order decision. Budget suspension must preserve the exact prefix. Concession
+or source/recipient departure at recorded boundaries requires revalidation;
+already applied prefixes are not reapplied, and a removed recipient is never
+resurrected. Replacement continuation must also compose with simultaneous event
+groups rather than serializing unrelated actual mutations early.
+
+CR 122.6 includes placements on entry. Route a would-be entry placement through
+the same quantity processing with its prospective creature/controller context;
+an entering Corpsejack's general replacement is not already active on itself
+(614.4, 614.12). Current counter producers use ordinary post-entry instructions.
+If entry-with-counters producers remain unavailable at a checkpoint, record and
+enforce that input boundary explicitly; do not claim their acceptance. M2 must
+not introduce an entry shortcut that bypasses the placement hook.
+
+Serialize pending transaction, applied keys, continuation, mana receipts and use
+ledger in authoritative rules state, covered by canonical hashes and ordinary
+accepted-input replay. Validate positive original quantities, exact arithmetic,
+valid source/ability/incarnation keys, no duplicate applications, valid turn
+usage and prefix/cause reachability. Rehashed forged snapshots must still fail
+replay. Use public object/effect handles and chooser-only replacement requests;
+other seats see resulting public counters/use information, never private hands,
+libraries, raw occurrence IDs or receipts. Publish enough public use availability
+for a player to avoid a spent activation; query validity must use the same guard
+without mutating state or minting history. Follow existing independent snapshot,
+projection and query-format policies when changing their shapes.
+
+## Implementation ownership and M2 boundary
+
+This research checkpoint edits **only this document**. M0 remains sole native
+owner for this wave. After M0 hands off, assign one M1 integration owner the
+following shared files before any implementation; these are proposed future
+reservations, not authority to edit peers' work now.
+
+| Future owner | Explicit paths / responsibility |
+| --- | --- |
+| M1 integration owner | `packages/game-engine/crates/contracts/src/lib.rs`; `compiler/src/lib.rs` and `compiler/src/self_reference.rs` beneath `crates/`: IR, schema/capabilities, complete AST consumption/binding. |
+| Same integration owner | `packages/game-engine/crates/core/src/engine.rs`; `core/src/engine/{state,casting,payments,mana_permanents,triggers,tokens,events,effects,turns,choices,visibility,action_query,state_digest,snapshot_codec,recovery}.rs` beneath `crates/`: shared payment/events/state/choices/recovery. Edit only files actually required. |
+| Same owner or explicitly partitioned test owner | New `ramos_*` / `counter_replacement_*` test modules in contracts/compiler/core; registration stays with shared-module owner. Source-backed accepted-pod witness under `core/tests/`. |
+| M0/catalog integration owner | `packages/game-engine/tests/fixtures/` extraction, provenance, immutable development catalog/profile and expected outputs; coordinate exact additions after M0. No incidental changes to existing pools. |
+| M2 owner | Land/ramp source research, isolated source-specific tests and proposed entry/search/payment interfaces. Shared files above require explicit handoff; parser edits additionally require that package's manual. |
+
+The shared payment contract must distinguish **cost** (counter removal, later
+life/tap/sacrifice), immediate mana **production**, and any separate trigger
+(for example M2's becomes-tapped behavior). Preserve complete payment rollback
+and genuine typed events. Ramos needs no life payment, mana choice, land-type
+query or library access. M2 can independently prepare exact land/ramp lowering
+and tests; it cannot simultaneously rewrite `PermanentActivationCosts`, receipt
+layout, mana eligibility or entry handling. Multiple printed mana abilities need
+an explicit ability selector/action-query change before M2 lifts the singleton
+guard; reserve an internal index now, never select a color by guessing an
+ability. Do not broaden sacrificed mana-source admission incidentally.
+
+## Smallest next batches and test obligations
+
+**M1a, after M0:** complete Ramos's full source, the cast-color instruction and
+counter-removal mana/use/undo path together, with a separately identified small
+development catalog and paid accepted-input witness. A contract/compiler-only
+checkpoint may land earlier with source still rejected; never admit flying plus
+the cast trigger while dropping the mana clause. Scales/Corpsejack and the exact
+100-card target remain unadmitted. **M1b:** complete both replacement sources,
+their typed transaction/order decision, replay/projection validation and composed
+paid witness. Keep source support, development admission, exact-deck admission
+and host/search qualification separate in M0's matrix.
+
+| Check family | Meaningful positive and near-miss assertions |
+| --- | --- |
+| Frozen compiler/contracts | Exact Ramos lowers all three abilities; each complete replacement lowers its exact AST and roles. Mutate product reference/factor, counter kind/source, restriction, recipient/control scope, replacement add/multiply amount or add an unconsumed clause: reject whole source. Forged IR with the new instruction in an unbound trigger, unsupported cost combination or missing capability rejects even with otherwise valid provenance. |
+| Color quantity | Paid colorless, mono-, two- and five-color casts give 0/1/2/5 before replacements. Repeated same-color symbols count once; mana color spent and five-color commander identity cannot change a colorless result. Opponent cast, failed cast, land play and a copied-but-not-cast spell collect no Ramos cast trigger. Actual copy mechanics remain M8: until then test that stack insertion cannot call the paid-cast boundary and keep copy sources rejected. |
+| Source/reference lifetime | Counter the original spell before Ramos's trigger resolves: retain its color information. Remove/reenter Ramos: old trigger cannot touch the new incarnation. Spell-color changes require current/LKI tests when that separate input becomes supported; frozen cast facts alone are not that proof. |
+| Mana/use/payment | Five counters pay to zero and add exactly W2/U2/B2/R2/G2 with no stack entry or color request; six leave one. Four fails atomically. Newly entered/tapped Ramos works; second activation in the same turn fails even after replenishment or control change. It works again on the next opponent's turn; another Ramos incarnation has independent use. Opponent/stale incarnation inputs fail. |
+| Retain versus reverse | During a genuinely unpayable cast, activate Ramos and another nested mana source. Both reversal choices preserve correct pools, counters, use and priority; LIFO undo restores exact preexisting mana entries. Retained activation remains used. A subsequent successful paid spell triggers only after complete spending. No phantom placement, activation/cast trigger or receipt survives undo. |
+| Replacements | Base three becomes 8 or 7 by affected-controller choice; base zero stays zero; distinct duplicate providers apply once each. Opponent-controlled creature and departed provider do not qualify; Corpsejack can modify placement on itself while already present. Separate placement occurrences receive separate applications. Include prospective entry tests when that producer is enabled and removal/undo controls in every case. |
+| Accepted inputs/recovery | From a legal accepted pod, genuinely pay Ramos's command cast, gain at least five counters through paid casts, activate during payment, and spend the output on another legal spell. M1b adds paid replacement sources and both order branches. Snapshot at trigger placement, cast/mana spending and each order prefix; restore/replay with budget 1 and ordinary budget across trace modes. Test stale/foreign responses, use-ledger/applied-prefix tampering, chooser-only requests and nonmutating action queries. Synthetic state tests supplement, not replace, this witness. |
+
+Choose focused contracts/compiler tests for the new validation/lowering and the
+specific core/accepted-input tests above; confirm nonzero selected counts under
+the shared Cargo lock once the native owner hands it off. No automatic full
+matrix. Host/SDK, search, cascade, copying, spell-color mutation, full target
+completion and broader profile/release matrices require separately scoped gates.
+
+## This preparatory checkpoint's verification
+
+Read the required manuals, workflow, current map, plan, relevant invariants and
+the source modules identified above. Rehashed the full frozen archive and rules;
+verified all three raw source/AST/binding hash envelopes and line/aggregate AST
+mirrors directly with Python. Those source-integrity checks do not execute the
+production compiler or prove new engine semantics.
+
+Doctor returned exit 1: pinned Node/Rust/Cargo and auxiliary tools were present,
+but this fresh isolated checkout lacked TypeScript, `@types/node`, Ajv and the
+two npm workspace links; no upstream was configured yet. No installation was
+needed for this document-only batch. No Cargo/build/native tests, production
+audit, schema generation or fixtures were run or changed; M0 retains native
+ownership. Final document checks cover whitespace, local links, authority pins
+and the single-owned-path diff. Existing ignored evidence/caches are preserved.
