@@ -15,6 +15,9 @@ fn lowered(raw: &str) -> Definition {
     }
 }
 fn prepared(original: &str, library: &[&str]) -> Prepared {
+    prepared_with_records(original, library, &[])
+}
+fn prepared_with_records(original: &str, library: &[&str], extra: &[&str]) -> Prepared {
     let mut c = Catalog::read(include_str!(
         "../../../../tests/fixtures/expected-mana-ir.json"
     ))
@@ -56,6 +59,15 @@ fn prepared(original: &str, library: &[&str]) -> Prepared {
         panic!("complete prohibition source")
     };
     c.definitions.push(*kutzil);
+    for raw in extra {
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+            include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+            raw,
+        ) else {
+            panic!("complete combined source must lower")
+        };
+        c.definitions.push(*definition);
+    }
     c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     c.validate().unwrap();
     let id = |name: &str| {
@@ -239,6 +251,12 @@ fn paid_by(g: &mut Game, name: &str, player: PlayerId, target: Option<StackId>) 
             Request::StackTargets { .. } => Response::StackTargets {
                 entries: vec![target.expect("explicit counter target")],
             },
+            Request::Targets { candidates, .. } => {
+                assert_eq!(candidates.len(), 1, "explicit sole creature target");
+                Response::Targets {
+                    objects: candidates.clone(),
+                }
+            }
             Request::OrderTriggers { candidates, .. } => Response::OrderTriggers {
                 order: candidates.clone(),
             },
@@ -1381,5 +1399,154 @@ fn cascade_accepted_cast_and_decline_survive_last_target_owner_departure_and_rec
             assert_eq!(g.definition(library[0]).unwrap().name, "Unsummon");
             prove(&g);
         }
+    }
+}
+
+#[test]
+fn cascade_paid_aura_control_free_controlled_target_and_owner_departure_recover() {
+    for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+        // These are complete archived sources in a private, seedless midgame.
+        // A single cast hit leaves no group to randomize; no invented RNG root
+        // or source admission is needed for the combined witness.
+        let mut p = prepared_with_records(
+            "Bloodbraid Elf",
+            &["Dive Down"],
+            &[
+                include_str!(
+                    "../../../../tests/fixtures/cd0d7141-46d2-4aa3-bc77-6b3b4513803e.json"
+                ),
+                include_str!(
+                    "../../../../tests/fixtures/2f990b54-fbf3-4949-85bb-9ba39710e72a.json"
+                ),
+            ],
+        );
+        let id = |name: &str| {
+            p.catalog
+                .definitions
+                .iter()
+                .find(|d| d.name == name)
+                .unwrap()
+                .oracle_id
+                .clone()
+        };
+        let (wall, forest, magic) = (id("Wall of Wood"), id("Forest"), id("Control Magic"));
+        let target_card = {
+            let row = p
+                .config
+                .cards
+                .iter_mut()
+                .find(|c| c.oracle_id == wall)
+                .unwrap();
+            row.owner = PlayerId(1);
+            row.controller = PlayerId(1);
+            row.id
+        };
+        // Exchange one basic so both players still own exactly 100 cards.
+        let row = p
+            .config
+            .cards
+            .iter_mut()
+            .find(|c| c.owner == PlayerId(1) && matches!(c.zone, Zone::Library { .. }))
+            .unwrap();
+        row.owner = PlayerId(0);
+        row.controller = PlayerId(0);
+        row.zone = Zone::Hand { owner: PlayerId(0) };
+        p.config
+            .cards
+            .iter_mut()
+            .find(|c| {
+                c.owner == PlayerId(0)
+                    && c.oracle_id == forest
+                    && c.zone == Zone::Hand { owner: PlayerId(0) }
+            })
+            .unwrap()
+            .oracle_id = magic;
+        for owner in [PlayerId(0), PlayerId(1)] {
+            assert_eq!(
+                p.config.cards.iter().filter(|c| c.owner == owner).count(),
+                100
+            );
+        }
+        p.profile_digest = digest(&p.config).unwrap();
+        let mut g = Game::with_trace(p, mode);
+        let target = g.object_id(target_card).unwrap();
+        assert_eq!(g.current(target).unwrap().controller, PlayerId(1));
+        paid(&mut g, "Control Magic");
+        for _ in 0..16 {
+            let r = request(&mut g);
+            if g.state.rules.stack.is_empty() {
+                break;
+            }
+            assert!(matches!(r, Request::Priority { .. }));
+            g.respond(r.player(), r.decision_id(), Response::Pass)
+                .unwrap();
+        }
+        assert!(g.state.rules.stack.is_empty());
+        assert_eq!(g.current(target).unwrap().controller, PlayerId(0));
+        assert_eq!(g.current(target).unwrap().default_controller, PlayerId(1));
+        assert_eq!(g.state.rules.cards[&target.card].owner, PlayerId(1));
+        prove(&g);
+
+        let original = paid(&mut g, "Bloodbraid Elf");
+        offer(&mut g);
+        answer(&mut g, Response::OptionalEffect { perform: true });
+        let r = request(&mut g);
+        let Request::Targets { candidates, .. } = &r else {
+            panic!("controlled-target free cast: {r:?}")
+        };
+        assert_eq!(candidates, &[target]);
+        g.respond(
+            r.player(),
+            r.decision_id(),
+            Response::Targets {
+                objects: vec![target],
+            },
+        )
+        .unwrap();
+        loop {
+            let r = request(&mut g);
+            match &r {
+                Request::Priority { .. } => break,
+                Request::Mana { cost, .. } => {
+                    assert_eq!(cost, &ManaCost::default());
+                    g.respond(
+                        r.player(),
+                        r.decision_id(),
+                        Response::FinishMana { undo_mana: false },
+                    )
+                    .unwrap();
+                }
+                _ => panic!("zero-cost controlled-target completion: {r:?}"),
+            }
+        }
+        let child = g.top().unwrap().id;
+        let child_card = g.top().unwrap().source.card;
+        assert_ne!(child, original);
+        assert_eq!(g.definition(child_card).unwrap().name, "Dive Down");
+        assert!(g.top().unwrap().paid.is_some());
+        assert_eq!(g.state.rules.stack.len(), 2);
+        assert_eq!(g.state.rules.stack[0].id, original);
+        prove(&g);
+        g.concede(PlayerId(1)).unwrap();
+        prove(&g);
+        for _ in 0..32 {
+            let r = request(&mut g);
+            if g.state.rules.stack.is_empty() {
+                break;
+            }
+            assert!(matches!(r, Request::Priority { .. }));
+            g.respond(r.player(), r.decision_id(), Response::Pass)
+                .unwrap();
+        }
+        assert!(g.state.rules.stack.is_empty());
+        assert!(g.object_id(target_card).is_none());
+        assert_eq!(
+            g.zone(g.object_id(child_card).unwrap()),
+            Some(Zone::Graveyard { owner: PlayerId(0) })
+        );
+        if mode == TraceMode::Detailed {
+            assert!(g.events().iter().any(|e| matches!(e, Event::SpellCompleted { stack_id, resolved: false } if *stack_id == child)));
+        }
+        prove(&g);
     }
 }
