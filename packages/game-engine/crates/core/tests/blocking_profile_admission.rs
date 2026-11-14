@@ -23,14 +23,32 @@ fn oracle(catalog: &Catalog, name: &str) -> String {
 }
 
 #[test]
-fn development_profile_adds_twelve_complete_definitions_and_admits_four_legal_decks() {
+fn development_profile_adds_thirteen_complete_definitions_and_admits_four_legal_decks() {
     let catalog = catalog();
     let original = Catalog::read(include_str!(
         "../../../tests/fixtures/expected-match-ir.json"
     ))
     .unwrap();
     assert_eq!(catalog.schema_version, 1);
-    assert_eq!(catalog.definitions.len(), original.definitions.len() + 12);
+    assert_eq!(catalog.definitions.len(), original.definitions.len() + 13);
+    assert_eq!(catalog.definitions.len(), 47);
+    let jump = oracle(&catalog, "Jump");
+    assert_eq!(jump, "f7518456-45ed-41d4-bd3c-5aacea28eb35");
+    assert!(
+        catalog
+            .definition_by_oracle_id(&jump)
+            .unwrap()
+            .capabilities
+            .contains(&Capability::TemporaryFlyingSpellV1)
+    );
+    let mut previous = catalog.clone();
+    previous.definitions.retain(|d| d.oracle_id != jump);
+    assert_eq!(previous.definitions.len(), 46);
+    assert_eq!(
+        mtg_contracts::digest(&previous).unwrap(),
+        "c80f12b257ac00fc46e395480b81ee1c619158d7b97238905577f242937e5444"
+    );
+
     for definition in &original.definitions {
         assert_eq!(
             catalog
@@ -111,6 +129,7 @@ fn development_profile_adds_twelve_complete_definitions_and_admits_four_legal_de
             (&icy, 1),
             (&royal, u32::from(matches!(seat, 1 | 3))),
             (&ertai, u32::from(seat == 2)),
+            (&jump, u32::from(seat == 2)),
             (&temporal, u32::from(seat == 2)),
             (&seeker, u32::from(matches!(seat, 1 | 3))),
             (&elf, u32::from(matches!(seat, 1 | 3))),
@@ -248,6 +267,7 @@ fn blocking_profile_retains_singleton_color_and_feature_rejection() {
                     && capabilities.contains(&Capability::ActivatedPermanentOwnerHandV1)
                     && capabilities.contains(&Capability::TapSourceUntapCreatureV1)
                     && capabilities.contains(&Capability::TemporaryIndestructibleSpellV1)
+                    && capabilities.contains(&Capability::TemporaryFlyingSpellV1)
         ));
     }
 }
@@ -277,7 +297,8 @@ fn defaults_have_exact_source_backed_compositions_and_preserve_profile_contract(
         ("Unsummon", "837182db-1bf3-4a2c-bd01-1af9d9873561", 1),
         ("Temporal Adept", "fd9b5462-6578-4bf6-8026-23eaf5af3eee", 1),
         ("Icy Manipulator", "3608f1f7-8dc5-4dd1-ae91-c830e1de9529", 1),
-        ("Island", "b2c6aa39-2d2a-459c-a555-fb48ba993373", 90),
+        ("Jump", "f7518456-45ed-41d4-bd3c-5aacea28eb35", 1),
+        ("Island", "b2c6aa39-2d2a-459c-a555-fb48ba993373", 89),
     ];
     let actual: BTreeMap<_, _> = blue
         .cards
@@ -320,8 +341,7 @@ fn defaults_have_exact_source_backed_compositions_and_preserve_profile_contract(
     assert!(commander.characteristics.has_type(CardKind::Creature));
     assert_eq!(commander.characteristics.color_identity, vec![Color::U]);
 
-    // Exact current compositions preserve white/blue and add only the admitted
-    // protection singleton in place of one Forest in each black/green seat.
+    // Other seats preserve the exact protection-admission compositions.
     let white = [
         "Yoked Ox",
         "Sacred Nectar",

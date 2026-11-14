@@ -153,9 +153,9 @@ fn tap_source_creature_untap(d: &Definition, p: &SpellProgram) -> bool {
                 && a.cost == ActivationCost::TapSource
         })
 }
-// Recognize only the complete ordinary creature protection spell. Additional
+// Recognize only a complete ordinary pure creature keyword spell. Additional
 // benefits, modal/activated programs and other grants retain their own policy.
-fn temporary_indestructible_spell(d: &Definition, p: &SpellProgram) -> bool {
+fn temporary_keyword_spell(d: &Definition, p: &SpellProgram, keyword: KeywordAbility) -> bool {
     use mtg_contracts::{Chooser, Duration, EvaluationStage, FunctioningZone};
     d.characteristics.kind == CardKind::Instant
         && d.spell.as_ref() == Some(p)
@@ -170,7 +170,13 @@ fn temporary_indestructible_spell(d: &Definition, p: &SpellProgram) -> bool {
             && t.domain == TargetDomain::BattlefieldCreature && t.filter.is_none())
         && matches!(p.instructions.as_slice(), [I::GrantKeywords {
             target_slot: 0, keywords, duration: Duration::UntilEndOfTurn, ..
-        }] if keywords == &[KeywordAbility::Indestructible])
+        }] if keywords == &[keyword])
+}
+fn temporary_indestructible_spell(d: &Definition, p: &SpellProgram) -> bool {
+    temporary_keyword_spell(d, p, KeywordAbility::Indestructible)
+}
+fn temporary_flying_spell(d: &Definition, p: &SpellProgram) -> bool {
+    temporary_keyword_spell(d, p, KeywordAbility::Flying)
 }
 fn contains_untap(p: &SpellProgram) -> bool {
     p.instructions
@@ -264,7 +270,7 @@ impl Strategy<'_> {
             if power.is_negative() || toughness.is_negative() || restrictions.contains(&CreatureRestriction::CantAttackOrBlock)))
     }
     pub(super) fn target_beneficial(&self, d: &Definition, p: &SpellProgram, slot: u32) -> bool {
-        if temporary_indestructible_spell(d, p) {
+        if temporary_indestructible_spell(d, p) || temporary_flying_spell(d, p) {
             return slot == 0;
         }
         if d.characteristics.subtypes.iter().any(|s| s == "Aura") {
@@ -364,6 +370,20 @@ impl Strategy<'_> {
             }
             return self.defensive_untap_target(v, d, p, t, candidates);
         }
+        if temporary_flying_spell(d, p) {
+            return v
+                .objects
+                .iter()
+                .filter(|o| {
+                    o.controller == v.viewer
+                        && !o.keywords.contains(&KeywordAbility::Flying)
+                        && candidates.is_none_or(|cs| cs.contains(&o.handle))
+                        && self.object_matches(v, o, t, candidates.is_some())
+                        && self.flight_opportunity(v, d, o)
+                })
+                .max_by_key(|o| (self.value(o), o.handle.0.clone()))
+                .map(|o| o.handle.clone());
+        }
         if temporary_indestructible_spell(d, p) {
             return v
                 .objects
@@ -405,6 +425,70 @@ impl Strategy<'_> {
             })
             .max_by_key(|o| (self.value(o), o.handle.0.clone()))
             .map(|o| o.handle.clone())
+    }
+    // Priority in DeclareAttackers follows the actual attack and precedes the
+    // blocker decision (CR 508.2, 509.1h, 702.9). Never infer that flight removes
+    // existing blocks. Deliberately omit speculative precombat/defensive uses.
+    fn flight_opportunity(&self, v: &PermittedView, d: &Definition, o: &VisibleObject) -> bool {
+        if v.turn.step != TurnStep::DeclareAttackers
+            || v.active != Some(v.viewer)
+            || v.turn_owner != v.viewer
+            || o.restrictions.contains(&CreatureRestriction::CantBeBlocked)
+            || o.keywords.contains(&KeywordAbility::Menace)
+            || !o
+                .characteristics
+                .as_ref()
+                .is_some_and(|c| c.power.as_ref().is_some_and(|p| *p > Quantity::zero()))
+        {
+            return false;
+        }
+        // The only permitted intervening entry is this spell's own incomplete
+        // announcement when choosing its mandatory target.
+        if !v.stack.is_empty()
+            && !(v.stack.len() == 1
+                && v.stack.last().is_some_and(|s| {
+                    !s.cast_complete
+                        && s.controller == v.viewer
+                        && s.ability.is_none()
+                        && s.triggered.is_none()
+                        && self.entry_program(v, s).is_some_and(|(top, p)| {
+                            top.oracle_id == d.oracle_id && temporary_flying_spell(top, p)
+                        })
+                }))
+        {
+            return false;
+        }
+        let Some(attack) = v
+            .combat
+            .iter()
+            .find(|a| a.attacker == o.handle && !a.blocked && a.blockers.is_empty())
+        else {
+            return false;
+        };
+        if attack.defender == v.viewer || !v.live_turn_order.contains(&attack.defender) {
+            return false;
+        }
+        let mut grounded = false;
+        for blocker in v.objects.iter().filter(|b| {
+            b.controller == attack.defender
+                && b.zone == Zone::Battlefield
+                && !b.tapped
+                && !b.restrictions.contains(&CreatureRestriction::CantBlock)
+                && !b
+                    .restrictions
+                    .contains(&CreatureRestriction::CantAttackOrBlock)
+                && b.characteristics
+                    .as_ref()
+                    .is_some_and(|c| c.has_type(CardKind::Creature))
+        }) {
+            if blocker.keywords.contains(&KeywordAbility::Flying)
+                || blocker.keywords.contains(&KeywordAbility::Reach)
+            {
+                return false;
+            }
+            grounded = true;
+        }
+        grounded
     }
     // Deliberately narrow: inspect the next completed public invocation, or
     // unambiguous one-on-one combat with no intervening stack. No hidden facts,
@@ -1385,7 +1469,8 @@ impl Strategy<'_> {
             && (reactive_program(p)
                 || tapped_destroy_spell(d, p)
                 || defensive_untap_spell(d, p)
-                || temporary_indestructible_spell(d, p))
+                || temporary_indestructible_spell(d, p)
+                || temporary_flying_spell(d, p))
     }
     fn cast(
         &mut self,
