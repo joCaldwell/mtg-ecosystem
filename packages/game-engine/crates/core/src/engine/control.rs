@@ -509,6 +509,34 @@ mod tests {
         );
         assert_eq!(game.state, before.state);
         assert_eq!(game.trace, before.trace);
+
+        // Synthetic-only dependency, not an admitted source/history: the grant
+        // cannot survive an exile of its own exact static-source incarnation.
+        let mut dependent = self::game(2, TraceMode::Detailed);
+        let source = object(&dependent, 3);
+        dependent
+            .state
+            .rules
+            .objects
+            .get_mut(&source.card)
+            .unwrap()
+            .default_controller = PlayerId(3);
+        dependent.state.rules.losing_players.push(PlayerId(3));
+        dependent.state.rules.control_effects.push(ControlEffect {
+            id: 1,
+            object: object(&dependent, 2),
+            controller: PlayerId(1),
+            source: ControlSource::Static { object: source },
+        });
+        let before = dependent.fork();
+        assert!(
+            dependent
+                .reconcile_controllers()
+                .unwrap_err()
+                .contains("dependent synthetic control-source exile")
+        );
+        assert_eq!(dependent.state, before.state);
+        assert_eq!(dependent.trace, before.trace);
     }
 
     #[test]
