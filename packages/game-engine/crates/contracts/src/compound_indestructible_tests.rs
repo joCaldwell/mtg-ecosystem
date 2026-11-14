@@ -56,7 +56,7 @@ fn compound_indestructible_capabilities_are_distinct_from_pure_grants() {
     }
 }
 #[test]
-fn compound_indestructible_rejects_structural_and_scalar_near_misses() {
+fn compound_indestructible_rejects_structural_near_misses() {
     for variant in 0..21 {
         let mut b = compound();
         let p = b.spell.as_mut().unwrap();
@@ -82,15 +82,17 @@ fn compound_indestructible_rejects_structural_and_scalar_near_misses() {
             8 => p.functioning_zone = FunctioningZone::Battlefield,
             9 => b.characteristics.kind = CardKind::Creature,
             10 => {
-                if let Instruction::ModifyPowerToughness { power, .. } = &mut p.instructions[0] {
-                    *power = 2.into();
+                // Quantities are now parameters; reject a genuine provenance mismatch.
+                if let Instruction::ModifyPowerToughness { source_block, .. } =
+                    &mut p.instructions[0]
+                {
+                    *source_block = 1;
                 }
             }
             11 => {
-                if let Instruction::ModifyPowerToughness { toughness, .. } = &mut p.instructions[0]
-                {
-                    *toughness = (-1).into();
-                }
+                // Unsupported durations are unrepresentable in typed IR; this
+                // independently rejects a non-instruction resolution context.
+                p.resolution = SpellResolution::Permanent;
             }
             12 => {
                 if let Instruction::GrantKeywords { keywords, .. } = &mut p.instructions[1] {

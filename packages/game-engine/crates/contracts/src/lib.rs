@@ -2426,16 +2426,43 @@ fn ordinary_keyword_grant(p: &SpellProgram) -> bool {
             }]
         )
         && (matches!(p.instructions.as_slice(), [Instruction::GrantKeywords { target_slot: 0, keywords, duration: Duration::UntilEndOfTurn, .. }] if keywords == &[KeywordAbility::Indestructible] || keywords == &[KeywordAbility::Flying] || keywords == &[KeywordAbility::Deathtouch])
-            || compound_indestructible_instructions(p))
+            || compound_indestructible_parameters(p).is_some())
 }
-// CR 608.2c/611.2c: one invocation, ordered effects on the same captured target.
-// A distinct capability preserves the pure keyword-grant admission boundary.
-fn compound_indestructible_instructions(p: &SpellProgram) -> bool {
-    matches!(p.instructions.as_slice(), [
-        Instruction::ModifyPowerToughness { target_slot: 0, power, toughness, duration: Duration::UntilEndOfTurn, source_block: 0 },
-        Instruction::GrantKeywords { target_slot: 0, keywords, duration: Duration::UntilEndOfTurn, source_block: 0 }
-    ] if *power == 1.into() && *toughness == 1.into()
-        && keywords == &[KeywordAbility::Indestructible])
+/// Recognize the complete supported stat-plus-indestructible spell program.
+/// Quantities are exact signed parameters, not separate mechanic capabilities.
+/// The caller must additionally validate the definition kind/context.
+/// CR 608.2c/611.2c: ordered effects on the same captured creature target:
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+pub fn compound_indestructible_parameters(p: &SpellProgram) -> Option<(&Quantity, &Quantity)> {
+    if p.additional_sacrifice.is_some()
+        || !p.modes.is_empty()
+        || p.functioning_zone != FunctioningZone::Stack
+        || p.resolution != SpellResolution::Instructions
+        || !matches!(p.targets.as_slice(), [t] if t.slot == 0
+            && !t.selection_id.is_empty() && t.chooser == Chooser::Controller
+            && t.stage == EvaluationStage::Announcement
+            && t.domain == TargetDomain::BattlefieldCreature && t.filter.is_none())
+    {
+        return None;
+    }
+    match p.instructions.as_slice() {
+        [
+            Instruction::ModifyPowerToughness {
+                target_slot: 0,
+                power,
+                toughness,
+                duration: Duration::UntilEndOfTurn,
+                source_block: 0,
+            },
+            Instruction::GrantKeywords {
+                target_slot: 0,
+                keywords,
+                duration: Duration::UntilEndOfTurn,
+                source_block: 0,
+            },
+        ] if keywords == &[KeywordAbility::Indestructible] => Some((power, toughness)),
+        _ => None,
+    }
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     if has_keyword_grant(p) && !ordinary_keyword_grant(p) {
@@ -3144,7 +3171,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             {
                 Capability::TemporaryDeathtouchSpellV1
             }
-            Instruction::GrantKeywords { .. } if compound_indestructible_instructions(program) => {
+            Instruction::GrantKeywords { .. }
+                if compound_indestructible_parameters(program).is_some() =>
+            {
                 Capability::CompoundIndestructibleSpellV1
             }
             Instruction::GrantKeywords { .. } => Capability::TemporaryIndestructibleSpellV1,
@@ -3757,7 +3786,7 @@ pub fn catalog_schema() -> serde_json::Value {
     });
     schema["$defs"]["CompoundIndestructibleInstructions"] = serde_json::json!({
         "minItems":2,"maxItems":2,"prefixItems":[
-            {"properties":{"op":{"const":"modify_power_toughness"},"target_slot":{"const":0},"power":{"const":"1"},"toughness":{"const":"1"},"duration":{"const":"until_end_of_turn"},"source_block":{"const":0}}},
+            {"properties":{"op":{"const":"modify_power_toughness"},"target_slot":{"const":0},"power":{"$ref":"#/$defs/ExactQuantity"},"toughness":{"$ref":"#/$defs/ExactQuantity"},"duration":{"const":"until_end_of_turn"},"source_block":{"const":0}}},
             {"properties":{"op":{"const":"grant_keywords"},"target_slot":{"const":0},"keywords":{"const":["indestructible"]},"duration":{"const":"until_end_of_turn"},"source_block":{"const":0}}}
         ]
     });
