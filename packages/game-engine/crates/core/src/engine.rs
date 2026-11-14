@@ -3850,4 +3850,7 @@ mod temporary_combat_keyword_tests;
 mod set_keyword_effect_tests;
 
 #[cfg(test)]
+mod scalar_keyword_effect_kernel_tests;
+
+#[cfg(test)]
 mod creature_set_keyword_tests;
