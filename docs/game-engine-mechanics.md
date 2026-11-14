@@ -228,7 +228,7 @@ latest appearance and duplicate/departure invariants.
 
 `temporary_creature_keyword_program_v1` adds reviewed combinations through the
 existing grant/damage/cleanup machinery. One complete ordinary nonmodal instant/
-sorcery has exactly one unfiltered battlefield-creature target at slot 0, a
+sorcery has exactly one unfiltered or controller-only battlefield-creature target at slot 0, a
 nonempty selection ID and controller choice at announcement. Its program is one
 `GrantKeywords` preserving pure-grant source-block provenance, or fixed signed
 `ModifyPowerToughness` followed by `GrantKeywords`, both from source block 0.
@@ -236,13 +236,26 @@ Both operations target slot 0 until end of turn. P/T parameters are exact signed
 quantities, including zero and values beyond machine integers.
 
 Keyword vectors are nonempty, duplicate-free and limited to Flying, Deathtouch,
-Indestructible and Lifelink; serialized order is retained. Pure Lifelink, mixed
+Indestructible, Lifelink and Hexproof; serialized order is retained. Pure Lifelink, mixed
 vectors and modifier-plus-Flying/Deathtouch/Lifelink require the general capability.
-Existing singleton Flying/Deathtouch/Indestructible and modifier-plus-singleton
+Existing unfiltered singleton Flying/Deathtouch/Indestructible and modifier-plus-singleton
 Indestructible retain their old temporary/compound subset capabilities; the general
 capability is spare and rejects on those shapes. Every granted keyword still
 requires its primitive capability; modifiers require `temporary_power_toughness_v1`
-and every program requires `creature_target_v1`. No schema/catalog/pool migration.
+and unfiltered targets require `creature_target_v1`. Controlled targets require
+`attachments_v1` and the general family capability, even for an otherwise old
+subset shape. Hexproof also requires `attachments_v1`; an unfiltered Hexproof
+program therefore needs both target capabilities. No schema/catalog/pool migration.
+
+"You control" means the invocation controller's current control, not ownership,
+at announcement and resolution. It remains part of the shared target binding;
+mixed plain/controlled uses of one selection ID reject. Bare controlled pumps
+remain unsupported outside this complete keyword family. Hexproof uses existing
+targetability: opponents cannot target the protected creature, its controller
+can, and a previously announced opposing target is checked again at resolution.
+Resolved grants retain their captured incarnation until cleanup. Current inputs
+have no supported control-changing effect, so same-incarnation dynamic-control
+scenarios are excluded from runtime qualification rather than simulated by mutation.
 
 Contracts' borrowed `TemporaryCreatureKeywordProgram` descriptor and
 `temporary_creature_keyword_program` / `supported_temporary_creature_keywords`
@@ -254,7 +267,7 @@ reordered/extra operations, duplicate/unreviewed keywords and mismatched paired
 source blocks reject. Compiler decoding independently rejects unconsumed clauses.
 Complete frozen sources witness the family; card identities never dispatch it.
 
-Synthetic typed controls cover all 64 ordered unique vectors in both forms,
+Synthetic typed controls cover the reviewed ordered vectors in both forms and domains,
 missing/spare capabilities, signed/large quantities and preserved legacy provenance.
 [Schema probes](../packages/game-engine/crates/contracts/tests/temporary-creature-keyword-schema-probes.mjs)
 clone exact controls and verify they remain unchanged. `--prepare-only` checks
