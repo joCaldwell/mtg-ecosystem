@@ -2,18 +2,42 @@
 use super::*;
 pub(super) fn compound() -> Definition {
     let mut d = temporary_indestructible_tests::grant();
-    d.spell.as_mut().unwrap().instructions.insert(
-        0,
-        Instruction::ModifyPowerToughness {
-            target_slot: 0,
-            power: 1.into(),
-            toughness: 1.into(),
-            duration: Duration::UntilEndOfTurn,
-            source_block: 0,
-        },
-    );
+    let Instruction::GrantKeywords { modifier, .. } =
+        &mut d.spell.as_mut().unwrap().instructions[0]
+    else {
+        unreachable!()
+    };
+    *modifier = Some(CreatureStatModifier {
+        power: 1.into(),
+        toughness: 1.into(),
+    });
     d.capabilities = d.requirements();
     d
+}
+// Historical two-effect IR must reject in either order, even with identical slots.
+pub(super) fn split(p: &mut SpellProgram, reverse: bool) {
+    let Instruction::GrantKeywords {
+        modifier,
+        target_slot,
+        duration,
+        source_block,
+        ..
+    } = &mut p.instructions[0]
+    else {
+        unreachable!()
+    };
+    let m = modifier.take().unwrap();
+    let pump = Instruction::ModifyPowerToughness {
+        target_slot: *target_slot,
+        power: m.power,
+        toughness: m.toughness,
+        duration: *duration,
+        source_block: *source_block,
+    };
+    p.instructions.insert(0, pump);
+    if reverse {
+        p.instructions.reverse();
+    }
 }
 #[test]
 fn compound_indestructible_capabilities_are_distinct_from_pure_grants() {
@@ -61,10 +85,13 @@ fn compound_indestructible_rejects_structural_near_misses() {
         let mut b = compound();
         let p = b.spell.as_mut().unwrap();
         match variant {
-            0 => p.instructions.reverse(),
-            1 => p.instructions.push(p.instructions[1].clone()),
+            0 => split(p, true),
+            1 => p.instructions.push(p.instructions[0].clone()),
             2 => {
-                p.instructions.push(p.instructions[0].clone());
+                split(p, false);
+                if let Instruction::GrantKeywords { source_block, .. } = &mut p.instructions[1] {
+                    *source_block = 1;
+                }
             }
             3 => p.targets.push(p.targets[0].clone()),
             4 => p.targets[0].selection_id.clear(),
@@ -85,9 +112,7 @@ fn compound_indestructible_rejects_structural_near_misses() {
             9 => b.characteristics.kind = CardKind::Creature,
             10 => {
                 // Quantities are now parameters; reject a genuine provenance mismatch.
-                if let Instruction::ModifyPowerToughness { source_block, .. } =
-                    &mut p.instructions[0]
-                {
+                if let Instruction::GrantKeywords { source_block, .. } = &mut p.instructions[0] {
                     *source_block = 1;
                 }
             }
@@ -97,36 +122,30 @@ fn compound_indestructible_rejects_structural_near_misses() {
                 p.resolution = SpellResolution::Permanent;
             }
             12 => {
-                if let Instruction::GrantKeywords { keywords, .. } = &mut p.instructions[1] {
+                if let Instruction::GrantKeywords { keywords, .. } = &mut p.instructions[0] {
                     keywords.push(KeywordAbility::Indestructible);
                 }
             }
             13 => {
-                if let Instruction::GrantKeywords { keywords, .. } = &mut p.instructions[1] {
+                if let Instruction::GrantKeywords { keywords, .. } = &mut p.instructions[0] {
                     *keywords = vec![KeywordAbility::Reach];
                 }
             }
             14 => {
                 // Mixed Haste is reviewed; retain an unsupported mixed grant.
-                if let Instruction::GrantKeywords { keywords, .. } = &mut p.instructions[1] {
+                if let Instruction::GrantKeywords { keywords, .. } = &mut p.instructions[0] {
                     keywords.push(KeywordAbility::Vigilance);
                 }
             }
             15 => {
-                if let Instruction::GrantKeywords { target_slot, .. } = &mut p.instructions[1] {
+                if let Instruction::GrantKeywords { target_slot, .. } = &mut p.instructions[0] {
                     *target_slot = 1;
                 }
             }
-            16 => {
-                if let Instruction::ModifyPowerToughness { target_slot, .. } =
-                    &mut p.instructions[0]
-                {
-                    *target_slot = 1;
-                }
-            }
+            16 => split(p, false),
             17 => {
-                if let Instruction::GrantKeywords { source_block, .. } = &mut p.instructions[1] {
-                    *source_block = 1;
+                if let Instruction::GrantKeywords { source_block, .. } = &mut p.instructions[0] {
+                    *source_block = u32::MAX;
                 }
             }
             18 => {
@@ -149,7 +168,7 @@ fn compound_indestructible_rejects_structural_near_misses() {
                 p.targets.push(p.targets[0].clone());
                 p.targets[1].slot = 1;
                 p.targets[1].selection_id = "separate".into();
-                if let Instruction::GrantKeywords { target_slot, .. } = &mut p.instructions[1] {
+                if let Instruction::GrantKeywords { target_slot, .. } = &mut p.instructions[0] {
                     *target_slot = 1;
                 }
             }

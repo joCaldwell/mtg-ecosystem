@@ -334,7 +334,7 @@ Equipment leaving earlier in event order cannot remove protection mid-event.
 | `temporary_indestructible_spell_v1` (+ `indestructible_v1`) | One unqualified creature, sole Indestructible grant until cleanup |
 | `temporary_flying_spell_v1` (+ `flying_v1`) | Same pure one-target program granting Flying only |
 | `temporary_deathtouch_spell_v1` | Same fenced pure Deathtouch family, with current/latest-departure source authority |
-| `compound_indestructible_spell_v1` | Ordered fixed signed P/T modifier then Indestructible on the same one target; parameterized source-backed amounts |
+| `compound_indestructible_spell_v1` | One atomic grant of fixed signed P/T and Indestructible on the same one target; parameterized source-backed amounts |
 
 The original pure subset capabilities reject duplicate/mixed grants, modes,
 filters, additional costs, activations/triggers and mixed instructions. Reviewed
@@ -350,10 +350,19 @@ latest appearance and duplicate/departure invariants.
 existing grant/damage/cleanup machinery. One complete ordinary nonmodal instant/
 sorcery has exactly one unfiltered or controller-only battlefield-creature target at slot 0, a
 nonempty selection ID and controller choice at announcement. Its program is one
-`GrantKeywords` preserving pure-grant source-block provenance, or fixed signed
-`ModifyPowerToughness` followed by `GrantKeywords`, both from source block 0.
-Both operations target slot 0 until end of turn. P/T parameters are exact signed
-quantities, including zero and values beyond machine integers.
+`GrantKeywords` targeting slot 0 until end of turn, with an optional shared
+`CreatureStatModifier { power, toughness }`. Pure grants omit the modifier on
+serialization, accept absent or null as None, and preserve source-block provenance.
+A nonnull modifier requires both exact signed quantities, including zero and
+values beyond machine integers, denies unknown fields and requires source block 0.
+The old `ModifyPowerToughness`/grant sequence rejects in either order; standalone
+`ModifyPowerToughness` remains supported in its existing scope.
+
+The combined grant creates one continuous effect with one captured target
+incarnation. CR 611.2c and 613.5–6 apply all its keyword and P/T parts to that
+same object across layers. Departure LKI must observe the complete effect,
+including during a CR 104.3a concession; separately created stat/keyword effects
+cannot satisfy this contract.
 
 Keyword vectors are nonempty, duplicate-free and limited to Flying, Deathtouch,
 Indestructible, Lifelink, Hexproof, Haste, Trample and First Strike; serialized order
@@ -386,8 +395,14 @@ recognizers share the complete structural predicate; the definition validator or
 caller additionally checks ordinary spell kind/context. The existing compound
 helper remains a narrow singleton wrapper. Additional costs, modes, activated/
 triggered contexts, filters, multiple/nonzero-slot targets, other durations,
-reordered/extra operations, duplicate/unreviewed keywords and mismatched paired
-source blocks reject. Compiler decoding independently rejects unconsumed clauses.
+split/reordered/extra operations, duplicate/unreviewed keywords and compound
+source block 1 reject. The compiler consumes the whole sole typed sentence
+`[Pump, GainAbilities]` only in an empty ordinary program with no bindings, costs
+or modes, at source block 0. Both complete source target expressions pass through
+the existing exact plain/controlled binder and must share selection ID, domain,
+count 1 and slot 0; both durations must be end of turn. It never joins distinct
+sentences or scans arbitrary instruction pairs. Pure-grant and set-grant lowering
+retain their own paths; decoding independently rejects unconsumed clauses.
 Complete frozen sources witness the family; card identities never dispatch it.
 
 Synthetic typed controls preserve the original five-keyword ordered-vector coverage
@@ -395,8 +410,14 @@ and add bounded representative Haste/Trample/First Strike vectors in both forms 
 domains, including mixed and reversed orders. They cover missing/spare capabilities,
 signed/large quantities, preserved legacy provenance and unsupported/context negatives.
 [Schema probes](../packages/game-engine/crates/contracts/tests/temporary-creature-keyword-schema-probes.mjs)
-retain the frozen 230- and 1,657-probe inventories before appending representative
-combat-keyword controls, clone exact controls and verify they remain unchanged.
+retain the prior 230-, 1,657- and 1,955-probe stage counts while converting compound
+controls to atomic IR and replacing obsolete split-only mutations with genuine
+negatives. The current harness declares 1,999 probes after appended atomic/null/
+malformed/split controls; execution and its new hashes require parent qualification.
+Historical split-format hashes remain separately labeled and reconstructed for
+comparison, preserving exact pure controls rather than claiming all old payloads
+are unchanged. The separate 409-probe set harness and its payload bytes are unchanged
+by the shared Rust type rename.
 `--prepare-only` checks
 construction without Ajv/schema execution; explicit `--schema PATH --ajv-root
 NODE_MODULES_DIRECTORY` validates exported schema and uint32 using existing Ajv2020.
@@ -409,7 +430,7 @@ This foundation expands no playable pool, policy, hosting/search or consumer acc
 `temporary_creature_set_keyword_program_v1` is a separate complete ordinary
 instant/sorcery family with no targets, modes or additional sacrifice cost. Its
 stack instruction program is exactly one `GrantKeywordsSet` with source block 0
-and an optional typed `CreatureSetModifier { power, toughness }`. It creates one
+and an optional typed `CreatureStatModifier { power, toughness }`. It creates one
 continuous effect lasting until end of turn; a separate `PumpSet`/grant pair
 rejects. Selectors are only `ControllerCreatures` (current creatures
 controlled by the frozen invocation controller) and `AttackingCreatures`
@@ -451,8 +472,9 @@ clauses. Dedicated compiler and contracts tests cover exact costs/order/capabili
 old split-IR rejection and whole-source negatives.
 [Set schema probes](../packages/game-engine/crates/contracts/tests/creature-set-keyword-schema-probes.mjs)
 are bounded synthetic IR controls; `--prepare-only` constructs them without
-schema execution. The existing targeted 1,955-probe inventory remains separate
-and unchanged. This family changes no catalog bodies, pool/profile/policy,
+schema execution. The targeted atomic-grant probes remain separate; their prior
+split-format 1,955-probe inventory has its own historical identity. This family
+changes no catalog bodies, pool/profile/policy,
 hosting/search or consumer admission; Card IR remains schema 1.
 <a id="abilities-targets-and-triggers"></a>
 

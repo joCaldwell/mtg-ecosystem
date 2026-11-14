@@ -193,9 +193,12 @@ fn temporary_creature_keyword_family_preserves_exact_parameters_and_pure_provena
     ] {
         let mut d = grant(&[KeywordAbility::Flying, KeywordAbility::Lifelink], true);
         let p = d.spell.as_mut().unwrap();
-        let Instruction::ModifyPowerToughness {
-            power: actual_p,
-            toughness: actual_t,
+        let Instruction::GrantKeywords {
+            modifier:
+                Some(CreatureStatModifier {
+                    power: actual_p,
+                    toughness: actual_t,
+                }),
             ..
         } = &mut p.instructions[0]
         else {
@@ -367,23 +370,16 @@ fn temporary_creature_keyword_family_rejects_complete_program_near_misses() {
         );
         let p = d.spell.as_mut().unwrap();
         match variant {
-            0 => p.instructions.reverse(),
-            1 => {
-                let Instruction::ModifyPowerToughness { source_block, .. } = &mut p.instructions[0]
-                else {
-                    unreachable!()
-                };
-                *source_block = 1;
-            }
+            0 => compound_indestructible_tests::split(p, true),
+            1 => compound_indestructible_tests::split(p, false),
             2 => {
-                let Instruction::GrantKeywords { source_block, .. } = &mut p.instructions[1] else {
+                let Instruction::GrantKeywords { source_block, .. } = &mut p.instructions[0] else {
                     unreachable!()
                 };
                 *source_block = 1;
             }
             _ => {
-                let Instruction::ModifyPowerToughness { target_slot, .. } = &mut p.instructions[0]
-                else {
+                let Instruction::GrantKeywords { target_slot, .. } = &mut p.instructions[0] else {
                     unreachable!()
                 };
                 *target_slot = 1;
@@ -472,11 +468,11 @@ fn temporary_creature_keyword_family_rejects_unrepresentable_json_shapes() {
         .unwrap();
         for (pointer, invalid) in [
             (
-                "/spell/instructions/1/keywords",
+                "/spell/instructions/0/keywords",
                 serde_json::json!(["future-keyword"]),
             ),
             (
-                "/spell/instructions/1/keywords",
+                "/spell/instructions/0/keywords",
                 serde_json::json!([{"flying":null}]),
             ),
             (
@@ -484,23 +480,29 @@ fn temporary_creature_keyword_family_rejects_unrepresentable_json_shapes() {
                 serde_json::json!("permanent"),
             ),
             (
-                "/spell/instructions/1/duration",
-                serde_json::json!("permanent"),
+                "/spell/instructions/0/modifier",
+                serde_json::json!({"power":"1"}),
             ),
             ("/spell/targets/0/chooser", serde_json::json!("opponent")),
             ("/spell/targets/0/stage", serde_json::json!("resolution")),
             ("/spell/targets/0/count", serde_json::json!(2)),
             (
-                "/spell/instructions/1/source_block",
+                "/spell/instructions/0/source_block",
                 serde_json::json!(null),
             ),
             (
                 "/spell/instructions/0/source_block",
                 serde_json::json!(4294967296_u64),
             ),
-            ("/spell/instructions/0/power", serde_json::json!(2)),
-            ("/spell/instructions/0/power", serde_json::json!("+2")),
-            ("/spell/instructions/0/toughness", serde_json::json!("-0")),
+            ("/spell/instructions/0/modifier/power", serde_json::json!(2)),
+            (
+                "/spell/instructions/0/modifier/power",
+                serde_json::json!("+2"),
+            ),
+            (
+                "/spell/instructions/0/modifier/toughness",
+                serde_json::json!("-0"),
+            ),
         ] {
             let mut bad = positive.clone();
             let (parent, key) = pointer.rsplit_once('/').unwrap();
@@ -540,13 +542,16 @@ fn temporary_creature_keyword_family_schema_uses_unique_reviewed_vectors() {
             "first strike"
         ])
     );
-    let instructions = &schema["$defs"]["TemporaryCreatureKeywordInstructions"]["anyOf"];
-    assert_eq!(instructions[0]["maxItems"], 1);
-    assert_eq!(instructions[1]["minItems"], 2);
-    assert_eq!(instructions[1]["maxItems"], 2);
+    let instructions = &schema["$defs"]["TemporaryCreatureKeywordInstructions"];
+    assert_eq!(instructions["minItems"], 1);
+    assert_eq!(instructions["maxItems"], 1);
+    assert_eq!(
+        instructions["items"]["properties"]["modifier"],
+        serde_json::json!({"anyOf":[{"type":"null"},{"$ref":"#/$defs/CreatureStatModifier"}]})
+    );
     for field in ["power", "toughness"] {
         assert_eq!(
-            instructions[1]["prefixItems"][0]["properties"][field],
+            schema["$defs"]["CreatureStatModifier"]["properties"][field],
             serde_json::json!({"$ref":"#/$defs/ExactQuantity"})
         );
     }
@@ -601,6 +606,7 @@ fn temporary_creature_keyword_family_keeps_controlled_pumps_and_policy_scoped() 
         assert!(temporary_creature_keyword_program(p).is_some());
         assert!(compound_indestructible_parameters(p).is_none());
         d.validate().unwrap();
+        compound_indestructible_tests::split(d.spell.as_mut().unwrap(), false);
         d.spell.as_mut().unwrap().instructions.pop();
         d.capabilities = d.requirements();
         assert!(d.validate().is_err(), "bare controlled pump");
@@ -626,4 +632,71 @@ fn temporary_creature_keyword_family_keeps_controlled_pumps_and_policy_scoped() 
         intrinsic.validate().is_err(),
         "intrinsic Hexproof remains creature-only"
     );
+}
+
+#[test]
+fn temporary_creature_keyword_atomic_modifier_json_and_pure_wire_parity() {
+    for domain in [
+        TargetDomain::BattlefieldCreature,
+        TargetDomain::ControlledBattlefieldCreature,
+    ] {
+        let mut pure = grant_domain(&[KeywordAbility::Flying], false, domain);
+        let Instruction::GrantKeywords { source_block, .. } =
+            &mut pure.spell.as_mut().unwrap().instructions[0]
+        else {
+            unreachable!()
+        };
+        *source_block = 1;
+        let bytes = canonical(&pure).unwrap();
+        let mut raw = serde_json::to_value(&pure).unwrap();
+        assert!(raw["spell"]["instructions"][0].get("modifier").is_none());
+        raw["spell"]["instructions"][0]["modifier"] = serde_json::Value::Null;
+        let explicit_none: Definition = strict_read(&raw.to_string()).unwrap();
+        explicit_none.validate().unwrap();
+        assert_eq!(explicit_none, pure);
+        assert_eq!(canonical(&explicit_none).unwrap(), bytes);
+        assert!(
+            !pure
+                .requirements()
+                .contains(&Capability::TemporaryPowerToughnessV1)
+        );
+        let atomic = grant_domain(
+            &[KeywordAbility::Flying, KeywordAbility::Lifelink],
+            true,
+            domain,
+        );
+        assert_eq!(atomic.spell.as_ref().unwrap().instructions.len(), 1);
+        for modifier in [
+            serde_json::json!({}),
+            serde_json::json!({"power":"1"}),
+            serde_json::json!({"toughness":"1"}),
+            serde_json::json!({"power":"1","toughness":"1","extra":true}),
+            serde_json::json!([]),
+            serde_json::json!("1"),
+            serde_json::json!(1),
+            serde_json::json!(false),
+        ] {
+            let mut bad = serde_json::to_value(&atomic).unwrap();
+            bad["spell"]["instructions"][0]["modifier"] = modifier;
+            assert!(strict_read::<Definition>(&bad.to_string()).is_err());
+        }
+        // No old split ordering or source attribution can recreate an atomic effect.
+        for reverse in [false, true] {
+            for blocks in [[0, 0], [0, 1], [1, 0], [1, 1]] {
+                let mut bad = atomic.clone();
+                let p = bad.spell.as_mut().unwrap();
+                compound_indestructible_tests::split(p, reverse);
+                for (instruction, block) in p.instructions.iter_mut().zip(blocks) {
+                    match instruction {
+                        Instruction::ModifyPowerToughness { source_block, .. }
+                        | Instruction::GrantKeywords { source_block, .. } => *source_block = block,
+                        _ => unreachable!(),
+                    }
+                }
+                assert!(temporary_creature_keyword_program(p).is_none());
+                bad.capabilities = bad.requirements();
+                assert!(bad.validate().is_err());
+            }
+        }
+    }
 }

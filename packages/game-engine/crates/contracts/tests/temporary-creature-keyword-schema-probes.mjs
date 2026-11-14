@@ -36,7 +36,8 @@ function control(keywords, modifier = false, domain = 'battlefield_creature') {
   const d = clone(effects.definitions.find(d => d.name === 'Giant Growth'));
   const grant = { op: 'grant_keywords', target_slot: 0, keywords: clone(keywords), duration: 'until_end_of_turn', source_block: 0 };
   const pump = { op: 'modify_power_toughness', target_slot: 0, power: '-2', toughness: '99999999999999999999999999999999999', duration: 'until_end_of_turn', source_block: 0 };
-  d.spell.instructions = modifier ? [pump, grant] : [grant];
+  if (modifier) grant.modifier = { power: pump.power, toughness: pump.toughness };
+  d.spell.instructions = [grant];
   let capability = family;
   d.spell.targets[0].domain = domain;
   if (domain === 'battlefield_creature' && keywords.length === 1) {
@@ -45,6 +46,17 @@ function control(keywords, modifier = false, domain = 'battlefield_creature') {
   }
   d.capabilities = [...new Set(['normal_layout_v1', 'cast_instant_v1', domain === 'battlefield_creature' ? 'creature_target_v1' : 'attachments_v1', capability, ...keywords.map(k => k === 'hexproof' ? 'attachments_v1' : keywordCaps[k] ?? combatKeywordCaps[k]), ...(modifier ? [pt] : [])])];
   return freeze({ ...clone(effects), definitions: [d] });
+}
+// Reconstruct the historical split representation only for byte/hash comparison;
+// it is never submitted as a valid control to the current schema.
+function priorSplitHash(rows) {
+  const prior = rows.map(({ name, value }) => {
+    const copy = clone(value);
+    const program = copy.definitions[0].spell;
+    if (program?.instructions.length === 1 && program.instructions[0].op === 'grant_keywords' && program.instructions[0].modifier) split(program);
+    return { name, value: copy, exact: JSON.stringify(copy) };
+  });
+  return createHash('sha256').update(JSON.stringify(prior)).digest('hex');
 }
 const probes = [];
 const positives = [];
@@ -113,17 +125,25 @@ function boundaries(name, base, extended = false) {
   }
 }
 for (const [name, base] of [['pure', pure], ['compound', compound]]) boundaries(name, base);
+function split(program, reverse = false) {
+  const grant = program.instructions[0];
+  const modifier = grant.modifier;
+  delete grant.modifier;
+  const pump = { op: 'modify_power_toughness', target_slot: grant.target_slot,
+    power: modifier.power, toughness: modifier.toughness, duration: grant.duration, source_block: grant.source_block };
+  program.instructions = reverse ? [grant, pump] : [pump, grant];
+}
 function compoundBoundaries(name, compound) {
   for (const [label, change] of [
-    ['order', p => p.instructions.reverse()],
-    ['modifier-slot', p => { p.instructions[0].target_slot = 1; }],
-    ['modifier-provenance', p => { p.instructions[0].source_block = 1; }],
-    ['grant-provenance', p => { p.instructions[1].source_block = 1; }],
-    ['split-provenance', p => { p.instructions[0].source_block = 1; p.instructions[1].source_block = 1; }],
-    ['modifier-duration', p => { p.instructions[0].duration = 'forever'; }],
-    ['numeric-quantity', p => { p.instructions[0].power = 2; }],
-    ['nonfixed-quantity', p => { p.instructions[0].power = { amount: 'source-power' }; }],
-    ['noncanonical-quantity', p => { p.instructions[0].toughness = '-0'; }],
+    ['old-reversed-split', p => split(p, true)],
+    ['old-ordered-split', p => split(p)],
+    ['atomic-provenance', p => { p.instructions[0].source_block = 1; }],
+    ['missing-power', p => { delete p.instructions[0].modifier.power; }],
+    ['missing-toughness', p => { delete p.instructions[0].modifier.toughness; }],
+    ['unknown-modifier-field', p => { p.instructions[0].modifier.extra = true; }],
+    ['numeric-quantity', p => { p.instructions[0].modifier.power = 2; }],
+    ['nonfixed-quantity', p => { p.instructions[0].modifier.power = { amount: 'source-power' }; }],
+    ['noncanonical-quantity', p => { p.instructions[0].modifier.toughness = '-0'; }],
   ]) negative(`${name ? name + ':' : ''}compound:${label}`, compound, d => change(d.spell));
 }
 compoundBoundaries('', compound);
@@ -143,13 +163,15 @@ sorcery.definitions[0].characteristics.kind = 'sorcery';
 sorcery.definitions[0].spell.timing = 'main_phase';
 sorcery.definitions[0].capabilities = sorcery.definitions[0].capabilities.map(c => c === 'cast_instant_v1' ? 'cast_sorcery_v1' : c);
 positive('sorcery compound family', sorcery);
-// Preserve the original 230-probe inventory and exact frozen legacy IR/caps.
+// The prior 230-probe stage used split compound IR. Counts persist; its hash
+// is historical, while the atomic controls below receive a new measured hash.
 const legacy = {
   probes: probes.length,
   frozen_controls_sha256: createHash('sha256').update(JSON.stringify(positives)).digest('hex'),
 };
 assert.equal(legacy.probes, 230);
-assert.equal(legacy.frozen_controls_sha256, '7619a3fda04a6e23567b9a415e7ae13385ed64597e1901c46ccc6f0cbb251107');
+legacy.prior_split_controls_sha256 = priorSplitHash(positives);
+assert.equal(legacy.prior_split_controls_sha256, '7619a3fda04a6e23567b9a415e7ae13385ed64597e1901c46ccc6f0cbb251107');
 const reviewed = [...Object.keys(keywordCaps), 'hexproof'];
 assert.equal(vectors([], reviewed).length, 325);
 for (const keywords of vectors([], reviewed)) {
@@ -185,23 +207,23 @@ for (const domain of ['battlefield_creature', 'controlled_battlefield_creature']
 for (const [name, extra] of [['bare', false], ['other-composition', true]]) {
   const base = control(['hexproof'], true, 'controlled_battlefield_creature');
   negative(`controlled-pump:${name}`, base, d => {
+    split(d.spell);
     d.spell.instructions.pop();
     if (extra) d.spell.instructions.push({ op: 'draw_cards', count: '1', source_block: 0 });
     d.capabilities = ['normal_layout_v1', 'cast_instant_v1', 'attachments_v1', pt, ...(extra ? ['controller_draw_v1'] : [])];
   });
 }
 negative('plain-lifelink:spare-attachments', pure, d => { d.capabilities.push('attachments_v1'); });
-// Freeze the entire pre-extension inventory before appending bounded controls.
+// Retain stage counts, explicitly distinguishing atomic hashes from prior split IR.
 const legacyFamily = {
   probes: probes.length,
   positive: probes.filter(p => p.expected).length,
   negative: probes.filter(p => !p.expected).length,
   frozen_controls_sha256: createHash('sha256').update(JSON.stringify(positives)).digest('hex'),
 };
-assert.deepEqual(legacyFamily, {
-  probes: 1657, positive: 1331, negative: 326,
-  frozen_controls_sha256: '9e558adbff21f0f56d3ba9c898b1d9ff21b115449497c348a17c1988a5f22fc9',
-});
+assert.deepEqual([legacyFamily.probes, legacyFamily.positive, legacyFamily.negative], [1657, 1331, 326]);
+legacyFamily.prior_split_controls_sha256 = priorSplitHash(positives);
+assert.equal(legacyFamily.prior_split_controls_sha256, '9e558adbff21f0f56d3ba9c898b1d9ff21b115449497c348a17c1988a5f22fc9');
 const combatVectors = [
   ['haste'], ['trample'], ['first strike'],
   ['first strike', 'haste'], ['haste', 'first strike'],
@@ -241,9 +263,43 @@ for (const domain of ['battlefield_creature', 'controlled_battlefield_creature']
     }
   }
 }
+// The 1,955 prior-format probes are not claimed byte-identical: compound
+// positives now use atomic IR and split-only mutations became genuine negatives.
+assert.equal(probes.length, 1955);
+const atomicPriorStages = { probes: probes.length,
+  prior_split_controls_sha256: priorSplitHash(positives),
+  frozen_controls_sha256: createHash('sha256').update(JSON.stringify(positives)).digest('hex') };
+for (const domain of ['battlefield_creature', 'controlled_battlefield_creature']) {
+  const keywords = ['flying', 'lifelink'];
+  const absent = clone(control(keywords, false, domain));
+  absent.definitions[0].spell.instructions[0].source_block = 1;
+  positive(`${domain}:pure:absent-modifier:block1`, absent);
+  const explicitNone = clone(absent);
+  explicitNone.definitions[0].spell.instructions[0].modifier = null;
+  positive(`${domain}:pure:null-modifier:block1`, explicitNone);
+  negative(`${domain}:pure:null-modifier:spare-pt`, explicitNone, d => { d.capabilities.push(pt); });
+  for (const [power, toughness] of [['0', '0'], ['-2', '3'], ['999999999999999999999999999999999999999', '-999999999999999999999999999999999999999']]) {
+    const value = clone(control(keywords, true, domain));
+    value.definitions[0].spell.instructions[0].modifier = { power, toughness };
+    positive(`${domain}:atomic:exact:${power}:${toughness}`, value);
+  }
+  const atomic = control(keywords, true, domain);
+  for (const invalid of [{}, { power: '1' }, { toughness: '1' }, { power: '1', toughness: '1', extra: true }, [], '1', 1, false]) {
+    negative(`${domain}:atomic:bad-modifier:${JSON.stringify(invalid)}`, atomic, d => { d.spell.instructions[0].modifier = clone(invalid); });
+  }
+  for (const reverse of [false, true]) for (const blocks of [[0, 0], [0, 1], [1, 0], [1, 1]]) {
+    negative(`${domain}:old-split:${reverse}:${blocks}`, atomic, d => {
+      split(d.spell, reverse);
+      d.spell.instructions.forEach((instruction, index) => { instruction.source_block = blocks[index]; });
+    });
+  }
+}
+assert.equal(probes.length, 1999);
 for (const row of positives) assert.equal(JSON.stringify(row.value), row.exact, `mutated positive: ${row.name}`);
 const summary = {
-  format_version: 1,
+  format_version: 2,
+  prior_split_format: { format_version: 1, probes: 1955 },
+  atomic_prior_stages: atomicPriorStages,
   status: 'prepared_only',
   legacy,
   legacy_family: legacyFamily,
