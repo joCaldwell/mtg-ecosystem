@@ -1072,5 +1072,6 @@ fn paid_aura_control_snapshot_rejects_coherent_timestamp_controller_and_provenan
     });
 }
 
+#[cfg(test)]
 #[path = "composed_aura_control_tests.rs"]
 mod composed_tests;
