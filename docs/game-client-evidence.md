@@ -61,7 +61,8 @@ server build is `6d7813dc1e4b21e41f66afe9f9377486d417d710441103df97bbfd43ccb69ad
 Both were independently rederived from source/toolchain/configuration; schema
 SHA-256 remains `2eb874b2fa9e306b57d7da05d2e9a26b6965f2a639711d6705981e790d906ba5`.
 Focused lifecycle/process/store checks passed 2/3/10 tests; SDK verification passed
-66. Real integration passed five tests: immutable same-match recovery and uncertain
+66. The lifecycle suite passed five tests, including three real-native cases and
+two storage/origin guards: immutable same-match recovery and uncertain
 ensure fencing, three distinct capabilities/private consumers and joined leases,
 stable human waits, actual Actor-DB human bootstrap/proxy exact replay, and parent
 SIGKILL stop/recovery. A further real proxy check rejects raw dot/encoded aliases.
