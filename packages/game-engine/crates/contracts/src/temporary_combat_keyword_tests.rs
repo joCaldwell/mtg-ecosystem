@@ -245,7 +245,7 @@ fn temporary_combat_keyword_json_near_misses_stay_rejected() {
                 (format!("{grant_path}/keywords"), serde_json::json!([])),
                 (
                     format!("{grant_path}/keywords"),
-                    serde_json::json!(["first_strike", "haste", "first_strike"]),
+                    serde_json::json!(["first strike", "haste", "first strike"]),
                 ),
                 (
                     format!("{grant_path}/keywords"),
@@ -453,7 +453,7 @@ fn temporary_combat_keyword_schema_preserves_legacy_subset_vocabulary() {
             "hexproof",
             "haste",
             "trample",
-            "first_strike"
+            "first strike"
         ])
     );
     assert_eq!(
