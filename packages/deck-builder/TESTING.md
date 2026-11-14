@@ -1,11 +1,32 @@
-# Focused test suite
+# Backend and product test gates
+
+Since the unified product extraction, run separate gates from the repository root:
+
+```sh
+sh scripts/engine-env.sh npm --prefix packages/deck-builder run check --workspaces=false
+sh scripts/engine-env.sh npm --prefix packages/multiverse run check --workspaces=false
+sh scripts/engine-env.sh npm --prefix packages/multiverse run build:web --workspaces=false
+```
+
+The backend owns capability/auth/tenant, storage, host, API and MCP tests. Product
+route, inbox-display and frontend architecture tests now live in
+`packages/multiverse/test/`. Shared display and standalone session/decision changes
+also use their own game-ui/game-client checks. Disposable integrated browser
+regressions remain in [browser-checks](browser-checks/README.md).
+
+Current evidence and omissions are in the
+[product integration report](../multiverse/INTEGRATION-REPORT.md). The measured
+table and deletion inventory below preserve the earlier suite-reduction record;
+their counts, timings and old paths are historical, not the current gate layout.
+
+## Historical focused-suite reduction
 
 The test gate is intentionally small for rapid design iteration. Run `npm run check`.
 Keep capability permissions and tenant isolation, viewer public-state privacy,
 migration content preservation, backup/restore smoke, exact card resolution and
 suggestions, membership/undo, proposal acceptance/rejection, two import examples
 per format, hosted auth/session and CSP headers, one real MCP client smoke, and
-the web architecture guard. Avoid UI copy/markup/CSS snapshots and duplicated
+the then-colocated web architecture guard. Avoid UI copy/markup/CSS snapshots and duplicated
 transport matrices. These checks are representative, not exhaustive security coverage.
 
 Measured on Node 26.12.1 in this worktree (one full successful run each):
@@ -20,10 +41,10 @@ No tests are skipped. Application behavior and browser-checks are unchanged.
 Plain-text Moxfield fixtures and the Najeela printing export remain because
 browser-checks uses them. The architecture documentation retains its symbology fixture.
 
-## Files deleted outright
+## Historical files deleted outright
 
-These deletions can conflict with concurrent UX work; keep the deletion when
-merging test-only updates to these files.
+These paths document that reduction checkpoint. They are not instructions to
+delete current or later tests when reconciling branches.
 
 - `test/art.test.ts`
 - `test/backup-retention.test.ts`

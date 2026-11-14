@@ -471,14 +471,21 @@ From the repository root, build exactly:
 docker build -f packages/deck-builder/Dockerfile -t deck-builder .
 ```
 
-The Dockerfile uses `node:26-slim`, the root npm lockfile with a selected
-workspace, a Vite build stage, production dependencies only in the runtime,
-and `node src/server.ts` as PID 1. No server TypeScript compilation. The
-allowlist `.dockerignore` excludes `.env`, all database/token/cache files,
-tests, `.git`, other packages and downloaded assets. Docker's `HEALTHCHECK`
+The current Dockerfile uses `node:26-slim`, the root npm lockfile selecting
+`packages/multiverse`, a product Vite build stage, and production dependencies
+only in the runtime. From the retained backend working directory its PID 1 is
+`node ../multiverse/src/server.ts`; no server TypeScript compilation is needed.
+The allowlist `.dockerignore` includes the product, backend and only the shared
+game/preview inputs needed to build it. It excludes `.env`, database/token/cache
+files, tests, `.git`, native/generated artifacts and unrelated packages. Docker's `HEALTHCHECK`
 uses `/api/health`; Railway separately checks that path on target port 8787.
-The local Docker daemon was unavailable during this phase; Railway performs
-and verifies the actual Docker build from the same repo-root context.
+The original phase used Railway to verify the image because the local Docker
+daemon was unavailable. The 2026-11-14 ownership refactor independently verified
+filtered install/build/prune, runtime imports and context exclusions, but did not
+execute an actual container image. A future promotion must verify that image and
+ensure watch paths include `packages/multiverse/**`, `packages/deck-builder/**`,
+the shared preview/display inputs and root lock/config files. These documentation
+changes do not update a live service or deploy a release.
 
 The image defaults to `USER node`. Railway requires `RAILWAY_RUN_UID=0` for
 its root-owned volume; the entrypoint prepares only the data directory,
@@ -810,7 +817,7 @@ to the normal start command, deploy, then wait for `SUCCESS` and health:
 
 ```sh
 railway environment edit --project 2c9c40a2-4b69-4d5e-a2c4-188a6f5894b8 --environment staging --json <<'JSON'
-{"services":{"94e7ffb1-12ce-4fd0-a8cc-afad081d9881":{"deploy":{"startCommand":"sh /usr/local/bin/deck-builder-entrypoint node src/server.ts"}}}}
+{"services":{"94e7ffb1-12ce-4fd0-a8cc-afad081d9881":{"deploy":{"startCommand":"sh /usr/local/bin/deck-builder-entrypoint node ../multiverse/src/server.ts"}}}}
 JSON
 curl --fail https://deck-builder-staging.up.railway.app/api/health
 ```

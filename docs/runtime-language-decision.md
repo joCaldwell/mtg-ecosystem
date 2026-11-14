@@ -1,9 +1,9 @@
 # Language decision for Layers 0–3
 
 Status: **adopted, 2026-10-11**. The language assignments below are final for
-implementation. The initial compiler/engine/scenario slice now exists; full
-simulation/search and server implementation remain future work. See the
-[first scenario brief](game-engine-first-scenario.md).
+implementation. Finite Commander simulation/search and local hosting now exist
+within reviewed boundaries; see [current evidence](game-engine-current.md).
+The [first scenario brief](game-engine-first-scenario.md) is historical scope.
 Primary workload: **high-volume headless simulation and agent search for
 Commander**, followed by interactive Commander hosting.
 
@@ -22,7 +22,7 @@ and [decision record](decisions.md).
 | Layer 1 — simulation, search, benchmarks, native agent policies | Rust | Keep repeated queries, forks, rollouts, and policy execution in process |
 | Layer 2 — game server and authoritative agent/session orchestration | Rust | Call the core directly; own sessions, persistence, clocks, networking, and remote-agent coordination |
 | Layer 3 — browser game client, application UI, generated client SDK | TypeScript, with HTML/CSS for presentation | Consume the versioned server protocol and render permitted observations |
-| Layer 3 — deck-builder, including its backend and MCP tools | Existing TypeScript on Node.js and in the browser | Continue the standalone application without migration |
+| Layer 3 — Multiverse product and existing deck backend/MCP | TypeScript on Node.js and in the browser | Product owns account UX/navigation and deck/game features; the existing backend retains auth/data/capability authority without account migration |
 | Browser-local rules/search module | The same Rust core compiled to WebAssembly | Reuse authoritative rules in the TypeScript browser client when this capability is delivered |
 | Repository ingestion/reporting and cross-package command glue | TypeScript on Node.js | Coordinate the source pipeline and invoke native build/compiler tools at process boundaries |
 

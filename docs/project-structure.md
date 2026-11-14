@@ -1,15 +1,15 @@
 # Project structure
 
 The adopted stack combines TypeScript/npm workspaces with Rust/Cargo. Packages
-are independent; read the relevant package manual before applying commands or
+have explicit public boundaries; read the relevant package manual before applying commands or
 conventions. See the [language decision](runtime-language-decision.md).
 
-The Cargo workspace contains contracts, semantic compilation, the scenario
-kernel, and a native CLI under `packages/game-engine/crates/`. Search/agents and
-the game server remain future work. `npm run check:engine` runs native checks
-and the cross-language fixture suite. TypeScript package commands and dependency
-rules remain unchanged. The source layout is in
-[game-engine-spec.md](game-engine-spec.md#9-proposed-source-organization).
+The Cargo workspace contains executable contracts, semantic compilation,
+deterministic rules and native simulation/search under `packages/game-engine/crates/`,
+plus the finite local Rust host in `packages/game-server/`. Supported behavior
+and exact acceptance belong in [the current engine map](game-engine-current.md).
+Use focused package checks; a browser or documentation task does not imply a
+full native matrix.
 
 | Location | Responsibility |
 | --- | --- |
@@ -19,10 +19,26 @@ rules remain unchanged. The source layout is in
 | `packages/game-ui/` | Shared permitted table display, inspection and scoped styling |
 | `packages/game-client/` | Game session/decision adapters, qualified preview and standalone harness |
 | `packages/card-data/` | Reserved output location for future compiled Card IR |
-| `packages/game-engine/` | Rust contracts, compiler, bounded scenario games and CLI; legal Commander matches/search pending |
-| `packages/game-server/` | Rust game server/API with direct core calls; README only until scaffolded |
-| `scripts/` | Parser ingestion, acceptance reporting, and explicit IR-emitter stub |
+| `packages/game-engine/` | Rust contracts, compiler, deterministic finite Commander matches, simulation/search and CLI |
+| `packages/game-server/` | Finite local Rust process/HTTP host and generated TypeScript SDK; direct core calls |
+| `scripts/` | Package environment/bootstrap, focused engine checks, parser ingestion/reporting and explicit bulk IR-emitter stub |
 | `docs/` | Shared design documentation |
+
+## Product application
+
+`packages/multiverse/web/src` contains `app/` for account/session/navigation,
+`features/` for Home, deck editing, Play and the compact game frame, and the
+layered design/UI/domain/API modules described in its
+[frontend manual](../packages/multiverse/web/ARCHITECTURE.md).
+`packages/multiverse/src/server.ts` owns process composition through the backend's
+public host factory. The backend keeps its existing database/auth implementation
+and storage defaults; moving application ownership is not a data migration.
+
+`packages/game-ui/src/index.ts` exports the shared permitted display components.
+The game-client's public preview entrypoint composes an exact qualified capture
+without session effects. Its standalone harness separately owns live joining,
+opening choices and command recovery. See [application boundaries](multiverse-app.md)
+for the delivered scaffold and remaining game provisioning/admission work.
 
 ## Oracle parser
 

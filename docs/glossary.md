@@ -3,7 +3,19 @@
 A reference mapping Magic: The Gathering terminology to their system-level equivalents in the MTG Ecosystem. If you're new to MTG or to this project, start here.
 
 > [!TIP]
-> Terms marked with **(Layer 0)** are relevant to the current milestone. Terms marked **(Layer 1+)** describe concepts that will be implemented in future milestones but are important for understanding the full design.
+> Layer labels identify architectural responsibility, not delivery status. Use
+> [the current engine map](game-engine-current.md) and
+> [application boundaries](multiverse-app.md) for implemented scope.
+
+## Application boundaries
+
+| Term | Meaning |
+| --- | --- |
+| **Multiverse application** | Top-level product owning account UX, navigation, deck editing, game setup, browser build and process composition |
+| **Deck backend** | Existing account/auth, Actor/SQLite, deck capability and MCP implementation consumed through public interfaces |
+| **Game UI** | Shared display over already permitted observations or qualified fixtures; owns no rules, account or transport |
+| **Table preview** | Local interaction with a qualified captured sample; does not use a selected library deck or create a match |
+| **Account-to-seat authorization** | Remaining coordinator work binding an authenticated product account to a specific native match seat; product sign-in alone grants no seat capability |
 
 ---
 

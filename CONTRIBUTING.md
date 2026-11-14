@@ -1,16 +1,34 @@
 # Contributing to Project Multiverse
 
 Start with the root [AGENTS.md](AGENTS.md), identify the package, and read its
-manual. The deck-builder is active and standalone. The oracle-parser is a
-limited supported subset; the first compiler/runtime scenario is implemented,
-while complete games and the game server remain future work.
+manual. The top-level Multiverse app owns account UX, navigation, deck editing
+and game entry. The existing deck-builder backend owns account/auth, deck
+capabilities, SQLite and MCP behind public interfaces. The oracle-parser remains
+a limited supported subset. The engine/server support reviewed finite Commander
+matches; the product currently integrates setup and a qualified table preview,
+with real automated-game launch still outside the delivered scaffold.
 
 The [language stack](docs/runtime-language-decision.md) is adopted: TypeScript
 for ingestion/parser/archive, the deck-builder, browser apps, and client SDK;
 Rust for semantic compilation, rules, native simulation/search/agents, and the
-game server. The initial Cargo workspace has its own
-[engine manual](packages/game-engine/AGENTS.md). Use `npm run check:engine` for
-native and cross-language checks, and `npm run demo:engine` for the scenario.
+game server. Read the [engine manual](packages/game-engine/AGENTS.md) and
+[current map](docs/game-engine-current.md) for native evidence and focused checks.
+
+## Application work
+
+- [Multiverse](packages/multiverse/README.md): browser/account UX, routing,
+  Home, deck editor, Play setup, product build and process entrypoint.
+- [Deck backend](packages/deck-builder/AGENTS.md): existing auth/Actor/SQLite,
+  deck capabilities, API, CLI and MCP. Preserve data, credentials and public URLs.
+- [Game UI](packages/game-ui/AGENTS.md): shared permitted table display and scoped styles.
+- [Game client](packages/game-client/README.md): session/decision adapters,
+  qualified public preview and standalone integration harness.
+
+Use each package's isolated lockfile and pinned Node launcher. Run the product
+and backend gates for cross-boundary changes; game display/session changes also
+need their consumer checks. Product builds must not start Cargo or generate
+native/SDK artifacts. See [application architecture](docs/multiverse-app.md) for
+public package interfaces and the remaining account-to-game launch requirements.
 
 ## Oracle parser setup
 

@@ -1,6 +1,10 @@
 # Client delivery, verification and review
 
-Status: planning only. See [architecture](game-client-plan.md) and
+Status: delivery criteria from the original plan, updated for the unified product.
+The [merged scaffold report](../packages/multiverse/INTEGRATION-REPORT.md) records
+Home/Play/shared-preview acceptance; the [live opening report](../packages/game-client/LIVE-OPENING-REPORT.md)
+records the standalone harness's qualified behavior. These do not establish full
+M2–M4 completion. See [architecture](game-client-plan.md) and
 [contracts](game-client-contracts.md). Milestones are dependency/acceptance units,
 not calendar estimates. Re-estimate after M0 proves the unknown integration costs.
 The [responsibility boundaries](game-client-boundaries.md) are a mandatory design
@@ -15,12 +19,12 @@ and review gate for each milestone.
 | M2 Complete interaction infrastructure | Core/server: action beginnings and context; session owner: coherent resume and journal; UI owner: generic selection/payment/ordering controls | M0 DTO freeze; M1 wiring | Focused query/privacy tests; command and refresh fault cases; generated SDK parity; accessible fixture gallery for supported requests |
 | M3 Foundations game | Client interaction owner covers all reachable foundations decisions; host/tooling owner supplies a human-paced bot runner; test owner orchestrates one browser + three SDK bots | M2 | Natural full match with consistent typed outcome; deliberate human-think-time delay; focused manual keyboard play; scripted browser integration plus actual host evidence |
 | M4 Attachments alpha | Complete attachments workflows, inspector, dense boards, all four browser seats | M3 plus profile-specific request inventory | Every admitted request has focused evidence; natural attachments game and four-context privacy/recovery checks; supported browser smoke |
-| M5 Private online design | Product/server owners define accounts, invitations, provisioning, remote supervision, capacity and operations | Useful M4 alpha | Separate approved deployment/session plan; not part of local release implementation |
+| M5 Private online design | Reuse product accounts; define account-to-seat authorization, invitations, provisioning, remote supervision, capacity and operations | Useful M4 alpha | Separate approved game deployment/session plan; existing product sign-in does not grant a native seat |
 
-M0 is a small experimental implementation phase in the FUTURE implementation task;
-this planning task does not execute it. Any experiment must have explicit success
-criteria, source pins and a recorded outcome. Resolve failed proofs before building
-dependent code, rather than assuming a library or query is browser-ready.
+M0 originally scoped experimental feasibility work. Subsequent SDK/client reports
+record the proofs actually executed and their exact sources; this milestone table
+does not replace that evidence. Remaining experiments need explicit success
+criteria, source pins and recorded outcomes before dependent code relies on them.
 
 Parallel implementation lanes after M0: UI fixtures/layout and pure draft reducers;
 SDK packaging; core/server contract work. Session wiring follows DTO freeze. Keep
@@ -41,8 +45,9 @@ focused checks, omitted checks, unresolved issues and artifact paths. A reviewer
 checks semantics/privacy and one real integration path. No automatic full historical
 engine matrix is added. Preserve all meaningful failed evidence and unrelated work.
 
-Proposed package commands: `dev`, `build`, `typecheck`, `test`, `test:browser`,
-`check`. Client checks never start Cargo silently. The native owner supplies the
+Client commands include `dev`, `build`, `typecheck`, `test`, `test:browser`,
+`check`; the product's separate `check` and `build:web` cover its host app.
+Client/product checks never start Cargo silently. The native owner supplies the
 specific compatible server binary; SDK generation is explicit and reproducible.
 
 ## 3. Decision coverage inventory
