@@ -111,6 +111,10 @@ payment and invocation/snapshot validation. Their subsequent
 adds Royal to black/green defaults and permits Ertai as a blue commander, with
 paid legal-pod and commander-return/replay proofs. Hosting/search and consumer
 qualification remain separate.
+[Activated permanent return](game-engine-removal.md#activated-permanent-return)
+supports complete Temporal Adept through existing cost and movement paths, with
+private ownership, self/source bounce, reentry and Commander/replay witnesses;
+pool and consumer admission remain separate.
 Read Rust types and validation at the edited source; old reports retain their
 original version numbers. Active catalogs are regenerated at schema 1; distinct
 source/admission pools remain separate. Historical decoder gates and downgrade

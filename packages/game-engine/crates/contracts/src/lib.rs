@@ -217,6 +217,7 @@ pub enum Capability {
     ActivatedTapPermanentV1,
     TapSourceDestroyV1,
     ActivatedSpellCounterV1,
+    ActivatedPermanentOwnerHandV1,
     OwnerHandMoveV1,
     PermanentOwnerHandMoveV1,
     CastSorceryV1,
@@ -1229,6 +1230,9 @@ impl Definition {
             if has_counter_stack_object(&ability.program) {
                 set.insert(Capability::ActivatedSpellCounterV1);
             }
+            if has_permanent_owner_hand(&ability.program) {
+                set.insert(Capability::ActivatedPermanentOwnerHandV1);
+            }
             if ability.cost == ActivationCost::TapSource && has_destroy_permanent(&ability.program)
             {
                 set.insert(Capability::TapSourceDestroyV1);
@@ -1358,13 +1362,9 @@ impl Definition {
     }
     pub fn validate(&self) -> Result<(), String> {
         if self
-            .activated
+            .triggered
             .iter()
             .any(|a| has_permanent_owner_hand(&a.program))
-            || self
-                .triggered
-                .iter()
-                .any(|a| has_permanent_owner_hand(&a.program))
             || self.spell.as_ref().is_some_and(|p| {
                 has_permanent_owner_hand(p)
                     && (!matches!(
@@ -1649,6 +1649,14 @@ impl Definition {
             return Err("activated programs require supported creature characteristics".into());
         }
         for ability in &self.activated {
+            if has_permanent_owner_hand(&ability.program) {
+                if c.kind != CardKind::Creature || !activated_permanent_owner_hand_ability(ability)
+                {
+                    return Err("activated permanent return requires a creature, fixed mana plus source tap, and one unqualified permanent target".into());
+                }
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
             if has_counter_stack_object(&ability.program) {
                 if c.kind != CardKind::Creature || !activated_spell_counter_ability(ability) {
                     return Err("activated counter requires a creature, fixed mana plus source tap, and one unqualified spell target".into());
@@ -2273,6 +2281,31 @@ fn activated_spell_counter_ability(a: &ActivatedAbility) -> bool {
         && p.targets.len() == 1
         && p.targets[0].domain == TargetDomain::StackSpell
         && p.targets[0].filter.is_none()
+}
+fn activated_permanent_owner_hand_ability(a: &ActivatedAbility) -> bool {
+    let p = &a.program;
+    a.functioning_zone == FunctioningZone::Battlefield
+        && matches!(&a.cost, ActivationCost::Composite { costs }
+            if costs.tap && !costs.sacrifice && costs.mana.as_ref().is_some_and(|m|
+                !m.generic.is_negative() && !m.colored.contains(&Color::C)))
+        && p.timing == SpellTiming::Instant
+        && p.functioning_zone == FunctioningZone::Stack
+        && p.resolution == SpellResolution::Instructions
+        && p.additional_sacrifice.is_none()
+        && p.modes.is_empty()
+        && matches!(
+            p.instructions.as_slice(),
+            [Instruction::ReturnToOwnerHand { target_slot: 0, .. }]
+        )
+        && p.targets.len() == 1
+        && p.targets[0].domain == TargetDomain::BattlefieldPermanent
+        && p.targets[0].filter.as_ref().is_some_and(|f| {
+            f.types.is_empty()
+                && f.non_types.is_empty()
+                && f.non_colors.is_empty()
+                && !f.opponent
+                && !f.tapped
+        })
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     if has_permanent_owner_hand(p)
@@ -3238,13 +3271,12 @@ pub fn catalog_schema() -> serde_json::Value {
     }));
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["capabilities"],"properties":{"capabilities":{"contains":{"const":Capability::PermanentOwnerHandMoveV1}}}},
-        "then":{"required":["spell"],"properties":{
+        "then":{"anyOf":[{"required":["spell"],"properties":{
             "characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},
             "spell":{"type":"object","required":["targets","instructions"],"properties":permanent_owner_hand}
-        }}
+        }},{"$ref":"#/$defs/ActivatedPermanentOwnerHandDefinition"}]}
     }));
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({"properties":{
-        "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/PermanentOwnerHandFreeProgram"}}}},
         "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/PermanentOwnerHandFreeProgram"}}}}
     }}));
     // A creature tap may compose with the existing mandatory draw-one effect.
@@ -3423,6 +3455,49 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({"properties":{
         "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/CounterStackObjectFreeProgram"}}}}
     }}));
+    schema["$defs"]["ActivatedPermanentOwnerHandAbility"] = serde_json::json!({"required":["cost","program"],"properties":{
+        "cost":fixed_mana_source_tap_cost,"functioning_zone":{"const":"battlefield"},
+        "program":{"required":["targets","instructions"],"properties":{
+            "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
+            "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
+            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"return_to_owner_hand"},"target_slot":{"const":0}}}},
+            "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
+                "slot":{"const":0},"domain":{"const":"battlefield_permanent"},
+                "filter":{"type":"object","properties":{"types":{"maxItems":0},"non_types":{"maxItems":0},"non_colors":{"maxItems":0},"opponent":{"const":false},"tapped":{"const":false}}}
+            }}}
+        }}
+    }});
+    schema["$defs"]["ActivatedPermanentOwnerHandDefinition"] = serde_json::json!({"required":["activated"],"properties":{
+        "characteristics":{"properties":{"kind":{"const":"creature"}}},
+        "activated":{"contains":{"$ref":"#/$defs/ActivatedPermanentOwnerHandAbility"}}
+    }});
+    let activated_return = serde_json::json!({"required":["program"],"properties":{
+        "program":{"not":{"$ref":"#/$defs/PermanentOwnerHandFreeProgram"}}
+    }});
+    schema["$defs"]["ActivatedAbility"]
+        .as_object_mut()
+        .unwrap()
+        .entry("allOf")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "if":activated_return,"then":{"$ref":"#/$defs/ActivatedPermanentOwnerHandAbility"}
+        }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["activated"],"properties":{"activated":{"contains":activated_return}}},
+        "then":{"properties":{"characteristics":{"properties":{"kind":{"const":"creature"}}},"capabilities":{"allOf":[
+            {"contains":{"const":Capability::ActivatedPermanentOwnerHandV1}}, {"contains":{"const":Capability::PermanentOwnerHandMoveV1}},
+            {"contains":{"const":Capability::OwnerHandMoveV1}}, {"contains":{"const":Capability::PermanentRemovalV1}},
+            {"contains":{"const":Capability::CompositeActivationCostV1}}, {"contains":{"const":Capability::ActivatedAbilityV1}},
+            {"contains":{"const":Capability::BaseCreatureV1}}, {"contains":{"const":Capability::CastCreatureV1}},
+            {"contains":{"const":Capability::NormalLayoutV1}}
+        ]}}}
+    }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["capabilities"],"properties":{"capabilities":{"contains":{"const":Capability::ActivatedPermanentOwnerHandV1}}}},
+        "then":{"$ref":"#/$defs/ActivatedPermanentOwnerHandDefinition"}
+    }));
     // The untap opcode is a complete ordinary spell, not a capability that
     // implicitly admits activations, triggers or modal child programs.
     schema["$defs"]["UntapFreeProgram"] = serde_json::json!({"properties":{
@@ -3545,6 +3620,9 @@ mod tap_source_destroy_tests;
 mod activated_spell_counter_tests;
 
 #[cfg(test)]
+mod activated_permanent_return_tests;
+
+#[cfg(test)]
 mod permanent_owner_hand_tests;
 
 #[cfg(test)]
@@ -3613,6 +3691,7 @@ mod tests {
             ActivatedTapPermanentV1,
             TapSourceDestroyV1,
             ActivatedSpellCounterV1,
+            ActivatedPermanentOwnerHandV1,
             OwnerHandMoveV1,
             PermanentOwnerHandMoveV1,
             CastSorceryV1,
@@ -3752,6 +3831,7 @@ mod tests {
         definitions.push(activated_permanent_tap_tests::activated_tap());
         definitions.push(tap_source_destroy_tests::tap_source_destroy());
         definitions.push(activated_spell_counter_tests::activated_counter());
+        definitions.push(activated_permanent_return_tests::activated_return());
         definitions.push(permanent_owner_hand_tests::permanent_owner_hand());
         // Synthetic contract-shape witness only. Complete D2c-e source lowering
         // is checked in compiler/core tests, without fabricated expected IR.

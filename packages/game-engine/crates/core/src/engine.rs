@@ -22,6 +22,8 @@ pub use match_admission::*;
 mod commander_policy;
 pub use commander_policy::policy_digest;
 #[cfg(test)]
+mod activated_permanent_return_tests;
+#[cfg(test)]
 mod activated_permanent_tap_tests;
 #[cfg(test)]
 mod activated_spell_counter_tests;

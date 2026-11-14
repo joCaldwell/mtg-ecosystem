@@ -91,6 +91,26 @@ The [focused source configurations](../packages/game-engine/crates/core/src/engi
 exercise real payments, owner/control distinctions and recovery/replay. They are
 not admitted pods; this increment grants no pool or consumer qualification.
 
+## Activated permanent return
+
+`ActivatedPermanentOwnerHandV1` separately admits a battlefield creature's fixed
+mana-plus-source-tap activation with one unqualified permanent target and one
+`ReturnToOwnerHand` instruction. It retains the existing owner-hand and permanent
+movement capabilities. Nonland/other qualifiers, additional costs, sacrifice,
+modes, triggers and extra effects reject in this activated form. Ordinary
+Regress/Disperse and creature bounce keep their existing scopes.
+
+The complete Temporal Adept source is
+`tests/fixtures/fd9b5462-6578-4bf6-8026-23eaf5af3eee.json`, archive line
+38353/source index 38351: `{1}{U}{U}`, 1/1 Human Wizard, with
+`{U}{U}{U}, {T}: Return target permanent to its owner's hand.` Existing composite
+payment, target identity, movement and Commander replacement paths execute it.
+Private source-backed tests check casting and aging, real UUU/tap payment,
+owner-versus-controller movement, self-bounce, source departure, actual Flash
+reentry, Commander choices and budget/trace-consistent restore/replay. No pool,
+hosting/search or consumer admission follows from this source/runtime slice;
+state/public formats and the active IR version remain unchanged.
+
 ## Tap-source destruction
 
 Schema 1 supports the separately fenced `TapSourceDestroyV1` context: one

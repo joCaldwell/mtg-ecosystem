@@ -3692,6 +3692,8 @@ fn lower_activation(
     }
     if effects.iter().flat_map(|s| &s.steps).any(|step| {
         matches!(step, Step::Tap { .. } | Step::Counter { .. })
+            || matches!(step, Step::ReturnToHand { what, to, .. }
+                if to == "owner" && what["filter"]["cls"] == "permanent")
             || (matches!(cost, ActivationCost::TapSource) && matches!(step, Step::Destroy { .. }))
     }) {
         append_spell_effects(
@@ -8361,3 +8363,6 @@ mod tap_source_destroy_tests;
 
 #[cfg(test)]
 mod activated_spell_counter_tests;
+
+#[cfg(test)]
+mod activated_permanent_return_tests;
