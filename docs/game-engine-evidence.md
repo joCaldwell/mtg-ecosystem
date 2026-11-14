@@ -257,6 +257,24 @@ release/profile/completion/performance, server/SDK/host/search/consumer matrices
 Node suites requiring absent dependencies remain unrun. Plain control source and
 all committed catalog IR remain unchanged; older proofs keep their own identities.
 
+### Absent nonland mana-cost rejection
+
+Compiler source `6dc5e91c` rejects empty printed mana costs on nonlands rather
+than treating them as `{0}`. The guard is byte-identical to the separately
+published cascade correction in `20de6c7a`; cascade is not imported. Four controls
+passed before the fix while the empty nonland mutant incorrectly lowered. After
+the correction, all 240 compiler and 97 contracts tests passed, including five
+cost regressions and unchanged committed catalog IR. Formatting, compiler
+all-target compilation and strict production compiler Clippy passed.
+
+Exact source hashes, executed test binaries, commands and failures remain in
+`generated/absent-mana-cost/{red01,red02,green01}/` and `qualification.json` in
+the original engine lane. The first attempt caught a test-only quantity type
+error; `red02` is the executed behavioral RED. This compiler-only increment did
+not run core/simulator/server runtime or builds, schema probes, SDK/consumer or
+full matrices. The composed-Aura runtime producer above remains qualified only
+for its earlier source, not this compiler correction.
+
 ### Selected current proof locators
 
 `generated/` below is relative to each original implementation lane, not assumed
