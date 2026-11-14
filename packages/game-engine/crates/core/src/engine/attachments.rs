@@ -171,11 +171,9 @@ impl Game {
                 ResolvedEffectKind::GrantKeywords { target, keywords } if *target == object => {
                     Some(keywords)
                 }
-                ResolvedEffectKind::GrantKeywordsSet { targets, keywords }
-                    if targets.contains(&object) =>
-                {
-                    Some(keywords)
-                }
+                ResolvedEffectKind::GrantKeywordsSet {
+                    targets, keywords, ..
+                } if targets.contains(&object) => Some(keywords),
                 _ => None,
             };
             if let Some(grants) = grants

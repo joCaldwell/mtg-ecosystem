@@ -56,6 +56,8 @@ pub struct ResolvedEffect {
 pub enum ResolvedEffectKind {
     GrantKeywordsSet {
         targets: Vec<ObjectId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        modifier: Option<CreatureSetModifier>,
         keywords: Vec<KeywordAbility>,
     },
     PumpSet {
@@ -210,10 +212,17 @@ impl Game {
             }
         }
         for e in &self.state.rules.effects {
+            // CR 611.2c/613.5-6: the stat and keyword layers of one resolved
+            // effect share the same captured incarnations and creation boundary.
             if let ResolvedEffectKind::PumpSet {
                 targets,
                 power,
                 toughness,
+            }
+            | ResolvedEffectKind::GrantKeywordsSet {
+                targets,
+                modifier: Some(CreatureSetModifier { power, toughness }),
+                ..
             } = &e.kind
                 && targets.contains(&object)
             {
@@ -985,16 +994,19 @@ impl Game {
                     (
                         Instruction::GrantKeywordsSet {
                             set,
+                            modifier,
                             keywords,
                             duration: Duration::UntilEndOfTurn,
                             source_block,
                         },
                         ResolvedEffectKind::GrantKeywordsSet {
                             targets,
+                            modifier: applied_modifier,
                             keywords: grants,
                         },
                     ) => {
                         *targets == self.objects_in_set(set, frame.spell.controller)
+                            && modifier == applied_modifier
                             && keywords == grants
                             && supported_temporary_creature_keywords(grants)
                             && *source_block == effect.origin.source_block
@@ -1385,6 +1397,7 @@ impl Game {
                     }
                     (
                         Instruction::GrantKeywordsSet {
+                            modifier,
                             keywords,
                             duration: Duration::UntilEndOfTurn,
                             source_block,
@@ -1392,13 +1405,15 @@ impl Game {
                         },
                         ResolvedEffectKind::GrantKeywordsSet {
                             targets,
+                            modifier: applied_modifier,
                             keywords: grants,
                         },
                     ) => {
                         // CR 611.2c: membership was captured at creation. Current
                         // controllers/attack status cannot authenticate past eligibility;
                         // restore's input replay proves the complete ordered capture.
-                        keywords == grants
+                        modifier == applied_modifier
+                            && keywords == grants
                             && supported_temporary_creature_keywords(grants)
                             && *source_block == e.origin.source_block
                             && self.valid_set_effect_targets(e, targets)
@@ -1626,6 +1641,8 @@ pub enum VisibleEffect {
         handle: EffectHandle,
         origin: VisibleEffectSource,
         targets: Vec<VisibleTarget>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        modifier: Option<CreatureSetModifier>,
         keywords: Vec<KeywordAbility>,
         expires_in_cleanup_of_turn: u64,
     },
@@ -1853,15 +1870,18 @@ impl Game {
                 toughness: toughness.clone(),
                 expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
             },
-            ResolvedEffectKind::GrantKeywordsSet { targets, keywords } => {
-                VisibleEffect::GrantKeywordsSet {
-                    handle,
-                    origin,
-                    targets: set_views(targets)?,
-                    keywords: keywords.clone(),
-                    expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
-                }
-            }
+            ResolvedEffectKind::GrantKeywordsSet {
+                targets,
+                modifier,
+                keywords,
+            } => VisibleEffect::GrantKeywordsSet {
+                handle,
+                origin,
+                targets: set_views(targets)?,
+                modifier: modifier.clone(),
+                keywords: keywords.clone(),
+                expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+            },
             ResolvedEffectKind::ExileDamaged { targets } => VisibleEffect::ExileDamaged {
                 handle,
                 origin,

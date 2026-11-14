@@ -368,15 +368,20 @@ impl Game {
             }
             Instruction::GrantKeywordsSet {
                 set,
+                modifier,
                 keywords,
                 duration: Duration::UntilEndOfTurn,
                 source_block,
             } => {
-                // CR 611.2c: one canonical ordered capture, one bounded effect.
+                // CR 611.2c/613.5-6: capture once and create all layers atomically.
                 let targets = self.objects_in_set(&set, frame.spell.controller);
                 self.create_set_effect(
                     frame,
-                    ResolvedEffectKind::GrantKeywordsSet { targets, keywords },
+                    ResolvedEffectKind::GrantKeywordsSet {
+                        targets,
+                        modifier: modifier.clone(),
+                        keywords,
+                    },
                     source_block,
                 )
             }
