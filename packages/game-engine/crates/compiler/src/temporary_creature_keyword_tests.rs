@@ -228,7 +228,7 @@ fn temporary_creature_keyword_parser_preserves_order_and_rejects_every_bad_item(
         json!({"gained":"keyword","keyword":{"keyword":"lifelink","cost":[]}}),
         json!({"gained":"keyword","keyword":{"keyword":"lifelink","filter":{}}}),
         json!({"gained":"keyword","keyword":{"keyword":"reach"}}),
-        json!({"gained":"keyword","keyword":{"keyword":"haste"}}),
+        json!({"gained":"keyword","keyword":{"keyword":"vigilance"}}),
         json!({"gained":"keyword","keyword":{"keyword":"shroud"}}),
     ];
     assert!(lower_temporary_creature_keywords(&[]).is_err());

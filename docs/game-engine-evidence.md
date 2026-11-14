@@ -273,6 +273,76 @@ additional-cost and reachable paid prohibition exits remain open. No profile,
 pod, host/search, SDK or full target-deck admission follows; fresh combined
 Clippy and broader runtime/release/profile/consumer matrices were omitted.
 
+### Complete-source compiler input rejection
+
+Compiler source `6dc5e91c` rejects empty printed mana costs on nonlands rather
+than treating them as `{0}`. The guard is byte-identical to the separately
+published cascade correction in `20de6c7a`; cascade is not imported. Four controls
+passed before the fix while the empty nonland mutant incorrectly lowered. After
+the correction, all 240 compiler and 97 contracts tests passed, including five
+cost regressions and unchanged committed catalog IR. Formatting, compiler
+all-target compilation and strict production compiler Clippy passed.
+
+Exact source hashes, executed test binaries, commands and failures remain in
+`generated/absent-mana-cost/{red01,red02,green01}/` and `qualification.json` in
+the original engine lane. The first attempt caught a test-only quantity type
+error; `red02` is the executed behavioral RED. This compiler-only increment did
+not run core/simulator/server runtime or builds, schema probes, SDK/consumer or
+full matrices. The composed-Aura runtime producer above remains qualified only
+for its earlier source, not this compiler correction.
+
+Compiler source `0eb054cfb50cc7b0d061392d53825017154c8d0e` additionally rejects
+present-null fields in strict cast/attacker/recursive damage type filters using
+the existing typed decoder. Omission and supported Boolean semantics remain
+unchanged. Baseline controls passed while three complete-source null regressions
+lowered; all six regressions then passed with 254 compiler and 103 contracts
+tests, catalog freshness, formatting, compiler all-target compilation and strict
+production compiler Clippy. Concurrent product launch/operations changes are
+preserved in that measured source.
+
+Exact frozen source hashes, executed binaries, commands and failures remain in
+`generated/null-type-filters/{red01,red02,green01}/` and `qualification.json` in
+the original engine lane. The first control used a fixture-directory label in
+place of its actual catalog; `red02` retains the corrected controls and genuine
+three-route rejection failures. No core/simulator/server build, runtime, schema,
+SDK/consumer or broader matrix ran for this compiler-only correction; the latest
+runtime producer below retains its earlier source identity.
+
+### Temporary combat-keyword family qualification
+
+Source `b7d5f51f02b4cd523ab656bc979b04b4939a9643` passed 405 distinct Rust tests:
+248 compiler, 103 contracts and 54 selected core tests. The eight new paid test
+functions cover complete frozen Haste, Trample and First Strike sources through
+shared GrantKeywords operations, both budget/trace variants, source/target
+lifecycle, cleanup, query atomicity, normalized forgeries and suspended replay.
+Actual combat proves new-creature Haste authority, late First Strike eligibility,
+Trample excess and Deathtouch/Lifelink composition. All committed catalog IR is
+unchanged; no profile, policy, host/search or consumer admission was added.
+
+All 1,955 exported-schema probes passed, preserving the previous 1,657 controls.
+Schema 1 SHA-256 is
+`5b737a69103375f8a7e7c603683ddac8bf260169fcb1dde83687e7a79b22363b`.
+The 814-row CLI producer is
+`9a964011be1bc37855379e6b5938e0b1bf8950e37b1b5ebc275a2ed28f160eaf`;
+optimized executed tests independently match
+`e446dd1d7d5795fd312f9d4fcf05362f29000425a8dfa1295be3c4d04934d12d`.
+Workspace all-target compilation, formatting, production Clippy and CLI smoke/replay
+passed. Compiler/core/simulator Clippy is strict; contracts retains only its
+inherited `collapsible_if` exception.
+
+One consolidated review found missing grant primitive requirements and incomplete
+schema capability rules; both were repaired and exact-capability tests passed.
+Failed attempts retain an invalid same-ability sentence-partition rejection
+expectation and inconsistent First Strike wire-spelling assertions/probes. The
+final schema uses Rust keyword serialization; the existing wire spelling remains
+`first strike`. No runtime guard or source semantics were weakened. Exact final
+binaries, source/settings proof, schema results, commands and failures remain in
+`generated/temporary-combat-keywords/combined04/`, `review.json` and
+`integration.json` in the original engine lane; earlier attempts remain alongside.
+Full runtime/simulator-policy/server, release/profile/completion/performance,
+SDK/host/search/consumer matrices and Node suites requiring missing dependencies
+remain unrun. Prior source-qualified evidence keeps its own identities.
+
 ### Selected current proof locators
 
 `generated/` below is relative to each original implementation lane, not assumed

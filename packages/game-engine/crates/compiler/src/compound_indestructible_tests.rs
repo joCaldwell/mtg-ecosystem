@@ -69,7 +69,7 @@ fn compound_indestructible_rejects_mutated_steps_occurrences_bindings_and_contex
                 2=>steps[0]["toughness"]["amount"]=json!({"amount":"count","of":{"types":["creature"],"zone":{"zone":"battlefield"}}}),
                 3=>steps[0]["duration"]["duration"]="forever".into(),
                 4=>steps[1]["duration"]["duration"]="forever".into(),
-                5=>steps[1]["abilities"][0]["keyword"]["keyword"]="haste".into(),
+                5=>steps[1]["abilities"][0]["keyword"]["keyword"]="vigilance".into(),
                 6=>steps[1]["abilities"].as_array_mut().unwrap().push(json!({"gained":"keyword","keyword":{"keyword":"indestructible"}})),
                 7=>steps[1]["what"]["selectionId"]="line:0:1".into(),
                 8=>steps[0]["what"]["count"]["value"]=2.into(),

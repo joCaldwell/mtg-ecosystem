@@ -33,7 +33,8 @@ card names, quantities and IDs never dispatch rules or strategy.
 
 The only active Card IR schema is **1** (`mtg_contracts::CURRENT_IR_VERSION`).
 The shared temporary-keyword family supports reviewed unique combinations of Flying,
-Deathtouch, Indestructible, Lifelink and Hexproof, optionally preceded by a fixed
+Deathtouch, Indestructible, Lifelink, Hexproof, Haste, Trample and First Strike,
+optionally preceded by a fixed
 signed stat modifier. Targets may be ordinary creatures or creatures controlled
 by the invocation controller; old unfiltered subset requirements and consumer/pool
 admission remain unchanged. The separate complete Aura-control family derives current creature control from
@@ -73,7 +74,8 @@ Acceptance is source-qualified, never inherited by later code:
 | D2c-d `394301d` | Accepted declared-attack triggers at historical IR24, including reviewed demo/Bundle lifetimes |
 | Later D2c-e/IR25 and finite trigger/keyword/interaction additions | Candidate/focused source qualification; no renewed combined acceptance or P7 performance claim |
 | Schema-1 reset | Regenerated 29 active pools, 1,357 definitions unchanged; focused checks only |
-| Latest composed Aura-control family | Source `3ee7fe8d51abd2c6bac9033a39381d14d761b45b`; 805 compiled rows; focused rules/source/recovery/schema qualification only |
+| Latest temporary combat-keyword family | Source `b7d5f51f02b4cd523ab656bc979b04b4939a9643`; 814 compiled rows; focused compiler/contracts/rules/recovery/schema qualification only |
+| Latest compiler input rejection | Source `0eb054cfb50cc7b0d061392d53825017154c8d0e`; compiler-only malformed-filter qualification, separate from runtime producers |
 | Client/hosting consumers | Retain their own exact producer/schema/catalog/build qualification, separate from current engine HEAD |
 
 [The evidence guide](game-engine-evidence.md) retains exact source/digest and proof

@@ -2736,6 +2736,9 @@ pub fn supported_temporary_creature_keywords(keywords: &[KeywordAbility]) -> boo
                     | KeywordAbility::Indestructible
                     | KeywordAbility::Lifelink
                     | KeywordAbility::Hexproof
+                    | KeywordAbility::Haste
+                    | KeywordAbility::Trample
+                    | KeywordAbility::FirstStrike
             ) && !keywords[..index].contains(keyword)
         })
 }
@@ -3554,6 +3557,15 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                     KeywordAbility::Hexproof => {
                         set.insert(Capability::AttachmentsV1);
                     }
+                    KeywordAbility::Haste => {
+                        set.insert(Capability::HasteV1);
+                    }
+                    KeywordAbility::Trample => {
+                        set.insert(Capability::TrampleV1);
+                    }
+                    KeywordAbility::FirstStrike => {
+                        set.insert(Capability::FirstStrikeV1);
+                    }
                     _ => (), // Rejected by ordinary_keyword_grant, never admitted here.
                 }
             }
@@ -4272,7 +4284,7 @@ pub fn catalog_schema() -> serde_json::Value {
     });
     schema["$defs"]["TemporaryCreatureKeywords"] = serde_json::json!({
         "type":"array","minItems":1,"uniqueItems":true,
-        "items":{"enum":["flying","deathtouch","indestructible","lifelink","hexproof"]}
+        "items":{"enum":[KeywordAbility::Flying,KeywordAbility::Deathtouch,KeywordAbility::Indestructible,KeywordAbility::Lifelink,KeywordAbility::Hexproof,KeywordAbility::Haste,KeywordAbility::Trample,KeywordAbility::FirstStrike]}
     });
     schema["$defs"]["TemporaryCreatureKeywordInstructions"] = serde_json::json!({"anyOf":[
         {"minItems":1,"maxItems":1,"items":{"properties":{
@@ -4365,6 +4377,9 @@ pub fn catalog_schema() -> serde_json::Value {
         ("deathtouch", Capability::DeathtouchV1),
         ("indestructible", Capability::IndestructibleV1),
         ("lifelink", Capability::LifelinkV1),
+        ("haste", Capability::HasteV1),
+        ("trample", Capability::TrampleV1),
+        ("first strike", Capability::FirstStrikeV1),
     ] {
         schema["$defs"]["Definition"]["allOf"]
             .as_array_mut()
@@ -4393,7 +4408,6 @@ pub fn catalog_schema() -> serde_json::Value {
         .push(serde_json::json!({
             "if":any_grant,"then":{"properties":{"capabilities":{"items":{"not":{"enum":[
                 Capability::DefenderV1, Capability::ReachV1, Capability::VigilanceV1,
-                Capability::HasteV1, Capability::TrampleV1, Capability::FirstStrikeV1,
                 Capability::DoubleStrikeV1, Capability::MenaceV1
             ]}}}}}
         }));
@@ -6564,6 +6578,9 @@ mod counter_placement_tests;
 
 #[cfg(test)]
 mod temporary_creature_keyword_tests;
+
+#[cfg(test)]
+mod temporary_combat_keyword_tests;
 
 #[cfg(test)]
 mod aura_control_tests;
