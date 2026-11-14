@@ -3,14 +3,20 @@
 Start here for engine/server work. The engine executes complete **finite**
 Commander matches, supports sampled-world search on its reviewed subset, and has
 a local Rust host with a generated TypeScript SDK. It is not a general Magic
-rules implementation or arbitrary-deck service. The standalone deck-builder
-uses its own Scryfall database and does not consume this engine.
+rules implementation or arbitrary-deck service. The deck library uses its own
+Scryfall database and does not execute this engine. The top-level Multiverse app
+hosts account UX, deck editing and game setup through public package boundaries;
+its current table preview does not establish real game launch.
 
 ## Architecture and ownership
 
 | Location | Responsibility |
 | --- | --- |
 | `packages/oracle-parser/` | TypeScript source parsing and versioned AST archive; complete parsing alone does not prove executable semantics |
+| `packages/multiverse/` | Product account UX, navigation, deck editor, game setup, browser build and process entrypoint |
+| `packages/deck-builder/` | Existing account/auth, Actor/SQLite, deck capability and MCP backend behind public interfaces |
+| `packages/game-ui/` | Shared permitted table/card inspection display and scoped styling; no rules or session effects |
+| `packages/game-client/` | Game protocol adapters, decision drafts, session recovery, qualified preview and standalone harness |
 | `packages/game-engine/crates/contracts/` | Rust executable Card IR types, validation and schema authority |
 | `packages/game-engine/crates/compiler/` | Complete-source lowering or explicit rejection; archived-source provenance and catalog loading |
 | `packages/game-engine/crates/core/` | Deterministic state, rules, events, decisions, observations, queries, snapshots and replay |

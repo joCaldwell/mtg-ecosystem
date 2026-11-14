@@ -30,9 +30,9 @@ The deck library retains its independent source database and release behavior.
 ## Top-level ownership
 
 Account and product navigation belong in `packages/multiverse`, rather than the
-deck-builder feature. Move the complete browser application there: moving only
-its shell would create cycles with the deck UI's existing providers, API client
-and generic controls. Deck editing remains a named feature within the product.
+deck-builder feature. The complete browser application now lives there: moving
+only its shell would create cycles with the deck UI's existing providers, API
+client and generic controls. Deck editing remains a named feature within the product.
 Use a top-level application as the owner rather than a speculative navigation
 library with one consumer.
 
@@ -107,3 +107,20 @@ empty accounts, unreadable deck selection, stale asynchronous deck switching,
 keyboard/focus/draft continuity and desktop/tablet/phone navigation. Use disposable
 source-backed browser fixtures. Keep real-host/full-game acceptance separate from
 this scaffold and retain meaningful failed results.
+
+## Current documentation entrypoints
+
+- [Product setup](../packages/multiverse/README.md),
+  [frontend architecture](../packages/multiverse/web/ARCHITECTURE.md) and
+  [design system](../packages/multiverse/web/DESIGN.md) govern the application.
+- [Backend manual](../packages/deck-builder/AGENTS.md),
+  [operations](../packages/deck-builder/OPERATIONS.md) and
+  [test ownership](../packages/deck-builder/TESTING.md) govern the existing service.
+- [Client setup](../packages/game-client/README.md),
+  [shared display manual](../packages/game-ui/AGENTS.md) and
+  [delivery criteria](game-client-delivery.md) distinguish the preview/harness
+  from future game launch.
+- [Integration evidence](../packages/multiverse/INTEGRATION-REPORT.md) and
+  [live opening evidence](../packages/game-client/LIVE-OPENING-REPORT.md) retain
+  exact acceptance. Older release plans, audits and playtester briefs are
+  historical context; they do not override current ownership or acceptance.

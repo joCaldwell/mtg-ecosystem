@@ -36,7 +36,7 @@ preview, and `/fixtures/decisions` retains the independent controls gallery.
 ## Explicit setup
 
 Use pinned Node 26.11.1 through `sh scripts/engine-env.sh`. Never run a root npm
-install, share node_modules or invoke Cargo from client/SDK commands. Install both
+install, share node_modules or invoke Cargo from client/SDK commands. Install the
 packages locally with their own lockfiles:
 
 ```sh
@@ -80,7 +80,9 @@ sh scripts/engine-env.sh npm --prefix packages/game-client run dev --workspaces=
 
 Open `http://127.0.0.1:5173/join`, not a localhost alias. Vite serves its public
 `/client-config.json`, checks local Host/Origin before proxying, and forwards only
-read routes to the configured upstream. An imported file cannot change that
+allowlisted read routes, opening command submissions and execution-status reads
+to the configured upstream. Action queries, cancellation and operator routes
+remain blocked by this proxy. An imported file cannot change that
 mapping. Production native mode supplies the same config schema. No wildcard
 CORS or cross-origin credential fetch is used. A plain unconfigured Vite instance
 still serves fixtures, but live config fails explicitly.
@@ -109,7 +111,7 @@ MTG_CLIENT_SEAT_FILES=/private/seat-0.json,/private/seat-1.json,/private/seat-2.
 sh scripts/engine-env.sh npm --prefix packages/game-client run test:browser:live --workspaces=false
 ```
 
-Real-host tests verify four authenticated permitted views, separate browser
+The read-only live smoke suite verifies four authenticated permitted views, separate browser
 contexts, same-profile duplicate-tab exclusion/release, reimport after refresh,
 CSP, empty browser persistence and GET-only traffic. Separately labeled injected
 browser faults test metadata loss/corruption, late responses and HTTP errors.
@@ -117,9 +119,11 @@ Traces, HAR, videos and automatic screenshots are disabled for authenticated
 tests so Authorization headers cannot be captured. Reports retain public
 identities/counts only. Preserve failed evidence before repeating a run.
 
-See [LIVE-SESSION-REPORT.md](LIVE-SESSION-REPORT.md) for exact tested source,
-schema/artifact/browser identities, failures, omissions and acceptance boundaries.
-The foundation report and historical fixture provenance remain historical evidence.
+See [LIVE-OPENING-REPORT.md](LIVE-OPENING-REPORT.md) for qualified opening submission
+and recovery evidence, and [LIVE-SESSION-REPORT.md](LIVE-SESSION-REPORT.md) for the
+historical read-only scope. Shared product/presentation acceptance belongs in the
+[Multiverse report](../multiverse/INTEGRATION-REPORT.md). Historical captures and
+reports retain their original source identities; none establishes full-game play.
 
 ## Ownership and remaining work
 

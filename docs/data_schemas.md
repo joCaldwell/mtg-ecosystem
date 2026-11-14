@@ -1,5 +1,12 @@
 # Parser data contracts and proposed Card IR
 
+This document covers parser/archive inputs and outputs. The unified product's
+backend API types come through `@mtg-ecosystem/deck-builder/contracts`; gameplay
+wire contracts are generated from Rust into the SDK. `game-ui` display models
+are not another wire schema, and the client's public preview contains only a
+qualified captured sample. See [application ownership](multiverse-app.md) and
+[client boundaries](game-client-boundaries.md) before crossing those interfaces.
+
 ## Implemented input
 
 The parser entry point accepts Oracle text, an optional card name, and optional

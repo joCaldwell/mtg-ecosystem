@@ -1,5 +1,11 @@
 # Deck-builder: going public — readiness review (2026-10-25)
 
+Historical audit at the source described below, not current onboarding or an
+instruction to replay deployment commands. Browser/account UX and process
+ownership subsequently moved to `packages/multiverse`; old frontend path/line
+citations remain tied to this audit. Use [current application boundaries](multiverse-app.md)
+and the [product manual](../packages/multiverse/AGENTS.md) for present ownership.
+
 Five parallel audits of `packages/deck-builder` (working tree as of 2026-10-25,
 including ~46 uncommitted files for tag-filter inversion, filtered export, stale
 proposal acknowledgement and proposal history). `npm run check` passes: typecheck

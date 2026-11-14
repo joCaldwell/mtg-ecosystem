@@ -1,5 +1,10 @@
 # Frontend architecture
 
+This is the top-level Multiverse browser application. Unless stated otherwise,
+browser paths below are relative to `packages/multiverse/web/src`; commands run
+from `packages/multiverse`. Backend code belongs to `packages/deck-builder/src`
+and is reached only through public package contracts, not relative source imports.
+
 The UI is a React single-page app with no state library, no router library
 and no CSS framework. What keeps it changeable is a small number of layers
 with one-way dependencies, and one rule about where each kind of code goes.
@@ -31,7 +36,7 @@ Imports go **down this list only**:
 | `ui` | `design` (CSS variables only) |
 | `mtg` | `ui`, `domain` |
 | `domain` | wire types from `api/client.ts`, **type-only** |
-| `api` | server types, type-only |
+| `api` | API modules and public `@mtg-ecosystem/deck-builder/contracts`, type-only |
 | `features/x` | `ui`, `mtg`, `domain`, `api`, `app` hooks, and another feature **only through its `index.ts`** |
 | `app` | everything |
 
@@ -84,12 +89,12 @@ The server is the source of truth and the client never merges.
 
 ## Adding things
 
-**A new page** (say, a playtester):
+**A new product page:**
 
-1. `features/playtest/PlaytestPage.tsx`, built from `ui/` and `mtg/` pieces.
+1. Add its component in `features/<name>/`, built from existing public primitives.
 2. Add the route to `app/routes.ts` (a path, built only by `href()`), the page
-   to the switch in `app/App.tsx`, and the path to the server's app-route
-   list in `src/app.ts` `serveStatic` (D16: anything else is 404).
+   to the switch in `app/SignedIn.tsx`, and the path to the product's
+   `packages/multiverse/src/page-paths.ts` allowlist (D16: anything else is 404).
 3. Add a sidebar entry in `app/Sidebar.tsx` if it needs one, and decide what
    the phone shell shows for it (`features/phone/PhoneApp.tsx`; by default,
    "Open on a larger screen").
@@ -99,15 +104,17 @@ The server is the source of truth and the client never merges.
 an example to `features/styleguide/StyleguidePage.tsx` (`/design`). If it
 needs a new colour or size, that is a token first.
 
-**A new server field:** change the server type; `api/client.ts` imports it
-type-only, so the typecheck (`npm run build`) points at every place the UI
-has to follow.
+**A new backend field:** change its backend type and expose the necessary type
+through `packages/deck-builder/src/contracts.ts`. The product API client imports
+that public contract type-only; `npm run build` identifies affected consumers.
 
 ## Checking a change
 
-`npm run build` typechecks the server and the UI. `npm test` runs the domain
-tests and the layering test. `npm run dev` serves the UI with hot reload;
-seed the demo deck first (`npm run seed:demo`) so every panel has content.
+`npm run check` runs product/server-browser types and product tests;
+`npm run build:web` creates the production bundle. Run the backend's separate
+`check` for capability/host changes. `npm run dev` serves the UI with hot reload;
+seed a disposable populated deck through the backend's `seed:demo` capability,
+not against owner data. The [product README](../README.md) records setup.
 `/design` shows every primitive in every state.
 
 ## Routing (v3 phase 4a, spec §11.1)
@@ -125,7 +132,7 @@ plain same-origin `<a href>` click into in-place navigation, so components
 keep writing ordinary links. A hash-era bookmark (`/#/deck/5`) is rewritten
 once on load. The server answers only those paths with `index.html`; for
 `/d/:slug` and `/u/:handle` it first injects the title, description and Open
-Graph tags (`src/preview.ts`) and answers 404 when the requester cannot read
+Graph tags (`packages/deck-builder/src/preview.ts`) and answers 404 when the requester cannot read
 what the path names. Vite's dev server falls back to `index.html` for every
 path, so link previews exist only when the API server serves the build.
 

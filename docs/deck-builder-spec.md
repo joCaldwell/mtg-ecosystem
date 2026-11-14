@@ -967,10 +967,13 @@ unknown file extension return 404 (D16).
 
 ### 11.2 Phones *(phase 4a, D17)*
 
-Below 720 px (`PHONE_MAX_WIDTH` in `web/src/app/breakpoints.ts`, the one
+Below 720 px (`PHONE_MAX_WIDTH` in `packages/multiverse/web/src/app/breakpoints.ts`, the one
 constant shared with the public page) the signed-in app is a phone shell
 with a top bar instead of the sidebar, and only these screens:
 
+- **Home and Play setup (§19):** account-scoped deck information and navigation,
+  with no direct deck writes or match creation. The game table preview retains
+  its explicit larger-screen fallback on phones.
 - **Decks:** the deck list, one tappable row per deck with its pending count.
 - **A deck:** the same read-only composition as the public page
   (`ReadOnlyDeck`), fed by the owner's own deck state, with its pending
