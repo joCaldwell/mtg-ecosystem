@@ -207,13 +207,122 @@ fn aura_control_schema_adds_narrow_shape_without_a_schema_bump() {
     let schema = catalog_schema();
     let shape = &schema["$defs"]["AuraControlDefinition"]["properties"];
     assert_eq!(
-        shape["static_abilities"]["const"],
-        serde_json::json!([
+        shape["static_abilities"]["contains"]["const"],
+        serde_json::json!(
             {"functioning_zone":"battlefield","effect":"control_enchanted_creature"}
-        ])
+        )
     );
     assert_eq!(shape["spell"]["properties"]["targets"]["minItems"], 1);
     assert_eq!(shape["spell"]["properties"]["targets"]["maxItems"], 1);
+    assert_eq!(shape["static_abilities"]["maxItems"], 2);
+    assert_eq!(shape["static_abilities"]["maxContains"], 1);
     assert_eq!(shape["capabilities"]["minItems"], 5);
     assert_eq!(shape["capabilities"]["maxItems"], 5);
+}
+
+fn composed(
+    power: i64,
+    toughness: i64,
+    keywords: Vec<KeywordAbility>,
+    restrictions: Vec<CreatureRestriction>,
+) -> Definition {
+    let mut d = aura();
+    d.static_abilities.push(StaticAbility {
+        functioning_zone: FunctioningZone::Battlefield,
+        effect: StaticEffect::ModifyCreatures {
+            scope: CreatureScope::Enchanted,
+            power: power.into(),
+            toughness: toughness.into(),
+            keywords,
+            restrictions,
+        },
+    });
+    d.capabilities = d.requirements();
+    d
+}
+
+#[test]
+fn aura_control_composes_existing_modifier_parameters_without_new_requirements() {
+    let plain = aura();
+    for (power, toughness, keywords, restrictions) in [
+        (2, 2, vec![KeywordAbility::Flying], vec![]),
+        (2, 2, vec![KeywordAbility::Trample], vec![]),
+        (
+            7,
+            0,
+            vec![KeywordAbility::Reach, KeywordAbility::Hexproof],
+            vec![],
+        ),
+        (0, 3, vec![], vec![]),
+        (0, 0, vec![KeywordAbility::Haste], vec![]),
+        (0, 0, vec![], vec![CreatureRestriction::CantBeBlocked]),
+    ] {
+        let mut d = composed(power, toughness, keywords, restrictions);
+        assert!(aura_control_source(&d));
+        assert_eq!(d.capabilities, plain.capabilities);
+        d.validate().unwrap();
+        d.static_abilities.reverse();
+        assert!(aura_control_source(&d));
+        d.validate().unwrap();
+    }
+}
+
+#[test]
+fn aura_control_composition_keeps_existing_modifier_semantic_negatives() {
+    for (power, toughness, keywords, restrictions) in [
+        (-1, 2, vec![KeywordAbility::Flying], vec![]),
+        (2, -1, vec![], vec![]),
+        (0, 0, vec![], vec![]),
+        (2, 2, vec![KeywordAbility::Flash], vec![]),
+        (0, 0, vec![KeywordAbility::Indestructible], vec![]),
+        (
+            2,
+            2,
+            vec![KeywordAbility::Flying, KeywordAbility::Flying],
+            vec![],
+        ),
+        (
+            0,
+            0,
+            vec![],
+            vec![
+                CreatureRestriction::CantBlock,
+                CreatureRestriction::CantBlock,
+            ],
+        ),
+    ] {
+        let d = composed(power, toughness, keywords, restrictions);
+        assert!(!aura_control_source(&d));
+        assert!(d.validate().is_err());
+    }
+    for scope in [
+        CreatureScope::Equipped,
+        CreatureScope::Controller,
+        CreatureScope::Source,
+        CreatureScope::AttackingController,
+    ] {
+        let mut d = composed(2, 2, vec![KeywordAbility::Flying], vec![]);
+        if let StaticEffect::ModifyCreatures { scope: s, .. } = &mut d.static_abilities[1].effect {
+            *s = scope;
+        }
+        d.capabilities = d.requirements();
+        assert!(!aura_control_source(&d));
+        assert!(d.validate().is_err());
+    }
+    for mutation in [0, 1, 2, 3] {
+        let mut d = composed(2, 2, vec![KeywordAbility::Flying], vec![]);
+        match mutation {
+            0 => d.static_abilities.push(d.static_abilities[0].clone()),
+            1 => d.static_abilities.push(d.static_abilities[1].clone()),
+            2 => d.static_abilities[1].functioning_zone = FunctioningZone::Stack,
+            _ => {
+                d.static_abilities.remove(0);
+            }
+        };
+        d.capabilities = d.requirements();
+        assert!(!aura_control_source(&d));
+        if mutation != 3 {
+            assert!(d.validate().is_err());
+        }
+    }
 }
