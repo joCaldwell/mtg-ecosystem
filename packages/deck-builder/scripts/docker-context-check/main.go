@@ -17,7 +17,7 @@ func main() {
  f, err := os.Open(filepath.Join(root,".dockerignore")); must(err)
  patterns, err := ignorefile.ReadAll(f); must(err); must(f.Close())
  matcher, err := patternmatcher.New(patterns); must(err)
- excluded := []string{"packages/deck-builder/.env", "packages/deck-builder/data/deck-builder.db", "packages/deck-builder/data/agent-token", "packages/deck-builder/.dev/phase3/owner-online.db", "packages/deck-builder/test/hardening.test.ts", "packages/oracle-parser/package.json"}
+ excluded := []string{"packages/deck-builder/.env", "packages/deck-builder/data/deck-builder.db", "packages/deck-builder/data/agent-token", "packages/deck-builder/.dev/phase3/owner-online.db", "packages/deck-builder/test/hardening.test.ts", "packages/oracle-parser/package.json", "packages/multiverse/.env", "packages/multiverse/.dev/private.json", "packages/multiverse/web/dist/index.html", "packages/game-client/generated/sdk-identity.ts", "packages/game-server/sdk/generated/protocol.schema.json"}
  for _, name := range excluded { match,err:=matcher.MatchesOrParentMatches(name);must(err); if !match { panic("sensitive/unwanted path included: "+name) } }
  files:=[]string{}
  must(filepath.WalkDir(root,func(path string, d fs.DirEntry, err error) error {

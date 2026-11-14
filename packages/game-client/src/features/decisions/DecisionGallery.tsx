@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react';
 import { Link } from 'react-router';
-import type { CardView } from '../../presentation/table-model.ts';
-import { CardFace } from '../../cards/CardFace.tsx';
-import { Inspector } from '../inspector/Inspector.tsx';
+import type { CardView } from '@multiverse/game-ui';
+import { CardFace, GameSurface } from '@multiverse/game-ui';
+import { CardInspector as Inspector } from '@multiverse/game-ui';
 import { emptyDraft, type DecisionBinding, type DecisionCompletion, type DecisionRequest, type LocalControl, type ObjectLabel } from '../../decisions/controls.ts';
 import { DecisionPanel } from './DecisionPanel.tsx';
 import { LocalControls } from './LocalControls.tsx';
@@ -28,7 +28,7 @@ export function DecisionGallery({ request, labels, binding, source, cards }: {
   const labBinding = { ...binding, match: 'structural-lab', incarnation: generation, token: `lab-${generation}` };
   const candidates = removed ? ['lab-b', 'lab-c'] : ['lab-a', 'lab-b', 'lab-c'];
   const complete = (value: DecisionCompletion) => setReceipt(JSON.stringify(value, null, 2));
-  return <div className={styles.gallery}>
+  return <GameSurface className={styles.gallery}>
     <span className="eyebrow">Multiverse / isolated fixture gallery</span>
     <h1>Decision drafts</h1>
     <p className={styles.intro}>Review and confirm local drafts without sending game actions. Live opening choices are available separately on the live table.</p>
@@ -61,5 +61,5 @@ export function DecisionGallery({ request, labels, binding, source, cards }: {
       if (capturedHand.current) capturedHand.current.open = true;
       inspectionTrigger.current?.focus();
     }} /><section className={`${styles.section} ${styles.receiptPanel}`} aria-labelledby="receipt-title"><h2 id="receipt-title">Last local completion</h2><p className={styles.source}>Local output only · no command sent</p><pre aria-live="polite" className={styles.receipt}>{receipt}</pre></section></div></div>
-  </div>;
+  </GameSurface>;
 }

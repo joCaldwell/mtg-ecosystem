@@ -25,6 +25,7 @@ import { FROZEN_NOW, installClock, installRandom, installSqliteClock } from "./l
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PKG = resolve(HERE, "..");
+const PRODUCT = resolve(PKG, "..", "multiverse");
 
 function arg(name: string, fallback?: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -41,11 +42,11 @@ export function buildWeb(dir: string): string {
   const dist = join(dir, "web", "dist");
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(join(dir, "scripts"), { recursive: true });
-  const vite = join(PKG, "node_modules", ".bin", "vite");
+  const vite = join(PRODUCT, "node_modules", ".bin", "vite");
   const bin = existsSync(vite) ? vite : join(PKG, "..", "..", "node_modules", ".bin", "vite");
-  const r = spawnSync(bin, ["build", "--outDir", dist, "--emptyOutDir", "--logLevel", "warn"], { cwd: PKG, stdio: ["ignore", "inherit", "inherit"] });
+  const r = spawnSync(bin, ["build", "--outDir", dist, "--emptyOutDir", "--logLevel", "warn"], { cwd: PRODUCT, stdio: ["ignore", "inherit", "inherit"] });
   if (r.status !== 0) throw new Error(`vite build failed (${r.status})`);
-  cpSync(join(PKG, "scripts", "check-public-bundle.mjs"), join(dir, "scripts", "check-public-bundle.mjs"));
+  cpSync(join(PRODUCT, "scripts", "check-public-bundle.mjs"), join(dir, "scripts", "check-public-bundle.mjs"));
   return dist;
 }
 
@@ -56,6 +57,8 @@ if (flag("build-only")) {
 }
 
 const PORT = Number(arg("port", "8830"));
+const DEFAULT_USER = arg("default-user");
+if (DEFAULT_USER !== undefined && !/^[1-9]\d*$/.test(DEFAULT_USER)) throw new Error("Invalid fixture default user");
 const SEED = resolve(arg("seed", join(CHECKS_ROOT, "seed", "seed.db"))!);
 if (!existsSync(SEED)) throw new Error(`No seed database at ${SEED}; run node seed.ts first`);
 const ORIGIN = `http://127.0.0.1:${PORT}`;
@@ -101,8 +104,9 @@ await auth.ready;
 
 function userFrom(cookie = ""): number | null {
   const m = cookie.match(/(?:^|;\s*)checks_user=(\d+)/);
-  if (!m) return null;
-  const row = db.prepare("SELECT id FROM users WHERE id = ? AND deleted_at IS NULL").get(Number(m[1])) as { id: number } | undefined;
+  const selected = m?.[1] ?? DEFAULT_USER;
+  if (selected === undefined) return null;
+  const row = db.prepare("SELECT id FROM users WHERE id = ? AND deleted_at IS NULL").get(Number(selected)) as { id: number } | undefined;
   return row ? row.id : null;
 }
 

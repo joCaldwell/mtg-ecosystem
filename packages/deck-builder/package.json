@@ -4,24 +4,24 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "launch": "node scripts/serve.mjs launch",
-    "install:launcher": "node scripts/install-launcher.mjs",
-    "uninstall:launcher": "node scripts/install-launcher.mjs --uninstall",
-    "start": "node scripts/serve.mjs start",
-    "stop": "node scripts/serve.mjs stop",
-    "restart": "node scripts/serve.mjs restart",
-    "status": "node scripts/serve.mjs status",
-    "logs": "node scripts/serve.mjs logs",
-    "dev": "node scripts/dev.mjs",
+    "launch": "node ../multiverse/scripts/serve.mjs launch",
+    "install:launcher": "node ../multiverse/scripts/install-launcher.mjs",
+    "uninstall:launcher": "node ../multiverse/scripts/install-launcher.mjs --uninstall",
+    "start": "node ../multiverse/scripts/serve.mjs start",
+    "stop": "node ../multiverse/scripts/serve.mjs stop",
+    "restart": "node ../multiverse/scripts/serve.mjs restart",
+    "status": "node ../multiverse/scripts/serve.mjs status",
+    "logs": "node ../multiverse/scripts/serve.mjs logs",
+    "dev": "node ../multiverse/scripts/dev.mjs",
     "check": "npm run build && npm test",
-    "build": "tsc --noEmit && tsc -p web --noEmit",
+    "build": "tsc --noEmit",
     "test": "node --test 'test/**/*.test.ts'",
     "refresh": "node src/cli.ts refresh",
     "search": "node src/cli.ts search",
     "seed:demo": "node scripts/seed-demo.mjs",
-    "app": "vite build && node src/server.ts",
-    "dev:server": "node --watch src/server.ts",
-    "dev:web": "vite",
+    "app": "npm --prefix ../multiverse run app --workspaces=false",
+    "dev:server": "node --watch ../multiverse/src/server.ts",
+    "dev:web": "npm --prefix ../multiverse run dev:web --workspaces=false",
     "mcp": "node src/mcp/stdio.ts",
     "backup": "node src/cli.ts backup",
     "restore": "node src/cli.ts restore"
@@ -37,19 +37,21 @@
     "better-auth": "1.7.13",
     "jose": "6.2.3",
     "kysely": "0.29.7",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "^2.3.1",
     "@types/node": "^26.6.5",
-    "@types/react": "^19.1.0",
-    "@types/react-dom": "^19.1.0",
-    "@vitejs/plugin-react": "^4.5.0",
-    "vite": "^7.0.0"
+    "typescript": "5.9.3"
   },
   "engines": {
     "node": ">=24.12"
+  },
+  "exports": {
+    "./host": "./src/host.ts",
+    "./contracts": {
+      "types": "./src/contracts.ts",
+      "default": "./src/contracts.ts"
+    }
   }
 }

@@ -14,7 +14,10 @@ rules remain unchanged. The source layout is in
 | Location | Responsibility |
 | --- | --- |
 | `packages/oracle-parser/` | Hand-written TypeScript Oracle-text parser; limited supported subset |
-| `packages/deck-builder/` | Active standalone TypeScript deck-building application, backend, and MCP tools |
+| `packages/multiverse/` | Top-level product application, account UX, navigation, deck editing and game entry |
+| `packages/deck-builder/` | Existing account/API backend, deck capability services, SQLite and MCP tools |
+| `packages/game-ui/` | Shared permitted table display, inspection and scoped styling |
+| `packages/game-client/` | Game session/decision adapters, qualified preview and standalone harness |
 | `packages/card-data/` | Reserved output location for future compiled Card IR |
 | `packages/game-engine/` | Rust contracts, compiler, bounded scenario games and CLI; legal Commander matches/search pending |
 | `packages/game-server/` | Rust game server/API with direct core calls; README only until scaffolded |

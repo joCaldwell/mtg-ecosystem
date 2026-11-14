@@ -63,6 +63,13 @@ ids. The seed fails if any timestamp carries the real date.
 
 ### `node serve.ts [--port 8830]`
 
+The fixture now builds the top-level `packages/multiverse` browser application.
+For owner UX review only, `--default-user 1` selects existing fixture user 1
+when there is no `checks_user` cookie. The default stays signed out; production
+hosts have no such option. Keep authentication/isolation checks on a separate
+fixture server without this flag.
+
+
 `createApp` with no background jobs, in hosted mode, against a fresh copy of
 the seed (so every start is the same state). The web app is built with
 `vite build --outDir` into a temporary folder, never `web/dist`; pass

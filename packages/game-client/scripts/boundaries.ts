@@ -1,7 +1,8 @@
 import ts from 'typescript';
 
 const layers: Record<string, readonly string[]> = {
-  app: ['app', 'features', 'session', 'presentation', 'design', 'ui'],
+  app: ['app', 'preview', 'features', 'session', 'presentation', 'design', 'ui'],
+  preview: ['preview', 'features', 'presentation', 'decisions'],
   features: ['features', 'cards', 'decisions', 'presentation', 'ui', 'session'],
   cards: ['cards', 'presentation', 'ui'],
   presentation: ['presentation'],
@@ -20,9 +21,9 @@ export function boundaryViolations(file: string, source: string): string[] {
   const canEffect = file.startsWith('session/effects/');
   const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith('tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   function checkImport(specifier: string, typeOnly: boolean) {
-    if (typeOnly && ['app', 'presentation', 'session'].includes(layer) && specifier === '../../generated/presentation.d.ts') return;
+    if (typeOnly && ['app', 'preview', 'presentation', 'session'].includes(layer) && specifier === '../../generated/presentation.d.ts') return;
     if (layer === 'app' && specifier === '../../generated/sdk-identity.ts') return;
-    if (layer === 'app' && /^\.\.\/\.\.\/fixtures\/foundations-opening\/(opening-seat0-http|presentation)\.json$/.test(specifier)) return;
+    if (layer === 'preview' && /^\.\.\/\.\.\/fixtures\/foundations-opening\/(opening-seat0-http|presentation)\.json$/.test(specifier)) return;
     if (specifier.startsWith('.')) {
       const path = file.split('/').slice(0, -1);
       for (const part of specifier.split('/')) {
@@ -36,9 +37,13 @@ export function boundaryViolations(file: string, source: string): string[] {
       if (!(layers[layer] ?? []).includes(target)) issues.push(`Forbidden layer import: ${specifier}`);
       return;
     }
+    if (specifier === '@multiverse/game-ui') {
+      if (!['app', 'preview', 'features', 'presentation'].includes(layer) || (layer === 'presentation' && !typeOnly)) issues.push('Shared presentation runtime belongs in UI composition');
+      return;
+    }
     if (specifier.startsWith('@multiverse/game-server-sdk')) {
       if (!['@multiverse/game-server-sdk', '@multiverse/game-server-sdk/browser'].includes(specifier)) issues.push('Only public SDK entrypoints are permitted');
-      if (!['app', 'session', 'presentation', 'decisions'].includes(layer) || (!typeOnly && !canEffect)) issues.push('SDK runtime belongs only in session/effects');
+      if (!['app', 'preview', 'session', 'presentation', 'decisions'].includes(layer) || (!typeOnly && !canEffect)) issues.push('SDK runtime belongs only in session/effects');
       return;
     }
     if (pure || !['react', 'react-dom/client', 'react-router'].includes(specifier)) issues.push(`Forbidden external import: ${specifier}`);

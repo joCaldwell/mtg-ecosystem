@@ -135,10 +135,15 @@ types and pure helpers only. UI primitives know no protocol. Features compose th
 lower layers through exported interfaces; only `app` owns route/session composition.
 Components never call fetch. Enforce these boundaries with a small import check.
 
-Keep one deployable client initially. Do not add shared packages for hypothetical
-reuse. Reuse deck-builder design ideas and source-backed card presentation patterns;
-extract shared primitives only when both consumers have demonstrated requirements.
-The deck-builder retains independent release, data and authentication contracts.
+Owner direction on 2026-11-14 activates the [unified product](multiverse-app.md):
+the top-level Multiverse application owns account UX, navigation, game setup and
+presentation, using the existing backend identity and capability service.
+The standalone client remains an integration harness. Both consumers now require
+the same table, so pure permitted display components move to `game-ui` through
+explicit public exports. Session recovery, generated-protocol adapters and
+qualified fixture composition stay client-owned. Shared styles are scoped and
+neither consumer imports the other's private features. The deck library retains
+its independent source data and public compatibility contracts.
 
 ## 5. State ownership and flow
 

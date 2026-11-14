@@ -6,14 +6,18 @@ the first UX review; it is not acceptance of the design or complete gameplay.
 ## References and scope
 
 Use the [client plan](game-client-plan.md), [responsibility boundaries](game-client-boundaries.md)
-and the deck-builder's current [design system](../packages/deck-builder/web/DESIGN.md)
-and [tokens](../packages/deck-builder/web/src/design/tokens.css). Do not use the
+and the product's current [design system](../packages/multiverse/web/DESIGN.md)
+and [tokens](../packages/multiverse/web/src/design/tokens.css). Do not use the
 solo playtester brief, layouts or table components as design guidance. The owner
 has not been satisfied with that experience.
 
 The current client supports permitted observations, card inspection, local
 decision exercises and live opening-hand choices with saved-choice recovery.
 This increment improves those surfaces. It does not establish full-game play.
+
+The next accepted product direction puts Home, the deck library and automated-game
+setup in the existing authenticated app. Its [application architecture](multiverse-app.md)
+defines the shared table boundary and the separate live-launch requirements.
 
 ## Design thesis
 

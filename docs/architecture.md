@@ -20,10 +20,12 @@ Scryfall source → TypeScript parser → versioned AST/source archive
                                               generated TypeScript SDK
 ```
 
-The standalone deck-builder uses its own Scryfall/SQLite store. It does not
-consume the parser, Card IR or rules core. Future integration must not block its
-current development. General game UI, browser-local WebAssembly rules and broader
-clients remain architectural directions.
+The deck library uses its own Scryfall/SQLite store and does not consume the
+parser, Card IR or rules core. The [top-level Multiverse application](multiverse-app.md) hosts
+deck building and game presentation under the existing account. Shared display
+components have no protocol or rules authority. Account-to-match provisioning and
+full browser play remain distinct integration work; browser-local WebAssembly
+rules remain outside the application.
 
 ## Layer 0: source parser and semantic compiler
 
@@ -77,11 +79,14 @@ and [host contract](game-engine-server.md) for exact scope.
 
 ## Layer 3: applications and agents
 
-The active deck-builder is independent. The generated SDK supplies the local
-hosting client contract; native policy/search agents run in Rust, and external
-clients connect through the public host protocol. A complete browser game client,
-draft simulator and general rules adviser are future applications, not implied
-by current engine or parser acceptance.
+The top-level `multiverse` application owns account UX and the product shell,
+consuming the existing backend through public host and type contracts. The
+game client supplies decision and session adapters, with shared permitted display
+components in `game-ui`. The generated SDK supplies the local hosting contract;
+native policy/search agents run in Rust, and external clients connect through the
+public host protocol. A shared account does not itself grant a host seat. Complete
+browser play and automated match creation need their own admission and integration
+evidence; they are not implied by a table preview or parser/engine acceptance.
 
 For development, start at [the current map](game-engine-current.md) and
 [focused workflow](game-engine-development.md). Broader milestones remain in the

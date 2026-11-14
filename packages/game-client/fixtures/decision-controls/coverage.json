@@ -23,7 +23,7 @@
     },
     {
       "path": "docs/game-engine-current.md",
-      "sha256": "ba94f77bf9b846dc0e14c257e4f3e208cebdd6f660396093a2d245dc8cbaad12"
+      "sha256": "1a055f10ccb7a3c966cc02ed2d7315c5aedba743eec86dd9d2b1eebcb04aa605"
     },
     {
       "path": "docs/game-engine-server-attachments.md",
@@ -47,19 +47,19 @@
     },
     {
       "path": "packages/game-client/src/features/decisions/DecisionGallery.tsx",
-      "sha256": "0959068155fa8ad16d2f0d6bdf52b5d91f8a9d783cbbf992992639176777e04e"
+      "sha256": "1b0d918b6c02c6f70e0283846834370395afd1fc70ce635e6e164f336daa9401"
     },
     {
       "path": "packages/game-client/src/features/decisions/decisions.module.css",
-      "sha256": "8660b73d90ff0daf22b2908e3f7b65cd4074b3aeaf54c9b933cf94aa444b3b3d"
+      "sha256": "e49debf6e0ae54325f39dfe5ab6907575e89cc3978cd93c8186bf57fe83dcc12"
     },
     {
-      "path": "packages/game-client/src/app/fixture.ts",
+      "path": "packages/game-client/src/preview/fixture.ts",
       "sha256": "3d43d2bd2320941edae754a2b4c84272d77bd2cfeeb7253e57c54c81c299f75b"
     },
     {
       "path": "packages/game-client/scripts/decision-inventory.mjs",
-      "sha256": "b99b5ef7f12cf80c7b03c99e090f128e68e5af0f142b4f353166e5082f71a7dd"
+      "sha256": "062dc8b8229722be3ec6fc9ce3085eab77df1f2943937c64b4a366f0df1588ed"
     },
     {
       "path": "packages/game-client/tests/decision-controls.test.ts",

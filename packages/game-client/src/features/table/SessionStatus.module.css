@@ -1,0 +1,3 @@
+.sessionStatus { padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); background: var(--surface); }
+.sessionStatus h2 { font-size: var(--text-body); margin: 0; }.sessionStatus p { margin: var(--space-1) 0; font-size: var(--text-small); color: var(--muted); }.sessionStatus button { flex-shrink: 0; font-size: var(--text-small); }
+@media (max-width: 719px) { .sessionStatus { align-items: start; flex-wrap: wrap; } }
