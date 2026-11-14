@@ -68,7 +68,9 @@ fn compound_indestructible_rejects_structural_near_misses() {
             }
             3 => p.targets.push(p.targets[0].clone()),
             4 => p.targets[0].selection_id.clear(),
-            5 => p.targets[0].domain = TargetDomain::ControlledBattlefieldCreature,
+            // Controlled creatures now belong to the shared family; retain
+            // a genuinely unsupported target-domain negative here.
+            5 => p.targets[0].domain = TargetDomain::AnyPlayer,
             6 => p.targets[0].domain = TargetDomain::BlockingBattlefieldCreature,
             7 => {
                 p.targets[0].filter = Some(PermanentFilter {

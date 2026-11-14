@@ -355,8 +355,11 @@ were omitted. Preserved earlier attempts remain failures, not acceptance.
 
 The schema-1 `temporary_creature_keyword_program_v1` capability admits the newly
 reviewed combinations of the existing temporary grant machinery. A complete
-ordinary nonmodal instant/sorcery has exactly one unfiltered battlefield-creature
-target at slot 0, a nonempty selection ID, and controller choice at announcement.
+ordinary nonmodal instant/sorcery has exactly one battlefield-creature target at
+slot 0, either unrestricted or restricted to a creature you control. Both domains
+have no `TargetFilter`, a nonempty selection ID, and controller choice at
+announcement.
+The control restriction is `ControlledBattlefieldCreature`, not a filter field.
 Its program is either a single `GrantKeywords`, retaining the existing pure-grant
 source-block provenance, or `ModifyPowerToughness` followed by `GrantKeywords`,
 both from source block 0. Both operations use target slot 0 and last until end of
@@ -364,15 +367,29 @@ turn. Fixed power and toughness are arbitrary signed `ExactQuantity` parameters,
 including zero and quantities larger than machine integers.
 
 The grant vector is nonempty, unique and drawn only from Flying, Deathtouch,
-Indestructible and Lifelink. Order remains serialized as supplied. Pure Lifelink,
-multiple keywords, and modifier-plus-Flying/Deathtouch/Lifelink use the one general
-capability. Pure singleton Flying, Deathtouch and Indestructible retain exactly
-their existing temporary-spell capabilities; modifier-plus-singleton
-Indestructible retains `compound_indestructible_spell_v1`. The general capability
-is spare and rejects on those existing subsets. Every granted keyword separately
-requires its existing primitive capability (`flying_v1`, `deathtouch_v1`,
-`indestructible_v1`, `lifelink_v1`); the modifier requires
-`temporary_power_toughness_v1`. Every program requires `creature_target_v1`.
+Indestructible, Lifelink and Hexproof. Order remains serialized as supplied.
+Every controlled-target program uses the general family capability, including
+singleton Indestructible and modifier-plus-singleton Indestructible. For plain
+`BattlefieldCreature` targets, pure singleton Flying, Deathtouch and Indestructible
+retain exactly their existing temporary-spell capabilities;
+modifier-plus-singleton Indestructible retains `compound_indestructible_spell_v1`.
+The general capability is spare and rejects on those plain legacy subsets. All
+other reviewed vectors use the general capability. Flying, Deathtouch,
+Indestructible and Lifelink separately require their existing primitive
+capabilities (`flying_v1`, `deathtouch_v1`, `indestructible_v1`, `lifelink_v1`);
+the modifier requires `temporary_power_toughness_v1`.
+
+Plain targets require `creature_target_v1`. Controlled targets instead require
+`attachments_v1`, matching the existing domain requirement, and reject spare
+`creature_target_v1`. Any Hexproof grant also requires `attachments_v1`;
+plain Hexproof therefore needs both target and attachment capabilities. On an
+ordinary plain grant without Hexproof, `attachments_v1` is spare. No new Hexproof
+or target capability is introduced. Intrinsic Hexproof remains creature-only:
+these are resolved grants onto a creature, not intrinsic abilities of the instant.
+CR 109.5/115.1a/608.2b govern controller-relative target choice and revalidation;
+CR 702.11b uses the protected permanent's current controller for opponent
+Hexproof checks. The existing keyword union, targetability and captured-effect
+machinery implement those semantics.
 No existing catalog or capability set needs to migrate to describe an unrelated
 extension. There is no schema-version change, decoder compatibility path, per-keyword
 pair capability or quantity-specific capability.
@@ -393,8 +410,12 @@ pub fn supported_temporary_creature_keywords(keywords: &[KeywordAbility]) -> boo
 The descriptor checks the complete program shape; the definition validator or
 caller additionally checks the ordinary spell kind/context.
 `compound_indestructible_parameters` is a narrow wrapper over this descriptor
-and still recognizes only the existing modifier-plus-singleton Indestructible
-subset. Existing pure-grant validation uses the same descriptor. Additional
+and still recognizes only the existing plain-target modifier-plus-singleton
+Indestructible subset. Callers can inspect the program's target domain without
+changing either descriptor field. A controlled stat modifier is admitted only
+inside a complete supported temporary keyword family program; bare controlled
+pumps and other controlled-pump compositions reject. Existing pure-grant
+validation uses the same descriptor. Additional
 costs, modes, activation/trigger grant contexts, filters, multiple targets,
 nonzero target slots, unsupported durations, reordered/extra operations,
 duplicates, unreviewed keywords and mismatched two-operation source blocks reject.
@@ -404,16 +425,18 @@ continue through the shared systems described above; the contract adds no new
 runtime operation. Profile/pool, policy, hosting/search and consumer admission
 remain separately owned.
 
-`temporary_creature_keyword_tests` contains synthetic typed controls for all 64
-ordered unique keyword vectors in both program forms, exact missing/spare
+`temporary_creature_keyword_tests` contains synthetic typed controls for all 325
+ordered unique five-keyword vectors in both program forms and both target
+domains, exact missing/spare
 capabilities, signed/large quantities, preserved pure provenance and structural,
 JSON and context rejection, plus frozen-catalog capability/canonical-IR controls.
 Existing singleton/compound tests deliberately use
 unreviewed vocabulary for former mixed-vector negatives; newly admitted mixed
 shapes have explicit positive controls. The exported schema retains the existing
 subset definitions and uses a separate general instruction union. Legacy spell
-capabilities classify exact singleton vectors, while primitive capabilities check
-each contained keyword. The general capability rejects on old subset shapes.
+capabilities classify exact plain-target singleton vectors, while primitive
+capabilities check each contained keyword. The general capability rejects on old
+plain subset shapes; controlled versions always use the family capability.
 
 Reusable parent probes are in
 [`temporary-creature-keyword-schema-probes.mjs`](../packages/game-engine/crates/contracts/tests/temporary-creature-keyword-schema-probes.mjs).
@@ -422,8 +445,42 @@ that all controls remain byte-identical. `--prepare-only` checks probe construct
 without loading Ajv or executing schema validation. Parent execution takes
 `--schema PATH --ajv-root NODE_MODULES_DIRECTORY`, loads Ajv2020 from the existing
 package root, and explicitly validates `uint32`. It reports the schema hash,
-Ajv version, control hash and named failures. Nothing is installed or generated.
+Ajv version, control hash and named failures. The original 230-probe inventory
+and frozen positive-control hash
+`7619a3fda04a6e23567b9a415e7ae13385ed64597e1901c46ccc6f0cbb251107`
+are asserted unchanged before adding the new controlled/Hexproof cases. Existing
+four-keyword plain permutations are not rerun in a duplicate extension matrix.
+The extended harness prepares 1,657 probes (1,331 positive, 326 negative);
+preparation is not exported-schema validation. Nothing is installed or exported.
 All new-source native tests and exported-schema validation are **UNRUN** in this
 source-only layer; only rustfmt, source guards and probe preparation are checked.
 The parent's single combined pass owns final qualification and exact producer
 identity. Earlier executed evidence above retains its original source scope.
+
+### Controlled-target and Hexproof source inspection
+
+The five complete source witnesses below were independently inspected in the
+frozen `oracle-ast-d705222b280a71cb.jsonl` archive (SHA-256
+`d705222b280a71cb5a5362f657d530b22402ca51687bac3227c1d6db403d0282`).
+Raw record hashes and each source/AST/binding hash match; all are normal-layout
+Instants, Commander legal, successfully parsed and fully bound with zero
+unresolved references. Each complete AST has one spell block and a single shared
+one-creature target selection restricted by `control: "you"`. No extra condition,
+filter, cost or clause was discarded. Reminder text does not add an operation.
+
+| Witness | Physical line / source index | Complete until-end-of-turn program |
+| --- | --- | --- |
+| Masterful Flourish | 4404 / 4402 | +1/+0, then Indestructible |
+| Dive Down | 7086 / 7084 | +0/+3, then Hexproof |
+| Blossoming Defense | 13610 / 13608 | +2/+2, then Hexproof |
+| Ranger's Guile | 15846 / 15844 | +1/+1, then Hexproof |
+| Alesha's Legacy | 29567 / 29565 | Deathtouch and Indestructible |
+
+The exact source fixtures and compiler tests belong to the compiler layer;
+contracts uses synthetic typed IR to exercise additional shapes without inventing
+source AST prefixes. The pinned 2026-09-25 rules SHA-256 remains
+`8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca`;
+relevant rules are 109.5, 115.1a, 608.2b–c, 611.2c and 702.11b.
+This contracts source checkpoint leaves all new native tests and generated-schema
+execution **UNRUN**. It changes no static-grant, pool, profile, catalog, host,
+search or consumer acceptance set.

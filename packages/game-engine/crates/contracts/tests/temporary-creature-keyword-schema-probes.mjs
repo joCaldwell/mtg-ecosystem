@@ -28,17 +28,18 @@ const subsetCaps = {
 };
 const family = 'temporary_creature_keyword_program_v1';
 const pt = 'temporary_power_toughness_v1';
-function control(keywords, modifier = false) {
+function control(keywords, modifier = false, domain = 'battlefield_creature') {
   const d = clone(effects.definitions.find(d => d.name === 'Giant Growth'));
   const grant = { op: 'grant_keywords', target_slot: 0, keywords: clone(keywords), duration: 'until_end_of_turn', source_block: 0 };
   const pump = { op: 'modify_power_toughness', target_slot: 0, power: '-2', toughness: '99999999999999999999999999999999999', duration: 'until_end_of_turn', source_block: 0 };
   d.spell.instructions = modifier ? [pump, grant] : [grant];
   let capability = family;
-  if (keywords.length === 1) {
+  d.spell.targets[0].domain = domain;
+  if (domain === 'battlefield_creature' && keywords.length === 1) {
     if (!modifier && subsetCaps[keywords[0]]) capability = subsetCaps[keywords[0]];
     if (modifier && keywords[0] === 'indestructible') capability = 'compound_indestructible_spell_v1';
   }
-  d.capabilities = ['normal_layout_v1', 'cast_instant_v1', 'creature_target_v1', capability, ...keywords.map(k => keywordCaps[k]), ...(modifier ? [pt] : [])];
+  d.capabilities = [...new Set(['normal_layout_v1', 'cast_instant_v1', domain === 'battlefield_creature' ? 'creature_target_v1' : 'attachments_v1', capability, ...keywords.map(k => k === 'hexproof' ? 'attachments_v1' : keywordCaps[k]), ...(modifier ? [pt] : [])])];
   return freeze({ ...clone(effects), definitions: [d] });
 }
 const probes = [];
@@ -67,11 +68,11 @@ for (const keywords of vectors()) {
 }
 const pure = positive('frozen pure lifelink control', control(['lifelink']));
 const compound = positive('frozen compound four-keyword control', control(Object.keys(keywordCaps), true));
-for (const [name, base] of [['pure', pure], ['compound', compound]]) {
+function boundaries(name, base, extended = false) {
   for (const cap of base.definitions[0].capabilities) {
     negative(`${name}:missing:${cap}`, base, d => { d.capabilities = d.capabilities.filter(c => c !== cap); });
   }
-  for (const cap of [...Object.values(keywordCaps), ...Object.values(subsetCaps), 'compound_indestructible_spell_v1', pt, 'reach_v1', 'cast_sorcery_v1']) {
+  for (const cap of [...Object.values(keywordCaps), ...Object.values(subsetCaps), 'compound_indestructible_spell_v1', pt, 'reach_v1', 'cast_sorcery_v1', ...(extended ? ['creature_target_v1', 'attachments_v1', family] : [])]) {
     if (!base.definitions[0].capabilities.includes(cap)) negative(`${name}:spare:${cap}`, base, d => { d.capabilities.push(cap); });
   }
   for (const [label, mutation] of [
@@ -107,17 +108,21 @@ for (const [name, base] of [['pure', pure], ['compound', compound]]) {
     negative(`${name}:${kind}`, context, d => { d[kind][0].program = clone(base.definitions[0].spell); });
   }
 }
-for (const [name, change] of [
-  ['order', p => p.instructions.reverse()],
-  ['modifier-slot', p => { p.instructions[0].target_slot = 1; }],
-  ['modifier-provenance', p => { p.instructions[0].source_block = 1; }],
-  ['grant-provenance', p => { p.instructions[1].source_block = 1; }],
-  ['split-provenance', p => { p.instructions[0].source_block = 1; p.instructions[1].source_block = 1; }],
-  ['modifier-duration', p => { p.instructions[0].duration = 'forever'; }],
-  ['numeric-quantity', p => { p.instructions[0].power = 2; }],
-  ['nonfixed-quantity', p => { p.instructions[0].power = { amount: 'source-power' }; }],
-  ['noncanonical-quantity', p => { p.instructions[0].toughness = '-0'; }],
-]) negative(`compound:${name}`, compound, d => change(d.spell));
+for (const [name, base] of [['pure', pure], ['compound', compound]]) boundaries(name, base);
+function compoundBoundaries(name, compound) {
+  for (const [label, change] of [
+    ['order', p => p.instructions.reverse()],
+    ['modifier-slot', p => { p.instructions[0].target_slot = 1; }],
+    ['modifier-provenance', p => { p.instructions[0].source_block = 1; }],
+    ['grant-provenance', p => { p.instructions[1].source_block = 1; }],
+    ['split-provenance', p => { p.instructions[0].source_block = 1; p.instructions[1].source_block = 1; }],
+    ['modifier-duration', p => { p.instructions[0].duration = 'forever'; }],
+    ['numeric-quantity', p => { p.instructions[0].power = 2; }],
+    ['nonfixed-quantity', p => { p.instructions[0].power = { amount: 'source-power' }; }],
+    ['noncanonical-quantity', p => { p.instructions[0].toughness = '-0'; }],
+  ]) negative(`${name ? name + ':' : ''}compound:${label}`, compound, d => change(d.spell));
+}
+compoundBoundaries('', compound);
 for (const keyword of Object.keys(keywordCaps)) {
   const base = control([keyword]);
   const preserved = clone(base);
@@ -134,10 +139,59 @@ sorcery.definitions[0].characteristics.kind = 'sorcery';
 sorcery.definitions[0].spell.timing = 'main_phase';
 sorcery.definitions[0].capabilities = sorcery.definitions[0].capabilities.map(c => c === 'cast_instant_v1' ? 'cast_sorcery_v1' : c);
 positive('sorcery compound family', sorcery);
+// Preserve the original 230-probe inventory and exact frozen legacy IR/caps.
+const legacy = {
+  probes: probes.length,
+  frozen_controls_sha256: createHash('sha256').update(JSON.stringify(positives)).digest('hex'),
+};
+assert.equal(legacy.probes, 230);
+assert.equal(legacy.frozen_controls_sha256, '7619a3fda04a6e23567b9a415e7ae13385ed64597e1901c46ccc6f0cbb251107');
+const reviewed = [...Object.keys(keywordCaps), 'hexproof'];
+assert.equal(vectors([], reviewed).length, 325);
+for (const keywords of vectors([], reviewed)) {
+  for (const domain of ['battlefield_creature', 'controlled_battlefield_creature']) {
+    if (domain === 'battlefield_creature' && !keywords.includes('hexproof')) continue;
+    for (const modifier of [false, true]) {
+      positive(`${domain}:${modifier ? 'modifier' : 'pure'}:${keywords.join('+')}`, control(keywords, modifier, domain));
+    }
+  }
+}
+for (const [name, keywords, modifier, domain] of [
+  ['plain-hexproof', ['hexproof'], false, 'battlefield_creature'],
+  ['plain-hexproof-modifier', ['hexproof'], true, 'battlefield_creature'],
+  ['controlled-indestructible', ['indestructible'], false, 'controlled_battlefield_creature'],
+  ['controlled-indestructible-modifier', ['indestructible'], true, 'controlled_battlefield_creature'],
+  ['controlled-mixed', reviewed, true, 'controlled_battlefield_creature'],
+]) {
+  const base = control(keywords, modifier, domain);
+  boundaries(name, base, true);
+  if (modifier) compoundBoundaries(name, base);
+  const otherDomain = domain === 'battlefield_creature' ? 'controlled_battlefield_creature' : 'battlefield_creature';
+  // A domain-only edit keeps the old capability set and must reject whenever
+  // that changes requirements (Hexproof can supply Attachments on both sides).
+  negative(`${name}:domain-capability-parity`, base, d => { d.spell.targets[0].domain = otherDomain; });
+}
+for (const domain of ['battlefield_creature', 'controlled_battlefield_creature']) {
+  for (const keyword of reviewed) {
+    const preserved = clone(control([keyword], false, domain));
+    preserved.definitions[0].spell.instructions[0].source_block = 4294967295;
+    positive(`${domain}:${keyword}:preserved-provenance`, preserved);
+  }
+}
+for (const [name, extra] of [['bare', false], ['other-composition', true]]) {
+  const base = control(['hexproof'], true, 'controlled_battlefield_creature');
+  negative(`controlled-pump:${name}`, base, d => {
+    d.spell.instructions.pop();
+    if (extra) d.spell.instructions.push({ op: 'draw_cards', count: '1', source_block: 0 });
+    d.capabilities = ['normal_layout_v1', 'cast_instant_v1', 'attachments_v1', pt, ...(extra ? ['controller_draw_v1'] : [])];
+  });
+}
+negative('plain-lifelink:spare-attachments', pure, d => { d.capabilities.push('attachments_v1'); });
 for (const row of positives) assert.equal(JSON.stringify(row.value), row.exact, `mutated positive: ${row.name}`);
 const summary = {
   format_version: 1,
   status: 'prepared_only',
+  legacy,
   probes: probes.length,
   positive: probes.filter(p => p.expected).length,
   negative: probes.filter(p => !p.expected).length,
