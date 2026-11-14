@@ -256,6 +256,7 @@ pub enum Capability {
     IndestructibleV1,
     TemporaryIndestructibleSpellV1,
     TemporaryFlyingSpellV1,
+    TemporaryDeathtouchSpellV1,
     CompoundIndestructibleSpellV1,
     TrampleV1,
     FirstStrikeV1,
@@ -2424,7 +2425,7 @@ fn ordinary_keyword_grant(p: &SpellProgram) -> bool {
                 ..
             }]
         )
-        && (matches!(p.instructions.as_slice(), [Instruction::GrantKeywords { target_slot: 0, keywords, duration: Duration::UntilEndOfTurn, .. }] if keywords == &[KeywordAbility::Indestructible] || keywords == &[KeywordAbility::Flying])
+        && (matches!(p.instructions.as_slice(), [Instruction::GrantKeywords { target_slot: 0, keywords, duration: Duration::UntilEndOfTurn, .. }] if keywords == &[KeywordAbility::Indestructible] || keywords == &[KeywordAbility::Flying] || keywords == &[KeywordAbility::Deathtouch])
             || compound_indestructible_instructions(p))
 }
 // CR 608.2c/611.2c: one invocation, ordered effects on the same captured target.
@@ -3095,6 +3096,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                     KeywordAbility::Flying => {
                         set.insert(Capability::FlyingV1);
                     }
+                    KeywordAbility::Deathtouch => {
+                        set.insert(Capability::DeathtouchV1);
+                    }
                     _ => (), // Rejected by ordinary_keyword_grant, never admitted here.
                 }
             }
@@ -3134,6 +3138,11 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 if keywords == &[KeywordAbility::Flying] =>
             {
                 Capability::TemporaryFlyingSpellV1
+            }
+            Instruction::GrantKeywords { keywords, .. }
+                if keywords == &[KeywordAbility::Deathtouch] =>
+            {
+                Capability::TemporaryDeathtouchSpellV1
             }
             Instruction::GrantKeywords { .. } if compound_indestructible_instructions(program) => {
                 Capability::CompoundIndestructibleSpellV1
@@ -3744,7 +3753,7 @@ pub fn catalog_schema() -> serde_json::Value {
         }}}
     }));
     schema["$defs"]["PureKeywordGrantInstructions"] = serde_json::json!({
-        "minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"grant_keywords"},"target_slot":{"const":0},"keywords":{"enum":[["indestructible"],["flying"]]},"duration":{"const":"until_end_of_turn"}}}
+        "minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"grant_keywords"},"target_slot":{"const":0},"keywords":{"enum":[["indestructible"],["flying"],["deathtouch"]]},"duration":{"const":"until_end_of_turn"}}}
     });
     schema["$defs"]["CompoundIndestructibleInstructions"] = serde_json::json!({
         "minItems":2,"maxItems":2,"prefixItems":[
@@ -3768,6 +3777,11 @@ pub fn catalog_schema() -> serde_json::Value {
         }}
     }));
     for (keyword, capability, ordinary) in [
+        (
+            "deathtouch",
+            Capability::TemporaryDeathtouchSpellV1,
+            Capability::DeathtouchV1,
+        ),
         (
             "indestructible",
             Capability::TemporaryIndestructibleSpellV1,
@@ -3991,6 +4005,7 @@ mod tests {
             IndestructibleV1,
             TemporaryIndestructibleSpellV1,
             TemporaryFlyingSpellV1,
+            TemporaryDeathtouchSpellV1,
             CompoundIndestructibleSpellV1,
             TrampleV1,
             FirstStrikeV1,
@@ -4090,6 +4105,7 @@ mod tests {
         definitions.push(indestructible_tests::intrinsic());
         definitions.push(temporary_indestructible_tests::grant());
         definitions.push(temporary_flying_tests::grant());
+        definitions.push(temporary_deathtouch_tests::grant());
         definitions.push(compound_indestructible_tests::compound());
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
@@ -5716,3 +5732,6 @@ mod temporary_flying_tests;
 
 #[cfg(test)]
 mod compound_indestructible_tests;
+
+#[cfg(test)]
+mod temporary_deathtouch_tests;
