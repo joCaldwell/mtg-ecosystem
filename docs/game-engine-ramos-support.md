@@ -175,7 +175,7 @@ refine the [plan's dependency order](game-engine-ramos-plan.md#dependencies-and-
 
 | Owner | Measured source blockers and next completion obligations | Dependencies |
 | --- | --- | --- |
-| M1 | Ramos rejects multiplication `factors`; both counter replacements reject `event:put-counters`. Their archived bindings are incomplete. Ramos's cast-color facts, remove-five cost, ten mana and per-turn use limit still need complete implementation and paid replay witnesses. | M0; one contracts/payment integration owner |
+| M1 | Ramos rejects multiplication `factors`; both counter replacements reject `event:put-counters`. The replacements' archived bindings are incomplete; Ramos's are fully bound. Ramos's cast-color facts, remove-five cost, ten mana and per-turn use limit still need complete implementation and paid replay witnesses. | M0; one contracts/payment integration owner |
 | M2 | Eight definitions already lower: the five basics, Command Tower, Arcane Signet and Golgari Signet. The other 24 reject entry choice/conditions, cycling, pay-life costs, reveal/search sequences, opponent production or mana choice. Preserve all modes and land subtypes. | M0; coordinate payment/search/entry interfaces with M1 |
 | M3 | Shardless Agent and Bloodbraid Elf reject `keyword:cascade`. Build generic casting during resolution and a continuation before cascade. | M1 payment foundation; M2 useful opening infrastructure |
 | M4 | Cascade/affinity, cast grants/history and non-hand casts remain unsupported. Call Forth, Averna and Yidris lack complete archived parses. | M3; narrowly scoped parser intake before complete lowering |

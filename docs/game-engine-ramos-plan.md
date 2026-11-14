@@ -118,6 +118,10 @@ This source audit does not admit a Ramos catalog, headless profile, host or sear
 
 ### M1 Complete Ramos and counter replacement
 
+The [M1 family contract](game-engine-ramos-m1-contract.md) records the frozen
+sources, proposed interfaces and focused witnesses. Preserve cast-event identity;
+use current or last-known spell information at trigger resolution under CR 608.2h.
+
 Support Ramos's clause "for each of that spell's colors", including frozen
 cast-event facts, colorless and multicolor spells. Keep spell colors, mana
 spent and commander color identity separate.
@@ -134,6 +138,9 @@ zero-color and copied-but-not-cast controls; alternate replacement orders;
 ability-use tests across opponents' turns and source departure/reentry.
 
 ### M2 Complete land and ramp infrastructure
+
+The [M2 family contract](game-engine-ramos-m2-contract.md) records the complete
+source boundaries and initial search/reveal/partition checkpoint.
 
 Reuse basic lands, Command Tower, Arcane Signet and Golgari Signet only after
 their complete exact sources pass M0.
