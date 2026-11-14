@@ -26,6 +26,7 @@ impl Game {
                     ObjectSet::AttackingCreatures => {
                         creature && self.state.rules.combat.iter().any(|a| a.attacker == o.id)
                     }
+                    ObjectSet::ControllerCreatures => creature && o.controller == controller,
                     ObjectSet::OpponentCreatures => creature && o.controller != controller,
                     ObjectSet::FlyingCreatures => {
                         creature && self.has_keyword(o.id, KeywordAbility::Flying)
@@ -301,6 +302,7 @@ impl Game {
         };
         let targets = match &kind {
             ResolvedEffectKind::PumpSet { targets, .. }
+            | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
             | ResolvedEffectKind::ExileDamaged { targets } => targets,
             _ => return Err("not set effect".into()),
         };
@@ -361,6 +363,20 @@ impl Game {
                         power,
                         toughness,
                     },
+                    source_block,
+                )
+            }
+            Instruction::GrantKeywordsSet {
+                set,
+                keywords,
+                duration: Duration::UntilEndOfTurn,
+                source_block,
+            } => {
+                // CR 611.2c: one canonical ordered capture, one bounded effect.
+                let targets = self.objects_in_set(&set, frame.spell.controller);
+                self.create_set_effect(
+                    frame,
+                    ResolvedEffectKind::GrantKeywordsSet { targets, keywords },
                     source_block,
                 )
             }
