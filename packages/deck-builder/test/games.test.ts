@@ -152,6 +152,27 @@ test("native typed completion persists and stops consumers; malformed status fai
   } finally { await g.coordinator.close(); g.db.close(); }
 });
 
+test("resume admission cannot overwrite a concurrently committed rules outcome with stale state", async () => {
+  const f = fixture();
+  try {
+    const game = (await f.coordinator.launch(OWNER, f.id, f.revision(), key)).game!;
+    let entered!: () => void, release!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    f.setAdmit(async () => { entered(); await new Promise<void>(resolve => { release = resolve; }); });
+    const resuming = f.coordinator.resume(OWNER, game.id); await started;
+    f.setStatus({ outcome: { kind: "win", winner: 2 } });
+    await f.coordinator.tick();
+    assert.equal((await f.coordinator.get(OWNER, game.id)).state, "completed");
+    const ensures = f.ensured.length;
+    f.setEnsure(() => { throw Error("stale resume must not ensure a completed game"); });
+    release();
+    const result = await resuming;
+    assert.equal(result.game!.state, "completed"); assert.deepEqual(result.game!.outcome, { kind: "win", winner: 2 });
+    assert.equal(result.game!.consumers_stopped, true); assert.equal(f.ensured.length, ensures);
+    assert.deepEqual((await f.coordinator.get(OWNER, game.id)).outcome, { kind: "win", winner: 2 });
+  } finally { await f.coordinator.close(); f.db.close(); }
+});
+
 test("default environment and incomplete browser/native gates never create game records", async () => {
   const f = fixture();
   try {
