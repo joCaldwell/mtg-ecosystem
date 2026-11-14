@@ -8653,3 +8653,6 @@ mod aura_control_tests;
 
 #[cfg(test)]
 mod temporary_combat_keyword_tests;
+
+#[cfg(test)]
+mod creature_set_keyword_tests;

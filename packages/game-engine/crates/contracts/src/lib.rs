@@ -3567,6 +3567,7 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["CreatureToken"]["properties"]["keywords"]["items"] = serde_json::json!({"allOf":[{"$ref":"#/$defs/KeywordAbility"},{"not":{"enum":["flash","indestructible"]}}]});
     let grant = serde_json::json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{"effect":{"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}}}}}}}}});
     let temporary_keyword = |keyword: &str| serde_json::json!({"required":["spell"],"properties":{"spell":{"type":"object","required":["instructions"],"properties":{"instructions":{"contains":{"required":["op","keywords"],"properties":{"op":{"const":"grant_keywords"},"keywords":{"contains":{"const":keyword}}}}}}}}});
+    let temporary_set_keyword = |keyword: KeywordAbility| serde_json::json!({"required":["spell"],"properties":{"spell":{"type":"object","required":["instructions"],"properties":{"instructions":{"contains":{"required":["op","keywords"],"properties":{"op":{"const":"grant_keywords_set"},"keywords":{"contains":{"const":keyword}}}}}}}}});
     let intrinsic = serde_json::json!({"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}});
     schema["$defs"]["StaticAbility"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
@@ -3584,7 +3585,7 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["Definition"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .extend([
-            serde_json::json!({"if":{"anyOf":[intrinsic.clone(),grant.clone(),temporary_keyword("indestructible")]},"then":{"properties":{"capabilities":{"contains":{"const":"indestructible_v1"}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"indestructible_v1"}}}}}}),
+            serde_json::json!({"if":{"anyOf":[intrinsic.clone(),grant.clone(),temporary_keyword("indestructible"),temporary_set_keyword(KeywordAbility::Indestructible)]},"then":{"properties":{"capabilities":{"contains":{"const":"indestructible_v1"}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"indestructible_v1"}}}}}}),
             serde_json::json!({"if":intrinsic,"then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["creature","artifact","enchantment","land"]}}}}}}),
             serde_json::json!({"if":grant,"then":{"properties":{"characteristics":{"properties":{"kind":{"const":"artifact"},"subtypes":{"const":["Equipment"]}}}}}}),
             serde_json::json!({"if":{"properties":{"characteristics":{"properties":{"kind":{"not":{"const":"creature"}}}}}},"then":{"properties":{"keywords":{"items":{"enum":["flash","indestructible"]}}}}}),
@@ -4244,9 +4245,7 @@ pub fn catalog_schema() -> serde_json::Value {
     ] {
         let cap = temporary_keyword_primitive_capability(keyword).unwrap();
         allowed_caps.push(cap);
-        let contains = serde_json::json!({"properties":{"spell":{"properties":{"instructions":{"contains":{
-            "required":["keywords"],"properties":{"keywords":{"contains":{"const":keyword}}}
-        }}}}}});
+        let contains = temporary_set_keyword(keyword);
         exact_caps.push(serde_json::json!({"if":contains,
             "then":{"properties":{"capabilities":{"contains":{"const":cap}}}},
             "else":{"properties":{"capabilities":{"not":{"contains":{"const":cap}}}}}
@@ -4259,7 +4258,9 @@ pub fn catalog_schema() -> serde_json::Value {
                 "keywords":{"maxItems":0},"static_abilities":{"maxItems":0},
                 "activated":{"maxItems":0},"triggered":{"maxItems":0},
                 "mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},
-                "characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},
+                "intrinsic_zone":{"type":"null"},
+                "characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},
+                    "legendary":{"const":false},"basic":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"},"additional_types":{"maxItems":0}}},
                 "capabilities":{"items":{"enum":allowed_caps},"allOf":[
                     {"contains":{"const":family_cap}},{"contains":{"const":Capability::BoardWipesV1}},
                     {"contains":{"const":Capability::NormalLayoutV1}}
@@ -4267,8 +4268,8 @@ pub fn catalog_schema() -> serde_json::Value {
             }},
             {"allOf":exact_caps},
             {"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
-             "then":{"properties":{"capabilities":{"allOf":[{"contains":{"const":Capability::CastInstantV1}},{"not":{"contains":{"const":Capability::CastSorceryV1}}}]}}},
-             "else":{"properties":{"capabilities":{"allOf":[{"contains":{"const":Capability::CastSorceryV1}},{"not":{"contains":{"const":Capability::CastInstantV1}}}]}}}}
+             "then":{"properties":{"spell":{"properties":{"timing":{"const":"instant"}}},"capabilities":{"allOf":[{"contains":{"const":Capability::CastInstantV1}},{"not":{"contains":{"const":Capability::CastSorceryV1}}}]}}},
+             "else":{"properties":{"spell":{"properties":{"timing":{"const":"main_phase"}}},"capabilities":{"allOf":[{"contains":{"const":Capability::CastSorceryV1}},{"not":{"contains":{"const":Capability::CastInstantV1}}}]}}}}
         ]},"else":{"properties":{"capabilities":{"not":{"contains":{"const":family_cap}}}}}
     }));
     // Keep the Aura-control operation and capability paired with its complete

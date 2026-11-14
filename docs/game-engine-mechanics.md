@@ -347,6 +347,48 @@ No install/generation is implicit. Qualification is source-bound in
 [engine evidence](game-engine-evidence.md#current-temporary-keyword-family-qualification).
 This foundation expands no playable pool, policy, hosting/search or consumer acceptance.
 
+### Temporary creature-set keyword family
+
+`temporary_creature_set_keyword_program_v1` is a separate complete ordinary
+instant/sorcery family with no targets, modes or additional sacrifice cost. Its
+stack instruction program is one `GrantKeywordsSet`, or `PumpSet` followed by
+`GrantKeywordsSet`, with equal selectors and source block 0. The grant lasts
+until end of turn. Selectors are only `ControllerCreatures` (current creatures
+controlled by the frozen invocation controller) and `AttackingCreatures`
+(current attacking creatures, regardless of controller). Signed P/T values are
+shared exact parameters. The descriptor
+`temporary_creature_set_keyword_program` exposes the selector, optional modifier
+and reviewed keyword vector; identities and quantities never select mechanics.
+
+The family reuses `supported_temporary_creature_keywords`: Flying, Deathtouch,
+Indestructible, Lifelink, Hexproof, Haste, Trample and First Strike, nonempty and
+without duplicates. Every keyword requires its existing primitive capability;
+Hexproof uses `attachments_v1`, and First Strike serializes as `first strike`
+with `first_strike_v1`. Every set grant additionally requires `board_wipes_v1`
+for the shared set machinery and the new family capability, normal layout and
+its ordinary cast-kind capability. Targeted subset/general labels never admit
+this shape. `PumpSet` retains its existing Board Wipes capability rather than
+acquiring the targeted modifier capability.
+
+Each instruction captures the full current ordered set once. Grant membership
+and handles bind exact battlefield incarnations; later entry, departure/reentry
+or control changes never dynamically reselect the grant (CR 608.2h, 611.2c).
+Cleanup expires it through the existing temporary-effect path. Restore validates
+the exact source opcode, keywords, source block and historical member handles;
+authenticated input replay checks the captured membership. The new controller
+selector rejects in all other movement, damage, bare-pump, mode, activation and
+trigger programs. Permanent-wide protection remains unsupported: the complete
+Heroic Intervention source is not narrowed to creatures.
+
+Frozen Titanic Ultimatum, Overrun, Stampede, Make a Stand and Burst of Speed
+sources witness the two selectors and optional modifier. Dedicated compiler and
+contracts tests cover exact costs/order/capabilities and whole-source negatives.
+[Set schema probes](../packages/game-engine/crates/contracts/tests/creature-set-keyword-schema-probes.mjs)
+are bounded synthetic IR controls; `--prepare-only` constructs them without
+schema execution. The existing targeted 1,955-probe inventory remains separate
+and unchanged. This family changes no catalog bodies, pool/profile/policy,
+hosting/search or consumer admission; Card IR remains schema 1.
+
 ## Trigger families and event witnesses
 
 Collect triggers from actual typed occurrences, wait through SBAs/Commander
