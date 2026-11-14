@@ -121,3 +121,39 @@ fn ramos_m1_counter_removal_is_a_parameterized_family_not_printed_quantities() {
     empty.mana_abilities[0].production = ManaProduction::Fixed { symbols: vec![] };
     assert!(empty.validate().is_err());
 }
+
+#[test]
+fn ordinary_mana_nullable_extensions_remain_none_without_new_capability() {
+    let catalog = Catalog::read(include_str!(
+        "../../../tests/fixtures/expected-mana-ir.json"
+    ))
+    .unwrap();
+    let mut witnessed = 0;
+    for definition in catalog
+        .definitions
+        .iter()
+        .filter(|d| !d.mana_abilities.is_empty())
+    {
+        for field in ["restriction", "remove_source_plus_one_counters", "both"] {
+            let mut value = serde_json::to_value(definition).unwrap();
+            for ability in value["mana_abilities"].as_array_mut().unwrap() {
+                if field != "remove_source_plus_one_counters" {
+                    ability["restriction"] = serde_json::Value::Null;
+                }
+                if field != "restriction" {
+                    ability["costs"]["remove_source_plus_one_counters"] = serde_json::Value::Null;
+                }
+            }
+            let decoded: Definition = strict_read(&value.to_string()).unwrap();
+            decoded.validate().unwrap();
+            assert_eq!(&decoded, definition);
+            assert!(
+                !decoded
+                    .capabilities
+                    .contains(&Capability::CounterRemovalManaV1)
+            );
+            witnessed += 1;
+        }
+    }
+    assert!(witnessed > 0);
+}

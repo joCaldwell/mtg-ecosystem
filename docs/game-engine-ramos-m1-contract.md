@@ -342,7 +342,7 @@ full-game matrices and exact-deck/host/search qualification are omitted. M1b
 Scales/Corpsejack replacements and all excluded mechanic families remain work
 for later batches. The paid source witness does not qualify a registered pod.
 
-Final M1a debug build is
+Final M1a optimized-test build is
 `19f603234dd46e8e4f0bac633bcd091e598f678c954ba744214088952fa3e1ee`;
 the 9-definition paid witness catalog is
 `010399dd4d5ce1fc000e59c1da69c0fd4fb95c3bb4f7435f917cd7c0104af52c`.
@@ -353,3 +353,34 @@ receipt. Work exceeded the 30-minute checkpoint target, including the coordinate
 native reservation; the final handoff records actual elapsed and native timings.
 No M1b work began, no main merge or PR was made, and later fresh-main combination
 checks belong to the parent.
+
+## Parent integration and exported-schema agreement
+
+Parent source `20ca217d` combines M1a with main
+`ac95b1cfb393342218e655435ed03398d7c47fd7` (temporary deathtouch,
+compound protection and Collar admission). Only additive test-module registration
+conflicts needed resolution. Existing catalog/profile admission remains distinct
+from the Ramos private source witness and historical client acceptance.
+
+Review found that the exported cast-color trigger constraint used the wrong
+serialized spell-predicate shape. External Ajv validation reproduced rejection
+of complete compiled Ramos; an isolated follow-up also found acceptance of a
+null counter cost on restricted mana. The correction derives the condition from
+the actual Rust enum, requires a positive non-null counter quantity, and treats
+ordinary null optional extensions as `None`, consistently with Rust decoding.
+The family remains parameterized and no gameplay rule changed.
+
+The corrected schema passed 83 contracts and 207 compiler tests plus an external
+Node regression with 22 schema probes on complete production-compiled Ramos,
+parameter variations, invalid costs/restrictions/capabilities and ordinary mana.
+The same helper is registered in `tests/contracts.test.ts`. Parent used its healthy
+existing Node/Ajv installation; the isolated child's dependency omission remains
+historical. Full Node/source, SDK, Clippy and release/full matrices remain omitted.
+
+Separate producer-qualified evidence is retained in parent
+`generated/ramos/combined-20ca217d*/` and `generated/ramos/schema-final/`.
+`schema-final/source-bridge.json` proves byte-identical core/compiler/simulator/
+server files and identical contracts code outside `catalog_schema`; copied rules
+test binaries keep their original producer identity. Schema checks use the new
+copied CLI. Interrupted attempts and zero-match selectors remain recorded and
+are not treated as passed tests. This does not qualify the exact deck or host.

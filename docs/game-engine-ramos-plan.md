@@ -9,8 +9,9 @@ M0 is frozen against `origin/main` at
 `46ef08faedb8c5fa9c1c1fa9a8afefd1f85e1f6c` directly above it.
 The prior keyword/compiler round is integrated. The
 [M0 support matrix and dependency backlog](game-engine-ramos-support.md) records
-the exact production-compiler baseline; later milestones remain unimplemented
-for this target. This plan is not exact-deck engine acceptance.
+the production-compiler baseline and later bounded source witnesses. M1a Ramos
+and the M2 Cultivate/Reach slice now execute; exact-target qualification remains
+incomplete. This plan is not exact-deck engine acceptance.
 
 ## Target and source authority
 

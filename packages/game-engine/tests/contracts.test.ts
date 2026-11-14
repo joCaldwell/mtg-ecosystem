@@ -3,6 +3,7 @@ import { assertDamageTriggerSchema } from "./damage-trigger-contracts.ts";
 import { assertAttackTriggerSchema } from "./attack-trigger-contracts.ts";
 import { assertCastTriggerSchema } from "./cast-trigger-contracts.ts";
 import { assertUntapSchema } from "./untap-contracts.ts";
+import { assertRamosSchema } from "./ramos-contracts.ts";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -44,6 +45,28 @@ test("untap schema stays within a complete ordinary spell", () => {
     uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
   } }).compile(run("schema"));
   assertUntapSchema(validate, loadCatalog("removal"));
+});
+
+test("Ramos complete source and counter-mana family agree with exported schema", () => {
+  const source = path.join(root, "packages/game-engine/tests/fixtures/ramos");
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "mtg-ramos-schema-"));
+  let passed = false;
+  try {
+    const manifest = path.join(temporary, "catalog.json");
+    fs.writeFileSync(manifest, JSON.stringify({
+      schema_version: IR_SCHEMA_VERSION, output_order: "canonical",
+      provenance: path.join(source, "provenance.json"),
+      records: [path.join(source, "3ed41d2d-211b-4013-8562-8c64d54cc43a.json")],
+      expected_ir: "ramos-ir.json", expected_digest: "ramos.sha256",
+    }));
+    const report = run("catalog", "build", manifest, "--write");
+    const catalog = JSON.parse(fs.readFileSync(report.expected_ir, "utf8"));
+    const validate = new Ajv2020({ strict: false, formats: {
+      uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
+    } }).compile(run("schema"));
+    assertRamosSchema(validate, catalog, JSON.parse(read("expected-mana-ir.json")));
+    passed = true;
+  } finally { if (passed) fs.rmSync(temporary, { recursive: true, force: true }); }
 });
 
 test("retained archive hashes agree with JavaScript and source parser", () => {

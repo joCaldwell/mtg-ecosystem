@@ -3912,13 +3912,18 @@ pub fn catalog_schema() -> serde_json::Value {
         "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}},
         "spell":{"properties":{"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}}}}
     }}));
-    // Keep schema shape validation in step with the closed Ramos semantics.
+    // Optional fields deserialize null as None. Only a non-null cost/restriction
+    // selects this family; a selected counter cost must then be a positive quantity.
+    let counter_mana = serde_json::json!({"anyOf":[
+        {"required":["restriction"],"properties":{"restriction":{"type":"string"}}},
+        {"properties":{"costs":{"required":["remove_source_plus_one_counters"],"properties":{"remove_source_plus_one_counters":{"type":"string"}}}}}
+    ]});
     schema["$defs"]["ManaAbility"]["allOf"] = serde_json::json!([{
-        "if":{"anyOf":[{"required":["restriction"],"properties":{"restriction":{"type":"string"}}},{"properties":{"costs":{"required":["remove_source_plus_one_counters"]}}}]},
+        "if":counter_mana,
         "then":{"required":["restriction"],"properties":{
             "restriction":{"const":"once_each_turn"},
             "costs":{"required":["remove_source_plus_one_counters"],"properties":{
-                "remove_source_plus_one_counters":{"pattern":"^[1-9][0-9]*$"},"tap":{"const":false},"sacrifice":{"const":false},"mana":{"type":"null"}}},
+                "remove_source_plus_one_counters":{"type":"string","pattern":"^[1-9][0-9]*$"},"tap":{"const":false},"sacrifice":{"const":false},"mana":{"type":"null"}}},
             "production":{"properties":{"mana":{"const":"fixed"},"symbols":{"minItems":1}}}
         }},"else":{"properties":{"costs":{"properties":{"tap":{"const":true},"sacrifice":{"const":false}}}}}
     }]);
@@ -3926,21 +3931,23 @@ pub fn catalog_schema() -> serde_json::Value {
         "instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"const":"put_source_plus_one_counters_for_cast_colors"}}}}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/CastColorFreeProgram"}}}}
     }});
-    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({"properties": {"spell": {"$ref": "#/$defs/CastColorFreeProgram"}, "activated": {"items": {"properties": {"program": {"$ref": "#/$defs/CastColorFreeProgram"}, "cost": {"properties": {"composite": {"properties": {"costs": {"not": {"required": ["remove_source_plus_one_counters"]}}}}}}}}}}}));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({"properties": {"spell": {"$ref": "#/$defs/CastColorFreeProgram"}, "activated": {"items": {"properties": {"program": {"$ref": "#/$defs/CastColorFreeProgram"}, "cost": {"properties": {"composite": {"properties": {"costs": {"not": {"required": ["remove_source_plus_one_counters"],"properties":{"remove_source_plus_one_counters":{"type":"string"}}}}}}}}}}}}}));
     let cast_colors = serde_json::json!({"required":["program"],"properties":{"program":{"required":["instructions"],"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"put_source_plus_one_counters_for_cast_colors"}}}}}}}});
+    let cast_color_condition = TriggerCondition::SpellCast {
+        caster: CasterRelation::Controller,
+        spell: TypePredicate::Any {},
+    };
     schema["$defs"]["TriggeredAbility"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":cast_colors,"then":{"properties":{
-            "condition":{"const":{"spell_cast":{"caster":"controller","spell":{"any":{}}}}},"intervening_if":{"type":"null"},
+            "condition":{"const":cast_color_condition},"intervening_if":{"type":"null"},
             "program":{"properties":{"targets":{"maxItems":0},"modes":{"maxItems":0},"instructions":{"minItems":1,"maxItems":1}}}
         }}
     }));
-    for (field, capability) in [("restriction", Capability::CounterRemovalManaV1)] {
-        schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-            "if":{"required":["mana_abilities"],"properties":{"mana_abilities":{"contains":{"anyOf":[{"required":[field]},{"properties":{"costs":{"required":["remove_source_plus_one_counters"]}}}]}}}},
-            "then":{"properties":{"characteristics":{"properties":{"kind":{"const":"creature"}}},"capabilities":{"allOf":[{"contains":{"const":capability}},{"contains":{"const":Capability::PermanentManaV1}}]}}},
-            "else":{"properties":{"capabilities":{"not":{"contains":{"const":capability}}}}}
-        }));
-    }
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["mana_abilities"],"properties":{"mana_abilities":{"contains":counter_mana}}},
+        "then":{"properties":{"characteristics":{"properties":{"kind":{"const":"creature"}}},"capabilities":{"allOf":[{"contains":{"const":Capability::CounterRemovalManaV1}},{"contains":{"const":Capability::PermanentManaV1}}]}}},
+        "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::CounterRemovalManaV1}}}}}
+    }));
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["triggered"],"properties":{"triggered":{"contains":cast_colors}}},
         "then":{"properties":{"characteristics":{"properties":{"kind":{"const":"creature"}}},"capabilities":{"allOf":[{"contains":{"const":Capability::CastSpellColorCountersV1}},{"contains":{"const":Capability::PlusOneCountersV1}},{"contains":{"const":Capability::CastTriggerV1}}]}}},

@@ -82,7 +82,7 @@ private paid source witness, qualified in the
 Admission **—** = exact target not admitted; consumer **—/—** =
 exact target not hosted/search-enabled. Existing other pools are not requalified
 by these rows. Rows retain M0 evidence except the R row and two S rows, which add the
-separately qualified M2 lowering/capability/runtime checks. The immutable M0
+separately qualified M1a/M2 lowering/capability/runtime checks. The immutable M0
 baseline and its 11/74 counts are unchanged; no full target re-audit or executable
 target catalog is claimed. The owner milestone remains the completion/witness owner.
 
