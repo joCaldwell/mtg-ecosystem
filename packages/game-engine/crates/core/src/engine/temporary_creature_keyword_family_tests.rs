@@ -778,3 +778,75 @@ fn temporary_creature_keyword_family_suspended_compound_resolution_restore_and_r
         );
     }
 }
+
+// CR 104.3a, 611.2c and 613.5–6: concession may interrupt a resolution,
+// but departure observers must never consume only one layer of one effect.
+#[test]
+fn targeted_compound_atomic_departure_lki_keeps_all_characteristics() {
+    let p = other_controller(
+        prepared(&[
+            ("Grotesque Mutation", true),
+            ("Grizzly Bears", false),
+            ("Swamp", false),
+            ("Swamp", false),
+        ]),
+        1,
+        0,
+        2,
+    );
+    let mut g = Game::with_trace(p, TraceMode::Detailed);
+    request(&mut g, 1);
+    let recipient = object(&g, 1);
+    let targets = target(&g, 1);
+    announce(&mut g, 1, 0, targets);
+    let mut reached = false;
+    for _ in 0..2000 {
+        let advance = g.advance(Budget::new(1));
+        if !g.state.rules.effects.is_empty() {
+            reached = true;
+            break;
+        }
+        match advance {
+            Advance::Suspended { .. } => (),
+            Advance::AwaitingDecision(r) => {
+                g.respond(r.player(), r.decision_id(), pass(&r)).unwrap();
+            }
+            x => panic!("bounded paid compound creation {x:?}"),
+        }
+    }
+    assert!(reached, "paid effect actually began");
+    stats(&g, 1, 5, 3);
+    recover(&g);
+    g.concede(PlayerId(2)).unwrap();
+    request(&mut g, 1);
+    assert!(g.object_id(CardId(1)).is_none());
+    let before = g
+        .trace
+        .records
+        .iter()
+        .filter_map(|r| match &r.record {
+            EvidenceRecord::Batch { batch } => Some(batch.as_ref()),
+            _ => None,
+        })
+        .flat_map(|batch| &batch.occurrences)
+        .find(|occurrence| {
+            matches!(
+                &occurrence.proposed,
+                ProposedEvent::LeaveGame { object, departing_owner }
+                    if *object == recipient && *departing_owner == PlayerId(2)
+            )
+        })
+        .unwrap()
+        .before
+        .objects
+        .iter()
+        .find(|o| o.object == recipient)
+        .unwrap();
+    assert_eq!(before.characteristics.power, Some(5.into()));
+    assert_eq!(before.characteristics.toughness, Some(3.into()));
+    assert!(
+        before.keywords.contains(&KeywordAbility::Lifelink),
+        "one continuous effect must be complete in actual owner-departure LKI"
+    );
+    recover(&g);
+}
