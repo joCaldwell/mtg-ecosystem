@@ -11,15 +11,17 @@ Read [application launch gates](../packages/multiverse/web/ARCHITECTURE.md#game-
 ## Delivered scope and remaining gates
 
 The production App joins through an operator-issued single-seat file and enables
-only explicit `mulligan` and `bottom_opening` commands. It journals and reconciles
-unknown outcomes. Other decisions explain missing live controls/context. Local
+explicit `mulligan`, `bottom_opening` and discovered priority `pass` commands.
+It journals and reconciles unknown outcomes. Other decisions explain missing live controls/context. Local
 draft adapters do not establish live or whole-profile coverage.
 `fixtures/decision-controls/coverage.json` owns request/response coverage with
 separate reachability, control, context and test evidence.
 Review new variants explicitly; schema presence is never admission.
 
-Action transport exists; the pure action-query lifecycle controller is opt-in
-and remains uncomposed in the production App. Discovery labels are unavailable.
+The production App composes session-owned action discovery in priority/mana
+windows, with window/object scope, bounded pagination, status and explicit stop.
+Pass priority is self-explanatory; all object/ability/payment beginnings remain
+blocked because qualified labels/context are unavailable.
 Complete games, all reachable decisions, human usability, arbitrary builder-deck
 admission, automated launch and account-to-seat provisioning remain unfinished.
 The product preview is a captured sample, never the selected deck or a real game.
@@ -200,8 +202,8 @@ No universal completion, constant-time or timing-side-channel guarantee follows.
 
 SDK `queryActions` makes one validated POST, with no pagination/retry. Session binds
 viewer, exact context/generation, scope, token and continuation history independently.
-The browser production proxy currently blocks action queries/cancellation; do not
-infer App integration from native endpoint/SDK availability.
+The browser production proxy admits the exact POST action-query route (including
+cursor cancellation) and queued-command cancel route. Other routes remain blocked.
 
 ### Session-owned query controller
 
@@ -226,11 +228,14 @@ for HTTP 429/explicit quota, with one-second wait and full charged budgets. Othe
 transport/protocol failures retain uncertainty. At most one extra cancellation
 attempt per retired intent, four seconds, no work/budget replenishment.
 
-Future menu composition must retain original CommandContext/query context/scope,
-associate only the returned query generation, verify current snapshot phase and
-binding, then use normal validation/journaling. Never fetch a fresh command context
-at callback time. Missing labels/context stay blocked; this controller constructs
-or submits no PlayerResponse.
+ReadSession captures original CommandContext/query context/scope before discovery,
+associates only that returned query generation, and requires its issued draft,
+complete snapshot, current generation and exact scope before normal journaling.
+Pass requires a priority window and window scope. Other beginnings remain gated.
+Never fetch a fresh command context at callback time. The pure query controller
+constructs or submits no PlayerResponse. Stop invalidates synchronously and awaits
+captured-SDK cancellation/in-flight deadlines before releasing the Web Lock; late
+completions cannot issue I/O after release or replace a newer import.
 
 ## Native delivery and operator procedure
 
@@ -245,8 +250,9 @@ startup-verified bytes. Operator pins `artifacts.json`, not arbitrary remote JSO
 Native `serve-client` requires numeric loopback, exact Host, absent or matching
 Origin and non-cross-site Fetch Metadata; no CORS. Vite enforces the local boundary
 before forwarding to explicit `MTG_CLIENT_UPSTREAM`. Current proxy admits reviewed
-read routes, opening submissions and execution status, not arbitrary upstream/
-filesystem/query/cancel/operator paths. Bootstrap cannot change this mapping.
+read routes, submissions/execution status and exact action-query/queued-command
+cancel routes, not arbitrary upstream/filesystem/operator paths. Bootstrap cannot
+change this mapping.
 
 Public responses enforce nosniff/no-referrer/frame denial and restrictive CSP:
 self scripts/styles/fonts/connections; self plus stored `cards.scryfall.io` images;

@@ -2,6 +2,7 @@ import { GameClient, HttpError, ProtocolError, TransportError, parseSeatBootstra
 import { ReadSession, type SessionEffects } from '../controller.ts';
 import { immutable, SessionFailure, type FailureKind } from '../read-state.ts';
 import { IndexedDBCommandJournal } from './command-journal.ts';
+import type { ActionQueryFailure } from '../action-query.ts';
 import { acquireSeat, wait } from './ownership.ts';
 
 function classify(error: unknown): FailureKind {
@@ -57,7 +58,22 @@ function makeBrowserSession(protocolSchemaHash?: string): ReadSession<File> {
       const binding = immutable(identity);
       const sdk = new GameClient({ baseURL, matchId: binding.match_id, capability });
       const codec = { prepare: prepareCommand, parse: parsePreparedCommand };
-      return { binding, ...(protocolSchemaHash ? { commands: {
+      return { binding, ...(protocolSchemaHash ? { actions: {
+        protocolSchema: protocolSchemaHash,
+        query: (request, querySignal) => sdk.queryActions(request, { signal: querySignal }),
+        now: () => performance.now(),
+        operation(milliseconds) {
+          const abort = new AbortController();
+          let timer: ReturnType<typeof setTimeout>;
+          const expired = new Promise<void>(resolve => { timer = setTimeout(() => { abort.abort(); resolve(); }, milliseconds); });
+          return { signal: abort.signal, expired, abort: () => abort.abort(), dispose: () => clearTimeout(timer) };
+        },
+        classify(error): ActionQueryFailure {
+          if (error instanceof HttpError) return error.status === 401 ? 'unauthorized' : error.status === 403 ? 'forbidden' : error.status === 429 ? 'rate-limited' : 'unavailable';
+          if (error instanceof ProtocolError) return 'protocol';
+          return error instanceof TransportError ? 'body-transport' : 'request-transport';
+        },
+      }, commands: {
         protocol: protocolSchemaHash, protocolVersion: PROTOCOL_VERSION, codec,
         journal: new IndexedDBCommandJournal(codec),
         newId: () => Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join(''),
