@@ -461,7 +461,7 @@ trace modes. The later absent-cost rejection was inspected separately. One old
 spending expectation failed identically on the retained exact 4fc baseline binary;
 only that test was corrected under CR 601.6/608.2b, with both failures preserved.
 
-Authoritative native receipts are this implementation worktree's
+Original M3b native receipts remain in the isolated producer checkout's
 `generated/ramos/m3b/focused8/` plus `supplement/`: frozen source inventory
 `0749a2c484c6ba75d31605a8c5eafd563fb28744104e6ccc94f66d057337b55c`,
 copied actual tests/CLI, `source.tar`, schema and native-source manifest. The own
@@ -492,17 +492,35 @@ exact-deck/pod admission, host, SDK, sampled search, parser/Node dependency setu
 consumer qualification remain omitted. Frozen revision 17 and its 85/100/37 pins
 are unchanged.
 
+The combined source `6c2c295bed4a8575c8b78974d13618a9b9454ab4` integrates M3b
+with Aura/control/composition main `ef8fc6da`. It passed **498 distinct selected
+Rust tests** (102 contracts, 244 compiler, 152 core; 499 executions with one repeated
+combined witness), workspace all-target compilation, formatting and **1,832
+exported-schema probes**. All 908 compiled-source rows match. The original
+three-source Ramos/Scales/Corpsejack and two-source basic-cascade IR exports remain
+byte-identical to their separately qualified producers. A new private paid
+witness composes Control Magic, Bloodbraid, free controlled-target Dive Down and
+the creature owner's concession, with restore/replay in all three trace modes.
+Both the inner Aura entry/control-reconciliation hooks and outer owned casting
+completion are retained. The combined private snapshot is 23; public/context/query
+forms stay 18. Exact binaries, build identities, failed integration attempts,
+merge resolutions, timings and omissions are in the coordinator's
+`generated/ramos/m3b-integrated/integration.json`. Fresh combined Clippy,
+full runtime/profile/release, SDK/client/host/search and exact-deck qualification
+remain omitted. Native work is released; full M3 remains open for its two
+additional-cost/prohibition source exits.
+
 ## Bounded checkpoint and focused exit evidence
 
-Next implementation checkpoint: complete both frozen basic cascade sources,
+The basic checkpoint above qualifies both frozen basic cascade sources,
 ordinary and resolution-context announcement/payment completion, sequential public
 exile, legal creature/target/modal free casts, Bloodbraid-to-Shardless nesting,
 random bottom and owned recovery. Include mandatory additional sacrifice and
 rollback composition using existing complete fixtures. Do not postpone the
 second mana-value guard, global prohibitions, owner-below-child completion or
-privacy to later admission. Treat optional additional-cost source admission as a
-subsequent bounded M3 checkpoint if no existing exact supported witness supplies
-it; M3 stays open until that obligation is source-qualified. No new generic runner
+privacy to later admission. The next bounded M3 checkpoint supplies optional
+additional-cost source admission and a reachable paid prohibition context;
+M3 stays open until those obligations are source-qualified. No new generic runner
 or profile is necessary for private source witnesses; extend existing fixture and
 accepted-input scenario harnesses, with legal paid development before cascade.
 Concrete reusable hit fixtures are `tests/fixtures/{grizzly-bears,unsummon,

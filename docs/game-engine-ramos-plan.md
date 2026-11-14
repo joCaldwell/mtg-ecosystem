@@ -12,8 +12,8 @@ The prior keyword/compiler round is integrated. The
 the production-compiler baseline and later bounded source witnesses. M1a Ramos
 and the M2 Cultivate/Reach slice now execute; exact-target qualification remains
 incomplete. The M1 counter-placement family is also source/runtime-qualified.
-The M3 ordinary announcement/payment foundation is implemented; basic cascade
-and resolution casting remain unsupported.
+Basic M3 cascade now executes through owned resolution casting. Source-qualified
+optional additional costs and a reachable paid prohibition context remain open.
 This plan is not exact-deck engine acceptance.
 
 ## Target and source authority

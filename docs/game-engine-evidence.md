@@ -257,6 +257,22 @@ release/profile/completion/performance, server/SDK/host/search/consumer matrices
 Node suites requiring absent dependencies remain unrun. Plain control source and
 all committed catalog IR remain unchanged; older proofs keep their own identities.
 
+### Ramos basic-cascade combined qualification
+
+Feature source `6c2c295bed4a8575c8b78974d13618a9b9454ab4` combines complete basic
+cascade with M1 counters/mana/replacements, M2 land search and Aura/control
+composition main `ef8fc6da`. It passed 498 distinct selected Rust tests, 1,832
+exported-schema probes, workspace all-target compilation and formatting; all 908
+compiled-source rows match. The private paid Aura/cascade/departure witness
+restores and replays across all three trace modes. Its exact executables,
+optimization/build identities, merge resolutions, preserved failures and timing
+receipts are under the Ramos coordinator's `generated/ramos/m3b-integrated/`;
+`integration.json` is authoritative. Other producers keep their original scopes.
+IR remains 1, private snapshot 23 and public/context/query 18. Full M3's optional
+additional-cost and reachable paid prohibition exits remain open. No profile,
+pod, host/search, SDK or full target-deck admission follows; fresh combined
+Clippy and broader runtime/release/profile/consumer matrices were omitted.
+
 ### Selected current proof locators
 
 `generated/` below is relative to each original implementation lane, not assumed
