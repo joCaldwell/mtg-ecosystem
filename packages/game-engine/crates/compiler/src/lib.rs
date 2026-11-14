@@ -1836,6 +1836,10 @@ fn append_spell_effects(
                         || abilities
                             == &[
                                 serde_json::json!({"gained":"keyword","keyword":{"keyword":"flying"}}),
+                            ]
+                        || abilities
+                            == &[
+                                serde_json::json!({"gained":"keyword","keyword":{"keyword":"deathtouch"}}),
                             ]) =>
                 {
                     let target: Target = serde_json::from_value(what.clone()).map_err(|_| {
@@ -1848,6 +1852,12 @@ fn append_spell_effects(
                                 serde_json::json!({"gained":"keyword","keyword":{"keyword":"flying"}}),
                             ] {
                             KeywordAbility::Flying
+                        } else if abilities
+                            == &[
+                                serde_json::json!({"gained":"keyword","keyword":{"keyword":"deathtouch"}}),
+                            ]
+                        {
+                            KeywordAbility::Deathtouch
                         } else {
                             KeywordAbility::Indestructible
                         }],
@@ -8609,3 +8619,9 @@ mod temporary_flying_tests;
 
 #[cfg(test)]
 mod compound_indestructible_tests;
+
+#[cfg(test)]
+mod temporary_deathtouch_tests;
+
+#[cfg(test)]
+mod collar_source_tests;

@@ -32,6 +32,18 @@ investigate, not permission to change an expected outcome.
 
 ## Bound each batch
 
+A mechanic family is the unit of rules development; exact cards are source-backed
+witnesses. Lower typed AST semantics into shared IR operations and execute those
+operations through common runtime systems. Card names and Oracle IDs identify
+source data and references, never select rule implementations. Prefer parameterized
+operations and reviewed composition over a new capability or branch for each card
+or printed quantity.
+Verify reuse with different source-backed examples when available, plus negative
+cases at the actual semantic boundary. Keep unsupported combinations explicit;
+existing narrow admission guards must be broadened with evidence rather than
+bypassed. Distinguish generic runtime support, compiler admission and profile or
+policy admission when reporting progress.
+
 A batch delivers one coherent engine increment. Before editing, state its intended
 behavior, owned scope, focused checks and explicit exclusions. Treat follow-on
 admission, policy, mechanics and consumer qualification as separate increments
@@ -73,6 +85,11 @@ setting with `git config --local commit.gpgsign false`, then use ordinary
 global Git and 1Password configuration intact. Interactive signing is reserved
 for work Josh explicitly requests to sign; do not queue routine checkpoints
 behind a password or signing approval.
+
+Verification harnesses that create temporary Git repositories must also disable
+commit signing in each owned scratch repository or pass a process-local Git
+configuration override to the harness. Scratch repositories do not inherit the
+workspace's local configuration. Keep global Git configuration unchanged.
 
 For any other authentication delay, request the required access once and continue
 useful work in separate owned checkouts. Preserve verified batches as exact

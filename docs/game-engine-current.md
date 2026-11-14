@@ -78,24 +78,34 @@ The separately fenced `temporary_flying_spell_v1` foundation supports complete
 Jump source through the same exact-incarnation keyword union and cleanup.
 `compound_indestructible_spell_v1` supports complete Mortal's Resolve as exactly
 +1/+1 then indestructible on one shared target; the pure-grant contracts remain
-unchanged. Both foundations are scoped in the [keyword contract](game-engine-indestructible.md).
+unchanged. The separate `temporary_deathtouch_spell_v1` foundation supports
+complete Serpent's Gift source as one ordinary creature grant until cleanup;
+damage uses the source's current or latest departure appearance and never treats
+older ordinary damage as newly deathtouch. It has no pool or consumer admission.
+These foundations are scoped in the [keyword contract](game-engine-indestructible.md).
 Damage-source LKI admits validated spell grants while replay authenticates the
 historical appearance; the guard retains duplicate and departure invariants.
-The current focused combined qualification uses source
-`4b9f8bb2fa5d544ab12947328e5efe2947be3264` and copied producer
-`770125c36502febc3a1f1276094666b34109809e32a4429673a8e7e342aad619`,
-with all 763 compiled source rows verified. It passed 368 Rust tests, including
-both paid admission prefixes and catalog freshness, plus 56 exported-schema
-probes, formatting, workspace all-target compilation and CLI smoke/replay.
+The current three-increment focused qualification uses source
+`babb01b79366c63fe6c31d06d025c4927236f691` and copied CLI producer
+`158bb7dd93e7a9d6aec6f29e5a91d37fcf9cd450ab0d363df1398445efc9c52e`,
+with all 773 compiled source rows verified. It passed 394 Rust tests, including
+compound/Collar and adjacent paid prefixes, shared policy tests and catalog
+freshness, plus 65 exported-schema probes, formatting, workspace all-target
+compilation and CLI smoke/replay. Runtime tests use opt-level 2; the CLI uses
+opt-level 0. Their distinct build identities and exact executed binary hashes
+are retained rather than treating the CLI as the test producer.
 Compiler/core/simulator production Clippy passed strictly; contracts production
 Clippy used only the inherited `collapsible_if` exception. Exact copies,
-commands, source hashes and omissions are retained under
-`generated/five-more/combined01/`. The exported schema SHA-256 is
-`aa24f67db518b6f14a86bd3363a6da5d36af66f4cef388cb9e515a77433da5d7`.
+commands, source hashes and omissions are retained in the active next-three
+worktree under `generated/next-three/combined01/`. The exported schema SHA-256 is
+`544f1d14d2a1f7f6ce5d0c3b016e3929678f76b3443445afb0d445b8df9441c7`.
 This is focused development qualification, excluding full runtime, release,
 profile/completion and downstream consumer matrices. The earlier blue full-game
-witness remains qualified to its separately named producer. The same batch also
-rejects unconsumed Aura-return sentence bindings without changing exact Rancor IR.
+witness remains qualified to its separately named producer. The preceding
+five-increment qualification at `4b9f8bb2fa5d544ab12947328e5efe2947be3264`
+retains its own 763-row producer and evidence in `generated/five-more/combined01/`;
+that batch also rejects unconsumed Aura-return sentence bindings without changing
+exact Rancor IR.
 The only active IR schema is 1 while there are no external consumers; new
 features evolve it in place with capability validation and exact build fencing.
 Current in-place support covers [grouped power-qualified damage and opponent
@@ -111,10 +121,12 @@ paid accepted-pod combat/replay witness and one fixed-index completion game.
 The Ertai blue-default addition preserved the then-45-definition pool. Its
 separate fixed-index game finished naturally and replayed, with paid blue
 cast/activation coverage qualified in that contract. Subsequent Withstand Death
-and Jump admission brings the blocking pool to 47 definitions: each black/green
-default replaces one Forest with protection (39 Forests), and blue replaces one
-Island with Jump (89 Islands). Conservative public-IR policy responds to supported
-threats or lifts an actual attacker before blockers. Paid legal-pod prefixes verify
+and Jump admission brought the blocking pool to 47 definitions. Complete Mortal's
+Resolve admission brings it to 48: black/green defaults each retain Withstand Death
+and add the compound spell (38 Forests); blue retains Jump (89 Islands).
+Conservative public-IR policy responds to supported threats, accounts for the
+compound pump as well as protection, or lifts an actual attacker before blockers.
+Paid legal-pod prefixes verify
 protection/combat/cleanup/fresh destruction and flight/blocking/commander damage,
 including atomic rejection, snapshots and replay. Hosting/search, consumer
 qualification and the earlier pools remain separate.
@@ -134,10 +146,14 @@ search and downstream consumer qualification remain separate.
 The subsequent [indestructible sacrifice-pool admission](game-engine-sacrifice.md#profile)
 adds complete Myr/Relic data and a singleton red-default Relic, with a genuine
 paid Shrapnel sacrifice/replay prefix and conservative public-keyword destruction
-policy. Subsequent Darksteel Plate admission brings that pool to 159 definitions
+policy. Subsequent Darksteel Plate admission brought that pool to 159 definitions
 and replaces one white-default Plains with Plate. Its public-IR equip policy
 retains equal-value protection and moves only for useful improvement, with a
 paid combat/snapshot/replay prefix and separate synthetic policy probes.
+Complete Basilisk Collar admission brings the pool to 160 and adds a singleton
+to white (55 Plains), preserving Plate. Its existing static grants, equip, damage
+and attachment mechanics execute unchanged; the paid pod verifies deathtouch
+lethal damage, lifelink and grant loss after removal at both budget quanta.
 Source-qualified headless evidence remains separate from hosted/search
 and downstream consumer qualification.
 The [ordinary tap primitive](game-engine-untap-permanents.md#creature-tap-and-controller-draw)

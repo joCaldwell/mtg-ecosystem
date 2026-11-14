@@ -3,7 +3,7 @@
 `commander-blocking-targets-v1` is a separate finite development profile. Its
 schema-1 `blocking-matches` catalog contains the 34 exact records selected by the
 foundations match catalog plus Righteousness, Swift Response, Assassinate,
-Burst of Energy, Pressure Point, Icy Manipulator, Royal Assassin, Ertai, Wizard Adept, Temporal Adept, Seeker of Skybreak, Llanowar Elves, Withstand Death and Jump.
+Burst of Energy, Pressure Point, Icy Manipulator, Royal Assassin, Ertai, Wizard Adept, Temporal Adept, Seeker of Skybreak, Llanowar Elves, Withstand Death, Jump and Mortal’s Resolve.
 This development pool evolves in place; its name does not select runtime rules.
 Other catalogs and decks remain unchanged.
 Neither hosting nor sampled search is requested by this profile; their reviewed
@@ -42,7 +42,7 @@ The default decks use these explicit compositions from the existing pool:
 | --- | --- | --- |
 | 0 | Isamaru, Hound of Konda | Eleven singleton nonbasic cards, including Righteousness, Swift Response, Burst of Energy, Pressure Point and Icy Manipulator, and 89 Plains |
 | 2 | Ertai, Wizard Adept | Singleton Ertai, Azure Mage, Hapless Researcher, Merfolk Looter, Counterspell, Stifle, Time Ebb, Unsummon, Temporal Adept, Icy Manipulator and Jump, and 89 Islands |
-| 1, 3 | Yargle and Multani | Eighteen singleton nonbasic cards, including Assassinate, Icy Manipulator, Royal Assassin, Seeker of Skybreak, Llanowar Elves and Withstand Death, 43 Swamps and 39 Forests |
+| 1, 3 | Yargle and Multani | Nineteen singleton nonbasic cards, including Assassinate, Icy Manipulator, Royal Assassin, Seeker of Skybreak, Llanowar Elves, Withstand Death and Mortal’s Resolve, 43 Swamps and 38 Forests |
 
 Each deck contains 100 cards. The profile retains the frozen 2026-10-15 Commander
 policy, color-identity restrictions and completion layout; it does not claim a
@@ -76,9 +76,98 @@ provide membership authority, including for orphans. Current visible type,
 targetability and friendly control still guide selection. Ordinary Growth spells
 do not become generally reactive. No card/profile identity selects policy rules.
 
+## Compound creature protection admission
+
+The schema-1 pool has 48 definitions at canonical digest
+`043e702663634090956abca9393a39bf7e2a161bef4c24e7106b6cc450e566b5`.
+The sole addition to the prior 47-definition pool is the existing complete
+[Mortal's Resolve fixture](../packages/game-engine/tests/fixtures/ef29f979-1a6d-47bb-83f5-4679389471da.json),
+Oracle identity `ef29f979-1a6d-47bb-83f5-4679389471da`. Its exact frozen source
+at archive line 36184 costs `{1}{G}`, records Commander legality `legal` and reads
+“Target creature gets +1/+1 and gains indestructible until end of turn.”
+The source, AST and raw-record hashes are respectively
+`71b794378a2dc7529072ebcdc59ed52b203e0e164510d758c3f1de160cbd0d59`,
+`3f1ca48780e3f8a0661d987a50c1a69b54e3d3af315f2589afe09b8c2f225811` and
+`dd42d4da1b3412af58b145b7a6657dfb5cb98a047efca164ecaa1f5fa34560ad`.
+Removing it reproduces all 47 prior definition bodies and canonical digest
+`506c116e66c54ef67485ff3f59beea782cd6d02eb1250ae3c46329654b73932b`.
+Each black/green seat replaces one Forest with the new singleton, leaving
+38 Forests and 43 Swamps. Withstand Death, blue Jump and 89 Islands, white,
+commanders, other pools, frozen policy, completion and feature flags are preserved.
+No compiler, contracts, core production or schema change is needed; the existing
+[compound foundation](game-engine-indestructible.md) owns semantics.
+
+Develop recognizes the distinct `compound_indestructible_spell_v1` public-IR
+contract: exactly +1/+1 followed by Indestructible, both at source block zero,
+on one shared ordinary creature target until end of turn. It does not classify
+that complete program as a pure keyword grant or accept a partial/altered pump.
+It uses the same conservative defensive threat domain as pure protection:
+completed opposing supported destruction, explicitly targeted lethal damage,
+or unambiguous remaining one-on-one lethal/deathtouch combat. Friendly current
+control, targetability, candidate handles and deterministic value/handle ordering
+remain required. Already protected targets, proactive pump forecasting, enemy
+benefit and unsupported/ambiguous threats do not justify a cast. Its own incomplete
+announcement is skipped when evaluating the underlying threat during target
+selection; mandatory announced target choice retains the legal-candidate fallback.
+Pure Withstand/Jump, untap and equipment policy remain separate.
+
+The dedicated [paid legal-pod prefix](../packages/game-engine/crates/core/tests/compound_protection_admission.rs)
+pins opening index 316 from a bounded setup-only scan before gameplay. Both
+black/green players naturally pay for Yargle and Multani, and the opponent pays
+for Royal Assassin. Royal targets the actual tapped attacking commander; two
+real basics pay `{1}{G}` for Mortal's Resolve from hand. Both resolved effects
+refer to the same incarnation: its public characteristics become 19/7 and
+Indestructible prevents the actual destruction. The opposing 18/6 commander
+then blocks; the protected 19-power attacker assigns real combat damage and
+survives with 18 marked damage. Actual cleanup removes both effects and all
+marks together, restoring 18/6; a fresh Royal activation then destroys it.
+Unknown, stale-hand, noncreature and wrong-player target submissions reject
+atomically. Snapshot verification, restore, replay, a normalized-hash unreachable
+snapshot negative with an unmodified positive control, and quanta 1/4096 are
+separate from the explicitly synthetic policy controls. Relevant retained rules
+are CR 608.2c, 611.2a, 613.4c, 702.12, 514.2, 704.5g and 903.5 in the pinned
+[2026-09-25 edition](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt).
+
+The focused source pass executed 86 Rust tests: this new paid prefix, three
+profile assertions, the unchanged Withstand/Jump prefixes, nine adjacent paid
+admission prefixes, 70 generic policy tests (six new compound controls), and one
+all-catalog freshness test. Three Python structure tests and the dependency
+boundary guard passed. Formatting, compiler/core/simulator all-target checking,
+strict production simulator and compound-admission Clippy, debug producer build,
+production catalog regeneration, current-archive source verification (21 records;
+195 other-origin rows reported separately), and CLI smoke/replay passed.
+The first policy file-name filter selected zero tests; the actual Rust module
+filter then executed and passed all 70 on the retained exact test executable.
+
+The copied producer build is
+`531b58fc7ac3938e806450fef585e564dba1dabed74e26e5bae1edf42ef8721b`,
+executable SHA-256
+`4ed623b1f5333de16e6a9e1724a14fa19afae226b2b06215ce1437984a51c0f0`.
+All 765 native source rows match the implementation source. The optimized test
+producer is separately identified as
+`a04210de8f102faf8ef2f3404165628504ff3fa1136fbce558bdb74c07a6d844`:
+its optimization level is 2, versus 0 for the copied debug CLI. Independent
+build-hash reconstruction verifies both identities from the same final native
+source bytes; snapshots retain the test identity. The schema SHA-256
+`aa24f67db518b6f14a86bd3363a6da5d36af66f4cef388cb9e515a77433da5d7`
+is byte-identical to the separately retained combined baseline; the peer
+standalone-Deathtouch schema is not incorporated. The paid prefix has 927
+accepted inputs and equal quanta-1/4096 journals and final State hash
+`012569395bc401d6630f979f978cb6a1e8b611feacf1f94ff1a79e45be253b7c`.
+Exact executable/test/schema/source copies, paid config/journal/final snapshot,
+opening-only probe, lock/command receipts and meaningful interrupted/failed
+attempts remain under `generated/compound-protection-admission/` in this checkout.
+Two superseded setup attempts were interrupted; an evidence-export attempt passed
+all gameplay assertions but failed on a relative directory path, then the same
+binary passed with the absolute destination. No rules expectation was changed.
+Node dependency/source-tooling suites were omitted because local dependencies
+are missing; none were installed. Full runtime, release, completion/profile,
+SDK/server/search/hosting/consumer and offline-retention matrices remain omitted.
+This is focused headless evidence; parent integration owns aggregate qualification.
+
 ## Temporary flight admission
 
-The schema-1 pool now has 47 definitions at canonical digest
+The preceding schema-1 pool has 47 definitions at canonical digest
 `506c116e66c54ef67485ff3f59beea782cd6d02eb1250ae3c46329654b73932b`.
 The sole addition to the preceding
 46-definition pool is the existing complete [Jump fixture](../packages/game-engine/tests/fixtures/f7518456-45ed-41d4-bd3c-5aacea28eb35.json),

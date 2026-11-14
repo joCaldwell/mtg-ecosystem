@@ -178,6 +178,35 @@ fn temporary_indestructible_spell(d: &Definition, p: &SpellProgram) -> bool {
 fn temporary_flying_spell(d: &Definition, p: &SpellProgram) -> bool {
     temporary_keyword_spell(d, p, KeywordAbility::Flying)
 }
+// A distinct complete compound contract: the pump must not disappear into the
+// pure keyword recognizer. CR 608.2c, 611.2a, 613.4c and 702.12:
+// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+fn compound_indestructible_spell(d: &Definition, p: &SpellProgram) -> bool {
+    use mtg_contracts::{Capability, Chooser, Duration, EvaluationStage, FunctioningZone};
+    d.capabilities
+        .contains(&Capability::CompoundIndestructibleSpellV1)
+        && d.characteristics.kind == CardKind::Instant
+        && d.spell.as_ref() == Some(p)
+        && p.timing == SpellTiming::Instant
+        && p.functioning_zone == FunctioningZone::Stack
+        && p.resolution == SpellResolution::Instructions
+        && p.modes.is_empty()
+        && p.additional_sacrifice.is_none()
+        && matches!(p.targets.as_slice(), [t] if t.slot == 0
+            && !t.selection_id.is_empty() && t.chooser == Chooser::Controller
+            && t.stage == EvaluationStage::Announcement
+            && t.domain == TargetDomain::BattlefieldCreature && t.filter.is_none())
+        && matches!(p.instructions.as_slice(), [
+            I::ModifyPowerToughness { target_slot: 0, power, toughness,
+                duration: Duration::UntilEndOfTurn, source_block: 0 },
+            I::GrantKeywords { target_slot: 0, keywords,
+                duration: Duration::UntilEndOfTurn, source_block: 0 }
+        ] if *power == Quantity::from(1) && *toughness == Quantity::from(1)
+            && keywords == &[KeywordAbility::Indestructible])
+}
+fn defensive_protection_spell(d: &Definition, p: &SpellProgram) -> bool {
+    temporary_indestructible_spell(d, p) || compound_indestructible_spell(d, p)
+}
 fn contains_untap(p: &SpellProgram) -> bool {
     p.instructions
         .iter()
@@ -270,7 +299,7 @@ impl Strategy<'_> {
             if power.is_negative() || toughness.is_negative() || restrictions.contains(&CreatureRestriction::CantAttackOrBlock)))
     }
     pub(super) fn target_beneficial(&self, d: &Definition, p: &SpellProgram, slot: u32) -> bool {
-        if temporary_indestructible_spell(d, p) || temporary_flying_spell(d, p) {
+        if defensive_protection_spell(d, p) || temporary_flying_spell(d, p) {
             return slot == 0;
         }
         if d.characteristics.subtypes.iter().any(|s| s == "Aura") {
@@ -384,7 +413,7 @@ impl Strategy<'_> {
                 .max_by_key(|o| (self.value(o), o.handle.0.clone()))
                 .map(|o| o.handle.clone());
         }
-        if temporary_indestructible_spell(d, p) {
+        if defensive_protection_spell(d, p) {
             return v
                 .objects
                 .iter()
@@ -502,7 +531,7 @@ impl Strategy<'_> {
                 && s.ability.is_none()
                 && s.triggered.is_none()
                 && self.entry_program(v, s).is_some_and(|(top, p)| {
-                    top.oracle_id == d.oracle_id && temporary_indestructible_spell(top, p)
+                    top.oracle_id == d.oracle_id && defensive_protection_spell(top, p)
                 })
         }) {
             next = entries.next();
@@ -1469,7 +1498,7 @@ impl Strategy<'_> {
             && (reactive_program(p)
                 || tapped_destroy_spell(d, p)
                 || defensive_untap_spell(d, p)
-                || temporary_indestructible_spell(d, p)
+                || defensive_protection_spell(d, p)
                 || temporary_flying_spell(d, p))
     }
     fn cast(
