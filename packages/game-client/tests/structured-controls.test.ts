@@ -36,6 +36,7 @@ test('supplied payment quantities remain exact, explicit and bounded without der
   assert.equal(completeDecision(request, labels, values(['U', '1']), context), null);
   assert.deepEqual(completeDecision(request, labels, values(['U', '1'], ['C', '9007199254740993']), context), { response: 'spend_mana', spending: { U: '1', C: '9007199254740993' } });
   assert.deepEqual(completeDecision(request, labels, values(['U', '1'], ['C', '9007199254740993']), { source: { ...source, text: '' } }), { response: 'spend_mana', spending: { U: '1', C: '9007199254740993' } });
+  assert.deepEqual(completeDecision({ ...request, cost: { generic: '1', colored: [] } }, labels, values(['U', '0'], ['C', '1']), context), { response: 'spend_mana', spending: { C: '1' } });
   for (const amount of ['9007199254740994', '01', '1e20', '1\n', '-1']) assert.equal(completeDecision(request, labels, values(['U', '1'], ['C', amount]), context), null);
 });
 
