@@ -23,7 +23,7 @@
     },
     {
       "path": "docs/game-engine-current.md",
-      "sha256": "825621a78307f483dfbb0365ab8b0598ebff62e709412571ca1ee232f5e67886"
+      "sha256": "ba94f77bf9b846dc0e14c257e4f3e208cebdd6f660396093a2d245dc8cbaad12"
     },
     {
       "path": "docs/game-engine-server-attachments.md",
@@ -31,7 +31,7 @@
     },
     {
       "path": "packages/game-engine/crates/core/src/engine/visibility.rs",
-      "sha256": "521e7ec0af90ba762627b6ede7ed7804e5f607d820f900caed8716fcd225b095"
+      "sha256": "5c43fb3b84c5b4b759fbd9383a5464c43f0e4e0eb50ddc8bfa279f08c75c541e"
     },
     {
       "path": "packages/game-client/src/decisions/controls.ts",
@@ -43,15 +43,15 @@
     },
     {
       "path": "packages/game-client/src/features/decisions/DecisionPanel.tsx",
-      "sha256": "360a24739939121c0558ebf9407e8b11f1be4b7502d0708e9230a30768d94fdb"
+      "sha256": "b540af32cc43257d1a5b217eee419e3ebe1149ee45f89cae39f9c93dc0c9ab91"
     },
     {
       "path": "packages/game-client/src/features/decisions/DecisionGallery.tsx",
-      "sha256": "84a7c6e040b07f07d42c16c50709e677c5c1d428f0e62f4342024025e81e3900"
+      "sha256": "3d792a69a414e1dbb68a2275a59aaec8f6ea214d65923179124077612fbca20c"
     },
     {
       "path": "packages/game-client/src/features/decisions/decisions.module.css",
-      "sha256": "fd3d5aa68c7d8e2c5246f92c6cd54fb2b8ca77027ce53e8b42a1449fe2409446"
+      "sha256": "8660b73d90ff0daf22b2908e3f7b65cd4074b3aeaf54c9b933cf94aa444b3b3d"
     },
     {
       "path": "packages/game-client/src/app/fixture.ts",
@@ -71,7 +71,7 @@
     },
     {
       "path": "packages/game-client/tests/browser/decision-controls.spec.ts",
-      "sha256": "3026a9e78b8c756ea4edd85837e0d82ae8a9a776dec486593586554de84ac520"
+      "sha256": "e5e6edb98fd203355278c02c5cf0facf904edadb05cd4006d4a470296e86c90d"
     },
     {
       "path": "packages/game-client/fixtures/foundations-opening/provenance.json",

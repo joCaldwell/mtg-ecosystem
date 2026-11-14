@@ -26,6 +26,6 @@ export function Inspector({ card, onClose }: { card: CardView | null; onClose: (
       {card.currentFacts.length > 0 ? <FactList className={styles.facts} items={card.currentFacts} />
         : <p className="muted">No current characteristics supplied.</p>}
       <details className={styles.source}><summary>Source & identity</summary><p>{card.sourceIdentity}</p><p>Object: {card.inspectionId}</p><p>Printed text is reference material. Current characteristics come from the permitted observation.</p></details>
-    </> : <div className={styles.empty}><span aria-hidden="true">↖</span><h2>Look closer.</h2><p>Select a visible card to inspect its text and current characteristics.</p><p className="muted">Only information supplied for this seat appears here.</p></div>}
+    </> : <div className={styles.empty}><h2>No card selected</h2><p>Select a visible card to inspect its source text and current characteristics.</p><p className="muted">Enter opens a card. Escape closes it and returns focus.</p></div>}
   </aside>;
 }

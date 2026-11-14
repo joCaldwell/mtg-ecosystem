@@ -1,4 +1,5 @@
 import type { CommandSnapshot } from '../../session/command.ts';
+import styles from './CommandStatus.module.css';
 
 /** Status is separate from rules outcomes. Accepted and missing status never
  * imply consumption. No universal undo or local ambiguity-clearing control. */
@@ -19,7 +20,7 @@ export function CommandStatus({ command, connected, onRetry }: {
     case 'blocked': message = command.failure === 'binding' ? 'A saved choice belongs to a different table build. Sending is blocked; keep the original seat file and ask the operator to restore that table.'
       : 'Safe choice storage is unavailable or damaged. Sending is blocked. Restore browser storage, then release and reimport your seat file. Saved uncertain choices must be preserved.'; break;
   }
-  return <section aria-label="Choice status"><p role="status" aria-live="polite">{message}</p>
+  return <section className={styles.status} aria-label="Choice status"><p role="status" aria-live="polite">{message}</p>
     {command.phase === 'unresolved' && <button disabled={!connected} onClick={onRetry}>Check or retry saved choice</button>}
     {!connected && command.commandId && <p>Reconnect by reimporting the same seat file. Releasing or refreshing this page does not undo the saved choice.</p>}
   </section>;

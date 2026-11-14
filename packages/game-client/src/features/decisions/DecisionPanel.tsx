@@ -23,7 +23,7 @@ export function DecisionPanel({ binding, request, labels, onComplete, live = fal
   }
   const draft: LocalDraft = identity === state.identity ? state.draft : emptyDraft;
   const bound = binding.token === request.token && binding.seat === request.player;
-  return <section className={styles.panel} aria-label="Local decision draft">
+  return <section className={`${styles.panel} ${live ? styles.livePanel : ''}`} aria-label="Local decision draft">
     <p className={styles.announcement} role="status">{state.announcement}</p>
     {!bound ? <><h2>Decision binding unavailable</h2><p>No draft can be completed for this seat or token.</p></>
       : surface.status === 'supported' ? <LocalControls control={live && request.request === 'bottom_opening'

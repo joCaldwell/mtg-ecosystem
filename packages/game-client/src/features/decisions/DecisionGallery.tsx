@@ -1,4 +1,7 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import type { CardView } from '../../presentation/table-model.ts';
+import { CardFace } from '../../cards/CardFace.tsx';
+import { Inspector } from '../inspector/Inspector.tsx';
 import { emptyDraft, type DecisionBinding, type DecisionCompletion, type DecisionRequest, type LocalControl, type ObjectLabel } from '../../decisions/controls.ts';
 import { DecisionPanel } from './DecisionPanel.tsx';
 import { LocalControls } from './LocalControls.tsx';
@@ -9,10 +12,13 @@ const quantity: LocalControl = { kind: 'quantity', title: 'Exact quantity bookke
 
 /** An isolated fixture surface. App supplies only the already qualified public
  * capture; synthetic exercises are deliberately separate and contain no cards. */
-export function DecisionGallery({ request, labels, binding, source }: {
+export function DecisionGallery({ request, labels, binding, source, cards }: {
   readonly request: DecisionRequest; readonly labels: readonly ObjectLabel[];
   readonly binding: DecisionBinding; readonly source: string;
+  readonly cards: readonly CardView[];
 }) {
+  const [inspected, setInspected] = useState<string | null>(null);
+  const inspectionTrigger = useRef<HTMLButtonElement | null>(null);
   const [receipt, setReceipt] = useState('No local draft confirmed.');
   const [generation, setGeneration] = useState(0);
   const [removed, setRemoved] = useState(false);
@@ -23,12 +29,12 @@ export function DecisionGallery({ request, labels, binding, source }: {
   return <div className={styles.gallery}>
     <span className="eyebrow">Multiverse / isolated fixture gallery</span>
     <h1>Decision drafts</h1>
-    <p className={styles.intro}>Review a choice, preserve its exact identity, then confirm a local draft. These controls never send game actions. The live table remains read-only.</p>
+    <p className={styles.intro}>Review and confirm local drafts without sending game actions. Live opening choices are available separately on the live table.</p>
     <nav aria-label="Gallery sections"><a href="#captured">Captured opening</a><a href="#structural">Structural exercises</a><a href="#blocked">Contract gaps</a></nav>
+    <div className={styles.galleryLayout}><div>
     <section id="captured" className={styles.section} aria-labelledby="captured-title"><h2 id="captured-title">Captured foundation choice</h2>
-      <p className={styles.source}>{source}</p>
-      <p className={styles.source}>Historical permitted capture, checked against the current qualified SDK. This fixture does not advance a match.</p>
-      <details className={styles.hand}><summary>Captured hand · {labels.length} objects</summary><ul>{labels.map(label => <li key={label.handle}>{label.name ?? 'Unidentified object'} <small>Handle {label.handle}</small></li>)}</ul><a href="/fixtures/opening">Inspect the captured cards and source text</a></details>
+      <details className={styles.source}><summary>Capture provenance</summary><p>{source}</p><p>Historical permitted capture, checked against the current qualified SDK. This fixture does not advance a match.</p></details>
+      <details className={styles.hand}><summary>Captured hand · {labels.length} objects</summary><ul>{cards.map(card => <li key={card.inspectionId}><CardFace card={card} selected={inspected === card.inspectionId} onInspect={(id, button) => { inspectionTrigger.current = button; setInspected(id); }} /><small>Handle {card.inspectionId}</small></li>)}</ul><a href="/fixtures/opening">Open the captured table</a></details>
       <DecisionPanel binding={binding} request={request} labels={labels} onComplete={complete} />
     </section>
     <section id="structural" className={styles.section} aria-labelledby="structural-title"><h2 id="structural-title">Synthetic structural exercises</h2>
@@ -45,6 +51,6 @@ export function DecisionGallery({ request, labels, binding, source }: {
       <DecisionPanel binding={labBinding} request={{ request: 'modes', token: labBinding.token, player: binding.seat, candidates: [0, 1] }} labels={[]} onComplete={complete} />
       <p className={styles.source}>Ordering/allocation primitives require supplied meaning and constraints before a gameplay adapter. Costs, target eligibility and lethal damage remain core-owned. Action labels are currently unavailable.</p>
     </section>
-    <section className={styles.section} aria-labelledby="receipt-title"><h2 id="receipt-title">Last local completion</h2><pre aria-live="polite" className={styles.receipt}>{receipt}</pre></section>
+    </div><div className={styles.gallerySide}><Inspector card={cards.find(card => card.inspectionId === inspected) ?? null} onClose={() => { setInspected(null); inspectionTrigger.current?.focus(); }} /><section className={`${styles.section} ${styles.receiptPanel}`} aria-labelledby="receipt-title"><h2 id="receipt-title">Last local completion</h2><p className={styles.source}>Local output only · no command sent</p><pre aria-live="polite" className={styles.receipt}>{receipt}</pre></section></div></div>
   </div>;
 }
