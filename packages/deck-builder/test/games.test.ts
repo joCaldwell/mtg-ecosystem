@@ -354,3 +354,31 @@ test("game HTTP endpoints require current human auth, reject cross-origin writes
     if (savedOrigin === undefined) delete process.env.DECKBUILDER_PUBLIC_ORIGIN; else process.env.DECKBUILDER_PUBLIC_ORIGIN = savedOrigin;
   }
 });
+
+test("native proxy preserves exact human request bytes, omits adapter extras and rechecks authority outside SQL", async () => {
+  const { databaseGate } = await import("../src/auth-database.ts");
+  const f = fixture();
+  try {
+    const game = (await f.coordinator.launch(OWNER, f.id, f.revision(), key)).game!;
+    const request = { method: "POST" as const, path: `/v1/matches/${game.id}/commands`, body: ' { "command" : "synthetic" }\n', authorization: "Bearer synthetic-human" };
+    await assert.rejects(f.coordinator.nativeProxy(OWNER, game.id, request), { status: 503 });
+    let calls = 0;
+    f.adapter.proxy = async (original, captured) => {
+      calls++; assert.equal(original.id, game.id); assert.deepEqual(captured, request);
+      const count = await databaseGate(f.db).run(() => (f.db.prepare("SELECT count(*) n FROM users").get() as { n: number }).n);
+      assert.ok(count > 0, "proxy does not reserve SQLite across native I/O");
+      return { status: 200, body: '{"status":"synthetic"}', operator: "never-return-adapter-extra" };
+    };
+    assert.deepEqual(await f.coordinator.nativeProxy(OWNER, game.id, request), { status: 200, body: '{"status":"synthetic"}' });
+    await assert.rejects(f.coordinator.nativeProxy({ ...OWNER, user_id: 999 }, game.id, request), { status: 404 });
+    await assert.rejects(f.coordinator.nativeProxy(agent("agent"), game.id, request), { status: 403 });
+    await assert.rejects(f.coordinator.nativeProxy(OWNER, game.id, { ...request, body: "x".repeat(65_537) }), { status: 400 });
+    assert.equal(calls, 1);
+    f.adapter.proxy = async () => {
+      f.db.prepare("UPDATE users SET is_admin=0 WHERE id=?").run(OWNER.user_id);
+      deleteAccount(f.db, OWNER, accountInfo(f.db, OWNER).handle);
+      return { status: 200, body: "must-not-release-after-deletion" };
+    };
+    await assert.rejects(f.coordinator.nativeProxy(OWNER, game.id, request), { status: 404 });
+  } finally { await f.coordinator.close(); f.db.close(); }
+});
