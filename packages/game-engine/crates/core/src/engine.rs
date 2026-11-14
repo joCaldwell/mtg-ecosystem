@@ -309,6 +309,8 @@ mod recovery;
 pub use recovery::SnapshotVerifier;
 mod actions;
 mod casting;
+#[cfg(test)]
+mod casting_foundation_tests;
 mod mana_permanents;
 #[cfg(test)]
 mod mana_tests;
@@ -2510,40 +2512,7 @@ impl Game {
                 Ok(())
             }
             (Frame::Priority, Response::Cast { card }) if self.state.rules.priority == player => {
-                self.validate_cast_permission(player)?;
-                let o = self.state.rules.objects.get(card).ok_or("invalid cast")?;
-                if !(o.zone == (Zone::Hand { owner: player })
-                    || (o.zone == (Zone::Command { owner: player })
-                        && self.state.rules.commanders.history(*card).is_some()))
-                    || self.state.rules.cards[card].owner != player
-                    || self.definition(*card)?.spell.is_none()
-                {
-                    return Err("invalid or unsupported cast".into());
-                }
-                let program = self
-                    .definition(*card)?
-                    .spell
-                    .as_ref()
-                    .ok_or("missing cast program")?;
-                // CR 702.8a / 601.2: intrinsic flash lowers to instant timing;
-                // catalog validation binds that permission to the whole spell.
-                // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-                if program.timing == SpellTiming::MainPhase && (!self.main_phase_action(player)) {
-                    return Err("main-phase spell casting requires active-player main-phase priority and empty stack".into());
-                }
-                // Restrict targeted proposals to spells with an eligible target;
-                // the target-stage request never waits for an impossible choice.
-                if program
-                    .additional_sacrifice
-                    .as_ref()
-                    .is_some_and(|f| self.sacrifice_candidates(player, f).is_empty())
-                {
-                    return Err("no payable sacrifice cost".into());
-                }
-                if !self.has_target_domain(program, player) {
-                    return Err("no legal target for this proposal".into());
-                }
-                Ok(())
+                self.validate_priority_spell_cast(player, *card)
             }
             (
                 Frame::Targets { .. } | Frame::TriggerTargets { .. },
@@ -2742,107 +2711,7 @@ impl Game {
                         }
                     }
                     Response::Cast { card } => {
-                        self.validate_cast_permission(input.player)?;
-                        self.check_stack_capacity(1)?;
-                        let cast_from = self
-                            .state
-                            .rules
-                            .objects
-                            .get(&card)
-                            .ok_or("missing cast source")?
-                            .zone;
-                        let total_cost = self.casting_cost(card, input.player, cast_from)?;
-                        let original_object = self
-                            .state
-                            .rules
-                            .objects
-                            .get(&card)
-                            .ok_or("missing cast source")?
-                            .id;
-                        let id = StackId(self.state.rules.next_stack_id);
-                        self.state.rules.next_stack_id = self
-                            .state
-                            .rules
-                            .next_stack_id
-                            .checked_add(1)
-                            .ok_or("stack ID resource limit")?;
-                        self.record_event(Event::SpellProposed { card, stack_id: id })?;
-                        let source = self
-                            .move_object_for(
-                                original_object,
-                                Zone::Stack,
-                                BatchCause::Casting {
-                                    stack_id: id,
-                                    player: input.player,
-                                    source: original_object,
-                                },
-                            )?
-                            .successor;
-                        let effect_source_handles =
-                            { self.capture_trigger_source_handles(source)? };
-                        self.state.rules.stack.push(StackInstance {
-                            x: None,
-                            death_controller: None,
-                            sacrificed: None,
-                            mode: None,
-                            effect_source_handles,
-                            source_facts: { Some(self.object_before(source)?) },
-                            entity_targets: vec![],
-                            announced_entity_targets: vec![],
-                            stack_targets: vec![],
-                            announced_stack_targets: vec![],
-                            kind: StackKind::Spell,
-                            player_targets: vec![],
-                            id,
-                            source,
-                            controller: input.player,
-                            targets: vec![],
-                            announced_targets: vec![vec![]; 4],
-                            paid: None,
-                            total_cost,
-                            cast_from,
-                        });
-                        let cast = Casting {
-                            sacrifice: None,
-                            origin: AnnouncementOrigin::Spell,
-                            spending: None,
-                            stack_id: id,
-                            original_object,
-                            prior_passes: self.state.rules.passes.clone(),
-                            mana_activations: vec![],
-                            undo_mana: false,
-                        };
-                        self.state.rules.frame = if self.definition(card)?.x_mana_cost {
-                            Frame::AnnounceX { cast }
-                        } else if !self
-                            .definition(card)?
-                            .spell
-                            .as_ref()
-                            .ok_or("missing spell")?
-                            .modes
-                            .is_empty()
-                        {
-                            Frame::Modes { cast }
-                        } else if self.program()?.targets.is_empty() {
-                            Frame::Mana { cast }
-                        } else if matches!(
-                            self.program()?.targets[0].domain,
-                            TargetDomain::StackSpell
-                                | TargetDomain::StackActivatedOrTriggeredAbility
-                        ) {
-                            Frame::StackTargets { cast }
-                        } else if self.program()?.targets[0].domain == TargetDomain::AnyDamageTarget
-                        {
-                            Frame::EntityTargets { cast }
-                        } else if matches!(
-                            self.program()?.targets[0].domain,
-                            TargetDomain::OpponentPlayer | TargetDomain::AnyPlayer
-                        ) {
-                            Frame::PlayerTargets { cast }
-                        } else {
-                            Frame::Targets { cast }
-                        };
-                        self.state.rules.passes.clear();
+                        self.announce_priority_spell(input.player, card)?;
                     }
                     Response::Pass => {
                         self.record_event(Event::PriorityPassed {

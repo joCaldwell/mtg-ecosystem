@@ -15,6 +15,20 @@ impl From<PaymentError> for String {
     }
 }
 
+/// Successful completion is distinct from a rules inability to pay and from
+/// an engine error. This receipt is produced only after every cost and the one
+/// cast occurrence; a caller, rather than the payment primitive, owns resumption.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct AnnouncementCompleted {
+    pub(super) stack_id: StackId,
+    pub(super) controller: PlayerId,
+}
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum AnnouncementPayment {
+    Completed(AnnouncementCompleted),
+    Unpayable,
+}
+
 impl Game {
     pub(super) fn can_pay(&self, player: PlayerId, cost: &ManaCost) -> Result<bool, String> {
         match self.payment_pool(player, cost) {
@@ -128,17 +142,45 @@ impl Game {
     }
 
     pub(super) fn payment_step(&mut self, cast: Casting) -> Result<(), String> {
+        match self.pay_announcement_costs(&cast)? {
+            AnnouncementPayment::Completed(completed) => {
+                self.state.rules.priority = completed.controller;
+                self.state.rules.frame = Frame::Priority;
+            }
+            AnnouncementPayment::Unpayable => {
+                let undo = cast.undo_mana;
+                self.reverse_cast(cast, "insufficient mana", undo)?;
+            }
+        }
+        self.stabilize()
+    }
+
+    // CR 601.2h-i / 608.2g: payment and cast-trigger collection do not grant
+    // priority or stabilize. The ordinary caller above supplies that boundary;
+    // a later resolution caller must instead return to its owned continuation.
+    // This primitive alone does not admit any resolution casting permission.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    pub(super) fn pay_announcement_costs(
+        &mut self,
+        cast: &Casting,
+    ) -> Result<AnnouncementPayment, String> {
         let stack = self.top()?.clone();
+        if stack.id != cast.stack_id
+            || stack.paid.is_some()
+            || stack.kind.is_spell() != cast.origin.is_spell()
+        {
+            return Err("announcement payment binding invariant".into());
+        }
         let cost = stack.total_cost.clone();
         if !self.can_pay(stack.controller, &cost)? {
-            let undo = cast.undo_mana;
-            self.reverse_cast(cast, "insufficient mana", undo)?;
-            self.stabilize()?;
-            return Ok(());
+            return Ok(AnnouncementPayment::Unpayable);
         }
-        self.check_sacrifice_payment(&stack, &cast)?;
+        self.check_sacrifice_payment(&stack, cast)?;
         let proposed = {
-            let spending = cast.spending.ok_or("missing explicit mana spending")?;
+            let spending = cast
+                .spending
+                .clone()
+                .ok_or("missing explicit mana spending")?;
             self.selected_payment_pool(stack.controller, &cost, &spending)?;
             ProposedEvent::PayManaSelected {
                 player: stack.controller,
@@ -197,8 +239,9 @@ impl Game {
                 ability: *ability,
             })?;
         }
-        self.state.rules.priority = stack.controller;
-        self.state.rules.frame = Frame::Priority;
-        self.stabilize()
+        Ok(AnnouncementPayment::Completed(AnnouncementCompleted {
+            stack_id: stack.id,
+            controller: stack.controller,
+        }))
     }
 }

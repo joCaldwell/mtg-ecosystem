@@ -46,6 +46,11 @@ revision was read, and no deck mutation occurred. Future reconciliation must
 compare discovery text with these frozen fixtures, record any differences, and
 keep revision 17 fixed unless a new target is explicitly authorized.
 
+The [M3a announcement/payment foundation](game-engine-ramos-casting-contract.md#m3a-announcementpayment-foundation-basic-cascade-still-rejected)
+changes shared ordinary casting/payment boundaries and the 100-card sampler,
+with no source admission. Shardless Agent and Bloodbraid Elf remain the same
+whole-source rejections in the matrix; basic cascade and the full M3 exit are open.
+
 ## Measured baseline and matrix
 
 The production `catalog extract` and `catalog verify` commands verified all 85

@@ -297,6 +297,71 @@ changes. Save/restore and accepted-input replay must agree before and after each
 pending input; recovered observation/validation/action Work remains exact-state,
 executor and viewer scoped. Queued departure processing precedes exposing choices.
 
+## M3a announcement/payment foundation (basic cascade still rejected)
+
+The first implementation checkpoint is deliberately narrower than the basic
+cascade exit below. `casting.rs` now owns ordinary-priority preflight and a
+consumed `SpellAnnouncement` proposal (caster, exact object and actual origin),
+one stack proposal constructor, and common X/mode/target routing. The only
+implemented permission authority remains ordinary hand/designated-command casting;
+no exile or resolution permission is constructible through player inputs.
+`payments.rs::pay_announcement_costs` completes the existing locked mana and
+mandatory sacrifice costs and collects the one actual cast occurrence, then
+returns a typed `AnnouncementPayment::{Completed, Unpayable}`. Completion carries
+stack ID/controller and does not grant priority, stabilize or reverse the proposal.
+The ordinary `payment_step` caller owns that return boundary and the existing
+reversal. Activation payment uses the same primitive and still never emits a
+spell-cast occurrence. Empty explicit mana spending can complete a zero total cost;
+printed mana value remains independent. The generic unbiased word sampler now
+covers 2 through the common physical-card limit of 100, including tucked commanders;
+initial setup still requires its separate 99-card library. M2 library shuffling
+uses that physical bound while retaining its existing whole-library history/event.
+This is not cascade's future private random-bottom operation. The 100 bound is
+verified directly at the generic sampler, including every accepted residue and
+rejected tail for each range 2..=100. A 100-card M2 continuation/accepted-replay
+witness remains omitted: an own search spell or own activated search source is
+outside its caster's library, bounding that source scenario at 99. A borrowed
+search activation with all 100 owned cards in the library needs a separately
+reachable control context. Private midgame scenarios have no trusted RNG; adding
+a seeded match config starts the real 99-card setup rather than authenticating an
+arbitrary seeded midgame root. This checkpoint adds no control producer or new
+replay-origin authority to manufacture that missing witness.
+
+No IR capability, self-cast condition, alternative cost, resolution permission,
+owned parent continuation, public/query form or snapshot format is added here.
+Both exact frozen sources still reject with `keyword:cascade`, at
+`abilities[0].keywords[0]` (Agent) and `abilities[1].keywords[0]` (Bloodbraid),
+including Agent's artifact/creature membership and Bloodbraid's haste obligation.
+The dedicated compiler negatives pin those full record bytes and source/AST
+identities; they do not admit a partial definition. Direct payment-boundary and
+locked-zero-cost controls are explicitly synthetic and are not paid free-cast,
+legal-pod or resolution-continuation witnesses.
+
+Focused foundation verification retained 426 distinct passing Rust tests across
+source-frozen passes: 96 contracts, 229 compiler and 101 selected core tests,
+plus workspace all-target compilation, formatting and the structural guard.
+The own debug CLI's 888 compiled-source rows match their actual files; schema
+SHA-256 remains `57cb2f4e6d04f2511f4364b508e3ba5417d6cd8ad35a2574d4c80945f384a397`.
+Exact commands, copied executables, optimization/build identities, five-source
+catalog, source manifests, failures and review continuity are retained under
+`generated/ramos/m3a-foundation/` in the isolated implementation worktree.
+Two new compiler diagnostic expectations were corrected after a failed pass.
+Two old departure expectations and one query scratch-budget expectation also
+failed identically on preserved parent producer `0fdbd817`; only those tests were
+corrected against the existing production guard and charged initialization unit.
+The one read-only production review found no actionable issue; production bytes
+remained unchanged through all test repairs. No full runtime/release/profile,
+Node parser/Ajv, SDK, host/search or consumer qualification is claimed.
+
+Remaining basic checkpoint work is the shared owned resolution cast permission,
+`WithoutManaCost` and X=0, stack-functioning self-cast triggers, complete source
+lowering/capability guards, sequential cascade exile/current-or-LKI threshold,
+caster-only offer, exact owner-below-child resumption, private random remainder
+bottom with Commander replacement, and authenticated recovery/privacy/departure
+coverage. The basic-cascade exit below remains wholly open, as do the separate
+source-qualified optional-additional-cost and reachable casting-prohibition exits.
+No full target-deck, profile, hosting, search, SDK or consumer claim follows.
+
 ## Bounded checkpoint and focused exit evidence
 
 First implementation checkpoint: complete both frozen basic cascade sources,

@@ -8818,3 +8818,6 @@ mod counter_placement_tests;
 
 #[cfg(test)]
 mod temporary_creature_keyword_tests;
+
+#[cfg(test)]
+mod ramos_m3_tests;

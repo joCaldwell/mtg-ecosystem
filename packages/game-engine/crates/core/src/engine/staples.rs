@@ -555,11 +555,10 @@ impl Game {
         if index == 0 || index as usize >= library.len() {
             return Err("shuffle range".into());
         }
-        // The setup sampler covers ranges 2..=99, the largest Commander library
-        // (100 cards less the commander). Fail loudly rather than retry forever
-        // if a future card ever lets a library grow past that bound.
-        if library.len() > 99 {
-            return Err("shuffle library exceeds the reviewed 99-card sampler range".into());
+        // A tucked commander can bring the physical library to all 100 owned
+        // cards. The shared sampler uses that common bound, not setup's 99.
+        if library.len() > capacities::OWNED_LIMIT {
+            return Err("shuffle library exceeds the physical-card sampler range".into());
         }
         let random = &mut self
             .state
