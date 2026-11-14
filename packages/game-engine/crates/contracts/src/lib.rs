@@ -2514,6 +2514,9 @@ pub fn supported_temporary_creature_keywords(keywords: &[KeywordAbility]) -> boo
                     | KeywordAbility::Indestructible
                     | KeywordAbility::Lifelink
                     | KeywordAbility::Hexproof
+                    | KeywordAbility::Haste
+                    | KeywordAbility::Trample
+                    | KeywordAbility::FirstStrike
             ) && !keywords[..index].contains(keyword)
         })
 }
@@ -3931,7 +3934,7 @@ pub fn catalog_schema() -> serde_json::Value {
     });
     schema["$defs"]["TemporaryCreatureKeywords"] = serde_json::json!({
         "type":"array","minItems":1,"uniqueItems":true,
-        "items":{"enum":["flying","deathtouch","indestructible","lifelink","hexproof"]}
+        "items":{"enum":["flying","deathtouch","indestructible","lifelink","hexproof","haste","trample","first_strike"]}
     });
     schema["$defs"]["TemporaryCreatureKeywordInstructions"] = serde_json::json!({"anyOf":[
         {"minItems":1,"maxItems":1,"items":{"properties":{
