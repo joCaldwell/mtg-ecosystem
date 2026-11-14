@@ -12,7 +12,7 @@ owns visual and interaction rules; [the README](../README.md) owns setup.
 | deck-builder | Existing authentication, Actor authorization, deck services, SQLite, API, CLI and MCP |
 | game-ui | Router-free, effect-free shared display over permitted local view models, scoped CSS and host React |
 | game-client | Generated-protocol/session adapters, local decision drafts, recovery, qualified preview and standalone harness |
-| Future coordinator | Account-to-match/seat association, immutable game deck, admission and automated-opponent supervision |
+| Account coordinator | Actor/deck authorization, immutable game capture, durable owner-scoped launch/recovery records and native consumer supervision contract |
 | Rust host/core | Authoritative supported-catalog admission, rules, visibility, durable execution and outcomes |
 
 The product uses the backend's public `./host` factory and type-only `./contracts`.
@@ -203,30 +203,53 @@ inspection. IME Enter/Escape keeps composition semantics, including Safari keyCo
 
 ## Game launch
 
-The first game mode is one human against three automated opponents. Real Start
-game stays unavailable until an authenticated coordinator exists. Preview is a
-separate local action. Cookie sign-in grants no Rust seat authority.
+The first game mode is one human against three automated opponents. Cookie sign-in
+grants no native seat authority. Captured preview stays separate from admission,
+selected library decks and live records.
 
-Before launch, the coordinator must:
+The public backend host accepts `GameCoordinatorOptions`; type-only `./contracts`
+owns the coordination DTOs and `NativeGameAdapter` seam. The backend rechecks the
+existing UI Actor/account and deck ownership below HTTP, atomically captures the
+requested revision as Oracle IDs/roles/quantities excluding maybes, and persists
+that immutable deck before native provisioning. The deck library has no engine
+or Card IR dependency. Games survive library deck edits/deletion; account export
+and deletion include their owner-scoped rows through the existing inventory.
 
-1. Resolve the existing Actor and recheck deck ownership below HTTP.
-2. Atomically validate the selected revision and retain an immutable game deck of
-   Oracle IDs, roles and quantities, excluding maybes and unrelated notes.
-3. Obtain native admission against exact source/catalog/build/profile identities.
-   Ordinary Commander legality does not prove engine support; multiple commanders
-   and companions require explicit outcomes.
-4. Provision one human seat and three separately owned automated consumers. Keep
-   operator/bot credentials server-side and issue only human seat authorization.
-5. Compose the session controller through an explicit adapter preserving Web Locks,
-   exact command journaling and unknown outcomes. Qualify all reachable decisions
-   before claiming full browser play.
-6. Persist owner-scoped game records/typed outcomes before resume/history/results.
-   Supervise bot lifetime and human think time; SDK watchdogs/in-memory plans do
-   not provide production supervision.
+Authenticated `/api/games/admission` checks a selected revision. `/api/games`
+launches with `{deck_id,expected_revision,request_id}` or lists the owner's latest
+100 records; `/api/games/:id` reads one, `/resume` reconciles its captured deck and
+`/seat` returns only a bounded human SeatBootstrap file. Native I/O never reserves
+the shared SQLite gate. A stable request ID binds the original launch input;
+uncertain creation must recover the same native match, never create a replacement.
+Records retain active/paused/interrupted/completed states, native win/draw outcomes,
+wait timestamps and durable consumer-stop acknowledgments. Resource/time failures
+are interruptions, never invented rules losses. Another launch remains blocked
+until the previous terminal game's consumers have acknowledged joining.
 
-Admission states remain distinct: not checked, checking, supported, unsupported,
-unavailable and stale revision. Only authoritative evidence establishes supported.
-[Client contracts](../../../docs/game-client.md) own delivery and recovery scope.
+Admission distinguishes not checked, checking, supported, unsupported, unavailable
+and stale revision. The product's opt-in `admit-client` process adapter checks
+exact engine/server build IDs, catalog digest, profile and returned Oracle deck.
+Its version-1 CLI is admission-only; multiple commanders and companions receive
+explicit unsupported outcomes because that CLI cannot represent them. Ordinary
+Commander legality cannot establish engine support. No environment flag can mark
+native lifecycle or browser sessions qualified.
+
+Real Start game remains gated. The actual native create/recover bridge must fence
+uncertain operations by launch ID, retain operator/bot capabilities privately,
+run three independently owned consumers, supervise process death and stop/join
+all consumers. Coordinator sweeps enforce persisted human think-time and total
+lifetime limits; failed stop acknowledgments are retried after restart. The bridge
+must validate human file bytes with the generated SDK and bind seat 0, match,
+origin, builds and catalog before delivery. No bridge or authenticated same-origin
+native proxy currently meets that contract. The product default therefore supplies
+only authoritative admission and cannot provision a real game.
+
+Browser session composition, Web Locks, exact command journaling, unknown outcomes
+and every reachable decision also require qualification before enabling launch.
+The current product has no qualified live-session export; it offers compatibility
+checks and owner-scoped saved record/resume states without loading session/SDK
+runtime into preview. [Client contracts](../../../docs/game-client.md) own delivery
+and recovery scope. [Setup](../README.md) owns admission configuration.
 
 ## Checking a change
 
