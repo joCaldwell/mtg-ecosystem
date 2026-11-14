@@ -1254,10 +1254,70 @@ pub struct Definition {
     pub capabilities: BTreeSet<Capability>,
     pub provenance: SourceProvenance,
 }
+// Shared static-layer boundary for every attachment family. Keep family
+// recognition and Definition validation on the same keyword/restriction rules.
+fn static_creature_modification_valid(
+    kind: CardKind,
+    equipment: bool,
+    aura: bool,
+    effect: &StaticEffect,
+) -> bool {
+    let StaticEffect::ModifyCreatures {
+        scope,
+        power,
+        toughness,
+        keywords,
+        restrictions,
+    } = effect
+    else {
+        return false;
+    };
+    !(power.is_negative()
+        || toughness.is_negative()
+        || (power == &Quantity::zero()
+            && toughness == &Quantity::zero()
+            && keywords.is_empty()
+            && restrictions.is_empty())
+        || (*scope == CreatureScope::Source
+            && (kind != CardKind::Creature
+                || *power != Quantity::zero()
+                || *toughness != Quantity::zero()
+                || !keywords.is_empty()
+                || restrictions != &[CreatureRestriction::CantBlock]))
+        || (*scope == CreatureScope::AttackingController
+            && (!matches!(
+                kind,
+                CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
+            ) || *power != Quantity::zero()
+                || *toughness != Quantity::zero()
+                || keywords != &[KeywordAbility::Deathtouch]
+                || !restrictions.is_empty()))
+        || (*scope == CreatureScope::Equipped && !equipment)
+        || (*scope == CreatureScope::Enchanted && !aura)
+        || (*scope == CreatureScope::Controller && (kind != CardKind::Enchantment || aura))
+        || keywords.contains(&KeywordAbility::Flash)
+        || (keywords.contains(&KeywordAbility::Indestructible)
+            && (!equipment
+                || *scope != CreatureScope::Equipped
+                || *power != Quantity::zero()
+                || *toughness != Quantity::zero()
+                || keywords != &[KeywordAbility::Indestructible]
+                || !restrictions.is_empty()))
+        || keywords
+            .iter()
+            .enumerate()
+            .any(|(n, k)| keywords[..n].contains(k))
+        || restrictions
+            .iter()
+            .enumerate()
+            .any(|(n, k)| restrictions[..n].contains(k)))
+}
+
 /// The complete admitted Aura-control executable shape, without recursive
 /// validation, capability calculation, source identity or mana-cost dispatch.
 /// CR 303.4a/303.4m, 109.5 and 611.3: one creature target and one battlefield
-/// static effect using the current Aura controller. Other Aura families retain
+/// control effect using the current Aura controller, optionally composed with
+/// one already-supported enchanted-creature modifier. Other Aura families retain
 /// their existing admission rules.
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 pub fn aura_control_source(definition: &Definition) -> bool {
@@ -1277,9 +1337,24 @@ pub fn aura_control_source(definition: &Definition) -> bool {
         && definition.activated.is_empty()
         && definition.mana_abilities.is_empty()
         && definition.triggered.is_empty()
-        && matches!(definition.static_abilities.as_slice(), [a]
-            if a.functioning_zone == FunctioningZone::Battlefield
-                && a.effect == StaticEffect::ControlEnchantedCreature)
+        && (1..=2).contains(&definition.static_abilities.len())
+        && definition
+            .static_abilities
+            .iter()
+            .filter(|a| a.effect == StaticEffect::ControlEnchantedCreature)
+            .count()
+            == 1
+        && definition.static_abilities.iter().all(|a| {
+            a.functioning_zone == FunctioningZone::Battlefield
+                && (a.effect == StaticEffect::ControlEnchantedCreature
+                    || (matches!(
+                        a.effect,
+                        StaticEffect::ModifyCreatures {
+                            scope: CreatureScope::Enchanted,
+                            ..
+                        }
+                    ) && static_creature_modification_valid(c.kind, false, true, &a.effect)))
+        })
         && definition.spell.as_ref().is_some_and(|p| {
             p.timing == SpellTiming::MainPhase
                 && p.resolution == SpellResolution::Permanent
@@ -2358,55 +2433,8 @@ impl Definition {
                 }
                 continue;
             }
-            if let StaticEffect::ModifyCreatures {
-                scope,
-                power,
-                toughness,
-                keywords,
-                restrictions,
-            } = &a.effect
-            {
-                if power.is_negative()
-                    || toughness.is_negative()
-                    || (power == &Quantity::zero()
-                        && toughness == &Quantity::zero()
-                        && keywords.is_empty()
-                        && restrictions.is_empty())
-                    || (*scope == CreatureScope::Source
-                        && (c.kind != CardKind::Creature
-                            || *power != Quantity::zero()
-                            || *toughness != Quantity::zero()
-                            || !keywords.is_empty()
-                            || restrictions != &[CreatureRestriction::CantBlock]))
-                    || (*scope == CreatureScope::AttackingController
-                        && (!matches!(
-                            c.kind,
-                            CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
-                        ) || *power != Quantity::zero()
-                            || *toughness != Quantity::zero()
-                            || keywords != &[KeywordAbility::Deathtouch]
-                            || !restrictions.is_empty()))
-                    || (*scope == CreatureScope::Equipped && !equipment)
-                    || (*scope == CreatureScope::Enchanted && !aura)
-                    || (*scope == CreatureScope::Controller
-                        && (c.kind != CardKind::Enchantment || aura))
-                    || keywords.contains(&KeywordAbility::Flash)
-                    || (keywords.contains(&KeywordAbility::Indestructible)
-                        && (!equipment
-                            || *scope != CreatureScope::Equipped
-                            || *power != Quantity::zero()
-                            || *toughness != Quantity::zero()
-                            || keywords != &[KeywordAbility::Indestructible]
-                            || !restrictions.is_empty()))
-                    || keywords
-                        .iter()
-                        .enumerate()
-                        .any(|(n, k)| keywords[..n].contains(k))
-                    || restrictions
-                        .iter()
-                        .enumerate()
-                        .any(|(n, k)| restrictions[..n].contains(k))
-                {
+            if matches!(a.effect, StaticEffect::ModifyCreatures { .. }) {
+                if !static_creature_modification_valid(c.kind, equipment, aura, &a.effect) {
                     return Err("invalid static creature modification".into());
                 }
             } else if equipment || aura {
@@ -4383,6 +4411,54 @@ pub fn catalog_schema() -> serde_json::Value {
     cascade_schema(&mut schema);
     // Keep the Aura-control operation and capability paired with its complete
     // executable shape. This addition does not narrow other attachment families.
+    // Derive the scoped keyword vocabulary through the shared static-layer
+    // validator, rather than maintaining another attachment keyword allowlist.
+    let keyword_schema = serde_json::to_value(schemars::schema_for!(KeywordAbility)).unwrap();
+    let aura_keywords: Vec<KeywordAbility> =
+        serde_json::from_value::<Vec<KeywordAbility>>(keyword_schema["enum"].clone())
+            .unwrap()
+            .into_iter()
+            .filter(|keyword| {
+                static_creature_modification_valid(
+                    CardKind::Enchantment,
+                    false,
+                    true,
+                    &StaticEffect::ModifyCreatures {
+                        scope: CreatureScope::Enchanted,
+                        power: Quantity::zero(),
+                        toughness: Quantity::zero(),
+                        keywords: vec![*keyword],
+                        restrictions: vec![],
+                    },
+                )
+            })
+            .collect();
+    schema["$defs"]["AuraControlModifier"] = serde_json::json!({
+        "required":["functioning_zone","effect"],"properties":{
+            "functioning_zone":{"const":"battlefield"},
+            "effect":{"type":"object","required":["modify_creatures"],"properties":{
+                "modify_creatures":{
+                    "required":["scope","power","toughness","keywords","restrictions"],
+                    "properties":{
+                        "scope":{"const":"enchanted"},
+                        "power":{"pattern":"^(0|[1-9][0-9]*)$"},
+                        "toughness":{"pattern":"^(0|[1-9][0-9]*)$"},
+                        "keywords":{"uniqueItems":true,"items":{"enum":aura_keywords}},
+                        "restrictions":{"uniqueItems":true}
+                    },
+                    "anyOf":[
+                        {"properties":{"power":{"not":{"const":"0"}}}},
+                        {"properties":{"toughness":{"not":{"const":"0"}}}},
+                        {"properties":{"keywords":{"minItems":1}}},
+                        {"properties":{"restrictions":{"minItems":1}}}
+                    ]
+                }
+            }}
+        }
+    });
+    let aura_control_static = serde_json::json!({"const":{
+        "functioning_zone":"battlefield","effect":"control_enchanted_creature"
+    }});
     schema["$defs"]["AuraControlDefinition"] = serde_json::json!({
         "required":["spell","static_abilities","capabilities"],"properties":{
             "x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},
@@ -4395,7 +4471,10 @@ pub fn catalog_schema() -> serde_json::Value {
             }},
             "activated":{"maxItems":0},"mana_abilities":{"maxItems":0},
             "triggered":{"maxItems":0},"keywords":{"maxItems":0},
-            "static_abilities":{"const":[{"functioning_zone":"battlefield","effect":"control_enchanted_creature"}]},
+            "static_abilities":{"minItems":1,"maxItems":2,
+                "contains":aura_control_static,"minContains":1,"maxContains":1,
+                "items":{"anyOf":[aura_control_static,{"$ref":"#/$defs/AuraControlModifier"}]}
+            },
             "spell":{"type":"object","properties":{
                 "timing":{"const":"main_phase"},"resolution":{"const":"permanent"},
                 "functioning_zone":{"const":"stack"},"additional_sacrifice":{"type":"null"},

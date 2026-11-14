@@ -13,6 +13,10 @@ const MAGIC: &str =
 type Row = (&'static str, u8, u8, bool);
 
 fn prepared(rows: &[Row]) -> Prepared {
+    prepared_with_sources(rows, &[])
+}
+
+fn prepared_with_sources(rows: &[Row], extras: &[&str]) -> Prepared {
     let mut catalog = Catalog::read(include_str!(
         "../../../../tests/fixtures/expected-wipes-ir.json"
     ))
@@ -25,7 +29,10 @@ fn prepared(rows: &[Row]) -> Prepared {
         include_str!("../../../../tests/fixtures/9d8fe3f8-5027-4f9e-999e-e277caa96478.json"),
         include_str!("../../../../tests/fixtures/2f990b54-fbf3-4949-85bb-9ba39710e72a.json"),
         include_str!("../../../../tests/fixtures/1cb419cc-d8e4-4676-987f-089cebccc374.json"),
-    ] {
+    ]
+    .into_iter()
+    .chain(extras.iter().copied())
+    {
         let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
             include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
             raw,
@@ -1064,3 +1071,7 @@ fn paid_aura_control_snapshot_rejects_coherent_timestamp_controller_and_provenan
         }
     });
 }
+
+#[cfg(test)]
+#[path = "composed_aura_control_tests.rs"]
+mod composed_tests;

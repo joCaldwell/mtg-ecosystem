@@ -227,6 +227,36 @@ Full runtime/demo/release/profile/completion, server/SDK/consumer matrices and
 Node suites requiring absent local dependencies remain omitted. Pending Ramos
 counter-choice/cascade work requires its own later combined qualification.
 
+### Composed Aura-control qualification
+
+Source `3ee7fe8d51abd2c6bac9033a39381d14d761b45b` passed 412 distinct Rust tests
+(414 executions) and 1,753 exported-schema probes, including the unchanged 1,657
+prior keyword-family controls. Workspace all-target compilation, formatting,
+production Clippy and CLI smoke/replay passed. The 805-row CLI producer is
+`72d27bad47d67ecf5a5b5a3a6acf82a87b3a375549557b88e3fe657365a33f15`;
+optimized executed tests independently match
+`adbc578e31e1e74bd033dbc4d60acf8d02c530b5992641d10563b298f397016a`.
+Schema 1 SHA-256 is
+`a9ecd6b8cc0e62c1a64f4f5ec5dfa148c593da3d1cfe1bfb192002ac289a2b7d`.
+No new capability, core production mechanic, snapshot/public/query format or
+profile/consumer admission was added. Compiler/core/simulator production Clippy
+passed strictly; contracts retains its inherited `collapsible_if` exception.
+
+Complete frozen Spirit Away and Yavimaya's Embrace use the shared control operation
+and shared enchanted-creature modifier validation. Four paid functions at quanta
+1/4096 prove stat/keyword union, existing counter/equipment/temporary-effect
+composition, opposing control timestamps, same-controller combat preservation,
+invalid targets, bounce/reentry, normalized forgeries and lethal SBA after modifier
+loss with correct restored-controller LKI. The failed timestamp assertion omitted
+an intervening Equipment attachment; the corrected witness explicitly proves the
+shared chronological order. The failure and exact final executables, schema probes,
+source/settings proof and receipts remain under
+`generated/composed-aura-control/combined02/` in the original engine lane (the first
+attempt is retained alongside it). Full runtime, simulator policy runtime,
+release/profile/completion/performance, server/SDK/host/search/consumer matrices and
+Node suites requiring absent dependencies remain unrun. Plain control source and
+all committed catalog IR remain unchanged; older proofs keep their own identities.
+
 ### Selected current proof locators
 
 `generated/` below is relative to each original implementation lane, not assumed

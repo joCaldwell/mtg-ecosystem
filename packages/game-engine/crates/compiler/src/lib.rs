@@ -1230,16 +1230,50 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         // This family binds the complete source, never an approximated control
         // fragment. CR 303.4a/303.4m, 109.5, 611.3 and 613.1b (2026-09-25).
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-        if !matches!(abilities.as_slice(), [Ability::Keywords { keywords, .. }, Ability::Static { effect: SourceStaticEffect::Control { .. }, .. }]
+        let enchant = matches!(abilities.first(), Some(Ability::Keywords { keywords, .. })
             if matches!(keywords.as_slice(), [k] if k.keyword == "enchant" && k.cost.is_none()
                 && k.filter == Some(serde_json::json!({"types":["creature"]}))))
-            || result
-                .lines
-                .iter()
-                .map(|l| normalization::literal_spelling(&l.text))
-                .collect::<Vec<_>>()
-                != ["Enchant creature", "You control enchanted creature."]
-        {
+            && result.lines.first().is_some_and(|line| {
+                normalization::literal_spelling(&line.text) == "Enchant creature"
+            });
+        let controls = abilities
+            .iter()
+            .filter(|a| {
+                matches!(
+                    a,
+                    Ability::Static {
+                        effect: SourceStaticEffect::Control { .. },
+                        ..
+                    }
+                )
+            })
+            .count();
+        // Bind the complete typed family, not a whole-Oracle-text whitelist.
+        // Optional modifiers use the same literal attached-creature operand;
+        // lower_static and contracts retain their existing modifier validation.
+        let effects = abilities
+            .iter()
+            .zip(&result.lines)
+            .skip(1)
+            .all(|(ability, line)| {
+                match ability {
+                    Ability::Static {
+                        effect: SourceStaticEffect::Control { .. },
+                        ..
+                    } => {
+                        // Preserve the reviewed control sentence boundary: a parser
+                        // control fragment must not swallow an extra source clause.
+                        normalization::literal_spelling(&line.text)
+                            == "You control enchanted creature."
+                    }
+                    Ability::Static {
+                        effect: SourceStaticEffect::Modify { what, .. },
+                        ..
+                    } => *what == serde_json::json!({"ref":"enchanted","noun":"creature"}),
+                    _ => false,
+                }
+            });
+        if !enchant || controls != 1 || !(2..=3).contains(&abilities.len()) || !effects {
             return Err(unsupported(
                 "static.control",
                 "unsupported complete Aura control source",

@@ -219,11 +219,15 @@ separate source family below.
 ### Continuous creature control from Auras
 
 `aura_control_v1` admits the complete normal Aura shape: enchant one unfiltered
-creature, then a sole battlefield static operation giving its enchanted creature
-to the current source controller (CR 109.5, 110.2, 613.1b). Complete frozen Mind
-Control and Control Magic are witnesses with different printed mana costs; names,
-Oracle IDs and costs never select the control algorithm. Extra clauses, filters,
-abilities, durations, animation and dependent control-source forms reject.
+creature, then one battlefield static operation giving its enchanted creature
+to the current source controller (CR 109.5, 110.2, 613.1b). It may compose with
+one already-supported enchanted-creature static modifier. Complete frozen Mind
+Control and Control Magic witness plain control; Spirit Away and Yavimaya's Embrace
+compose it with +2/+2 and Flying or Trample. Names, IDs, printed amounts and costs
+never select the algorithms. The shared attachment modifier validator retains its
+existing limits, including rejection of negative static P/T, Flash and Aura-granted
+Indestructible. Unsupported extra abilities, filters, durations, animation and
+dependent control-source forms reject.
 
 The current battlefield source, exact attached target incarnation and semantic
 attachment timestamp determine authority. The latest live Aura wins; removing it

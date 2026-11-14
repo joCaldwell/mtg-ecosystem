@@ -38,8 +38,9 @@ signed stat modifier. Targets may be ordinary creatures or creatures controlled
 by the invocation controller; old unfiltered subset requirements and consumer/pool
 admission remain unchanged. The separate complete Aura-control family derives current creature control from
 live source/target incarnations and attachment timestamps, preserving ownership
-and frozen invocation controllers. Dynamic controlled-target/Hexproof and
-departure/reentry behavior now has focused paid-source qualification. Admitted
+and frozen invocation controllers. It composes with one supported enchanted-creature
+modifier through the existing static layers. Dynamic targeting, departure/reentry
+and modifier-loss behavior have focused paid-source qualification. Admitted
 Auras enter already attached in one typed occurrence; checked semantic timestamps
 preserve attachment order independently of object IDs.
 The bounded [Ramos basic cascade family](game-engine-ramos-casting-contract.md#m3b-complete-basic-cascade-checkpoint)
@@ -72,7 +73,7 @@ Acceptance is source-qualified, never inherited by later code:
 | D2c-d `394301d` | Accepted declared-attack triggers at historical IR24, including reviewed demo/Bundle lifetimes |
 | Later D2c-e/IR25 and finite trigger/keyword/interaction additions | Candidate/focused source qualification; no renewed combined acceptance or P7 performance claim |
 | Schema-1 reset | Regenerated 29 active pools, 1,357 definitions unchanged; focused checks only |
-| Latest continuous Aura-control family | Source `945c37a9da2902d7449caa4e1724a1d3d133f9f5`; 802 compiled rows; focused rules/source/recovery/schema qualification only |
+| Latest composed Aura-control family | Source `3ee7fe8d51abd2c6bac9033a39381d14d761b45b`; 805 compiled rows; focused rules/source/recovery/schema qualification only |
 | Client/hosting consumers | Retain their own exact producer/schema/catalog/build qualification, separate from current engine HEAD |
 
 [The evidence guide](game-engine-evidence.md) retains exact source/digest and proof
