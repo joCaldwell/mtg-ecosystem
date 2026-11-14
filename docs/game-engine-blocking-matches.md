@@ -3,7 +3,7 @@
 `commander-blocking-targets-v1` is a separate finite development profile. Its
 schema-1 `blocking-matches` catalog contains the 34 exact records selected by the
 foundations match catalog plus Righteousness, Swift Response, Assassinate,
-Burst of Energy, Pressure Point, Icy Manipulator, Royal Assassin, Ertai, Wizard Adept, Temporal Adept, Seeker of Skybreak and Llanowar Elves.
+Burst of Energy, Pressure Point, Icy Manipulator, Royal Assassin, Ertai, Wizard Adept, Temporal Adept, Seeker of Skybreak, Llanowar Elves and Withstand Death.
 This development pool evolves in place; its name does not select runtime rules.
 Other catalogs and decks remain unchanged.
 Neither hosting nor sampled search is requested by this profile; their reviewed
@@ -42,7 +42,7 @@ The default decks use these explicit compositions from the existing pool:
 | --- | --- | --- |
 | 0 | Isamaru, Hound of Konda | Eleven singleton nonbasic cards, including Righteousness, Swift Response, Burst of Energy, Pressure Point and Icy Manipulator, and 89 Plains |
 | 2 | Ertai, Wizard Adept | Singleton Ertai, Azure Mage, Hapless Researcher, Merfolk Looter, Counterspell, Stifle, Time Ebb, Unsummon, Temporal Adept and Icy Manipulator, and 90 Islands |
-| 1, 3 | Yargle and Multani | Seventeen singleton nonbasic cards, including Assassinate, Icy Manipulator, Royal Assassin, Seeker of Skybreak and Llanowar Elves, 43 Swamps and 40 Forests |
+| 1, 3 | Yargle and Multani | Eighteen singleton nonbasic cards, including Assassinate, Icy Manipulator, Royal Assassin, Seeker of Skybreak, Llanowar Elves and Withstand Death, 43 Swamps and 39 Forests |
 
 Each deck contains 100 cards. The profile retains the frozen 2026-10-15 Commander
 policy, color-identity restrictions and completion layout; it does not claim a
@@ -76,15 +76,65 @@ provide membership authority, including for orphans. Current visible type,
 targetability and friendly control still guide selection. Ordinary Growth spells
 do not become generally reactive. No card/profile identity selects policy rules.
 
-## Current blue default admission
+## Temporary creature protection admission
+
+The current schema-1 blocking pool has 46 definitions at canonical digest
+`c80f12b257ac00fc46e395480b81ee1c619158d7b97238905577f242937e5444`.
+The sole addition is the existing complete Withstand Death fixture
+`c462adf3-4ade-4b90-bdec-7247b080471f.json`; all 45 previous definition bodies
+are preserved. Each black/green default replaces one Forest with its singleton,
+leaving 39 Forests and 43 Swamps. White/blue composition, commanders, frozen
+legality policy, completion layout and hosting/search flags remain unchanged.
+The [temporary-indestructible foundation](game-engine-indestructible.md) owns
+source lowering and runtime semantics; this increment changes headless admission
+and public-view policy only.
+
+Develop recognizes the complete ordinary single-creature, until-end-of-turn
+indestructible spell through public IR. It prefers a current friendly target
+that lacks indestructible and faces the next completed opposing destruction
+invocation with a still-eligible announced target, or a sole creature wipe.
+It also recognizes fixed, explicitly targeted lethal damage and unambiguous
+one-on-one lethal/deathtouch combat before ordinary damage. It uses current
+controller, targetability, marked damage, public power/toughness and supplied
+candidate handles. First/double-strike participants, multiple blockers,
+intervening stack entries and visible prevention/damage replacement effects
+are conservatively excluded from damage inference. Completed first-strike-only
+damage is never counted as a future strike. Exile, bounce, toughness reduction,
+proactive casting and enemy benefit do not justify protection. Core remains
+legality and execution authority; an already announced mandatory target choice
+retains the existing legal-candidate fallback.
+
+The dedicated [paid pod witness](../packages/game-engine/crates/core/tests/temporary_protection_admission.rs)
+uses four legal 100-card decks and an opening-only bounded scan stopped before
+gameplay. The fixed first qualifying setup index is 126. Real basics pay for
+Yargle and Multani and opposing Royal Assassin; natural turns age both. Yargle
+attacks, Royal pays its tap cost to target that tapped commander, and a real
+Forest pays G for Withstand Death from hand above the completed invocation.
+The destruction is prevented and the same creature survives. Actual cleanup
+removes protection; a fresh Royal activation after untap then destroys it and
+its owner chooses the command zone. Unknown, stale hand, noncreature and
+wrong-player target submissions reject without semantic mutation. Snapshot
+verification, restoration, accepted-input replay and advance quanta 1/4096
+are checked independently of the synthetic permitted-IR policy controls.
+
+The original combat witness currently exposes a foundation defect after the
+successful protection response: damage-source keyword LKI validation admits
+intrinsic/static grant vocabulary but omits ordinary spell `GrantKeywords`.
+The retained RED faults before combat damage; this admission is a development
+candidate pending the separately owned narrow runtime fix and rerun of that
+unchanged witness. The failure remains under
+`generated/temporary-protection-admission/red-combat/` in the implementation
+checkout. Passing policy/admission checks do not clear this runtime defect.
+
+## Blue default admission
 
 Seat 2 now uses the already permitted Ertai commander and the ten existing
 singleton definitions listed above, including the commander, plus 90 Islands.
 The exact archived sources identify Ertai as a legendary blue Creature, every
 other colored card as blue, and Icy Manipulator as colorless; all retain Commander
 legality `legal`. Ordinary admission enforces the frozen ban/eligibility policy,
-100 cards, singleton names and commander color identity. No source or mechanic is
-added: the pool remains 45 definitions at canonical digest
+100 cards, singleton names and commander color identity. No source or mechanic was
+added by that blue-default increment: its pool contained 45 definitions at canonical digest
 `6cdb9eaff6a4176c69f7fae4e7fb7f04c01ec0942f7cc52434fd6a1147df834d`.
 Seats 0, 1 and 3, permitted commanders, completion rotation/homogeneous layout,
 policy and hosting/search requests remain unchanged. The dedicated admission
@@ -120,9 +170,9 @@ The full 18-game suite, other profile/release/runtime matrices, Node dependency
 and source-tooling suites, SDK/server/consumer qualification and offline retention
 were omitted. This is focused headless development evidence for the named producer.
 
-## Current tap-source untap admission
+## 45-definition tap-source untap admission
 
-The current schema-1 pool has 45 complete definitions, canonical digest
+That schema-1 pool had 45 complete definitions, canonical digest
 `6cdb9eaff6a4176c69f7fae4e7fb7f04c01ec0942f7cc52434fd6a1147df834d`. All prior 43 definition bodies are preserved.
 The exact Seeker source and existing `llanowar-elves.json` enter through the ordinary
 manifest/compiler/digest path. Each black/green default deck replaces two Forests

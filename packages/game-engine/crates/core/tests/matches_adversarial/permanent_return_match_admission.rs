@@ -9,7 +9,7 @@ fn catalog() -> Catalog {
         .unwrap()
         .catalog()
         .clone();
-    assert_eq!(c.definitions.len(), 45);
+    assert_eq!(c.definitions.len(), 46);
     c
 }
 fn config(c: &Catalog, seed: [u8; 32]) -> MatchConfig {

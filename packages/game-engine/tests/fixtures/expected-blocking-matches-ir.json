@@ -2498,6 +2498,74 @@
       }
     },
     {
+      "oracle_id": "c462adf3-4ade-4b90-bdec-7247b080471f",
+      "name": "Withstand Death",
+      "characteristics": {
+        "kind": "instant",
+        "subtypes": [],
+        "basic": false,
+        "legendary": false,
+        "mana_cost": {
+          "generic": "0",
+          "colored": [
+            "G"
+          ]
+        },
+        "colors": [
+          "G"
+        ],
+        "color_identity": [
+          "G"
+        ],
+        "power": null,
+        "toughness": null
+      },
+      "intrinsic_zone": null,
+      "spell": {
+        "timing": "instant",
+        "resolution": "instructions",
+        "functioning_zone": "stack",
+        "targets": [
+          {
+            "slot": 0,
+            "selection_id": "line:0:0",
+            "chooser": "controller",
+            "stage": "announcement",
+            "domain": "battlefield_creature"
+          }
+        ],
+        "instructions": [
+          {
+            "op": "grant_keywords",
+            "target_slot": 0,
+            "keywords": [
+              "indestructible"
+            ],
+            "duration": "until_end_of_turn",
+            "source_block": 0
+          }
+        ]
+      },
+      "capabilities": [
+        "normal_layout_v1",
+        "cast_instant_v1",
+        "creature_target_v1",
+        "indestructible_v1",
+        "temporary_indestructible_spell_v1"
+      ],
+      "provenance": {
+        "printing_id": "b059cca0-2373-428b-a3a6-c8be5523c96f",
+        "source_index": 29600,
+        "source_sha256": "c5f612ee21c892c59610fe297156f13009dcb767b979d88e24be5c76d21f1038",
+        "ast_sha256": "db293a1c7bf36063a1961db3d9168f786a91808ce42af3d6f9956bd020c6da38",
+        "binding_sha256": "2252071bd53db8bbcd04d6f9375dc62ba45063abc9157140b7fecad0f72eef0c",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "source_json": "{\"object\":\"card\",\"id\":\"b059cca0-2373-428b-a3a6-c8be5523c96f\",\"oracle_id\":\"c462adf3-4ade-4b90-bdec-7247b080471f\",\"multiverse_ids\":[209035],\"mtgo_id\":38249,\"mtgo_foil_id\":38250,\"tcgplayer_id\":36497,\"cardmarket_id\":242675,\"name\":\"Withstand Death\",\"lang\":\"en\",\"released_at\":\"2010-10-01\",\"uri\":\"https://api.scryfall.com/cards/b059cca0-2373-428b-a3a6-c8be5523c96f\",\"scryfall_uri\":\"https://scryfall.com/card/som/134/withstand-death?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T11:21:55Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/b/0/b059cca0-2373-428b-a3a6-c8be5523c96f.jpg?1783941715\",\"normal\":\"https://cards.scryfall.io/normal/front/b/0/b059cca0-2373-428b-a3a6-c8be5523c96f.jpg?1783941715\",\"large\":\"https://cards.scryfall.io/large/front/b/0/b059cca0-2373-428b-a3a6-c8be5523c96f.jpg?1783941715\",\"png\":\"https://cards.scryfall.io/png/front/b/0/b059cca0-2373-428b-a3a6-c8be5523c96f.png?1783941715\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/b/0/b059cca0-2373-428b-a3a6-c8be5523c96f.jpg?1783941715\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/b/0/b059cca0-2373-428b-a3a6-c8be5523c96f.jpg?1783941715\",\"thumb\":\"https://cards.scryfall.io/thumb/front/b/0/b059cca0-2373-428b-a3a6-c8be5523c96f.webp?1783941715\",\"grid\":\"https://cards.scryfall.io/grid/front/b/0/b059cca0-2373-428b-a3a6-c8be5523c96f.webp?1783941715\",\"display\":\"https://cards.scryfall.io/display/front/b/0/b059cca0-2373-428b-a3a6-c8be5523c96f.webp?1783941715\",\"art\":\"https://cards.scryfall.io/art/front/b/0/b059cca0-2373-428b-a3a6-c8be5523c96f.webp?1783941715\",\"crop\":\"https://cards.scryfall.io/crop/front/b/0/b059cca0-2373-428b-a3a6-c8be5523c96f.webp?1783941715\"},\"mana_cost\":\"{G}\",\"cmc\":1,\"type_line\":\"Instant\",\"oracle_text\":\"Target creature gains indestructible until end of turn. (Damage and effects that say \\\"destroy\\\" don't destroy it. If its toughness is 0 or less, it still dies.)\",\"colors\":[\"G\"],\"color_identity\":[\"G\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"not_legal\",\"timeless\":\"not_legal\",\"gladiator\":\"not_legal\",\"pioneer\":\"not_legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"not_legal\",\"competitivebrawl\":\"not_legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"not_legal\",\"predh\":\"legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":true,\"nonfoil\":true,\"finishes\":[\"nonfoil\",\"foil\"],\"oversized\":false,\"promo\":false,\"reprint\":false,\"variation\":false,\"set_id\":\"8f403072-9b22-4e69-8d59-22dc4c97fd8d\",\"set\":\"som\",\"set_name\":\"Scars of Mirrodin\",\"set_type\":\"expansion\",\"set_uri\":\"https://api.scryfall.com/sets/8f403072-9b22-4e69-8d59-22dc4c97fd8d\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Asom&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/som?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/b059cca0-2373-428b-a3a6-c8be5523c96f/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3Ac462adf3-4ade-4b90-bdec-7247b080471f&unique=prints\",\"collector_number\":\"134\",\"digital\":false,\"rarity\":\"common\",\"watermark\":\"mirran\",\"flavor_text\":\"On Mirrodin, every conflict ends in either death or darksteel.\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Tomasz Jedruszek\",\"artist_ids\":[\"bba69285-2445-4a4b-a847-59397be972ea\"],\"illustration_id\":\"3539672c-e859-4a26-bd7b-d06f74457f87\",\"border_color\":\"black\",\"frame\":\"2003\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":9681,\"penny_rank\":9687,\"prices\":{\"usd\":\"0.28\",\"usd_foil\":\"1.02\",\"usd_etched\":null,\"eur\":\"0.22\",\"eur_foil\":\"1.03\",\"tix\":\"0.03\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=209035&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DWithstand%2BDeath\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DWithstand%2BDeath\",\"edhrec\":\"https://edhrec.com/route/?cc=Withstand+Death\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F36497%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=242675&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/38249?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "abilities_json": "[{\"kind\":\"spell\",\"effects\":[{\"steps\":[{\"effect\":\"gain-abilities\",\"what\":{\"ref\":\"target\",\"filter\":{\"types\":[\"creature\"]},\"count\":{\"amount\":\"fixed\",\"value\":1},\"selectionId\":\"line:0:0\"},\"abilities\":[{\"gained\":\"keyword\",\"keyword\":{\"keyword\":\"indestructible\"}}],\"duration\":{\"duration\":\"end-of-turn\"}}]}]}]"
+      }
+    },
+    {
       "oracle_id": "c6a3a882-a127-4590-93d7-679ef4313efe",
       "name": "Elvish Visionary",
       "characteristics": {

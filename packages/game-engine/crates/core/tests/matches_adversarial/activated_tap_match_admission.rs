@@ -7,7 +7,7 @@ fn icy_catalog() -> Catalog {
         .unwrap()
         .catalog()
         .clone();
-    assert_eq!(c.definitions.len(), 45);
+    assert_eq!(c.definitions.len(), 46);
     c
 }
 fn id(c: &Catalog, name: &str) -> String {

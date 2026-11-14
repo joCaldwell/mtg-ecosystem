@@ -46,7 +46,8 @@
     "../f2902dfd-888f-4b02-b8ad-1056f0059fc3.json",
     "../fd9b5462-6578-4bf6-8026-23eaf5af3eee.json",
     "../704723f3-0490-4d96-930a-aacc6d19ba8d.json",
-    "../llanowar-elves.json"
+    "../llanowar-elves.json",
+    "../c462adf3-4ade-4b90-bdec-7247b080471f.json"
   ],
   "expected_ir": "../expected-blocking-matches-ir.json",
   "expected_digest": "blocking-matches.sha256",

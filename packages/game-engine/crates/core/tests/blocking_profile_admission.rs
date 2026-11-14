@@ -23,14 +23,14 @@ fn oracle(catalog: &Catalog, name: &str) -> String {
 }
 
 #[test]
-fn development_profile_adds_eleven_complete_definitions_and_admits_four_legal_decks() {
+fn development_profile_adds_twelve_complete_definitions_and_admits_four_legal_decks() {
     let catalog = catalog();
     let original = Catalog::read(include_str!(
         "../../../tests/fixtures/expected-match-ir.json"
     ))
     .unwrap();
     assert_eq!(catalog.schema_version, 1);
-    assert_eq!(catalog.definitions.len(), original.definitions.len() + 11);
+    assert_eq!(catalog.definitions.len(), original.definitions.len() + 12);
     for definition in &original.definitions {
         assert_eq!(
             catalog
@@ -57,6 +57,7 @@ fn development_profile_adds_eleven_complete_definitions_and_admits_four_legal_de
     let temporal = oracle(&catalog, "Temporal Adept");
     let seeker = oracle(&catalog, "Seeker of Skybreak");
     let elf = oracle(&catalog, "Llanowar Elves");
+    let protection = oracle(&catalog, "Withstand Death");
     assert!(
         catalog
             .definition_by_oracle_id(&seeker)
@@ -113,9 +114,10 @@ fn development_profile_adds_eleven_complete_definitions_and_admits_four_legal_de
             (&temporal, u32::from(seat == 2)),
             (&seeker, u32::from(matches!(seat, 1 | 3))),
             (&elf, u32::from(matches!(seat, 1 | 3))),
+            (&protection, u32::from(matches!(seat, 1 | 3))),
             (
                 &oracle(&catalog, "Forest"),
-                if matches!(seat, 1 | 3) { 40 } else { 0 },
+                if matches!(seat, 1 | 3) { 39 } else { 0 },
             ),
             (
                 &oracle(&catalog, "Swamp"),
@@ -245,12 +247,13 @@ fn blocking_profile_retains_singleton_color_and_feature_rejection() {
                     && capabilities.contains(&Capability::ActivatedSpellCounterV1)
                     && capabilities.contains(&Capability::ActivatedPermanentOwnerHandV1)
                     && capabilities.contains(&Capability::TapSourceUntapCreatureV1)
+                    && capabilities.contains(&Capability::TemporaryIndestructibleSpellV1)
         ));
     }
 }
 
 #[test]
-fn blue_default_has_exact_source_backed_composition_and_preserves_other_seats() {
+fn defaults_have_exact_source_backed_compositions_and_preserve_profile_contract() {
     let catalog = catalog();
     let profile = match_profile(PROFILE).unwrap();
     let config = MatchConfig::for_profile(PROFILE, [41; 32], PlayerId(0)).unwrap();
@@ -317,8 +320,8 @@ fn blue_default_has_exact_source_backed_composition_and_preserves_other_seats() 
     assert!(commander.characteristics.has_type(CardKind::Creature));
     assert_eq!(commander.characteristics.color_identity, vec![Color::U]);
 
-    // Exact pre-change compositions: this seat-only admission does not rewrite
-    // the white or either black/green default deck.
+    // Exact current compositions preserve white/blue and add only the admitted
+    // protection singleton in place of one Forest in each black/green seat.
     let white = [
         "Yoked Ox",
         "Sacred Nectar",
@@ -350,6 +353,7 @@ fn blue_default_has_exact_source_backed_composition_and_preserves_other_seats() 
         "Wall of Wood",
         "Elvish Visionary",
         "Assassinate",
+        "Withstand Death",
     ];
     for (seat, commander, singletons, basics) in [
         (
@@ -362,13 +366,13 @@ fn blue_default_has_exact_source_backed_composition_and_preserves_other_seats() 
             1,
             "Yargle and Multani",
             black_green.as_slice(),
-            vec![("Swamp", 43), ("Forest", 40)],
+            vec![("Swamp", 43), ("Forest", 39)],
         ),
         (
             3,
             "Yargle and Multani",
             black_green.as_slice(),
-            vec![("Swamp", 43), ("Forest", 40)],
+            vec![("Swamp", 43), ("Forest", 39)],
         ),
     ] {
         let deck = &config.decks[seat];
