@@ -305,6 +305,7 @@ impl Game {
                         card,
                         Object {
                             attached_to: None,
+                            attachment_timestamp: None,
                             plus_one_counters: Quantity::zero(),
                             marked_damage: Quantity::zero(),
                             deathtouch_damage: false,

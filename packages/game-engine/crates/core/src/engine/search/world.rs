@@ -367,6 +367,7 @@ impl SampleBuildWork {
                 id,
                 Object {
                     attached_to: None,
+                    attachment_timestamp: None,
                     plus_one_counters: Quantity::zero(),
                     deathtouch_damage: false,
                     id: object,
