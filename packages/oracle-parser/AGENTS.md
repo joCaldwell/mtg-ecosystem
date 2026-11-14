@@ -5,7 +5,7 @@ archive. The Rust semantic compiler under `packages/game-engine/` binds and lowe
 supported complete archived sources to executable Card IR. Bulk per-set emission
 remains unimplemented; see [the current engine map](../../docs/game-engine-current.md).
 The parser and its ingestion/archive tooling remain TypeScript; see the
-[adopted language decision](../../docs/runtime-language-decision.md).
+[adopted language decision](../../docs/architecture.md).
 See [docs/oracle_parser.md](../../docs/oracle_parser.md) for the design and
 [docs/architecture.md](../../docs/architecture.md) for where it sits.
 
@@ -15,14 +15,13 @@ build step — Node ≥ 23 runs the `.ts` sources directly (imports use explicit
 mode rejects them). The previous ANTLR/antlr4ts pipeline was audited and
 replaced on 2026-08-01; see the git history if you need the archaeology.
 
-## 📍 Status
+## Status and authority
 
-Parsing is at its target (92.27% of Commander-legal cards); reference binding
-is at 23,395 cards with all references bound and 21,998 fully bound. What is
-still unfinished — an independent audit of the binding rules, the remaining
-reference gaps by group, engine features, the paused parsing tail, and Card IR
-emission — is listed in
-[docs/oracle-parser-checkpoint.md](../../docs/oracle-parser-checkpoint.md#what-remains).
+The broad parsing tail is paused. Historical 2026-10-16 acceptance/binding counts
+are source-qualified in [parser checkpoints](../../docs/oracle_parser.md#source-qualified-checkpoint-and-remaining-work),
+not current executable support. Complete binding still needs compiler validation.
+[AST/archive contracts](../../docs/data_schemas.md) and `src/ast.ts` are authority;
+bulk `build-ir` emission remains deliberately unimplemented.
 
 ## 🧠 Architecture
 
@@ -83,7 +82,7 @@ one to assess current support, compare its `parser.sourceSha256` with
 `sourceIdentity()` from `scripts/validate-parser.ts`, and check its corpus hash
 and scope. Rebuild stale results with the commands above. Files named
 `parser-98-*` and checkpoint audit files are historical evidence; they do not
-describe the current parser. See [the checkpoint history](../../docs/oracle-parser-checkpoint.md).
+describe the current parser. See [the checkpoint history](../../docs/oracle_parser.md#source-qualified-checkpoint-and-remaining-work).
 
 ## 🔄 Development loop: correctness before coverage
 

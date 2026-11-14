@@ -26,7 +26,7 @@ the rules behind it.
 
 ## Narrow screens and public pages
 
-Decided on 2026-10-25 ([plan](../../../docs/deck-builder-v3-plan.md) D17,
+Decided on 2026-10-25 ([plan](../../../docs/deck-builder-spec.md) D17,
 D20) and built in phase 4a; phase 4b makes the full app hold up between
 720 px and 1024 px.
 
@@ -256,41 +256,15 @@ or about this app.
 <!-- inventory:end -->
 
 
-## Manual table extensions
+## Game presentation boundary
 
-The playtester deliberately uses larger rules text (`--text-rules`, 15px,
-`--leading-rules`, 1.6) without changing the dense deck-list typography.
-`mtg/table` contains text cards, zone containers, player summaries and card
-inspection with host-supplied contextual tools. Full, compact, hidden, selected,
-tapped, targeted and disabled observations are shown at `/design`.
+The current game table uses public `@multiverse/game-ui` display and the qualified
+client preview. Apply shared product identity without importing global product
+styles into game display. The legacy manual playtester is not an approved game
+client design reference. [Application contracts](../../../docs/multiverse-app.md)
+and [client contracts](../../../docs/game-client.md) govern game interactions.
 
-The table surface (`--table-bg`) shares the true-black canvas so near-black
-cards lift off it. Battlefield cards end in one line: fact chips (token,
-counters, attachments) and a power/toughness box on the left, state and the tap
-control on the right. A manual power/toughness box is dashed and says
-"Manual". Tapped cards are dashed and quieter, never rotated; untapped cards
-carry no label.
-
-The battlefield uses three rows separated by simple rules. It has no visible
-Battlefield heading, row headings or row counts. Hand and off-table zone counts
-remain visible. An empty battlefield lets the full-text hand take its natural
-height; its three divider rows stay available for drops. A populated battlefield
-or open zone viewer restores the regular table allocation. Hand rules can scroll
-vertically even in short windows. The hand, battlefield, library drawer and inspection panel scroll
-independently; fonts never shrink as a table grows. Selection has a blue border,
-tapping has an explicit state/action and a dashed edge, and temporary inspection
-never changes the pinned selection or an unfinished observation's target.
-
-Each battlefield lane owns its full visible bounded box as a drop target,
-including its blank upper area and gutters. The first lane grows to fill spare
-table space while its cards stay bottom-aligned. Drag highlighting follows that
-same box, remains stable over child cards, and clears on drop or cancellation.
-
-A hidden `CardObservation` has no card identity. Future game hosts must supply
-only permitted observations. Deck memory and tag tools belong to the playtest
-feature, never the shared card or zone presentation.
-
-## Phase 4b audit and patterns (2026-10-25)
+## Responsive, loading and interaction patterns
 
 Applied the installed `design:design-system` and `design:ux-copy` skill
 checklists by reading their SKILL.md files directly; this runtime has no Skill
@@ -699,7 +673,7 @@ Enter and Space open details and ? inspects. Main-list modifier
 selection is unchanged; maybe cards do not join bulk operations that assume
 deck membership. Slot assignments remain stored.
 
-## Content headers and panel views (owner direction, 2026-10-27)
+## Content headers and panel views
 
 Application page titles and actions belong to the black content frame, with
 the same centered width and gutter as their content. PageHeader has no grey

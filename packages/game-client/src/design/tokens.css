@@ -1,4 +1,4 @@
-/* Local product identity, aligned with deck-builder web/DESIGN.md and its base
+/* Local product identity, aligned with multiverse web/DESIGN.md and its base
    tokens. Kept independent: this client imports no deck-builder runtime UI. */
 :root {
   --sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;

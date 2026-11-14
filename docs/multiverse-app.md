@@ -30,9 +30,9 @@ The deck library retains its independent source database and release behavior.
 ## Top-level ownership
 
 Account and product navigation belong in `packages/multiverse`, rather than the
-deck-builder feature. Move the complete browser application there: moving only
-its shell would create cycles with the deck UI's existing providers, API client
-and generic controls. Deck editing remains a named feature within the product.
+deck-builder feature. The complete browser application now lives there: moving
+only its shell would create cycles with the deck UI's existing providers, API
+client and generic controls. Deck editing remains a named feature within the product.
 Use a top-level application as the owner rather than a speculative navigation
 library with one consumer.
 
@@ -107,3 +107,11 @@ empty accounts, unreadable deck selection, stale asynchronous deck switching,
 keyboard/focus/draft continuity and desktop/tablet/phone navigation. Use disposable
 source-backed browser fixtures. Keep real-host/full-game acceptance separate from
 this scaffold and retain meaningful failed results.
+
+## Canonical guidance
+
+[Product setup](../packages/multiverse/README.md), [browser architecture](../packages/multiverse/web/ARCHITECTURE.md)
+and [design](../packages/multiverse/web/DESIGN.md) govern the application.
+[Backend specification](deck-builder-spec.md) and [operations](../packages/deck-builder/OPERATIONS.md)
+govern the existing account/data system. [Client contracts and acceptance](game-client.md)
+retain current delivery gates, exact integration evidence and explicit omissions.

@@ -4,7 +4,8 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use mtg_contracts::{ObjectSet, SetMove, WipeAmount};
-// See docs/game-engine-board-wipes.md, Reviewed resource bounds.
+// Set semantics: docs/game-engine-mechanics.md#movement-sacrifice-and-board-wide-effects.
+// Shared resource bounds: docs/game-engine-capacity-policy.md.
 
 impl Game {
     pub(super) fn objects_in_set(&self, set: &ObjectSet, controller: PlayerId) -> Vec<ObjectId> {

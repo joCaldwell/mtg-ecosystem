@@ -36,7 +36,7 @@ preview, and `/fixtures/decisions` retains the independent controls gallery.
 ## Explicit setup
 
 Use pinned Node 26.11.1 through `sh scripts/engine-env.sh`. Never run a root npm
-install, share node_modules or invoke Cargo from client/SDK commands. Install both
+install, share node_modules or invoke Cargo from client/SDK commands. Install the
 packages locally with their own lockfiles:
 
 ```sh
@@ -47,7 +47,7 @@ sh scripts/engine-env.sh npm --prefix packages/game-client ci --workspaces=false
 
 Obtain the serving owner's exact native exports for source
 `ebfa6dde266139c45220959c4179ddedf6a38433` (the current qualification pin;
-see `sdk-qualification.json` and `LIVE-OPENING-REPORT.md`):
+see `sdk-qualification.json` and [opening evidence](../../docs/game-client-evidence.md#opening-and-recovery-evidence)):
 
 - Protocol SHA-256: `a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3`.
 - Bootstrap SHA-256: `0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a`.
@@ -67,7 +67,7 @@ sh scripts/engine-env.sh npm --prefix packages/game-client run check --workspace
 The native operator exports an explicit allowlist from `dist/`, provisions a
 private match and four individual seat files, and serves the production bundle,
 API and catalog-bound presentation artifact at one numeric loopback origin.
-Follow [the serving contract](../../docs/game-client-local-serving.md) for the
+Follow [the serving contract](../../docs/game-client.md#native-delivery-and-operator-procedure) for the
 exact export/launch commands and native source identities. Never place operator
 credentials or seat files under client/dist, public bundle or presentation roots.
 
@@ -80,7 +80,9 @@ sh scripts/engine-env.sh npm --prefix packages/game-client run dev --workspaces=
 
 Open `http://127.0.0.1:5173/join`, not a localhost alias. Vite serves its public
 `/client-config.json`, checks local Host/Origin before proxying, and forwards only
-read routes to the configured upstream. An imported file cannot change that
+allowlisted read routes, opening command submissions and execution-status reads
+to the configured upstream. Action queries, cancellation and operator routes
+remain blocked by this proxy. An imported file cannot change that
 mapping. Production native mode supplies the same config schema. No wildcard
 CORS or cross-origin credential fetch is used. A plain unconfigured Vite instance
 still serves fixtures, but live config fails explicitly.
@@ -109,7 +111,7 @@ MTG_CLIENT_SEAT_FILES=/private/seat-0.json,/private/seat-1.json,/private/seat-2.
 sh scripts/engine-env.sh npm --prefix packages/game-client run test:browser:live --workspaces=false
 ```
 
-Real-host tests verify four authenticated permitted views, separate browser
+The read-only live smoke suite verifies four authenticated permitted views, separate browser
 contexts, same-profile duplicate-tab exclusion/release, reimport after refresh,
 CSP, empty browser persistence and GET-only traffic. Separately labeled injected
 browser faults test metadata loss/corruption, late responses and HTTP errors.
@@ -117,9 +119,9 @@ Traces, HAR, videos and automatic screenshots are disabled for authenticated
 tests so Authorization headers cannot be captured. Reports retain public
 identities/counts only. Preserve failed evidence before repeating a run.
 
-See [LIVE-SESSION-REPORT.md](LIVE-SESSION-REPORT.md) for exact tested source,
-schema/artifact/browser identities, failures, omissions and acceptance boundaries.
-The foundation report and historical fixture provenance remain historical evidence.
+[Opening and recovery evidence](../../docs/game-client-evidence.md#opening-and-recovery-evidence)
+and [product/shared display evidence](../../docs/game-client-evidence.md#productshared-display-evidence-pr24)
+retain exact source identities, failures and omissions. Neither establishes full-game play.
 
 ## Ownership and remaining work
 
@@ -131,7 +133,7 @@ Missing metadata keeps observed identity and characteristics; no card facts,
 active faces, legal actions or source-ability labels are inferred.
 
 Current source implements durable opening-choice journaling, submission and
-reconciliation; see `LIVE-OPENING-REPORT.md` for exact accepted source and limits.
+reconciliation; see [opening evidence](../../docs/game-client-evidence.md#opening-and-recovery-evidence) for exact accepted source and limits.
 Full decision/action-context integration, natural games, account-to-seat mapping,
 automated match supervision and M2–M4 acceptance remain separate. Safari and
 human usability studies are not claimed.

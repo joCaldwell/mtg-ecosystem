@@ -49,7 +49,7 @@ Batch generation and replay both obtain the profile and catalog from data;
 replay rejects a report for a different profile. The Develop policy reads public IR target domains, filters, instruction amounts
 and costs, plus permitted board observations. No profile or card identity selects
 strategy. One generic interaction summary lists instruction-site coverage and
-unused catalog cards; see [D1c verification](game-engine-cards-as-data-d1c.md). Historical reports retain
+unused catalog cards; see [D1c verification](game-engine-evidence.md#later-focused-engine-qualification). Historical reports retain
 their original source, catalog, policy and build qualifications.
 
 `match-game PROFILE INDEX` runs one completion game;

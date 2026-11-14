@@ -1,59 +1,46 @@
-# Contributing to Project Multiverse
+# Contributing
 
-Start with the root [AGENTS.md](AGENTS.md), identify the package, and read its
-manual. The deck-builder is active and standalone. The oracle-parser is a
-limited supported subset; the first compiler/runtime scenario is implemented,
-while complete games and the game server remain future work.
+Start at [AGENTS.md](AGENTS.md), identify the target package and read its manual.
+The [README map](README.md#documentation-map) routes current contracts and setup.
+Use the assigned orchestrator-bound checkout; inspect status, branch and HEAD
+before edits. Preserve unrelated work and do not install over shared dependencies.
 
-The [language stack](docs/runtime-language-decision.md) is adopted: TypeScript
-for ingestion/parser/archive, the deck-builder, browser apps, and client SDK;
-Rust for semantic compilation, rules, native simulation/search/agents, and the
-game server. The initial Cargo workspace has its own
-[engine manual](packages/game-engine/AGENTS.md). Use `npm run check:engine` for
-native and cross-language checks, and `npm run demo:engine` for the scenario.
+## Setup and checks
 
-## Oracle parser setup
+Use the existing pinned environment through `sh scripts/engine-env.sh COMMAND`.
+Engine/parser bootstrap is `sh scripts/engine-bootstrap.sh`, only when the local
+installation is missing or broken. It installs locked minimal dependencies and
+never downloads native tools, builds Cargo or refreshes card data.
+See [environment setup](docs/game-engine-development.md#toolchain-setup).
 
-Use Node ≥ 23, npm, and Git. Install workspace dependencies at the root:
+Product, backend, client and SDK have separate package-local locks and installs:
+`npm --prefix packages/PACKAGE ci --workspaces=false --ignore-scripts` through
+the environment launcher. Their manuals specify checks. No implicit Cargo,
+generated SDK replacement, root dependency churn or full engine matrix follows
+from a documentation/client change. Use `git diff --check` for whitespace.
+
+For parser edits, preserve complete structural meaning and cursor/context rollback;
+add meaningful positive and rejection cases, then run the package check. Corpus
+validation is separate: compare source, scope and corpus hashes before claiming
+coverage. `build-ir` deliberately fails; bulk per-set emission remains unimplemented.
+For engine/server edits use [the agent workflow](docs/game-engine-agent-workflow.md)
+and [focused verification](docs/game-engine-verification-workflow.md).
+
+## Documentation
+
+Keep one canonical owner per contract. Link precise sections rather than copying
+rules into onboarding and release notes. Record supported/unsupported behavior,
+commands, identities and omissions; use Git history for obsolete plans and
+transcripts. Do not weaken reference/qualification tests when moving documentation.
+Count every tracked Markdown file, including package manuals and skills, with:
 
 ```sh
-npm install
-npm run check --workspace=@mtg-ecosystem/oracle-parser
+git ls-files -z | python3 -c 'import sys; print(sum(p.lower().endswith((b".md", b".markdown")) for p in sys.stdin.buffer.read().split(b"\0") if p))'
 ```
 
-The parser runs TypeScript directly. `build` means `tsc --noEmit`; tests use
-`node --test`. No Java, generated grammar, or visitor is required. Package
-commands and constraints are in
-[packages/oracle-parser/AGENTS.md](packages/oracle-parser/AGENTS.md).
-
-## Changing the parser
-
-1. Check actual card text in card data and consult the relevant Comprehensive
-   Rules. Cite the rule/source for externally defined behavior in code.
-2. Decide the complete AST shape in `src/ast.ts`. Preserve distinctions in
-   logic, event grouping, ownership, targets, costs, restrictions, and scope.
-   Reject unsupported constructs rather than accepting an approximation.
-3. Extend the relevant parser module. Returning `null` must restore the cursor;
-   effect parsing must also restore contextual state after failed attempts.
-4. Add complete structural assertions and negative cases. Pair similar inputs
-   when a small wording change affects meaning. Avoid success-only tests and
-   unchecked snapshot updates.
-5. Run the package check. With a local corpus, run `npm run validate` at the
-   root and inspect accepted/rejected examples and changed ASTs. A correctness
-   fix may lower acceptance. Compare reports only under the same corpus and
-   scope; `--json` includes the identities needed for that comparison.
-6. Update the current contract documentation. `src/ast.ts` is authoritative;
-   future IR design must be labeled as a proposal.
-
-Pipeline tests use temporary directories and simulated HTTP responses. They
-must not need a bulk download or mutate the working cache.
-
-Do not commit downloaded/generated artifacts or modify another package's
-ongoing work. Do not assume root test, build, or dependency conventions match
-another package's commands. No repository-wide formatter or linter command is
-currently prescribed; follow the local TypeScript style and use `git diff
---check` for whitespace errors.
-
-See [parser design](docs/oracle_parser.md), [data contracts](docs/data_schemas.md),
-and [Scryfall ingestion](docs/scryfall-integration.md). `npm run build-ir` fails
-intentionally until semantic validation and the emitter are implemented.
+Choose document boundaries by ownership and readability, reducing duplication and
+obsolete guidance rather than optimizing an arbitrary count. Keep fewer than 100
+tracked Markdown files; use `python3 scripts/check-docs.py` for count/local-link checks. Generated
+outputs, dependencies, evidence, credentials, databases and worktrees are not
+documentation cleanup targets. Publish a coherent branch and draft PR with actual
+checks, omissions and any overlap with existing work; do not merge incidentally.
