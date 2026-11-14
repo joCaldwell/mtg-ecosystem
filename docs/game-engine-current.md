@@ -97,7 +97,9 @@ spells to the blue default deck; hosting/search and consumer qualification remai
 separate. A separately fenced
 [activated artifact tap](game-engine-untap-permanents.md#activated-artifact-tap)
 source/runtime slice supports complete Icy Manipulator through existing payment,
-targeting and tap events, without pool or consumer admission.
+targeting and tap events. Its later [headless admission](game-engine-blocking-matches.md#current-activated-tap-admission)
+adds paid activation/combat/replay evidence and public-IR policy that avoids
+already-tapped targets. Hosting/search and consumer qualification remain separate.
 Read Rust types and validation at the edited source; old reports retain their
 original version numbers. Active catalogs are regenerated at schema 1; distinct
 source/admission pools remain separate. Historical decoder gates and downgrade

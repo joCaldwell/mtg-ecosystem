@@ -7,7 +7,7 @@ fn tap_catalog() -> Catalog {
         .unwrap()
         .catalog()
         .clone();
-    assert_eq!(c.definitions.len(), 39);
+    assert_eq!(c.definitions.len(), 40);
     c
 }
 fn id(c: &Catalog, name: &str) -> String {

@@ -1537,3 +1537,6 @@ mod tapped_match_admission;
 
 #[path = "matches_adversarial/untap_match_defense.rs"]
 mod untap_match_defense;
+
+#[path = "matches_adversarial/activated_tap_match_admission.rs"]
+mod activated_tap_match_admission;

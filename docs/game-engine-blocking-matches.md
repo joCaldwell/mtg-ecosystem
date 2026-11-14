@@ -3,7 +3,7 @@
 `commander-blocking-targets-v1` is a separate finite development profile. Its
 schema-1 `blocking-matches` catalog contains the 34 exact records selected by the
 foundations match catalog plus Righteousness, Swift Response, Assassinate,
-Burst of Energy and Pressure Point.
+Burst of Energy, Pressure Point and Icy Manipulator.
 This development pool evolves in place; its name does not select runtime rules.
 Other catalogs and decks remain unchanged.
 Neither hosting nor sampled search is requested by this profile; their reviewed
@@ -41,8 +41,8 @@ with these explicit additions to the foundations decks:
 
 | Seats | Commander | Composition including commander |
 | --- | --- | --- |
-| 0, 2 | Isamaru, Hound of Konda | Ten singleton nonbasic cards, including Righteousness, Swift Response, Burst of Energy and Pressure Point, and 90 Plains |
-| 1, 3 | Yargle and Multani | Thirteen singleton nonbasic cards, including Assassinate, 43 Swamps and 44 Forests |
+| 0, 2 | Isamaru, Hound of Konda | Eleven singleton nonbasic cards, including Righteousness, Swift Response, Burst of Energy, Pressure Point and Icy Manipulator, and 89 Plains |
+| 1, 3 | Yargle and Multani | Fourteen singleton nonbasic cards, including Assassinate and Icy Manipulator, 43 Swamps and 43 Forests |
 
 Each deck contains 100 cards. The profile retains the frozen 2026-10-15 Commander
 policy, color-identity restrictions and completion layout; it does not claim a
@@ -76,9 +76,32 @@ provide membership authority, including for orphans. Current visible type,
 targetability and friendly control still guide selection. Ordinary Growth spells
 do not become generally reactive. No card/profile identity selects policy rules.
 
-## Current creature-tap admission
+## Current activated-tap admission
 
-The current pool has 39 definitions, canonical digest
+The current pool has 40 definitions, canonical digest
+`0da422bca2d84ab5edb8dffcb023a1966b51b60cb35e12efae067504e504a521`.
+All prior 39 definition bodies are preserved. The complete
+[Icy Manipulator source and activation contract](game-engine-untap-permanents.md#activated-artifact-tap)
+adds one colorless singleton per default deck, replacing one basic land.
+Hosting/search capability sets and other profiles remain unchanged.
+
+Develop uses the actual public IR and existing main-phase activation path. It
+selects a current untapped opposing target for this paid artifact-tap activation,
+intersecting any offered candidates. It passes when no useful target remains;
+ordinary tap/draw spells retain their existing already-tapped-target behavior.
+No card/profile identity or new reactive priority window selects the strategy.
+
+The [accepted-pod witness](../packages/game-engine/crates/core/tests/matches_adversarial/activated_tap_match_admission.rs)
+uses a genuine four-land cast, a separately paid source-tap activation, and combat
+against the tapped opposing commander. It rejects that commander's attempted
+block without mutation and verifies snapshot restore, replay and budgets 1/4096.
+Its opening seed is selected before gameplay for an Icy opening only. This is
+focused development qualification, without a fresh completion batch or consumer
+acceptance claim.
+
+## 39-definition creature-tap admission
+
+The preceding pool has 39 definitions, canonical digest
 `6974b47675d0cbd66619597702924af2c1372966bb6e929a624ea40ec4769835`. Pressure Point uses its already qualified
 [source and tap/draw semantics](game-engine-untap-permanents.md#creature-tap-and-controller-draw).
 All prior 38 definition bodies are preserved; white default decks replace one

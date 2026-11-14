@@ -2185,3 +2185,250 @@ mod permanent_owner_hand_policy_tests {
         }
     }
 }
+
+// Synthetic public payload probes over admitted complete source IR, not
+// accepted-pod/payment/replay evidence.
+mod activated_permanent_tap_policy_tests {
+    use super::*;
+
+    fn fixture() -> (Catalog, PermittedView) {
+        let c = mtg_compiler::catalog::embedded_catalog("blocking-matches").unwrap();
+        assert_eq!(
+            &c,
+            mtg_core::match_profile("commander-blocking-targets-v1")
+                .unwrap()
+                .catalog()
+        );
+        let d = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Icy Manipulator")
+            .unwrap();
+        assert!(
+            d.capabilities
+                .contains(&mtg_contracts::Capability::ActivatedTapPermanentV1)
+        );
+        assert!(
+            matches!(&d.activated[0].cost, ActivationCost::Composite { costs }
+            if costs.tap && !costs.sacrifice && costs.mana.as_ref().is_some_and(|m| m.generic == Quantity::from(1) && m.colored.is_empty()))
+        );
+        let mut v = wipe_tests::view(&mtg_compiler::catalog::embedded_catalog("wipes").unwrap());
+        v.active = Some(v.viewer);
+        v.turn_owner = v.viewer;
+        v.priority = Some(v.viewer);
+        v.turn.step = TurnStep::PrecombatMain;
+        v.turn.lands_played = 1;
+        v.players
+            .iter_mut()
+            .find(|p| p.player == v.viewer)
+            .unwrap()
+            .mana
+            .clear();
+        let mut source = wipe_tests::card(&c, "Icy Manipulator", v.viewer.0, Zone::Battlefield);
+        source.handle = ObjectHandle("own-icy".into());
+        source.owner = PlayerId(2);
+        source.attack_ready = false; // An artifact has no creature tap restriction.
+        let mut tapped = wipe_tests::card(&c, "Icy Manipulator", 0, Zone::Battlefield);
+        tapped.handle = ObjectHandle("enemy-icy".into());
+        tapped.tapped = true;
+        let mut enemy = wipe_tests::card(&c, "Isamaru, Hound of Konda", 0, Zone::Battlefield);
+        enemy.handle = ObjectHandle("enemy-defender".into());
+        let mut own =
+            wipe_tests::card(&c, "Isamaru, Hound of Konda", v.viewer.0, Zone::Battlefield);
+        own.handle = ObjectHandle("own-defender".into());
+        v.objects = vec![
+            source,
+            wipe_tests::card(&c, "Plains", v.viewer.0, Zone::Battlefield),
+            tapped,
+            enemy,
+            own,
+        ];
+        (c, v)
+    }
+
+    #[test]
+    fn activated_tap_prefers_untapped_enemy_and_uses_independent_printed_cost_plan() {
+        let (c, mut v) = fixture();
+        let d = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Icy Manipulator")
+            .unwrap();
+        let p = &d.activated[0].program;
+        assert!(strategy(&c).value(&v.objects[2]) > strategy(&c).value(&v.objects[3]));
+        let before = canonical(&v).unwrap();
+        let mut s = strategy(&c);
+        assert_eq!(
+            s.priority(&observation(v.clone())).unwrap(),
+            PlayerResponse::ActivateAbility {
+                object: ObjectHandle("own-icy".into()),
+                ability: 0
+            }
+        );
+        assert_eq!(s.mana_plan.len(), 1);
+        assert_eq!(
+            s.mana_plan[0].source,
+            ObjectHandle("Plains".into()),
+            "the printed generic1 plan excludes the tapped-as-cost source"
+        );
+        assert_eq!(
+            s.object_target(&v, d, p, &p.targets[0], None),
+            Some(ObjectHandle("enemy-defender".into()))
+        );
+        assert_eq!(
+            s.object_target(
+                &v,
+                d,
+                p,
+                &p.targets[0],
+                Some(&[ObjectHandle("enemy-icy".into())])
+            ),
+            None,
+            "a legal already-tapped target is not a useful activation preference"
+        );
+        assert_eq!(canonical(&v).unwrap(), before);
+        v.stack.push(VisibleStackEntry {
+            x: None,
+            mana_value: None,
+            mode: None,
+            triggered: None,
+            entity_targets: vec![],
+            handle: Some(StackHandle("icy-activation".into())),
+            stack_targets: vec![],
+            spell: None,
+            ability: Some(mtg_core::VisibleAbility {
+                oracle_id: d.oracle_id.clone(),
+                ability: 0,
+                handle: StackHandle("icy-activation".into()),
+                source: mtg_core::VisibleTarget {
+                    announced: ObjectHandle("own-icy".into()),
+                    current: Some(ObjectHandle("own-icy".into())),
+                },
+            }),
+            player_targets: vec![],
+            controller: v.viewer,
+            cast_complete: false,
+            targets: vec![],
+        });
+        let mut o = observation(v);
+        o.decision = Some(PlayerRequest::Targets {
+            token: mtg_core::DecisionToken("activated-tap-payload".into()),
+            player: o.view.viewer,
+            occurrences: p.targets.clone(),
+            candidates: vec![
+                ObjectHandle("enemy-icy".into()),
+                ObjectHandle("own-defender".into()),
+                ObjectHandle("enemy-defender".into()),
+            ],
+        });
+        let before = canonical(&o).unwrap();
+        assert_eq!(
+            strategy(&c).choose(&o).unwrap(),
+            PlayerResponse::Targets {
+                objects: vec![ObjectHandle("enemy-defender".into())]
+            }
+        );
+        assert_eq!(canonical(&o).unwrap(), before);
+    }
+
+    #[test]
+    fn activated_tap_rejects_noop_or_unready_choices_without_changing_cantrip_policy() {
+        let (c, v) = fixture();
+        for case in [
+            "all-tapped",
+            "source-tapped",
+            "friendly",
+            "shroud",
+            "hexproof",
+            "enchantment",
+            "graveyard",
+            "departed",
+            "unaffordable",
+            "opponent-priority",
+        ] {
+            let mut v = v.clone();
+            match case {
+                "all-tapped" => v.objects[3].tapped = true,
+                "source-tapped" => v.objects[0].tapped = true,
+                "friendly" => v.objects[3].controller = v.viewer,
+                "shroud" => v.objects[3].keywords.push(KeywordAbility::Shroud),
+                "hexproof" => v.objects[3].keywords.push(KeywordAbility::Hexproof),
+                "enchantment" => {
+                    v.objects[3] = wipe_tests::card(&c, "Furnace of Rath", 0, Zone::Battlefield)
+                }
+                "graveyard" => v.objects[3].zone = Zone::Graveyard { owner: PlayerId(0) },
+                "departed" => {
+                    v.objects.remove(3);
+                }
+                "unaffordable" => v.objects[1].tapped = true,
+                "opponent-priority" => {
+                    v.active = Some(PlayerId(0));
+                    v.turn_owner = PlayerId(0);
+                }
+                _ => unreachable!(),
+            }
+            let before = canonical(&v).unwrap();
+            assert_eq!(
+                strategy(&c).priority(&observation(v.clone())).unwrap(),
+                PlayerResponse::Pass,
+                "{case}"
+            );
+            assert_eq!(canonical(&v).unwrap(), before);
+        }
+        let d = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Icy Manipulator")
+            .unwrap();
+        let p = &d.activated[0].program;
+        for offered in [
+            vec![],
+            vec![ObjectHandle("stale-incarnation".into())],
+            vec![ObjectHandle("own-defender".into())],
+        ] {
+            assert_eq!(
+                strategy(&c).object_target(&v, d, p, &p.targets[0], Some(&offered)),
+                None,
+                "direct preference cannot invent an unoffered opponent; mandatory-choice fallback is separate"
+            );
+        }
+        // Unlike a pure tap activation, Pressure Point still draws from a
+        // legal already-tapped creature. Preserve that existing spell policy.
+        let mut cantrip = v;
+        cantrip.objects = vec![
+            wipe_tests::card(
+                &c,
+                "Pressure Point",
+                cantrip.viewer.0,
+                Zone::Hand {
+                    owner: cantrip.viewer,
+                },
+            ),
+            wipe_tests::card(&c, "Isamaru, Hound of Konda", 0, Zone::Battlefield),
+        ];
+        cantrip.objects[1].tapped = true;
+        cantrip
+            .players
+            .iter_mut()
+            .find(|p| p.player == cantrip.viewer)
+            .unwrap()
+            .mana = BTreeMap::from([(Color::W, 2.into())]);
+        let d = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Pressure Point")
+            .unwrap();
+        let p = d.spell.as_ref().unwrap();
+        assert!(
+            strategy(&c)
+                .object_target(&cantrip, d, p, &p.targets[0], None)
+                .is_some()
+        );
+        assert_eq!(
+            strategy(&c).priority(&observation(cantrip)).unwrap(),
+            PlayerResponse::Cast {
+                card: ObjectHandle("Pressure Point".into())
+            }
+        );
+    }
+}

@@ -110,6 +110,24 @@ fn defensive_untap_spell(d: &Definition, p: &SpellProgram) -> bool {
                 && !f.tapped
         })
 }
+fn activated_permanent_tap_program(d: &Definition, p: &SpellProgram) -> bool {
+    d.characteristics.kind == CardKind::Artifact
+        && p.modes.is_empty()
+        && p.additional_sacrifice.is_none()
+        && p.timing == SpellTiming::Instant
+        && p.resolution == SpellResolution::Instructions
+        && p.targets.len() == 1
+        && p.targets[0].domain == TargetDomain::BattlefieldPermanent
+        && matches!(
+            p.instructions.as_slice(),
+            [I::TapPermanent { target_slot: 0, .. }]
+        )
+        && d.activated.iter().any(|a| {
+            &a.program == p
+                && matches!(&a.cost, ActivationCost::Composite { costs }
+                    if costs.tap && !costs.sacrifice && costs.mana.is_some())
+        })
+}
 impl Strategy<'_> {
     pub(super) fn legend_choice(
         &self,
@@ -265,10 +283,14 @@ impl Strategy<'_> {
         }
         let own = self.target_beneficial(d, p, t.slot)
             || t.domain == TargetDomain::OwnGraveyardCreatureCard;
+        // A paid source-tap activation should change its target's status.
+        // Ordinary tap spells may still gain value from their draw follow-up.
+        let needs_untapped = activated_permanent_tap_program(d, p);
         v.objects
             .iter()
             .filter(|o| {
                 candidates.is_none_or(|cs| cs.contains(&o.handle))
+                    && (!needs_untapped || !o.tapped)
                     && self.object_matches(v, o, t, candidates.is_some())
                     && (o.controller == v.viewer) == own
             })

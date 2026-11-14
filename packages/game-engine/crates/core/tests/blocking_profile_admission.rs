@@ -22,14 +22,14 @@ fn oracle(catalog: &Catalog, name: &str) -> String {
 }
 
 #[test]
-fn development_profile_adds_five_complete_definitions_and_admits_four_legal_decks() {
+fn development_profile_adds_six_complete_definitions_and_admits_four_legal_decks() {
     let catalog = catalog();
     let original = Catalog::read(include_str!(
         "../../../tests/fixtures/expected-match-ir.json"
     ))
     .unwrap();
     assert_eq!(catalog.schema_version, 1);
-    assert_eq!(catalog.definitions.len(), original.definitions.len() + 5);
+    assert_eq!(catalog.definitions.len(), original.definitions.len() + 6);
     for definition in &original.definitions {
         assert_eq!(
             catalog
@@ -50,6 +50,14 @@ fn development_profile_adds_five_complete_definitions_and_admits_four_legal_deck
     let assassinate = oracle(&catalog, "Assassinate");
     let burst = oracle(&catalog, "Burst of Energy");
     let pressure = oracle(&catalog, "Pressure Point");
+    let icy = oracle(&catalog, "Icy Manipulator");
+    assert!(
+        catalog
+            .definition_by_oracle_id(&icy)
+            .unwrap()
+            .capabilities
+            .contains(&Capability::ActivatedTapPermanentV1)
+    );
     for (seat, deck) in config.decks.iter().enumerate() {
         assert_eq!(deck.cards.iter().map(|row| row.count).sum::<u32>(), 100);
         assert_eq!(
@@ -64,6 +72,7 @@ fn development_profile_adds_five_complete_definitions_and_admits_four_legal_deck
             (&swift_response, u32::from(seat.is_multiple_of(2))),
             (&burst, u32::from(seat.is_multiple_of(2))),
             (&pressure, u32::from(seat.is_multiple_of(2))),
+            (&icy, 1),
             (&assassinate, u32::from(!seat.is_multiple_of(2))),
         ] {
             assert_eq!(
@@ -149,6 +158,7 @@ fn blocking_profile_retains_singleton_color_and_feature_rejection() {
                     && capabilities.contains(&Capability::BlockingCreatureTargetV1)
                     && capabilities.contains(&Capability::TappedPermanentTargetV1)
                     && capabilities.contains(&Capability::UntapPermanentV1)
+                    && capabilities.contains(&Capability::ActivatedTapPermanentV1)
         ));
     }
 }
