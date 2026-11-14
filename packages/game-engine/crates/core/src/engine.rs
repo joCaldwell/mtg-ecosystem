@@ -2024,6 +2024,7 @@ impl Game {
             .collect();
         let state = State {
             rules: RulesState {
+                mana_ability_uses: BTreeSet::new(),
                 tokens: BTreeMap::new(),
                 retained_auxiliary_charge: 0,
                 typed_fault: None,
@@ -3105,7 +3106,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 19,
+            snapshot_version: 20,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3147,7 +3148,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 19
+        if s.snapshot_version != 20
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3252,6 +3253,7 @@ impl Game {
             }
         }
         self.validate_tokens_state()?;
+        self.validate_mana_uses()?;
         self.validate_trigger_state()?;
         self.validate_effect_state()?;
         self.validate_choices_state()?;

@@ -202,6 +202,45 @@ impl Game {
                     source_block,
                 )
             }
+            Instruction::PutSourcePlusOneCountersForCastColors { source_block } => {
+                let StackKind::Triggered {
+                    witness: TriggerEventWitness::SpellCast { cast },
+                    ..
+                } = &frame.spell.kind
+                else {
+                    return Err("unbound cast color instruction".into());
+                };
+                // CR 608.2h/113.7a/201.5: inspect the exact spell incarnation
+                // currently on the stack; otherwise the bounded witness is its
+                // departure LKI in this immutable-spell-color pool. The frozen
+                // cast event is identity evidence, not a universal quantity rule.
+                // Spell-color modification has no admitted IR operation. Before
+                // adding one, refresh separate departure LKI; never rewrite cast facts.
+                // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+                let colors = if self.state.rules.stack.iter().any(|s| {
+                    s.id == cast.stack_id && s.source == cast.spell.object && s.kind.is_spell()
+                }) {
+                    self.characteristics(cast.spell.object)?.colors
+                } else {
+                    cast.spell.characteristics.colors.clone()
+                };
+                let n = colors
+                    .into_iter()
+                    .filter(|c| *c != Color::C)
+                    .collect::<BTreeSet<_>>()
+                    .len();
+                if n == 0 || !self.is_battlefield_creature(frame.spell.source) {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
+                (
+                    ProposedEvent::PutPlusOneCounters {
+                        object: frame.spell.source,
+                        amount: Quantity::from(n as i64),
+                    },
+                    source_block,
+                )
+            }
             Instruction::PutPlusOneCounters {
                 on,
                 amount,

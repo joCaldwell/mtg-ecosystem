@@ -458,7 +458,7 @@ fn seed_shuffle_budget_partition_and_private_setup_views_are_deterministic() {
     assert_replay(&a, &p);
     for seat in 0..4 {
         let view = observation(&a, PlayerId(seat));
-        assert_eq!(view.observation_version, 16);
+        assert_eq!(view.observation_version, 17);
         assert!(view.view.priority.is_none());
         assert_eq!(view.view.commanders.len(), 4);
         assert!(

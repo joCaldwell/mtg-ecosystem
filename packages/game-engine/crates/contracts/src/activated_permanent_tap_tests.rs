@@ -16,6 +16,7 @@ pub(super) fn activated_tap() -> Definition {
         functioning_zone: FunctioningZone::Battlefield,
         cost: ActivationCost::Composite {
             costs: PermanentActivationCosts {
+                remove_source_plus_one_counters: None,
                 tap: true,
                 sacrifice: false,
                 mana: Some(ManaCost {

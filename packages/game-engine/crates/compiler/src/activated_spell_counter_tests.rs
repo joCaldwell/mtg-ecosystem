@@ -84,6 +84,7 @@ fn complete_ertai_preserves_composite_counter_payment_and_stack_spell_target() {
         a.cost,
         ActivationCost::Composite {
             costs: PermanentActivationCosts {
+                remove_source_plus_one_counters: None,
                 mana: Some(ManaCost {
                     generic: 2.into(),
                     colored: vec![Color::U, Color::U]

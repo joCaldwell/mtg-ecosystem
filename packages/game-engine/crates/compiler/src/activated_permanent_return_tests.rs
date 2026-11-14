@@ -83,6 +83,7 @@ fn complete_temporal_adept_preserves_paid_unqualified_owner_hand_activation() {
         a.cost,
         ActivationCost::Composite {
             costs: PermanentActivationCosts {
+                remove_source_plus_one_counters: None,
                 mana: Some(ManaCost {
                     generic: 0.into(),
                     colored: vec![Color::U, Color::U, Color::U]

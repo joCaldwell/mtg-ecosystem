@@ -1,12 +1,14 @@
 # Ramos M1: implementation contract
 
-Preparatory design, inspected at `46ef08faedb8c5fa9c1c1fa9a8afefd1f85e1f6c`
-(planning-only child of main `bbdba9f5add0bfd0c75c0ec18eb2986581c3e534`).
-Implements no mechanics and establishes no new source, catalog, match, hosting or
-search acceptance. [M0 in the Ramos plan](game-engine-ramos-plan.md#ordered-milestones)
-owns the exact-target manifest, production diagnostics and support matrix; those
-results must be reconciled before implementation. This document owns the M1
-family design, not a second target matrix.
+M1a implementation starts from integrated `9c2a4b0c2e1efe5e652bf8ec6255c7856c1ee928`
+(main ancestor `bbdba9f5add0bfd0c75c0ec18eb2986581c3e534`), at
+2026-11-14 16:11:54 UTC. It owns the complete frozen Ramos source, cast-color
+quantity, counter-removal mana cost, per-incarnation once-each-turn use and
+payment reversal. The remainder of this document retains the family design;
+[M0's single matrix](game-engine-ramos-support.md) separates the source witness
+from exact-target/profile/consumer admission. M1b counter replacements remain
+excluded, as do spell copying/color changes, cascade, multiple mana selectors,
+life/damage/hybrid costs and host/SDK/search expansion.
 
 ## Frozen authority
 
@@ -115,8 +117,10 @@ requirements):
    `remove_source_plus_one_counters`; add a typed `OnceEachTurn` restriction to
    `ManaAbility`. A distinct `CounterRemovalManaV1` capability must cover both
    cost and restriction requirements, in addition to ordinary permanent mana.
-   Initially validate the exact supported shape: five source counters, no tap,
-   mana or sacrifice cost, once each turn, fixed ten-symbol production. Retain
+   Validate the supported family shape: positive source-counter removal, no tap,
+   mana or sacrifice cost, once each turn, and nonempty fixed-symbol production.
+   Ramos supplies the exact five-counter/ten-symbol source witness; printed
+   quantities are parameters, not capability or runtime branches. Retain
    existing validated tap-cost shapes. Reject unknown restrictions/counter
    kinds/recipients and unsupported combinations, even after recomputing closure.
 4. Use an internal ability key `(ObjectId, ability kind, index)` and a bounded
@@ -185,10 +189,10 @@ projection and query-format policies when changing their shapes.
 
 ## Implementation ownership and M2 boundary
 
-This research checkpoint edits **only this document**. M0 remains sole native
-owner for this wave. After M0 hands off, assign one M1 integration owner the
-following shared files before any implementation; these are proposed future
-reservations, not authority to edit peers' work now.
+The preparatory research checkpoint edited **only this document**. M0 then
+handed native/shared-code ownership to the M1a integration owner. The table
+records the original coordination boundary; M1a changed only the needed shared
+modules and dedicated tests, leaving M2 fixtures and profile/consumer sets fixed.
 
 | Future owner | Explicit paths / responsibility |
 | --- | --- |
@@ -252,3 +256,100 @@ needed for this document-only batch. No Cargo/build/native tests, production
 audit, schema generation or fixtures were run or changed; M0 retains native
 ownership. Final document checks cover whitespace, local links, authority pins
 and the single-owned-path diff. Existing ignored evidence/caches are preserved.
+
+## Bounded M1a implementation
+
+The complete frozen Ramos record lowers flying, the controller spell-cast
+trigger and the full restricted mana clause together. `ref:self` continues
+through the existing archive-bound source canonicalizer. The color product is
+consumed only as the exact counter expression; it does not add a general count
+interpreter. `CastSpellColorCountersV1` and `CounterRemovalManaV1` fence these
+semantics separately; the latter covers both the counter cost and restriction.
+IR schema stays 1. Singleton mana-source actions remain unchanged, while the
+internal key reserves `(incarnation, Mana, index 0, current turn number)`.
+
+At resolution the cast witness identifies the exact stack spell. Current colors
+are read while that incarnation remains there; otherwise its frozen immutable
+colors are the bounded departure-LKI witness under CR 608.2h. No admitted IR
+instruction changes spell colors. Such an extension must add separately refreshed
+departure information and tests before admission; historical cast facts must not
+be rewritten. A colorless spell creates no placement event. Source departure and
+reentry cannot redirect an old trigger to the new permanent.
+
+The no-tap mana path revalidates controller, incarnation, counters and use before
+payment. Counter removal is a cost within the staged atomic rule step, never a
+placement. Its receipt records exact prior counters/use and the existing nested
+spent/produced/absent-pool facts. LIFO undo restores those facts directly and
+retained activation keeps its use spent. Turn transition clears use; zone movement
+prunes that incarnation. Control changes leave use intact. The current-turn set
+is bounded by live objects, not lifetime activations. Public rows expose optional
+`mana_ability_used`; historical sources omit it. Snapshot format is 20;
+observation/search-context and query work formats are 17. Exact build/catalog
+identity and accepted-input replay still authenticate recovery.
+
+The dedicated core witness uses a private 9-definition catalog (10 with the
+nested Signet) and constructs an established midgame with four
+legal 100-card singleton/color-identity Commander decks and ordinary zones. It
+starts with lands already developed and six known cards in the controller's hand;
+it is not an opening-hand simulation, registered development profile, admitted
+pod, or the revision-17 target. After `Game` construction it uses only accepted
+inputs: paid command cast, five distinct paid green spells, five resolved
+counters, immediate Ramos activation during another real cast's mana window,
+then exact spending and completion. Snapshot/replay, budgeted nonmutating query
+recovery and other-seat privacy are checked across Off/Compact/Detailed traces.
+Synthetic color/reference/control/payment edges supplement this source witness.
+The shared host/search allowlists and every existing profile/fixture stay fixed.
+
+The final family guard follows the workflow's parameterization policy added on
+2026-11-14: any positive source +1/+1 counter quantity and nonempty fixed-symbol
+output share the same operation/capability. Counter-removal mana still requires
+once-each-turn and excludes tap/mana/sacrifice combinations, choice production,
+and multiple public ability selectors. Exact Ramos remains five for ten. Typed IR
+variation tests use costs 1/3/7 and several fixed outputs; a synthetic runtime
+case removes three from four and adds R/G/G while tapped and unready. The frozen
+fixture pool supplies no second complete source with this supported combination;
+these variations are explicitly synthetic, not additional source admission.
+Missing restriction, zero/negative counter costs, empty/choice output and extra
+cost combinations remain actual semantic rejection controls.
+
+## M1a focused verification and omissions
+
+The first complete pass ran 328 selected tests: 204 compiler, 77 contracts,
+7 Ramos/M2 split-search core, 14 permanent-mana, 3 payment-event, 22 cast-trigger
+and 1 old paid-opening search regression. Sim/server all-target compilation
+passed. After the family-parameter guard update, 204 compiler, 78 contracts,
+5 M1a core, 3 payment-query and 9 snapshot-codec tests passed, with sim/server
+all-target compilation again passing. The final test-only private-catalog
+membership refinement passed the 5 M1a core tests. The compiler suite checks all
+committed catalogs remain fresh; no fixture or profile bytes were regenerated.
+
+Raw attempts, exact source patches/new-test hashes, frozen fixture byte proof,
+source/AST/binding envelopes and preserved executed binaries are retained under
+`generated/ramos/m1a/`; `attempts.json` is the attempt receipt. It retains the
+initial missing-field/syntax compile failures, the missing capability-witness
+failure (75 pass/1 fail), and the core test-type compile failure. Failed attempts
+are not counted as qualification. The first complete and final family pass bind
+different build IDs; their binaries are preserved separately. No timestamp repair
+or cache deletion was needed. The global lock covered preflight, native work and
+binary preservation; it was deliberately yielded to the other coordinator's
+queued combined qualification before the successful passes.
+
+The doctor observed missing isolated Node dependencies/workspace links. The
+known root npm lock/workspace disagreement blocks bootstrap (`npm EUSAGE` in
+prior retained evidence); no installer was retried and no unrelated manifest or
+lockfile was modified. Node/source Ajv/SDK gates, Clippy, release/full-runtime/
+full-game matrices and exact-deck/host/search qualification are omitted. M1b
+Scales/Corpsejack replacements and all excluded mechanic families remain work
+for later batches. The paid source witness does not qualify a registered pod.
+
+Final M1a debug build is
+`19f603234dd46e8e4f0bac633bcd091e598f678c954ba744214088952fa3e1ee`;
+the 9-definition paid witness catalog is
+`010399dd4d5ce1fc000e59c1da69c0fd4fb95c3bb4f7435f917cd7c0104af52c`.
+The final catalog-only test refinement has byte-identical production Rust to the
+preceding family pass (`7399de7bb5c2dc38afbead506fed671f479c233fb29228815d4d641709361a1a`).
+That comparison and the final executed binaries' SHA-256 hashes are in the attempt
+receipt. Work exceeded the 30-minute checkpoint target, including the coordinated
+native reservation; the final handoff records actual elapsed and native timings.
+No M1b work began, no main merge or PR was made, and later fresh-main combination
+checks belong to the parent.

@@ -206,6 +206,7 @@ impl CommittedBatch {
 }
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum FactKey {
+    ManaAbilityUse(CardId),
     TokenAllocation,
     Stack(StackId),
     Turn,
@@ -296,7 +297,7 @@ mod footprint_tests {
 }
 
 fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
-    match event {
+    let (mut reads, mut writes) = match event {
         ProposedEvent::RevealSearchLands { objects, .. } => (
             objects
                 .iter()
@@ -494,7 +495,28 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             }
             (keys.clone(), keys)
         }
-    }
+    };
+    // Use history is another incarnation-bound fact. Movement/reversal writes
+    // are independent for distinct sources; turn entry clears the current set.
+    let keys: Vec<_> = match event {
+        ProposedEvent::Move { object, .. } | ProposedEvent::LeaveGame { object, .. } => {
+            vec![FactKey::ManaAbilityUse(object.card)]
+        }
+        ProposedEvent::ReversePermanentMana { receipt } => {
+            vec![FactKey::ManaAbilityUse(receipt.source.object.card)]
+        }
+        ProposedEvent::TurnTransition { .. } => game
+            .state
+            .rules
+            .mana_ability_uses
+            .iter()
+            .map(|k| FactKey::ManaAbilityUse(k.source.card))
+            .collect(),
+        _ => vec![],
+    };
+    reads.extend(keys.iter().copied());
+    writes.extend(keys);
+    (reads, writes)
 }
 fn collect<'a>(
     group: &'a EventGroup,
@@ -1863,6 +1885,7 @@ impl Game {
                 let previous_owner = std::mem::replace(&mut self.state.rules.turn_owner, *owner);
                 self.state.rules.active = self.is_live(*owner).then_some(*owner);
                 if next.number != previous.number {
+                    self.state.rules.mana_ability_uses.clear();
                     for o in self.state.rules.objects.values_mut() {
                         if o.zone == Zone::Battlefield
                             && Some(o.controller) == self.state.rules.active
@@ -2018,6 +2041,10 @@ impl Game {
                 for library in self.state.rules.libraries.values_mut() {
                     library.retain(|c| *c != object.card);
                 }
+                self.state
+                    .rules
+                    .mana_ability_uses
+                    .retain(|k| k.source != *object);
                 self.state.rules.objects.remove(&object.card);
                 EventOutcome::LeftGame {
                     object: *object,
@@ -2070,6 +2097,10 @@ impl Game {
                     let oracle_id = self.state.rules.cards[&object.card].oracle_id.clone();
                     self.remember_draw(owner, oracle_id);
                 }
+                self.state
+                    .rules
+                    .mana_ability_uses
+                    .retain(|k| k.source != *object);
                 // CR 400.7: a zone move creates a new incarnation, and an actual
                 // outcome explicitly provides its successor. No stale lookup.
                 let successor = ObjectId {

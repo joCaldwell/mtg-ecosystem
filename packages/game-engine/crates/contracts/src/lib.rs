@@ -175,6 +175,8 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
     CastTriggerV1,
+    CastSpellColorCountersV1,
+    CounterRemovalManaV1,
     AttackTriggerV1,
     DamageTriggerV1,
     SourceDamageTriggerV2,
@@ -574,6 +576,9 @@ pub enum Instruction {
         token: CreatureToken,
         source_block: u32,
     },
+    PutSourcePlusOneCountersForCastColors {
+        source_block: u32,
+    },
     PutPlusOneCounters {
         on: CounterRecipient,
         amount: Quantity,
@@ -814,6 +819,8 @@ pub enum ActivationCost {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PermanentActivationCosts {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remove_source_plus_one_counters: Option<Quantity>,
     pub tap: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana: Option<ManaCost>,
@@ -829,9 +836,16 @@ pub enum ManaProduction {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ManaAbility {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restriction: Option<ManaActivationRestriction>,
     pub costs: PermanentActivationCosts,
     pub production: ManaProduction,
     pub source_block: u32,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ManaActivationRestriction {
+    OnceEachTurn,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1245,6 +1259,13 @@ impl Definition {
         if !self.mana_abilities.is_empty() {
             set.insert(Capability::PermanentManaV1);
         }
+        if self
+            .mana_abilities
+            .iter()
+            .any(|a| a.costs.remove_source_plus_one_counters.is_some() || a.restriction.is_some())
+        {
+            set.insert(Capability::CounterRemovalManaV1);
+        }
         for ability in &self.activated {
             set.insert(Capability::ActivatedAbilityV1);
             if has_untap(&ability.program) {
@@ -1509,6 +1530,35 @@ impl Definition {
         {
             return Err("event-player discard/sacrifice requires a bound damage trigger".into());
         }
+        fn cast_colors(p: &SpellProgram) -> bool {
+            p.instructions
+                .iter()
+                .any(|i| matches!(i, Instruction::PutSourcePlusOneCountersForCastColors { .. }))
+                || p.modes.iter().any(|m| cast_colors(&m.program))
+        }
+        if self.spell.as_ref().is_some_and(cast_colors)
+            || self.activated.iter().any(|a| cast_colors(&a.program))
+            || self.triggered.iter().any(|a| {
+                cast_colors(&a.program)
+                    && (self.characteristics.kind != CardKind::Creature
+                        || a.condition
+                            != (TriggerCondition::SpellCast {
+                                caster: CasterRelation::Controller,
+                                spell: TypePredicate::Any {},
+                            })
+                        || a.intervening_if.is_some()
+                        || !a.program.targets.is_empty()
+                        || !a.program.modes.is_empty()
+                        || !matches!(
+                            a.program.instructions.as_slice(),
+                            [Instruction::PutSourcePlusOneCountersForCastColors { .. }]
+                        ))
+            })
+        {
+            return Err(
+                "cast-color counters require a standalone bound controller cast trigger".into(),
+            );
+        }
         fn event_player(p: &SpellProgram) -> bool {
             p.instructions.iter().any(Instruction::uses_event_player)
                 || p.modes.iter().any(|m| event_player(&m.program))
@@ -1689,7 +1739,7 @@ impl Definition {
             if !matches!(
                 c.kind,
                 CardKind::Creature | CardKind::Artifact | CardKind::Land
-            ) || !a.costs.tap
+            ) || (!a.costs.tap && a.costs.remove_source_plus_one_counters.is_none())
                 || matches!(&a.production, ManaProduction::Fixed { symbols } if symbols.is_empty())
             {
                 return Err("unsupported permanent mana ability".into());
@@ -1700,6 +1750,20 @@ impl Definition {
                 return Err("sacrifice mana costs are not admitted".into());
             }
             validate_permanent_costs(&a.costs)?;
+            if a.costs.remove_source_plus_one_counters.is_some() || a.restriction.is_some() {
+                if c.kind != CardKind::Creature
+                    || a.costs.tap
+                    || a.costs.mana.is_some()
+                    || a.costs
+                        .remove_source_plus_one_counters
+                        .as_ref()
+                        .is_none_or(|n| *n <= Quantity::zero())
+                    || a.restriction != Some(ManaActivationRestriction::OnceEachTurn)
+                    || !matches!(&a.production, ManaProduction::Fixed { symbols } if !symbols.is_empty())
+                {
+                    return Err("unsupported counter-removal mana/restriction shape".into());
+                }
+            }
         }
         if !self.activated.is_empty()
             && !matches!(c.kind, CardKind::Creature | CardKind::Artifact)
@@ -1708,6 +1772,10 @@ impl Definition {
             return Err("activated programs require supported creature characteristics".into());
         }
         for ability in &self.activated {
+            if matches!(&ability.cost, ActivationCost::Composite { costs } if costs.remove_source_plus_one_counters.is_some())
+            {
+                return Err("counter removal requires mana ability".into());
+            }
             if has_untap(&ability.program) {
                 if c.kind != CardKind::Creature || !tap_source_untap_ability(ability) {
                     return Err("tap-source untap requires a creature, pure source tap and one creature target".into());
@@ -1790,6 +1858,9 @@ impl Definition {
             }
             if let ActivationCost::Composite { costs } = &ability.cost {
                 validate_permanent_costs(costs)?;
+                if costs.remove_source_plus_one_counters.is_some() {
+                    return Err("counter costs require a mana ability".into());
+                }
                 if !costs.sacrifice
                     || !((c.kind == CardKind::Artifact
                         && matches!(ability.program.instructions.as_slice(), [Instruction::DrawCards {count, recipient:None, ..}] if *count == Quantity::from(1)))
@@ -2033,6 +2104,7 @@ impl Definition {
                             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
                             | Instruction::DestroyPermanent { .. }
                             | Instruction::CreateCreatureTokens { .. }
+                            | Instruction::PutSourcePlusOneCountersForCastColors { .. }
                             | Instruction::PutPlusOneCounters { .. }
                             | Instruction::DrawCards { .. }
                             | Instruction::OptionalDrawCards { .. }
@@ -2795,6 +2867,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 token.validate()?;
                 None
             }
+            Instruction::PutSourcePlusOneCountersForCastColors { .. } => None,
             Instruction::PutPlusOneCounters { on, amount, .. } => {
                 if *amount <= Quantity::zero() {
                     return Err("counter amount must be positive".into());
@@ -3043,6 +3116,13 @@ fn has_controller_discard(program: &SpellProgram) -> bool {
         .any(|m| has_controller_discard(&m.program))
 }
 fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgram) {
+    if program
+        .instructions
+        .iter()
+        .any(|i| matches!(i, Instruction::PutSourcePlusOneCountersForCastColors { .. }))
+    {
+        set.insert(Capability::PlusOneCountersV1);
+    }
     if has_permanent_owner_hand(program) {
         // Existing creature-bounce and permanent-target capabilities alone do
         // not authorize this new composition in hosted/search profiles.
@@ -3149,6 +3229,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 recipient: Some(_), ..
             } => Capability::TargetPlayerDrawV1,
             Instruction::CreateCreatureTokens { .. } => Capability::CreatureTokensV1,
+            Instruction::PutSourcePlusOneCountersForCastColors { .. } => {
+                Capability::CastSpellColorCountersV1
+            }
             Instruction::PutPlusOneCounters { .. } => Capability::PlusOneCountersV1,
             Instruction::GrantKeywords { keywords, .. }
                 if keywords == &[KeywordAbility::Flying] =>
@@ -3829,6 +3912,40 @@ pub fn catalog_schema() -> serde_json::Value {
         "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}},
         "spell":{"properties":{"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}}}}
     }}));
+    // Keep schema shape validation in step with the closed Ramos semantics.
+    schema["$defs"]["ManaAbility"]["allOf"] = serde_json::json!([{
+        "if":{"anyOf":[{"required":["restriction"],"properties":{"restriction":{"type":"string"}}},{"properties":{"costs":{"required":["remove_source_plus_one_counters"]}}}]},
+        "then":{"required":["restriction"],"properties":{
+            "restriction":{"const":"once_each_turn"},
+            "costs":{"required":["remove_source_plus_one_counters"],"properties":{
+                "remove_source_plus_one_counters":{"pattern":"^[1-9][0-9]*$"},"tap":{"const":false},"sacrifice":{"const":false},"mana":{"type":"null"}}},
+            "production":{"properties":{"mana":{"const":"fixed"},"symbols":{"minItems":1}}}
+        }},"else":{"properties":{"costs":{"properties":{"tap":{"const":true},"sacrifice":{"const":false}}}}}
+    }]);
+    schema["$defs"]["CastColorFreeProgram"] = serde_json::json!({"properties":{
+        "instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"const":"put_source_plus_one_counters_for_cast_colors"}}}}},
+        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/CastColorFreeProgram"}}}}
+    }});
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({"properties": {"spell": {"$ref": "#/$defs/CastColorFreeProgram"}, "activated": {"items": {"properties": {"program": {"$ref": "#/$defs/CastColorFreeProgram"}, "cost": {"properties": {"composite": {"properties": {"costs": {"not": {"required": ["remove_source_plus_one_counters"]}}}}}}}}}}}));
+    let cast_colors = serde_json::json!({"required":["program"],"properties":{"program":{"required":["instructions"],"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"put_source_plus_one_counters_for_cast_colors"}}}}}}}});
+    schema["$defs"]["TriggeredAbility"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":cast_colors,"then":{"properties":{
+            "condition":{"const":{"spell_cast":{"caster":"controller","spell":{"any":{}}}}},"intervening_if":{"type":"null"},
+            "program":{"properties":{"targets":{"maxItems":0},"modes":{"maxItems":0},"instructions":{"minItems":1,"maxItems":1}}}
+        }}
+    }));
+    for (field, capability) in [("restriction", Capability::CounterRemovalManaV1)] {
+        schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+            "if":{"required":["mana_abilities"],"properties":{"mana_abilities":{"contains":{"anyOf":[{"required":[field]},{"properties":{"costs":{"required":["remove_source_plus_one_counters"]}}}]}}}},
+            "then":{"properties":{"characteristics":{"properties":{"kind":{"const":"creature"}}},"capabilities":{"allOf":[{"contains":{"const":capability}},{"contains":{"const":Capability::PermanentManaV1}}]}}},
+            "else":{"properties":{"capabilities":{"not":{"contains":{"const":capability}}}}}
+        }));
+    }
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["triggered"],"properties":{"triggered":{"contains":cast_colors}}},
+        "then":{"properties":{"characteristics":{"properties":{"kind":{"const":"creature"}}},"capabilities":{"allOf":[{"contains":{"const":Capability::CastSpellColorCountersV1}},{"contains":{"const":Capability::PlusOneCountersV1}},{"contains":{"const":Capability::CastTriggerV1}}]}}},
+        "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::CastSpellColorCountersV1}}}}}
+    }));
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -4051,6 +4168,8 @@ mod tests {
             EventPlayerRecipientV1,
             SourceStatusConditionV1,
             CastTriggerV1,
+            CastSpellColorCountersV1,
+            CounterRemovalManaV1,
             AttackTriggerV1,
             DamageTriggerV1,
             SourceDamageTriggerV2,
@@ -4136,6 +4255,7 @@ mod tests {
         definitions.push(activated_permanent_return_tests::activated_return());
         definitions.push(permanent_owner_hand_tests::permanent_owner_hand());
         definitions.push(basic_land_split_tests::split_search());
+        definitions.push(ramos_m1_tests::ramos());
         // Synthetic contract-shape witness only. Complete D2c-e source lowering
         // is checked in compiler/core tests, without fabricated expected IR.
         let mut damage = definitions
@@ -5756,3 +5876,6 @@ mod compound_indestructible_tests;
 
 #[cfg(test)]
 mod temporary_deathtouch_tests;
+
+#[cfg(test)]
+mod ramos_m1_tests;
