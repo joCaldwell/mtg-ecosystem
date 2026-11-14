@@ -2,6 +2,7 @@ import { api } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
 import { href, navigate } from "../../app/routes.ts";
 import { Button, ButtonLink, EmptyState, ErrorNote, Loading, Page, PageHeader, Select, Text } from "../../ui/index.ts";
+import { SavedGames } from "./SavedGames.tsx";
 import { SelectedDeck } from "./SelectedDeck.tsx";
 import styles from "./PlayPage.module.css";
 
@@ -24,15 +25,11 @@ export function PlayPage({ deckId }: { deckId?: number }) {
         <Text as="p" tone="muted">Three predefined automated opponents. Each controls its own seat.</Text>
         <ol className={styles.opponents}>{[2, 3, 4].map(seat => <li key={seat}><Text mono>Seat {seat}</Text><span>Automated opponent</span></li>)}</ol>
       </section>
-      <section className={styles.launch} aria-labelledby="start-game-title">
-        <h2 id="start-game-title">Start game</h2>
-        <p id="game-unavailable">Automated games are not connected yet. Deck compatibility has not been checked.</p>
-        <Button variant="primary" disabled aria-describedby="game-unavailable">Start game</Button>
-      </section>
       <section className={styles.preview} aria-labelledby="table-preview-title">
         <div><h2 id="table-preview-title">Explore the table</h2><Text as="p" tone="muted">Try opening choices with a captured sample. The preview does not use your selected deck or start a game.</Text></div>
         <ButtonLink href={href({ page: "game-preview", deckId })}>Preview table</ButtonLink>
       </section>
+      <SavedGames />
     </div>
   </Page>;
 }

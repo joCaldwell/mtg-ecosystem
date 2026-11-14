@@ -28,3 +28,5 @@ export type { Currency, Store, PriceSource, PriceStatus } from "./prices.ts";
 export type { SearchResult } from "./search/index.ts";
 export type { PlayerStats } from "./stats.ts";
 export type { Change, Resource } from "./changes.ts";
+
+export type { GameDeck, GameIdentity, GameAdmission, GameRecord, GameStopTarget, GameOutcome, GamePause, GameLaunchResult, NativeGameAdapter, NativeGameStatus, GameCoordinatorOptions } from "./game-contracts.ts";

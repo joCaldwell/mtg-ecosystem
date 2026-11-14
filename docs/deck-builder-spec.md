@@ -1028,5 +1028,9 @@ migration from this move. See [application launch gates](../packages/multiverse/
 
 The original solo manual playtest service is legacy functionality, not a rules
 engine, browser-play acceptance or approved game-client design reference. New
-games follow native admission and separate account-to-seat authorization. Real
-one-human/three-automated launch and full browser decisions remain unfinished.
+games follow native admission and separate account-to-seat authorization. The
+additive Actor-scoped coordinator captures immutable revision-bound game decks,
+retains owner-scoped launch/outcome/recovery records and requires explicit native
+admission. Its concrete CLI adapter provides admission only; real one-human/three-
+automated provisioning and full browser decisions remain gated by the
+[product launch contract](../packages/multiverse/web/ARCHITECTURE.md#game-launch).
