@@ -3,7 +3,7 @@
 `commander-blocking-targets-v1` is a separate finite development profile. Its
 schema-1 `blocking-matches` catalog contains the 34 exact records selected by the
 foundations match catalog plus Righteousness, Swift Response, Assassinate,
-Burst of Energy, Pressure Point, Icy Manipulator, Royal Assassin, Ertai, Wizard Adept, Temporal Adept, Seeker of Skybreak, Llanowar Elves and Withstand Death.
+Burst of Energy, Pressure Point, Icy Manipulator, Royal Assassin, Ertai, Wizard Adept, Temporal Adept, Seeker of Skybreak, Llanowar Elves, Withstand Death and Jump.
 This development pool evolves in place; its name does not select runtime rules.
 Other catalogs and decks remain unchanged.
 Neither hosting nor sampled search is requested by this profile; their reviewed
@@ -41,7 +41,7 @@ The default decks use these explicit compositions from the existing pool:
 | Seats | Commander | Composition including commander |
 | --- | --- | --- |
 | 0 | Isamaru, Hound of Konda | Eleven singleton nonbasic cards, including Righteousness, Swift Response, Burst of Energy, Pressure Point and Icy Manipulator, and 89 Plains |
-| 2 | Ertai, Wizard Adept | Singleton Ertai, Azure Mage, Hapless Researcher, Merfolk Looter, Counterspell, Stifle, Time Ebb, Unsummon, Temporal Adept and Icy Manipulator, and 90 Islands |
+| 2 | Ertai, Wizard Adept | Singleton Ertai, Azure Mage, Hapless Researcher, Merfolk Looter, Counterspell, Stifle, Time Ebb, Unsummon, Temporal Adept, Icy Manipulator and Jump, and 89 Islands |
 | 1, 3 | Yargle and Multani | Eighteen singleton nonbasic cards, including Assassinate, Icy Manipulator, Royal Assassin, Seeker of Skybreak, Llanowar Elves and Withstand Death, 43 Swamps and 39 Forests |
 
 Each deck contains 100 cards. The profile retains the frozen 2026-10-15 Commander
@@ -76,9 +76,81 @@ provide membership authority, including for orphans. Current visible type,
 targetability and friendly control still guide selection. Ordinary Growth spells
 do not become generally reactive. No card/profile identity selects policy rules.
 
+## Temporary flight admission
+
+The schema-1 pool now has 47 definitions at canonical digest
+`506c116e66c54ef67485ff3f59beea782cd6d02eb1250ae3c46329654b73932b`.
+The sole addition to the preceding
+46-definition pool is the existing complete [Jump fixture](../packages/game-engine/tests/fixtures/f7518456-45ed-41d4-bd3c-5aacea28eb35.json),
+Oracle identity `f7518456-45ed-41d4-bd3c-5aacea28eb35`. Its retained source costs
+`{U}`, reads “Target creature gains flying until end of turn.” and records
+Commander legality `legal`. Removing Jump reproduces the preceding canonical
+46-definition digest `c80f12b257ac00fc46e395480b81ee1c619158d7b97238905577f242937e5444`;
+no previous definition changes. Seat 2 replaces one Island with singleton Jump,
+leaving 89 Islands. Every other deck, commander, frozen policy, completion setting
+and hosting/search flag is preserved, including Withstand Death and 39 Forests
+in each black/green seat. This admission does not expand hosting, search, SDK,
+server or downstream consumer qualification.
+
+Develop recognizes the complete ordinary pure single-creature Flying grant until
+end of turn through public IR. Its deliberate narrow case is a friendly,
+currently grounded, positive-power creature already attacking during
+DeclareAttackers priority. The actual defending player must have an untapped
+creature that can block on the ground and no ready Flying or Reach blocker.
+Public control, current creature type, targetability, restrictions and offered
+candidate handles determine preference. Already Flying, unblockable and Menace
+attackers, unrelated stack entries, proactive forecasting and defensive flight
+are excluded. Reach on an attacker does not make offensive Flying redundant.
+After blockers are declared, gaining Flying never erases an existing block
+(CR 508.2, 509.1h and 702.9 in the retained rules edition). Announced mandatory
+target selection retains the existing legal-candidate fallback when the preferred
+benefit disappears. Existing temporary protection, untap, equipment, destruction
+and mana policies keep their separate behavior.
+
+The dedicated [paid legal-pod prefix](../packages/game-engine/crates/core/tests/temporary_flight_admission.rs)
+uses Ertai, Jump and 98 Islands against three Isamaru/99 Plains decks. It selects
+only an opening hand in a bounded setup-only scan before gameplay; the first
+qualifying index is 14. A deterministic diagnostic fork proves the same grounded
+block was legal before the flight response, without changing the witness. Actual basic
+land payments cast the commanders; ordinary turns age both. Ertai attacks an
+untapped Isamaru, and one real Island pays U for Jump from the actual hand before
+blocker declaration. The actual grounded block submission rejects atomically,
+then unblocked damage changes life and the physical commander's combat history.
+Unknown, stale-hand, noncreature and wrong-player target responses also reject
+without mutation. Snapshot verification, restore, accepted-input replay and
+advance quanta 1/4096 are separate from the simulator's explicitly synthetic
+public-observation controls. No full-game completion is required or claimed.
+
+The focused combined-source pass ran 79 Rust tests: the new paid prefix, the
+unchanged Withstand prefix, three profile assertions, nine adjacent paid admission
+prefixes, 64 generic policy tests (six new flight controls), and one all-catalog
+freshness test. The separate opening-only probe ran once; three Python structure
+tests also passed. Formatting, compiler/core/simulator all-target checking,
+strict production simulator and admission-target Clippy, debug producer build,
+source verification and CLI smoke/replay passed. Simulator test Clippy initially
+failed on three pre-existing `cloned_ref_to_slice_refs` warnings; its rerun used
+only that explicit baseline allowance. The failed receipt remains retained.
+Node dependency/source-tooling checks were omitted because the existing checkout
+has no installed Node dependencies; none were installed. Full runtime, release,
+profile/completion, SDK/server/consumer and offline-retention matrices were omitted.
+
+The copied debug producer's build identity is
+`9b17b6ad7d51826d8ea4689d8a549bed6a6c255de141f091e1a7908f0c7b665e`,
+executable SHA-256 `cd536579973f58fde8d48da4332fa8f88877cc350bd5fe18967db500cdc439b0`.
+All 759 native source rows match the final committed source. The schema SHA-256 is
+`6be3ff88b68b3ea9cd77eac65c80790fdf5144e3ee7420ddcbe4be6667a7eaa8`,
+byte-identical to the separately qualified pure-flight foundation at `f7ee9448`;
+it is not the earlier export that omitted Flying. Bootstrap provenance, exact
+producer/test/schema/source copies, timing receipts, smoke and replay remain
+under `generated/temporary-flight-admission/` in the implementation checkout.
+The two native lock acquisitions waited less than a millisecond combined and
+held the slot for 347.19 and 50.61 seconds, including the retained Clippy failure.
+The slot was released after final copying. This is focused headless evidence;
+parent integration owns the current map and final combined acceptance.
+
 ## Temporary creature protection admission
 
-The current schema-1 blocking pool has 46 definitions at canonical digest
+That preceding schema-1 blocking pool has 46 definitions at canonical digest
 `c80f12b257ac00fc46e395480b81ee1c619158d7b97238905577f242937e5444`.
 The sole addition is the existing complete Withstand Death fixture
 `c462adf3-4ade-4b90-bdec-7247b080471f.json`; all 45 previous definition bodies
@@ -117,14 +189,15 @@ wrong-player target submissions reject without semantic mutation. Snapshot
 verification, restoration, accepted-input replay and advance quanta 1/4096
 are checked independently of the synthetic permitted-IR policy controls.
 
-The original combat witness currently exposes a foundation defect after the
-successful protection response: damage-source keyword LKI validation admits
-intrinsic/static grant vocabulary but omits ordinary spell `GrantKeywords`.
-The retained RED faults before combat damage; this admission is a development
-candidate pending the separately owned narrow runtime fix and rerun of that
-unchanged witness. The failure remains under
-`generated/temporary-protection-admission/red-combat/` in the implementation
-checkout. Passing policy/admission checks do not clear this runtime defect.
+The earlier unchanged combat witness exposed a foundation defect after the
+successful protection response: damage-source keyword LKI validation admitted
+intrinsic/static grant vocabulary but omitted ordinary spell `GrantKeywords`.
+That retained RED faulted before combat damage and remains under
+`generated/temporary-protection-admission/red-combat/` in its implementation
+checkout. The later LKI correction at `05869` is part of this admission's required
+committed integration base. The unchanged witness now passes at quanta 1/4096 on
+the combined producer above, including real combat survival, cleanup expiry and
+fresh destruction. Historical failed evidence is preserved rather than relabeled.
 
 ## Blue default admission
 

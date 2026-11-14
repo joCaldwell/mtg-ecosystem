@@ -206,7 +206,7 @@ fn recover(g: &Game, p: &Prepared, verifier: &mut SnapshotVerifier) {
 }
 fn run(index: u32, q: u64) -> Game {
     let c = catalog();
-    assert_eq!(c.definitions.len(), 46);
+    assert_eq!(c.definitions.len(), 47);
     let (p, mut g) = setup(&c, seed(index), q);
     assert!(opening(&c, &g));
     let protection = id(&c, "Withstand Death");

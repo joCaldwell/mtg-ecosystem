@@ -3296,3 +3296,6 @@ mod plate_policy_tests;
 
 #[path = "temporary_protection_policy_tests.rs"]
 mod temporary_protection_policy_tests;
+
+#[path = "temporary_flight_policy_tests.rs"]
+mod temporary_flight_policy_tests;
