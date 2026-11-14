@@ -43,7 +43,7 @@ fn prepared(rows: &[(&str, bool)]) -> Prepared {
     let mut p = equipped_indestructible_tests::prepared(&placeholders, false);
     if rows.iter().any(|(name, _)| *name == "Dive Down") {
         let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
-            include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+            include_str!("../../../../tests/fixtures/archive-manifest.json"),
             include_str!("../../../../tests/fixtures/2f990b54-fbf3-4949-85bb-9ba39710e72a.json"),
         ) else {
             panic!("complete frozen Dive Down source")
@@ -64,7 +64,7 @@ fn prepared(rows: &[(&str, bool)]) -> Prepared {
     // neither a hand-written Aura fragment nor a name-based runtime override.
     for (name, raw, _, _) in AURAS {
         let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
-            include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+            include_str!("../../../../tests/fixtures/archive-manifest.json"),
             raw,
         ) else {
             panic!("complete frozen Aura source {name}")
@@ -484,6 +484,12 @@ fn paid_rancor_departures_clear_timestamps_and_reentry_never_follows_successor()
             (None, None)
         );
         assert_eq!(g.state.rules.next_attachment_timestamp, 2);
+        // No attachments remain, but the consumed allocation history is still
+        // semantic and must be proven rather than reset to its sparse default.
+        let mut erased: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
+        erased.state.rules.next_attachment_timestamp = 1;
+        erased.state_sha256 = digest(&erased.state).unwrap();
+        assert!(Game::restore(g.prepared.as_ref().clone(), &canonical(&erased).unwrap()).is_err());
         answer(
             g,
             q,

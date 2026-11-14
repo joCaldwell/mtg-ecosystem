@@ -395,6 +395,11 @@ fn stale_target_waits_for_sba_without_following_successor_and_movement_captures_
 #[test]
 fn timestamp_validation_and_canonical_digest_bind_the_new_private_fields() {
     let mut g = game();
+    let initial = canonical(&g.state).unwrap();
+    assert!(!initial.contains("next_attachment_timestamp"));
+    let decoded: State = strict_read(&initial).unwrap();
+    assert_eq!(decoded.rules.next_attachment_timestamp, 1);
+    assert_eq!(decoded, g.state);
     let bear = object(&g, 2);
     attach(&mut g, 0, Some(bear));
     attach(&mut g, 1, Some(bear));
