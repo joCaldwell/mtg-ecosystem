@@ -2,7 +2,7 @@
 
 Read [the current engine map](../../docs/game-engine-current.md),
 [hosting contract](../../docs/game-engine-server.md), [client delivery](../../docs/game-client.md)
-and [focused verification](../../docs/game-engine-verification-workflow.md).
+and [focused verification](../../docs/game-engine-development.md#choose-focused-checks).
 Rust DTOs/public core types own the protocol. Generated schemas/SDK follow those
 types; no handwritten response/observation replacements. Core rules remain deterministic.
 

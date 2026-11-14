@@ -12,7 +12,7 @@ ask only if it cannot be inferred. Read its manual before editing code.
 | game-ui | Shared permitted table/card/inspection display with scoped styles and host React | [manual](packages/game-ui/AGENTS.md) |
 | game-client | Game decision/session adapters, recovery, qualified preview and standalone harness | [manual](packages/game-client/AGENTS.md) |
 | oracle-parser | Supported TypeScript AST/archive subset; broader parsing paused | [manual](packages/oracle-parser/AGENTS.md) |
-| card-data | Generated compiled Card IR; no hand edits | [data contracts](docs/data_schemas.md) |
+| card-data | Generated compiled Card IR; no hand edits | [data contracts](docs/oracle_parser.md#data-contracts) |
 | game-engine | Rust compiler, deterministic rules, finite Commander simulation/search | [manual](packages/game-engine/AGENTS.md) |
 | game-server | Finite local Rust host and generated TypeScript SDK | [manual](packages/game-server/AGENTS.md), [SDK manual](packages/game-server/sdk/AGENTS.md) |
 
@@ -20,7 +20,7 @@ ask only if it cannot be inferred. Read its manual before editing code.
 
 - TypeScript owns ingestion/parser, applications and SDK; Rust owns semantic
   compilation, deterministic rules, native simulation/search and hosting. This
-  decision is complete; see [architecture](docs/architecture.md).
+  decision is complete; see [architecture](README.md#system-architecture).
 - Use exact card data for names, Oracle text and legality, never model memory.
   Engine work uses frozen local source fixtures and pinned rules. Verify external
   formats/rules against their source documentation and cite it in code.
@@ -28,15 +28,15 @@ ask only if it cannot be inferred. Read its manual before editing code.
   incomplete interpretation is worse than rejection.
 - The deck library is independent of Card IR/engine. The product uses public
   backend `./host` and type-only `./contracts`; game display uses public package
-  exports. Preserve the [application boundaries](docs/multiverse-app.md).
+  exports. Preserve the [application boundaries](packages/multiverse/web/ARCHITECTURE.md#application-boundaries).
 - Preserve privacy and public compatibility (deck spec v3 D19): never drop other
   users' data; public MCP tools, shared URLs and token formats evolve additively
   or through deprecation. Internals may be rewritten freely. Product sign-in
   does not grant a Rust seat. Never use the legacy solo playtester as game-client guidance.
-- Use package-specific npm/Cargo checks. Engine work uses [focused verification](docs/game-engine-verification-workflow.md)
+- Use package-specific npm/Cargo checks. Engine work uses [focused verification](docs/game-engine-development.md#choose-focused-checks)
   with explicit omissions, no automatic full matrix. Active Card IR schema is 1;
   capabilities and exact build/catalog identity fence supported behavior.
-- Follow the [agent workflow](docs/game-engine-agent-workflow.md). Configure
+- Follow the [agent workflow](docs/game-engine-development.md#enter-a-task). Configure
   `git config --local commit.gpgsign false` for autonomous engine checkpoints;
   commit and push coherent checked work. Never force-push shared branches or merge incidentally.
 - Preserve unrelated changes, source/evidence/worktrees and meaningful failures.
@@ -50,3 +50,25 @@ Accepted D2c-d `394301d` excludes later increments; [evidence](docs/game-engine-
 records source boundaries. Update owning canonical sections instead of creating
 per-task plans, progress logs or audit reports. Raw receipts belong in ignored or
 external evidence storage, with locations and omissions in the handoff.
+
+## Documentation and handoff
+
+Each contract has one canonical owner in the [README map](README.md#documentation-map).
+Package manuals state local constraints and link that owner; examples explain use
+without duplicating types, inventories or current status. Update the owner in
+place. Completed plans, task audits and chronological release logs belong in Git
+history. Evidence guides retain exact source/acceptance boundaries and proof
+locations, not a transcript of every check. Preserve their referenced raw evidence.
+
+`npm run check:docs` (or `python3 scripts/check-docs.py`, no Node required) checks
+all maintained `.md`, `.markdown` and `.mdx` files, including package manuals and
+skills: at most **40 files, 60,000 total words and 9,000 words per file**. Fenced
+examples count. The same guard runs on every PR and in engine checks. Consolidate
+before adding a document; routine feature work must not raise these ceilings.
+Any deliberate budget change must explain the durable ownership need in its PR.
+
+Use existing pinned tools through `sh scripts/engine-env.sh`; bootstrap only when
+dependencies are missing/broken. Application packages use their local locks and
+`--workspaces=false --ignore-scripts`, never a shared root reinstall. Run focused
+owning checks and `git diff --check`. Publish coherent checked work with exact
+checks/omissions and overlap in a draft PR; do not merge incidentally.

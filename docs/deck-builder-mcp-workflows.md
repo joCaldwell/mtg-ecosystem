@@ -28,7 +28,7 @@ IDs/revisions above are illustrative: use the IDs and revisions actually
 returned by the app, including every source. Names resolve exactly. The target
 cannot be one of its own sources; duplicate source references are deduplicated.
 Maybe lists are excluded. Read-only comparisons omit `apply_source_tags` and
-need no revision guards; they can read Legacy decks. The tool is conservatively
+need no revision guards; they can read Archived decks. The tool is conservatively
 annotated as a write because it can apply tags.
 
 The result has concise `content` text and MCP `structuredContent`:
@@ -41,7 +41,7 @@ The result has concise `content` text and MCP `structuredContent`:
   This includes unresolved ownership; it is not a shopping list.
 - `summary`: target, shared, remaining, unknown-ownership and filtered-result
   distinct-card/copy counts and cost estimates; also the number of cards tagged.
-  Costs use target list quantities, whole USD cents, and `unpriced` distinct-card
+  Costs use target list quantities, whole cents in the caller's selected currency, and `unpriced` distinct-card
   counts. Missing prices are excluded from the estimate, never treated as free.
 - `prices_as_of`: the timestamp of the installed price dataset, or null.
 
@@ -49,7 +49,7 @@ Each card contains `oracle_id`, exact `name`, target `quantity`, `source_decks`
 (with ID, name, membership revision, list quantity and source-tag label),
 `sourcing`, `ownership` (status, physical quantity and newest-first evidence),
 `reuse` (availability status and available quantity), and `price`
-(`usd_cents`, `as_of`, `estimated`). Estimates describe the cheapest playable
+(`cents`, `currency`, `store`, `source`, `as_of`, `estimated`). Estimates describe the cheapest playable
 printing, not the value of the owner's actual copy. Without an installed price
 refresh, the timestamp can be null even when test/imported price rows exist.
 
@@ -238,7 +238,7 @@ reviewed current text/snapshot) to reject another document change at the same
 membership revision; live updates reset its acknowledgment. Agents have no ruling tool. Superseded/withdrawn
 drafts cannot be revived by stale acknowledgment.
 
-Legacy remains read-only for both actors, including proposal cleanup, tagging
+Archived remains read-only for both actors, including proposal cleanup, tagging
 and evidence recording through that deck. Only the owner changes lifecycle or
 restores it. Paper membership changes still need owner-approved card proposals;
 Theorycrafted direct card edits retain their existing behavior. Creating card
@@ -247,19 +247,15 @@ proposals and individual brief/power-target proposals also accept optional
 
 ## Migration and limits
 
-Schema 10 is migrated transactionally on the next database open. Existing deck
-and proposal IDs, lists, tags, documents and owner decisions are retained. New
-persistent evidence is seeded only from currently assigned explicit Have tags,
-with unknown physical and available quantities. Earlier tags already lost by
-past removals cannot be reconstructed. Existing pending proposals receive an
-unknown base revision and are conservatively stale until reviewed or amended;
-no historical deck revision is fabricated. Reopening schema 10 does not re-seed
-ownership or infer extra copies. Older supported schema versions still migrate.
+Ordered migrations preserve existing identities, lists, filings and decisions.
+The historical schema-10 upgrade seeded evidence only from explicit assigned
+Have tags, never inferred quantities or reconstructed deleted tags; old pending
+work without a known base was conservatively stale. Reopening does not reseed.
 
 This is an evidence ledger, not a printing-level collection or reservation
 system. Explicit available quantities are statements at a time, not automatic
 reservations; moving a card does not adjust them. Source membership may refer
-to Paper, Theorycrafted or Legacy lists, with lifecycle included in returned
+to Paper, Theorycrafted or Archived lists, with lifecycle included in returned
 source deck metadata. Staleness conservatively includes every membership
 revision, including changes that an owner may consider immaterial. It checks
 stored engine structure and document text, not the meaning of arbitrary prose.
@@ -268,83 +264,10 @@ Grouped document changes do not include card membership changes.
 Search pagination, compact mutation responses, richer type statistics, manual
 price refresh controls and advisory interaction warnings remain backlog.
 
-
-## Agent interaction audit — 2026-10-30
-
-This audit traced MCP HTTP and stdio through tool validation, capability
-writes, response rendering, user-scoped SSE, sidebar status and Settings.
-The production browser reached the sign-in screen; authenticated production
-OAuth/client interoperability was not exercised. Behavioral checks use
-isolated SQLite fixtures, both official MCP protocol clients, and the
-seeded browser fixture. No production data or deployment changed.
-
-Corrected:
-
-- The sidebar was gated on an agent **write**, so successful read-only use
-  remained invisible. It now shows last authenticated request from current
-  credentials, with unused/revoked states and a Settings link. This is not
-  a live connection count: the endpoint is stateless. Token use timestamps
-  retain their existing one-minute write throttle.
-- Nested MCP argument objects stripped unknown keys. A misspelled quantity
-  could silently become the default quantity. Tool-owned nested objects now
-  reject unknown keys before the write.
-- A tool could commit its domain mutation and then fail writing Activity or
-  rendering its response. Each mutating tool now wraps execution, attribution
-  and response construction in one savepoint. The regression forces a late
-  Activity failure and verifies membership, revision and log all roll back.
-- Direct-edit log notes bypassed card-reference linting. Agent-authored log
-  prose now goes through the same exact-reference validation below both doors.
-- The stdio shim relayed HTTP failures with `id: null`, abandoning the actual
-  request ID. It now returns correlated errors and handles missing credentials,
-  interrupted responses and invalid message shapes without abandoning requests.
-- Routine preference loads fetched all Settings, including each deck's memory
-  scope. They now use a dedicated small endpoint. Contact events invalidate
-  only agent status. Settings' latest-use comparison now parses timestamps,
-  correctly ordering SQLite UTC strings against ISO token timestamps.
-
-Recommendations implemented together (schema 17):
-
-1. **Concurrency and retry contract.** Direct edits and organization tools
-   accept optional membership revision and broader edit-version guards. Writes
-   accept credential-scoped retry keys with durable 24-hour replay; expired
-   keys fail rather than execute again. UI domain writes retry a dropped
-   response once with the original key. Public arguments remain additive.
-2. **Typed change subscriptions.** Events name resource families, deck IDs and
-   cross-deck effects. Queries subscribe narrowly, bursts batch, and reconnects
-   still invalidate everything. Agent reads touch only the status query.
-3. **Shared command results.** UI and MCP share transaction/guard/receipt logic.
-   Capabilities own attribution; composed agent commands produce one Activity
-   entry. Structured results carry IDs, versions, count deltas and findings,
-   alongside readable text and tool-specific IDs.
-4. **Focus ownership and expiry.** Interaction claims a visible deck/playtest
-   tab; visible owners heartbeat each minute. Token/sequence comparison stops
-   other tabs or late requests clearing its context. Hidden tabs retain stale
-   read context after three minutes and expire at thirty; stale implicit writes
-   require an explicit ID. The sidebar uses server-confirmed context. Policy
-   was coordinated with the UX loop to preserve conversations in other tabs.
-5. **Lean read projections.** Brief/memory/history reads use a small header;
-   full composites share request-local deck/power/check results. Any SQLite
-   write invalidates reuse. No persistent cache or per-connection state.
-
-Verification on the disposable seeded 100-card Hail Caesar deck: the same
-combined deck/power/check result used 117 SQL executions with a shared read
-context versus 220 without one. A brief-only render used 8 executions and
-preserved the full render's header. These are fixture query counts, not a
-production latency claim. Browser checks confirm scoped deck/memory events,
-multi-tab ownership, hidden/stale/expired context, non-owner close, and a
-committed HTTP response deliberately dropped before the retry. Migration,
-receipt restart/expiry/credential isolation, account lifecycle and transport
-revocation are covered by the package gate. Three additional focused tests
-cover the five recommendations; existing migration tests reuse their fixtures.
-
-The implementation branch incorporates the UX loop's My decks pass 2 and
-sidebar icons. Pushes and promotion remain held during its banner release.
-
-Regression commands: `npm run check` in the package, plus
-`node browser-checks/check-agent-contact.mjs` against a disposable `browser-checks/serve.ts`
-server on port 8879 (or `CHECKS_URL`). Browser coverage includes read-only
-contact, tenant separation, live updates, aging timestamps, collapsed access,
-revocation, and no deck/settings refetch from a read-only MCP request.
-
-The combined workflow smoke is `node browser-checks/check-agent-workflows.mjs`
-against the same disposable server. It deliberately changes only that fixture.
+For current command transactions, revision/edit guards, credential-scoped retry
+keys, focus expiry and selective SSE, use [spec §10.3](deck-builder-spec.md#103-tools).
+Regression scripts `check-agent-contact.mjs` and `check-agent-workflows.mjs` run
+against the [disposable browser fixture](../packages/deck-builder/browser-checks/README.md).
+The former checks read-only contact, tenancy/revocation, aging/collapsed access and
+scoped invalidation; the latter exercises sourcing, proposal cleanup and retries.
+Historical audit receipts remain in Git, not current release instructions.

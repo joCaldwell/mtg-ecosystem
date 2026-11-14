@@ -6,6 +6,7 @@
     "packages/*"
   ],
   "scripts": {
+    "check:docs": "python3 scripts/check-docs.py",
     "engine:bootstrap": "sh scripts/engine-bootstrap.sh",
     "engine:doctor": "sh scripts/engine-env.sh node scripts/engine-doctor.ts",
     "check:engine": "sh scripts/engine-env.sh node scripts/check-engine.ts",
