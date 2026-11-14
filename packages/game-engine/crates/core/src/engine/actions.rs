@@ -624,7 +624,8 @@ impl Game {
             | Instruction::SearchBasicLands { .. }) => self.execute_staples_instruction(frame, op),
             op @ (Instruction::CreateCreatureTokens { .. }
             | Instruction::PutPlusOneCounters { .. }) => self.execute_token_instruction(frame, op),
-            op @ (Instruction::ModifyPowerToughness { .. }
+            op @ (Instruction::GrantKeywords { .. }
+            | Instruction::ModifyPowerToughness { .. }
             | Instruction::PreventCombatDamage { .. }
             | Instruction::PreventNextDamage { .. }) => self.execute_effect_instruction(frame, op),
             op @ (Instruction::DealDamage { .. }

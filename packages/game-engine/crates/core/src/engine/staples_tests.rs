@@ -1146,7 +1146,8 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     // The frozen staples catalog predates optional draws and
                     // event-player sacrifice and untapping. Untap can reuse
                     // producers; keep it outside this frozen lifetime proof.
-                    Instruction::OptionalDrawCards { .. }
+                    Instruction::GrantKeywords { .. }
+                    | Instruction::OptionalDrawCards { .. }
                     | Instruction::DrawDamageAmount { .. }
                     | Instruction::SacrificeCreature { .. }
                     | Instruction::MoveSet { .. }

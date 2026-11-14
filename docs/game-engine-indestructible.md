@@ -13,7 +13,7 @@ lowers its intrinsic keyword, this grant and ordinary main-phase equip for {2};
 casting costs {3}. The grant itself requires `indestructible_v1`, even without an
 intrinsic keyword. Rust and exported schema reject missing/spare capability,
 other grant scopes or source kinds, mixed stats/keywords/restrictions, tokens and
-temporary indestructible grants. Other admitted attachment grants are unchanged.
+other temporary keyword-grant contexts. Other admitted attachment grants are unchanged.
 This foundation adds no pool, hosting, search or consumer admission.
 
 Destruction checks the exact incarnation before invoking movement or
@@ -66,3 +66,52 @@ The deathtouch-window correction has source-qualified producer
 Its RED/GREEN gameplay, 33 focused tests, source closure and replay evidence are
 retained under `generated/deathtouch-window/`; compiler/contracts and exported
 schema bytes are unchanged from the equipped-grant foundation.
+
+The separate `temporary_indestructible_spell_v1` capability admits one complete,
+ordinary nonmodal instant/sorcery granting exactly `[Indestructible]` to exactly
+one unqualified battlefield creature target until end of turn. Its `GrantKeywords`
+instruction also requires `indestructible_v1`. Rust and exported schema reject
+other keywords, duplicate/mixed grants, filters, additional costs, modes,
+activated/triggered programs and mixed instructions. The existing intrinsic and
+equipped grants retain their contracts. No hosting/search capability set, pool,
+policy, SDK, server contract or schema version expands.
+
+Complete frozen [Withstand Death source](../packages/game-engine/tests/fixtures/c462adf3-4ade-4b90-bdec-7247b080471f.json)
+comes from the retained d705 archive, physical line 29602/source index 29600.
+The record SHA-256 is
+`f68167a0729366ded35cdd527d118c5f499b85226c6b816238674ea065fa2f75`;
+its archive, source, AST and binding identities remain in fixture provenance
+and the accepted-archive registry. The retained previous producer rejects this
+exact source with `effect:gain-abilities`; that RED witness and subsequent
+attempts remain under `generated/temporary-indestructible/`.
+
+A resolved grant uses the existing atomic `CreateEffect` event, source/cursor
+provenance, captured target incarnation, historical public handles and cleanup
+expiry. Source movement to the graveyard does not end it (CR 611.2a/c). It unions
+with intrinsic/static layer-6 grants (CR 613.1f/702.12c), cannot follow a creature
+through bounce/reentry (CR 400.7), and rechecks targets at resolution
+(CR 608.2b). Cleanup removes the grant and damage marks in the same recorded
+`CleanupEffects` event (CR 514.2): a protected creature with lethal marked damage
+survives that cleanup. A fresh destruction attempt after expiry can destroy it.
+The completed deathtouch-window correction remains authoritative.
+
+Six focused source-backed gameplay tests exercise paid {G} response to Doom Blade,
+source departure, lethal marked damage through real cleanup then fresh destruction,
+bounce/reentry, ordinary opposing-creature targeting with atomic invalid/stale
+response rejection, illegal target at resolution, and union with equipped
+protection. They use private source-backed configurations and accepted actions,
+with snapshot/replay checks at q=1/detailed and q=4096/off. Contract tests use
+explicitly labelled typed IR controls; compiler tests also retain unknown-opcode
+coverage using `future-effect` and test malformed `gain-abilities` separately.
+
+The temporary-grant source-qualified producer is
+`56c44471f6d28415cf4229b6b751442a4a0a84bca79d5c32eeeface2f308ba09`
+(748 native source rows), based on `0d2ed30bc71f97b6574b59afa6f578098afcfe6b`.
+Its `green07` receipts, copied executable/schema, 21 exported-schema probes,
+source snapshots, CLI smoke/replay and preserved failures are retained under
+`generated/temporary-indestructible/`. Focused verification ran 192 compiler,
+68 contracts and 17 core tests, formatting, workspace all-target checking and
+compiler/core no-deps Clippy with warnings denied. Broader runtime/consumer,
+release/performance and full-matrix checks were omitted; local JavaScript
+installation was absent and no dependencies were installed. This candidate
+checkpoint is separate from parent integration and consumer acceptance.

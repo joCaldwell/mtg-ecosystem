@@ -62,6 +62,10 @@ pub enum ResolvedEffectKind {
     ExileDamaged {
         targets: Vec<ObjectId>,
     },
+    GrantKeywords {
+        target: ObjectId,
+        keywords: Vec<KeywordAbility>,
+    },
     ModifyPowerToughness {
         target: ObjectId,
         power: Quantity,
@@ -284,6 +288,28 @@ impl Game {
                     source_block,
                 )
             }
+            Instruction::GrantKeywords {
+                target_slot,
+                keywords,
+                source_block,
+                ..
+            } => {
+                let target = *frame
+                    .spell
+                    .targets
+                    .get(target_slot as usize)
+                    .ok_or("missing keyword target")?;
+                if frame.legal_targets.get(target_slot as usize) != Some(&true)
+                    || !self.is_battlefield_creature(target)
+                {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
+                (
+                    ResolvedEffectKind::GrantKeywords { target, keywords },
+                    source_block,
+                )
+            }
             Instruction::ModifyPowerToughness {
                 target_slot,
                 power,
@@ -355,7 +381,8 @@ impl Game {
             StackKind::Spell => frame.spell.effect_source_handles.clone(),
         };
         let target_handles = match &kind {
-            ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
+            ResolvedEffectKind::GrantKeywords { target, .. }
+            | ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
                 self.capture_trigger_source_handles(*target)?
             }
             ResolvedEffectKind::PreventNextDamage {
@@ -978,6 +1005,25 @@ impl Game {
                             && *source_block == effect.origin.source_block
                     }
                     (
+                        Instruction::GrantKeywords {
+                            target_slot,
+                            keywords,
+                            source_block,
+                            ..
+                        },
+                        ResolvedEffectKind::GrantKeywords {
+                            target,
+                            keywords: grants,
+                        },
+                    ) => {
+                        frame.spell.targets.get(*target_slot as usize) == Some(target)
+                            && frame.legal_targets.get(*target_slot as usize) == Some(&true)
+                            && self.is_battlefield_creature(*target)
+                            && keywords == grants
+                            && grants == &[KeywordAbility::Indestructible]
+                            && *source_block == effect.origin.source_block
+                    }
+                    (
                         Instruction::ModifyPowerToughness {
                             target_slot,
                             power,
@@ -1039,7 +1085,8 @@ impl Game {
                                 })
                             })
                     }
-                    ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
+                    ResolvedEffectKind::GrantKeywords { target, .. }
+                    | ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
                         effect.target_handles.len() == 4
                             && (0..4).all(|v| {
                                 self.handle_for(PlayerId(v), *target).as_ref()
@@ -1340,6 +1387,25 @@ impl Game {
                             && *source_block == e.origin.source_block
                     }
                     (
+                        Instruction::GrantKeywords {
+                            keywords,
+                            source_block,
+                            ..
+                        },
+                        ResolvedEffectKind::GrantKeywords {
+                            target,
+                            keywords: grants,
+                        },
+                    ) => {
+                        keywords == grants
+                            && grants == &[KeywordAbility::Indestructible]
+                            && *source_block == e.origin.source_block
+                            && e.target_handles.len() == 4
+                            && self.state.rules.cards.contains_key(&target.card)
+                            && self.definition(target.card)?.characteristics.kind
+                                == CardKind::Creature
+                    }
+                    (
                         Instruction::ModifyPowerToughness {
                             power,
                             toughness,
@@ -1526,6 +1592,13 @@ pub enum VisibleEffect {
         handle: EffectHandle,
         origin: VisibleEffectSource,
         targets: Vec<VisibleTarget>,
+        expires_in_cleanup_of_turn: u64,
+    },
+    GrantKeywords {
+        handle: EffectHandle,
+        origin: VisibleEffectSource,
+        target: VisibleTarget,
+        keywords: Vec<KeywordAbility>,
         expires_in_cleanup_of_turn: u64,
     },
     ModifyPowerToughness {
@@ -1737,6 +1810,15 @@ impl Game {
                 targets: set_views(targets)?,
                 expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
             },
+            ResolvedEffectKind::GrantKeywords { target, keywords } => {
+                VisibleEffect::GrantKeywords {
+                    handle,
+                    origin,
+                    target: target_view(*target)?,
+                    keywords: keywords.clone(),
+                    expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+                }
+            }
             ResolvedEffectKind::ModifyPowerToughness {
                 target,
                 power,

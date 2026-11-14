@@ -78,6 +78,23 @@ impl Game {
                 }
             }
         }
+        // CR 611.2c/613.1f/400.7: union only for the captured incarnation;
+        // source departure does not end an already resolved EOT grant.
+        for effect in &self.state.rules.effects {
+            if let ResolvedEffectKind::GrantKeywords {
+                target,
+                keywords: grants,
+            } = &effect.kind
+                && *target == object
+                && self.is_battlefield_creature(object)
+            {
+                for keyword in grants {
+                    if !keywords.contains(keyword) {
+                        keywords.push(*keyword);
+                    }
+                }
+            }
+        }
         keywords
     }
     pub(super) fn has_restriction(
