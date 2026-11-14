@@ -260,6 +260,7 @@ pub enum Capability {
     TemporaryDeathtouchSpellV1,
     CompoundIndestructibleSpellV1,
     TemporaryCreatureKeywordProgramV1,
+    TemporaryCreatureSetKeywordProgramV1,
     TrampleV1,
     FirstStrikeV1,
     DoubleStrikeV1,
@@ -338,6 +339,7 @@ pub struct PermanentFilter {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum ObjectSet {
+    ControllerCreatures,
     Creatures,
     NonlandPermanents,
     Enchantments,
@@ -578,6 +580,12 @@ pub enum Instruction {
     },
     /// CR 611.2a/c, 613.1f: the only admitted grant is one creature's
     /// one supported keyword until cleanup, from an ordinary instant/sorcery.
+    GrantKeywordsSet {
+        set: ObjectSet,
+        keywords: Vec<KeywordAbility>,
+        duration: Duration,
+        source_block: u32,
+    },
     GrantKeywords {
         target_slot: u32,
         keywords: Vec<KeywordAbility>,
@@ -2575,6 +2583,34 @@ pub fn temporary_creature_keyword_program(
     };
     supported_temporary_creature_keywords(keywords)
         .then_some(TemporaryCreatureKeywordProgram { modifier, keywords })
+}
+/// Borrowed parameters of the complete ordinary temporary creature-set family.
+#[derive(Clone, Copy, Debug)]
+pub struct TemporaryCreatureSetKeywordProgram<'a> {
+    pub set: &'a ObjectSet,
+    pub modifier: Option<(&'a Quantity, &'a Quantity)>,
+    pub keywords: &'a [KeywordAbility],
+}
+/// CR 608.2c/h, 611.2c: select the complete set when each instruction executes.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+pub fn temporary_creature_set_keyword_program(
+    p: &SpellProgram,
+) -> Option<TemporaryCreatureSetKeywordProgram<'_>> {
+    if p.additional_sacrifice.is_some() || !p.modes.is_empty() || !p.targets.is_empty()
+        || p.functioning_zone != FunctioningZone::Stack
+        || p.resolution != SpellResolution::Instructions {
+        return None;
+    }
+    let (set, modifier, keywords) = match p.instructions.as_slice() {
+        [Instruction::GrantKeywordsSet { set, keywords, duration: Duration::UntilEndOfTurn, source_block: 0 }] => (set, None, keywords),
+        [Instruction::PumpSet { set: pump_set, power, toughness, source_block: 0 },
+         Instruction::GrantKeywordsSet { set, keywords, duration: Duration::UntilEndOfTurn, source_block: 0 }]
+            if set == pump_set => (set, Some((power, toughness)), keywords),
+        _ => return None,
+    };
+    (matches!(set, ObjectSet::ControllerCreatures | ObjectSet::AttackingCreatures)
+        && supported_temporary_creature_keywords(keywords))
+        .then_some(TemporaryCreatureSetKeywordProgram { set, modifier, keywords })
 }
 /// Narrow reviewed subset retained for existing protection policy callers.
 /// Quantities remain exact signed parameters of the shared program descriptor.
