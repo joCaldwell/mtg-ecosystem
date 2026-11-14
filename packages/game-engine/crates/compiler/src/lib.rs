@@ -1666,6 +1666,39 @@ fn append_spell_effects(
         return Err(unsupported("abilities.effects", "empty spell effects"));
     }
     let source_block = source_block(block)?;
+    // CR 109.2/109.5, 608.2h, 611.2c: the permanent family consumes the
+    // complete sole pure-gain sentence. The general wipe path below cannot
+    // admit this selector, including inside costs, modes or later blocks.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    if source_block == 0
+        && player_binding == PlayerBinding::Unbound
+        && program.functioning_zone == FunctioningZone::Stack
+        && program.resolution == SpellResolution::Instructions
+        && program.additional_sacrifice.is_none()
+        && program.targets.is_empty()
+        && program.instructions.is_empty()
+        && let [Sentence { bindings, steps }] = effects
+        && bindings.is_empty()
+        && let [
+            Step::GainAbilities {
+                what,
+                abilities,
+                duration,
+            },
+        ] = steps.as_slice()
+        && matches!(what["ref"].as_str(), Some("all" | "each"))
+        && duration.duration == "end-of-turn"
+        && lower_object_set(what)? == ObjectSet::ControllerPermanents
+    {
+        program.instructions.push(Instruction::GrantKeywordsSet {
+            set: ObjectSet::ControllerPermanents,
+            modifier: None,
+            keywords: lower_temporary_creature_keywords(abilities)?,
+            duration: Duration::UntilEndOfTurn,
+            source_block,
+        });
+        return Ok(());
+    }
     // CR 608.2c/h, 611.2c, 613.5–6: consume the whole typed sentence as one
     // continuous effect, with one membership capture across all its layers.
     // Never join distinct sentences or scan arbitrary later instruction pairs.
@@ -2417,6 +2450,11 @@ fn lower_object_set(v: &serde_json::Value) -> Result<ObjectSet, Failure> {
         ObjectSet::Enchantments
     } else if *f == json!({"types":["creature"],"status":["attacking"]}) {
         ObjectSet::AttackingCreatures
+    } else if *f == json!({"cls":"permanent","control":"you"}) {
+        // CR 109.2/109.5, 608.2h, 611.2c: every controlled permanent,
+        // captured by the ordinary keyword program; never narrow to creatures.
+        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+        ObjectSet::ControllerPermanents
     } else if *f == json!({"types":["creature"],"control":"you"}) {
         ObjectSet::ControllerCreatures
     } else if *f == json!({"types":["creature"],"control":"opponent"}) {
@@ -2445,8 +2483,15 @@ fn lower_wipes_step(
         } if (what["ref"] == "all" || what["ref"] == "each")
             && duration.duration == "end-of-turn" =>
         {
+            let set = lower_object_set(what)?;
+            if set == ObjectSet::ControllerPermanents {
+                return Err(unsupported(
+                    "set",
+                    "permanent keywords require a complete ordinary pure gain",
+                ));
+            }
             Instruction::GrantKeywordsSet {
-                set: lower_object_set(what)?,
+                set,
                 modifier: None,
                 keywords: lower_temporary_creature_keywords(abilities)?,
                 duration: Duration::UntilEndOfTurn,
@@ -8762,3 +8807,6 @@ mod temporary_combat_keyword_tests;
 
 #[cfg(test)]
 mod creature_set_keyword_tests;
+
+#[cfg(test)]
+mod permanent_set_keyword_tests;
