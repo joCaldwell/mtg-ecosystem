@@ -2865,6 +2865,112 @@
         "source_json": "{\"object\":\"card\",\"id\":\"91971e19-61ce-45ac-b700-9ffca5091a27\",\"oracle_id\":\"f2902dfd-888f-4b02-b8ad-1056f0059fc3\",\"multiverse_ids\":[5146],\"mtgo_id\":10457,\"mtgo_foil_id\":10458,\"tcgplayer_id\":4323,\"cardmarket_id\":9261,\"name\":\"Ertai, Wizard Adept\",\"lang\":\"en\",\"released_at\":\"1998-06-15\",\"uri\":\"https://api.scryfall.com/cards/91971e19-61ce-45ac-b700-9ffca5091a27\",\"scryfall_uri\":\"https://scryfall.com/card/exo/33/ertai-wizard-adept?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T12:42:05Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.jpg?1783946525\",\"normal\":\"https://cards.scryfall.io/normal/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.jpg?1783946525\",\"large\":\"https://cards.scryfall.io/large/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.jpg?1783946525\",\"png\":\"https://cards.scryfall.io/png/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.png?1783946525\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.jpg?1783946525\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.jpg?1783946525\",\"thumb\":\"https://cards.scryfall.io/thumb/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.webp?1783946525\",\"grid\":\"https://cards.scryfall.io/grid/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.webp?1783946525\",\"display\":\"https://cards.scryfall.io/display/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.webp?1783946525\",\"art\":\"https://cards.scryfall.io/art/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.webp?1783946525\",\"crop\":\"https://cards.scryfall.io/crop/front/9/1/91971e19-61ce-45ac-b700-9ffca5091a27.webp?1783946525\"},\"mana_cost\":\"{2}{U}\",\"cmc\":3,\"type_line\":\"Legendary Creature — Human Wizard\",\"oracle_text\":\"{2}{U}{U}, {T}: Counter target spell.\",\"power\":\"1\",\"toughness\":\"1\",\"colors\":[\"U\"],\"color_identity\":[\"U\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"not_legal\",\"timeless\":\"not_legal\",\"gladiator\":\"not_legal\",\"pioneer\":\"not_legal\",\"modern\":\"not_legal\",\"legacy\":\"legal\",\"pauper\":\"not_legal\",\"vintage\":\"legal\",\"penny\":\"not_legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"not_legal\",\"competitivebrawl\":\"not_legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"not_legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"legal\",\"predh\":\"legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"mtgo\"],\"reserved\":true,\"game_changer\":false,\"foil\":false,\"nonfoil\":true,\"finishes\":[\"nonfoil\"],\"oversized\":false,\"promo\":false,\"reprint\":false,\"variation\":false,\"set_id\":\"1401f7af-2e71-476d-9813-991084ed0bb9\",\"set\":\"exo\",\"set_name\":\"Exodus\",\"set_type\":\"expansion\",\"set_uri\":\"https://api.scryfall.com/sets/1401f7af-2e71-476d-9813-991084ed0bb9\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3Aexo&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/exo?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/91971e19-61ce-45ac-b700-9ffca5091a27/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3Af2902dfd-888f-4b02-b8ad-1056f0059fc3&unique=prints\",\"collector_number\":\"33\",\"digital\":false,\"rarity\":\"rare\",\"flavor_text\":\"\\\"Was that *it*?\\\"\\n—Ertai, wizard adept\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Terese Nielsen\",\"artist_ids\":[\"eb55171c-2342-45f4-a503-2d5a75baf752\"],\"illustration_id\":\"482f321e-c579-4693-91bc-034e5c75c2c8\",\"border_color\":\"black\",\"frame\":\"1997\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":18657,\"prices\":{\"usd\":\"12.83\",\"usd_foil\":null,\"usd_etched\":null,\"eur\":\"4.12\",\"eur_foil\":null,\"tix\":\"0.07\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=5146&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DErtai%252C%2BWizard%2BAdept\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DErtai%252C%2BWizard%2BAdept\",\"edhrec\":\"https://edhrec.com/route/?cc=Ertai%2C+Wizard+Adept\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F4323%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=9261&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/10457?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
         "abilities_json": "[{\"kind\":\"activated\",\"costs\":[{\"cost\":\"mana\",\"symbols\":[\"2\",\"U\",\"U\"]},{\"cost\":\"tap-self\"}],\"effects\":[{\"steps\":[{\"effect\":\"counter\",\"what\":{\"ref\":\"target\",\"filter\":{\"cls\":\"spell\"},\"count\":{\"amount\":\"fixed\",\"value\":1},\"selectionId\":\"line:0:7\"}}]}]}]"
       }
+    },
+    {
+      "oracle_id": "fd9b5462-6578-4bf6-8026-23eaf5af3eee",
+      "name": "Temporal Adept",
+      "characteristics": {
+        "kind": "creature",
+        "subtypes": [
+          "Human",
+          "Wizard"
+        ],
+        "basic": false,
+        "legendary": false,
+        "mana_cost": {
+          "generic": "1",
+          "colored": [
+            "U",
+            "U"
+          ]
+        },
+        "colors": [
+          "U"
+        ],
+        "color_identity": [
+          "U"
+        ],
+        "power": "1",
+        "toughness": "1"
+      },
+      "intrinsic_zone": null,
+      "spell": {
+        "timing": "main_phase",
+        "resolution": "permanent",
+        "functioning_zone": "stack",
+        "targets": [],
+        "instructions": []
+      },
+      "activated": [
+        {
+          "functioning_zone": "battlefield",
+          "cost": {
+            "composite": {
+              "costs": {
+                "tap": true,
+                "mana": {
+                  "generic": "0",
+                  "colored": [
+                    "U",
+                    "U",
+                    "U"
+                  ]
+                },
+                "sacrifice": false
+              }
+            }
+          },
+          "program": {
+            "timing": "instant",
+            "resolution": "instructions",
+            "functioning_zone": "stack",
+            "targets": [
+              {
+                "slot": 0,
+                "selection_id": "line:0:7",
+                "chooser": "controller",
+                "stage": "announcement",
+                "domain": "battlefield_permanent",
+                "filter": {
+                  "types": [],
+                  "non_types": [],
+                  "non_colors": [],
+                  "opponent": false
+                }
+              }
+            ],
+            "instructions": [
+              {
+                "op": "return_to_owner_hand",
+                "target_slot": 0,
+                "source_block": 0
+              }
+            ]
+          }
+        }
+      ],
+      "capabilities": [
+        "composite_activation_cost_v1",
+        "normal_layout_v1",
+        "base_creature_v1",
+        "cast_creature_v1",
+        "activated_permanent_owner_hand_v1",
+        "owner_hand_move_v1",
+        "permanent_owner_hand_move_v1",
+        "activated_ability_v1",
+        "permanent_removal_v1"
+      ],
+      "provenance": {
+        "printing_id": "0ff2dfe6-dbc0-46c3-9d5c-9f0ba6f511ec",
+        "source_index": 38351,
+        "source_sha256": "63e0fb4e43b958990f2b01b936058bf38fde8c31976aa617a0fcc7f3ba2385dd",
+        "ast_sha256": "4c1dfc8f0c97ccfb4a1a9eaeed0c269895f65ebb3d90e74aca8441330fb64b68",
+        "binding_sha256": "4725f48916370e68b109964adc30fc7c1e35239d0a0b9da6bc7d922589adb497",
+        "archive_manifest_sha256": "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a",
+        "parser_sha256": "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a",
+        "source_json": "{\"object\":\"card\",\"id\":\"0ff2dfe6-dbc0-46c3-9d5c-9f0ba6f511ec\",\"oracle_id\":\"fd9b5462-6578-4bf6-8026-23eaf5af3eee\",\"multiverse_ids\":[84141],\"mtgo_id\":22915,\"mtgo_foil_id\":22916,\"tcgplayer_id\":12848,\"cardmarket_id\":12567,\"name\":\"Temporal Adept\",\"lang\":\"en\",\"released_at\":\"2005-07-29\",\"uri\":\"https://api.scryfall.com/cards/0ff2dfe6-dbc0-46c3-9d5c-9f0ba6f511ec\",\"scryfall_uri\":\"https://scryfall.com/card/9ed/102/temporal-adept?utm_source=api\",\"layout\":\"normal\",\"highres_image\":true,\"image_status\":\"highres_scan\",\"image_updated_at\":\"2026-07-13T12:00:26Z\",\"image_uris\":{\"small\":\"https://cards.scryfall.io/small/front/0/f/0ff2dfe6-dbc0-46c3-9d5c-9f0ba6f511ec.jpg?1783944026\",\"normal\":\"https://cards.scryfall.io/normal/front/0/f/0ff2dfe6-dbc0-46c3-9d5c-9f0ba6f511ec.jpg?1783944026\",\"large\":\"https://cards.scryfall.io/large/front/0/f/0ff2dfe6-dbc0-46c3-9d5c-9f0ba6f511ec.jpg?1783944026\",\"png\":\"https://cards.scryfall.io/png/front/0/f/0ff2dfe6-dbc0-46c3-9d5c-9f0ba6f511ec.png?1783944026\",\"art_crop\":\"https://cards.scryfall.io/art_crop/front/0/f/0ff2dfe6-dbc0-46c3-9d5c-9f0ba6f511ec.jpg?1783944026\",\"border_crop\":\"https://cards.scryfall.io/border_crop/front/0/f/0ff2dfe6-dbc0-46c3-9d5c-9f0ba6f511ec.jpg?1783944026\",\"thumb\":\"https://cards.scryfall.io/thumb/front/0/f/0ff2dfe6-dbc0-46c3-9d5c-9f0ba6f511ec.webp?1783944026\",\"grid\":\"https://cards.scryfall.io/grid/front/0/f/0ff2dfe6-dbc0-46c3-9d5c-9f0ba6f511ec.webp?1783944026\",\"display\":\"https://cards.scryfall.io/display/front/0/f/0ff2dfe6-dbc0-46c3-9d5c-9f0ba6f511ec.webp?1783944026\",\"art\":\"https://cards.scryfall.io/art/front/0/f/0ff2dfe6-dbc0-46c3-9d5c-9f0ba6f511ec.webp?1783944026\",\"crop\":\"https://cards.scryfall.io/crop/front/0/f/0ff2dfe6-dbc0-46c3-9d5c-9f0ba6f511ec.webp?1783944026\"},\"mana_cost\":\"{1}{U}{U}\",\"cmc\":3,\"type_line\":\"Creature — Human Wizard\",\"oracle_text\":\"{U}{U}{U}, {T}: Return target permanent to its owner's hand.\",\"power\":\"1\",\"toughness\":\"1\",\"colors\":[\"U\"],\"color_identity\":[\"U\"],\"keywords\":[],\"legalities\":{\"standard\":\"not_legal\",\"future\":\"not_legal\",\"historic\":\"not_legal\",\"timeless\":\"not_legal\",\"gladiator\":\"not_legal\",\"pioneer\":\"not_legal\",\"modern\":\"legal\",\"legacy\":\"legal\",\"pauper\":\"not_legal\",\"vintage\":\"legal\",\"penny\":\"legal\",\"commander\":\"legal\",\"oathbreaker\":\"legal\",\"standardbrawl\":\"not_legal\",\"brawl\":\"not_legal\",\"competitivebrawl\":\"not_legal\",\"alchemy\":\"not_legal\",\"paupercommander\":\"not_legal\",\"duel\":\"legal\",\"oldschool\":\"not_legal\",\"premodern\":\"legal\",\"predh\":\"legal\",\"tlr\":\"legal\"},\"games\":[\"paper\",\"mtgo\"],\"reserved\":false,\"game_changer\":false,\"foil\":false,\"nonfoil\":true,\"finishes\":[\"nonfoil\"],\"oversized\":false,\"promo\":false,\"reprint\":true,\"variation\":false,\"set_id\":\"e70c8572-4732-4e92-a140-b4e3c1c84c93\",\"set\":\"9ed\",\"set_name\":\"Ninth Edition\",\"set_type\":\"core\",\"set_uri\":\"https://api.scryfall.com/sets/e70c8572-4732-4e92-a140-b4e3c1c84c93\",\"set_search_uri\":\"https://api.scryfall.com/cards/search?order=set&q=e%3A9ed&unique=prints\",\"scryfall_set_uri\":\"https://scryfall.com/sets/9ed?utm_source=api\",\"rulings_uri\":\"https://api.scryfall.com/cards/0ff2dfe6-dbc0-46c3-9d5c-9f0ba6f511ec/rulings\",\"prints_search_uri\":\"https://api.scryfall.com/cards/search?order=released&q=oracleid%3Afd9b5462-6578-4bf6-8026-23eaf5af3eee&unique=prints\",\"collector_number\":\"102\",\"digital\":false,\"rarity\":\"rare\",\"flavor_text\":\"\\\"If yesterday was two days ago tomorrow, will the day after tomorrow be today or yesterday?\\\"\\n—Temporal Manipulation 101 final exam, Tolarian Academy\",\"card_back_id\":\"0aeebaf5-8c7d-4636-9e82-8c27447861f7\",\"artist\":\"Mark Tedin\",\"artist_ids\":[\"9ee9a9cc-c09e-486f-918b-69f80cbc4188\"],\"illustration_id\":\"1873fa0d-45c8-4a52-acf9-6ce0592665ba\",\"border_color\":\"white\",\"frame\":\"2003\",\"full_art\":false,\"textless\":false,\"booster\":true,\"story_spotlight\":false,\"edhrec_rank\":23307,\"penny_rank\":10684,\"prices\":{\"usd\":\"0.25\",\"usd_foil\":null,\"usd_etched\":null,\"eur\":\"0.41\",\"eur_foil\":null,\"tix\":\"0.02\"},\"related_uris\":{\"gatherer\":\"https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=84141&printed=false\",\"tcgplayer_infinite_articles\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Farticles&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Farticles%3FproductLineName%3Dmagic%26q%3DTemporal%2BAdept\",\"tcgplayer_infinite_decks\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&trafcat=tcgplayer.com%2Fsearch%2Fdecks&u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fdecks%3FproductLineName%3Dmagic%26q%3DTemporal%2BAdept\",\"edhrec\":\"https://edhrec.com/route/?cc=Temporal+Adept\"},\"purchase_uris\":{\"tcgplayer\":\"https://partner.tcgplayer.com/c/4931599/1830156/21018?subId1=api&u=https%3A%2F%2Fwww.tcgplayer.com%2Fproduct%2F12848%3Fpage%3D1\",\"cardmarket\":\"https://www.cardmarket.com/en/Magic/Products?idProduct=12567&referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall\",\"cardhoarder\":\"https://www.cardhoarder.com/cards/22915?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall\"}}",
+        "abilities_json": "[{\"kind\":\"activated\",\"costs\":[{\"cost\":\"mana\",\"symbols\":[\"U\",\"U\",\"U\"]},{\"cost\":\"tap-self\"}],\"effects\":[{\"steps\":[{\"effect\":\"return-to-hand\",\"what\":{\"ref\":\"target\",\"filter\":{\"cls\":\"permanent\"},\"count\":{\"amount\":\"fixed\",\"value\":1},\"selectionId\":\"line:0:7\"},\"to\":\"owner\"}]}]}]"
+      }
     }
   ]
 }

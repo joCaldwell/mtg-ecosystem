@@ -8,7 +8,7 @@ fn defense_catalog() -> Catalog {
         .unwrap()
         .catalog()
         .clone();
-    assert_eq!(c.definitions.len(), 42);
+    assert_eq!(c.definitions.len(), 43);
     c
 }
 fn defense_config(c: &Catalog, seed: [u8; 32]) -> MatchConfig {

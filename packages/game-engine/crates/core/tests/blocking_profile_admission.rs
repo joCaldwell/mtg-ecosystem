@@ -22,14 +22,14 @@ fn oracle(catalog: &Catalog, name: &str) -> String {
 }
 
 #[test]
-fn development_profile_adds_eight_complete_definitions_and_admits_four_legal_decks() {
+fn development_profile_adds_nine_complete_definitions_and_admits_four_legal_decks() {
     let catalog = catalog();
     let original = Catalog::read(include_str!(
         "../../../tests/fixtures/expected-match-ir.json"
     ))
     .unwrap();
     assert_eq!(catalog.schema_version, 1);
-    assert_eq!(catalog.definitions.len(), original.definitions.len() + 8);
+    assert_eq!(catalog.definitions.len(), original.definitions.len() + 9);
     for definition in &original.definitions {
         assert_eq!(
             catalog
@@ -53,6 +53,14 @@ fn development_profile_adds_eight_complete_definitions_and_admits_four_legal_dec
     let icy = oracle(&catalog, "Icy Manipulator");
     let royal = oracle(&catalog, "Royal Assassin");
     let ertai = oracle(&catalog, "Ertai, Wizard Adept");
+    let temporal = oracle(&catalog, "Temporal Adept");
+    assert!(
+        catalog
+            .definition_by_oracle_id(&temporal)
+            .unwrap()
+            .capabilities
+            .contains(&Capability::ActivatedPermanentOwnerHandV1)
+    );
     assert!(profile.commanders.contains(&ertai));
     assert!(
         catalog
@@ -92,6 +100,7 @@ fn development_profile_adds_eight_complete_definitions_and_admits_four_legal_dec
             (&icy, 1),
             (&royal, u32::from(!seat.is_multiple_of(2))),
             (&ertai, 0),
+            (&temporal, 0),
             (&assassinate, u32::from(!seat.is_multiple_of(2))),
         ] {
             assert_eq!(
@@ -180,6 +189,7 @@ fn blocking_profile_retains_singleton_color_and_feature_rejection() {
                     && capabilities.contains(&Capability::ActivatedTapPermanentV1)
                     && capabilities.contains(&Capability::TapSourceDestroyV1)
                     && capabilities.contains(&Capability::ActivatedSpellCounterV1)
+                    && capabilities.contains(&Capability::ActivatedPermanentOwnerHandV1)
         ));
     }
 }

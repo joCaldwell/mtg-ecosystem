@@ -1545,3 +1545,6 @@ mod activated_tap_match_admission;
 mod activated_counter_match_admission;
 #[path = "matches_adversarial/royal_match_admission.rs"]
 mod royal_match_admission;
+
+#[path = "matches_adversarial/permanent_return_match_admission.rs"]
+mod permanent_return_match_admission;

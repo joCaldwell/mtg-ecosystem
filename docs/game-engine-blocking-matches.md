@@ -3,7 +3,7 @@
 `commander-blocking-targets-v1` is a separate finite development profile. Its
 schema-1 `blocking-matches` catalog contains the 34 exact records selected by the
 foundations match catalog plus Righteousness, Swift Response, Assassinate,
-Burst of Energy, Pressure Point, Icy Manipulator, Royal Assassin and Ertai, Wizard Adept.
+Burst of Energy, Pressure Point, Icy Manipulator, Royal Assassin, Ertai, Wizard Adept and Temporal Adept.
 This development pool evolves in place; its name does not select runtime rules.
 Other catalogs and decks remain unchanged.
 Neither hosting nor sampled search is requested by this profile; their reviewed
@@ -76,9 +76,33 @@ provide membership authority, including for orphans. Current visible type,
 targetability and friendly control still guide selection. Ordinary Growth spells
 do not become generally reactive. No card/profile identity selects policy rules.
 
-## Current activated-interaction admission
+## Current permanent-return admission
 
-The current pool has 42 definitions, canonical digest
+The current pool has 43 definitions, canonical digest
+`f4ab9466a85c5f82c6acf81d0b6497846c892de010edfd9766a11aef9da603c0`.
+All prior 42 definitions and the complete profile bytes are preserved. Temporal
+Adept becomes available for legal blue custom decks; all four default decks and
+permitted commanders remain unchanged. Its exact source and
+[activated return contract](game-engine-removal.md#activated-permanent-return)
+remain the semantic authority.
+
+The [paid legal-pod witness](../packages/game-engine/crates/core/tests/matches_adversarial/permanent_return_match_admission.rs)
+casts Temporal using three Islands, rejects activation while summoning sick with
+three independent Islands still available, then ages it naturally and pays UUU
+plus its tap cost. The opposing commander's owner chooses hand or command zone.
+The hand branch recasts on that owner's main phase for the printed W cost;
+command-cast history and the command-zone tax remain unchanged. Both branches
+verify snapshot recovery, accepted-input replay and budgets 1/4096. The opening
+seed is selected during setup only, before gameplay.
+
+Public-IR policy tests cover actual admitted costs, readiness, current control,
+permanent target eligibility and offered handles. Existing own-main activation
+policy needs no production change. Hosting/search and consumer qualification
+remain separate; this increment claims no new natural full-game completion.
+
+## 42-definition activated-interaction admission
+
+The preceding pool has 42 definitions, canonical digest
 `3ce9a86f116df9a68a9b97f15c06315bf96d4955b44306da8956d6be0daf1093`.
 All prior 40 definitions are preserved. Royal Assassin joins each black/green
 default deck in place of one Forest. Ertai is an additional permitted blue

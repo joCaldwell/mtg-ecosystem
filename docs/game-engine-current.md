@@ -114,7 +114,9 @@ qualification remain separate.
 [Activated permanent return](game-engine-removal.md#activated-permanent-return)
 supports complete Temporal Adept through existing cost and movement paths, with
 private ownership, self/source bounce, reentry and Commander/replay witnesses;
-pool and consumer admission remain separate.
+its later [headless admission](game-engine-blocking-matches.md#current-permanent-return-admission)
+adds a paid legal-pod owner-choice and hand-recast witness. Hosting/search and
+consumer qualification remain separate.
 Read Rust types and validation at the edited source; old reports retain their
 original version numbers. Active catalogs are regenerated at schema 1; distinct
 source/admission pools remain separate. Historical decoder gates and downgrade

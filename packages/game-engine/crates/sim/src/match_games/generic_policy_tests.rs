@@ -2718,3 +2718,234 @@ mod activated_headless_policy_tests {
         assert_eq!(canonical(&o).unwrap(), before);
     }
 }
+
+// Synthetic public payload probes over admitted source IR. Core independently
+// qualifies genuine paid pod inputs, source tapping and replay.
+mod temporal_adept_policy_tests {
+    use super::*;
+
+    fn fixture(target: &str) -> (Catalog, PermittedView) {
+        let c = mtg_compiler::catalog::embedded_catalog("blocking-matches").unwrap();
+        assert_eq!(
+            &c,
+            mtg_core::match_profile("commander-blocking-targets-v1")
+                .unwrap()
+                .catalog()
+        );
+        let d = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Temporal Adept")
+            .unwrap();
+        assert!(
+            d.capabilities
+                .contains(&mtg_contracts::Capability::ActivatedPermanentOwnerHandV1)
+        );
+        assert!(
+            matches!(&d.activated[0].cost, ActivationCost::Composite { costs }
+            if costs.tap && !costs.sacrifice && costs.mana.as_ref().is_some_and(|m| m.generic == Quantity::zero() && m.colored == [Color::U, Color::U, Color::U]))
+        );
+        let mut v = wipe_tests::view(&mtg_compiler::catalog::embedded_catalog("wipes").unwrap());
+        v.active = Some(v.viewer);
+        v.turn_owner = v.viewer;
+        v.priority = Some(v.viewer);
+        v.turn.step = TurnStep::PrecombatMain;
+        v.turn.lands_played = 1;
+        v.players
+            .iter_mut()
+            .find(|p| p.player == v.viewer)
+            .unwrap()
+            .mana
+            .clear();
+        let mut source = wipe_tests::card(&c, "Temporal Adept", v.viewer.0, Zone::Battlefield);
+        source.handle = ObjectHandle("return-source".into());
+        source.owner = PlayerId(2);
+        v.objects = vec![source];
+        for n in 0..3 {
+            let mut island = wipe_tests::card(&c, "Island", v.viewer.0, Zone::Battlefield);
+            island.handle = ObjectHandle(format!("return-island-{n}"));
+            v.objects.push(island);
+        }
+        let mut enemy = wipe_tests::card(&c, target, 0, Zone::Battlefield);
+        enemy.handle = ObjectHandle("enemy-return-target".into());
+        enemy.owner = v.viewer;
+        enemy.tapped = true; // Preference follows current control, not owner/status.
+        let mut own = wipe_tests::card(&c, "Grizzly Bears", v.viewer.0, Zone::Battlefield);
+        own.handle = ObjectHandle("own-bears".into());
+        v.objects.extend([enemy, own]);
+        (c, v)
+    }
+
+    #[test]
+    fn temporal_policy_activates_in_own_main_and_binds_current_offered_permanent() {
+        for target in ["Icy Manipulator", "Island"] {
+            let (c, mut v) = fixture(target);
+            let d = c
+                .definitions
+                .iter()
+                .find(|d| d.name == "Temporal Adept")
+                .unwrap();
+            let p = &d.activated[0].program;
+            let before = canonical(&v).unwrap();
+            let mut s = strategy(&c);
+            assert_eq!(
+                s.priority(&observation(v.clone())).unwrap(),
+                PlayerResponse::ActivateAbility {
+                    object: ObjectHandle("return-source".into()),
+                    ability: 0
+                }
+            );
+            let mut plan = s
+                .mana_plan
+                .iter()
+                .map(|p| p.source.0.clone())
+                .collect::<Vec<_>>();
+            plan.sort();
+            assert_eq!(
+                plan,
+                (0..3)
+                    .map(|n| format!("return-island-{n}"))
+                    .collect::<Vec<_>>(),
+                "the UUU plan uses three independent Islands, never the tap-cost source"
+            );
+            assert_eq!(
+                s.object_target(&v, d, p, &p.targets[0], None),
+                Some(ObjectHandle("enemy-return-target".into()))
+            );
+            assert_eq!(
+                s.object_target(
+                    &v,
+                    d,
+                    p,
+                    &p.targets[0],
+                    Some(&[ObjectHandle("own-bears".into())])
+                ),
+                None
+            );
+            assert_eq!(canonical(&v).unwrap(), before);
+            v.stack.push(VisibleStackEntry {
+                x: None,
+                mana_value: None,
+                mode: None,
+                triggered: None,
+                entity_targets: vec![],
+                handle: Some(StackHandle("temporal-activation".into())),
+                stack_targets: vec![],
+                spell: None,
+                ability: Some(mtg_core::VisibleAbility {
+                    oracle_id: d.oracle_id.clone(),
+                    ability: 0,
+                    handle: StackHandle("temporal-activation".into()),
+                    source: mtg_core::VisibleTarget {
+                        announced: ObjectHandle("return-source".into()),
+                        current: Some(ObjectHandle("return-source".into())),
+                    },
+                }),
+                player_targets: vec![],
+                controller: v.viewer,
+                cast_complete: false,
+                targets: vec![],
+            });
+            let mut o = observation(v);
+            o.decision = Some(PlayerRequest::Targets {
+                token: mtg_core::DecisionToken("temporal-payload".into()),
+                player: o.view.viewer,
+                occurrences: p.targets.clone(),
+                candidates: vec![
+                    ObjectHandle("own-bears".into()),
+                    ObjectHandle("enemy-return-target".into()),
+                ],
+            });
+            let before = canonical(&o).unwrap();
+            assert_eq!(
+                strategy(&c).choose(&o).unwrap(),
+                PlayerResponse::Targets {
+                    objects: vec![ObjectHandle("enemy-return-target".into())]
+                }
+            );
+            assert_eq!(canonical(&o).unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn temporal_policy_rejects_unready_unfunded_or_ineligible_public_choices() {
+        let (c, v) = fixture("Icy Manipulator");
+        for case in [
+            "fresh",
+            "source-tapped",
+            "two-islands",
+            "wrong-color",
+            "friendly",
+            "shroud",
+            "hexproof",
+            "graveyard",
+            "departed",
+            "foreign-source",
+            "opponent-priority",
+            "combat-priority",
+        ] {
+            let mut v = v.clone();
+            match case {
+                "fresh" => v.objects[0].attack_ready = false,
+                "source-tapped" => v.objects[0].tapped = true,
+                "two-islands" => v.objects[1].tapped = true,
+                "wrong-color" => {
+                    v.objects[1] = wipe_tests::card(&c, "Plains", v.viewer.0, Zone::Battlefield)
+                }
+                "friendly" => v.objects[4].controller = v.viewer,
+                "shroud" => v.objects[4].keywords.push(KeywordAbility::Shroud),
+                "hexproof" => v.objects[4].keywords.push(KeywordAbility::Hexproof),
+                "graveyard" => v.objects[4].zone = Zone::Graveyard { owner: v.viewer },
+                "departed" => {
+                    v.objects.remove(4);
+                }
+                "foreign-source" => v.objects[0].controller = PlayerId(0),
+                "opponent-priority" => {
+                    v.active = Some(PlayerId(0));
+                    v.turn_owner = PlayerId(0);
+                }
+                "combat-priority" => v.turn.step = TurnStep::DeclareAttackers,
+                _ => unreachable!(),
+            }
+            let before = canonical(&v).unwrap();
+            assert_eq!(
+                strategy(&c).priority(&observation(v.clone())).unwrap(),
+                PlayerResponse::Pass,
+                "{case}"
+            );
+            assert_eq!(canonical(&v).unwrap(), before);
+        }
+        let d = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Temporal Adept")
+            .unwrap();
+        let p = &d.activated[0].program;
+        for candidates in [
+            vec![],
+            vec![ObjectHandle("stale-incarnation".into())],
+            vec![ObjectHandle("own-bears".into())],
+        ] {
+            assert_eq!(
+                strategy(&c).object_target(&v, d, p, &p.targets[0], Some(&candidates)),
+                None,
+                "direct preference cannot invent a current offered opponent; mandatory-choice fallback is separate"
+            );
+        }
+        let mut stack = v;
+        stack_spell(&mut stack, &c, "Icy Manipulator", 0);
+        let before = canonical(&stack).unwrap();
+        assert_eq!(
+            strategy(&c).object_target(
+                &stack,
+                d,
+                p,
+                &p.targets[0],
+                Some(&[ObjectHandle("Icy Manipulator".into())])
+            ),
+            None,
+            "a permanent card spell on the stack is not a battlefield permanent"
+        );
+        assert_eq!(canonical(&stack).unwrap(), before);
+    }
+}
