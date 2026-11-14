@@ -903,3 +903,15 @@ Archive keys are recovery evidence, not automatic cleanup candidates. Do not rem
 quarantined pre-claim snapshots, live databases, credential files or backup objects
 as part of source/documentation maintenance. Monthly independent copies and the
 restore drill above remain required operational procedures.
+
+### Archive retirement policy
+
+Automatic backup jobs never list or delete `archive/` objects. Retain every
+pre-change snapshot for **at least 30 days after the change**, and longer while
+rollback to that schema remains a recovery option. Before retiring any one object,
+verify the new schema/data, a successful restore of a newer post-change backup,
+and an independent off-Railway copy. Record the exact archived key and the owner's
+recovery decision. Deletion is a manual owner action against one verified key,
+never a scheduled wildcard job. Pre-claim quarantine retains its separate
+**do-not-restore** restriction. Documentation/source maintenance grants no cleanup
+permission for these objects.

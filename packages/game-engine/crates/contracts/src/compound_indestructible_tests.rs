@@ -101,12 +101,12 @@ fn compound_indestructible_rejects_structural_near_misses() {
             }
             13 => {
                 if let Instruction::GrantKeywords { keywords, .. } = &mut p.instructions[1] {
-                    *keywords = vec![KeywordAbility::Flying];
+                    *keywords = vec![KeywordAbility::Reach];
                 }
             }
             14 => {
                 if let Instruction::GrantKeywords { keywords, .. } = &mut p.instructions[1] {
-                    keywords.push(KeywordAbility::Flying);
+                    keywords.push(KeywordAbility::Haste);
                 }
             }
             15 => {

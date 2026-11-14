@@ -32,6 +32,9 @@ card membership. Parameterized operations execute complete source semantics;
 card names, quantities and IDs never dispatch rules or strategy.
 
 The only active Card IR schema is **1** (`mtg_contracts::CURRENT_IR_VERSION`).
+The shared temporary-keyword family supports reviewed unique combinations of Flying,
+Deathtouch, Indestructible and Lifelink, optionally preceded by a fixed signed stat
+modifier, while preserving old subset requirements and consumer/pool admission.
 Features evolve in place with strict capability/shape validation and exact build/
 catalog fencing; old historical IR numbers describe earlier evidence only.
 Snapshots, bundles, public projections, query sidecars, AST archives and protocol
@@ -56,7 +59,7 @@ Acceptance is source-qualified, never inherited by later code:
 | D2c-d `394301d` | Accepted declared-attack triggers at historical IR24, including reviewed demo/Bundle lifetimes |
 | Later D2c-e/IR25 and finite trigger/keyword/interaction additions | Candidate/focused source qualification; no renewed combined acceptance or P7 performance claim |
 | Schema-1 reset | Regenerated 29 active pools, 1,357 definitions unchanged; focused checks only |
-| Latest mechanic families | CLI source `17e58bb5397543403bc1f690439529a9292050d7`; source bridge and explicit omissions in evidence guide |
+| Latest temporary-keyword family | Source `6b23e81bc5535e6f4f89224072f01141981c7675`; 787 compiled rows; focused qualification only, with exact producer and omissions in evidence guide |
 | Client/hosting consumers | Retain their own exact producer/schema/catalog/build qualification, separate from current engine HEAD |
 
 [The evidence guide](game-engine-evidence.md) retains exact source/digest and proof

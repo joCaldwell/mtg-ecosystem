@@ -123,7 +123,7 @@ core tests, one coverage/one registry case, 40 Node contracts, 54 SDK tests/stri
 TypeScript and smoke replay. Full runtime/game/release/retention matrices were omitted.
 Reset receipts: `~/.local/share/mtg-ecosystem/engine-verification/correctness-loop-20261112/single-ir-*`.
 
-Latest mechanic-family CLI source is
+The preceding mechanic-family CLI source was
 `17e58bb5397543403bc1f690439529a9292050d7`, producer
 `545b877cbdce4f1af61762a0a4242d2a8414a224784ba7f1a15cbc44574e52e6`,
 779 compiled rows. It passed 90 affected runtime/policy tests, 86 exported-schema
@@ -139,6 +139,23 @@ under the original lane's `generated/mechanic-families/`; earlier receipts remai
 under `generated/next-three/` and `generated/five-more/`. Production compiler/core/
 simulator Clippy passed; contracts used only its inherited `collapsible_if` exception.
 Full runtime, release/profile/completion, host/SDK and consumer matrices were omitted.
+
+### Current temporary-keyword family qualification
+
+The later focused source is `6b23e81bc5535e6f4f89224072f01141981c7675`, CLI producer
+`cbcc7622ef4e4c163a562cdb88b3fc528033b6727ee2b21db36000b17af9a7f6`, 787 compiled
+source rows. The original lane retained 459 distinct selected Rust tests (460
+executions with one overlapping core filter), 230 exported-schema probes, workspace
+all-target compilation, formatting, production Clippy and CLI smoke/replay under
+`generated/temporary-keyword-family/`. Exported schema SHA-256:
+`1f632959eee76189b256d797c0ae07f6c838c8631dcd6654ef2aec31fbca66d6`.
+Compiler/core/simulator production Clippy passed strictly; contracts retains only
+the inherited `collapsible_if` exception. Exact binaries, test/CLI optimization
+identities and failed attempts remain preserved. Full runtime, release/profile/
+completion, server/SDK and consumer matrices were omitted. Earlier mechanic-family,
+next-three/five-more and full-game/client proofs keep their own producers. No new
+playable pool or consumer acceptance follows from the source foundation, and no
+native checks were rerun merely to consolidate its documentation.
 
 ### Selected current proof locators
 

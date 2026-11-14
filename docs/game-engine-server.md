@@ -97,9 +97,11 @@ the owning thread. Every record receives a full hash proof, including repeated
 unchanged states; each batch is drained before more records are staged. No
 usable Worker or Ready escapes before all hashes, joins and ledger proofs pass.
 Thread startup failures, panic, channel failure or any mismatch fail closed and
-join all started threads. Production and independent adversarial checks passed,
-as did the actual hosting and completed-game recovery proofs below. Full workspace tests and current-build search acceptance passed;
-offline reconstruction and independent artifact audits also passed.
+join all started threads. The original source-qualified P8 verification included production/adversarial,
+actual hosting, completed-game recovery, workspace/search and offline retention
+checks. These are historical results, not current-HEAD acceptance; exact sources,
+builds, proof locations and preserved failures are in the
+[original P8 evidence](https://github.com/joCaldwell/mtg-ecosystem/blob/1c3eca4c37b90de02decca316fefab5c8035140e/docs/game-engine-server.md#verification-status-and-retained-failures).
 This refactor does not
 relax the 120-second startup limit.
 

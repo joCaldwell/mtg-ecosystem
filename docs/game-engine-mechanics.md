@@ -216,13 +216,53 @@ Equipment leaving earlier in event order cannot remove protection mid-event.
 | `temporary_deathtouch_spell_v1` | Same fenced pure Deathtouch family, with current/latest-departure source authority |
 | `compound_indestructible_spell_v1` | Ordered fixed signed P/T modifier then Indestructible on the same one target; parameterized source-backed amounts |
 
-Pure grants reject duplicate/mixed grants, modes, filters, additional costs,
-activations, triggers and mixed instructions. Compound programs require their
-separate contract, not a widening of pure grants. Effects capture exact target
+The original pure subset capabilities reject duplicate/mixed grants, modes,
+filters, additional costs, activations/triggers and mixed instructions. Reviewed
+new combinations use the general family below; subset meanings remain unchanged. Effects capture exact target
 incarnation, survive spell-source movement, union with intrinsic/static grants
 and expire atomically with marked-damage cleanup. Historical source-keyword
 validation accepts only validated grant vocabulary; replay still proves occurrence,
 latest appearance and duplicate/departure invariants.
+
+### Shared temporary creature keyword family
+
+`temporary_creature_keyword_program_v1` adds reviewed combinations through the
+existing grant/damage/cleanup machinery. One complete ordinary nonmodal instant/
+sorcery has exactly one unfiltered battlefield-creature target at slot 0, a
+nonempty selection ID and controller choice at announcement. Its program is one
+`GrantKeywords` preserving pure-grant source-block provenance, or fixed signed
+`ModifyPowerToughness` followed by `GrantKeywords`, both from source block 0.
+Both operations target slot 0 until end of turn. P/T parameters are exact signed
+quantities, including zero and values beyond machine integers.
+
+Keyword vectors are nonempty, duplicate-free and limited to Flying, Deathtouch,
+Indestructible and Lifelink; serialized order is retained. Pure Lifelink, mixed
+vectors and modifier-plus-Flying/Deathtouch/Lifelink require the general capability.
+Existing singleton Flying/Deathtouch/Indestructible and modifier-plus-singleton
+Indestructible retain their old temporary/compound subset capabilities; the general
+capability is spare and rejects on those shapes. Every granted keyword still
+requires its primitive capability; modifiers require `temporary_power_toughness_v1`
+and every program requires `creature_target_v1`. No schema/catalog/pool migration.
+
+Contracts' borrowed `TemporaryCreatureKeywordProgram` descriptor and
+`temporary_creature_keyword_program` / `supported_temporary_creature_keywords`
+recognizers share the complete structural predicate; the definition validator or
+caller additionally checks ordinary spell kind/context. The existing compound
+helper remains a narrow singleton wrapper. Additional costs, modes, activated/
+triggered contexts, filters, multiple/nonzero-slot targets, other durations,
+reordered/extra operations, duplicate/unreviewed keywords and mismatched paired
+source blocks reject. Compiler decoding independently rejects unconsumed clauses.
+Complete frozen sources witness the family; card identities never dispatch it.
+
+Synthetic typed controls cover all 64 ordered unique vectors in both forms,
+missing/spare capabilities, signed/large quantities and preserved legacy provenance.
+[Schema probes](../packages/game-engine/crates/contracts/tests/temporary-creature-keyword-schema-probes.mjs)
+clone exact controls and verify they remain unchanged. `--prepare-only` checks
+construction without Ajv/schema execution; explicit `--schema PATH --ajv-root
+NODE_MODULES_DIRECTORY` validates exported schema and uint32 using existing Ajv2020.
+No install/generation is implicit. Qualification is source-bound in
+[engine evidence](game-engine-evidence.md#current-temporary-keyword-family-qualification).
+This foundation expands no playable pool, policy, hosting/search or consumer acceptance.
 
 ## Trigger families and event witnesses
 

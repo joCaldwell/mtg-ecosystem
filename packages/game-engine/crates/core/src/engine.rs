@@ -3829,3 +3829,6 @@ mod compound_indestructible_tests;
 
 #[cfg(test)]
 mod temporary_deathtouch_tests;
+
+#[cfg(test)]
+mod temporary_creature_keyword_family_tests;

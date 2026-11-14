@@ -85,7 +85,8 @@ staged typed faults. Snapshot validation checks both bounds and fault metadata;
 restoration still proves accepted-input replay. A fault is never a rules loss,
 draw, or silent truncation.
 
-The updated release probes and their exact measurements are recorded below.
+Historical release probes and their exact measurements are linked from
+[engine evidence](game-engine-evidence.md#search-hosting-and-performance).
 
 The whole-state fork per step and per simultaneous occurrence remains a known
 P7 performance limitation. This change makes structural exhaustion practical;
@@ -155,9 +156,9 @@ D2c-a replaces movement/token optional fields and object-only trigger subjects
 with typed movement/token/step witnesses. The retained trace payload therefore
 changes even for old object triggers. Actual serialized bytes still determine
 charge, equally across all trace modes; no capacity ceiling or guard changed.
-The [D2c-a report](game-engine-evidence.md#later-focused-engine-qualification) records the source/rules/
+The [original D2c-a report](https://github.com/joCaldwell/mtg-ecosystem/blob/1c3eca4c37b90de02decca316fefab5c8035140e/docs/game-engine-cards-as-data-d2c-a.md) records the source/rules/
 representation review and the exact 173-snapshot comparison. Reversing only the
 witness encoding and its doubled event-size charge delta reproduces all prior
 D1b-3 hashes. Only then were 37 current state references regenerated. Original
 D1b-3 bytes and failed full-gate output remain retained; historical D1b-2 fixtures
-and the earlier measurement evidence above are untouched.
+and the historical measurement evidence remain untouched.

@@ -4,7 +4,8 @@
 [application contracts](multiverse-app.md) own product launch. These records retain
 their exact producer/source/schema qualification; they are not current-engine-HEAD
 acceptance or a requirement to repeat the entire matrix for documentation edits.
-Original worktrees and raw ignored evidence are preserved, not cleanup targets.
+Original source/proof identities are preserved in their named evidence locations
+or the explicit retirement archive below; no raw evidence was discarded.
 
 ## Opening and recovery evidence
 
@@ -50,7 +51,17 @@ qualification above used fresh current-source native binaries and new seats.
 
 ## Product/shared display evidence (PR24)
 
-Original lane: `/home/josh/.t3/worktrees/mtg-ecosystem/t3-7ab024bd-7766f83a106e0c59`.
+Former lane (now retired):
+`/home/josh/.t3/worktrees/mtg-ecosystem/t3-7ab024bd-7766f83a106e0c59`.
+Its qualified SDK generated/dist, client receipts, original failed/passing browser
+evidence and product logs/screenshots are preserved under
+`~/.local/share/mtg-ecosystem/engine-evidence/product-workspace-pr24-pr25-20261114/`
+as `evidence.tar.gz` and `receipt.json`, with original worktree-relative paths.
+Archive SHA-256: `c6b8a6b4a487f5b73528b9f476e09350828e8c70acc592baa68d809f48dbe856`;
+receipt SHA-256: `252ac7e1552318edb98dc76932c193c9c82dc0cdce6c0d53e07c7181779eac7e`.
+This relocation preserves original acceptance, not new native qualification.
+Product proof paths below refer to that archive; borrowed PR22 exports remain at
+their original preserved locations.
 Workspace source prerequisite `a80c2f5251c07de92245d085b63fd7c5f4937ccb`;
 clean-consumer proof `generated/multiverse-clean-consumer-59576cab.json`.
 

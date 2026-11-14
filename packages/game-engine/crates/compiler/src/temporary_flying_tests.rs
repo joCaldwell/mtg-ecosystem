@@ -77,7 +77,7 @@ fn temporary_flying_strict_mirror_and_unsupported_source_shapes() {
                 5 => s["abilities"]
                     .as_array_mut()
                     .unwrap()
-                    .push(json!({"gained":"keyword","keyword":{"keyword":"indestructible"}})),
+                    .push(json!({"gained":"keyword","keyword":{"keyword":"flying"}})),
                 6 => s["extra"] = true.into(),
                 7 => {
                     let child = s.clone();

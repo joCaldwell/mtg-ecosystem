@@ -258,6 +258,7 @@ pub enum Capability {
     TemporaryFlyingSpellV1,
     TemporaryDeathtouchSpellV1,
     CompoundIndestructibleSpellV1,
+    TemporaryCreatureKeywordProgramV1,
     TrampleV1,
     FirstStrikeV1,
     DoubleStrikeV1,
@@ -2412,28 +2413,37 @@ fn has_keyword_grant(p: &SpellProgram) -> bool {
         || p.modes.iter().any(|m| has_keyword_grant(&m.program))
 }
 fn ordinary_keyword_grant(p: &SpellProgram) -> bool {
-    p.additional_sacrifice.is_none()
-        && p.modes.is_empty()
-        && p.functioning_zone == FunctioningZone::Stack
-        && p.resolution == SpellResolution::Instructions
-        && matches!(
-            p.targets.as_slice(),
-            [TargetSpec {
-                slot: 0,
-                domain: TargetDomain::BattlefieldCreature,
-                filter: None,
-                ..
-            }]
-        )
-        && (matches!(p.instructions.as_slice(), [Instruction::GrantKeywords { target_slot: 0, keywords, duration: Duration::UntilEndOfTurn, .. }] if keywords == &[KeywordAbility::Indestructible] || keywords == &[KeywordAbility::Flying] || keywords == &[KeywordAbility::Deathtouch])
-            || compound_indestructible_parameters(p).is_some())
+    temporary_creature_keyword_program(p).is_some()
 }
-/// Recognize the complete supported stat-plus-indestructible spell program.
-/// Quantities are exact signed parameters, not separate mechanic capabilities.
-/// The caller must additionally validate the definition kind/context.
-/// CR 608.2c/611.2c: ordered effects on the same captured creature target:
+/// Reviewed temporary-grant vocabulary. Order is retained, but repetitions and
+/// keywords outside this nonempty family are unsupported.
+pub fn supported_temporary_creature_keywords(keywords: &[KeywordAbility]) -> bool {
+    !keywords.is_empty()
+        && keywords.iter().enumerate().all(|(index, keyword)| {
+            matches!(
+                keyword,
+                KeywordAbility::Flying
+                    | KeywordAbility::Deathtouch
+                    | KeywordAbility::Indestructible
+                    | KeywordAbility::Lifelink
+            ) && !keywords[..index].contains(keyword)
+        })
+}
+/// Borrowed parameters of one complete ordinary temporary creature program.
+#[derive(Clone, Copy, Debug)]
+pub struct TemporaryCreatureKeywordProgram<'a> {
+    pub modifier: Option<(&'a Quantity, &'a Quantity)>,
+    pub keywords: &'a [KeywordAbility],
+}
+/// Recognize a pure grant or ordered fixed signed stat modification then grant
+/// on one captured creature target. The caller checks definition kind/context.
+/// Pure grants retain their existing source-block provenance; the two-operation
+/// form belongs entirely to source block 0.
+/// CR 608.2c/611.2c:
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-pub fn compound_indestructible_parameters(p: &SpellProgram) -> Option<(&Quantity, &Quantity)> {
+pub fn temporary_creature_keyword_program(
+    p: &SpellProgram,
+) -> Option<TemporaryCreatureKeywordProgram<'_>> {
     if p.additional_sacrifice.is_some()
         || !p.modes.is_empty()
         || p.functioning_zone != FunctioningZone::Stack
@@ -2445,7 +2455,15 @@ pub fn compound_indestructible_parameters(p: &SpellProgram) -> Option<(&Quantity
     {
         return None;
     }
-    match p.instructions.as_slice() {
+    let (modifier, keywords) = match p.instructions.as_slice() {
+        [
+            Instruction::GrantKeywords {
+                target_slot: 0,
+                keywords,
+                duration: Duration::UntilEndOfTurn,
+                ..
+            },
+        ] => (None, keywords),
         [
             Instruction::ModifyPowerToughness {
                 target_slot: 0,
@@ -2460,8 +2478,40 @@ pub fn compound_indestructible_parameters(p: &SpellProgram) -> Option<(&Quantity
                 duration: Duration::UntilEndOfTurn,
                 source_block: 0,
             },
-        ] if keywords == &[KeywordAbility::Indestructible] => Some((power, toughness)),
-        _ => None,
+        ] => (Some((power, toughness)), keywords),
+        _ => return None,
+    };
+    supported_temporary_creature_keywords(keywords)
+        .then_some(TemporaryCreatureKeywordProgram { modifier, keywords })
+}
+/// Narrow reviewed subset retained for existing protection policy callers.
+/// Quantities remain exact signed parameters of the shared program descriptor.
+pub fn compound_indestructible_parameters(p: &SpellProgram) -> Option<(&Quantity, &Quantity)> {
+    let program = temporary_creature_keyword_program(p)?;
+    if program.keywords == [KeywordAbility::Indestructible] {
+        program.modifier
+    } else {
+        None
+    }
+}
+fn temporary_creature_keyword_capability(p: &SpellProgram) -> Capability {
+    match temporary_creature_keyword_program(p) {
+        Some(TemporaryCreatureKeywordProgram {
+            modifier: None,
+            keywords,
+        }) => match keywords {
+            [KeywordAbility::Flying] => Capability::TemporaryFlyingSpellV1,
+            [KeywordAbility::Deathtouch] => Capability::TemporaryDeathtouchSpellV1,
+            [KeywordAbility::Indestructible] => Capability::TemporaryIndestructibleSpellV1,
+            _ => Capability::TemporaryCreatureKeywordProgramV1,
+        },
+        Some(TemporaryCreatureKeywordProgram {
+            modifier: Some(_),
+            keywords,
+        }) if keywords == [KeywordAbility::Indestructible] => {
+            Capability::CompoundIndestructibleSpellV1
+        }
+        _ => Capability::TemporaryCreatureKeywordProgramV1,
     }
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
@@ -3126,6 +3176,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                     KeywordAbility::Deathtouch => {
                         set.insert(Capability::DeathtouchV1);
                     }
+                    KeywordAbility::Lifelink => {
+                        set.insert(Capability::LifelinkV1);
+                    }
                     _ => (), // Rejected by ordinary_keyword_grant, never admitted here.
                 }
             }
@@ -3161,22 +3214,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             } => Capability::TargetPlayerDrawV1,
             Instruction::CreateCreatureTokens { .. } => Capability::CreatureTokensV1,
             Instruction::PutPlusOneCounters { .. } => Capability::PlusOneCountersV1,
-            Instruction::GrantKeywords { keywords, .. }
-                if keywords == &[KeywordAbility::Flying] =>
-            {
-                Capability::TemporaryFlyingSpellV1
-            }
-            Instruction::GrantKeywords { keywords, .. }
-                if keywords == &[KeywordAbility::Deathtouch] =>
-            {
-                Capability::TemporaryDeathtouchSpellV1
-            }
-            Instruction::GrantKeywords { .. }
-                if compound_indestructible_parameters(program).is_some() =>
-            {
-                Capability::CompoundIndestructibleSpellV1
-            }
-            Instruction::GrantKeywords { .. } => Capability::TemporaryIndestructibleSpellV1,
+            Instruction::GrantKeywords { .. } => temporary_creature_keyword_capability(program),
             Instruction::ModifyPowerToughness { .. } => Capability::TemporaryPowerToughnessV1,
             Instruction::PreventCombatDamage { .. } => Capability::CombatDamagePreventionV1,
             Instruction::PreventNextDamage { .. } => Capability::DamageBudgetPreventionV1,
@@ -3790,6 +3828,20 @@ pub fn catalog_schema() -> serde_json::Value {
             {"properties":{"op":{"const":"grant_keywords"},"target_slot":{"const":0},"keywords":{"const":["indestructible"]},"duration":{"const":"until_end_of_turn"},"source_block":{"const":0}}}
         ]
     });
+    schema["$defs"]["TemporaryCreatureKeywords"] = serde_json::json!({
+        "type":"array","minItems":1,"uniqueItems":true,
+        "items":{"enum":["flying","deathtouch","indestructible","lifelink"]}
+    });
+    schema["$defs"]["TemporaryCreatureKeywordInstructions"] = serde_json::json!({"anyOf":[
+        {"minItems":1,"maxItems":1,"items":{"properties":{
+            "op":{"const":"grant_keywords"},"target_slot":{"const":0},
+            "keywords":{"$ref":"#/$defs/TemporaryCreatureKeywords"},"duration":{"const":"until_end_of_turn"}
+        }}},
+        {"minItems":2,"maxItems":2,"prefixItems":[
+            {"properties":{"op":{"const":"modify_power_toughness"},"target_slot":{"const":0},"power":{"$ref":"#/$defs/ExactQuantity"},"toughness":{"$ref":"#/$defs/ExactQuantity"},"duration":{"const":"until_end_of_turn"},"source_block":{"const":0}}},
+            {"properties":{"op":{"const":"grant_keywords"},"target_slot":{"const":0},"keywords":{"$ref":"#/$defs/TemporaryCreatureKeywords"},"duration":{"const":"until_end_of_turn"},"source_block":{"const":0}}}
+        ]}
+    ]});
     // Fence this opcode recursively; it never becomes an activation, trigger,
     // mode, mixed program or general keyword-grant facility.
     schema["$defs"]["KeywordGrantFreeProgram"] = serde_json::json!({"properties":{
@@ -3802,7 +3854,7 @@ pub fn catalog_schema() -> serde_json::Value {
             "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
             "targets":{"minItems":1,"maxItems":1,"items":{"properties":{"slot":{"const":0},"selection_id":{"minLength":1},"chooser":{"const":"controller"},"stage":{"const":"announcement"},"domain":{"const":"battlefield_creature"},"filter":{"type":"null"}}}},
-            "instructions":{"oneOf":[{"$ref":"#/$defs/PureKeywordGrantInstructions"},{"$ref":"#/$defs/CompoundIndestructibleInstructions"}]}
+            "instructions":{"$ref":"#/$defs/TemporaryCreatureKeywordInstructions"}
         }}
     }));
     for (keyword, capability, ordinary) in [
@@ -3823,7 +3875,7 @@ pub fn catalog_schema() -> serde_json::Value {
         ),
     ] {
         schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-            "if":{"allOf":[temporary_keyword(keyword),{"properties":{"spell":{"properties":{"instructions":{"maxItems":1}}}}}]},"then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},"capabilities":{"allOf":[{"contains":{"const":capability}},{"contains":{"const":ordinary}}]}}},
+            "if":{"allOf":[temporary_keyword(keyword),{"properties":{"spell":{"properties":{"instructions":{"$ref":"#/$defs/PureKeywordGrantInstructions"}}}}}]},"then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},"capabilities":{"allOf":[{"contains":{"const":capability}},{"contains":{"const":ordinary}}]}}},
             "else":{"properties":{"capabilities":{"not":{"contains":{"const":capability}}}}}
         }));
     }
@@ -3836,6 +3888,67 @@ pub fn catalog_schema() -> serde_json::Value {
             {"contains":{"const":Capability::IndestructibleV1}}
         ]}}},
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::CompoundIndestructibleSpellV1}}}}}
+    }));
+    let family_grant = serde_json::json!({"required":["spell"],"properties":{"spell":{
+        "type":"object","required":["instructions"],"properties":{"instructions":{
+            "allOf":[{"$ref":"#/$defs/TemporaryCreatureKeywordInstructions"},
+                {"not":{"anyOf":[{"$ref":"#/$defs/PureKeywordGrantInstructions"},{"$ref":"#/$defs/CompoundIndestructibleInstructions"}]}}]
+        }}
+    }}});
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":family_grant,
+        "then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},
+            "capabilities":{"contains":{"const":Capability::TemporaryCreatureKeywordProgramV1}}}},
+        "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::TemporaryCreatureKeywordProgramV1}}}}}
+    }));
+    let any_grant = serde_json::json!({"required":["spell"],"properties":{"spell":{
+        "type":"object","required":["instructions"],"properties":{"instructions":{
+            "contains":{"required":["op"],"properties":{"op":{"const":"grant_keywords"}}}
+        }}
+    }}});
+    for (keyword, capability) in [
+        ("flying", Capability::FlyingV1),
+        ("deathtouch", Capability::DeathtouchV1),
+        ("indestructible", Capability::IndestructibleV1),
+        ("lifelink", Capability::LifelinkV1),
+    ] {
+        schema["$defs"]["Definition"]["allOf"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "if":any_grant,"then":{
+                    "if":temporary_keyword(keyword),
+                    "then":{"properties":{"capabilities":{"contains":{"const":capability}}}},
+                    "else":{"properties":{"capabilities":{"not":{"contains":{"const":capability}}}}}
+                }
+            }));
+    }
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":any_grant,"then":{"allOf":[
+            {"properties":{"capabilities":{"contains":{"const":Capability::NormalLayoutV1}}}},
+            {"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
+             "then":{"properties":{"capabilities":{"allOf":[{"contains":{"const":Capability::CastInstantV1}},{"not":{"contains":{"const":Capability::CastSorceryV1}}}]}}},
+             "else":{"properties":{"capabilities":{"allOf":[{"contains":{"const":Capability::CastSorceryV1}},{"not":{"contains":{"const":Capability::CastInstantV1}}}]}}}}
+        ]}
+    }));
+    // Other creature-keyword mechanics cannot be spare capabilities on an
+    // ordinary grant spell; Flash retains its independent intrinsic meaning.
+    schema["$defs"]["Definition"]["allOf"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "if":any_grant,"then":{"properties":{"capabilities":{"items":{"not":{"enum":[
+                Capability::DefenderV1, Capability::ReachV1, Capability::VigilanceV1,
+                Capability::HasteV1, Capability::TrampleV1, Capability::FirstStrikeV1,
+                Capability::DoubleStrikeV1, Capability::MenaceV1
+            ]}}}}}
+        }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":any_grant,"then":{"properties":{
+            "capabilities":{"contains":{"const":Capability::CreatureTargetV1}}
+        },"if":{"properties":{"spell":{"properties":{"instructions":{"minItems":2}}}}},
+        "then":{"properties":{"capabilities":{"contains":{"const":Capability::TemporaryPowerToughnessV1}}}},
+        "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::TemporaryPowerToughnessV1}}}}}}
     }));
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({"properties":{
         "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}},
@@ -4036,6 +4149,7 @@ mod tests {
             TemporaryFlyingSpellV1,
             TemporaryDeathtouchSpellV1,
             CompoundIndestructibleSpellV1,
+            TemporaryCreatureKeywordProgramV1,
             TrampleV1,
             FirstStrikeV1,
             DoubleStrikeV1,
@@ -4136,6 +4250,10 @@ mod tests {
         definitions.push(temporary_flying_tests::grant());
         definitions.push(temporary_deathtouch_tests::grant());
         definitions.push(compound_indestructible_tests::compound());
+        definitions.push(temporary_creature_keyword_tests::grant(
+            &[KeywordAbility::Lifelink],
+            false,
+        ));
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());
@@ -5766,3 +5884,6 @@ mod compound_indestructible_tests;
 
 #[cfg(test)]
 mod temporary_deathtouch_tests;
+
+#[cfg(test)]
+mod temporary_creature_keyword_tests;
