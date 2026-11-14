@@ -1,6 +1,6 @@
 //! Paid complete-source set-grant witnesses; no pool/profile/consumer admission.
 //! Archive d705222b280a71cb; CR20260925 109.5, 302.6, 400.7, 506.4,
-//! 608.2c/h, 611.2a/c, 613.1f/4c, 702.7/10/12/15/19, 704.5g/h, 800.4:
+//! 608.2c/h, 611.2a/c, 613.1f/4c/5/6, 702.7/10/12/15/19, 704.5g/h, 800.4:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 //! Native/schema execution is UNRUN by this child; parent owns qualification.
 use super::equipped_indestructible_tests::{answer, both, object, recover, request};
@@ -308,7 +308,10 @@ fn cast(g: &mut Game, q: u64, id: u32, t: Vec<TargetEntity>) {
 }
 fn grant(g: &Game) -> (&ResolvedEffect, &[ObjectId], &[KeywordAbility]) {
     let e = g.state.rules.effects.last().unwrap();
-    let ResolvedEffectKind::GrantKeywordsSet { targets, keywords } = &e.kind else {
+    let ResolvedEffectKind::GrantKeywordsSet {
+        targets, keywords, ..
+    } = &e.kind
+    else {
         panic!("set grant")
     };
     (e, targets, keywords)
@@ -319,16 +322,16 @@ fn assert_grant(g: &Game, w: &Witness, ids: &[u32]) {
     assert_eq!(targets, expected);
     assert_eq!(keywords, w.keywords);
     assert_eq!(e.origin.source_block, 0);
-    assert_eq!(e.origin.cursor, u32::from(w.modifier.is_some()));
-    assert_eq!(
-        g.state.rules.effects.len(),
-        1 + usize::from(w.modifier.is_some())
+    assert_eq!(e.origin.cursor, 0);
+    assert_eq!(g.state.rules.effects.len(), 1);
+    let expected_modifier = w.modifier.map(|(power, toughness)| CreatureSetModifier {
+        power: power.into(),
+        toughness: toughness.into(),
+    });
+    assert!(
+        matches!(&e.kind, ResolvedEffectKind::GrantKeywordsSet { modifier, .. }
+        if modifier == &expected_modifier)
     );
-    if let Some((p, t)) = w.modifier {
-        assert!(
-            matches!(&g.state.rules.effects[0].kind,ResolvedEffectKind::PumpSet {targets,power,toughness} if targets==&expected && *power==p.into() && *toughness==t.into())
-        );
-    }
     for id in ids {
         let (p, t) = w.modifier.unwrap_or((0, 0));
         stats(g, *id, 2 + p, 2 + t);
@@ -756,7 +759,7 @@ fn creature_set_keyword_stampede_other_controller_attackers_frozen_after_combat(
 }
 
 #[test]
-fn creature_set_keyword_queries_atomic_target_rejection_forgery_and_suspended_prefix() {
+fn creature_set_keyword_queries_atomic_target_rejection_forgery_and_complete_creation() {
     for w in SOURCES {
         both(prepared(&witness_rows(w, true)), |g, q| {
             let before = g.state.clone();
@@ -799,30 +802,29 @@ fn creature_set_keyword_queries_atomic_target_rejection_forgery_and_suspended_pr
                 assert!(g.respond(r.player(), r.decision_id(), response).is_err());
                 assert_eq!(g.snapshot().unwrap(), before);
             }
-            let mut prefixes = 0;
-            resolve(g, q, |g| {
-                if w.modifier.is_some() && g.state.rules.effects.len() == 1 {
-                    assert!(matches!(g.state.rules.frame, Frame::Resolve { .. }));
-                    assert!(g.state.rules.pending.is_none());
-                    assert!(matches!(
-                        g.state.rules.effects[0].kind,
-                        ResolvedEffectKind::PumpSet { .. }
-                    ));
-                    assert!(!g.has_keyword(object(g, 1), w.keywords[0]));
-                    if prefixes == 0 {
-                        recover(g);
-                    }
-                    prefixes += 1;
-                }
-            });
-            if q == 1 && w.modifier.is_some() {
-                assert!(prefixes > 0);
-            }
             let ids = if w.name == "Stampede" {
                 vec![]
             } else {
                 vec![1, 3]
             };
+            let mut observed_complete = false;
+            resolve(g, q, |g| {
+                if g.state.rules.effects.is_empty() {
+                    for id in [1, 3] {
+                        stats(g, id, 2, 2);
+                        assert!(!g.has_keyword(object(g, id), w.keywords[0]));
+                    }
+                } else {
+                    // One effect makes all characteristic layers visible together.
+                    // There is no resumable PT-only program prefix (CR 613.5-6).
+                    assert_grant(g, w, &ids);
+                    if !observed_complete {
+                        recover(g);
+                    }
+                    observed_complete = true;
+                }
+            });
+            assert!(observed_complete);
             assert_grant(g, w, &ids);
             let before = g.state.clone();
             let trace = g.trace.clone();
@@ -833,6 +835,7 @@ fn creature_set_keyword_queries_atomic_target_rejection_forgery_and_suspended_pr
                     origin,
                     targets,
                     keywords,
+                    modifier,
                     expires_in_cleanup_of_turn,
                 } = effects.last().unwrap()
                 else {
@@ -863,6 +866,13 @@ fn creature_set_keyword_queries_atomic_target_rejection_forgery_and_suspended_pr
                 );
                 assert_eq!(targets.len(), ids.len());
                 assert_eq!(keywords, w.keywords);
+                assert_eq!(
+                    *modifier,
+                    w.modifier.map(|(power, toughness)| CreatureSetModifier {
+                        power: power.into(),
+                        toughness: toughness.into(),
+                    })
+                );
                 for (i, recipient) in targets.iter().enumerate() {
                     assert_eq!(
                         recipient.announced,
@@ -879,7 +889,7 @@ fn creature_set_keyword_queries_atomic_target_rejection_forgery_and_suspended_pr
             assert_eq!(g.trace, trace);
             recover(g);
             let good = g.snapshot().unwrap();
-            // Coherently change both captures and all four historical recipient
+            // Coherently change the single capture and all four historical recipient
             // handles. This is structurally valid and needs authenticated input
             // replay, rather than local membership or state-hash checks, to fail.
             let forged_targets = vec![object(g, 2)];
@@ -889,8 +899,7 @@ fn creature_set_keyword_queries_atomic_target_rejection_forgery_and_suspended_pr
             let mut coherent: Snapshot = strict_read(&good).unwrap();
             for effect in &mut coherent.state.rules.effects {
                 match &mut effect.kind {
-                    ResolvedEffectKind::PumpSet { targets, .. }
-                    | ResolvedEffectKind::GrantKeywordsSet { targets, .. } => {
+                    ResolvedEffectKind::GrantKeywordsSet { targets, .. } => {
                         *targets = forged_targets.clone()
                     }
                     _ => unreachable!(),
@@ -903,12 +912,17 @@ fn creature_set_keyword_queries_atomic_target_rejection_forgery_and_suspended_pr
             coherent.state_sha256 = digest(&coherent.state).unwrap();
             assert!(
                 Game::restore(g.prepared.as_ref().clone(), &canonical(&coherent).unwrap()).is_err(),
-                "coherent forged ordered capture and predecessor"
+                "coherent forged captured set"
             );
-            for variant in 0..13 {
+            for variant in 0..15 {
                 let mut bad: Snapshot = strict_read(&good).unwrap();
                 let e = bad.state.rules.effects.last_mut().unwrap();
-                let ResolvedEffectKind::GrantKeywordsSet { targets, keywords } = &mut e.kind else {
+                let ResolvedEffectKind::GrantKeywordsSet {
+                    targets,
+                    keywords,
+                    modifier,
+                } = &mut e.kind
+                else {
                     unreachable!()
                 };
                 match variant {
@@ -930,7 +944,27 @@ fn creature_set_keyword_queries_atomic_target_rejection_forgery_and_suspended_pr
                     9 => e.expires_in_cleanup_of_turn += 1,
                     10 => e.id.0 += 1,
                     11 => e.origin.source.incarnation += 1,
-                    _ => e.origin.cursor += 1,
+                    12 => e.origin.cursor += 1,
+                    13 => {
+                        if let Some(m) = modifier {
+                            m.power.add(&1.into());
+                        } else {
+                            *modifier = Some(CreatureSetModifier {
+                                power: 1.into(),
+                                toughness: 0.into(),
+                            });
+                        }
+                    }
+                    _ => {
+                        *modifier = if modifier.is_some() {
+                            None
+                        } else {
+                            Some(CreatureSetModifier {
+                                power: 0.into(),
+                                toughness: 0.into(),
+                            })
+                        };
+                    }
                 }
                 if bad.state == g.state {
                     continue;
@@ -947,8 +981,8 @@ fn creature_set_keyword_queries_atomic_target_rejection_forgery_and_suspended_pr
 }
 
 #[test]
-fn creature_set_keyword_source_owner_departure_after_grant_or_paused_pump_prefix() {
-    for paused in [false, true] {
+fn creature_set_keyword_source_owner_departure_before_or_after_atomic_creation() {
+    for before_creation in [false, true] {
         let mut rows = vec![
             ("Make a Stand", 0, 0, true),
             ("Grizzly Bears", 2, 1, false),
@@ -960,71 +994,92 @@ fn creature_set_keyword_source_owner_departure_after_grant_or_paused_pump_prefix
             cast(g, q, 2, target(g, 1));
             let captured = object(g, 1);
             announce_paid(g, q, 0, vec![]);
-            if paused {
-                // A recorded external input needs the identical instruction
-                // boundary in both traces. Use unit steps only to reach it.
+            if !before_creation {
+                // Reach the identical complete-creation boundary in both budgets.
                 let mut reached = false;
                 for _ in 0..1000 {
-                    match g.advance(Budget::new(1)) {
-                        Advance::Suspended { .. } => {
-                            if g.state.rules.effects.len() == 1 {
-                                reached = true;
-                                assert!(matches!(g.state.rules.frame, Frame::Resolve { .. }));
-                                recover(g);
-                                break;
-                            }
-                        }
+                    let a = g.advance(Budget::new(1));
+                    if !g.state.rules.effects.is_empty() {
+                        assert_grant(g, &SOURCES[3], &[1]);
+                        recover(g);
+                        reached = true;
+                        break;
+                    }
+                    stats(g, 1, 2, 2);
+                    assert!(!g.has_keyword(captured, KeywordAbility::Indestructible));
+                    match a {
+                        Advance::Suspended { .. } => (),
                         Advance::AwaitingDecision(r) => {
                             g.respond(r.player(), r.decision_id(), pass(&r)).unwrap();
                         }
-                        x => panic!("paused source departure {x:?}"),
+                        x => panic!("atomic creation boundary {x:?}"),
                     }
                 }
                 assert!(reached);
-            } else {
-                resolve(g, q, |_| {});
-                assert_eq!(grant(g).1, &[captured]);
             }
             g.concede(PlayerId(0)).unwrap();
-            // Pending external input hides every query until processed.
             assert!(matches!(
                 g.observe(PlayerId(1), Budget::unlimited()),
                 QueryResult::Rejected(_)
             ));
-            if paused {
-                resolve(g, q, |_| {});
-            } else {
-                request(g, q);
-            }
+            request(g, q);
             assert!(!g.is_live(PlayerId(0)));
             assert!(g.object_id(CardId(0)).is_none());
             assert!(g.object_id(CardId(2)).is_none());
             assert_eq!(g.current(captured).unwrap().controller, PlayerId(1));
-            // CR 800.4/608.2h: Pump already captured the borrowed creature;
-            // after its Aura owner leaves, the later grant selects no creatures
-            // for the frozen departed invocation controller.
-            stats(g, 1, 3, 2);
-            if paused {
-                assert!(grant(g).1.is_empty());
+            if before_creation {
+                // Departure removes the unstarted owned spell; neither component began.
+                stats(g, 1, 2, 2);
+                assert!(g.state.rules.effects.is_empty());
+                assert!(!g.has_keyword(captured, KeywordAbility::Indestructible));
             } else {
-                assert_eq!(grant(g).1, &[captured]);
+                // CR 611.2c/613.6: the one effect keeps both components and its
+                // original recipients after control returns to a surviving player.
+                assert_grant(g, &SOURCES[3], &[1]);
+                stats(g, 1, 3, 2);
+                assert!(g.has_keyword(captured, KeywordAbility::Indestructible));
             }
-            assert_eq!(
-                g.has_keyword(captured, KeywordAbility::Indestructible),
-                !paused
-            );
             recover(g);
             let mut owner_left = g.fork();
             owner_left.concede(PlayerId(2)).unwrap();
             request(&mut owner_left, q);
             assert!(owner_left.object_id(CardId(1)).is_none());
-            for viewer in [1, 3] {
-                let effects = owner_left.visible_effects(PlayerId(viewer)).unwrap();
-                let VisibleEffect::GrantKeywordsSet { targets, .. } = effects.last().unwrap()
-                else {
-                    panic!("departed recipient projection")
-                };
-                assert!(targets.iter().all(|t| t.current.is_none()));
+            if !before_creation {
+                for viewer in [1, 3] {
+                    let effects = owner_left.visible_effects(PlayerId(viewer)).unwrap();
+                    let VisibleEffect::GrantKeywordsSet { targets, .. } = effects.last().unwrap()
+                    else {
+                        panic!("departed recipient projection")
+                    };
+                    assert!(targets.iter().all(|t| t.current.is_none()));
+                }
+                if owner_left.trace.mode == TraceMode::Detailed {
+                    let facts = owner_left
+                        .trace
+                        .records
+                        .iter()
+                        .filter_map(|r| match &r.record {
+                            EvidenceRecord::Batch { batch } => Some(batch.as_ref()),
+                            _ => None,
+                        })
+                        .flat_map(|b| &b.occurrences)
+                        .find(|o| {
+                            matches!(&o.proposed,
+                        ProposedEvent::LeaveGame { object, departing_owner }
+                        if *object == captured && *departing_owner == PlayerId(2))
+                        })
+                        .unwrap();
+                    let before = facts
+                        .before
+                        .objects
+                        .iter()
+                        .find(|o| o.object == captured)
+                        .unwrap();
+                    assert_eq!(before.characteristics.power, Some(3.into()));
+                    assert_eq!(before.characteristics.toughness, Some(2.into()));
+                    assert!(before.keywords.contains(&KeywordAbility::Indestructible));
+                    assert_eq!(before.controller, PlayerId(1));
+                }
             }
             recover(&owner_left);
             through_cleanup(g, q);
