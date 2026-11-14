@@ -35,23 +35,27 @@
     },
     {
       "path": "packages/game-client/src/decisions/controls.ts",
-      "sha256": "04bc524d967d2e1eac23b7208f19deccb87caf5e1ba84ca03d7acc79644fa923"
+      "sha256": "05d670f394171c35d049fa08e32f42a685c899fae09c86df7f0b2d4567b6e969"
+    },
+    {
+      "path": "packages/game-client/src/decisions/structured-controls.ts",
+      "sha256": "acb6c0151dc41057367b2a050dabe590f37dd15366249e9581bfc5aebf4cfc5c"
     },
     {
       "path": "packages/game-client/src/features/decisions/LocalControls.tsx",
-      "sha256": "c610c299dbbe57eb9515050c02580be581ce2826a72d5af989b8c6ba84215919"
+      "sha256": "cb210aa167e209ed81697f6699a4007e66fcf315862ab06d6c8c9a733140bee9"
     },
     {
       "path": "packages/game-client/src/features/decisions/DecisionPanel.tsx",
-      "sha256": "061c87220bfc126db8ef8c81f3c45fb97831bb3b9b443c659b9e396305540da9"
+      "sha256": "71911cbdfdfbe88b6a2509a56806af027ff8fe93b971490a765d6b498be754d7"
     },
     {
       "path": "packages/game-client/src/features/decisions/DecisionGallery.tsx",
-      "sha256": "1b15be6ca02acea41cdf7264999c5583d610ba2bc1ec53f1a27b8899f1cbaeb6"
+      "sha256": "4180331510676b5f6523171973351e53bbe6f2efd214d878b0a491ab8d0515cb"
     },
     {
       "path": "packages/game-client/src/features/decisions/decisions.module.css",
-      "sha256": "ca279cbf50bb1f6397bdb59cfa931b0f2fca396de6192ad82666036753aea688"
+      "sha256": "651128cc16f3ed1f8e584dccc79eda5d0d5f490fc557d4c957fc77e0847583ab"
     },
     {
       "path": "packages/game-client/src/preview/fixture.ts",
@@ -59,19 +63,23 @@
     },
     {
       "path": "packages/game-client/scripts/decision-inventory.mjs",
-      "sha256": "3ce1ec51d8108066cc19d86ee82b114d09c127a10484229ca87f1a62c95db42e"
+      "sha256": "225804b893cf4191903a19be605286cd7ad989d63462a8bcebf6300ae4f99a6d"
     },
     {
       "path": "packages/game-client/tests/decision-controls.test.ts",
       "sha256": "10eb98e655cb8248a1d6cf2bb0fbb0cf8503bd0e859463f0def681aff3e9f792"
     },
     {
+      "path": "packages/game-client/tests/structured-controls.test.ts",
+      "sha256": "ab938bd49722ddab34a97bcf16dadc532d887bedb4ff3aa56aef2d0158e2c1f0"
+    },
+    {
       "path": "packages/game-client/tests/decision-inventory.test.ts",
-      "sha256": "1e5be623329622ebbe648c3cd775a6a92c3a7c44b1d306090c3a7c3e24324ce0"
+      "sha256": "037b93077bcac9b558ae6e5f54d6a572d4f16894388c978c5fb9c159eb31a818"
     },
     {
       "path": "packages/game-client/tests/browser/decision-controls.spec.ts",
-      "sha256": "8a251d4aed0b54fdeab7c857947a5323f698b4de54d6219c60c11902c05f2911"
+      "sha256": "1f922191d9152fdac2b9a56415d3f0d4791fecc0c4b4636d63fae29d3a182e35"
     },
     {
       "path": "packages/game-client/fixtures/foundations-opening/provenance.json",
@@ -116,7 +124,7 @@
       "implemented_control_draft": "implemented-single-handle",
       "required_core_context_and_source_mapping": "Supplied candidates and previous_choices; permitted object labels; no legend eligibility calculation.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "tests/decision-controls.test.ts; tests/browser/decision-controls.spec.ts (gallery covers mulligan, synthetic discard/bottom, generic quantity only)",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -133,10 +141,10 @@
       ],
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
-      "implemented_control_draft": "context-missing",
-      "required_core_context_and_source_mapping": "Core permitted source/action and meaning of X, plus compiler source-label mapping; quantity syntax alone is insufficient.",
+      "implemented_control_draft": "implemented-source-quantity",
+      "required_core_context_and_source_mapping": "Requires producer spell source text; explicit canonical X input, never a derived maximum.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -158,7 +166,7 @@
       "implemented_control_draft": "implemented-single-handle",
       "required_core_context_and_source_mapping": "Supplied candidates; permitted object labels. Rich initiating source/cost/effect and previous choice presentation remain integration requirements.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "tests/decision-controls.test.ts; tests/browser/decision-controls.spec.ts (gallery covers mulligan, synthetic discard/bottom, generic quantity only)",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -182,7 +190,7 @@
       "implemented_control_draft": "implemented-single-handle",
       "required_core_context_and_source_mapping": "Supplied candidates; permitted object labels. Rich initiating source/cost/effect and previous choice presentation remain integration requirements.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "tests/decision-controls.test.ts; tests/browser/decision-controls.spec.ts (gallery covers mulligan, synthetic discard/bottom, generic quantity only)",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -202,10 +210,10 @@
       ],
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
-      "implemented_control_draft": "context-missing",
-      "required_core_context_and_source_mapping": "Supplied colors plus permitted mana_ability_source and source/ability meaning. No automatic first color.",
+      "implemented_control_draft": "implemented-source-color",
+      "required_core_context_and_source_mapping": "Requires producer mana-ability source text and supplied colors. No automatic first color.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -229,7 +237,7 @@
       "implemented_control_draft": "implemented-bounded-handles",
       "required_core_context_and_source_mapping": "Supplied maximum and VisibleSearchLand handle/oracle_id; caller must map permitted search-result metadata, never inspect library/IR.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "tests/decision-controls.test.ts; tests/browser/decision-controls.spec.ts (gallery covers mulligan, synthetic discard/bottom, generic quantity only)",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -246,10 +254,10 @@
       ],
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
-      "implemented_control_draft": "context-missing",
-      "required_core_context_and_source_mapping": "Core permitted effect/source and producer source-block mapping; boolean alone does not explain what is accepted.",
+      "implemented_control_draft": "implemented-source-confirmation",
+      "required_core_context_and_source_mapping": "Requires producer source and current instruction text before explicit perform/decline.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -266,10 +274,10 @@
       ],
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
-      "implemented_control_draft": "context-missing",
-      "required_core_context_and_source_mapping": "Core permitted effect/source and producer source-block mapping; boolean alone does not explain what is accepted.",
+      "implemented_control_draft": "implemented-source-confirmation",
+      "required_core_context_and_source_mapping": "Requires producer source and current instruction text before explicit perform/decline.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -299,7 +307,7 @@
       "implemented_control_draft": "implemented-confirmation",
       "required_core_context_and_source_mapping": "Captured request can_mulligan, mulligans_taken, bottom_if_mulligan; no source semantics inferred.",
       "permitted_fixture": "fixtures/foundations-opening/opening-seat0-http.json (exact historical capture); fresh opening prefixes in prefix-provenance.json (evidence only)",
-      "test_locator": "tests/decision-controls.test.ts; tests/browser/decision-controls.spec.ts (gallery covers mulligan, synthetic discard/bottom, generic quantity only)",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": "/fixtures/decisions#captured"
     },
     {
@@ -323,7 +331,7 @@
       "implemented_control_draft": "implemented-ordered-handles",
       "required_core_context_and_source_mapping": "Supplied candidates/count; permitted object-to-presentation mapping or explicit missing-metadata handle fallback.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "tests/decision-controls.test.ts; tests/browser/decision-controls.spec.ts (gallery covers mulligan, synthetic discard/bottom, generic quantity only)",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": "/fixtures/decisions#structural (synthetic only)"
     },
     {
@@ -350,10 +358,10 @@
       ],
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
-      "implemented_control_draft": "context-missing",
-      "required_core_context_and_source_mapping": "Core recipient/effect/damage identities, permitted source labels and allocation constraints. No internal IR interpretation or derived damage amounts.",
+      "implemented_control_draft": "implemented-source-allocation",
+      "required_core_context_and_source_mapping": "Requires selected effect source/instruction context, supplied occurrence maxima and required exact allocation total.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -372,10 +380,10 @@
       ],
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
-      "implemented_control_draft": "context-missing",
-      "required_core_context_and_source_mapping": "Core mode candidates plus compiler mode-index-to-source-label mapping. Numeric indices are not human choices.",
+      "implemented_control_draft": "implemented-source-mode",
+      "required_core_context_and_source_mapping": "Requires producer source and one unambiguous compiler label per supplied mode candidate.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": "/fixtures/decisions#blocked (synthetic only)"
     },
     {
@@ -396,10 +404,10 @@
       ],
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
-      "implemented_control_draft": "context-missing",
-      "required_core_context_and_source_mapping": "Core recipient/effect/damage identities, permitted source labels and allocation constraints. No internal IR interpretation or derived damage amounts.",
+      "implemented_control_draft": "implemented-source-damage-effect",
+      "required_core_context_and_source_mapping": "Requires compiler-bound per-occurrence effect labels; preserve exact effect/damage pair and supplied amounts.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -418,10 +426,10 @@
       ],
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
-      "implemented_control_draft": "context-missing",
-      "required_core_context_and_source_mapping": "VisiblePendingTrigger identity plus compiler ability/source-label mapping. Generic ordered selection exists, no trigger gameplay adapter.",
+      "implemented_control_draft": "implemented-source-ordered-triggers",
+      "required_core_context_and_source_mapping": "Requires compiler-bound labels for every supplied trigger handle; preserve explicit complete order.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -442,10 +450,10 @@
       ],
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
-      "implemented_control_draft": "unsupported",
-      "required_core_context_and_source_mapping": "Core ordered occurrences/candidates and permitted target/source labels with joint validator; no local TargetSpec interpretation.",
+      "implemented_control_draft": "implemented-source-target-occurrences",
+      "required_core_context_and_source_mapping": "Requires producer source/instruction; explicit candidate for each supplied ordered occurrence. Never interpret TargetSpec or derive joint eligibility.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -466,10 +474,10 @@
       ],
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
-      "implemented_control_draft": "unsupported",
-      "required_core_context_and_source_mapping": "Core ordered occurrences/candidates and permitted target/source labels with joint validator; no local TargetSpec interpretation.",
+      "implemented_control_draft": "implemented-source-target-occurrences",
+      "required_core_context_and_source_mapping": "Requires producer source/instruction; explicit candidate for each supplied ordered occurrence. Never interpret TargetSpec or derive joint eligibility.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -490,10 +498,10 @@
       ],
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
-      "implemented_control_draft": "unsupported",
-      "required_core_context_and_source_mapping": "Core ordered occurrences/candidates and permitted target/source labels with joint validator; no local TargetSpec interpretation.",
+      "implemented_control_draft": "implemented-source-target-occurrences",
+      "required_core_context_and_source_mapping": "Requires producer source/instruction; explicit candidate for each supplied ordered occurrence. Never interpret TargetSpec or derive joint eligibility.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -515,7 +523,7 @@
       "implemented_control_draft": "implemented-single-handle",
       "required_core_context_and_source_mapping": "Supplied candidates; permitted object labels. Rich initiating source/cost/effect and previous choice presentation remain integration requirements.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "tests/decision-controls.test.ts; tests/browser/decision-controls.spec.ts (gallery covers mulligan, synthetic discard/bottom, generic quantity only)",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -539,7 +547,7 @@
       "implemented_control_draft": "implemented-unordered-handles",
       "required_core_context_and_source_mapping": "Supplied candidates/count; permitted object labels. Initiating effect/source explanation is still absent.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "tests/decision-controls.test.ts; tests/browser/decision-controls.spec.ts (gallery covers mulligan, synthetic discard/bottom, generic quantity only)",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -561,10 +569,10 @@
       ],
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
-      "implemented_control_draft": "unsupported",
-      "required_core_context_and_source_mapping": "Core cost/available/source context, reviewed joint payment flow and reversal semantics. No local payment-legality calculation.",
+      "implemented_control_draft": "implemented-source-payment",
+      "required_core_context_and_source_mapping": "Requires producer source and supplied cost/available mana; explicit exact amount for every available color. Core validates joint payment legality.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -588,10 +596,10 @@
       ],
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
-      "implemented_control_draft": "context-missing",
-      "required_core_context_and_source_mapping": "Designation/object/destination and previous choices need reviewed permitted designation/zone explanation; no name-based mapping.",
+      "implemented_control_draft": "implemented-commander-destination",
+      "required_core_context_and_source_mapping": "Supplied object/designation/destination and previous choices only; explicit command-zone or destination choice.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -612,10 +620,10 @@
       ],
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
-      "implemented_control_draft": "unsupported",
-      "required_core_context_and_source_mapping": "Core candidate/defender/assignment and supplied lethal/legal-block context; joint combat validation and source mapping. No menace/lethal/eligibility calculation.",
+      "implemented_control_draft": "implemented-supplied-combat-mapping",
+      "required_core_context_and_source_mapping": "Explicit per-candidate attacker/defender or blocker/attacker choices, including unused. Missing/ambiguous blocker eligibility fails closed. Core validates joint restrictions.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -638,10 +646,10 @@
       ],
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
-      "implemented_control_draft": "unsupported",
-      "required_core_context_and_source_mapping": "Core candidate/defender/assignment and supplied lethal/legal-block context; joint combat validation and source mapping. No menace/lethal/eligibility calculation.",
+      "implemented_control_draft": "implemented-supplied-combat-mapping",
+      "required_core_context_and_source_mapping": "Explicit per-candidate attacker/defender or blocker/attacker choices, including unused. Missing/ambiguous blocker eligibility fails closed. Core validates joint restrictions.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -666,10 +674,10 @@
       ],
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
-      "implemented_control_draft": "unsupported",
-      "required_core_context_and_source_mapping": "Core candidate/defender/assignment and supplied lethal/legal-block context; joint combat validation and source mapping. No menace/lethal/eligibility calculation.",
+      "implemented_control_draft": "implemented-supplied-damage-allocation",
+      "required_core_context_and_source_mapping": "Supplied source, recipients, power, player recipient and lethal hints; exact total bookkeeping only, no derived lethal calculation.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -693,7 +701,7 @@
       "implemented_control_draft": "implemented-unordered-handles",
       "required_core_context_and_source_mapping": "Supplied candidates/count; permitted object labels. Initiating effect/source explanation is still absent.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "tests/decision-controls.test.ts; tests/browser/decision-controls.spec.ts (gallery covers mulligan, synthetic discard/bottom, generic quantity only)",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": "/fixtures/decisions#structural (synthetic only)"
     },
     {
@@ -737,10 +745,10 @@
       ],
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
-      "implemented_control_draft": "unsupported",
-      "required_core_context_and_source_mapping": "Core ordered occurrences/candidates and permitted target/source labels with joint validator; no local TargetSpec interpretation.",
+      "implemented_control_draft": "implemented-source-target-occurrences",
+      "required_core_context_and_source_mapping": "Requires producer source/instruction; explicit candidate for each supplied ordered occurrence. Never interpret TargetSpec or derive joint eligibility.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
-      "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
       "gallery_locator": null
     },
     {
@@ -786,7 +794,7 @@
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
       "required_core_context_and_source_mapping": "Supplied candidates and previous_choices; permitted object labels; no legend eligibility calculation.",
       "permitted_fixture": null,
-      "test_locator": "tests/decision-controls.test.ts"
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "announce_x",
@@ -799,11 +807,11 @@
         "value"
       ],
       "request_variant": "announce_x",
-      "implemented_control_draft": "context-missing",
+      "implemented_control_draft": "implemented-source-quantity",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
-      "required_core_context_and_source_mapping": "Core permitted source/action and meaning of X, plus compiler source-label mapping; quantity syntax alone is insufficient.",
+      "required_core_context_and_source_mapping": "Requires producer spell source text; explicit canonical X input, never a derived maximum.",
       "permitted_fixture": null,
-      "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "sacrifice_cost",
@@ -820,7 +828,7 @@
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
       "required_core_context_and_source_mapping": "Supplied candidates; permitted object labels. Rich initiating source/cost/effect and previous choice presentation remain integration requirements.",
       "permitted_fixture": null,
-      "test_locator": "tests/decision-controls.test.ts"
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "forced_sacrifice",
@@ -837,7 +845,7 @@
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
       "required_core_context_and_source_mapping": "Supplied candidates; permitted object labels. Rich initiating source/cost/effect and previous choice presentation remain integration requirements.",
       "permitted_fixture": null,
-      "test_locator": "tests/decision-controls.test.ts"
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "mana_color",
@@ -850,11 +858,11 @@
         "color"
       ],
       "request_variant": "mana_color",
-      "implemented_control_draft": "context-missing",
+      "implemented_control_draft": "implemented-source-color",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
-      "required_core_context_and_source_mapping": "Supplied colors plus permitted mana_ability_source and source/ability meaning. No automatic first color.",
+      "required_core_context_and_source_mapping": "Requires producer mana-ability source text and supplied colors. No automatic first color.",
       "permitted_fixture": null,
-      "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "search_lands",
@@ -871,7 +879,7 @@
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
       "required_core_context_and_source_mapping": "Supplied maximum and VisibleSearchLand handle/oracle_id; caller must map permitted search-result metadata, never inspect library/IR.",
       "permitted_fixture": null,
-      "test_locator": "tests/decision-controls.test.ts"
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "optional_effect",
@@ -884,11 +892,11 @@
         "perform"
       ],
       "request_variant": "optional_effect",
-      "implemented_control_draft": "context-missing",
+      "implemented_control_draft": "implemented-source-confirmation",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
-      "required_core_context_and_source_mapping": "Core permitted effect/source and producer source-block mapping; boolean alone does not explain what is accepted.",
+      "required_core_context_and_source_mapping": "Requires producer source and current instruction text before explicit perform/decline.",
       "permitted_fixture": null,
-      "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "optional_recursion",
@@ -901,11 +909,11 @@
         "perform"
       ],
       "request_variant": "optional_recursion",
-      "implemented_control_draft": "context-missing",
+      "implemented_control_draft": "implemented-source-confirmation",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
-      "required_core_context_and_source_mapping": "Core permitted effect/source and producer source-block mapping; boolean alone does not explain what is accepted.",
+      "required_core_context_and_source_mapping": "Requires producer source and current instruction text before explicit perform/decline.",
       "permitted_fixture": null,
-      "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "mulligan",
@@ -922,7 +930,7 @@
       "known_admitted_reachability": "Historical authenticated foundations opening plus fresh separately validated openings in both admitted profiles. Bounded captures only.",
       "required_core_context_and_source_mapping": "Captured request can_mulligan, mulligans_taken, bottom_if_mulligan; no source semantics inferred.",
       "permitted_fixture": "Captured request only; completion is local human draft, not an accepted native command.",
-      "test_locator": "tests/decision-controls.test.ts"
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "bottom_opening",
@@ -939,7 +947,7 @@
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
       "required_core_context_and_source_mapping": "Supplied candidates/count; permitted object-to-presentation mapping or explicit missing-metadata handle fallback.",
       "permitted_fixture": null,
-      "test_locator": "tests/decision-controls.test.ts"
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "damage_allocation",
@@ -952,11 +960,11 @@
         "allocations"
       ],
       "request_variant": "damage_allocation",
-      "implemented_control_draft": "context-missing",
+      "implemented_control_draft": "implemented-source-allocation",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
-      "required_core_context_and_source_mapping": "Core recipient/effect/damage identities, permitted source labels and allocation constraints. No internal IR interpretation or derived damage amounts.",
+      "required_core_context_and_source_mapping": "Requires selected effect source/instruction context, supplied occurrence maxima and required exact allocation total.",
       "permitted_fixture": null,
-      "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "modes",
@@ -969,11 +977,11 @@
         "mode"
       ],
       "request_variant": "modes",
-      "implemented_control_draft": "context-missing",
+      "implemented_control_draft": "implemented-source-mode",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
-      "required_core_context_and_source_mapping": "Core mode candidates plus compiler mode-index-to-source-label mapping. Numeric indices are not human choices.",
+      "required_core_context_and_source_mapping": "Requires producer source and one unambiguous compiler label per supplied mode candidate.",
       "permitted_fixture": null,
-      "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "damage_effect",
@@ -988,11 +996,11 @@
         "damage"
       ],
       "request_variant": "damage_effect",
-      "implemented_control_draft": "context-missing",
+      "implemented_control_draft": "implemented-source-damage-effect",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
-      "required_core_context_and_source_mapping": "Core recipient/effect/damage identities, permitted source labels and allocation constraints. No internal IR interpretation or derived damage amounts.",
+      "required_core_context_and_source_mapping": "Requires compiler-bound per-occurrence effect labels; preserve exact effect/damage pair and supplied amounts.",
       "permitted_fixture": null,
-      "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "order_triggers",
@@ -1005,11 +1013,11 @@
         "order"
       ],
       "request_variant": "order_triggers",
-      "implemented_control_draft": "context-missing",
+      "implemented_control_draft": "implemented-source-ordered-triggers",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
-      "required_core_context_and_source_mapping": "VisiblePendingTrigger identity plus compiler ability/source-label mapping. Generic ordered selection exists, no trigger gameplay adapter.",
+      "required_core_context_and_source_mapping": "Requires compiler-bound labels for every supplied trigger handle; preserve explicit complete order.",
       "permitted_fixture": null,
-      "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "entity_targets",
@@ -1022,11 +1030,11 @@
         "entities"
       ],
       "request_variant": "entity_targets",
-      "implemented_control_draft": "unsupported",
+      "implemented_control_draft": "implemented-source-target-occurrences",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
-      "required_core_context_and_source_mapping": "Core ordered occurrences/candidates and permitted target/source labels with joint validator; no local TargetSpec interpretation.",
+      "required_core_context_and_source_mapping": "Requires producer source/instruction; explicit candidate for each supplied ordered occurrence. Never interpret TargetSpec or derive joint eligibility.",
       "permitted_fixture": null,
-      "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "stack_targets",
@@ -1039,11 +1047,11 @@
         "entries"
       ],
       "request_variant": "stack_targets",
-      "implemented_control_draft": "unsupported",
+      "implemented_control_draft": "implemented-source-target-occurrences",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
-      "required_core_context_and_source_mapping": "Core ordered occurrences/candidates and permitted target/source labels with joint validator; no local TargetSpec interpretation.",
+      "required_core_context_and_source_mapping": "Requires producer source/instruction; explicit candidate for each supplied ordered occurrence. Never interpret TargetSpec or derive joint eligibility.",
       "permitted_fixture": null,
-      "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "activate_ability",
@@ -1075,11 +1083,11 @@
         "players"
       ],
       "request_variant": "player_targets",
-      "implemented_control_draft": "unsupported",
+      "implemented_control_draft": "implemented-source-target-occurrences",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
-      "required_core_context_and_source_mapping": "Core ordered occurrences/candidates and permitted target/source labels with joint validator; no local TargetSpec interpretation.",
+      "required_core_context_and_source_mapping": "Requires producer source/instruction; explicit candidate for each supplied ordered occurrence. Never interpret TargetSpec or derive joint eligibility.",
       "permitted_fixture": null,
-      "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "sacrifice",
@@ -1096,7 +1104,7 @@
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
       "required_core_context_and_source_mapping": "Supplied candidates; permitted object labels. Rich initiating source/cost/effect and previous choice presentation remain integration requirements.",
       "permitted_fixture": null,
-      "test_locator": "tests/decision-controls.test.ts"
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "resolve_discard",
@@ -1113,7 +1121,7 @@
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
       "required_core_context_and_source_mapping": "Supplied candidates/count; permitted object labels. Initiating effect/source explanation is still absent.",
       "permitted_fixture": null,
-      "test_locator": "tests/decision-controls.test.ts"
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "spend_mana",
@@ -1126,11 +1134,11 @@
         "spending"
       ],
       "request_variant": "spend_mana",
-      "implemented_control_draft": "unsupported",
+      "implemented_control_draft": "implemented-source-payment",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
-      "required_core_context_and_source_mapping": "Core cost/available/source context, reviewed joint payment flow and reversal semantics. No local payment-legality calculation.",
+      "required_core_context_and_source_mapping": "Requires producer source and supplied cost/available mana; explicit exact amount for every available color. Core validates joint payment legality.",
       "permitted_fixture": null,
-      "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "commander_return",
@@ -1143,11 +1151,11 @@
         "to_command"
       ],
       "request_variant": "commander_return",
-      "implemented_control_draft": "context-missing",
+      "implemented_control_draft": "implemented-commander-destination",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
-      "required_core_context_and_source_mapping": "Designation/object/destination and previous choices need reviewed permitted designation/zone explanation; no name-based mapping.",
+      "required_core_context_and_source_mapping": "Supplied object/designation/destination and previous choices only; explicit command-zone or destination choice.",
       "permitted_fixture": null,
-      "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "attackers",
@@ -1160,11 +1168,11 @@
         "attacks"
       ],
       "request_variant": "attackers",
-      "implemented_control_draft": "unsupported",
+      "implemented_control_draft": "implemented-supplied-combat-mapping",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
-      "required_core_context_and_source_mapping": "Core candidate/defender/assignment and supplied lethal/legal-block context; joint combat validation and source mapping. No menace/lethal/eligibility calculation.",
+      "required_core_context_and_source_mapping": "Explicit per-candidate attacker/defender or blocker/attacker choices, including unused. Missing/ambiguous blocker eligibility fails closed. Core validates joint restrictions.",
       "permitted_fixture": null,
-      "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "blockers",
@@ -1177,11 +1185,11 @@
         "blocks"
       ],
       "request_variant": "blockers",
-      "implemented_control_draft": "unsupported",
+      "implemented_control_draft": "implemented-supplied-combat-mapping",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
-      "required_core_context_and_source_mapping": "Core candidate/defender/assignment and supplied lethal/legal-block context; joint combat validation and source mapping. No menace/lethal/eligibility calculation.",
+      "required_core_context_and_source_mapping": "Explicit per-candidate attacker/defender or blocker/attacker choices, including unused. Missing/ambiguous blocker eligibility fails closed. Core validates joint restrictions.",
       "permitted_fixture": null,
-      "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "damage",
@@ -1194,11 +1202,11 @@
         "assignments"
       ],
       "request_variant": "damage",
-      "implemented_control_draft": "unsupported",
+      "implemented_control_draft": "implemented-supplied-damage-allocation",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
-      "required_core_context_and_source_mapping": "Core candidate/defender/assignment and supplied lethal/legal-block context; joint combat validation and source mapping. No menace/lethal/eligibility calculation.",
+      "required_core_context_and_source_mapping": "Supplied source, recipients, power, player recipient and lethal hints; exact total bookkeeping only, no derived lethal calculation.",
       "permitted_fixture": null,
-      "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "trample_damage",
@@ -1236,7 +1244,7 @@
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
       "required_core_context_and_source_mapping": "Supplied candidates/count; permitted object labels. Initiating effect/source explanation is still absent.",
       "permitted_fixture": null,
-      "test_locator": "tests/decision-controls.test.ts"
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "play_land",
@@ -1315,11 +1323,11 @@
         "objects"
       ],
       "request_variant": "targets",
-      "implemented_control_draft": "unsupported",
+      "implemented_control_draft": "implemented-source-target-occurrences",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
-      "required_core_context_and_source_mapping": "Core ordered occurrences/candidates and permitted target/source labels with joint validator; no local TargetSpec interpretation.",
+      "required_core_context_and_source_mapping": "Requires producer source/instruction; explicit candidate for each supplied ordered occurrence. Never interpret TargetSpec or derive joint eligibility.",
       "permitted_fixture": null,
-      "test_locator": "Generated SDK exhaustive consumer/typecheck; no control acceptance claimed."
+      "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts"
     },
     {
       "variant": "finish_mana",

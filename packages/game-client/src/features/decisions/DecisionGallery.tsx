@@ -26,6 +26,7 @@ export function DecisionGallery({ request, labels, binding, source, cards }: {
   const [removed, setRemoved] = useState(false);
   const [exactDraft, setExactDraft] = useState(emptyDraft);
   const labBinding = { ...binding, match: 'structural-lab', incarnation: generation, token: `lab-${generation}` };
+  const structuredBinding = { ...binding, match: 'structured-lab', incarnation: 0, token: 'structured-lab' };
   const candidates = removed ? ['lab-b', 'lab-c'] : ['lab-a', 'lab-b', 'lab-c'];
   const complete = (value: DecisionCompletion) => setReceipt(JSON.stringify(value, null, 2));
   return <GameSurface className={styles.gallery}>
@@ -49,10 +50,18 @@ export function DecisionGallery({ request, labels, binding, source, cards }: {
         <div className={styles.panel}><LocalControls control={quantity} draft={exactDraft} onChange={setExactDraft} onComplete={() => setReceipt(`Synthetic exact quantity: ${exactDraft.quantity}`)} /><p className={styles.boundary}>No generated gameplay response is constructed from this quantity exercise.</p></div>
       </div>
     </section>
+    <section className={styles.section} aria-labelledby="structured-title"><h2 id="structured-title">Supplied combat and payment drafts</h2>
+      <p className={styles.intro}>Synthetic candidates, quantities and source explanation only. These exercises establish no real-game reachability or legality.</p>
+      <div className={styles.labs}>
+        <DecisionPanel binding={structuredBinding} labels={labLabels} request={{ request: 'attackers', player: binding.seat, token: structuredBinding.token, candidates: ['lab-a', 'lab-b'], defenders: [1, 2] }} onComplete={complete} />
+        <DecisionPanel binding={structuredBinding} labels={labLabels} request={{ request: 'damage', player: binding.seat, token: structuredBinding.token, source: 'lab-a', power: '5', recipients: ['lab-b'], player_recipient: 2, lethal_requirements: [['lab-b', '2']] }} onComplete={complete} />
+        <DecisionPanel binding={structuredBinding} labels={labLabels} context={{ source: { kind: 'spell', oracle_id: 'synthetic-source', text: 'Synthetic complete source block for payment.' } }} request={{ request: 'spend_mana', player: binding.seat, token: structuredBinding.token, cost: { generic: '9007199254740993', colored: ['U'] }, available: { U: '1', C: '9007199254740993' } }} onComplete={complete} />
+      </div>
+    </section>
     <section id="blocked" className={styles.section} aria-labelledby="blocked-title"><h2 id="blocked-title">Explicit contract gaps</h2>
       <p className={styles.source}>Synthetic modes request: index membership alone provides no source-backed human option labels.</p>
       <DecisionPanel binding={labBinding} request={{ request: 'modes', token: labBinding.token, player: binding.seat, candidates: [0, 1] }} labels={[]} onComplete={complete} />
-      <p className={styles.source}>Ordering/allocation primitives require supplied meaning and constraints before a gameplay adapter. Costs, target eligibility and lethal damage remain core-owned. Action labels are currently unavailable.</p>
+      <p className={styles.source}>Costs, target eligibility and lethal damage remain core-owned. Source-dependent controls remain unavailable when their producer context or labels are missing.</p>
     </section>
     </div><div className={styles.gallerySide}><Inspector card={cards.find(card => card.inspectionId === inspected) ?? null} onClose={() => {
       setInspected(null);
