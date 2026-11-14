@@ -19,6 +19,7 @@ const SettingsPage = lazy(() => import("../features/settings/index.ts").then(m =
 const StyleguidePage = lazy(() => import("../features/styleguide/index.ts").then(m => ({ default: m.StyleguidePage })));
 const HomePage = lazy(() => import("../features/home/index.ts").then(m => ({ default: m.HomePage })));
 const PlayPage = lazy(() => import("../features/play/index.ts").then(m => ({ default: m.PlayPage })));
+const LiveGamePage = lazy(() => import("../features/live-game/index.ts").then(m => ({ default: m.LiveGamePage })));
 const GamePreviewPage = lazy(() => import("../features/game/index.ts").then(m => ({ default: m.GamePreviewPage })));
 
 /** The one place a route becomes a screen. A new page is a line here and a
@@ -27,6 +28,7 @@ function screen(route: Route): ReactNode {
   switch (route.page) {
     case "home": return <HomePage />;
     case "play": return <PlayPage deckId={route.deckId} />;
+    case "live-game": return <LiveGamePage gameId={route.gameId} key={route.gameId} />;
     case "game-preview": return <GamePreviewPage deckId={route.deckId} />;
     case "playtest":
       return <DesktopPlaytest deckId={route.deckId} key={route.deckId} />;

@@ -45,6 +45,7 @@ struct Wait {
 struct Status<'a> {
     version: u32,
     human_waiting_since: Option<u64>,
+    human_decision_token: Option<&'a str>,
     outcome: &'a Option<RulesResult>,
 }
 fn err(e: impl std::fmt::Display) -> String {
@@ -200,7 +201,104 @@ pub fn join(root: &Path) -> Result<(), String> {
         .open(root.join("owner.lock"))
         .map_err(err)?;
     lease.lock().map_err(err)?;
-    Ok(())
+    quiesce(root)
+}
+/// Query/stop only our persisted generated transient service; never a caller
+/// supplied unit or an arbitrary cgroup. Inactive/not-found proves no late worker
+/// can launch after the lifecycle owner has released its kernel lease.
+fn systemctl(arguments: &[&str]) -> Result<String, String> {
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("systemctl")
+        .arg("--user")
+        .args(arguments)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(err)?;
+    let until = Instant::now() + Duration::from_secs(5);
+    loop {
+        if child.try_wait().map_err(err)?.is_some() {
+            break;
+        }
+        if Instant::now() >= until {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("worker unit control deadline".into());
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let mut output = String::new();
+    child
+        .stdout
+        .take()
+        .ok_or("worker control output unavailable")?
+        .take(4097)
+        .read_to_string(&mut output)
+        .map_err(err)?;
+    if output.len() > 4096 {
+        return Err("worker control output exceeds bound".into());
+    }
+    Ok(output)
+}
+fn unit_inactive(unit: &str) -> Result<bool, String> {
+    let output = systemctl(&[
+        "show",
+        "--property=LoadState,ActiveState,ControlGroup",
+        unit,
+    ])?;
+    if output.lines().any(|s| s == "LoadState=not-found") {
+        return Ok(true);
+    }
+    if !output
+        .lines()
+        .any(|s| s == "ActiveState=inactive" || s == "ActiveState=failed")
+    {
+        return Ok(false);
+    }
+    let group = output
+        .lines()
+        .find_map(|s| s.strip_prefix("ControlGroup="))
+        .ok_or("worker unit state unavailable")?;
+    if group.is_empty() {
+        return Ok(true);
+    }
+    let directory = crate::ipc::cgroup_directory(group)?;
+    match fs::read_to_string(directory.join("cgroup.events")) {
+        Ok(events) => Ok(events.lines().any(|s| s == "populated 0")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(_) => Err("worker group unavailable".into()),
+    }
+}
+fn quiesce(root: &Path) -> Result<(), String> {
+    let path = root.join("worker-unit.json");
+    if !path.exists() {
+        return Ok(());
+    }
+    let unit: String = read(&path)?;
+    let suffix = unit
+        .strip_prefix("mtg-p8-")
+        .and_then(|s| s.strip_suffix(".service"))
+        .ok_or("invalid owned worker unit")?;
+    let (pid, nonce) = suffix.split_once('-').ok_or("invalid owned worker unit")?;
+    if pid.is_empty()
+        || !pid.bytes().all(|b| b.is_ascii_digit())
+        || nonce.len() != 32
+        || !nonce
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    {
+        return Err("invalid owned worker unit".into());
+    }
+    if !unit_inactive(&unit)? {
+        let _ = systemctl(&["kill", "--kill-whom=all", "--signal=KILL", &unit]);
+        let _ = systemctl(&["stop", &unit]);
+    }
+    if unit_inactive(&unit)? {
+        Ok(())
+    } else {
+        Err("owned worker unit remains active".into())
+    }
 }
 fn generation(root: &Path) -> Result<u64, String> {
     if root.join("generation.json").exists() {
@@ -379,8 +477,9 @@ pub async fn run(root: &Path) -> Result<(), String> {
     } else {
         false
     };
+    quiesce(root)?;
     let process = tokio::select! {
-        result = crate::process::WorkerProcess::spawn(spawn.clone(), Duration::from_secs(120)) => result.map_err(err)?,
+        result = crate::process::WorkerProcess::spawn_with_unit(spawn.clone(), Duration::from_secs(120), |unit| save(&root.join("worker-unit.json"), &unit).map_err(|_| crate::process::BridgeError::Unavailable)) => result.map_err(err)?,
         () = async { while !fenced(root, &alive, binding.generation) { tokio::time::sleep(Duration::from_millis(50)).await; } } => return Err("lifecycle stopped during startup".into()),
     };
     let resume_operator = resume_lifetime
@@ -388,7 +487,7 @@ pub async fn run(root: &Path) -> Result<(), String> {
             process.status(),
             crate::protocol::ExecutionStatus::ResourcePaused
         );
-    let (broker, mut task) = Broker::start_recovering(process, spawn);
+    let (broker, mut task) = Broker::start(process);
     let host = crate::http::Host::new(vec![crate::http::HostedMatch::new(
         auth,
         manifest,
@@ -397,29 +496,32 @@ pub async fn run(root: &Path) -> Result<(), String> {
     let router = host.clone().router_at(address)?;
     let (halt, halted) = tokio::sync::oneshot::channel::<()>();
     let server = tokio::spawn(async move {
-        axum::serve(crate::network::LimitedListener::new(listener)?, router)
-            .with_graceful_shutdown(async {
-                let _ = halted.await;
-            })
-            .await
-            .map_err(err)
+        axum::serve(
+            crate::network::LimitedListener::new(listener).map_err(err)?,
+            router,
+        )
+        .with_graceful_shutdown(async {
+            let _ = halted.await;
+        })
+        .await
+        .map_err(err)
     });
     let mut allow_recovery_pause = false;
     let result = async {
         if fenced(root, &alive, binding.generation) { return Err("lifecycle stopped".into()); }
         if resume_operator {
-            match broker.call(WorkerCommand::Clock { control: ClockControl::Resume }).await.map_err(err)? {
+            match broker.call(WorkerCommand::Clock { control: ClockControl::Resume }).await.map_err(|_| "native clock unavailable")? {
                 WorkerReply::Clocked { .. } => save(&root.join("resume-lifetime.json"), &false)?,
                 _ => return Err("native resume unavailable".into()),
             }
         }
         let mut ready = false;
         while !fenced(root, &alive, binding.generation) && !task.is_finished() && !server.is_finished() {
-            let WorkerReply::Resume { resume } = broker.call(WorkerCommand::Resume { seat: 0 }).await.map_err(err)? else { return Err("native resume unavailable".into()); };
+            let WorkerReply::Resume { resume } = broker.call(WorkerCommand::Resume { seat: 0 }).await.map_err(|_| "native resume unavailable")? else { return Err("native resume unavailable".into()); };
             allow_recovery_pause = matches!(resume.lifecycle, Some(crate::protocol::ExecutionStatus::Running | crate::protocol::ExecutionStatus::Waiting | crate::protocol::ExecutionStatus::Applied | crate::protocol::ExecutionStatus::Queued));
             let token = match &resume.state { ResumeState::Available { observation } => observation.decision.as_ref().map(|d| d.token().0.clone()), ResumeState::Pending => None };
             if token != waiting.token { waiting = Wait { since: if token.is_some() { Some(now()?) } else { None }, token }; save(&root.join("wait.json"), &waiting)?; }
-            save(&root.join("status.json"), &Status { version: 1, human_waiting_since: waiting.since, outcome: &resume.outcome })?;
+            save(&root.join("status.json"), &Status { version: 1, human_waiting_since: waiting.since, human_decision_token: waiting.token.as_deref(), outcome: &resume.outcome })?;
             if !ready {
                 println!("{}", serde_json::json!({"version":1,"origin":native_origin,"session":epoch.file_name().and_then(|n| n.to_str()).ok_or("invalid session")?}));
                 std::io::stdout().flush().map_err(err)?;
@@ -464,6 +566,7 @@ pub async fn run(root: &Path) -> Result<(), String> {
     }
     server.abort();
     let _ = server.await;
+    quiesce(root)?;
     drop(registry);
     drop(lease);
     result

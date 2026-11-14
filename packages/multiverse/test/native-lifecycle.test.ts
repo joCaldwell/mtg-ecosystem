@@ -1,12 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, readdirSync, lstatSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, lstatSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync, spawn } from "node:child_process";
 import { randomBytes, createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { createServer } from "node:net";
+import { request as httpRequest } from "node:http";
 import { DatabaseSync } from "node:sqlite";
 import { createHost } from "@mtg-ecosystem/deck-builder/host";
 import type { GameRecord, GameIdentity } from "@mtg-ecosystem/deck-builder/contracts";
@@ -14,6 +15,9 @@ import { parseSeatBootstrap, parseClientConfig, GameClient, prepareCommand, PROT
 import { createNativeLifecycle } from "../src/native-lifecycle.ts";
 import { privateDirectory, readPrivate } from "../src/native-private.ts";
 
+// Driver remains private; a fresh native child explicitly uses 0022 to prove
+// that SQLite/credentials are 0600 independently of a convenient parent umask.
+process.umask(0o077);
 const executable = process.env.MULTIVERSE_TEST_NATIVE_EXECUTABLE;
 const signal = () => AbortSignal.timeout(150_000);
 async function until(predicate: () => boolean, ms = 5000) {
@@ -23,11 +27,14 @@ async function until(predicate: () => boolean, ms = 5000) {
 function nativeFixture() {
   const source = JSON.parse(execFileSync(executable!, ["lifecycle-profile", "commander-foundations-v1"], { encoding: "utf8" }));
   const identity: GameIdentity = { profile: source.profile, catalog_sha256: source.catalog_sha256, engine_build_id: source.engine_build_id, server_build_id: source.server_build_id };
-  const directory = mkdtempSync(join(tmpdir(), "multiverse-native-lifecycle-"));
+  const directory = mkdtempSync(join(process.env.MULTIVERSE_TEST_NATIVE_EVIDENCE_DIRECTORY ?? tmpdir(), "multiverse-native-lifecycle-"));
   const selected = source.decks[0] as { commander: string; cards: { oracle_id: string; count: number }[] };
   const capture = { deck_id: 1, revision: 1, cards: selected.cards.map(c => ({ oracle_id: c.oracle_id, quantity: c.count, role: c.oracle_id === selected.commander ? "commander" as const : "card" as const })).sort((a, b) => a.oracle_id.localeCompare(b.oracle_id)) };
   const game: GameRecord = { id: randomBytes(16).toString("hex"), deck: { ...capture, sha256: createHash("sha256").update(JSON.stringify(capture)).digest("hex") }, identity, state: "provisioning", pause: null, outcome: null, created_at: Date.now(), updated_at: Date.now(), human_waiting_since: null, consumers_stopped: false };
-  const options = { executable: executable!, directory, identity, humanOrigin: "http://127.0.0.1:8787" };
+  const wrapper = join(directory, "native-0022");
+  const quoted = "'" + executable!.replaceAll("'", String.fromCharCode(39, 92, 39, 39)) + "'";
+  writeFileSync(wrapper, ["#!/bin/sh", "umask 0022", `exec ${quoted} "$@"`, ""].join("\n"), { mode: 0o700 });
+  const options = { executable: wrapper, directory, identity, humanOrigin: "http://127.0.0.1:8787" };
   return { game, options, root: join(directory, game.id) };
 }
 function privateTree(path: string) {
@@ -43,6 +50,13 @@ test("private lifecycle storage refuses public roots and symlink-free modes rema
   assert.throws(() => privateDirectory(tmpdir()), /0700/);
 });
 
+test("logical human origin accepts explicit numeric default port and rejects alternate destinations", () => {
+  const directory = mkdtempSync(join(tmpdir(), "multiverse-origin-boundary-"));
+  const identity = { profile: "fixture", catalog_sha256: "a".repeat(64), engine_build_id: "engine", server_build_id: "server" };
+  assert.doesNotThrow(() => createNativeLifecycle({ executable: "/unused", directory, identity, humanOrigin: "http://127.0.0.1:80" }));
+  for (const humanOrigin of ["http://localhost:8787", "https://127.0.0.1:8787", "http://127.0.0.1:8787/path", "http://127.0.0.1:8787?other=1", "http://user@127.0.0.1:8787"]) assert.throws(() => createNativeLifecycle({ executable: "/unused", directory, identity, humanOrigin }));
+});
+
 test("real native lifecycle deduplicates, recovers journals/identity, isolates three consumers and fences uncertain ensure", { skip: !executable, timeout: 300_000 }, async () => {
   const f = nativeFixture();
   let adapter = createNativeLifecycle(f.options);
@@ -54,6 +68,7 @@ test("real native lifecycle deduplicates, recovers journals/identity, isolates t
     const session = readdirSync(f.root).find(n => n.startsWith("session-"))!;
     const seats = [0, 1, 2, 3].map(seat => parseSeatBootstrap(readPrivate(join(f.root, session, `seat-${seat}.json`))));
     assert.equal(new Set(seats.map(s => s.capability)).size, 4);
+    assert.equal(adapter.validateHumanBootstrap(JSON.stringify({ ...first, capability: seats[1]!.capability }), f.game), false);
     for (const seat of seats.slice(1)) {
       const own = await new GameClient({ baseURL: seat.server_origin, matchId: seat.match_id, capability: seat.capability }).resume();
       assert.equal(own.viewer, seat.viewer);
@@ -83,6 +98,7 @@ test("real native lifecycle deduplicates, recovers journals/identity, isolates t
     const uncertain = createNativeLifecycle(f.options), abort = new AbortController();
     const prior = new Set(readdirSync(f.root));
     const creating = uncertain.ensure(f.game, abort.signal);
+    void creating.catch(() => {});
     await until(() => readdirSync(f.root).some(n => n.startsWith("session-") && !prior.has(n)));
     abort.abort();
     const stopping = uncertain.stop(f.game, "owner_deleted", signal());
@@ -123,6 +139,15 @@ test("real public host delivers only human bootstrap and proxies exact bytes und
     const resume = await client.resume(); assert.equal(resume.viewer, 0);
     assert.equal((await fetch(`${endpoint}/v1/matches/${f.game.id}/resume`)).status, 401);
     assert.equal((await fetch(`${endpoint}/v1/matches/${"f".repeat(32)}/resume`, { headers: { Authorization: `Bearer ${seat.capability}` } })).status, 503);
+    // Native request paths bypass URL normalization to verify aliases are
+    // rejected at the authenticated proxy, before any upstream request.
+    for (const tail of ["commands/../resume", "%72esume"]) {
+      const status = await new Promise<number | undefined>((resolve, reject) => {
+        const request = httpRequest({ hostname: "127.0.0.1", port, path: `/api/games/${f.game.id}/native/v1/matches/${f.game.id}/${tail}`, headers: { Authorization: `Bearer ${seat.capability}` } }, response => { response.resume(); response.once("end", () => resolve(response.statusCode)); });
+        request.once("error", reject); request.end();
+      });
+      assert.equal(status, 400);
+    }
     if (resume.state.status !== "available" || !resume.state.observation.decision) throw new Error("Expected human opening decision");
     const prepared = prepareCommand({ protocol_version: PROTOCOL_VERSION, command_id: randomBytes(16).toString("hex"), expected_revision: resume.next, command: { kind: "decision", token: resume.state.observation.decision.token, response: { response: "mulligan", take: false } } });
     const exact = `  ${prepared.exactBody}\n`;

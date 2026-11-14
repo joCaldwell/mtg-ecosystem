@@ -131,6 +131,7 @@ export const api = {
   launchGame: (deck_id: number, expected_revision: number, request_id: string) => request<GameLaunchResult>("POST", "/api/games", { deck_id, expected_revision, request_id }),
   listGames: () => request<{ games: GameRecord[] }>("GET", "/api/games"),
   resumeGame: (id: string) => request<GameLaunchResult>("POST", `/api/games/${id}/resume`, {}),
+  humanGameSeat: (id: string, signal?: AbortSignal) => request<{ bootstrap_file: string }>("POST", `/api/games/${id}/seat`, {}, signal),
   disconnectClient: (client_id:string) => request<{ok:boolean}>("DELETE","/api/account/oauth",{client_id}),
   session: () => request<Session>("GET","/api/session"),
   signup: (code:string) => request("POST","/api/signup",{code}),

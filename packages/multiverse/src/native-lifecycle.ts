@@ -2,7 +2,8 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { isAbsolute, join } from "node:path";
 import { existsSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
-import { GameClient, parseSeatBootstrap, type RulesResult } from "@multiverse/game-server-sdk";
+import { setTimeout as delay } from "node:timers/promises";
+import { GameClient, parseSeatBootstrap } from "@multiverse/game-server-sdk";
 import type { GameIdentity, GameRecord, GameStopTarget, NativeGameAdapter, NativeGameStatus } from "@mtg-ecosystem/deck-builder/contracts";
 import { createNativeAdmission } from "./native-admission.ts";
 import { privateDirectory, readPrivate, writePrivate } from "./native-private.ts";
@@ -27,10 +28,16 @@ const unavailable = () => new Error("Native lifecycle unavailable");
 export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGameAdapter {
   if (!isAbsolute(options.executable) || !isAbsolute(options.directory)) throw new Error("Native lifecycle requires absolute paths");
   const publicOrigin = new URL(options.humanOrigin);
-  if (publicOrigin.protocol !== "http:" || !["127.0.0.1", "[::1]"].includes(publicOrigin.hostname) || !publicOrigin.port || publicOrigin.origin !== options.humanOrigin) throw new Error("Native human origin must be configured numeric loopback");
+  if (publicOrigin.protocol !== "http:" || !["127.0.0.1", "[::1]"].includes(publicOrigin.hostname) || `http://${publicOrigin.hostname}:${publicOrigin.port || "80"}` !== options.humanOrigin) throw new Error("Native human origin must be configured numeric loopback");
   privateDirectory(options.directory);
   const admission = createNativeAdmission(options.executable, options.identity);
   const running = new Map<string, Running>();
+  const stoppingGames = new Set<string>();
+  const nativeEnvironment = (): NodeJS.ProcessEnv => ({ PATH: "/usr/bin:/bin", ...(process.env.XDG_RUNTIME_DIR ? { XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR } : {}), ...(process.env.DBUS_SESSION_BUS_ADDRESS ? { DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS } : {}), ...(process.env.LD_LIBRARY_PATH ? { LD_LIBRARY_PATH: process.env.LD_LIBRARY_PATH } : {}) });
+  const joinProcess = (command: string, args: string[]) => new Promise<void>((resolve, reject) => {
+    const child = spawn(command, args, { stdio: "ignore", env: nativeEnvironment() });
+    child.once("error", () => reject(unavailable())); child.once("close", code => code === 0 ? resolve() : reject(unavailable()));
+  });
   const root = (game: GameStopTarget) => {
     if (!/^[a-f0-9]{32}$/.test(game.id)) throw unavailable();
     return join(options.directory, game.id);
@@ -44,6 +51,8 @@ export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGa
   const validate = (bytes: string, game: GameRecord) => {
     try {
       const seat = parseSeatBootstrap(bytes);
+      const authorized = parseSeatBootstrap(bootstrap(game));
+      if (!timingSafeEqual(Buffer.from(seat.capability), Buffer.from(authorized.capability))) return false;
       return seat.viewer === 0 && seat.match_id === game.id && seat.server_origin === options.humanOrigin && seat.engine_build_id === game.identity.engine_build_id && seat.server_build_id === game.identity.server_build_id && seat.catalog_sha256 === game.identity.catalog_sha256;
     } catch { return false; }
   };
@@ -61,9 +70,9 @@ export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGa
   };
   return {
     identity: { ...options.identity },
-    // Qualification stays closed until the real native suite is executed for
-    // this producer. Type/mock/source success cannot authorize live launch.
-    lifecycle_qualified: false,
+    // Focused native lifecycle proof is retained in game-client evidence. The
+    // default entrypoint independently keeps browser session qualification off.
+    lifecycle_qualified: true,
     async admit(deck, signal) {
       const result = await admission.admit(deck, signal);
       if (result.state === "supported" && options.identity.profile !== "commander-foundations-v1") return { state: "unavailable", reason: "session_incomplete" };
@@ -71,7 +80,7 @@ export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGa
     },
     async ensure(game, signal) {
       signal.throwIfAborted();
-      if (!same(game.identity, options.identity)) throw unavailable();
+      if (!same(game.identity, options.identity) || stoppingGames.has(game.id)) throw unavailable();
       const directory = root(game); privateDirectory(directory);
       const epoch = generation(directory);
       const immutableBinding = JSON.stringify([game.deck, game.identity, options.humanOrigin]);
@@ -80,7 +89,7 @@ export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGa
       if (running.size >= 2) throw unavailable();
       const commanders = game.deck.cards.filter(c => c.role === "commander");
       if (commanders.length !== 1 || game.deck.cards.some(c => c.role === "companion") || game.identity.profile !== "commander-foundations-v1") throw unavailable();
-      const child = spawn(options.executable, ["lifecycle", directory], { stdio: ["pipe", "pipe", "ignore"], env: { PATH: "/usr/bin:/bin", ...(process.env.XDG_RUNTIME_DIR ? { XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR } : {}), ...(process.env.DBUS_SESSION_BUS_ADDRESS ? { DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS } : {}), ...(process.env.LD_LIBRARY_PATH ? { LD_LIBRARY_PATH: process.env.LD_LIBRARY_PATH } : {}) } });
+      const child = spawn(options.executable, ["lifecycle", directory], { stdio: ["pipe", "pipe", "ignore"], env: nativeEnvironment() });
       child.stdin!.on("error", () => {});
       const joined = new Promise<void>(resolve => { child.once("close", () => resolve()); child.once("error", () => resolve()); });
       const state: Running = { child, joined, ready: Promise.resolve(), stopping: false, binding: immutableBinding };
@@ -119,13 +128,20 @@ export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGa
       signal.throwIfAborted();
       const state = running.get(game.id);
       if (!state || state.stopping || !state.bots) throw unavailable();
-      const row = JSON.parse(readPrivate(join(root(game), "status.json"))) as { version: number; human_waiting_since: number | null; outcome: RulesResult | null };
-      if (row.version !== 1 || (row.human_waiting_since !== null && (!Number.isSafeInteger(row.human_waiting_since) || row.human_waiting_since < 0))) throw unavailable();
       const seat = parseSeatBootstrap(bootstrap(game));
       const sdk = new GameClient({ baseURL: state.origin!, matchId: game.id, capability: seat.capability });
-      const resume = await sdk.resume({ signal });
-      if (resume.viewer !== 0 || resume.engine_build_id !== game.identity.engine_build_id || resume.server_build_id !== game.identity.server_build_id || resume.catalog_sha256 !== game.identity.catalog_sha256) throw unavailable();
-      return { identity: { ...options.identity }, consumers: state.bots.status(), human_waiting_since: row.human_waiting_since, outcome: resume.outcome ? resume.outcome.outcome === "win" ? { kind: "win", winner: resume.outcome.player as 0 | 1 | 2 | 3 } : { kind: "draw" } : null };
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const resume = await sdk.resume({ signal });
+        if (resume.viewer !== 0 || resume.engine_build_id !== game.identity.engine_build_id || resume.server_build_id !== game.identity.server_build_id || resume.catalog_sha256 !== game.identity.catalog_sha256) throw unavailable();
+        const row = JSON.parse(readPrivate(join(root(game), "status.json"))) as { version: number; human_waiting_since: number | null; human_decision_token: string | null };
+        if (row.version !== 1 || (row.human_waiting_since !== null && (!Number.isSafeInteger(row.human_waiting_since) || row.human_waiting_since < 0))) throw unavailable();
+        const token = resume.state.status === "available" ? resume.state.observation.decision?.token ?? null : null;
+        // The timestamp must describe this exact permitted human decision, not
+        // the previous decision observed by a concurrent lifecycle status tick.
+        if (row.human_decision_token === token) return { identity: { ...options.identity }, consumers: state.bots.status(), human_waiting_since: row.human_waiting_since, outcome: resume.outcome ? resume.outcome.outcome === "win" ? { kind: "win", winner: resume.outcome.player as 0 | 1 | 2 | 3 } : { kind: "draw" } : null };
+        await delay(100, undefined, { signal });
+      }
+      throw unavailable();
     },
     async stop(game, reason, signal) {
       const directory = root(game); privateDirectory(directory);
@@ -134,6 +150,7 @@ export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGa
         const bound = JSON.parse(readPrivate(bindingPath)) as GameIdentity & { id: string };
         if (bound.id !== game.id || !same(bound, game.identity)) throw unavailable();
       }
+      stoppingGames.add(game.id);
       // Stop can fence an older exact retained binding without loading its rules
       // or treating the current executable as a recovery-compatible build.
       // Capture-before-await generations fence late/uncertain ensure, while a
@@ -148,15 +165,16 @@ export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGa
         await stopRunning(state);
         await state.ready.catch(() => {});
         await state.bots?.stop();
-        running.delete(game.id);
-      } else if (reason !== "shutdown") {
-        // Acquire the native lease after fencing even if ensure's caller lost its
-        // result. A surviving old owner must observe the tombstone and join.
-        await new Promise<void>((resolve, reject) => {
-          const child = spawn(options.executable, ["lifecycle-join", directory], { stdio: "ignore" });
-          child.once("error", () => reject(unavailable())); child.once("close", code => code === 0 ? resolve() : reject(unavailable()));
-        });
       }
+      // The exact persisted native unit and all independent kernel bot leases
+      // must be quiescent even when ensure's response/process ownership was lost.
+      await joinProcess(options.executable, ["lifecycle-join", directory]);
+      for (const seat of [1, 2, 3]) {
+        const lease = join(directory, `bot-${seat}`, "lease");
+        if (existsSync(lease)) { readPrivate(lease); await joinProcess("flock", ["--exclusive", lease, "/usr/bin/true"]); }
+      }
+      running.delete(game.id);
+      stoppingGames.delete(game.id);
       signal.throwIfAborted();
     },
     async proxy(game, request, signal) {

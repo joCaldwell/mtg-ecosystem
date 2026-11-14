@@ -23,7 +23,7 @@ export function PhoneShell({ route, children }: { route: Route; children: ReactN
         <nav className={styles.nav} aria-label="Sections">
           <a href={href({ page: "home" })} aria-current={route.page === "home" ? "page" : undefined}>Home</a>
           <a href={href({ page: "decks" })} aria-current={decks ? "page" : undefined}>Decks</a>
-          <a href={href({ page: "play" })} aria-current={route.page === "play" || route.page === "game-preview" ? "page" : undefined}>Play</a>
+          <a href={href({ page: "play" })} aria-current={route.page === "play" || route.page === "game-preview" || route.page === "live-game" ? "page" : undefined}>Play</a>
           <a href={href({ page: "inbox" })} aria-current={route.page === "inbox" ? "page" : undefined}>
             Inbox{waiting > 0 && <Badge tone="agent">{waiting}</Badge>}
           </a>

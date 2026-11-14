@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect } from "react";
+import { navigate } from "../../app/routes.ts";
 import { api } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
 import { admissionMessage } from "../../domain/gameLaunch.ts";
@@ -15,7 +16,10 @@ export function SavedGames() {
     setPending(id); setMessage("");
     try {
       const result = await api.resumeGame(id);
-      if (mounted.current) { setMessage(admissionMessage(result.admission)); query.reload(); }
+      if (mounted.current) {
+        if (result.admission.state === "supported" && result.admission.launch_ready && result.game?.state === "active") navigate({ page: "live-game", gameId: result.game.id });
+        else { setMessage(admissionMessage(result.admission)); query.reload(); }
+      }
     } catch { if (mounted.current) setMessage("Could not resume this game. Its saved record is retained."); }
     finally { if (mounted.current) setPending(null); }
   }
