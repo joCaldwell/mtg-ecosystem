@@ -5,6 +5,7 @@ use mtg_contracts::{
     ActivationCost, CreatureRestriction, Definition, Instruction as I, KeywordAbility,
     LifeRecipient, ObjectSet, SacrificeDamageAmount, SacrificeFilter, SpellProgram,
     SpellResolution, SpellTiming, StaticEffect, TargetDomain, TargetSpec, WipeAmount,
+    compound_indestructible_parameters,
 };
 use mtg_core::{PermittedView, StackHandle, VisibleEntityTarget, VisibleObject, VisibleStackEntry};
 
@@ -182,27 +183,13 @@ fn temporary_flying_spell(d: &Definition, p: &SpellProgram) -> bool {
 // pure keyword recognizer. CR 608.2c, 611.2a, 613.4c and 702.12:
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 fn compound_indestructible_spell(d: &Definition, p: &SpellProgram) -> bool {
-    use mtg_contracts::{Capability, Chooser, Duration, EvaluationStage, FunctioningZone};
+    use mtg_contracts::Capability;
     d.capabilities
         .contains(&Capability::CompoundIndestructibleSpellV1)
         && d.characteristics.kind == CardKind::Instant
         && d.spell.as_ref() == Some(p)
         && p.timing == SpellTiming::Instant
-        && p.functioning_zone == FunctioningZone::Stack
-        && p.resolution == SpellResolution::Instructions
-        && p.modes.is_empty()
-        && p.additional_sacrifice.is_none()
-        && matches!(p.targets.as_slice(), [t] if t.slot == 0
-            && !t.selection_id.is_empty() && t.chooser == Chooser::Controller
-            && t.stage == EvaluationStage::Announcement
-            && t.domain == TargetDomain::BattlefieldCreature && t.filter.is_none())
-        && matches!(p.instructions.as_slice(), [
-            I::ModifyPowerToughness { target_slot: 0, power, toughness,
-                duration: Duration::UntilEndOfTurn, source_block: 0 },
-            I::GrantKeywords { target_slot: 0, keywords,
-                duration: Duration::UntilEndOfTurn, source_block: 0 }
-        ] if *power == Quantity::from(1) && *toughness == Quantity::from(1)
-            && keywords == &[KeywordAbility::Indestructible])
+        && compound_indestructible_parameters(p).is_some()
 }
 fn defensive_protection_spell(d: &Definition, p: &SpellProgram) -> bool {
     temporary_indestructible_spell(d, p) || compound_indestructible_spell(d, p)
@@ -422,7 +409,7 @@ impl Strategy<'_> {
                         && !o.keywords.contains(&KeywordAbility::Indestructible)
                         && candidates.is_none_or(|cs| cs.contains(&o.handle))
                         && self.object_matches(v, o, t, candidates.is_some())
-                        && self.protection_threat(v, d, o)
+                        && self.protection_threat(v, d, p, o)
                 })
                 .max_by_key(|o| (self.value(o), o.handle.0.clone()))
                 .map(|o| o.handle.clone());
@@ -522,7 +509,29 @@ impl Strategy<'_> {
     // Deliberately narrow: inspect the next completed public invocation, or
     // unambiguous one-on-one combat with no intervening stack. No hidden facts,
     // speculative future targets, multi-block allocation or outcome search.
-    fn protection_threat(&self, v: &PermittedView, d: &Definition, o: &VisibleObject) -> bool {
+    fn protection_threat(
+        &self,
+        v: &PermittedView,
+        d: &Definition,
+        p: &SpellProgram,
+        o: &VisibleObject,
+    ) -> bool {
+        if let Some((power, bonus)) = compound_indestructible_parameters(p) {
+            // Recognition includes signed parameters, but autonomous defense
+            // does not trade away power/toughness or rescue zero toughness by
+            // indestructibility (CR 704.5f). Keep the whole compound effect.
+            if power.is_negative() || bonus.is_negative() {
+                return false;
+            }
+            let Some(mut result) = o.characteristics.as_ref().and_then(|c| c.toughness.clone())
+            else {
+                return false;
+            };
+            result.add(bonus);
+            if result <= Quantity::zero() {
+                return false;
+            }
+        }
         let mut entries = v.stack.iter().rev();
         let mut next = entries.next();
         if next.is_some_and(|s| {
