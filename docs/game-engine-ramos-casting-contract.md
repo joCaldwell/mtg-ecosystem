@@ -180,7 +180,8 @@ impossible mandatory target decision. Decline or an uncastable hit leaves it in
 the remainder. An illegal response is rejected atomically and is not a decline.
 A legal announcement that cannot complete reverses only that announcement under
 733.1, then permits a corrected legal attempt or decline at this same offer;
-no unbounded internal retry loop. Exhausted resources are faults, not declines.
+no unbounded internal retry loop. Engine capacity exhaustion is a typed fault,
+not a decline; inability to pay an actual cost follows casting/reversal rules.
 
 The existing prohibition is opponents-during-controller-turn only. These two
 own-main-phase sources cannot naturally encounter it at their cascade offer.
@@ -228,6 +229,12 @@ the cast child. Put that group on the caster's library bottom, then finish/remov
 this resolving cascade by its own identity. Only now run the normal SBA/Commander
 and APNAP trigger-placement boundary and give priority to the appropriate active
 seat. Original spell, child and each cascade invocation retain distinct IDs.
+
+The deferred Commander boundary here means graveyard/exile state-based handling
+under 903.9a. A commander being moved from exile to its owner's library instead
+offers the 903.9b command-zone replacement before that move. Preserve the cascade
+continuation through that choice, remove any redirected card from the bottom
+group, and never expose the group's private randomized order.
 
 For Bloodbraid into Shardless, the latter's own cascade/Ramos triggers wait until
 the Bloodbraid cascade has bottomed its remainder and finished. They are then

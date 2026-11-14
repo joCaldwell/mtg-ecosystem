@@ -11,7 +11,8 @@ The prior keyword/compiler round is integrated. The
 [M0 support matrix and dependency backlog](game-engine-ramos-support.md) records
 the production-compiler baseline and later bounded source witnesses. M1a Ramos
 and the M2 Cultivate/Reach slice now execute; exact-target qualification remains
-incomplete. This plan is not exact-deck engine acceptance.
+incomplete. The M1 counter-placement family is also source/runtime-qualified.
+This plan is not exact-deck engine acceptance.
 
 ## Target and source authority
 
@@ -165,6 +166,10 @@ entry and cycling witnesses; private search projections and replay; no hidden
 library inspection by policy. Lands support each printed basic subtype.
 
 ### M3 Build casting during resolution and basic cascade
+
+The [M3 casting contract](game-engine-ramos-casting-contract.md) records the
+frozen basic sources, shared continuation/payment interfaces and remaining exit
+obligations. It is preparation, not cascade acceptance.
 
 Introduce a reusable casting-permission and continuation path supporting
 casting from the indicated zone while another invocation resolves, choosing

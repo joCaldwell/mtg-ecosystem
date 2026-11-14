@@ -498,7 +498,7 @@ inventories are retained. The CLI producer predates only later test-helper and
 capability-witness edits; its retained source snapshot qualifies its exact build.
 The production prefix of contracts `lib.rs` is unchanged by that `cfg(test)` repair.
 
-Raw evidence lives in this checkout's `generated/ramos-m1b/`. Each measured
+Raw evidence remains in the M1b producer checkout's `generated/ramos-m1b/`. Each measured
 attempt retains command/resource/lock receipts, byte inventories and source
 copies; executed test binaries are copied before lock release. Attempt 11 also
 retains the own CLI, source manifest, build settings and complete-source schema/IR
@@ -527,3 +527,36 @@ Omitted: release/full workspace/runtime/profile/completion/retention matrices,
 Clippy, full Node parser/source gate, all-target server/SDK/client builds, exact
 deck/pod admission, and host/search qualification. Source identity, focused tests
 and synthetic kernel witnesses do not grant any of those consumer claims.
+
+### Combined M1b and shared-family qualification
+
+Source `0fdbd817e6304eca7873012f4cea40fa2d3bb038` integrates M1b
+`f51b2b1afbbb261151844075fd8b2bf4907efee1` and main
+`8540dce6de93163cd6e84bda64837e15c4c73f8e`. Manual conflict resolution only
+preserved both documentation blocks and test-module registrations; no production
+rule hunk needed a manual semantic change.
+
+It passed **439 selected Rust tests**: 96 contracts, 227 compiler, 36 core
+(counter placement, Ramos, payment queries, snapshot recovery and the two shared
+keyword/stat families), and 80 policy tests. Workspace all-target compilation
+and formatting passed. All 282 exported-schema probes passed: counter placement
+30, Ramos/counter mana 22, and temporary keyword programs 230. The copied CLI
+verified 886 compiled-source rows. The three-source Ramos/Scales/Corpsejack IR
+remains byte-identical to M1b's independently checked export.
+
+The optimized-test BUILD_ID is
+`f9869c1875ac929d6e6454e0921290b34f37a8f17afbeea1e7b78408c883ab51`;
+the opt-level 0 CLI BUILD_ID is
+`2835ec66fdec8f588e9df170a537638e95e0111a5ffe282404d24fc52f1365a4`.
+Both retain debug assertions. The exported schema SHA-256 is
+`57cb2f4e6d04f2511f4364b508e3ba5417d6cd8ad35a2574d4c80945f384a397`.
+Exact executed binaries, source identities, byte-preserving owned timestamp
+refresh, commands, counts and omissions are retained under the coordinator's
+`generated/ramos/m1b-integrated/`; `integration.json` is the handoff receipt.
+The measured source inventory stayed unchanged in every native phase.
+
+This is focused combined qualification, with no new admission or consumer claim.
+Full runtime/profile/release/Clippy matrices, full Node parser/source gates and
+SDK/client/host/search/exact-deck qualification remain omitted. The expensive M2
+paid replay suite retains its separately named M1b producer qualification rather
+than being silently counted as a fresh run. Native work is released.
