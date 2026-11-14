@@ -321,6 +321,67 @@ fn permanent_set_kernel_pure_modifier_none_and_shared_wire_shape_reject_forgery(
     }
 }
 
+#[test]
+fn permanent_set_kernel_single_instruction_projects_pure_grant_and_retains_scalar_creature_gate() {
+    let (mut g, effect, _) = grant(PROTECTION);
+    let Frame::Resolve { frame } = &g.state.rules.frame else {
+        unreachable!()
+    };
+    let frame = frame.clone();
+    let program = g.program_for(&frame.spell).unwrap();
+    assert_eq!(program.instructions.len(), 1);
+    let instruction = program.instructions[0].clone();
+    let before: Vec<_> = [1, 2, 3, 4, 7]
+        .map(|id| g.object_before(object(&g, id)).unwrap())
+        .into();
+    g.execute_wipes_instruction(frame, instruction).unwrap();
+    assert_eq!(g.state.rules.effects, vec![effect]);
+    let Frame::Resolve { frame } = &g.state.rules.frame else {
+        unreachable!()
+    };
+    assert_eq!(frame.cursor, 1);
+    assert!(matches!(
+        frame.outcomes.as_slice(),
+        [InstructionOutcome::Effect { actual: Some(_) }]
+    ));
+    for old in before {
+        let current = g.object_before(old.object).unwrap();
+        assert_eq!(current.characteristics, old.characteristics);
+        assert_eq!(current.keywords, PROTECTION);
+    }
+    g.refresh_effect_handles().unwrap();
+    for viewer in 0..4 {
+        let visible = g.visible_effects(PlayerId(viewer)).unwrap();
+        let [
+            VisibleEffect::GrantKeywordsSet {
+                targets,
+                modifier: None,
+                keywords,
+                ..
+            },
+        ] = visible.as_slice()
+        else {
+            panic!("one shared pure public set effect")
+        };
+        assert_eq!(targets.len(), 5);
+        assert_eq!(keywords, PROTECTION);
+        assert!(targets.iter().all(|target| target.current.is_some()));
+    }
+    // Deliberately invalid synthetic scalar effects test the old derivation
+    // fence in isolation. They cannot be produced by a validated source.
+    for id in [2, 3, 4] {
+        let mut synthetic = g.fork();
+        synthetic.state.rules.effects[0].kind = ResolvedEffectKind::GrantKeywords {
+            target: object(&g, id),
+            modifier: None,
+            keywords: PROTECTION.to_vec(),
+        };
+        for keyword in PROTECTION {
+            assert!(!synthetic.has_keyword(object(&g, id), *keyword));
+        }
+    }
+}
+
 fn damage_transaction(keywords: &[KeywordAbility], departed: bool) -> Game {
     let (mut g, _, _) = grant(keywords);
     let Frame::Resolve { frame } = &g.state.rules.frame else {
