@@ -33,6 +33,8 @@ mod removal_tests;
 mod sacrifice;
 #[cfg(test)]
 mod sacrifice_tests;
+#[cfg(test)]
+mod tap_source_destroy_tests;
 mod wipes;
 #[cfg(test)]
 mod wipes_tests;
@@ -2816,7 +2818,21 @@ impl Game {
                 let top = self.state.rules.stack.last_mut().ok_or("missing stack")?;
                 top.targets = objects;
                 top.announced_targets = announced;
-                self.state.rules.frame = Frame::Mana { cast };
+                let entry = self.top()?;
+                let tap_only = match &entry.kind {
+                    StackKind::Activated { ability, .. } => {
+                        self.definition(entry.source.card)?.activated[*ability as usize].cost
+                            == ActivationCost::TapSource
+                    }
+                    _ => false,
+                };
+                if tap_only {
+                    // CR602.2b/601.2c,h: target announcement precedes tap
+                    // payment; a tap-only cost grants no mana payment window.
+                    self.complete_targeted_activation(cast, input.decision_id)?;
+                } else {
+                    self.state.rules.frame = Frame::Mana { cast };
+                }
             }
             Frame::Mana { mut cast } => {
                 let input = self

@@ -215,6 +215,7 @@ pub enum Capability {
     UntapPermanentV1,
     TapPermanentV1,
     ActivatedTapPermanentV1,
+    TapSourceDestroyV1,
     OwnerHandMoveV1,
     PermanentOwnerHandMoveV1,
     CastSorceryV1,
@@ -1224,6 +1225,10 @@ impl Definition {
             if has_tap(&ability.program) {
                 set.insert(Capability::ActivatedTapPermanentV1);
             }
+            if ability.cost == ActivationCost::TapSource && has_destroy_permanent(&ability.program)
+            {
+                set.insert(Capability::TapSourceDestroyV1);
+            }
             set.insert(match ability.cost {
                 ActivationCost::SacrificePermanent { .. } => Capability::SacrificeV1,
                 ActivationCost::SacrificeSource => Capability::SacrificeSourceCostV1,
@@ -1640,6 +1645,14 @@ impl Definition {
             return Err("activated programs require supported creature characteristics".into());
         }
         for ability in &self.activated {
+            if ability.cost == ActivationCost::TapSource && has_destroy_permanent(&ability.program)
+            {
+                if c.kind != CardKind::Creature || !tap_source_destroy_ability(ability) {
+                    return Err("tap-source destruction requires a creature and one mandatory tapped-creature target".into());
+                }
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
             if has_tap(&ability.program) {
                 if c.kind != CardKind::Artifact || !activated_permanent_tap_ability(ability) {
                     return Err("activated tap requires an artifact, fixed mana plus source tap, and one artifact/creature/land target".into());
@@ -2203,6 +2216,34 @@ fn activated_permanent_tap_ability(a: &ActivatedAbility) -> bool {
                 !m.generic.is_negative() && !m.colored.contains(&Color::C)))
         && activated_permanent_tap_program(&a.program)
 }
+fn tap_source_destroy_ability(a: &ActivatedAbility) -> bool {
+    let p = &a.program;
+    a.cost == ActivationCost::TapSource
+        && a.functioning_zone == FunctioningZone::Battlefield
+        && p.timing == SpellTiming::Instant
+        && p.functioning_zone == FunctioningZone::Stack
+        && p.resolution == SpellResolution::Instructions
+        && p.additional_sacrifice.is_none()
+        && p.modes.is_empty()
+        && matches!(
+            p.instructions.as_slice(),
+            [Instruction::DestroyPermanent {
+                target_slot: 0,
+                optional: false,
+                regeneration_forbidden: false,
+                ..
+            }]
+        )
+        && p.targets.len() == 1
+        && p.targets[0].domain == TargetDomain::BattlefieldPermanent
+        && p.targets[0].filter.as_ref().is_some_and(|f| {
+            f.types == [CardKind::Creature]
+                && f.tapped
+                && !f.opponent
+                && f.non_types.is_empty()
+                && f.non_colors.is_empty()
+        })
+}
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     if has_permanent_owner_hand(p)
         && (p.additional_sacrifice.is_some()
@@ -2731,6 +2772,16 @@ fn has_blocking_creature_target(program: &SpellProgram) -> bool {
             .iter()
             .any(|m| has_blocking_creature_target(&m.program))
 }
+fn has_destroy_permanent(program: &SpellProgram) -> bool {
+    program
+        .instructions
+        .iter()
+        .any(|i| matches!(i, Instruction::DestroyPermanent { .. }))
+        || program
+            .modes
+            .iter()
+            .any(|mode| has_destroy_permanent(&mode.program))
+}
 fn has_permanent_owner_hand(program: &SpellProgram) -> bool {
     program
         .instructions
@@ -3230,6 +3281,58 @@ pub fn catalog_schema() -> serde_json::Value {
         .push(serde_json::json!({"properties":{
             "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/TapFreeProgram"}}}}
         }}));
+    // Only source-tap destruction acquires this contextual capability. Other
+    // ordinary and sacrifice-cost destruction programs retain their contracts.
+    schema["$defs"]["DestroyPermanentFreeProgram"] = serde_json::json!({"properties":{
+        "instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"const":"destroy_permanent"}}}}},
+        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/DestroyPermanentFreeProgram"}}}}
+    }});
+    schema["$defs"]["TapSourceDestroyAbility"] = serde_json::json!({"required":["cost","program"],"properties":{
+        "cost":{"const":"tap_source"},"functioning_zone":{"const":"battlefield"},
+        "program":{"required":["targets","instructions"],"properties":{
+            "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
+            "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
+            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
+                "op":{"const":"destroy_permanent"},"target_slot":{"const":0},
+                "optional":{"const":false},"regeneration_forbidden":{"const":false}
+            }}},
+            "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
+                "slot":{"const":0},"domain":{"const":"battlefield_permanent"},
+                "filter":{"type":"object","required":["types","tapped"],"properties":{
+                    "types":{"const":["creature"]},"tapped":{"const":true},
+                    "non_types":{"maxItems":0},"non_colors":{"maxItems":0},"opponent":{"const":false}
+                }}
+            }}}
+        }}
+    }});
+    let tap_destroy = serde_json::json!({"required":["cost","program"],"properties":{
+        "cost":{"const":"tap_source"},"program":{"not":{"$ref":"#/$defs/DestroyPermanentFreeProgram"}}
+    }});
+    schema["$defs"]["ActivatedAbility"]
+        .as_object_mut()
+        .unwrap()
+        .entry("allOf")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "if":tap_destroy,"then":{"$ref":"#/$defs/TapSourceDestroyAbility"}
+        }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["activated"],"properties":{"activated":{"contains":tap_destroy}}},
+        "then":{"properties":{"characteristics":{"properties":{"kind":{"const":"creature"}}},"capabilities":{"allOf":[
+            {"contains":{"const":Capability::TapSourceDestroyV1}}, {"contains":{"const":Capability::TappedPermanentTargetV1}},
+            {"contains":{"const":Capability::PermanentRemovalV1}}, {"contains":{"const":Capability::TapSourceCostV1}},
+            {"contains":{"const":Capability::ActivatedAbilityV1}}, {"contains":{"const":Capability::BaseCreatureV1}},
+            {"contains":{"const":Capability::CastCreatureV1}}, {"contains":{"const":Capability::NormalLayoutV1}}
+        ]}}}
+    }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["capabilities"],"properties":{"capabilities":{"contains":{"const":Capability::TapSourceDestroyV1}}}},
+        "then":{"required":["activated"],"properties":{"characteristics":{"properties":{"kind":{"const":"creature"}}},
+            "activated":{"contains":{"$ref":"#/$defs/TapSourceDestroyAbility"}}
+        }}
+    }));
     // The untap opcode is a complete ordinary spell, not a capability that
     // implicitly admits activations, triggers or modal child programs.
     schema["$defs"]["UntapFreeProgram"] = serde_json::json!({"properties":{
@@ -3332,6 +3435,9 @@ mod tap_tests;
 mod activated_permanent_tap_tests;
 
 #[cfg(test)]
+mod tap_source_destroy_tests;
+
+#[cfg(test)]
 mod permanent_owner_hand_tests;
 
 #[cfg(test)]
@@ -3398,6 +3504,7 @@ mod tests {
             UntapPermanentV1,
             TapPermanentV1,
             ActivatedTapPermanentV1,
+            TapSourceDestroyV1,
             OwnerHandMoveV1,
             PermanentOwnerHandMoveV1,
             CastSorceryV1,
@@ -3535,6 +3642,7 @@ mod tests {
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());
+        definitions.push(tap_source_destroy_tests::tap_source_destroy());
         definitions.push(permanent_owner_hand_tests::permanent_owner_hand());
         // Synthetic contract-shape witness only. Complete D2c-e source lowering
         // is checked in compiler/core tests, without fabricated expected IR.

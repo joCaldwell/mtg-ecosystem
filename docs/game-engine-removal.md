@@ -91,6 +91,32 @@ The [focused source configurations](../packages/game-engine/crates/core/src/engi
 exercise real payments, owner/control distinctions and recovery/replay. They are
 not admitted pods; this increment grants no pool or consumer qualification.
 
+## Tap-source destruction
+
+Schema 1 supports the separately fenced `TapSourceDestroyV1` context: one
+battlefield creature ability with a source-tap cost, one tapped-creature target,
+and one mandatory `DestroyPermanent` instruction. The target filter contains
+only the creature type and tapped status. Additional costs, other filters,
+optional destruction, regeneration prohibition, modes and extra instructions
+reject in this context. Existing ordinary and sacrifice-cost removal retain
+their own validated scopes.
+
+The complete Royal Assassin source is
+`tests/fixtures/9ed6f28f-a3db-48c5-9ab0-b90a7fba5f57.json`, physical archive line
+23962/source index 23960: `{1}{B}{B}`, 1/1 Human Assassin, with
+`{T}: Destroy target tapped creature.` Targets are chosen before the source taps.
+The battlefield-target binder now uses the existing tap-only activation
+completion path, paying the cost without a zero-mana payment window. Freshly
+cast creatures must age through the control requirement before using this tap
+ability (pinned CR107.5,302.6,602.2b,608.2b,113.7a,701.8a).
+
+Private source-backed witnesses cast and age the creature, tap an actual Elf
+through its mana ability, and pay the source tap. Paid Burst untapping the target
+makes it illegal; paid Regress returning the source leaves the ability intact.
+Snapshots, accepted-input replay, atomic invalid choices and budget/trace parity
+are checked. This adds no pool or hosting/search admission and grants no consumer
+qualification; the new capability remains outside both reviewed feature sets.
+
 ## Profile
 
 `commander-removal-v1` uses the 118 attachments-v1 definitions plus:

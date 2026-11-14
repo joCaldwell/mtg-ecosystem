@@ -100,6 +100,10 @@ source/runtime slice supports complete Icy Manipulator through existing payment,
 targeting and tap events. Its later [headless admission](game-engine-blocking-matches.md#current-activated-tap-admission)
 adds paid activation/combat/replay evidence and public-IR policy that avoids
 already-tapped targets. Hosting/search and consumer qualification remain separate.
+A separate [tap-source destruction](game-engine-removal.md#tap-source-destruction)
+slice supports complete Royal Assassin and pays battlefield-targeted tap costs
+through the existing activation completion path, without pool or consumer
+admission.
 Read Rust types and validation at the edited source; old reports retain their
 original version numbers. Active catalogs are regenerated at schema 1; distinct
 source/admission pools remain separate. Historical decoder gates and downgrade

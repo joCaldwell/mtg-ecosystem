@@ -3689,11 +3689,10 @@ fn lower_activation(
             program,
         });
     }
-    if effects
-        .iter()
-        .flat_map(|s| &s.steps)
-        .any(|step| matches!(step, Step::Tap { .. }))
-    {
+    if effects.iter().flat_map(|s| &s.steps).any(|step| {
+        matches!(step, Step::Tap { .. })
+            || (matches!(cost, ActivationCost::TapSource) && matches!(step, Step::Destroy { .. }))
+    }) {
         append_spell_effects(
             &mut program,
             effects,
@@ -8355,3 +8354,6 @@ mod counter_null_filter_tests;
 
 #[cfg(test)]
 mod activated_permanent_tap_tests;
+
+#[cfg(test)]
+mod tap_source_destroy_tests;
