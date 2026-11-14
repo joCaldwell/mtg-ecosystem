@@ -27,7 +27,7 @@ export function LiveActions({ snapshot, draft, enabled, objects, onStart, onCanc
   const ready = enabled && phase === 'complete' && draft?.generation === snapshot?.generation;
   return <section className={styles.actions} aria-labelledby={heading}>
     <h3 id={heading}>Available actions</h3>
-    <p id={description}>Discovery does not submit a choice. Unexplained card, ability and payment choices remain unavailable.</p>
+    <p id={description}>Choose a beginning, then complete any requested targets or payment. The table validates each choice. Actions without a supplied explanation remain unavailable.</p>
     <label htmlFor={scopeId}>Discovery scope</label>
     <select id={scopeId} value={object} disabled={busy} onChange={event => setObject(event.target.value)}>
       <option value="">Entire decision window</option>
@@ -43,7 +43,8 @@ export function LiveActions({ snapshot, draft, enabled, objects, onStart, onCanc
     {snapshot && <p>{snapshot.beginnings.length} beginnings received · {snapshot.calls} of 32 calls used</p>}
     {snapshot?.beginnings.length ? <ol className={styles.list}>{snapshot.beginnings.map((beginning, index) => {
       const response = actionResponse(beginning, snapshot.context, snapshot.scope);
-      return <li key={index}><button type="button" disabled={!response} aria-disabled={!ready || !response} onClick={() => { if (ready && response && draft) onSubmit(draft, index); }}>{actionDescription(beginning)}</button></li>;
+      return <li key={index}><button type="button" disabled={!response} aria-disabled={!ready || !response} onClick={() => { if (ready && response && draft) onSubmit(draft, index); }}>{actionDescription(beginning, objects)}</button>
+        {beginning.label !== 'unavailable' && beginning.label.available.source?.text && <p>{beginning.label.available.source.text}</p>}</li>;
     })}</ol> : phase === 'complete' ? <p>No beginnings were supplied for this scope.</p> : null}
     {snapshot?.cancellation === 'pending' && <p>Releasing discovery scratch.</p>}
     {snapshot?.cancellation === 'unknown' && <p>Scratch cancellation is unconfirmed; the host expires it. This does not affect command recovery.</p>}

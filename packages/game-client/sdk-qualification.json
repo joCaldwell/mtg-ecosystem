@@ -1,7 +1,7 @@
 {
-  "native_source": "ebfa6dde266139c45220959c4179ddedf6a38433",
-  "protocol_schema_sha256": "a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3",
+  "native_source": "6632c1add5daa41b9993fb684979af15b1ba0213",
+  "protocol_schema_sha256": "2eb874b2fa9e306b57d7da05d2e9a26b6965f2a639711d6705981e790d906ba5",
   "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
-  "scope": "Combined current-source producer preserving the dc12222 compiler fix and reviewed PR22/PR23. Passed 15 focused native delivery/HTTP/protocol tests; built server/provisioner; verified 677 source rows and independently rederived build identities. Source fingerprint b7e30b5e01dfba5a0ab9d3e76996840803b35745dae878009c512ae60e5c8191. SDK and production App opening/proxy qualification are recorded in docs/game-client-evidence.md#opening-and-recovery-evidence; historical 2aaf/e86 and fixture provenance remain unchanged.",
-  "sdk_source": "ebfa6dde266139c45220959c4179ddedf6a38433"
+  "scope": "Source-bound decision context and action-label protocol consumer. Candidate producer checkpoint passed 255 compiler tests, 11 native action tests and 66 SDK tests; intrinsic mana follow-up and final source-qualified host/browser evidence remain pending. Historical fixture capture provenance remains unchanged. No full-game or product-launch acceptance follows.",
+  "sdk_source": "6632c1add5daa41b9993fb684979af15b1ba0213"
 }
