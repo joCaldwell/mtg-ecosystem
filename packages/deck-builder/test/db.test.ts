@@ -20,6 +20,29 @@ const dir = mkdtempSync(join(tmpdir(), "deck-builder-db-"));
 test.after(() => rmSync(dir, { recursive: true, force: true }));
 
 describe("opening a database", () => {
+  test("schema 18 gains durable game-stop handoff without changing owned records and reopens as schema 19", () => {
+    const path = join(dir, "v18-games.db");
+    const old = openDb(path);
+    const deck = createDeck(old, OWNER, "Preserved v18 deck");
+    const before = getDeck(old, OWNER, deck);
+    const identity = { catalog_sha256: "a".repeat(64), profile: "synthetic", engine_build_id: "synthetic-engine", server_build_id: "synthetic-server" };
+    const record = { id: "synthetic-match", identity, consumers_stopped: false };
+    old.exec("DROP TRIGGER game_launches_stop_handoff; DROP TABLE game_stop_jobs; UPDATE meta SET value='18' WHERE key='schema_version'");
+    old.prepare("INSERT INTO game_launches(id,user_id,request_id,input_hash,record_json) VALUES(?,?,?,?,?)").run(record.id, OWNER.user_id, "synthetic-request", "synthetic-input", JSON.stringify(record));
+    old.close();
+    const upgraded = openDb(path);
+    assert.equal((upgraded.prepare("SELECT value FROM meta WHERE key='schema_version'").get() as { value: string }).value, "19");
+    assert.deepEqual(getDeck(upgraded, OWNER, deck), before);
+    assert.equal((upgraded.prepare("SELECT record_json FROM game_launches WHERE id=?").get(record.id) as { record_json: string }).record_json, JSON.stringify(record));
+    upgraded.prepare("DELETE FROM game_launches WHERE id=?").run(record.id);
+    assert.deepEqual(JSON.parse((upgraded.prepare("SELECT target_json FROM game_stop_jobs WHERE id=?").get(record.id) as { target_json: string }).target_json), { id: record.id, identity });
+    assert.deepEqual(upgraded.prepare("PRAGMA foreign_key_check").all(), []);
+    upgraded.close();
+    const reopened = openDb(path);
+    assert.ok(reopened.prepare("SELECT id FROM game_stop_jobs WHERE id=?").get(record.id));
+    assert.deepEqual(getDeck(reopened, OWNER, deck), before);
+    reopened.close();
+  });
   test("schema 8 drops Draft/Active and preserves categories, IDs and related records", () => {
     const path = join(dir, "v8-lifecycle.db");
     const old = legacyDb(path);

@@ -9,7 +9,7 @@ export const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const DATA_DIR = resolve(process.env.DECKBUILDER_DATA ?? join(PKG_ROOT, "data"));
 export const DEFAULT_DB_PATH = resolve(process.env.DECKBUILDER_DB ?? join(DATA_DIR, "deck-builder.db"));
 
-export const SCHEMA_VERSION = 18;
+export const SCHEMA_VERSION = 19;
 
 const SCHEMA = `
 -- Explicit physical evidence survives deck membership, forks and deletion.
@@ -775,7 +775,7 @@ function assertOurs(db: Database, path: string) {
   } catch {
     /* no meta table at all */
   }
-  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6" || found === "7" || found === "8" || found === "9" || found === "10" || found === "11" || found === "12" || found === "13" || found === "14" || found === "15" || found === "16" || found === "17") return found;
+  if (found === String(SCHEMA_VERSION) || found === "2" || found === "3" || found === "4" || found === "5" || found === "6" || found === "7" || found === "8" || found === "9" || found === "10" || found === "11" || found === "12" || found === "13" || found === "14" || found === "15" || found === "16" || found === "17" || found === "18") return found;
   throw new SchemaError(
     `${path} is not a database this version of the deck builder can open ` +
       `(it reports schema ${found ?? "unknown"}; this version uses ${SCHEMA_VERSION}). ` +

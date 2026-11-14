@@ -240,6 +240,34 @@ test("recovered failed stop survives real account deletion and a second coordina
   } finally { await recovered?.close(); await successor?.close(); await f.coordinator.close(); f.db.close(); }
 });
 
+test("resuming a stopped paused game durably reserves cleanup before ensure can overlap account deletion", async () => {
+  const f = fixture(); let recovered: ReturnType<typeof createGameCoordinator> | undefined;
+  try {
+    f.setEnsure(() => { throw Error("initial uncertain create"); });
+    const game = (await f.coordinator.launch(OWNER, f.id, f.revision(), key)).game!;
+    assert.equal(game.consumers_stopped, true);
+    let entered!: () => void, release!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    f.setEnsure(async () => {
+      const saved = JSON.parse((f.db.prepare("SELECT record_json FROM game_launches WHERE id=?").get(game.id) as { record_json: string }).record_json) as GameRecord;
+      assert.equal(saved.consumers_stopped, false, "cleanup ownership must be durable before native ensure");
+      entered(); await new Promise<void>(resolve => { release = resolve; });
+    });
+    let attempts = 0;
+    f.adapter.stop = async () => { attempts++; throw Error("stop unavailable"); };
+    const resuming = f.coordinator.resume(OWNER, game.id);
+    await started;
+    f.db.prepare("UPDATE users SET is_admin=0 WHERE id=?").run(OWNER.user_id);
+    deleteAccount(f.db, OWNER, accountInfo(f.db, OWNER).handle);
+    assert.ok(f.db.prepare("SELECT id FROM game_stop_jobs WHERE id=?").get(game.id));
+    release(); await assert.rejects(resuming, { status: 404 });
+    await f.coordinator.close();
+    const before = attempts;
+    recovered = createGameCoordinator(f.db, { native: f.adapter, browser_session_qualified: true, now: () => 500 });
+    await recovered.tick(); assert.ok(attempts > before);
+  } finally { await recovered?.close(); await f.coordinator.close(); f.db.close(); }
+});
+
 test("native secret-bearing extras never enter admission and invalid human delivery is refused", async () => {
   const f = fixture();
   try {
