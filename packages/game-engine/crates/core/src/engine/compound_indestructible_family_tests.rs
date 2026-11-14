@@ -2,7 +2,7 @@
 //! CR 608.2b/c, 611.2a/c, 613.1f/613.4c, 400.7, 514.2, 702.12:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::equipped_indestructible_tests::{answer, both, cast, object, recover, request};
-use super::temporary_indestructible_tests::{announce, target, through_cleanup, until_player};
+use super::temporary_indestructible_tests::{announce, pass, target, through_cleanup};
 use super::*;
 
 const SOURCES: &[(&str, &str, &str, i64, i64)] = &[
@@ -130,7 +130,27 @@ fn compound_indestructible_family_paid_destroy_damage_cleanup_and_replay() {
                 stats(g, 1, 2, 2, false);
                 assert!(g.state.rules.effects.is_empty());
                 recover(g);
-                until_player(g, q, PlayerId(0));
+                // All six lands paid for the preceding spells. Priority on the
+                // next player's turn does not untap our sources (CR 502.3).
+                // Reach our actual next turn before paying for fresh removal.
+                let mut own_turn = false;
+                for _ in 0..500 {
+                    let r = request(g, q);
+                    if g.state.rules.turn_owner == PlayerId(0)
+                        && matches!(
+                            r,
+                            Request::Priority {
+                                player: PlayerId(0),
+                                ..
+                            }
+                        )
+                    {
+                        own_turn = true;
+                        break;
+                    }
+                    answer(g, q, pass(&r));
+                }
+                assert!(own_turn, "bounded natural return to caster's untap");
                 cast(g, q, 5, target(g, 1));
                 assert!(matches!(
                     g.current(object(g, 1)).unwrap().zone,
