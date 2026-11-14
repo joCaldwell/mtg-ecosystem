@@ -499,6 +499,7 @@ fn controlled_temporary_keyword_rejects_mismatched_selection_domains_and_occurre
 }
 fn empty_program() -> SpellProgram {
     SpellProgram {
+        optional_additional_costs: vec![],
         additional_sacrifice: None,
         timing: SpellTiming::Instant,
         resolution: SpellResolution::Instructions,

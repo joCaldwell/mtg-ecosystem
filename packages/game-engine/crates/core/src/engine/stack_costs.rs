@@ -61,6 +61,7 @@ impl Game {
             .targets
             .is_empty();
         self.state.rules.stack.push(StackInstance {
+            selected_additional_costs: None,
             alternative_cost: None,
             x: None,
             death_controller: None,
@@ -275,6 +276,7 @@ impl Game {
     }
     pub(super) fn validate_stack_bindings(&self, entry: &StackInstance) -> Result<(), String> {
         self.validate_damage_bindings(entry)?;
+        self.validate_additional_cost_entry(entry)?;
         if entry.alternative_cost.is_some()
             && (!entry.kind.is_spell()
                 || entry.cast_from != Zone::Exile

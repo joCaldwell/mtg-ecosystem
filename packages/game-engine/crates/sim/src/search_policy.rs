@@ -77,6 +77,9 @@ pub(super) fn choose(
         PlayerRequest::LegendRule { candidates, .. } => PlayerResponse::LegendRule {
             keep: candidates.last().ok_or("empty legend choices")?.clone(),
         },
+        PlayerRequest::AdditionalCosts { .. } => {
+            return Err("optional casting costs outside this completion policy".into());
+        }
         PlayerRequest::AnnounceX { .. } => {
             return Err("X request unsupported by this completion policy".into());
         }

@@ -69,6 +69,7 @@ fn rich_fixture() -> PermittedView {
         },
     }];
     v.stack = vec![VisibleStackEntry {
+        selected_additional_costs: None,
         x: None,
         mana_value: None,
         mode: Some(1),

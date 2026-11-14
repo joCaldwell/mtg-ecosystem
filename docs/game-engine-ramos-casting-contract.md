@@ -4,8 +4,9 @@ The original research boundary was `0fdbd817e6304eca7873012f4cea40fa2d3bb038`
 (M0/M1a/M1b/M2 plus `main8540`). The bounded M3b implementation below builds on
 checked ordinary announcement/payment base `4fc61cfe86045b5a2dc14e434d7518ab07a8bc55`.
 Both complete frozen basic sources now lower and have private paid runtime witnesses;
-optional additional-cost source work and the full M3 exit remain open. No profile,
-host, SDK or sampled-search qualification follows.
+M3c adds the bounded optional-mana/instant-cascade exit cohort below. Full M3
+closure remains coordinator-owned; no profile, host, SDK or sampled-search
+qualification follows.
 The [Ramos plan](game-engine-ramos-plan.md#m3-build-casting-during-resolution-and-basic-cascade)
 remains the milestone authority. Parent owns combined native qualification.
 
@@ -509,6 +510,128 @@ merge resolutions, timings and omissions are in the coordinator's
 full runtime/profile/release, SDK/client/host/search and exact-deck qualification
 remain omitted. Native work is released; full M3 remains open for its two
 additional-cost/prohibition source exits.
+
+## M3c optional additional mana and instant cascade
+
+The bounded exit cohort uses two additional complete retained d705 records,
+**outside the frozen 85-definition Ramos target**. Root fixture provenance and
+accepted-record membership identify their original archive locations; revision
+17, its deck export and all frozen Ramos fixtures are unchanged:
+
+- [Dismantling Blow](../packages/game-engine/tests/fixtures/dismantling-blow.json),
+  Oracle `300cba5a-adbb-4852-be06-ac00d9d6fd37`, printing
+  `70edc5da-4477-49f6-bbcc-f208fdaae0d3`, archive line 7173/index 7171,
+  record SHA-256 `3bce8621bbb088b7aada567c86a5562b9a37b09b0a4d8158e02a43ce8c63e736`.
+  The entire instant costs {2}{W}, declares optional kicker {2}{U}, destroys one
+  artifact-or-enchantment target, then draws two cards if that exact keyword
+  was declared. Its condition binding must name the exact archived keyword
+  pointer; the prospective caster and `this spell` reference must also bind.
+- [Natural Reclamation](../packages/game-engine/tests/fixtures/natural-reclamation.json),
+  Oracle `98266582-12fd-4a7b-a9bb-e9cc4370ed28`, printing
+  `70c4fc42-e5c6-438b-a4b7-1f77e818597f`, archive line 22928/index 22926,
+  record SHA-256 `ab3067e692f7720b2b34179324ed37c4f7b654b3cbfe59b1871540e68622a616`.
+  Its complete {4}{G} instant combines parameterless cascade and ordinary
+  artifact-or-enchantment destruction. It reuses `CascadeV1` and the existing
+  removal binder. Only the strict stack `SelfSpellCast` program may use an
+  instant/sorcery source; battlefield trigger guards remain intact.
+
+Schema remains **1**. `OptionalAdditionalManaCostV1` identifies the new fixed-mana
+primitive, with a source keyword identity, exact mana operand and explicit
+announcement selection. Public choice IDs additionally bind the viewer and
+stack invocation; a failed attempt's ID cannot authorize a later attempt, even
+when reversal restores the same card incarnation. Only the caster receives the
+request. The chosen declaration becomes public during announcement under CR
+601.2b/702.33d, independently of successful payment.
+
+Selected additional mana is added before the common increases/reductions and
+cost lock. `WithoutManaCost` replaces printed mana, never the selected kicker.
+The concrete totals are {4}{W}{U} for an ordinary kicked Blow, {2}{U} for a free
+kicked Blow, and no mana payment for a free unkicked Blow. Its mana value remains
+3. A selected explicit {0} mana declaration still grants the CR 118.5/601.2g mana
+window; absence of a mana payment does not. Missing printed cost and printed
+{0} remain distinct, including the existing empty nonland-source rejection.
+
+`StackInstance` retains the declaration through targets, nested mana, spending,
+completion and resolution. Failed payment reverses the attempt and renews the
+exact owned exile offer; legal mana activations use the existing keep/undo
+receipts. Conditional controller draw is mandatory when that exact declaration
+was selected and the invocation completed. It reuses sequential draw attempts,
+quantity progress and Commander replacement, with no optional resolution effect
+or generic interpreter. Countering the spell or making every target illegal
+suppresses the complete program; indestructible destruction failure alone does
+not suppress the draw. Mana and draw quantities are parameters without a new
+printed-value ceiling.
+
+The admitted optional-cost program is deliberately complete and narrow: one
+fixed-mana keyword declaration, mandatory targeted destruction, then its linked
+fixed controller draw. Multiple costs, multikicker, variable/special/nonmana
+costs, modal/static-cost compositions, extra clauses, null/unknown conditions,
+missing/foreign identities and unconsumed conditions reject. Declaration-free
+programs, triggers, activations and mode children cannot smuggle conditional
+draw or optional casting costs. Exported constraints append to existing program
+constraints; source/cross-field identity and replay checks remain Rust authority.
+Private snapshots are **24**; observation/context/query work forms are **19**.
+
+The paid prohibition witness develops A's paid Kutzil and B's paid Control Magic
+on their actual turns, then advances naturally back to A. B's real draw removes
+one Forest before the sole eligible library hit. With Kutzil currently controlled
+by B, B pays Natural Reclamation targeting an existing Arcane Signet during A's
+turn. Before cascade resolves, A pays Blow targeting Control Magic. Destruction
+returns Kutzil's current control to A while the cascade invocation remains B's;
+B cannot cast the child, and the already-cast Reclamation still resolves its
+Signet target. The paired Aura-retained path permits the child. Each seat owns
+100 physical cards; there is no turn/control mutation or invented midgame RNG
+seed. Zero/one uncast remainder needs no random word.
+
+The dedicated source and runtime tests additionally exercise Bloodbraid-to-Blow
+kicker/decline, exact spending and mana value, draw privacy, ordinary kicked
+casting, countering, all-targets-illegal and indestructible targets. The genuine
+failure witness pays Ramos and earlier colored spells to earn five counters;
+two existing Golgari Signets consume the two blue mana from a nested Ramos
+activation, leaving the selected kicker unpayable. Keep and undo restore the
+proper resources, counters, uses and exact exile offer without a cast occurrence;
+a later fresh declaration can decline kicker and complete. Accepted-input replay,
+selection/target/payment/control-return snapshots, saved query work, budgets
+0/1/unlimited, stale/foreign IDs, rehashed selections/totals, Commander draw
+replacement and owner/caster departures run in Off/Compact/Detailed traces.
+
+Focused source qualification passed **470 distinct Rust tests**: 102 contracts,
+249 compiler and 119 core (nine new M3c exits plus 110 adjacent regressions).
+Workspace all-target compilation, formatting and the structural guard passed.
+The own opt-0 CLI verifies all **915** compiled source rows against actual files;
+its build is `184b5e7852c1830855077bfa53da76c4261e56f61ffd6ca9d156f6906fad3bf3`.
+The copied opt-2/debug-asserting Rust test producer is separately identified as
+`7f835adc474b114456689d0b3c2a8b715b9c279bcc61e99fd897d2ce59436814`, using pinned
+Rust 1.99.0. The final schema SHA-256 is
+`77d584faa25ef23ab225d5964387b4e27c08187acdaffa8f0c1c8b330514f320`;
+**1,810** external Ajv 8.20.0 probes pass (30 optional-cost, 1,657 existing keyword,
+96 Aura and 27 basic-cascade). Existing three-source Ramos/Scales/Corpsejack and
+two-source basic-cascade IR bytes match their qualified parent exports exactly.
+The new two-source catalog file SHA-256 is
+`9e4c32f08da037d066b0368dbaa85451ab21fbeb32a43f641631973838e47be4`.
+
+Authoritative receipts, actual copied tests/CLI, source archive/inventory, exported
+schema/catalogs, producer bridge and failures are retained in this implementation
+worktree under `generated/ramos/m3c/{final,final-adjacent,final-supplement,exports}/`.
+Earlier attempts retain missing-constructor/borrow compile failures, stale foreign
+contracts metadata, fixture-helper failures, the deliberately interrupted
+per-pass natural-turn replay, and the schema-export allOf overwrite caught by the
+existing keyword probes. Final repair appends its constraint and retains the old
+keyword guards. One selector failed the pre-execution nonempty assertion; it ran
+no Rust test and is not counted. The corrected supplement uses actual nested
+module names from the same copied executable. Two payment-query assertions were
+updated only from format 18 to the new 19. Metadata repair preserved old artifacts
+and file hashes, refreshing only the owned contracts-source timestamp under lock.
+No cache was deleted and no earlier executable was relabeled after source edits.
+
+The own Node doctor reports missing workspace dependencies; no install or npm
+workspace retry was attempted. Export probes use only the existing external Ajv
+installation, with no root engine import or hidden native invocation. Full core/
+simulator/server runtime, Clippy, release/profile, parser/Node workspace, host,
+SDK, search and consumer checks remain omitted. Full M3 closure remains
+coordinator-owned until the one fresh production/test review and fresh main
+integration. This cohort makes no exact-deck, pod/profile, hosting, SDK,
+sampled-search or consumer qualification claim.
 
 ## Bounded checkpoint and focused exit evidence
 

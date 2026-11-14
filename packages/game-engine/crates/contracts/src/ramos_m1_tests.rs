@@ -19,6 +19,7 @@ pub(super) fn ramos() -> Definition {
             spell: TypePredicate::Any {},
         },
         program: SpellProgram {
+            optional_additional_costs: vec![],
             functioning_zone: FunctioningZone::Stack,
             timing: SpellTiming::Instant,
             resolution: SpellResolution::Instructions,

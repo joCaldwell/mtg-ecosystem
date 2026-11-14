@@ -756,6 +756,17 @@ impl Game {
                 };
                 self.draw_one(frame, player, source_block)
             }
+            Instruction::DrawCardsIfAdditionalCost {
+                cost_identity,
+                source_block,
+                ..
+            } => {
+                if !self.additional_cost_was_selected(&frame.spell, &cost_identity)? {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
+                self.draw_damage_amount(frame, source_block)
+            }
             Instruction::DrawDamageAmount { source_block } => {
                 self.draw_damage_amount(frame, source_block)
             }
@@ -900,6 +911,21 @@ impl Game {
     /// CR 120.4b/603.2c: "that many" is the positive final member of this
     /// invocation's actual damage witness, never printed power or life changes.
     pub(super) fn damage_draw_amount(&self, frame: &Resolving) -> Result<Quantity, String> {
+        if let Some(Instruction::DrawCardsIfAdditionalCost {
+            cost_identity,
+            count,
+            ..
+        }) = self
+            .program_for(&frame.spell)?
+            .instructions
+            .get(frame.cursor as usize)
+        {
+            return if self.additional_cost_was_selected(&frame.spell, cost_identity)? {
+                Ok(count.clone())
+            } else {
+                Err("unselected optional-cost draw progress".into())
+            };
+        }
         match &frame.spell.kind {
             StackKind::Triggered {
                 witness: TriggerEventWitness::DamageDealt { damage, .. },
@@ -942,7 +968,10 @@ impl Game {
                 self.program_for(&frame.spell)?
                     .instructions
                     .get(frame.cursor as usize),
-                Some(Instruction::DrawDamageAmount { .. })
+                Some(
+                    Instruction::DrawDamageAmount { .. }
+                        | Instruction::DrawCardsIfAdditionalCost { .. }
+                )
             ) {
                 return Err("missing damage-quantity draw progress".into());
             }
@@ -1004,8 +1033,10 @@ impl Game {
     fn validate_damage_draw(&self, frame: &Resolving) -> Result<(), String> {
         let program = self.program_for(&frame.spell)?;
         if let Some(progress) = &frame.damage_draw {
-            let Some(Instruction::DrawDamageAmount { source_block }) =
-                program.instructions.get(frame.cursor as usize)
+            let Some(
+                Instruction::DrawDamageAmount { source_block }
+                | Instruction::DrawCardsIfAdditionalCost { source_block, .. },
+            ) = program.instructions.get(frame.cursor as usize)
             else {
                 return Err("damage-quantity draw progress on another instruction".into());
             };
@@ -1025,14 +1056,33 @@ impl Game {
         for (instruction, outcome) in program.instructions.iter().zip(&frame.outcomes) {
             match (instruction, outcome) {
                 (
-                    Instruction::DrawDamageAmount { .. },
+                    Instruction::DrawDamageAmount { .. }
+                    | Instruction::DrawCardsIfAdditionalCost { .. },
                     InstructionOutcome::DamageDrawn {
                         player,
                         attempted,
                         failed,
                     },
                 ) => {
-                    let amount = self.damage_draw_amount(frame)?;
+                    let amount = match instruction {
+                        Instruction::DrawCardsIfAdditionalCost {
+                            cost_identity,
+                            count,
+                            ..
+                        } => {
+                            if !self.additional_cost_was_selected(&frame.spell, cost_identity)? {
+                                return Err("unselected completed conditional draw".into());
+                            }
+                            count.clone()
+                        }
+                        _ => match &frame.spell.kind {
+                            StackKind::Triggered {
+                                witness: TriggerEventWitness::DamageDealt { damage, .. },
+                                ..
+                            } => damage.amount.clone(),
+                            _ => return Err("missing completed damage draw witness".into()),
+                        },
+                    };
                     if *player != frame.spell.controller
                         || attempted.is_negative()
                         || *attempted > amount
@@ -1043,7 +1093,15 @@ impl Game {
                         return Err("damage-quantity draw completed outcome invariant".into());
                     }
                 }
-                (Instruction::DrawDamageAmount { .. }, _)
+                (
+                    Instruction::DrawCardsIfAdditionalCost { cost_identity, .. },
+                    InstructionOutcome::Effect { actual: None },
+                ) if !self.additional_cost_was_selected(&frame.spell, cost_identity)? => (),
+                (
+                    Instruction::DrawCardsIfAdditionalCost { .. }
+                    | Instruction::DrawDamageAmount { .. },
+                    _,
+                )
                 | (_, InstructionOutcome::DamageDrawn { .. }) => {
                     return Err("damage-quantity draw outcome on another instruction".into());
                 }
@@ -1116,6 +1174,7 @@ impl Game {
         child: Option<StackId>,
     ) -> Result<(), String> {
         self.validate_trigger_entry(&frame.spell)?;
+        self.validate_additional_cost_entry(&frame.spell)?;
         self.validate_mode_binding(&frame.spell)?;
         self.validate_condition_cache(frame)?;
         self.validate_target_facts(frame)?;

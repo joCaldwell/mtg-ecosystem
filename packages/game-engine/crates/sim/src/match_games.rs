@@ -123,6 +123,9 @@ impl Strategy<'_> {
             }
 
             PlayerRequest::LegendRule { candidates, .. } => self.legend_choice(candidates)?,
+            PlayerRequest::AdditionalCosts { .. } => {
+                return Err("optional casting costs outside this completion policy".into());
+            }
             PlayerRequest::AnnounceX { .. } => PlayerResponse::AnnounceX {
                 value: self
                     .top_program(v)
@@ -1428,6 +1431,7 @@ mod admission_and_host_tests {
             current: Some(ObjectHandle("own-permanent".into())),
         };
         let entry = |name: &str| mtg_core::VisibleStackEntry {
+            selected_additional_costs: None,
             x: None,
             mana_value: None,
             mode: None,
