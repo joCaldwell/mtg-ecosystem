@@ -3842,3 +3842,6 @@ mod temporary_creature_keyword_family_tests;
 
 #[cfg(test)]
 mod controlled_creature_protection_tests;
+
+#[cfg(test)]
+mod temporary_combat_keyword_tests;
