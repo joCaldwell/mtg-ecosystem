@@ -51,6 +51,8 @@ mod attachments;
 #[cfg(test)]
 mod attachments_tests;
 #[cfg(test)]
+mod attachment_entry_tests;
+#[cfg(test)]
 mod blocking_target_tests;
 #[cfg(test)]
 mod four_colors_tests;
