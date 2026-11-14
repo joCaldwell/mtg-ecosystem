@@ -512,6 +512,8 @@ impl Game {
                 };
                 Ok(Some(QueryValue::Observation(Observation {
                     observation_version: 16,
+                    decision_context: self
+                        .permitted_decision_context(builder.view.viewer, builder.decision.as_ref()),
                     view: builder.view,
                     decision: builder.decision,
                 })))
@@ -842,6 +844,10 @@ impl Game {
                         // builder scratch intact for exact saved-work recovery.
                         *observation = Some(Box::new(Observation {
                             observation_version: 16,
+                            decision_context: self.permitted_decision_context(
+                                builder.view.viewer,
+                                builder.decision.as_ref(),
+                            ),
                             view: builder.view.clone(),
                             decision: builder.decision.clone(),
                         }));

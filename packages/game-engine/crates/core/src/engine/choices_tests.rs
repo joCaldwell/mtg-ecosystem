@@ -460,6 +460,15 @@ fn natural_effect_context_and_modal_observation_recover_every_work_prefix() {
     assert!(
         matches!(observed.decision,Some(PlayerRequest::Modes{candidates,..}) if candidates==[0,1])
     );
+    let labels = &observed.decision_context.as_ref().unwrap().modes;
+    assert_eq!(labels.len(), 2);
+    assert_eq!(labels[0].mode, 0);
+    assert!(labels.iter().all(|l| l.text.starts_with('•')));
+    assert!(
+        restored
+            .permitted_decision_context(PlayerId(1), None)
+            .is_none()
+    );
     assert_eq!(before, g.state_digest().unwrap());
 }
 #[test]

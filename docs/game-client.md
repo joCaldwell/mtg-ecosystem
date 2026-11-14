@@ -154,11 +154,30 @@ candidate/validator, object cursor and context, never accumulated emitted entrie
 Logical work is not a CPU-instruction or constant-time guarantee. Unlimited budget
 is trusted native-only use; transport ceilings are independently stricter below.
 
-Context is `priority` or `mana { cost, source }` copied from the permitted request.
-Source is available only when that request supplies `mana_ability_source`; ordinary
-spell/ability payment source remains unavailable. All labels are unavailable:
-compiler source-label mappings do not exist in this qualified build. Never infer
-source blocks, mode/X meaning, instructions or legality from text/IR/card identity.
+Context is `priority` or `mana { cost, source }`. Mana source uses the nested
+mana-ability source or the ordinary current stack source's existing permitted handle.
+`ActionLabel` retains `unavailable` and adds `available { text, source? }`: core owns
+action wording, and optional source descriptions use offline compiler bindings.
+Indexed activated abilities without a bound source label remain unavailable.
+Labels grant no affordability, target, payment or submission permission.
+
+`Observation.decision_context` is optional for historical projections. Its optional
+`source` supplies kind (`spell`, `activated`, `triggered`, `mana_ability`, `effect`),
+Oracle identity, optional existing object handle/ability index and complete source
+text. Compiler `SourceLabels` retains exact Oracle text, verified normalized source
+blocks (self references may be `~`) and lowerer-owned activated/triggered/mana/static
+indices. Standalone choose-one modes retain exact ordered option text. Schema 1,
+mechanical capabilities and reviewed hosted/search sets stay unchanged; catalog
+and build identities change. Metadata never admits new mechanics.
+
+Current announcement/payment/target and resolution choices receive source context.
+A resolving instruction supplies its exact source block; selected prevention
+allocation and damage replacement candidate labels use the actual effect origin.
+Trigger-order candidates carry optional ability labels. Missing fields remain
+unavailable: do not infer mode/X meaning, optional instructions, numeric bounds or
+legality from text/IR/card identity. Setup/combat/rule choices use their supplied
+candidates and quantities; a different viewer receives no decision context.
+Native source-backed metadata does not qualify live controls or complete games.
 
 Discovery traverses only the viewer's existing published handle map and rechecks
 visibility/incarnation; it never scans private IDs for order, mints handles,
@@ -178,7 +197,7 @@ and forwards to the exclusive match worker; it never computes rules.
 unknown/duplicate fields. `complete`, `incomplete`, `stale`, nested `unavailable`
 and `cancelled` retain exact meanings. Partial/limited is never a complete empty menu.
 An emitted beginning passes the native initiation validator; submission must still
-validate and later targets/payment can fail. Every current ActionLabel is unavailable.
+validate and later targets/payment can fail. Action labels and decision descriptions follow the producer contract above.
 
 | Transport resource | Bound |
 | --- | --- |

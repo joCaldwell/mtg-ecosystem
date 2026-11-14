@@ -187,6 +187,13 @@ fn optional_draw_exact_source_accept_decline_private_request_and_recovery() {
                 own.decision,
                 Some(PlayerRequest::OptionalEffect { .. })
             ));
+            let context = own.decision_context.as_ref().expect("producer context");
+            assert_eq!(
+                context.source.as_ref().unwrap().kind,
+                DecisionSourceKind::Triggered
+            );
+            assert!(context.instruction.as_ref().unwrap().text.contains("may"));
+            assert!(view(&g, 1).decision_context.is_none());
             assert_eq!(own.view.priority, None);
             assert_eq!(own.view.players[0].library_count, 3);
             assert!(view(&g, 1).decision.is_none());
