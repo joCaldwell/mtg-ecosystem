@@ -90,9 +90,15 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
     if (run.actions) {
       run.actions.synchronize();
       this.#cleanup = (async () => {
-        await run.actions!.stop();
-        await Promise.allSettled([...run.queries]);
-        await run.actions!.stop();
+        // An older retired generation can reveal its cursor while these
+        // requests settle, registering another cleanup request. Drain the live
+        // set rather than one snapshot before releasing exclusive ownership.
+        for (;;) {
+          await run.actions!.stop();
+          const pending = [...run.queries];
+          if (!pending.length) break;
+          await Promise.allSettled(pending);
+        }
       })().finally(release);
     } else release();
   }
