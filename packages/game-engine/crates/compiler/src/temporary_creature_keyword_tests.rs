@@ -565,3 +565,101 @@ fn temporary_creature_keyword_all_reviewed_subsets_use_shared_program_and_exact_
         );
     }
 }
+
+#[test]
+fn temporary_creature_keyword_legacy_ir_caps_and_pure_source_block_provenance() {
+    let existing = Catalog::read(include_str!(
+        "../../../tests/fixtures/expected-blocking-matches-ir.json"
+    ))
+    .unwrap();
+    let controls = [
+        (
+            include_str!("../../../tests/fixtures/c462adf3-4ade-4b90-bdec-7247b080471f.json"),
+            None,
+            KeywordAbility::Indestructible,
+            Capability::TemporaryIndestructibleSpellV1,
+        ),
+        (
+            include_str!("../../../tests/fixtures/f7518456-45ed-41d4-bd3c-5aacea28eb35.json"),
+            None,
+            KeywordAbility::Flying,
+            Capability::TemporaryFlyingSpellV1,
+        ),
+        (
+            include_str!("../../../tests/fixtures/b75fb789-6a78-4d23-b872-7627b478fb6f.json"),
+            None,
+            KeywordAbility::Deathtouch,
+            Capability::TemporaryDeathtouchSpellV1,
+        ),
+        (
+            include_str!("../../../tests/fixtures/ef29f979-1a6d-47bb-83f5-4679389471da.json"),
+            Some((1, 1)),
+            KeywordAbility::Indestructible,
+            Capability::CompoundIndestructibleSpellV1,
+        ),
+        (
+            include_str!("../../../tests/fixtures/467e22c3-6107-40ff-afc7-5960710c970b.json"),
+            Some((2, 2)),
+            KeywordAbility::Indestructible,
+            Capability::CompoundIndestructibleSpellV1,
+        ),
+        (
+            include_str!("../../../tests/fixtures/795e0ffb-fcd9-4cb9-ad18-8a0217229bfe.json"),
+            Some((2, 0)),
+            KeywordAbility::Indestructible,
+            Capability::CompoundIndestructibleSpellV1,
+        ),
+    ];
+    for (raw, modifier, keyword, cap) in controls {
+        let d = lowered(raw);
+        assert_program(&d, modifier, &[keyword]);
+        assert!(d.capabilities.contains(&cap));
+        assert!(
+            !d.capabilities
+                .contains(&Capability::TemporaryCreatureKeywordProgramV1)
+        );
+        if let Some(expected) = existing
+            .definitions
+            .iter()
+            .find(|old| old.oracle_id == d.oracle_id)
+        {
+            assert_eq!(canonical(&d).unwrap(), canonical(expected).unwrap());
+        }
+        // Empty earlier spell blocks preserve the historical pure-grant source
+        // attribution; compounds require both operations in block zero.
+        let shifted = tests::changed_source(raw, |r| {
+            let text = r["source"]["oracle_text"].as_str().unwrap().to_owned();
+            r["source"]["oracle_text"] = format!("Synthetic empty spell block.\n{text}").into();
+            let empty = json!({"kind":"spell","effects":[]});
+            r["faces"][0]["result"]["abilities"]
+                .as_array_mut()
+                .unwrap()
+                .insert(0, empty.clone());
+            r["faces"][0]["result"]["lines"]
+                .as_array_mut()
+                .unwrap()
+                .insert(
+                    0,
+                    json!({"text":"Synthetic empty spell block.","ok":true,"ability":empty}),
+                );
+        });
+        if modifier.is_none() {
+            let shifted = lowered(&shifted);
+            assert_eq!(shifted.capabilities, d.capabilities);
+            let mut expected = d.spell.clone().unwrap();
+            let Instruction::GrantKeywords { source_block, .. } = &mut expected.instructions[0]
+            else {
+                unreachable!()
+            };
+            *source_block = 1;
+            assert_eq!(shifted.spell, Some(expected));
+        } else {
+            assert!(!matches!(
+                compile(HEADER, &shifted),
+                CompileResult::Lowered { .. }
+            ));
+        }
+    }
+    // The existing catalog::tests::all_committed_catalogs_are_fresh selector
+    // separately checks every old catalog's complete IR bytes and digest.
+}
