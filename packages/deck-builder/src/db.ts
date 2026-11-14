@@ -584,6 +584,20 @@ const MIGRATIONS: Array<{ version: number; up: (db: Database) => void }> = [
       BEGIN SELECT RAISE(ABORT, 'Game capture is immutable'); END;`);
   } },
 
+  { version: 19, up(db) {
+    // Operational stop handoff has no account/deck data and deliberately no
+    // cascading owner FK. Delete it only after native stop acknowledgment.
+    db.exec(`CREATE TABLE IF NOT EXISTS game_stop_jobs (
+      id TEXT PRIMARY KEY, target_json TEXT NOT NULL CHECK(json_valid(target_json))
+    );
+    CREATE TRIGGER IF NOT EXISTS game_launches_stop_handoff BEFORE DELETE ON game_launches
+      WHEN json_extract(OLD.record_json,'$.consumers_stopped') IS NOT 1
+      BEGIN INSERT INTO game_stop_jobs(id,target_json)
+        VALUES(OLD.id,json_object('id',OLD.id,'identity',json_extract(OLD.record_json,'$.identity')))
+        ON CONFLICT(id) DO NOTHING;
+      END;`);
+  } },
+
 ];
 
 function removeDeckStatus(db: Database) {

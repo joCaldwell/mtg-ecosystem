@@ -36,6 +36,9 @@ export interface GameLaunchResult {
   admission: GameAdmission;
   game?: GameRecord;
 }
+/** Minimal native stop identity survives account deletion until acknowledgment.
+ * It contains no account, deck, source, notes or seat credential. */
+export type GameStopTarget = Pick<GameRecord, "id" | "identity">;
 /** Each bot owns one native seat consumer. No credential is returned by status. */
 export interface NativeGameStatus {
   identity: GameIdentity;
@@ -61,7 +64,7 @@ export interface NativeGameAdapter {
    * Must stop even after ensure timed out with unknown outcome. Abort cannot
    * permit a late operation to spawn unowned consumers. The bridge must also
    * stop consumers if this coordinator process dies. Never invent rules loss. */
-  stop(game: GameRecord, reason: GamePause | "completed" | "shutdown" | "owner_deleted", signal: AbortSignal): Promise<void>;
+  stop(game: GameStopTarget, reason: GamePause | "completed" | "shutdown" | "owner_deleted", signal: AbortSignal): Promise<void>;
   /** Return ONLY generated SeatBootstrap file bytes for human seat 0, <=4096
    * bytes, bound to exact match/build/catalog and configured same-origin proxy.
    * Caller must validate with the generated SDK before delivery. Never return
