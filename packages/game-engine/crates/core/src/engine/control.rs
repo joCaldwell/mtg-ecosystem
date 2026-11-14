@@ -91,6 +91,18 @@ impl Game {
         for (object, (_, controller)) in candidates {
             controllers.insert(object, controller);
         }
+        // Actual admitted Aura sources are independent noncreatures. A private
+        // synthetic static grant whose source itself needs control-related
+        // exile would require another dependency pass, not ID-ordered cleanup.
+        // Reject that unimplemented composition rather than cache a stale grant.
+        if self.state.rules.control_effects.iter().any(|effect| {
+            self.supported_control_grant(effect)
+                && controllers.contains_key(&effect.object)
+                && matches!(effect.source, ControlSource::Static { object }
+                    if controllers.get(&object).is_some_and(|controller| !self.is_live(*controller)))
+        }) {
+            return Err("unsupported dependent synthetic control-source exile".into());
+        }
         Ok(controllers)
     }
 
