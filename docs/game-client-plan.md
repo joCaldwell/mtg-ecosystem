@@ -1,16 +1,19 @@
 # Desktop Commander client plan
 
-Status: planning only, 2026-11-12. No implementation or runtime acceptance is
-established by this document. Josh selected a clear desktop browser client for
-human play with useful inspection tools. The proposed engineering decisions below
-are the implementation recommendation; later online-product decisions remain open.
+Status: original design plan from 2026-11-12, updated for the 2026-11-14 unified
+product. Shared table presentation, account-backed Home/Play setup and a local
+preview are implemented; the standalone harness also has qualified live opening
+choices. Exact acceptance belongs in the linked reports, not this plan. Full
+games, automated launch and account-to-seat authorization remain separate work.
 
 Read with [integration contracts](game-client-contracts.md) and
 [delivery and verification](game-client-delivery.md). The
 [responsibility boundaries](game-client-boundaries.md) define the ownership matrix,
 communication flows and mandatory separation checks. Existing engine authority is
 the [current map](game-engine-current.md), not a historical roadmap's status line.
-Source inspected for this plan: `1854e377cd2d86ef0ce5c7fa6feef7cf08df6b86`.
+Original planning source: `1854e377cd2d86ef0ce5c7fa6feef7cf08df6b86`.
+Current product ownership and evidence are in [application boundaries](multiverse-app.md)
+and [the integration report](../packages/multiverse/INTEGRATION-REPORT.md).
 
 ## 1. Product and success criteria
 
@@ -31,22 +34,30 @@ and keyboard use. Smaller windows must retain usable decision controls through
 scrolling/panels; phone-specific layout is later work. Dragging is optional.
 Touch and reduced-motion support must not require a separate rules path.
 
-Deferred: arbitrary decks, matchmaking, ratings, spectators, chat, public accounts,
+Deferred: arbitrary decks, matchmaking, ratings, spectators, chat, account-to-match authorization,
 offline play, browser-local search/WASM, strategic AI, game-state undo, and a 3D
 table. These are separate increments with their own admission and privacy policies.
 
-### Deferred design direction: deck-builder cohesion
+### Active design direction: deck-builder cohesion
 
 Josh's direction, 2026-11-13: the game client and deck builder should feel like
 closely connected parts of one product. Align the client's styling and UX with
 the deck builder, including visual identity, typography, colors, spacing, card
 presentation, controls, navigation and common interaction patterns. The current
-client's appearance does not yet meet this expectation and is provisional.
+client's appearance was provisional at that point. The merged shared table now
+uses the product's neutral-dark identity; further UX remains open to owner input.
 
-This is a recorded future design requirement, with low current priority. Continue
-gameplay and integration work before undertaking the visual/UX alignment. Plan
-shared design tokens and reusable presentation primitives when that work becomes
-active, while preserving the applications' existing responsibility boundaries.
+Josh activated UX and styling work on 2026-11-14. Use the deck-builder's current
+design system as the visual reference and this client's own requirements for
+interaction. The solo playtester guidance and implementation are not accepted
+design references: Josh has not been satisfied with that experience. Preserve
+the applications' existing responsibility boundaries; sharing visual conventions
+does not require importing private features or extracting a shared package.
+
+The first reviewable increment improves the existing table, source-backed card
+inspection, opening decisions and join flow. Its design and acceptance criteria
+are in [the client UX direction](game-client-ux.md). Later gameplay support remains
+subject to the existing integration gates.
 
 ## 2. Principles
 
@@ -72,8 +83,8 @@ active, while preserving the applications' existing responsibility boundaries.
 | --- | --- | --- |
 | Language | Strict TypeScript + HTML/CSS | Adopted project language; exact generated protocol types |
 | UI | React | Existing repository experience, composable card/decision views, established browser tooling |
-| Build | Vite, static output | Existing Rust API owns hosting; public SEO/server rendering is not a game-table requirement |
-| Navigation | React Router declarative mode | Join, match, settings and inspection routes without inventing browser history handling |
+| Build | Vite, static output and public presentation packages | Multiverse serves the product; the standalone harness retains explicit native serving integration; builds never imply native generation |
+| Navigation | Existing typed product routes; React Router in standalone harness | Multiverse owns product navigation; the embeddable table/preview has no router dependency |
 | Rendering | DOM/CSS plus small SVG overlays | Readable text, accessibility, testable controls; canvas only after a measured need |
 | Styling | CSS Modules, CSS custom-property tokens | Local style ownership and consistency with repository conventions |
 | Session state | Framework-independent typed controller and explicit transitions | Single owner of polling, commands, identity and recovery |
@@ -86,12 +97,14 @@ active, while preserving the applications' existing responsibility boundaries.
 Framework choice is an engineering judgment. React's official guidance generally
 prefers frameworks and warns about ad hoc routing/data infrastructure. This client
 has an existing Rust service and unusual session semantics, making the documented
-Vite path a reasonable exception. React Router supplies standard routing; the
-session controller is application logic required by the game's protocol.
+Vite path a reasonable exception. React Router remains in the standalone harness;
+the unified product retains its existing typed route authority. The session
+controller is application logic required by the game's protocol.
 
 Svelte/Vue would also render this product; no measured rendering advantage here
 justifies another UI stack. Next.js becomes relevant if future product surfaces
-need server-rendered content; the game table remains a distinct application.
+need server-rendered content; the table remains a focused, router-free module
+inside the product, with a separate standalone integration harness.
 Exact stable compatible dependency versions are resolved and locked in M0 against
 the repository's pinned Node toolchain, not copied from mutable latest tags.
 
@@ -104,9 +117,10 @@ Official references checked during planning:
 
 ## 4. Package and dependency structure
 
-Create `packages/game-client/` with its own `AGENTS.md`, package scripts, strict
-TypeScript configuration and entry point. Follow root workspace conventions only
-after inspecting the shared installation; never replace its node_modules symlink.
+`packages/game-client/` has its own manual, isolated package scripts, strict
+TypeScript configuration and harness entrypoint. `packages/multiverse/` owns the
+product application and `packages/game-ui/` owns shared display. Follow each
+package's dependency conventions; never replace the root shared node_modules.
 The SDK remains its existing isolated package until an explicit packaging change
 provides a tested browser-consumption contract. Do not silently fold it into root.
 
@@ -116,11 +130,15 @@ src/
   session/         SDK adapter, controller, stream reducer, recovery journal
   presentation/    pure selectors and display models over generated types
   decisions/       exhaustive decision adapters and draft reducers
-  features/        join, table, inspector, preferences
-  cards/           card face, mana, current characteristics, image fallback
-  ui/              generic accessible primitives
-  design/          tokens and global base styles
+  features/        harness join/status and decision controls
+  preview/         router-free public qualified sample adapter
+  design/          standalone harness base styles
 ```
+
+The table, card face, inspector, generic facts and display models live in
+`packages/game-ui/src/`, consumed through `@multiverse/game-ui`. Product Home,
+Play, account/session UI and routing live in `packages/multiverse/web/src/`.
+Neither application imports the other's private feature modules.
 
 `session` and pure decision reducers have no React/DOM dependency; inject transport,
 journal, scheduling and IDs for deterministic tests. `presentation` imports generated
@@ -128,10 +146,15 @@ types and pure helpers only. UI primitives know no protocol. Features compose th
 lower layers through exported interfaces; only `app` owns route/session composition.
 Components never call fetch. Enforce these boundaries with a small import check.
 
-Keep one deployable client initially. Do not add shared packages for hypothetical
-reuse. Reuse deck-builder design ideas and source-backed card presentation patterns;
-extract shared primitives only when both consumers have demonstrated requirements.
-The deck-builder retains independent release, data and authentication contracts.
+Owner direction on 2026-11-14 activates the [unified product](multiverse-app.md):
+the top-level Multiverse application owns account UX, navigation, game setup and
+presentation, using the existing backend identity and capability service.
+The standalone client remains an integration harness. Both consumers now require
+the same table, so pure permitted display components move to `game-ui` through
+explicit public exports. Session recovery, generated-protocol adapters and
+qualified fixture composition stay client-owned. Shared styles are scoped and
+neither consumer imports the other's private features. The deck library retains
+its independent source data and public compatibility contracts.
 
 ## 5. State ownership and flow
 
@@ -239,8 +262,9 @@ Do not promise representation of every engine capacity ceiling as individual DOM
 
 ## 8. Decisions still outside this local plan
 
-Public access model, account provider, deployment host, arbitrary deck admission,
-spectator visibility and strategic opponents require separate product decisions.
-They do not block local human play. First implementation must resolve the explicit
-M0 technical proof gates in the delivery plan; those are engineering work, not
-requests for Josh to choose libraries or debug protocol details.
+The product reuses its existing account/provider and backend; choosing another
+account system is not a client prerequisite. Match access/invitations, remote
+game hosting, arbitrary deck admission, spectator visibility and strategic
+opponents remain separate decisions. Existing qualified proofs do not settle
+every M0–M4 gate. Remaining technical proofs are engineering work, not requests
+for Josh to choose libraries or debug protocol details.

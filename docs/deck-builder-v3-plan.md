@@ -1,5 +1,14 @@
 # Deck-builder v3: the public, multi-user release — execution plan
 
+Ownership update, 2026-11-14: this phased release record predates the
+[unified product extraction](multiverse-app.md). Browser `web/` paths in the
+historical phase descriptions now live under `packages/multiverse`; backend
+capabilities, auth/data and MCP remain under `packages/deck-builder`. The product
+owns launch scripts and `src/server.ts`. Use the current
+[product setup](../packages/multiverse/README.md) and
+[operations runbook](../packages/deck-builder/OPERATIONS.md) for commands rather
+than replaying old provisioning/release steps below.
+
 Written 2026-10-25 from the readiness review in
 [deck-builder-public-readiness.md](deck-builder-public-readiness.md). That
 document holds the evidence (file:line findings); this one holds the decisions
@@ -8,7 +17,7 @@ asking the owner anything.
 
 **Read before any phase:** this file, the readiness review, the spec
 ([deck-builder-spec.md](deck-builder-spec.md)), `packages/deck-builder/AGENTS.md`,
-and `packages/deck-builder/web/ARCHITECTURE.md`. The spec remains the source of
+and `packages/multiverse/web/ARCHITECTURE.md`. The spec remains the source of
 truth; every phase that changes behaviour updates the spec in the same PR.
 
 **Status (2026-10-25):** phases 0–2 and 1b merged (PRs #3–6; 1b merge fc24ca8). Phase 3 is deployed

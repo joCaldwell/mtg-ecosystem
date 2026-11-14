@@ -1,5 +1,10 @@
 # Phase 4b validation
 
+Historical validation record. Source paths, commands and counts below belong to
+that checkpoint. The browser and product scripts later moved to
+`packages/multiverse`; use [the current product manual](../packages/multiverse/AGENTS.md)
+and [application boundaries](multiverse-app.md) for current ownership.
+
 2026-10-25, America/Chicago. Branch `v3/4b-ux`, based on main's merged
 phone-scroll fix `268675e`. No hosted service, Railway configuration, or
 production data was changed.

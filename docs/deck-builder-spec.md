@@ -948,10 +948,11 @@ reload.
 ### 11.1 Routes *(phase 4a)*
 
 The client uses path routes, so a deck has a real URL and a public page can
-carry server-rendered link-preview tags: `/` and `/decks`, `/deck/:id`,
+carry server-rendered link-preview tags: `/` (Home) and `/decks` (library), `/deck/:id`,
 `/deck/:id/review`, `/deck/:id/playtest`, `/inbox`, `/memories`, `/profile`,
 `/activity`, `/settings`, `/design`, `/signin`, `/privacy`, `/terms`,
-`/d/:slug` and `/u/:handle`. `href()` in `web/src/app/routes.ts` is the only
+`/d/:slug` and `/u/:handle`, plus `/play` and `/play/preview` (§19).
+`href()` in `packages/multiverse/web/src/app/routes.ts` is the only
 place a URL is built; same-origin links navigate without a reload. `/activity`
 opens the standalone Activity page, and `/profile` opens Profile. Both
 remain in the server’s app-route allow-list (D16). A
@@ -966,10 +967,13 @@ unknown file extension return 404 (D16).
 
 ### 11.2 Phones *(phase 4a, D17)*
 
-Below 720 px (`PHONE_MAX_WIDTH` in `web/src/app/breakpoints.ts`, the one
+Below 720 px (`PHONE_MAX_WIDTH` in `packages/multiverse/web/src/app/breakpoints.ts`, the one
 constant shared with the public page) the signed-in app is a phone shell
 with a top bar instead of the sidebar, and only these screens:
 
+- **Home and Play setup (§19):** account-scoped deck information and navigation,
+  with no direct deck writes or match creation. The game table preview retains
+  its explicit larger-screen fallback on phones.
 - **Decks:** the deck list, one tappable row per deck with its pending count.
 - **A deck:** the same read-only composition as the public page
   (`ReadOnlyDeck`), fed by the owner's own deck state, with its pending
@@ -1989,4 +1993,32 @@ session.
   unlisted. The playbook explains that shared decks are read-only, that a
   fork of one starts without memories or decisions, and that agents cannot
   change visibility.
+
+## 19. Unified product shell and game setup
+
+Owner direction, 2026-11-14: Multiverse becomes one account-backed application
+for deck building and playing, with future public discovery and social features.
+The first game mode is one human against three automated opponents. Large
+internal refactors are allowed to establish clean package boundaries. The manual
+playtester guidance is not an accepted reference for this interface.
+
+Home becomes `/`, while `/decks` retains the complete existing library and
+existing deck/shared URLs remain available. Home links to real owned decks and
+game setup. `/play` carries an optional owned deck selection and its revision;
+an unreadable deck remains explicitly unavailable. Do not invent recent viewing
+activity or active-game records when their services do not exist.
+
+The first scaffold embeds the qualified sample table at `/play/preview`, through
+public shared game presentation and client preview exports. It is visibly a
+local preview, not a game using the selected deck. The existing SessionProvider
+and Actor capability boundary remain the sole application identity. There is no
+iframe, second login or direct import of another application's private features.
+Shared game styling is scoped and its React runtime is supplied by the host.
+
+Real game launch requires an owner-scoped coordinator for immutable deck revision
+snapshots, authoritative native admission, account-to-seat authorization and
+supervised automated consumers. Ordinary deck legality does not prove engine
+support. Keep Start game unavailable until that path exists, with a separate
+Preview table action. No fixture confirmation creates a match or durable result.
+See [application architecture and launch gates](multiverse-app.md).
 

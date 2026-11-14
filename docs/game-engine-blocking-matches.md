@@ -98,18 +98,29 @@ No compiler, contracts, core production or schema change is needed; the existing
 [compound foundation](game-engine-indestructible.md) owns semantics.
 
 Develop recognizes the distinct `compound_indestructible_spell_v1` public-IR
-contract: exactly +1/+1 followed by Indestructible, both at source block zero,
-on one shared ordinary creature target until end of turn. It does not classify
-that complete program as a pure keyword grant or accept a partial/altered pump.
+family through `mtg_contracts::compound_indestructible_parameters`: a fixed signed
+power/toughness modifier followed by Indestructible, both at source block zero,
+on one shared ordinary creature target until end of turn. The policy retains
+instant definition kind/timing, spell identity and capability checks. It does not
+classify that complete program as a pure keyword grant or copy a parameter
+whitelist. Signed variants are recognized, but autonomous initiation requires
+both bonuses to be nonnegative and known resulting toughness to be positive.
 It uses the same conservative defensive threat domain as pure protection:
 completed opposing supported destruction, explicitly targeted lethal damage,
-or unambiguous remaining one-on-one lethal/deathtouch combat. Friendly current
+or unambiguous remaining one-on-one lethal/deathtouch combat. Lethality is assessed
+against the original creature and its marked damage: a compound spell remains
+useful defense when its pump alone would save that creature. Original nonlethal
+damage does not justify casting solely for the pump. Friendly current
 control, targetability, candidate handles and deterministic value/handle ordering
 remain required. Already protected targets, proactive pump forecasting, enemy
 benefit and unsupported/ambiguous threats do not justify a cast. Its own incomplete
 announcement is skipped when evaluating the underlying threat during target
 selection; mandatory announced target choice retains the legal-candidate fallback.
 Pure Withstand/Jump, untap and equipment policy remain separate.
+Parameterized policy controls use explicitly synthetic validated definitions
+with changed names and Oracle identities; they add no source-backed card or pool
+admission. The retained paid witness and historical focused pass below keep
+their original source qualifications.
 
 The dedicated [paid legal-pod prefix](../packages/game-engine/crates/core/tests/compound_protection_admission.rs)
 pins opening index 316 from a bounded setup-only scan before gameplay. Both

@@ -1,5 +1,14 @@
 # Deck-builder operations
 
+Product ownership moved on 2026-11-14: browser/account UX, build, process entrypoint
+and local manager now live in `packages/multiverse`. Existing backend npm launch
+commands delegate there. Backend CLI/MCP/refresh/backup commands stay here; data,
+environment names, dotenv lookup and `.dev` PID/log locations remain unchanged.
+From this directory the direct entrypoint is `node ../multiverse/src/server.ts`.
+Historical deployment records below retain their original source paths; a future
+promotion must use the updated image entrypoint, without changing existing data
+mounts or account credentials. This refactor does not deploy anything.
+
 Use Node 26 (`nvm use`, `.nvmrc`). The package declares Node >=24.12 for
 stable native TypeScript stripping; `src/sqlite.ts` uses the renamed Node 26
 `Database` class and the equivalent constructor on Node 24. All connections
@@ -134,7 +143,7 @@ For a nondestructive rehearsal, point the restore at a separate destination:
 
 ```sh
 DECKBUILDER_DB=/tmp/deck-builder-restore.db node src/cli.ts restore /private/path/post-claim-backup.db
-DECKBUILDER_DB=/tmp/deck-builder-restore.db DECKBUILDER_DATA=/tmp/deck-builder-drill DECKBUILDER_PORT=8799 node src/server.ts
+DECKBUILDER_DB=/tmp/deck-builder-restore.db DECKBUILDER_DATA=/tmp/deck-builder-drill DECKBUILDER_PORT=8799 node ../multiverse/src/server.ts
 curl --fail http://127.0.0.1:8799/api/health
 ```
 
@@ -230,7 +239,7 @@ bucket requires configured credentials and remains unverified.
 
 Every variable Phase 3 needs is listed here. The Node service reads the
 process environment; `.env` is loaded only when explicitly requested with
-`node --env-file=.env src/server.ts`. Never print `.env`, tokens, OAuth
+`node --env-file=.env ../multiverse/src/server.ts`. Never print `.env`, tokens, OAuth
 responses, or provider credentials. Local `.env` is ignored and mode 0600.
 
 | Variable | Secret? | Hosted setting |
@@ -462,14 +471,21 @@ From the repository root, build exactly:
 docker build -f packages/deck-builder/Dockerfile -t deck-builder .
 ```
 
-The Dockerfile uses `node:26-slim`, the root npm lockfile with a selected
-workspace, a Vite build stage, production dependencies only in the runtime,
-and `node src/server.ts` as PID 1. No server TypeScript compilation. The
-allowlist `.dockerignore` excludes `.env`, all database/token/cache files,
-tests, `.git`, other packages and downloaded assets. Docker's `HEALTHCHECK`
+The current Dockerfile uses `node:26-slim`, the root npm lockfile selecting
+`packages/multiverse`, a product Vite build stage, and production dependencies
+only in the runtime. From the retained backend working directory its PID 1 is
+`node ../multiverse/src/server.ts`; no server TypeScript compilation is needed.
+The allowlist `.dockerignore` includes the product, backend and only the shared
+game/preview inputs needed to build it. It excludes `.env`, database/token/cache
+files, tests, `.git`, native/generated artifacts and unrelated packages. Docker's `HEALTHCHECK`
 uses `/api/health`; Railway separately checks that path on target port 8787.
-The local Docker daemon was unavailable during this phase; Railway performs
-and verifies the actual Docker build from the same repo-root context.
+The original phase used Railway to verify the image because the local Docker
+daemon was unavailable. The 2026-11-14 ownership refactor independently verified
+filtered install/build/prune, runtime imports and context exclusions, but did not
+execute an actual container image. A future promotion must verify that image and
+ensure watch paths include `packages/multiverse/**`, `packages/deck-builder/**`,
+the shared preview/display inputs and root lock/config files. These documentation
+changes do not update a live service or deploy a release.
 
 The image defaults to `USER node`. Railway requires `RAILWAY_RUN_UID=0` for
 its root-owned volume; the entrypoint prepares only the data directory,
@@ -801,7 +817,7 @@ to the normal start command, deploy, then wait for `SUCCESS` and health:
 
 ```sh
 railway environment edit --project 2c9c40a2-4b69-4d5e-a2c4-188a6f5894b8 --environment staging --json <<'JSON'
-{"services":{"94e7ffb1-12ce-4fd0-a8cc-afad081d9881":{"deploy":{"startCommand":"sh /usr/local/bin/deck-builder-entrypoint node src/server.ts"}}}}
+{"services":{"94e7ffb1-12ce-4fd0-a8cc-afad081d9881":{"deploy":{"startCommand":"sh /usr/local/bin/deck-builder-entrypoint node ../multiverse/src/server.ts"}}}}
 JSON
 curl --fail https://deck-builder-staging.up.railway.app/api/health
 ```

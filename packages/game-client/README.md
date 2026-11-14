@@ -1,28 +1,55 @@
 # Multiverse desktop client
 
-An isolated React/Vite client with live local joining and a read-only table.
-Import the operator's generated single-seat bootstrap at `/join`, then open
-`/table`. The session validates identities, owns a Web Lock, reads a coherent
-resume and polls permitted updates. It never submits choices or automatic moves.
-Capabilities stay in memory; refresh requires reimport. The original inspection
-fixtures remain at `/`, `/fixtures/opening` and `/fixtures/missing-metadata`.
+The standalone React/Vite harness owns live local joining, session recovery and
+explicit opening-hand choices. Its shared table, cards and inspection are consumed
+from `@multiverse/game-ui`; the unified product uses that same implementation.
+Import an operator's single-seat bootstrap at `/join`, then open `/table`.
+Capabilities stay in memory; refresh requires reimport. Later decision families
+and complete games remain outside the current client acceptance.
+
+## Public integration boundary
+
+`@multiverse/game-client/preview` exports `OpeningTablePreview()`, a router-free
+React component using the unchanged qualified opening capture. The host supplies
+its own account, navigation and a height-constrained content region. Scoped CSS
+Modules load automatically, use only `--game-*` variables and do not change the
+host document. Hosts deduplicate React/React DOM; there is no second app shell,
+iframe or authentication runtime. Confirming this preview only updates local
+feedback and never sends a game action or uses a selected builder deck.
+
+The public component declaration has no SDK/native-generated type dependencies.
+The concrete implementation remains checked inside this package against the
+qualified SDK. A consumer's typecheck and Vite bundle need no generated SDK or
+client artifacts. Runtime graph checks prevent routing, session effects and SDK
+runtime from entering the public preview.
+
+The Node-only `@multiverse/game-client/verify-preview` export provides
+`verifyPreviewFixtures()`. The unified product calls it before Vite builds; it
+checks every recorded fixture digest plus capture/catalog/viewer/source binding
+without generating a schema or starting native code. This preserves the recorded
+historical capture qualification; it makes no fresh native acceptance claim.
+
+The original inspection fixtures remain at `/`, `/fixtures/opening` and
+`/fixtures/missing-metadata`; `/fixtures/decisions#table` opens the local interactive
+preview, and `/fixtures/decisions` retains the independent controls gallery.
 
 ## Explicit setup
 
 Use pinned Node 26.11.1 through `sh scripts/engine-env.sh`. Never run a root npm
-install, share node_modules or invoke Cargo from client/SDK commands. Install both
+install, share node_modules or invoke Cargo from client/SDK commands. Install the
 packages locally with their own lockfiles:
 
 ```sh
+sh scripts/engine-env.sh npm --prefix packages/game-ui ci --workspaces=false --ignore-scripts
 sh scripts/engine-env.sh npm --prefix packages/game-server/sdk ci --workspaces=false --ignore-scripts
 sh scripts/engine-env.sh npm --prefix packages/game-client ci --workspaces=false --ignore-scripts
 ```
 
 Obtain the serving owner's exact native exports for source
-`147dec571e58a531b1229f61a9f78733c021eadf` (schema-1 main, reviewed core
-queries and serving integration):
+`ebfa6dde266139c45220959c4179ddedf6a38433` (the current qualification pin;
+see `sdk-qualification.json` and `LIVE-OPENING-REPORT.md`):
 
-- Protocol SHA-256: `2796d38cc8dc4ef67d836fbe890ba31170869f4562c91b8edf7c6f1b91396e64`.
+- Protocol SHA-256: `a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3`.
 - Bootstrap SHA-256: `0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a`.
 
 Generate and verify the SDK explicitly, then check/build the client using that
@@ -53,7 +80,9 @@ sh scripts/engine-env.sh npm --prefix packages/game-client run dev --workspaces=
 
 Open `http://127.0.0.1:5173/join`, not a localhost alias. Vite serves its public
 `/client-config.json`, checks local Host/Origin before proxying, and forwards only
-read routes to the configured upstream. An imported file cannot change that
+allowlisted read routes, opening command submissions and execution-status reads
+to the configured upstream. Action queries, cancellation and operator routes
+remain blocked by this proxy. An imported file cannot change that
 mapping. Production native mode supplies the same config schema. No wildcard
 CORS or cross-origin credential fetch is used. A plain unconfigured Vite instance
 still serves fixtures, but live config fails explicitly.
@@ -82,7 +111,7 @@ MTG_CLIENT_SEAT_FILES=/private/seat-0.json,/private/seat-1.json,/private/seat-2.
 sh scripts/engine-env.sh npm --prefix packages/game-client run test:browser:live --workspaces=false
 ```
 
-Real-host tests verify four authenticated permitted views, separate browser
+The read-only live smoke suite verifies four authenticated permitted views, separate browser
 contexts, same-profile duplicate-tab exclusion/release, reimport after refresh,
 CSP, empty browser persistence and GET-only traffic. Separately labeled injected
 browser faults test metadata loss/corruption, late responses and HTTP errors.
@@ -90,9 +119,11 @@ Traces, HAR, videos and automatic screenshots are disabled for authenticated
 tests so Authorization headers cannot be captured. Reports retain public
 identities/counts only. Preserve failed evidence before repeating a run.
 
-See [LIVE-SESSION-REPORT.md](LIVE-SESSION-REPORT.md) for exact tested source,
-schema/artifact/browser identities, failures, omissions and acceptance boundaries.
-The foundation report and historical fixture provenance remain historical evidence.
+See [LIVE-OPENING-REPORT.md](LIVE-OPENING-REPORT.md) for qualified opening submission
+and recovery evidence, and [LIVE-SESSION-REPORT.md](LIVE-SESSION-REPORT.md) for the
+historical read-only scope. Shared product/presentation acceptance belongs in the
+[Multiverse report](../multiverse/INTEGRATION-REPORT.md). Historical captures and
+reports retain their original source identities; none establishes full-game play.
 
 ## Ownership and remaining work
 
@@ -103,8 +134,8 @@ semantics and visibility remain authoritative; the SDK validates wire data.
 Missing metadata keeps observed identity and characteristics; no card facts,
 active faces, legal actions or source-ability labels are inferred.
 
-This is read-only M1 and the read-side session foundation for M2. Persistent
-exact-envelope journaling, submission/reconciliation, playable decision controls,
-action/context integration, natural games and M2–M4 acceptance remain separate.
-Existing journal interfaces specify unresolved-record preservation but implement
-no storage or sending. Safari and human usability studies are not claimed.
+Current source implements durable opening-choice journaling, submission and
+reconciliation; see `LIVE-OPENING-REPORT.md` for exact accepted source and limits.
+Full decision/action-context integration, natural games, account-to-seat mapping,
+automated match supervision and M2–M4 acceptance remain separate. Safari and
+human usability studies are not claimed.

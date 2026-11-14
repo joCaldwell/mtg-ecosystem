@@ -1,11 +1,11 @@
-# 🃏 deck-builder — a Commander deck builder that agents drive from outside
+# Deck capabilities and existing application backend
 
 > **Status: ACTIVE.** Built against
 > [docs/deck-builder-spec.md](../../docs/deck-builder-spec.md) (2026-10-10).
 > Section numbers in code comments (§5.2 lifecycle, §7 memories, §8
 > decisions, §10 agent interface) refer to that document.
 
-An app for building Commander decks that runs locally for one person or hosted
+The capability/backend service for building Commander decks, running locally for one person or hosted
 for many (`DECKBUILDER_MODE`, spec §17). It is designed to be used by people
 through its UI and by external AI agents through an MCP endpoint. **The app
 makes no AI model calls.** It stores structured data, validates, computes, and
@@ -49,12 +49,12 @@ design intent.
 
 ## 🏗️ Stack and layout
 
-Use Node 26 (`nvm use`; the package floor is >=24.12). Both tsconfigs enforce
+Use Node 26 (`nvm use`; the package floor is >=24.12). The backend tsconfig enforces
 `erasableSyntaxOnly`. Node runs the `.ts` files directly via type stripping — **there is no build
 step for `src/`**. `node:sqlite` (built in, has FTS5) means no native deps. Use `Database`
 from `src/sqlite.ts` (Node 26 rename; the same constructor on Node 24).
 Connections have a 5-second busy timeout.
-Runtime dependencies: React, `@modelcontextprotocol/server` (the official MCP
+Runtime dependencies include `@modelcontextprotocol/server` (the official MCP
 TypeScript SDK, v2 line) and `zod` (minimum 4.6.7 for the collection-validation
 security patch). `@aws-sdk/client-s3` is the ops-only
 exception for optional S3-compatible backup uploads; it is loaded only when
@@ -69,6 +69,35 @@ transport; `@better-auth/kysely-adapter@1.7.13` and `kysely@0.29.7`
 for the official native dialect with query/transaction-scoped reservations; `jose@6.2.3` for JWKS JWT verification. The existing personal
 tokens satisfy D7, so do not install the api-key plugin. No native deps.
 The auth CLI is an offline schema-generation tool, not a runtime dependency. Prefer the platform and the existing set otherwise.
+
+## Product ownership (2026-11-14)
+
+The browser application, account UX/session, navigation, Home, deck editor and
+game entry now belong to [Multiverse](../multiverse/AGENTS.md). This package keeps
+the existing account/auth backend, Actor/SQLite capability layer, deck services,
+CLI and MCP. The product consumes public `./contracts` type exports and `./host`
+runtime composition; browser code never imports private backend files. There is
+one identity/database implementation and no account migration.
+
+Run browser/product checks in `packages/multiverse`; this package's gate covers
+backend types and tests. Existing launch commands delegate to the product-owned
+entrypoint. Preserve storage/environment/credential paths when changing launch
+composition. See [application boundaries](../../docs/multiverse-app.md).
+
+The unified product consumes local workspace dependencies `@multiverse/game-ui`
+(shared presentation) and `@multiverse/game-client/preview` (an explicit captured
+opening preview). They provide one table implementation, never another account
+or rules runtime. Vite deduplicates React/React DOM to the host. The Node-only
+`@multiverse/game-client/verify-preview` build hook validates retained fixture
+provenance without SDK generation. Do not import private game-client app/session
+modules or load its global styles. Full match provisioning/admission remains a
+separate capability-layer integration.
+
+For an isolated checkout, this package now retains its own install lock and local
+TypeScript compiler. From the repository root use
+`sh scripts/engine-env.sh npm --prefix packages/deck-builder ci --workspaces=false --ignore-scripts`.
+This does not install into or replace the root shared node_modules.
+
 
 ```
 src/
@@ -113,7 +142,8 @@ src/
   sharing.ts         visibility, slugs, publishing, public profiles (spec §18)
   preview.ts         link-preview tags injected into index.html for /d/:slug and /u/:handle
   app.ts             request-to-Actor seam, UI API, per-user event streams, static files, /mcp
-  server.ts          entry point: loopback in local mode, all interfaces in hosted mode
+  host.ts            public backend lifecycle factory; product owns the process entrypoint
+  contracts.ts       public type-only boundary consumed by the product API client
   mcp/
     playbook.ts      INSTRUCTIONS (short) and PLAYBOOK (returned by start_session)
     render.ts        text for agents — compact, grouped, counts stated
@@ -121,12 +151,12 @@ src/
     http.ts          Streamable HTTP endpoint: Host/Origin checks, token, attribution
     stdio.ts         stdio shim: a pipe to the running app
 skill/commander-deck-building/SKILL.md   method for agents (optional Agent Skill)
-web/                 React UI. web/ARCHITECTURE.md is its manual; web/DESIGN.md the design system
+../multiverse/web/   Product React UI; ARCHITECTURE.md and DESIGN.md are its manuals
   src/design/        tokens.css, base.css — the only place raw colours and sizes exist
   src/ui/            generic primitives (Button, Tabs, Dialog, Toast, useHotkeys…)
   src/mtg/           how a card is shown (ManaCost, CardRef + hover card, RichText)
   src/domain/        pure functions over wire types (grouping, review, marks)
-  src/api/           client.ts (typed client — wire types imported from src/, erased at build),
+  src/api/           typed client via public backend /contracts; type imports erased at build,
                      live.tsx (event stream), useQuery.ts
   src/app/           routes, sidebar shell, app-wide providers
   src/features/      one folder per screen: deck/ (incl. ReadOnlyDeck), inbox/, decisions/, memories/,
@@ -146,7 +176,7 @@ Run from this directory (`packages/deck-builder/`):
 | `npm stop` / `npm run restart` | Stop it / rebuild and restart it |
 | `npm run status` / `npm run logs` | Is it up / last log lines (`-f` follows) |
 | `npm run dev` | **Frontend loop**: API on :8787 + Vite HMR on :5173. Use :5173 |
-| `npm run check` | Typecheck (src + web) then test — the gate before committing |
+| `npm run check` | Backend typecheck and tests; also run the Multiverse gate for browser changes |
 | `npm test` | Tests only — `node --test`, **not** Vitest |
 | `npm run seed:demo` | Create the sample deck if absent, through the first-run capability |
 | `npm run refresh` | CLI job: stream cards, then prices. `-- --force` bypasses freshness; Settings only enqueues a child job |
@@ -203,17 +233,18 @@ Local clients retain their HTTP and stdio configurations.
 
 ### Doing frontend work
 
-Run `npm run dev`, then `npm run seed:demo` once, then open
-`http://localhost:5173/deck/<id>`. **Seed the demo before judging any
-layout** — against an empty deck most panels render nothing.
+Work in `packages/multiverse` and follow its [setup](../multiverse/README.md).
+The backend `npm run dev` alias also delegates there. Against a disposable
+DB/DATA fixture, run this package's `npm run seed:demo` once before judging deck
+layouts; an empty deck omits most panels. Do not seed or test against owner data.
 
-**Read [web/ARCHITECTURE.md](web/ARCHITECTURE.md) first.** The UI is layered
+**Read [the product frontend architecture](../multiverse/web/ARCHITECTURE.md) first.** The UI is layered
 (`design` → `ui` → `mtg` → `domain` → `api` → `app` → `features`) with
-one-way imports, and `test/web-architecture.test.ts` fails the build on an
+one-way imports, and `packages/multiverse/test/web-architecture.test.ts` fails on an
 import that goes the wrong way or a hex colour in a component's CSS. Every
 primitive is shown in every state at `/design`; a new screen is assembled
 from those, so it matches without new CSS for the basics. The rules behind
-the look are in [web/DESIGN.md](web/DESIGN.md).
+the look are in [the product design system](../multiverse/web/DESIGN.md).
 
 `DECKBUILDER_PORT` and `DECKBUILDER_WEB_PORT` move the two dev servers; the
 Vite proxy follows the API port.
@@ -319,7 +350,7 @@ must be at least 32 characters when set and only claims user 1 while auth_id is 
 Hosted startup also requires non-secret `DECKBUILDER_OPERATOR_NAME` and
 `DECKBUILDER_CONTACT_EMAIL`, served to legal pages from session bootstrap.
 Secrets belong in the environment or ignored `.env`, never code or logs.
-Use `node --env-file=.env src/server.ts` for explicit local env-file loading;
+Use `node --env-file=.env ../multiverse/src/server.ts` from this package for explicit local env-file loading;
 set DB/DATA to an ignored `.dev/` copy when testing hosted mode. Never migrate
 or test against the owner's live data.
 
@@ -351,15 +382,18 @@ Phase 4b adds human-only `createDemo` (src/demo.ts) and first-run voice
 memory/profile writes, and resolves all cards against installed data. The CLI
 is a thin adapter and never replaces an existing sample. UI components call
 only api/ clients, never fetch directly. TabletShell must call useWindowScroll;
-keep the inherited phone and public contracts intact. See DESIGN.md and
-ARCHITECTURE.md for the 720/960/1100 boundaries and lazy-route budget check.
+keep the inherited phone and public contracts intact. See the product's
+[design system](../multiverse/web/DESIGN.md) and
+[architecture](../multiverse/web/ARCHITECTURE.md) for breakpoints and lazy-route checks.
 
 ## Focused test gate
 
 Keep tests for tenant isolation and actor permissions, public-state privacy, migrations
 and content preservation, backup/restore, card resolution, membership/undo, proposals,
-import parsing, hosted sessions/headers, MCP smoke and web architecture. Prefer a
+import parsing, hosted sessions/headers and MCP smoke. Product architecture and
+browser tests belong to Multiverse. Prefer a
 small representative regression over matrices or UI copy/markup/CSS assertions.
 Run `npm run check` before committing; browser regressions live separately in `browser-checks/`.
 
-See [TESTING.md](TESTING.md) for the 109-test baseline and deletion inventory.
+See [TESTING.md](TESTING.md) for current gate ownership and the historical
+109-test baseline/deletion inventory.

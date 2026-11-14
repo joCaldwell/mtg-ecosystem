@@ -1,7 +1,7 @@
 import type { SeatResume } from '@multiverse/game-server-sdk';
 import type { PresentationArtifact } from '../../generated/presentation.d.ts';
 import { cardView, inspectDecision } from './opening-fixture.ts';
-import type { CardView, TableView } from './table-model.ts';
+import type { CardView, TableView } from '@multiverse/game-ui';
 
 /** Group only the supplied permitted objects. Core owns visibility, current
  * characteristics, targets and combat; this adapter supplies no legal actions. */

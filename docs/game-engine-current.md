@@ -3,14 +3,20 @@
 Start here for engine/server work. The engine executes complete **finite**
 Commander matches, supports sampled-world search on its reviewed subset, and has
 a local Rust host with a generated TypeScript SDK. It is not a general Magic
-rules implementation or arbitrary-deck service. The standalone deck-builder
-uses its own Scryfall database and does not consume this engine.
+rules implementation or arbitrary-deck service. The deck library uses its own
+Scryfall database and does not execute this engine. The top-level Multiverse app
+hosts account UX, deck editing and game setup through public package boundaries;
+its current table preview does not establish real game launch.
 
 ## Architecture and ownership
 
 | Location | Responsibility |
 | --- | --- |
 | `packages/oracle-parser/` | TypeScript source parsing and versioned AST archive; complete parsing alone does not prove executable semantics |
+| `packages/multiverse/` | Product account UX, navigation, deck editor, game setup, browser build and process entrypoint |
+| `packages/deck-builder/` | Existing account/auth, Actor/SQLite, deck capability and MCP backend behind public interfaces |
+| `packages/game-ui/` | Shared permitted table/card inspection display and scoped styling; no rules or session effects |
+| `packages/game-client/` | Game protocol adapters, decision drafts, session recovery, qualified preview and standalone harness |
 | `packages/game-engine/crates/contracts/` | Rust executable Card IR types, validation and schema authority |
 | `packages/game-engine/crates/compiler/` | Complete-source lowering or explicit rejection; archived-source provenance and catalog loading |
 | `packages/game-engine/crates/core/` | Deterministic state, rules, events, decisions, observations, queries, snapshots and replay |
@@ -76,36 +82,39 @@ damage cleanup; intrinsic and equipped protection still union normally.
 This source foundation adds no pool, hosting/search or consumer admission.
 The separately fenced `temporary_flying_spell_v1` foundation supports complete
 Jump source through the same exact-incarnation keyword union and cleanup.
-`compound_indestructible_spell_v1` supports complete Mortal's Resolve as exactly
-+1/+1 then indestructible on one shared target; the pure-grant contracts remain
-unchanged. The separate `temporary_deathtouch_spell_v1` foundation supports
+`compound_indestructible_spell_v1` supports an ordered fixed signed stat modifier
+then indestructible on one shared target. Mortal's Resolve, Adamant Will and
+Unlikely Aid use that same parameterized contract and runtime; only Mortal's
+Resolve has pool admission. Pure-grant contracts remain unchanged. The separate `temporary_deathtouch_spell_v1` foundation supports
 complete Serpent's Gift source as one ordinary creature grant until cleanup;
 damage uses the source's current or latest departure appearance and never treats
 older ordinary damage as newly deathtouch. It has no pool or consumer admission.
 These foundations are scoped in the [keyword contract](game-engine-indestructible.md).
 Damage-source LKI admits validated spell grants while replay authenticates the
 historical appearance; the guard retains duplicate and departure invariants.
-The current three-increment focused qualification uses source
-`babb01b79366c63fe6c31d06d025c4927236f691` and copied CLI producer
-`158bb7dd93e7a9d6aec6f29e5a91d37fcf9cd450ab0d363df1398445efc9c52e`,
-with all 773 compiled source rows verified. It passed 394 Rust tests, including
-compound/Collar and adjacent paid prefixes, shared policy tests and catalog
-freshness, plus 65 exported-schema probes, formatting, workspace all-target
-compilation and CLI smoke/replay. Runtime tests use opt-level 2; the CLI uses
-opt-level 0. Their distinct build identities and exact executed binary hashes
-are retained rather than treating the CLI as the test producer.
-Compiler/core/simulator production Clippy passed strictly; contracts production
-Clippy used only the inherited `collapsible_if` exception. Exact copies,
-commands, source hashes and omissions are retained in the active next-three
-worktree under `generated/next-three/combined01/`. The exported schema SHA-256 is
-`544f1d14d2a1f7f6ce5d0c3b016e3929678f76b3443445afb0d445b8df9441c7`.
-This is focused development qualification, excluding full runtime, release,
-profile/completion and downstream consumer matrices. The earlier blue full-game
-witness remains qualified to its separately named producer. The preceding
-five-increment qualification at `4b9f8bb2fa5d544ab12947328e5efe2947be3264`
-retains its own 763-row producer and evidence in `generated/five-more/combined01/`;
-that batch also rejects unconsumed Aura-return sentence bindings without changing
-exact Rancor IR.
+The shared `temporary_creature_keyword_program_v1` family adds ordinary
+nonempty, duplicate-free combinations of Flying, Deathtouch, Indestructible and
+Lifelink, optionally preceded by a fixed signed stat modifier. One descriptor
+and strict compiler decoder feed the existing grant/damage/cleanup systems.
+Five complete source witnesses cover those combinations; existing pure and
+compound subset requirements, catalogs and playable pools remain unchanged.
+The current focused qualification retains source
+`6b23e81bc5535e6f4f89224072f01141981c7675`, CLI producer
+`cbcc7622ef4e4c163a562cdb88b3fc528033b6727ee2b21db36000b17af9a7f6`
+and all 787 compiled source rows. It passed 459 distinct selected Rust tests
+(460 executions, with one overlapping core filter), 230 exported-schema probes,
+workspace all-target compilation, formatting, production Clippy and CLI
+smoke/replay. Exact executed binaries, test/CLI optimization identities and
+preserved failed attempts are under `generated/temporary-keyword-family/`.
+The schema SHA-256 is
+`1f632959eee76189b256d797c0ae07f6c838c8631dcd6654ef2aec31fbca66d6`.
+Compiler/core/simulator production Clippy passed strictly; contracts retains only
+the inherited `collapsible_if` exception. This is focused qualification, excluding
+full runtime, release/profile/completion, server/SDK and consumer matrices.
+Earlier source-qualified evidence remains in `generated/mechanic-families/`,
+`generated/next-three/` and `generated/five-more/`; the blue full-game and client
+acceptances retain their own producer identities. No new pool or consumer
+acceptance follows from the source foundation.
 The only active IR schema is 1 while there are no external consumers; new
 features evolve it in place with capability validation and exact build fencing.
 Current in-place support covers [grouped power-qualified damage and opponent

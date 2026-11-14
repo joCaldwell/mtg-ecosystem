@@ -1,13 +1,19 @@
 # Desktop Commander playtester
 
-Open a deck and choose **Playtest**, or navigate to `#/deck/<id>/playtest`.
-The first version implements the [approved requirements](playtester-design-brief.md)
-inside the standalone deck-builder. It was designed for 2560×1440 and larger
-monitors at 100% scaling and zoom, and adapts to smaller ones: the inspector
-narrows with the window, short windows keep the hand to one scrolling row,
-windows under 960px stack the inspector below the table, and phones scroll the
-table as one page under a sticky action bar. Rules automation, multiplayer and
-completed-game history remain outside this version.
+This is the legacy manual solo playtester, distinct from the engine-backed game
+client and its local preview. Josh has not accepted this feature as a reference
+for the game client's UX. See [current application direction](multiverse-app.md).
+
+Open a deck and choose **Playtest**, or navigate to `/deck/<id>/playtest`.
+The feature remains in the Multiverse product at `packages/multiverse/web`, with
+its capability/storage service in `packages/deck-builder/src/playtest`.
+The [original brief](playtester-design-brief.md) records its first version.
+Current product routing requires a desktop window at least 1100px wide; smaller
+windows get an explicit larger-screen fallback. Rules automation, multiplayer
+and completed-game history remain outside this manual tool.
+
+All `web/` source paths below now belong to `packages/multiverse`; old hash-route
+bookmarks are adopted by the product router.
 
 ## Using the table
 
@@ -145,7 +151,7 @@ wire types enter through `api/client.ts`. `CounterControl` is a generic UI
 primitive. The original visual system is extended with 15px/1.6 rules typography
 and card/table dimensions, rather than changing the deck-list typography.
 
-The `#/design` page demonstrates full, compact, selected, tapped, targeted,
+The `/design` page demonstrates full, compact, selected, tapped, targeted,
 disabled and anonymous cards, zones and inspection. Its four-player study is
 presentation only. A hidden observation contains no card identity; a future
 Rust game service must supply permitted observations and authoritative actions.

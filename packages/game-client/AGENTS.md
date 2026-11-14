@@ -17,8 +17,17 @@ Later decision families and full M2 completion are not established.
   order and binding. Never infer eligibility, costs or visibility from printed text.
 - `presentation` contains pure display transformations. Only authorized projections
   and producer-owned public presentation metadata may enter it; never executable IR.
-- `features` composes cards, decisions, presentation and generic `ui` primitives.
-  `ui` knows no protocol; `cards` formats source-backed text without fetching it.
+- `features` composes decisions and the public `@multiverse/game-ui` presentation
+  package. Shared table, card, inspector and display models live there; do not
+  restore private duplicate components in this package.
+- `preview` owns the router-free `@multiverse/game-client/preview` entrypoint,
+  its qualified captured-fixture adapter and local-only choice feedback. It never
+  imports app routes, session effects, authentication or SDK runtime. Its public
+  component declaration deliberately hides native/SDK generated type inputs;
+  client typechecking proves implementation parity.
+- The Node-only `@multiverse/game-client/verify-preview` export verifies exact
+  historical fixture bytes and binding for consumer builds without SDK generation.
+  It is never imported into the browser runtime.
 - Never import deck-builder private features, SDK example policies, trusted snapshots,
   compiler internals or private source fixtures into the runtime bundle.
 - Fixture provenance belongs in `fixtures/`; raw generated evidence in ignored
@@ -34,7 +43,8 @@ replace shared node_modules or modify root dependencies without coordination.
 No package command may implicitly invoke Cargo, generate native schemas or build
 SDK artifacts. Native builds belong to the native lane under the shared build lock.
 
-`check` runs strict types, import boundaries, pure tests and production build.
+`check` runs strict types, import boundaries (including the transitive public
+preview runtime and shared presentation package), pure tests and production build.
 `test:browser` runs focused Playwright checks against the production fixture build.
 `test:browser:live` requires an explicitly supplied real host origin and four private
 single-seat file paths; it does not start Cargo, a host or bots. Keep authenticated

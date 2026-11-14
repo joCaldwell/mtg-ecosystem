@@ -12,12 +12,12 @@ rules, native simulation/search and hosting.
 | Source data | TypeScript parser and archived AST subset; Rust compiler lowers supported complete sources to executable catalogs. Bulk Card IR emission remains unimplemented. |
 | Rules | Deterministic finite Commander matches, events, private decisions, snapshots/forks and replay; unsupported semantics reject or fault explicitly. |
 | Search and hosting | Sampled-world search on the reviewed foundations profile; local Rust hosting for foundations and attachments with generated TypeScript SDK. |
-| Applications | Active standalone deck-builder with its own Scryfall/SQLite database; it does not depend on parser/engine completion. |
+| Applications | Top-level Multiverse account/navigation, deck editor and game setup; existing Scryfall/SQLite backend and MCP; shared game display and qualified local table preview. |
 
 These are finite supported capabilities, not arbitrary-deck Commander or a
-complete Magic rules implementation. Browser applications and browser-local
-WebAssembly rules remain architectural directions, not a claim of a delivered
-full game client. See [architecture](docs/architecture.md).
+complete Magic rules implementation. Real automated-game launch and full browser
+play still require their own integration. See [application boundaries](docs/multiverse-app.md)
+and [architecture](docs/architecture.md).
 
 ## Engine development
 
@@ -45,7 +45,10 @@ measurements are in the [historical index](docs/history/engine/index.md).
 
 Read the relevant manual before changing a package:
 
-- [Deck-builder](packages/deck-builder/AGENTS.md): standalone application setup.
+- [Multiverse](packages/multiverse/AGENTS.md): product application, account UX, navigation and browser setup.
+- [Deck-builder](packages/deck-builder/AGENTS.md): existing account/API backend, deck capabilities and MCP.
+- [Game UI](packages/game-ui/AGENTS.md): shared permitted table presentation.
+- [Game client](packages/game-client/AGENTS.md): session/decision adapters and standalone integration harness.
 - [Oracle parser](packages/oracle-parser/AGENTS.md): TypeScript AST/archive tools and structural checks.
 - [Game server](packages/game-server/AGENTS.md): local hosting and generated client protocol.
 - [Server SDK](packages/game-server/sdk/AGENTS.md): separate SDK dependencies and verification.

@@ -64,11 +64,12 @@ fn compound_indestructible_rejects_mutated_steps_occurrences_bindings_and_contex
             let steps = &mut a["effects"][0]["steps"];
             match variant {
                 0=>steps.as_array_mut().unwrap().reverse(),
-                1=>steps[0]["power"]["amount"]["value"]=2.into(),
-                2=>steps[0]["toughness"]["sign"]=(-1).into(),
+                // Fixed bonuses are parameters now; variable/count expressions remain outside this family.
+                1=>steps[0]["power"]["amount"]=json!({"amount":"variable","name":"x"}),
+                2=>steps[0]["toughness"]["amount"]=json!({"amount":"count","of":{"types":["creature"],"zone":{"zone":"battlefield"}}}),
                 3=>steps[0]["duration"]["duration"]="forever".into(),
                 4=>steps[1]["duration"]["duration"]="forever".into(),
-                5=>steps[1]["abilities"][0]["keyword"]["keyword"]="flying".into(),
+                5=>steps[1]["abilities"][0]["keyword"]["keyword"]="haste".into(),
                 6=>steps[1]["abilities"].as_array_mut().unwrap().push(json!({"gained":"keyword","keyword":{"keyword":"indestructible"}})),
                 7=>steps[1]["what"]["selectionId"]="line:0:1".into(),
                 8=>steps[0]["what"]["count"]["value"]=2.into(),

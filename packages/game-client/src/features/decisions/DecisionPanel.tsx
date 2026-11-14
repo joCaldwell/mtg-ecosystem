@@ -5,10 +5,11 @@ import styles from './decisions.module.css';
 
 /** onComplete is explicit local human intent only. Future app composition must
  * preserve its original session context and pass through durable-send gates. */
-export function DecisionPanel({ binding, request, labels, onComplete, live = false }: {
+export function DecisionPanel({ binding, request, labels, onComplete, live = false, embedded = false }: {
   readonly binding: DecisionBinding; readonly request: DecisionRequest;
   readonly labels: readonly ObjectLabel[]; readonly onComplete: (completion: DecisionCompletion) => void;
   readonly live?: boolean;
+  readonly embedded?: boolean;
 }) {
   const surface = decisionSurface(request, labels);
   const identity = bindingKey(binding);
@@ -23,7 +24,7 @@ export function DecisionPanel({ binding, request, labels, onComplete, live = fal
   }
   const draft: LocalDraft = identity === state.identity ? state.draft : emptyDraft;
   const bound = binding.token === request.token && binding.seat === request.player;
-  return <section className={styles.panel} aria-label="Local decision draft">
+  return <section className={`${styles.panel} ${live || embedded ? styles.livePanel : ''}`} aria-label="Local decision draft">
     <p className={styles.announcement} role="status">{state.announcement}</p>
     {!bound ? <><h2>Decision binding unavailable</h2><p>No draft can be completed for this seat or token.</p></>
       : surface.status === 'supported' ? <LocalControls control={live && request.request === 'bottom_opening'

@@ -57,6 +57,18 @@ test('four authenticated seats: native identity, permitted hands, CSP, empty com
       await expect(page.getByRole('heading', { name: 'Commander table', exact: true })).toBeVisible();
       await expect(page.getByRole('region', { name: 'Your hand', exact: true }).getByRole('button')).toHaveCount(hand.length);
       await expect(page.getByText('Opening choices are ready. Nothing is sent until you confirm.', { exact: true })).toBeVisible();
+      if (read.state.observation.decision?.request === 'mulligan') {
+        const decision = page.locator('section[aria-labelledby="decision-title"]');
+        const keep = decision.getByRole('radio', { name: 'Keep hand', exact: true });
+        await keep.check();
+        const card = page.getByRole('region', { name: 'Your hand', exact: true }).getByRole('button').last();
+        await card.focus(); await page.keyboard.press('Enter');
+        await expect(keep).toBeChecked();
+        await expect(decision.getByRole('button', { name: 'Confirm opening choice' })).toBeEnabled();
+        await expect(decision.getByRole('region', { name: 'Choice status' })).toContainText('Nothing is sent until you confirm.');
+        await page.keyboard.press('Escape'); await expect(card).toBeFocused();
+        await expect(keep).toBeChecked();
+      }
       const input = page.getByRole('button', { name: 'Jump to decision' });
       await input.focus(); await page.keyboard.press('Enter');
       await expect(page.locator('section[aria-labelledby="decision-title"]')).toBeFocused();

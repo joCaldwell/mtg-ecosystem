@@ -15,6 +15,9 @@
 | Cargo alongside npm workspaces | Adopted 2026-10-11; initial scaffold implemented 2026-10-13 | Separate package toolchains while preserving shared versioned JSON contracts |
 | Commander as the only game product format | User requirement, 2026-10-11 | Build multiplayer and Commander mechanics into the foundation; four-player headless pods are the first planned delivery |
 | Canonical executable definitions with separate printing/set indexes | Proposed refinement of per-set storage | Keep Oracle semantics separate from reprints and preserve language-neutral artifact contracts |
+| Top-level Multiverse application owns account UX, navigation, browser features and process composition | Adopted 2026-11-14; PR #24 merged | Keep product ownership outside the deck-builder feature; preserve the existing account/auth/Actor/SQLite backend behind public host and type-only contracts |
+| Shared game display and separate qualified preview adapter | Implemented 2026-11-14 | Both consumers use `game-ui`; the client preview is router-free, style-scoped and independent of native generation, with build-time fixture provenance checks |
+| First product game journey: one human and three automated opponents | Owner direction, 2026-11-14 | Home and real owned-deck setup precede a local sample preview; real launch still needs admission, account-to-seat provisioning and complete browser decisions |
 
 The language stack is final. Its component assignments and boundaries are in
 [runtime-language-decision.md](runtime-language-decision.md). Execution design
@@ -22,13 +25,13 @@ and delivery evidence remain in [game-engine-spec.md](game-engine-spec.md) and
 [game-engine-plan.md](game-engine-plan.md). Performance measurements guide
 optimization within the adopted stack.
 
-The first Cargo workspace, strict subset compiler, and four-seat scenario kernel
-are implemented. Full Commander games, search, server, and bulk IR emission
-remain future work. The [first scenario brief](game-engine-first-scenario.md)
-freezes source/rules inputs, uses Rust types with generated JSON Schema as the
-IR authority, chooses exact `num-bigint` quantities, and limits admission to
-reviewed immutable definitions and one scenario configuration. Card IR remains
-versioned JSON data.
+The engine/server now support reviewed finite Commander matches, sampled search
+and local hosting; [the current map](game-engine-current.md) owns exact scope.
+Bulk per-set IR emission and arbitrary-deck product launch remain outside that
+acceptance. The [first scenario brief](game-engine-first-scenario.md) preserves
+the initial source/rules inputs and Rust schema authority as historical context.
+Card IR remains versioned JSON data. The [application architecture](multiverse-app.md)
+separately defines product, backend, game display and session ownership.
 
 The current implementation and invariants are documented in
 [oracle_parser.md](oracle_parser.md). The source of truth for the experimental
