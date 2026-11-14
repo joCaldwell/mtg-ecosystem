@@ -22,6 +22,12 @@ provenance hashes and its record-hash pin under the labelled accepted archive. W
 canonical digest. With `--write`, it regenerates both files. Paths inside a
 manifest are relative to that manifest; record and archive paths in provenance
 are relative to the provenance file. `schema_version` must be 1, the only supported Card IR schema.
+Nonland source records with an empty mana-cost string reject: no printed cost is
+an unpayable cost, distinct from `{0}` (CR 118.6/118.6a). The IR does not yet
+represent that distinction, so compilation must not invent ordinary zero-cost
+casting. Lands may retain an empty cost; an explicit `{0}` remains supported.
+Missing, null or malformed mana-cost fields also reject.
+
 Catalog names distinguish source/admission pools; they do not select mechanics. `output_order` is `canonical` (sorted compact JSON), `sorted` (sorted
 pretty JSON), or `struct` (typed field order, pretty JSON); these preserve the
 existing fixture encodings. In the committed fixture layout, `catalogs/*.json`

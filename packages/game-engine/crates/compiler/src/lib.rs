@@ -1232,6 +1232,16 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         }
     }
     let kind = types.kind;
+    // CR118.6/118.6a: no mana cost is distinct from a printed {0}. Until the
+    // IR represents absence explicitly, reject nonland sources rather than
+    // granting ordinary casting or silently treating a free hit as cost zero.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    if kind != CardKind::Land && source.mana_cost.is_empty() {
+        return Err(unsupported(
+            "source.mana_cost",
+            "nonland without a mana cost requires an explicit absent-cost representation",
+        ));
+    }
     let basic = types.basic;
     let power = source
         .power
@@ -8556,6 +8566,9 @@ mod permanent_owner_hand_tests;
 
 #[cfg(test)]
 mod optional_operand_tests;
+
+#[cfg(test)]
+mod absent_mana_cost_tests;
 
 #[cfg(test)]
 mod null_flag_tests;
