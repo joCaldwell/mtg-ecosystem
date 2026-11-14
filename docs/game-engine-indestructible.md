@@ -181,14 +181,15 @@ the implementation checkout; broader runtime/release/consumer checks are exclude
 ## Compound pump and Indestructible source foundation
 
 The schema-1 `compound_indestructible_spell_v1` capability separately admits
-exactly one ordinary nonmodal instant/sorcery program: +1/+1 followed by exactly
+exactly one ordinary nonmodal instant/sorcery program: fixed signed power and
+toughness modification followed by exactly
 `[Indestructible]`, both until end of turn, on the same sole unfiltered creature
 target slot. Both instructions belong to source block 0. It also requires
 `temporary_power_toughness_v1`, `indestructible_v1` and `creature_target_v1`.
 The existing `temporary_indestructible_spell_v1` and `temporary_flying_spell_v1`
 capabilities continue to describe only their pure one-instruction grants.
 Rust and exported schema reject reordered, extra, duplicate or mixed grants,
-other scalar amounts, separate targets, filters, additional sacrifice costs,
+separate targets, filters, additional sacrifice costs,
 modes, activations and triggers. This source foundation adds no pool, profile,
 policy, hosting, search, server or SDK admission.
 
@@ -225,6 +226,59 @@ copied producers, exported schemas, source manifests, command receipts and
 preserved failures are retained under `generated/compound-indestructible/` in
 the implementation checkout; these identify the tested source independently
 from later integration and consumer acceptance.
+
+### Parameterized compound family
+
+The public contracts helper
+`compound_indestructible_parameters(&SpellProgram) -> Option<(&Quantity, &Quantity)>`
+recognizes the complete supported program shape and returns its actual signed
+bonuses. The caller checks definition kind/context. Contracts validation and
+capability derivation share this helper; exported schema uses `ExactQuantity`
+for both bonuses. Zero, negative and arbitrary-precision quantities remain
+parameters of the same mechanic. They do not create per-bonus capabilities or
+change schema 1. Tests label these quantities as synthetic IR, not real cards.
+The old +1/+1-only negative expectations are deliberately replaced with source
+block/resolution mismatches and nonfixed AST quantities; genuine shape negatives
+remain. No compiler production or core mechanic changes are required.
+
+Two additional complete frozen witnesses use the same path as Mortal's Resolve:
+
+| Source | Physical line / source index | Cost | Fixed bonuses | Record SHA-256 |
+| --- | --- | --- | --- | --- |
+| [Adamant Will](../packages/game-engine/tests/fixtures/467e22c3-6107-40ff-afc7-5960710c970b.json) | 10595 / 10593 | `{1}{W}` | +2/+2 | `d61101bc7af4150ccd5d99b879d6b05e27758e24e0a6afdeb32c7a7610d770ab` |
+| [Unlikely Aid](../packages/game-engine/tests/fixtures/795e0ffb-fcd9-4cb9-ad18-8a0217229bfe.json) | 18299 / 18297 | `{1}{B}` | +2/+0 | `cf650fa0764517eec93a92133aa0245c93bdffa203ba1927f40a924fbc806696` |
+
+Both come byte-for-byte from the same d705 archive identified above, with normal
+layout, Commander-legal paper source and one fully parsed sentence. Each has two
+fully bound references to the shared `line:0:0` selection and no diagnostics.
+Adamant Will source/AST/binding SHA-256 values are respectively
+`42dd4c033da6f0444a68c7bbdd9311d110c27d3f1cbd6a839e3b2adf8b104c18`,
+`5f85e210ae3f5489233aacd79146a5519eb411e2aeb2044c899d3ded910d1fc9`,
+`a790788083d54b7760cd5b801131ba35065198a4215749fd9e4fbd5f1b08e98d`;
+Unlikely Aid values are
+`ae86dc4ecdf8c6c8cec142fdfadfc00d588c44dca9b7fb1f9fbdb0f33e88832d`,
+`bc05ce23c6826a998d60f04d6cfbee7ffad39bbb55a942a60a95bfcc53dda5fd`,
+`371b0ae4f18209047f95f1e16ea0c234d3ede984886649a08bd3152f8c504c50`.
+The fixture provenance and accepted archive entries extend additively without
+catalog or consumer admission.
+
+The retained baseline CLI SHA-256
+`390fac7272066f9e885fabe8837e6df854c55136e3e7527c7448642622400494`
+(producer `158bb7dd93e7a9d6aec6f29e5a91d37fcf9cd450ab0d363df1398445efc9c52e`,
+773 source rows matching `ac95b1c`) executed full-archive coverage: both new
+witnesses reject at the old compound-grant boundary, while Mortal's Resolve
+lowers and validates. Retained output lives under
+`generated/compound-indestructible-family/baseline-red/` in the family checkout.
+This is executed baseline evidence, not execution of the new source.
+
+Dedicated contracts/compiler tests cover exact parameters and all three frozen
+sources. Private core family tests exercise paid casting, distinct resulting
+stats, destruction and lethal marked damage, cleanup, fresh destruction,
+bounce/reentry, resolution revalidation, invalid responses, query atomicity,
+suspended instruction prefixes and snapshot/replay at q=1/detailed and
+q=4096/off. These newly added tests and final exported-schema probes are **UNRUN**
+at this source-only checkpoint; the parent combined native pass owns their
+qualification. The family adds no profile, policy, host or search admission.
 
 ## Temporary Deathtouch source foundation
 
