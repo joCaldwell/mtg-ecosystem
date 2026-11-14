@@ -142,9 +142,10 @@ fn temporary_flying_rejects_spare_capabilities_and_other_single_keywords() {
         b.capabilities.insert(cap);
         assert!(b.validate().is_err());
     }
+    // Recompute full-family requirements below: Haste now belongs to that family.
     for keyword in [
         KeywordAbility::Reach,
-        KeywordAbility::Haste,
+        KeywordAbility::DoubleStrike,
         KeywordAbility::Vigilance,
     ] {
         let mut b = d.clone();
