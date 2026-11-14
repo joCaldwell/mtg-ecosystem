@@ -3753,3 +3753,6 @@ mod temporary_deathtouch_tests;
 
 #[cfg(test)]
 mod temporary_creature_keyword_family_tests;
+
+#[cfg(test)]
+mod controlled_creature_protection_tests;

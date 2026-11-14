@@ -9,34 +9,27 @@ export function TokenDialog({
   onClose: () => void;
   onCreate: (oracleId: string) => void;
 }) {
-  const [query, setQuery] = useState(""),
-    [cards, setCards] = useState<CardData[]>([]),
-    [error, setError] = useState<string | null>(null),
-    [loading, setLoading] = useState(false);
+  const [query, setQuery] = useState("");
+  const q = query.trim();
+  const [response, setResponse] = useState<{ query: string; cards: CardData[]; error: string | null } | null>(null);
+  const current = !!q && response?.query === q;
+  const cards = current ? response.cards : [];
+  const error = current ? response.error : null;
+  const loading = !!q && !current;
   useEffect(() => {
-    if (!query.trim()) {
-      setCards([]);
-      return;
-    }
+    if (!q) return;
     const abort = new AbortController();
     const timer = setTimeout(() => {
-      setLoading(true);
-      setError(null);
-      void api
-        .search(query, undefined, false, abort.signal)
-        .then(setCards)
-        .catch((e) => {
-          if (!abort.signal.aborted) setError(e.message);
-        })
-        .finally(() => {
-          if (!abort.signal.aborted) setLoading(false);
-        });
+      void api.search(q, undefined, false, abort.signal).then(
+        cards => { if (!abort.signal.aborted) setResponse({ query: q, cards, error: null }); },
+        error => { if (!abort.signal.aborted) setResponse({ query: q, cards: [], error: error instanceof Error ? error.message : String(error) }); },
+      );
     }, 250);
     return () => {
       clearTimeout(timer);
       abort.abort();
     };
-  }, [query]);
+  }, [q]);
   return (
     <Dialog title="Create a token from card data" onClose={onClose}>
       <p>
@@ -44,6 +37,7 @@ export function TokenDialog({
         copy a selected table object from the inspection panel.
       </p>
       <TextField
+        type="search" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
         data-autofocus
         aria-label="Find card for token"
         value={query}

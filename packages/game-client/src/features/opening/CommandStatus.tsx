@@ -21,7 +21,7 @@ export function CommandStatus({ command, connected, onRetry }: {
       : 'Safe choice storage is unavailable or damaged. Sending is blocked. Restore browser storage, then release and reimport your seat file. Saved uncertain choices must be preserved.'; break;
   }
   return <section className={styles.status} aria-label="Choice status"><p role="status" aria-live="polite">{message}</p>
-    {command.phase === 'unresolved' && <button disabled={!connected} onClick={onRetry}>Check or retry saved choice</button>}
+    {command.phase === 'unresolved' && <button type="button" disabled={!connected} onClick={onRetry}>Check or retry saved choice</button>}
     {!connected && command.commandId && <p>Reconnect by reimporting the same seat file. Releasing or refreshing this page does not undo the saved choice.</p>}
   </section>;
 }

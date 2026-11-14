@@ -80,5 +80,5 @@ and [storage](../../docs/game-engine-storage.md) are topical entry points.
 Accepted D2c-d at `394301d` excludes later IR25 and digest reuse. Candidate-focused
 checks are not combined acceptance or a renewed P7 claim. Use the
 [current evidence table](../../docs/game-engine-current.md#evidence-boundaries-at-the-platform-baseline)
-and [history index](../../docs/history/engine/index.md). The old 522-line manual
-is preserved there as historical context, not current release authority.
+and [evidence guide](../../docs/game-engine-evidence.md). Older manuals are
+recoverable in Git; they do not override current constraints or release scope.

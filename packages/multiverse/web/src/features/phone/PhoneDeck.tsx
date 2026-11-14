@@ -26,9 +26,9 @@ export function PhoneDeck({ deckId, proposalId }: { deckId: number; proposalId?:
 function Gate({ proposalId }: { proposalId?: number }) {
   const { state, missing, loadError, retry } = useDeck();
   if (missing)
-    return <EmptyState title="This deck does not exist">It may have been deleted. <a href={href({ page: "decks" })}>Back to your decks</a></EmptyState>;
+    return <EmptyState heading="h1" title="This deck does not exist">It may have been deleted. <a href={href({ page: "decks" })}>Back to your decks</a></EmptyState>;
   if (!state && loadError)
-    return <EmptyState title="Could not load this deck">The server could not be reached. <Button size="touch" onClick={retry}>Retry</Button></EmptyState>;
+    return <EmptyState heading="h1" title="Could not load this deck">The server could not be reached. <Button size="touch" onClick={retry}>Retry</Button></EmptyState>;
   if (!state) return <Loading />;
   return <Deck proposalId={proposalId} />;
 }

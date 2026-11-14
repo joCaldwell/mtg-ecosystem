@@ -108,19 +108,10 @@ keyboard/focus/draft continuity and desktop/tablet/phone navigation. Use disposa
 source-backed browser fixtures. Keep real-host/full-game acceptance separate from
 this scaffold and retain meaningful failed results.
 
-## Current documentation entrypoints
+## Canonical guidance
 
-- [Product setup](../packages/multiverse/README.md),
-  [frontend architecture](../packages/multiverse/web/ARCHITECTURE.md) and
-  [design system](../packages/multiverse/web/DESIGN.md) govern the application.
-- [Backend manual](../packages/deck-builder/AGENTS.md),
-  [operations](../packages/deck-builder/OPERATIONS.md) and
-  [test ownership](../packages/deck-builder/TESTING.md) govern the existing service.
-- [Client setup](../packages/game-client/README.md),
-  [shared display manual](../packages/game-ui/AGENTS.md) and
-  [delivery criteria](game-client-delivery.md) distinguish the preview/harness
-  from future game launch.
-- [Integration evidence](../packages/multiverse/INTEGRATION-REPORT.md) and
-  [live opening evidence](../packages/game-client/LIVE-OPENING-REPORT.md) retain
-  exact acceptance. Older release plans, audits and playtester briefs are
-  historical context; they do not override current ownership or acceptance.
+[Product setup](../packages/multiverse/README.md), [browser architecture](../packages/multiverse/web/ARCHITECTURE.md)
+and [design](../packages/multiverse/web/DESIGN.md) govern the application.
+[Backend specification](deck-builder-spec.md) and [operations](../packages/deck-builder/OPERATIONS.md)
+govern the existing account/data system. [Client contracts and acceptance](game-client.md)
+retain current delivery gates, exact integration evidence and explicit omissions.

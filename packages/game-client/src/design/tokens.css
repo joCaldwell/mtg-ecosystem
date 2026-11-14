@@ -1,4 +1,4 @@
-/* Local product identity, aligned with deck-builder web/DESIGN.md and its base
+/* Local product identity, aligned with multiverse web/DESIGN.md and its base
    tokens. Kept independent: this client imports no deck-builder runtime UI. */
 :root {
   --sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -9,7 +9,7 @@
   --surface: #111;
   --raised: #1a1a1a;
   --line: rgb(255 255 255 / .08);
-  --control-line: rgb(255 255 255 / .16);
+  --control-line: rgb(255 255 255 / .45);
   --hover: rgb(255 255 255 / .04);
   --text: #f5f5f5;
   --soft: #d4d4d4;
@@ -21,16 +21,16 @@
   --ink: #000;
   --card: #111;
   --card-edge: rgb(255 255 255 / .16);
-  --radius: 6px;
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
-  --text-small: 12px;
-  --text-body: 13px;
-  --text-title: 17px;
-  --header-height: 48px;
+  --radius: 0.375rem;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --text-small: 0.75rem;
+  --text-body: 0.8125rem;
+  --text-title: 1.0625rem;
+  --header-height: 3rem;
   --fast: 120ms;
 }

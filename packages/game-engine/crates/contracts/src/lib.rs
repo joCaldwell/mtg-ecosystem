@@ -2556,6 +2556,7 @@ pub fn supported_temporary_creature_keywords(keywords: &[KeywordAbility]) -> boo
                     | KeywordAbility::Deathtouch
                     | KeywordAbility::Indestructible
                     | KeywordAbility::Lifelink
+                    | KeywordAbility::Hexproof
             ) && !keywords[..index].contains(keyword)
         })
 }
@@ -2581,7 +2582,8 @@ pub fn temporary_creature_keyword_program(
         || !matches!(p.targets.as_slice(), [t] if t.slot == 0
             && !t.selection_id.is_empty() && t.chooser == Chooser::Controller
             && t.stage == EvaluationStage::Announcement
-            && t.domain == TargetDomain::BattlefieldCreature && t.filter.is_none())
+            && matches!(t.domain, TargetDomain::BattlefieldCreature
+                | TargetDomain::ControlledBattlefieldCreature) && t.filter.is_none())
     {
         return None;
     }
@@ -2618,13 +2620,19 @@ pub fn temporary_creature_keyword_program(
 /// Quantities remain exact signed parameters of the shared program descriptor.
 pub fn compound_indestructible_parameters(p: &SpellProgram) -> Option<(&Quantity, &Quantity)> {
     let program = temporary_creature_keyword_program(p)?;
-    if program.keywords == [KeywordAbility::Indestructible] {
+    if p.targets[0].domain == TargetDomain::BattlefieldCreature
+        && program.keywords == [KeywordAbility::Indestructible]
+    {
         program.modifier
     } else {
         None
     }
 }
 fn temporary_creature_keyword_capability(p: &SpellProgram) -> Capability {
+    // Legacy subset labels describe only the original unfiltered target policy.
+    if !matches!(p.targets.as_slice(), [t] if t.domain == TargetDomain::BattlefieldCreature) {
+        return Capability::TemporaryCreatureKeywordProgramV1;
+    }
     match temporary_creature_keyword_program(p) {
         Some(TemporaryCreatureKeywordProgram {
             modifier: None,
@@ -3010,7 +3018,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
             }
             Instruction::GrantKeywords { target_slot, .. } => {
-                Some((*target_slot, TargetDomain::BattlefieldCreature))
+                // The complete family guard above restricts this to its two domains.
+                Some((*target_slot, p.targets[0].domain))
             }
             Instruction::ModifyPowerToughness { target_slot, .. } => {
                 let domain = p
@@ -3021,7 +3030,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 if !matches!(
                     domain,
                     TargetDomain::BattlefieldCreature | TargetDomain::BlockingBattlefieldCreature
-                ) {
+                ) && !(domain == TargetDomain::ControlledBattlefieldCreature
+                    && temporary_creature_keyword_program(p).is_some())
+                {
                     return Err("unsupported creature pump target domain".into());
                 }
                 Some((*target_slot, domain))
@@ -3326,6 +3337,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                     }
                     KeywordAbility::Lifelink => {
                         set.insert(Capability::LifelinkV1);
+                    }
+                    KeywordAbility::Hexproof => {
+                        set.insert(Capability::AttachmentsV1);
                     }
                     _ => (), // Rejected by ordinary_keyword_grant, never admitted here.
                 }
@@ -4005,7 +4019,7 @@ pub fn catalog_schema() -> serde_json::Value {
     });
     schema["$defs"]["TemporaryCreatureKeywords"] = serde_json::json!({
         "type":"array","minItems":1,"uniqueItems":true,
-        "items":{"enum":["flying","deathtouch","indestructible","lifelink"]}
+        "items":{"enum":["flying","deathtouch","indestructible","lifelink","hexproof"]}
     });
     schema["$defs"]["TemporaryCreatureKeywordInstructions"] = serde_json::json!({"anyOf":[
         {"minItems":1,"maxItems":1,"items":{"properties":{
@@ -4028,10 +4042,20 @@ pub fn catalog_schema() -> serde_json::Value {
         "then":{"properties":{
             "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
-            "targets":{"minItems":1,"maxItems":1,"items":{"properties":{"slot":{"const":0},"selection_id":{"minLength":1},"chooser":{"const":"controller"},"stage":{"const":"announcement"},"domain":{"const":"battlefield_creature"},"filter":{"type":"null"}}}},
+            "targets":{"minItems":1,"maxItems":1,"items":{"properties":{"slot":{"const":0},"selection_id":{"minLength":1},"chooser":{"const":"controller"},"stage":{"const":"announcement"},"domain":{"enum":["battlefield_creature","controlled_battlefield_creature"]},"filter":{"type":"null"}}}},
             "instructions":{"$ref":"#/$defs/TemporaryCreatureKeywordInstructions"}
         }}
     }));
+    schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["instructions","targets"],"properties":{
+            "instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"modify_power_toughness"}}}},
+            "targets":{"contains":{"required":["domain"],"properties":{"domain":{"const":"controlled_battlefield_creature"}}}}
+        }},
+        "then":{"properties":{"instructions":{"$ref":"#/$defs/TemporaryCreatureKeywordInstructions"}}}
+    }));
+    let plain_grant_target = serde_json::json!({"properties":{"spell":{"properties":{
+        "targets":{"minItems":1,"maxItems":1,"items":{"properties":{"domain":{"const":"battlefield_creature"}}}}
+    }}}});
     for (keyword, capability, ordinary) in [
         (
             "deathtouch",
@@ -4050,12 +4074,12 @@ pub fn catalog_schema() -> serde_json::Value {
         ),
     ] {
         schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-            "if":{"allOf":[temporary_keyword(keyword),{"properties":{"spell":{"properties":{"instructions":{"$ref":"#/$defs/PureKeywordGrantInstructions"}}}}}]},"then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},"capabilities":{"allOf":[{"contains":{"const":capability}},{"contains":{"const":ordinary}}]}}},
+            "if":{"allOf":[plain_grant_target,temporary_keyword(keyword),{"properties":{"spell":{"properties":{"instructions":{"$ref":"#/$defs/PureKeywordGrantInstructions"}}}}}]},"then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},"capabilities":{"allOf":[{"contains":{"const":capability}},{"contains":{"const":ordinary}}]}}},
             "else":{"properties":{"capabilities":{"not":{"contains":{"const":capability}}}}}
         }));
     }
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"required":["spell"],"properties":{"spell":{"type":"object","required":["instructions"],"properties":{"instructions":{"$ref":"#/$defs/CompoundIndestructibleInstructions"}}}}},
+        "if":{"required":["spell"],"properties":{"spell":{"type":"object","required":["instructions"],"properties":{"targets":{"minItems":1,"maxItems":1,"items":{"properties":{"domain":{"const":"battlefield_creature"}}}},"instructions":{"$ref":"#/$defs/CompoundIndestructibleInstructions"}}}}},
         "then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},"capabilities":{"allOf":[
             {"contains":{"const":Capability::CompoundIndestructibleSpellV1}},
             {"contains":{"const":Capability::CreatureTargetV1}},
@@ -4065,9 +4089,11 @@ pub fn catalog_schema() -> serde_json::Value {
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::CompoundIndestructibleSpellV1}}}}}
     }));
     let family_grant = serde_json::json!({"required":["spell"],"properties":{"spell":{
-        "type":"object","required":["instructions"],"properties":{"instructions":{
-            "allOf":[{"$ref":"#/$defs/TemporaryCreatureKeywordInstructions"},
-                {"not":{"anyOf":[{"$ref":"#/$defs/PureKeywordGrantInstructions"},{"$ref":"#/$defs/CompoundIndestructibleInstructions"}]}}]
+        "type":"object","required":["instructions","targets"],"properties":{
+            "instructions":{"$ref":"#/$defs/TemporaryCreatureKeywordInstructions"}
+        },"not":{"properties":{
+            "targets":{"minItems":1,"maxItems":1,"items":{"properties":{"domain":{"const":"battlefield_creature"}}}},
+            "instructions":{"anyOf":[{"$ref":"#/$defs/PureKeywordGrantInstructions"},{"$ref":"#/$defs/CompoundIndestructibleInstructions"}]}
         }}
     }}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
@@ -4119,11 +4145,19 @@ pub fn catalog_schema() -> serde_json::Value {
             ]}}}}}
         }));
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":any_grant,"then":{"properties":{
-            "capabilities":{"contains":{"const":Capability::CreatureTargetV1}}
-        },"if":{"properties":{"spell":{"properties":{"instructions":{"minItems":2}}}}},
+        "if":any_grant,"then":{"if":{"properties":{"spell":{"properties":{"instructions":{"minItems":2}}}}},
         "then":{"properties":{"capabilities":{"contains":{"const":Capability::TemporaryPowerToughnessV1}}}},
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::TemporaryPowerToughnessV1}}}}}}
+    }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":any_grant,"then":{"allOf":[
+            {"if":plain_grant_target,
+             "then":{"properties":{"capabilities":{"contains":{"const":Capability::CreatureTargetV1}}}},
+             "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::CreatureTargetV1}}}}}},
+            {"if":{"anyOf":[{"not":plain_grant_target},temporary_keyword("hexproof")]},
+             "then":{"properties":{"capabilities":{"contains":{"const":Capability::AttachmentsV1}}}},
+             "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::AttachmentsV1}}}}}}
+        ]}
     }));
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({"properties":{
         "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}},

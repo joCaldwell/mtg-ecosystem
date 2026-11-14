@@ -19,6 +19,13 @@ pub(super) fn grant(keywords: &[KeywordAbility], modifier: bool) -> Definition {
     d
 }
 
+fn grant_domain(keywords: &[KeywordAbility], modifier: bool, domain: TargetDomain) -> Definition {
+    let mut d = grant(keywords, modifier);
+    d.spell.as_mut().unwrap().targets[0].domain = domain;
+    d.capabilities = d.requirements();
+    d
+}
+
 #[test]
 fn temporary_creature_keyword_family_preserves_subset_fences() {
     for d in [
@@ -69,6 +76,7 @@ fn vectors(prefix: &mut Vec<KeywordAbility>, result: &mut Vec<Vec<KeywordAbility
         KeywordAbility::Deathtouch,
         KeywordAbility::Indestructible,
         KeywordAbility::Lifelink,
+        KeywordAbility::Hexproof,
     ] {
         if !prefix.contains(&keyword) {
             prefix.push(keyword);
@@ -82,23 +90,38 @@ fn vectors(prefix: &mut Vec<KeywordAbility>, result: &mut Vec<Vec<KeywordAbility
 fn temporary_creature_keyword_family_all_ordered_vectors_have_exact_requirements() {
     let mut combinations = vec![];
     vectors(&mut vec![], &mut combinations);
-    assert_eq!(combinations.len(), 64);
+    assert_eq!(combinations.len(), 325);
     for keywords in combinations {
         assert!(supported_temporary_creature_keywords(&keywords));
-        for modifier in [false, true] {
-            let d = grant(&keywords, modifier);
+        for (modifier, domain) in [false, true].into_iter().flat_map(|modifier| {
+            [
+                TargetDomain::BattlefieldCreature,
+                TargetDomain::ControlledBattlefieldCreature,
+            ]
+            .into_iter()
+            .map(move |domain| (modifier, domain))
+        }) {
+            let d = grant_domain(&keywords, modifier, domain);
             let mut expected = BTreeSet::from([
                 Capability::NormalLayoutV1,
                 Capability::CastInstantV1,
-                Capability::CreatureTargetV1,
+                if domain == TargetDomain::BattlefieldCreature {
+                    Capability::CreatureTargetV1
+                } else {
+                    Capability::AttachmentsV1
+                },
             ]);
-            expected.insert(match (modifier, keywords.as_slice()) {
-                (false, [KeywordAbility::Flying]) => Capability::TemporaryFlyingSpellV1,
-                (false, [KeywordAbility::Deathtouch]) => Capability::TemporaryDeathtouchSpellV1,
-                (false, [KeywordAbility::Indestructible]) => {
+            expected.insert(match (domain, modifier, keywords.as_slice()) {
+                (TargetDomain::BattlefieldCreature, false, [KeywordAbility::Flying]) => {
+                    Capability::TemporaryFlyingSpellV1
+                }
+                (TargetDomain::BattlefieldCreature, false, [KeywordAbility::Deathtouch]) => {
+                    Capability::TemporaryDeathtouchSpellV1
+                }
+                (TargetDomain::BattlefieldCreature, false, [KeywordAbility::Indestructible]) => {
                     Capability::TemporaryIndestructibleSpellV1
                 }
-                (true, [KeywordAbility::Indestructible]) => {
+                (TargetDomain::BattlefieldCreature, true, [KeywordAbility::Indestructible]) => {
                     Capability::CompoundIndestructibleSpellV1
                 }
                 _ => Capability::TemporaryCreatureKeywordProgramV1,
@@ -112,6 +135,7 @@ fn temporary_creature_keyword_family_all_ordered_vectors_have_exact_requirements
                     KeywordAbility::Deathtouch => Capability::DeathtouchV1,
                     KeywordAbility::Indestructible => Capability::IndestructibleV1,
                     KeywordAbility::Lifelink => Capability::LifelinkV1,
+                    KeywordAbility::Hexproof => Capability::AttachmentsV1,
                     _ => unreachable!(),
                 });
             }
@@ -141,6 +165,8 @@ fn temporary_creature_keyword_family_all_ordered_vectors_have_exact_requirements
                 Capability::LifelinkV1,
                 Capability::TemporaryPowerToughnessV1,
                 Capability::ReachV1,
+                Capability::CreatureTargetV1,
+                Capability::AttachmentsV1,
             ] {
                 if !expected.contains(&cap) {
                     let mut spare = d.clone();
@@ -195,9 +221,17 @@ fn temporary_creature_keyword_family_preserves_exact_parameters_and_pure_provena
         KeywordAbility::Deathtouch,
         KeywordAbility::Indestructible,
         KeywordAbility::Lifelink,
+        KeywordAbility::Hexproof,
     ] {
-        for block in [0, 7, u32::MAX] {
-            let mut d = grant(&[keyword], false);
+        for (block, domain) in [0, 7, u32::MAX].into_iter().flat_map(|block| {
+            [
+                TargetDomain::BattlefieldCreature,
+                TargetDomain::ControlledBattlefieldCreature,
+            ]
+            .into_iter()
+            .map(move |domain| (block, domain))
+        }) {
+            let mut d = grant_domain(&[keyword], false, domain);
             let Instruction::GrantKeywords { source_block, .. } =
                 &mut d.spell.as_mut().unwrap().instructions[0]
             else {
@@ -232,7 +266,6 @@ fn temporary_creature_keyword_family_rejects_empty_duplicate_and_unreviewed_voca
         vec![KeywordAbility::DoubleStrike],
         vec![KeywordAbility::Menace],
         vec![KeywordAbility::Flash],
-        vec![KeywordAbility::Hexproof],
         vec![KeywordAbility::Shroud],
     ] {
         assert!(!supported_temporary_creature_keywords(&keywords));
@@ -246,11 +279,19 @@ fn temporary_creature_keyword_family_rejects_empty_duplicate_and_unreviewed_voca
 
 #[test]
 fn temporary_creature_keyword_family_rejects_complete_program_near_misses() {
-    for modifier in [false, true] {
+    for (modifier, domain) in [false, true].into_iter().flat_map(|modifier| {
+        [
+            TargetDomain::BattlefieldCreature,
+            TargetDomain::ControlledBattlefieldCreature,
+        ]
+        .into_iter()
+        .map(move |domain| (modifier, domain))
+    }) {
         for variant in 0..17 {
-            let mut d = grant(
-                &[KeywordAbility::Flying, KeywordAbility::Lifelink],
+            let mut d = grant_domain(
+                &[KeywordAbility::Flying, KeywordAbility::Hexproof],
                 modifier,
+                domain,
             );
             let p = d.spell.as_mut().unwrap();
             match variant {
@@ -258,7 +299,7 @@ fn temporary_creature_keyword_family_rejects_complete_program_near_misses() {
                 1 => p.targets.push(p.targets[0].clone()),
                 2 => p.targets[0].slot = 1,
                 3 => p.targets[0].selection_id.clear(),
-                4 => p.targets[0].domain = TargetDomain::ControlledBattlefieldCreature,
+                4 => p.targets[0].domain = TargetDomain::AnyPlayer,
                 5 => p.targets[0].domain = TargetDomain::BlockingBattlefieldCreature,
                 6 => p.targets[0].domain = TargetDomain::BattlefieldPermanent,
                 7 => {
@@ -314,10 +355,18 @@ fn temporary_creature_keyword_family_rejects_complete_program_near_misses() {
             assert!(d.validate().is_err(), "{modifier}/{variant}");
         }
     }
-    for variant in 0..4 {
-        let mut d = grant(
-            &[KeywordAbility::Deathtouch, KeywordAbility::Lifelink],
+    for (variant, domain) in (0..4).flat_map(|variant| {
+        [
+            TargetDomain::BattlefieldCreature,
+            TargetDomain::ControlledBattlefieldCreature,
+        ]
+        .into_iter()
+        .map(move |domain| (variant, domain))
+    }) {
+        let mut d = grant_domain(
+            &[KeywordAbility::Deathtouch, KeywordAbility::Hexproof],
             true,
+            domain,
         );
         let p = d.spell.as_mut().unwrap();
         match variant {
@@ -351,13 +400,22 @@ fn temporary_creature_keyword_family_rejects_complete_program_near_misses() {
 
 #[test]
 fn temporary_creature_keyword_family_rejects_definition_and_ability_contexts() {
-    for kind in [
+    for (kind, domain) in [
         CardKind::Creature,
         CardKind::Artifact,
         CardKind::Enchantment,
         CardKind::Land,
-    ] {
-        let mut d = grant(&[KeywordAbility::Lifelink], false);
+    ]
+    .into_iter()
+    .flat_map(|kind| {
+        [
+            TargetDomain::BattlefieldCreature,
+            TargetDomain::ControlledBattlefieldCreature,
+        ]
+        .into_iter()
+        .map(move |domain| (kind, domain))
+    }) {
+        let mut d = grant_domain(&[KeywordAbility::Hexproof], false, domain);
         d.characteristics.kind = kind;
         assert!(temporary_creature_keyword_program(d.spell.as_ref().unwrap()).is_some());
         d.capabilities = d.requirements();
@@ -368,16 +426,24 @@ fn temporary_creature_keyword_family_rejects_definition_and_ability_contexts() {
     ))
     .unwrap();
     for name in ["Samite Healer", "Blood Artist"] {
-        for modifier in [false, true] {
+        for (modifier, domain) in [false, true].into_iter().flat_map(|modifier| {
+            [
+                TargetDomain::BattlefieldCreature,
+                TargetDomain::ControlledBattlefieldCreature,
+            ]
+            .into_iter()
+            .map(move |domain| (modifier, domain))
+        }) {
             let mut d = c
                 .definitions
                 .iter()
                 .find(|d| d.name == name)
                 .unwrap()
                 .clone();
-            let p = grant(
-                &[KeywordAbility::Deathtouch, KeywordAbility::Lifelink],
+            let p = grant_domain(
+                &[KeywordAbility::Deathtouch, KeywordAbility::Hexproof],
                 modifier,
+                domain,
             )
             .spell
             .unwrap();
@@ -397,48 +463,62 @@ fn temporary_creature_keyword_family_rejects_definition_and_ability_contexts() {
 
 #[test]
 fn temporary_creature_keyword_family_rejects_unrepresentable_json_shapes() {
-    let positive = serde_json::to_value(grant(
-        &[KeywordAbility::Flying, KeywordAbility::Lifelink],
-        true,
-    ))
-    .unwrap();
-    for (pointer, invalid) in [
-        (
-            "/spell/instructions/1/keywords",
-            serde_json::json!(["future-keyword"]),
-        ),
-        (
-            "/spell/instructions/1/keywords",
-            serde_json::json!([{"flying":null}]),
-        ),
-        (
-            "/spell/instructions/0/duration",
-            serde_json::json!("permanent"),
-        ),
-        (
-            "/spell/instructions/1/duration",
-            serde_json::json!("permanent"),
-        ),
-        ("/spell/targets/0/chooser", serde_json::json!("opponent")),
-        ("/spell/targets/0/stage", serde_json::json!("resolution")),
-        ("/spell/targets/0/count", serde_json::json!(2)),
-        ("/spell/instructions/0/power", serde_json::json!(2)),
-        ("/spell/instructions/0/power", serde_json::json!("+2")),
-        ("/spell/instructions/0/toughness", serde_json::json!("-0")),
+    for domain in [
+        TargetDomain::BattlefieldCreature,
+        TargetDomain::ControlledBattlefieldCreature,
     ] {
-        let mut bad = positive.clone();
-        let (parent, key) = pointer.rsplit_once('/').unwrap();
-        bad.pointer_mut(parent)
-            .unwrap()
-            .as_object_mut()
-            .unwrap()
-            .insert(key.into(), invalid);
-        assert!(
-            strict_read::<Definition>(&bad.to_string())
-                .and_then(|d| d.validate())
-                .is_err(),
-            "{pointer}"
-        );
+        let positive = serde_json::to_value(grant_domain(
+            &[KeywordAbility::Flying, KeywordAbility::Hexproof],
+            true,
+            domain,
+        ))
+        .unwrap();
+        for (pointer, invalid) in [
+            (
+                "/spell/instructions/1/keywords",
+                serde_json::json!(["future-keyword"]),
+            ),
+            (
+                "/spell/instructions/1/keywords",
+                serde_json::json!([{"flying":null}]),
+            ),
+            (
+                "/spell/instructions/0/duration",
+                serde_json::json!("permanent"),
+            ),
+            (
+                "/spell/instructions/1/duration",
+                serde_json::json!("permanent"),
+            ),
+            ("/spell/targets/0/chooser", serde_json::json!("opponent")),
+            ("/spell/targets/0/stage", serde_json::json!("resolution")),
+            ("/spell/targets/0/count", serde_json::json!(2)),
+            (
+                "/spell/instructions/1/source_block",
+                serde_json::json!(null),
+            ),
+            (
+                "/spell/instructions/0/source_block",
+                serde_json::json!(4294967296_u64),
+            ),
+            ("/spell/instructions/0/power", serde_json::json!(2)),
+            ("/spell/instructions/0/power", serde_json::json!("+2")),
+            ("/spell/instructions/0/toughness", serde_json::json!("-0")),
+        ] {
+            let mut bad = positive.clone();
+            let (parent, key) = pointer.rsplit_once('/').unwrap();
+            bad.pointer_mut(parent)
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .insert(key.into(), invalid);
+            assert!(
+                strict_read::<Definition>(&bad.to_string())
+                    .and_then(|d| d.validate())
+                    .is_err(),
+                "{pointer}"
+            );
+        }
     }
 }
 
@@ -452,7 +532,13 @@ fn temporary_creature_keyword_family_schema_uses_unique_reviewed_vectors() {
     );
     assert_eq!(
         schema["$defs"]["TemporaryCreatureKeywords"]["items"]["enum"],
-        serde_json::json!(["flying", "deathtouch", "indestructible", "lifelink"])
+        serde_json::json!([
+            "flying",
+            "deathtouch",
+            "indestructible",
+            "lifelink",
+            "hexproof"
+        ])
     );
     let instructions = &schema["$defs"]["TemporaryCreatureKeywordInstructions"]["anyOf"];
     assert_eq!(instructions[0]["maxItems"], 1);
@@ -501,4 +587,43 @@ fn temporary_creature_keyword_family_preserves_frozen_catalog_requirements_and_c
             path.display()
         );
     }
+}
+
+#[test]
+fn temporary_creature_keyword_family_keeps_controlled_pumps_and_policy_scoped() {
+    for keyword in [KeywordAbility::Indestructible, KeywordAbility::Hexproof] {
+        let mut d = grant_domain(
+            &[keyword],
+            true,
+            TargetDomain::ControlledBattlefieldCreature,
+        );
+        let p = d.spell.as_mut().unwrap();
+        assert!(temporary_creature_keyword_program(p).is_some());
+        assert!(compound_indestructible_parameters(p).is_none());
+        d.validate().unwrap();
+        d.spell.as_mut().unwrap().instructions.pop();
+        d.capabilities = d.requirements();
+        assert!(d.validate().is_err(), "bare controlled pump");
+        d.spell
+            .as_mut()
+            .unwrap()
+            .instructions
+            .push(Instruction::DrawCards {
+                count: 1.into(),
+                recipient: None,
+                source_block: 0,
+            });
+        d.capabilities = d.requirements();
+        assert!(
+            d.validate().is_err(),
+            "controlled pump plus other operation"
+        );
+    }
+    let mut intrinsic = grant(&[KeywordAbility::Hexproof], false);
+    intrinsic.keywords.push(KeywordAbility::Hexproof);
+    intrinsic.capabilities = intrinsic.requirements();
+    assert!(
+        intrinsic.validate().is_err(),
+        "intrinsic Hexproof remains creature-only"
+    );
 }

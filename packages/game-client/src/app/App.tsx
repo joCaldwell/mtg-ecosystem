@@ -1,4 +1,4 @@
-import { Component, useEffect, useMemo, useState, useSyncExternalStore, type ErrorInfo, type ReactNode } from 'react';
+import { Component, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ErrorInfo, type ReactNode } from 'react';
 import { Link, NavLink, Route, Routes, useLocation } from 'react-router';
 import { browserCommandSession } from '../session/effects/browser.ts';
 import { connectionLabel } from '../session/status.ts';
@@ -26,7 +26,30 @@ class SurfaceBoundary extends Component<{ children: ReactNode }, { failed: boole
 }
 
 export function App() {
-  const { hash } = useLocation();
+  const { hash, pathname } = useLocation();
+  const previousRoute = useRef(`${pathname}${hash}`);
+  useEffect(() => {
+    const titles: Record<string, string> = {
+      '/': 'Commander table', '/fixtures/opening': 'Commander table',
+      '/fixtures/decisions': hash === '#table' ? 'Opening hand preview' : 'Decision drafts',
+      '/fixtures/missing-metadata': 'Missing metadata fixture', '/table': 'Live table',
+      '/join': 'Join a Commander table', '/about': 'About this build',
+    };
+    document.title = `${titles[pathname] ?? 'Page not found'} · Multiverse Commander`;
+    const route = `${pathname}${hash}`;
+    if (previousRoute.current === route) return;
+    previousRoute.current = route;
+    // Route changes originate in navigation. Observations/connection updates
+    // never run this effect or move focus while someone edits a decision.
+    const main = document.getElementById('main');
+    const fragment = hash && hash !== '#table' ? document.getElementById(hash.slice(1)) : null;
+    const target = fragment ?? main?.querySelector<HTMLElement>('h1') ?? main;
+    if (!target) return;
+    target.tabIndex = -1;
+    if (fragment) fragment.scrollIntoView({ block: 'start' });
+    else main?.scrollTo({ top: 0 });
+    target.focus({ preventScroll: true });
+  }, [pathname, hash]);
   const [session] = useState(() => browserCommandSession(protocolSchemaHash));
   const snapshot = useSyncExternalStore(session.subscribe, session.getSnapshot);
   useEffect(() => () => session.stop(), [session]);
@@ -48,10 +71,10 @@ export function App() {
     <a className="skip" href="#main">Skip to table content</a>
     <header className={styles.header}>
       <Link className={styles.brand} to="/">Multiverse<span>Commander</span></Link>
-      <nav aria-label="Main navigation"><NavLink to="/" end>Table</NavLink><NavLink to="/table">Live table</NavLink><NavLink to="/join">Join</NavLink><NavLink to="/fixtures/decisions">Decision gallery</NavLink><NavLink to="/about">About this build</NavLink></nav>
+      <nav aria-label="Primary"><NavLink to="/" end>Table</NavLink><NavLink to="/table">Live table</NavLink><NavLink to="/join">Join</NavLink><NavLink to="/fixtures/decisions">Decision gallery</NavLink><NavLink to="/about">About this build</NavLink></nav>
       <span className={styles.status} role="status">{connectionLabel(snapshot)}</span>
     </header>
-    <main id="main" tabIndex={-1}><SurfaceBoundary><Routes>
+    <main id="main" tabIndex={-1}><SurfaceBoundary key={pathname}><Routes>
       <Route path="/" element={<Table table={fixtureTable} />} />
       <Route path="/fixtures/opening" element={<Table table={fixtureTable} />} />
       <Route path="/fixtures/decisions" element={hash === '#table' ? <OpeningTablePreview /> : <DecisionGallery {...decisionGalleryFixture} cards={fixtureTable.hand} />} />

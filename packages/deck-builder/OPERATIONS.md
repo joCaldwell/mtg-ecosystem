@@ -113,9 +113,9 @@ retention runs only after a successful upload and complete listing: keep the
 newest snapshot of each of the last 14 UTC days and each of the last
 6 UTC calendar months, plus the newest uploaded snapshot. Archive keys and
 unrecognised objects are untouched. Failed uploads/listing never prune; retry
-is one hour later. Local retention is 14 snapshots. This review deletes no
-live bucket objects; automatic pruning becomes production code only after
-the owner promotes this PR.
+is one hour later. Local retention is 14 snapshots. Running source/documentation checks never
+authorizes bucket cleanup or promotion; inspect deployed code before relying on
+a retention change.
 
 ## Restore drill
 
@@ -220,24 +220,9 @@ Historical `owner (from v1)` attribution is UI; `migration` displays as
 “System migration”, with the original compact author text retained. See spec
 §17 for safe claim-code bootstrap and the hosted account lifecycle.
 
-## Phase 0 verification (2026-10-25)
-
-Automated coverage includes body/content-type/number validation, cross-deck
-rulings, static 404s and cache headers, SSE heartbeat, image facts, truncated
-streams, retirement, lock reclaim, backup/restore with WAL, retention, memory
-scope/permissions, atomic accept-all and client HTTP errors. The live drill used an isolated copy, with the server on 8798:
-`DECKBUILDER_DATA=<copy> npm run refresh -- --force` completed in 12.95 s,
-35,134 active cards / 33,327 priced, child peak RSS 246.21 MiB. All 124 mixed
-health/decks/search requests succeeded (max 6.55 ms). `npm run backup` while
-serving, followed by `DECKBUILDER_DB=<copy>/restored.db node src/cli.ts restore
-<copy>/backups/deck-builder-2026-10-25.db`, restored 19 decks; a server on 8799
-served them and returned healthy status. The phase PR records browser checks.
-S3 upload is covered against a local HTTP bucket stub; delivery to a real
-bucket requires configured credentials and remains unverified.
-
 ## Hosted bootstrap, secrets and provider redirects
 
-Every variable Phase 3 needs is listed here. The Node service reads the
+The hosted runtime variables are listed here. The Node service reads the
 process environment; `.env` is loaded only when explicitly requested with
 `node --env-file=.env ../multiverse/src/server.ts`. Never print `.env`, tokens, OAuth
 responses, or provider credentials. Local `.env` is ignored and mode 0600.
@@ -263,8 +248,7 @@ responses, or provider credentials. Local `.env` is ignored and mode 0600.
 | `BACKUP_S3_ACCESS_KEY`, `BACKUP_S3_SECRET_KEY` | Yes | Required with the backup destination |
 
 `DECKBUILDER_TOKEN_FILE` is a private-file path for a local stdio client, not
-a service credential. `DECKBUILDER_WEB_PORT` is dev-only. No Sentry integration
-is added in this phase. No Google provider button appears until both Google
+a service credential. `DECKBUILDER_WEB_PORT` is dev-only. There is no Sentry integration. No Google provider button appears until both Google
 credentials exist.
 
 Set `DECKBUILDER_CLAIM_CODE` before exposing the service. Open `/signin`, enter
@@ -274,8 +258,7 @@ arriving first; if the claim variable is unset, only invited new users can
 register. The comparison is timing-safe. Once user 1 has an auth_id, the code
 is dead even if configured. The single success log says to remove it; remove
 the environment variable and redeploy. Do not reset auth_id to reuse a code.
-This phase generates a random local test code in ignored `.env`; Phase 3's
-operator must set a different real service code.
+Use distinct random codes for disposable local tests and actual service bootstrap.
 
 Sign in as an admin and open Settings → Admin → Create invite. Copy the
 unused code privately to the intended tester. They enter it on `/signin`;
@@ -303,7 +286,7 @@ HTTPS. The application trusts forwarded host/protocol/IP only when
 `DECKBUILDER_TRUST_PROXY=1`; configure exactly one ingress that overwrites
 host/protocol headers. Rate-limit IP uses Railway’s documented `X-Real-IP`,
 falling back to the rightmost XFF hop, never the spoofable leftmost entry.
-Phase 3 must confirm those headers on the live service (including IPv6); see
+For a new ingress, confirm those headers on the live service (including IPv6); see
 [Railway network specs](https://docs.railway.com/networking/public-networking/specs-and-limits).
 Do not expose a second untrusted route to the container.
 Host and browser Origin must match the configured public origin. Auth uses a
@@ -391,7 +374,7 @@ are no-store. Rate buckets are isolated by kind, IPv6 shares a /64, claim
 attempts use 5/minute/IP, and OAuth token exchange uses 240/minute/client.
 
 
-## Per-store prices (v3 Phase 1b)
+## Per-store prices
 
 Schema v13 migrates old USD quotes to `(oracle_id, tcgplayer)` without
 changing cents, printing or finish. Preferences are per-user `price_currency`
@@ -410,34 +393,9 @@ Settings reports counts for the principal's selected store. To audit all stores:
 Scryfall is the only source; no credentials, vendor API, exchange rates or new
 cache/download artifact are needed. Lowest compares only the chosen currency.
 
-Phase 1b acceptance used an online read-only-source backup of the owner's live
-DB into this worktree's ignored `.dev/`, never the live file for migrations or
-refresh. A real forced refresh at Scryfall publication 2026-10-25T21:05:44.018+00:00
-priced 33,327 database cards at TCGplayer and 33,092 at Cardmarket (34,039 and
-33,601 total store rows, including oracle IDs outside the card catalogue).
-Every old USD per-card quote and all 18 original deck totals matched exactly.
-Peak sampled JS heap was 83.46 MiB; Linux `/proc/self/status` VmHWM was
-236.52 MiB RSS, below Phase 0's recorded 246.21 MiB. This runner's getrusage
-maxRSS inherits a parent high-water value, so it is not used for that comparison.
-
-User 2's EUR/Cardmarket choice was saved through the rendered Settings form on
-5181 against an ignored acceptance harness using createApp's existing actor seam
-(API 8791). The seeded 76-card deck showed €244.27, Cardmarket, 2026-10-25;
-its selected card panel showed the matching EUR amount and date. Desktop and
-720 px screenshots were inspected; browser console had no runtime errors. The
-390 px shell remains cramped pending Phase 4a's phone view. Real-data agent
-start_session/get_deck and eur<=1 search text were read; user 1 still showed
-TCGplayer/USD. The harness, backup, screenshots and transcripts stay ignored.
-
-
-Phase 1b review regression checks use the official MCP client against createApp
-in both protocol eras: price-bearing responses have exactly one source/date
-line, while exports retain their exact importable text and ruling/memory tools
-have no source line. The three reported negation queries on the same backup
-match pre-phase results by oracle ID: `-usd>5` 32,791; `t:dragon -usd<1` 153;
-`t:dragon (usd>100 or -usd>0)` 34. No live database was opened for these checks.
-The scheduler regression migrates a populated v12 fixture and checks missing,
-old and current price-store markers one hour after a successful refresh.
+Use disposable source-backed database copies for refresh/migration/browser checks,
+not a live owner database. Historical refresh counts, timing/heap measurements and
+old phone-layout caveats are in Git; they are not current operating requirements.
 
 ## Railway private beta: topology and releases
 
@@ -457,13 +415,8 @@ primary database**; the owner's unchanged laptop data becomes development
 input. Never redeploy a local database over hosted user data. From the first
 invited account, migrations must preserve/backfill all user content (D19).
 
-`release` was created at **3e1798d**, the merge commit of Phase 2 PR #5,
-before Phase 3. Initial provisioning uploads the Phase 3 container/logging
-assets alongside that predecessor's product code because the predecessor
-has no Dockerfile. The owner must merge Phase 3 and promote its merge commit
-before relying on push builds. This bootstrap does not advance `release` to
-unmerged feature commits. Subsequent production releases come only from
-`release`; parallel 1b/4a migrations land on `main`/staging first.
+Production releases use an explicit owner-verified SHA on `release`; staging follows
+`main`. Do not infer promotion authorization from a development or docs task.
 
 From the repository root, build exactly:
 
@@ -516,28 +469,6 @@ codes are bootstrap state: production's code is deliberately absent from
 the desired graph after claiming in both environments; neither can recreate it.
 Config-as-code does not express billing alerts or native backup schedules;
 those use the CLI/API below.
-
-The owner promotes after staging smoke tests and a fresh production backup:
-
-```sh
-git fetch origin
-PROMOTE_SHA=$(gh pr view 7 --json mergeCommit --jq '.mergeCommit.oid')
-# Stop unless PR #7 is merged and this exact SHA passed staging.
-git show --no-patch --oneline "$PROMOTE_SHA"
-# Immediately before this push: fresh backup + verify its object (commands below).
-# Run the unique online snapshot/upload in "Pre-promotion online snapshot" below.
-# Verify its printed object key/size, then immediately push:
-git cat-file -e "${PROMOTE_SHA}^{commit}" && git push origin "${PROMOTE_SHA}:release"
-railway deployment list --project 2c9c40a2-4b69-4d5e-a2c4-188a6f5894b8 --environment production --service deck-builder --json
-curl --fail https://deck-builder-production-00d7.up.railway.app/api/health
-```
-
-Promote the explicit PR #7 merge SHA, never whichever commit happens to be
-on main: #6 has merged (schema 13), and #8 (schema 14) may merge later. Follow the exact resulting
-deployment ID to `SUCCESS`; upload/build acceptance alone is not success.
-Volumes imply brief deployment downtime. Do not bypass staging for a schema
-change. This promotion takes production from v12 to v13 and loads Cardmarket
-on first boot; the owner must check schema 13 and job/store success afterwards. Secrets, backups and monitoring are independent of Git promotion.
 
 ## Logs, health and monitoring
 
@@ -602,14 +533,11 @@ curl --fail -sS https://deck-builder-production-00d7.up.railway.app/api/health
 git show "${ROLLBACK_SHA}:packages/deck-builder/src/db.ts" | sed -nE 's/^export const SCHEMA_VERSION = ([0-9]+);/target schema: \1/p'
 ```
 
-The two schema versions must match for a code-only rollback. Older code on a
-newer schema is refused by `assertOurs`; because volume deploys stop the old
-container before startup, that safe refusal means downtime, not fallback to
-the old server. The original deployed #7 predecessor is schema 12; #6 merged
-as fc24ca8 with schema 13, and this PR is rebased on it. #8 renumbers to 14. Never point
-schema-12 code at a database already upgraded by either later phase. If the
-versions differ, stop and plan a compatible forward fix or an explicitly
-approved post-claim database restore with reconciliation of later writes.
+The versions must match for a code-only rollback. Older code on a newer schema
+is refused by `assertOurs`; volume deployments stop the predecessor before startup,
+so safe refusal still causes downtime. If versions differ, plan a compatible
+fix-forward or an explicitly authorized post-claim restore reconciling later writes.
+Never infer today's live schema from an old release report.
 
 **Never restore the pre-claim production snapshot.** The old
 `backups/deck-builder-2026-10-25.db` resets user 1 to `auth_id NULL`, locking
@@ -618,8 +546,9 @@ was copied, not moved, to
 `archive/pre-claim-deck-builder-2026-10-25.db` (73,711,616 bytes), marked
 `restore_policy=do-not-restore`; the original remains. Both are quarantined
 historical owner-only evidence. Automatic retention never touches archive/.
-The current restore example uses **post-claim**
-`backups/deck-builder-2026-10-26.db` (74,711,040 bytes). After downloading,
+The historical known post-claim example was
+`backups/deck-builder-2026-10-26.db` (74,711,040 bytes). Choose a fresh verified
+post-claim snapshot for real recovery. After downloading,
 open it read-only and confirm user 1's auth_id is non-null, its schema is
 supported, and the deck/memory counts match before any restore. Future
 timestamped backups need the same identity check, not just a filename date.
@@ -831,186 +760,6 @@ bucket. Repeat restores/deletions/revocations deliberately; a backup restores
 authentication state as well as deck data. A different public origin needs
 provider redirects and OAuth client reconnects.
 
-### Phase 3 live evidence, 2026-10-25
-
-- Source: **schema 10, 18 decks, 36 memories**. Online backup: **0.056 s**;
-  SHA-256 comparisons of every original local data file found no changes.
-- Production migration: **schema 12, 18 decks, 36 memories**, zero FK errors,
-  user 1 unclaimed before owner sign-in, **zero personal tokens**. No local
-  legacy credential was uploaded; hosted Settings creates new credentials.
-- Production forced refresh: **15.14 s**, child peak **264.10 MiB**, server
-  peak **179.55 MiB**; **148/148** concurrent health probes succeeded, slowest
-  **36.72 ms**, server process/start time unchanged, UID 1000. Persistent
-  `job:refresh` recorded success; daily scheduling remains the web child's job.
-- Online production backup uploaded to `backups-production`; object
-  `backups/deck-builder-2026-10-25.db`, **73,711,616 bytes**. Downloaded from
-  that bucket in **3.205 s**, uploaded to staging, then restored/opened in
-  **4.961 s**. Restored staging: **18 decks, 36 memories, schema 12**, zero
-  FK errors. Deployment `279a5657-7a39-4032-87e5-d94a30197f7f` reached
-  `SUCCESS` and passed Railway's native healthcheck.
-- Production deployment `bd39f6e9-57c3-4304-838c-48b14544ef77` reached
-  `SUCCESS`; native `/api/health` check passed. Internal request with
-  `Host: healthcheck.railway.app` plus a wrong Origin returned HTTP 200,
-  exactly `{ok:true,schema_version:12}`, no Set-Cookie. UID/GID both 1000.
-- Temporary staging ingress probe (removed immediately afterwards) observed
-  `X-Real-IP` equal to the caller's independently measured public IPv4.
-  `X-Forwarded-For` contained that address followed by a Railway proxy;
-  supplying fake X-Real-IP `203.0.113.9` and XFF
-  `198.51.100.7, 203.0.113.8` did not change the forwarded client. Host was
-  the staging domain, protocol HTTPS. This confirms **X-Real-IP first**;
-  rightmost XFF would identify a proxy on this path. No raw client IP is
-  retained in logs/runbook. The Railway domain had no resolvable IPv6 address from the caller, so a
-  real IPv6 ingress request remains unverified.
-- Live Discord `/api/auth/sign-in/social` returned 200 and
-  `__Secure-better-auth.state` with **Secure, HttpOnly, SameSite=Lax**.
-  Cookie values and OAuth responses were suppressed. PUBLIC_ORIGIN is HTTPS
-  in both environments, and HSTS is enabled.
-- The production sign-in UI rendered the invite/claim field, Discord button,
-  legal links and Fan Content footer. T3 DOM evaluation worked; its snapshot
-  endpoint timed out twice. The alternate browser lacked an installed Chrome,
-  so no screenshot-based visual acceptance is claimed.
-- `npm run check`: **961/961**, including the new concurrent request/tool
-  logging and secret-redaction test; both source and web typechecks passed.
-  IaC staging plan: **No changes**, no destructive operations applied.
-- Initial push-build attempts against `main`/`release` correctly failed while
-  those branches still lacked this PR's Dockerfile. The initial uploaded
-  container assets supply the live beta; merge then promote this phase before
-  relying on GitHub push builds. One upload hit a Railway snapshot-fetch
-  failure; it was cancelled and a fresh upload reached `SUCCESS`.
-
-## Connect the owner's clients to hosted production
-
-The agent does **not** edit `~/.claude.json` or `~/.codex/config.toml`.
-After the owner claim, open hosted Settings → Agent connection → create a
-new labelled token for each CLI. Save each once-shown value privately. Do
-not reuse the local legacy token. The examples use a distinct server name
-so the owner can test hosted access before removing the old local entry.
-Disable/remove the local `deck-builder` connection when using hosted as the
-primary copy, to avoid sending writes to the development database.
-
-Claude Code, from the owner's zsh terminal (syntax checked against the
-installed `claude mcp add --help`):
-
-```sh
-read -rs 'DECKBUILDER_HOSTED_TOKEN?Paste the Claude Code token from hosted Settings: '
-printf '\n'
-export DECKBUILDER_HOSTED_TOKEN
-claude mcp add-json --scope user deck-builder-hosted \
-  '{"type":"http","url":"https://deck-builder-production-00d7.up.railway.app/mcp/claude-code","headers":{"Authorization":"Bearer ${DECKBUILDER_HOSTED_TOKEN}"}}'
-# Launch Claude Code from this environment; unset only after it exits. Same
-# environment variable must be available whenever that client starts.
-```
-
-Restart Claude Code, use `/mcp` to confirm Connected, then ask it to call
-`start_session` and check it reports the claimed identity and 18 decks.
-The single-quoted JSON stores only the environment reference, so the token
-is absent from argv and configuration. Header expansion is documented in
-[Claude Code MCP environment variables](https://code.claude.com/docs/en/mcp#environment-variable-expansion-in-mcpjson).
-`add-json --help` was checked locally. Do not replace the single quotes with
-double quotes: that would expand the token into argv. The older `--header`
-form does expose it in argv/process listings and saves the literal value. Keep
-normal tool approvals unless the owner deliberately changes them.
-
-Codex CLI, with a **separate** hosted Settings token (syntax checked against
-installed `codex mcp add --help`):
-
-```sh
-read -rs 'DECKBUILDER_HOSTED_TOKEN?Paste the Codex token from hosted Settings: '
-printf '\n'
-export DECKBUILDER_HOSTED_TOKEN
-codex mcp add deck-builder-hosted \
-  --url https://deck-builder-production-00d7.up.railway.app/mcp/codex \
-  --bearer-token-env-var DECKBUILDER_HOSTED_TOKEN
-```
-
-Launch Codex from that environment, call `start_session` and check identity
-and roster. The config stores only the environment variable's name; the
-variable must be present whenever the CLI, desktop or extension starts.
-For an owner-managed static header instead, manually add this to their
-private `~/.codex/config.toml` and restart that client:
-
-```toml
-[mcp_servers.deck-builder-hosted]
-url = "https://deck-builder-production-00d7.up.railway.app/mcp/codex"
-http_headers = { Authorization = "Bearer <new Codex token from hosted Settings>" }
-default_tools_approval_mode = "writes"
-```
-
-Claude.ai: Settings → Connectors → Add custom connector → name
-`Deck builder` → URL `https://deck-builder-production-00d7.up.railway.app/mcp`
-→ Add/Connect → sign in with the claimed Discord account → verify the
-connector identity/redirect on consent → approve deck-builder access. Team
-or Enterprise users may need an organization owner to add/enable it first.
-Select the connector in a conversation and call `start_session`. See
-[Claude's remote connector instructions](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp).
-
-ChatGPT web: Settings → Apps → Advanced settings → Developer mode (or,
-for workspace admins, Workspace settings → Apps → Create). Choose Create
-app, set MCP URL to
-`https://deck-builder-production-00d7.up.railway.app/mcp`, choose **OAuth**
-and CIMD/automatic discovery, then Scan Tools/Connect. Sign in with the
-claimed account and review consent; finish Create, select the app in a chat,
-and call `start_session`. Availability/actions depend on the plan/workspace;
-OpenAI currently documents full write MCP access for Business/Enterprise/Edu,
-with more restricted Pro read/fetch access. See
-[OpenAI's current developer-mode instructions](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-connectors-in-chatgpt).
-Do not enter the Discord client secret or a personal bearer token in either
-web connector: each uses deck-builder OAuth with the connecting client's
-published CIMD document. Reconnect after changing the public domain.
-
-Owner claim acceptance (2026-10-25): the owner completed Discord sign-in and
-confirmed every deck is visible. A read-only hosted check verified user 1
-(`jcaldwell`, admin) has an auth identity and owns all **18 decks and 36
-memories**, with zero foreign-key errors. The production claim variable was
-then removed. The production IaC plan now reports **No changes**.
-
-Authenticated acceptance completed after the real owner claim:
-
-- Final production deployment **b7c4ec34-dc77-47e5-acc4-ab8bbc34d235** reached
-  `SUCCESS` and passed Railway's native healthcheck. Its live environment
-  contains **no DECKBUILDER_CLAIM_CODE**; web PID 1 remains UID/GID 1000.
-- Historical smoke method (not an approved future procedure): I called
-  Better Auth `internalAdapter.createSession` for the claimed owner inside
-  production. This wrote an owner session row outside the Discord flow. I
-  read BETTER_AUTH_SECRET inside that process to HMAC-sign a session-token
-  cookie, then piped the cookie only into local process memory. Two such
-  sessions were created: the first attempt failed a roster-shape check and
-  immediately removed its row; the second exercised the normal hosted
-  Settings HTTP token API. The official MCP client on the
-  owner's machine used that temporary personal token for `start_session`:
-  success, principal 1 / `jcaldwell`, 18-deck roster. No token, session cookie,
-  auth secret or returned deck prose was logged or saved. This operator-made
-  credential bypassed the intended login flow and should not have been used.
-  Future smoke tests must use owner-minted Settings tokens, as described below.
-- The same authenticated SSE connection received `connected`, disconnected
-  during the deployment and reconnected automatically to receive `connected`
-  again. `/api/session` still returned user 1 after the replacement. The
-  disposable token was revoked through the Settings API and its test session
-  removed; the owner's real Discord browser session was left alone.
-- One unused single-use invite was minted through the hosted admin API and
-  saved only to `~/.config/deck-builder/beta-invite`, mode 600, for private
-  handoff. No invitation code appears in source, logs or the PR. The owner
-  can test a second Discord identity with it; live second-account acceptance
-  remains an owner action.
-- A new production online backup was uploaded after claim/test cleanup so
-  the off-volume primary snapshot includes the real owner identity. Both
-  environment buckets have a backup object; S3 listing verified staging's
-  object even while Railway's bucket-size summary was stale.
-- The final gate again passed **961/961** with both typechecks. The source
-  laptop data-file content hashes still match the pre-migration manifest.
-
-During initial bootstrap only (before this PR is merged onto `release`), a
-plain redeploy/upload can be skipped by watch patterns or rebuild a remote
-commit without the Dockerfile. The final claim-removal deployment used a
-private temporary `release` worktree at `3e1798d`, overlaid with this phase's
-container/logging assets plus the updated OPERATIONS evidence, then uploaded
-from that repo-root context. The overlay does not commit or promote feature
-code onto `release`. Verify the live variable is absent; a skipped upload is
-not a redeploy. Once the owner merges/promotes Phase 3, ordinary release-branch
-push deployments are self-contained. After any old-image rollback, recheck
-current secrets, the absent claim variable and database schema compatibility;
-old artifacts can retain their original startup/environment snapshot.
-
 ## Server won't start: stale lock recovery
 
 New locks contain `{pid, hostname, token}`. Startup reclaims a file from a
@@ -1036,7 +785,7 @@ SIGTERM and waits that long before SIGKILL; this leaves time for the roughly
 and does not make OOM/host loss clean. Both restart paths must work. See
 [Railway deployment teardown](https://docs.railway.com/deployments/deployment-teardown).
 
-## Future authenticated smoke tests
+## Authenticated smoke tests
 
 Use the real owner's browser for sign-in/session/SSE checks. For CLI checks,
 the owner creates a labelled token in **hosted Settings → Agent connection**
@@ -1049,18 +798,10 @@ Do not create session rows, call `internalAdapter.createSession`, sign cookies
 with BETTER_AUTH_SECRET, borrow session rows, or create an impersonation path.
 There is no supported emergency admin credential CLI in this release.
 
-The initial operator-made smoke was audited read-only during review:
-production has exactly one session, created **2026-10-26T00:00:51.163Z**, before
-the smoke script's **00:02:29Z** start. There are zero session rows from the
-smoke window. The only `phase3-smoke-temporary` personal token has non-null
-last_used_at and revoked_at (**2026-10-26 00:03:48**). No credentials were minted
-for this review. These metadata checks reveal no session tokens or hashes.
-
 ## Staging claim after a future restore
 
-The owner claimed staging during review and confirmed all 18 decks. Its claim
-variable was removed and the new staging deployment was verified without it.
-Both IaC graphs omit claim codes, so neither environment can recreate one.
+Both IaC graphs omit claim codes. Inspect current owner-claim state and variables
+before a restore; old deployment configuration can reintroduce bootstrap secrets.
 
 Use a verified post-claim backup for routine restores. If an explicitly
 approved future **staging-only** restore leaves user 1 unclaimed, keep the
@@ -1115,43 +856,29 @@ archive is excluded from normal restore selection and remains owner-only;
 review its disposition after an independent recovery copy exists. This review
 copied its archive key and deleted **nothing** in either bucket.
 
-## Protect and promote release
 
-In GitHub → repository Settings → Rules → Rulesets → New ruleset → New branch
-ruleset, name it `release`, set Enforcement to Active, and target **Include by
-pattern → release**. Add the repository owner/admin to the bypass list for
-explicit promotions. Enable **Restrict updates**, **Restrict deletions** and
-**Block force pushes**, then Create. If the repository plan does not support
-rulesets, document that limitation rather than assuming protection exists.
-Keep the explicit owner push workflow available; do not require a release PR
-that would produce a different merge SHA. Never give agents a standing release
-promotion instruction.
+## Owner release promotion
 
-Updated merge order: **#6 already merged as fc24ca8 → #7 → #8 (schema 14)**.
-#7 now includes the v12→v13 migration and first-boot Cardmarket load. After #7 merges, fetch
-its exact merge SHA with `gh pr view 7 --json mergeCommit --jq '.mergeCommit.oid'`,
-verify schema 13, successful refresh at both stores and unchanged user-1
-counts/totals on that SHA in staging. **Immediately before promotion**, take
-a fresh post-claim production backup and verify the new bucket object, then
-push **that SHA** to release. Do not use `main:release`: main may already have
-a later migration. Check the exact production deployment reaches SUCCESS,
-health/schema, owner roster, backup status and session/SSE behavior. The code
-fixes in this review remain staging-only until that owner promotion.
+Production code promotion is an explicit owner action, never a standing agent task.
+Select one exact reviewed SHA after staging checks, schema/migration/content review,
+refresh/store checks and owner session/SSE smoke. Take a fresh **post-claim** online
+production snapshot immediately before promotion, verify the uploaded key/size,
+then push that SHA to `release`. Never push whichever `main` happens to name or
+use old PR7/v12→v13 instructions. Follow the exact resulting deployment to SUCCESS,
+then check health/schema, owner roster, jobs and backups. Build upload alone is
+not deployment success. No promotion/deployment occurred during doc consolidation.
 
-## Pre-promotion online snapshot (production is still v12)
+Protect `release` against unreviewed updates/deletion/force pushes, retaining an
+explicit owner promotion bypass. If repository plan limits prevent that protection,
+record the actual limitation. There are no down migrations. An incompatible data
+restore loses/reconciles later writes and must repeat erasures/revocations.
 
-The running v12 CLI names backups by date and would overwrite today's object.
-Immediately before the owner promotes the explicit #7 merge SHA, use this
-online backup/upload instead. It runs on the existing production runtime;
-it deploys no code, opens SQLite read-only, creates a private online snapshot
-and uploads a unique UTC timestamp/UUID key under `archive/pre-promotion/`
-with overwrite protection, outside the automatic `backups/` retention namespace. It
-performs no bucket pruning. Confirm the printed key and verified size, then
-promote without an intervening work session. Retain that key for migration
-recovery; it must be post-claim. If this fails, do not promote. Use the same
-`archive/pre-promotion/` namespace for every deliberate operator snapshot
-before a risky change, including later migrations; never put those recovery
-points in the automatically pruned `backups/` namespace.
+### Pre-promotion online snapshot
+
+Use a unique UTC/UUID key under `archive/pre-promotion/`, outside automatically
+pruned `backups/`. The running runtime opens SQLite read-only and uses online backup;
+check claimed user 1 and object size, with overwrite protection. Keep the verified
+key for recovery and do not promote if this fails. Run from the repository root:
 
 ```sh
 railway ssh --project 2c9c40a2-4b69-4d5e-a2c4-188a6f5894b8 --environment production --service deck-builder -- 'setpriv --reuid=node --regid=node --init-groups node --input-type=module <<"JS"
@@ -1171,95 +898,20 @@ await snapshot().catch(error=>{const safe=v=>typeof v==="string"&&/^[A-Z][A-Za-z
 JS'
 ```
 
-### Manual archive cleanup (owner only)
 
-Automatic backup jobs never list or delete `archive/` objects. Keep each
-pre-change snapshot for **at least 30 days after the change** and longer
-while rollback to that schema remains a recovery option. Before deleting one,
+Archive keys are recovery evidence, not automatic cleanup candidates. Do not remove
+quarantined pre-claim snapshots, live databases, credential files or backup objects
+as part of source/documentation maintenance. Monthly independent copies and the
+restore drill above remain required operational procedures.
+
+### Archive retirement policy
+
+Automatic backup jobs never list or delete `archive/` objects. Retain every
+pre-change snapshot for **at least 30 days after the change**, and longer while
+rollback to that schema remains a recovery option. Before retiring any one object,
 verify the new schema/data, a successful restore of a newer post-change backup,
-and an independent off-Railway copy. Record the exact archived key and the
-owner's recovery decision; deletion is manual, never a scheduled wildcard job.
-The pre-claim quarantine remains subject to its separate do-not-restore warning.
-
-The owner may then delete **one reviewed archive object** using their S3 CLI.
-Load that bucket's credentials privately into `AWS_ACCESS_KEY_ID` and
-`AWS_SECRET_ACCESS_KEY`, and its non-secret endpoint/name into
-`BACKUP_S3_ENDPOINT`/`BACKUP_S3_BUCKET`; never print credentials or put them in
-argv. Replace the placeholder with the exact archived filename. First verify
-its size with `head-object`, then run the delete only for that same key:
-
-```sh
-ARCHIVE_KEY='archive/pre-promotion/<exact-reviewed-filename>.db'
-aws --endpoint-url "$BACKUP_S3_ENDPOINT" s3api head-object \
-  --bucket "$BACKUP_S3_BUCKET" --key "$ARCHIVE_KEY"
-# Only after the owner has completed the recovery checks above:
-aws --endpoint-url "$BACKUP_S3_ENDPOINT" s3api delete-object \
-  --bucket "$BACKUP_S3_BUCKET" --key "$ARCHIVE_KEY"
-unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
-```
-
-No live objects were deleted while implementing or reviewing this phase.
-
-Once the owner has promoted this release, `node src/cli.ts backup` uses the
-new timestamped/retained implementation. Do not use a pre-claim snapshot to
-undo a v13 migration. A rollback to v12 requires this fresh post-claim v12
-snapshot plus compatible code and reconciliation of writes made after it.
-
-## Round-1 review acceptance (2026-10-26 UTC)
-
-- Rebased onto **fc24ca8** (merged #6). `http.ts` retains `runTool`; `jobs.ts`
-  retains both `price_stores_version` readiness checks. No schema migration was
-  added by this phase; the combined candidate includes phase 1b's v13.
-- A real user/PID namespace regression force-killed Node **PID 1 from its
-  parent namespace**, left the lock file, and the next PID 1 reclaimed it.
-  Foreign-host and live same-host exclusion cases also pass. Sending KILL to
-  PID 1 from inside the live staging namespace was ignored (not counted as
-  a crash-recovery success); a normal Railway staging restart was healthy.
-- The Moby/BuildKit `patternmatcher` **v0.6.1** proof excludes `.env`, live DB,
-  token files, `.dev`, tests and oracle-parser. Run it from
-  `scripts/docker-context-check` with `go run . <repo-root>`; the PR includes
-  the complete selected file list. No Docker daemon was available locally.
-  Explicit build-stage COPYs provide a second boundary. Go is a verification
-  tool only; it adds no application/runtime dependency or workspace change.
-- Both root and workspace-local npm trees are copied into the final image.
-  Its build-time import manifest check and live staging check resolve every
-  runtime import and exact pin, including **jose 6.2.3**. The base image digest
-  is pinned; `docker buildx imagetools inspect node:26-slim` verified it.
-- Staging plan before apply: `build.watchPatterns` adds `/tsconfig.base.json`;
-  `deploy.drainingSeconds` changes from unset/default 0 to **30**. After
-  applying/reading back and testing staging, the identical two-field patch
-  was committed to production with **skipDeploys:true**. Both plans now show
-  **No changes**. Production remains **b7c4ec34**, schema 12; no code or
-  migration was promoted and release remains **3e1798d**.
-- Rebased staging deployment **49a43240-d8a0-4537-9ece-b38a82038d1d** reached
-  SUCCESS with schema **13**. Its automatic first-boot refresh succeeded
-  **00:43:33.087Z → 00:43:48.983Z** (15.896 seconds), marker **1**, with
-  **33,327 TCGplayer/USD** and **33,092 Cardmarket/EUR** catalogue prices.
-  User 1 is claimed with **18 decks/36 memories**. All per-deck USD totals,
-  deck names/revisions and memory-row fingerprints match the saved v12
-  baseline. No FK errors; the staging claim variable is absent.
-- Job diagnostics are designed so one redacted error survives hosted child transport, raw
-  messages/bodies do not, failed backups retry hourly, and last successful
-  backup/staleness survives failures. Admin Settings exposes the 36-hour
-  warning; public health stays minimal. The gate passed **1003/1003**, both
-  typechecks, including the real PID-namespace and final-image-layout cases.
-- The pre-claim object was copied under archive/ and all existing bucket
-  keys were preserved. No live retention/pruning command was run. The
-  production code changes, including retention, await the owner's explicit
-  SHA promotion. This review created no operator sessions or personal tokens.
-
-Finish #7 staging-v13 verification and its promotion before allowing #8 to
-auto-migrate the same staging volume to v14. If staging is already v14, do
-not start v13 code against it; arrange a separate compatible restored copy
-for verification rather than forcing a down migration.
-
-
-## Round-2 retention correction
-
-Automatic retention selects the **newest**, rather than first, snapshot per
-UTC day/month. Retention supports a legacy date-only key with a later
-same-day timestamp, monthly newest selection, archive listing/deletion
-exclusion and unconditional protection of the just-uploaded key. Deliberate
-pre-change recovery points use `archive/pre-promotion/` and owner-only manual
-cleanup above. No staging redeploy or bucket mutation was performed for this
-correction. The gate passes **1005/1005** with both typechecks.
+and an independent off-Railway copy. Record the exact archived key and the owner's
+recovery decision. Deletion is a manual owner action against one verified key,
+never a scheduled wildcard job. Pre-claim quarantine retains its separate
+**do-not-restore** restriction. Documentation/source maintenance grants no cleanup
+permission for these objects.

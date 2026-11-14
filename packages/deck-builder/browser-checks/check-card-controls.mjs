@@ -113,7 +113,7 @@ try {
   }
   const filter = page.getByRole('button', { name: /Filter by tags$/ });
   await filter.click();
-  await page.getByRole('option', { name: 'Owned', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Owned', exact: true }).check();
   await page.keyboard.press('Escape'); await settle(page, watch);
   const filtered = page.locator('[data-deck-list] button[data-oracle-id]');
   assert.equal(await filtered.count(), 1, 'archived decks retain tag filtering');

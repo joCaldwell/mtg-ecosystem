@@ -25,7 +25,7 @@ export function CardHistory({ oracleId }: { oracleId: string }) {
       {history.error && <ErrorNote>{history.error}</ErrorNote>}
       {history.loading && <Loading />}
       {ownership.length > 0 && <section className={styles.section} aria-label="Ownership evidence">
-        <Eyebrow>Ownership evidence</Eyebrow>
+        <Eyebrow as="h3">Ownership evidence</Eyebrow>
         {ownership.map((e, index) => <div key={e.id} className={styles.evidence}>
           <Text size="sm">{index > 0 ? "Previously: " : ""}{e.status}{e.quantity != null ? ` · ${e.quantity} copies` : ""}{e.available_quantity != null ? ` · ${e.available_quantity} available` : ""}</Text>
           <Text size="sm" tone="soft"><InlineText text={e.basis} /></Text>
@@ -34,13 +34,13 @@ export function CardHistory({ oracleId }: { oracleId: string }) {
       </section>}
       {/* An empty history is one quiet line each, not a heading over "None". */}
       {memories.length > 0 ? <section className={styles.section}>
-        <Eyebrow>Memories linked to this card · {memories.length}</Eyebrow>
+        <Eyebrow as="h3">Memories linked to this card · {memories.length}</Eyebrow>
         {memories.map((m) => (
           <MemoryCard key={m.id} memory={m} onChanged={history.reload} />
         ))}
       </section> : history.data && decisions.length > 0 && <Text tone="muted" size="sm" as="p">No linked memories</Text>}
       {decisions.length > 0 ? <section className={styles.section}>
-        <Eyebrow>Your decisions on it in this deck · {decisions.length}</Eyebrow>
+        <Eyebrow as="h3">Your decisions on it in this deck · {decisions.length}</Eyebrow>
         {decisions.map((r) => (
           <CardDecisionRow key={r.log_id} decision={r} />
         ))}

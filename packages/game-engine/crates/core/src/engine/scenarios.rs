@@ -1,6 +1,6 @@
 //! Exact reviewed configurations, not arbitrary setup or deck admission.
 //! Setup facts are bound by the profile identity and complete config equality.
-//! See docs/game-engine-combat-games.md for the frozen sources and policies.
+//! See docs/game-engine-catalogs.md and docs/game-engine-evidence.md for source/policy pins.
 use super::*;
 
 impl ScenarioConfig {

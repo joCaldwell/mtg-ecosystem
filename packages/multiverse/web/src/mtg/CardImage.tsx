@@ -35,7 +35,7 @@ function Picture({ name, knownUrl, width }: { name: string; knownUrl?: string; w
           }}
           src={url}
           alt={name}
-          loading="lazy"
+          decoding="async"
           onLoad={() => setStatus("loaded")}
           onError={() => setStatus("failed")}
         />

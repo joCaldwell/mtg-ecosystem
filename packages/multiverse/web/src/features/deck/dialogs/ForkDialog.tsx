@@ -26,19 +26,19 @@ export function ForkDialog({ onClose }: { onClose: () => void }) {
   return (
     <Dialog
       title="Fork this deck"
-      onClose={onClose}
+      onClose={() => { if (!busy) onClose(); }}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button variant="primary" type="submit" form={formId} disabled={!name.trim() || busy}>
+          <Button variant="primary" type="submit" form={formId} disabled={busy}>
             {busy ? "Forking…" : "Fork"}
           </Button>
         </>
       }
     >
-      <form id={formId} onSubmit={submit}>
+      <form id={formId} method="post" onSubmit={submit}>
         <Stack gap={5}>
           <Text tone="muted" as="p">
             Copies the list, slots, tags, maybe list, brief and this deck's memories into a new Theorycrafted deck, and
@@ -46,6 +46,10 @@ export function ForkDialog({ onClose }: { onClose: () => void }) {
           </Text>
           <Field label="Name for the fork">
             <TextField
+              name="name"
+              required
+              pattern={".*\\S.*"}
+              disabled={busy}
               value={name}
               onChange={(e) => setName(e.target.value)}
               onFocus={(e) => e.currentTarget.select()}

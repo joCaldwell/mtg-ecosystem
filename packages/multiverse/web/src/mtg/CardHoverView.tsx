@@ -10,7 +10,7 @@ import styles from "./CardHover.module.css";
 interface Shown { card: CardInfo; anchor: DOMRect; }
 type ImageStatus = "loading" | "loaded" | "failed";
 
-export function HoverCard({ shown }: { shown: Shown }) {
+export function HoverCard({ shown, id, onLeave }: { shown: Shown; id: string; onLeave: () => void }) {
   const { card, anchor } = shown;
   const box = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
@@ -21,6 +21,9 @@ export function HoverCard({ shown }: { shown: Shown }) {
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
+    // Top-layer previews work inside native modal dialogs as well. Keep the
+    // positioned DOM fallback for browsers without the Popover API.
+    if (el.hasAttribute("popover") && typeof el.showPopover === "function" && !el.matches(":popover-open")) el.showPopover();
     setPos(placeNear(anchor, { width: el.offsetWidth, height: el.offsetHeight }, { prefer: "right" }));
   }, [anchor, image, card]);
 
@@ -28,15 +31,18 @@ export function HoverCard({ shown }: { shown: Shown }) {
   return (
     <div
       ref={box}
+      id={id}
+      popover={typeof HTMLElement !== "undefined" && "popover" in HTMLElement.prototype ? "manual" : undefined}
       className={styles.card}
       role="tooltip"
+      onMouseLeave={onLeave}
       style={{ left: pos?.left ?? 0, top: pos?.top ?? 0, visibility: pos ? "visible" : "hidden" }}
     >
       {image !== "failed" && cardImageUrl(card) && (
         <img
           className={image === "loaded" ? styles.image : styles.pending}
           src={cardImageUrl(card)}
-          loading="lazy"
+          decoding="async"
           alt=""
           onLoad={() => setImage("loaded")}
           onError={() => setImage("failed")}

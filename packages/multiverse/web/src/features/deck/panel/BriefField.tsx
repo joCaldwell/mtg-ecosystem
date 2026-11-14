@@ -24,7 +24,7 @@ export function BriefField({ title, value, purpose, onSave, children, readOnly =
       <BriefEditor title={title} value={value} purpose={purpose} onSave={onSave} onClose={() => setEditing(false)} />
     </Suspense> : <>
       <div className={styles.head}>
-        <Eyebrow>{title}</Eyebrow>
+        <Eyebrow as="h2">{title}</Eyebrow>
         {editable && <div className={styles.actions}><Button size="sm" reach onClick={() => setEditing(true)} disabled={readOnly} aria-label={`Edit the ${title.toLowerCase()}`}>Edit</Button></div>}
       </div>
       {value.trim() ? <RichText text={value} /> : <Text tone="muted" as="p" className={styles.empty}>Nothing here yet. {purpose}</Text>}

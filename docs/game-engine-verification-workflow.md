@@ -41,7 +41,7 @@ probe; add `-- --artifact generated/NEW.json` to save a bounded reproduction.
 `npm run engine:smoke:replay -- FILE` checks it against the same source/build.
 Both commands own the Cargo lock and cache preflight. A first debug build can be
 expensive even though warm scenario execution takes milliseconds. See
-[the smoke contract](game-engine-smoke.md); this is not a full gameplay gate.
+[the smoke contract](game-engine-verification-workflow.md#smoke-probe); this is not a full gameplay gate.
 
 Every mode includes the Python storage/retention safety suites and the Node
 executable-preservation checks. These use small temporary fixtures and fake
@@ -81,8 +81,8 @@ each meaningful checkpoint and before a handoff/end of session. Do not hold comm
 or pushes for the full acceptance matrix. WIP checkpoints are allowed if labeled
 clearly and exact failures/unrun checks are recorded; make no claim of acceptance.
 Stage explicit task-owned paths, never blanket generated artifacts; never
-force-push shared branches. See [the gardening coordination record](game-engine-gardening.md)
-for the current integration scope and Git audit.
+force-push shared branches. Use the [agent handoff protocol](game-engine-agent-workflow.md#hand-off-verifiable-state)
+and [storage/worktree lifecycle](game-engine-storage.md#worktree-lifecycle).
 
 ## Shared Cargo execution and caches
 
@@ -137,4 +137,24 @@ benefit here; never call it a same-workload engine speedup. CPU is command plus
 waited-for descendants; RSS is the largest individual process, not aggregate group
 peak. Other host activity is uncontrolled and recorded as such. These are developer
 feedback measurements, not quiet search-performance claims. See
-[the fast-check measurement report](game-engine-fast-checks-20261109.md).
+[the fast-check measurement report](game-engine-evidence.md).
+
+## Smoke probe
+
+`engine:smoke` compiles five exact archived fixtures into the base catalog and
+admits the three-card/four-seat `ScenarioConfig::land_return()`. Through public
+observations, tokens and validation it activates Island mana and passes priority;
+it checks each accepted-input prefix by replay and rejects stale tokens atomically.
+Tracing is off. This is a fixed seedless developer sanity check, not a full game,
+profile/search/host/SDK/release/retention gate.
+
+The optional `--artifact generated/NEW.json` is create-new, at most 65,536 bytes,
+with no parent creation, replacement or symlink overwrite. Successful writes are
+read back with `smoke-replay`; failed probes/writes remain failures. Artifacts are
+trusted diagnostics with raw journal/checkpoint/build/catalog/source identities,
+not player data or a retained binary/source closure. Panic/kill can prevent capture.
+Keep the corresponding source/executable separately for long-term reproduction.
+Replay checks identity before state and reports the first bounded JSON-pointer
+difference. A saved failing probe still exits nonzero if reproduced. CLI runtime
+includes source compilation/admission/replay/artifact I/O, excludes startup/Cargo;
+measure those separately. A warm small probe does not remove native codegen cost.

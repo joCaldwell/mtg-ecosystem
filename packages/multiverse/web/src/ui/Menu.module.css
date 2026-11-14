@@ -30,6 +30,7 @@
 
 .separator {
   margin: var(--s-2) var(--s-3);
+  border: 0;
   border-top: 1px solid var(--line);
 }
 
@@ -54,7 +55,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--s-2);
-  height: var(--h-sm);
+  min-height: var(--h-sm);
   padding: 0 var(--chevron-inset) 0 var(--s-4);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-pill);

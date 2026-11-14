@@ -63,6 +63,7 @@ export function SlotRow({ slot, onSave, onInvalid, onRevert, onDelete }: Props) 
     name !== slot.name || min !== targetText(slot.target_min) || max !== targetText(slot.target_max);
 
   function onKeyDown(e: KeyboardEvent) {
+    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
     if (e.key === "Enter") {
       e.preventDefault();
       void commit();

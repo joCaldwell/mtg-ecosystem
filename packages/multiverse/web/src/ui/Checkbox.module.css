@@ -1,4 +1,5 @@
 .checkbox {
+  min-height: var(--h-sm);
   display: inline-flex;
   align-items: center;
   gap: var(--s-4);
@@ -21,7 +22,7 @@
 }
 
 /* The label is the tap target: a full touch height under 720 px. */
-@media (max-width: 719px) {
+@media (max-width: 719px), (pointer: coarse) {
   .checkbox {
     min-height: var(--tap);
   }

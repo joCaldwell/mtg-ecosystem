@@ -1,0 +1,4 @@
+.page {
+  min-block-size: 100dvh;
+  min-inline-size: 0;
+}

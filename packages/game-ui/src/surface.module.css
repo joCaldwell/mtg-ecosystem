@@ -7,7 +7,7 @@
   --game-surface: #111;
   --game-raised: #1a1a1a;
   --game-line: rgb(255 255 255 / .08);
-  --game-control-line: rgb(255 255 255 / .16);
+  --game-control-line: rgb(255 255 255 / .45);
   --game-hover: rgb(255 255 255 / .04);
   --game-text: #f5f5f5;
   --game-soft: #d4d4d4;
@@ -19,17 +19,17 @@
   --game-ink: #000;
   --game-card: #111;
   --game-card-edge: rgb(255 255 255 / .16);
-  --game-radius: 6px;
-  --game-space-1: 4px;
-  --game-space-2: 8px;
-  --game-space-3: 12px;
-  --game-space-4: 16px;
-  --game-space-5: 24px;
-  --game-space-6: 32px;
-  --game-text-small: 12px;
-  --game-text-body: 13px;
-  --game-text-title: 17px;
-  --game-header-height: 48px;
+  --game-radius: 0.375rem;
+  --game-space-1: 0.25rem;
+  --game-space-2: 0.5rem;
+  --game-space-3: 0.75rem;
+  --game-space-4: 1rem;
+  --game-space-5: 1.5rem;
+  --game-space-6: 2rem;
+  --game-text-small: 0.75rem;
+  --game-text-body: 0.8125rem;
+  --game-text-title: 1.0625rem;
+  --game-header-height: 3rem;
   --game-fast: 120ms;
 }
 
@@ -49,4 +49,17 @@
 .eyebrow { font-size: var(--game-text-small); text-transform: uppercase; letter-spacing: .08em; color: var(--game-muted); }
 .muted { color: var(--game-muted); }
 @media (pointer: coarse), (max-width: 719px) { .control { min-height: 44px; } }
-@media (prefers-reduced-motion: reduce) { .surface *, .surface *::before, .surface *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+@media (prefers-reduced-motion: reduce) { .surface * { scroll-behavior: auto !important; } }
+
+:where(.surface) :where(button, summary) { min-block-size: 1.5rem; min-inline-size: 1.5rem; }
+:where(.surface) :where(p, li, h1, h2, h3) { overflow-wrap: anywhere; }
+@media (pointer: coarse) {
+  :where(.surface) :where(button, summary) { min-block-size: 2.75rem; }
+}
+@media (forced-colors: active) {
+  :where(.surface) :where(button[aria-pressed='true'], label:has(input:checked)) {
+    outline: 2px solid Highlight;
+    outline-offset: -3px;
+  }
+  :where(.surface) :where(button:disabled, button[aria-disabled='true']) { color: GrayText; }
+}

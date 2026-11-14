@@ -111,7 +111,7 @@ Run from repository root. These direct entry points avoid npm's display output:
 | Small runtime probe | `sh scripts/engine-env.sh node scripts/run-engine-smoke.ts smoke --artifact generated/NEW.json` — create-new bounded artifact, runtime JSON and timing receipt |
 | Replay fixed probe | `sh scripts/engine-env.sh node scripts/run-engine-smoke.ts smoke-replay FILE` — same-source identity checks and first recorded divergence |
 | Cache inventory | `sh scripts/engine-env.sh python3 scripts/engine-cache.py status` — JSON, no writes/eviction |
-| Retirement review | `python3 scripts/engine-worktrees.py --worktree ABSOLUTE_PATH` — dry-run JSON; see [lifecycle](game-engine-worktrees.md) |
+| Retirement review | `python3 scripts/engine-worktrees.py --worktree ABSOLUTE_PATH` — dry-run JSON; see [lifecycle](game-engine-storage.md#worktree-lifecycle) |
 
 Doctor JSON currently uses `format_version: 1`. Always inspect the process exit
 status. A launcher failure can precede JSON output; diagnose its stderr. An

@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { Badge } from "./Badge.tsx";
 import { cx } from "./internal.ts";
 import styles from "./Tabs.module.css";
@@ -20,6 +20,16 @@ export interface TabsProps {
 
 export function Tabs({ tabs, value, onChange, className, "aria-label": ariaLabel }: TabsProps) {
   const refs = useRef(new Map<string, HTMLButtonElement>());
+
+  useEffect(() => {
+    const tab = refs.current.get(value);
+    const list = tab?.parentElement;
+    if (!tab || !list) return;
+    // Scroll only the tab row, including where scrollIntoView.container is unavailable.
+    const bounds = list.getBoundingClientRect(), rect = tab.getBoundingClientRect();
+    if (rect.left < bounds.left) list.scrollBy({ left: rect.left - bounds.left });
+    else if (rect.right > bounds.right) list.scrollBy({ left: rect.right - bounds.right });
+  }, [value]);
 
   function onKeyDown(e: KeyboardEvent) {
     const i = tabs.findIndex((t) => t.id === value);

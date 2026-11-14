@@ -2,7 +2,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--s-3);
-  height: var(--h-md);
+  min-height: var(--h-md);
   padding: 0 var(--s-5);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-md);
@@ -18,7 +18,7 @@
 }
 
 .sm {
-  height: var(--h-sm);
+  min-height: var(--h-sm);
   padding: 0 var(--s-4);
   font-size: var(--text-sm);
 }
@@ -93,7 +93,7 @@
 }
 
 .touch {
-  height: var(--tap);
+  min-height: var(--tap);
   padding: 0 var(--s-6);
 }
 

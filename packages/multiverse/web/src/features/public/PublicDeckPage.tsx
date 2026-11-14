@@ -17,21 +17,23 @@ import styles from "./PublicDeckPage.module.css";
 type Loaded = { deck: PublicDeckState } | { missing: true } | { error: string };
 
 export function PublicDeckPage({ slug }: { slug: string }) {
-  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [response, setResponse] = useState<{ key: string; value: Loaded } | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const key = JSON.stringify([slug, attempt]);
+  const loaded = response?.key === key ? response.value : null;
   useEffect(() => {
     let current = true;
-    setLoaded(null);
     api.publicDeck(slug).then(
-      (r) => current && setLoaded({ deck: r.deck }),
-      (e: unknown) => current && setLoaded(e instanceof ApiError && e.status === 404 ? { missing: true } : { error: e instanceof Error ? e.message : String(e) }),
+      (r) => current && setResponse({ key, value: { deck: r.deck } }),
+      (e: unknown) => current && setResponse({ key, value: e instanceof ApiError && e.status === 404 ? { missing: true } : { error: e instanceof Error ? e.message : String(e) } }),
     );
     return () => { current = false; };
   }, [slug, attempt]);
 
   useEffect(() => {
-    if (!loaded || !("deck" in loaded)) return;
-    document.title = `${loaded.deck.deck.name} · ${loaded.deck.deck.owner.handle}`;
+    if (!loaded) return;
+    document.title = "deck" in loaded ? `${loaded.deck.deck.name} · ${loaded.deck.deck.owner.handle}`
+      : `${"missing" in loaded ? "There is no shared deck here" : "This deck could not be loaded"} · ${APP_TITLE}`;
     // A cold load's head already carries this page's title, so restore the app's own.
     return () => { document.title = APP_TITLE; };
   }, [loaded]);

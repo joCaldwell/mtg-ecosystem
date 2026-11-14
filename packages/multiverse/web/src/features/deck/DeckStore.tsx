@@ -6,8 +6,9 @@ export { DeckListProvider, useDeckList } from "./DeckListStore.tsx";
 // `run(() => api.x(...))` and the response lands here; no setState or mutate
 // callbacks are threaded through props.
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
-import { api, ApiError, type DeckListState, type DeckState, type Envelope } from "../../api/client.ts";
+import { createContext, useCallback, useContext, useEffect, useReducer, useRef, useState, type ReactNode } from "react";
+import { api, ApiError, type DeckState, type Envelope } from "../../api/client.ts";
+import { acceptsDeckState } from "./stateOrdering.ts";
 import { useLive } from "../../api/live.tsx";
 
 interface DeckData {
@@ -27,9 +28,13 @@ type Action =
 function reducer(data: DeckData, action: Action): DeckData {
   switch (action.t) {
     case "apply":
-      return { ...data, state: action.payload.state ?? data.state, missing: false, loadError: null };
+      if (!action.payload.state || !acceptsDeckState(data.state?.deck.id ?? action.payload.state.deck.id, data.state, action.payload.state)) return data;
+      return { ...data, state: action.payload.state, missing: false, loadError: null,
+        error: data.loadError && data.error === data.loadError.message ? null : data.error };
     case "loadError":
-      return { ...data, state: null, missing: action.status === 404, loadError: { status: action.status, message: action.message } };
+      return { ...data, state: action.status === 403 || action.status === 404 ? null : data.state,
+        missing: action.status === 404, loadError: { status: action.status, message: action.message },
+        error: data.state && action.status !== 403 && action.status !== 404 ? action.message : data.error };
     case "error":
       return { ...data, error: action.message };
   }
@@ -48,38 +53,61 @@ export interface DeckStore extends DeckData {
 const DeckContext = /* @__PURE__ */ createContext<DeckStore | null>(null);
 
 export function DeckProvider({ deckId, children }: { deckId: number; children: ReactNode }) {
+  // Keep a new deck's first render separate even when a consumer forgets key.
+  return <DeckSession key={deckId} deckId={deckId}>{children}</DeckSession>;
+}
+
+function DeckSession({ deckId, children }: { deckId: number; children: ReactNode }) {
   const [data, dispatch] = useReducer(reducer, { state: null, missing: false, loadError: null, error: null });
+  const lifetime = useRef(0);
+  const writes = useRef(0);
+  useEffect(() => {
+    lifetime.current += 1;
+    return () => { lifetime.current += 1; };
+  }, []);
   const live = useLive({ resources: ["deck"], deckId });
   const [attempt, setAttempt] = useState(0);
   const retry = useCallback(() => setAttempt(n => n + 1), []);
 
-  // Stable identities (dispatch is stable), so effects may depend on them.
-  const apply = useCallback((payload: Envelope) => dispatch({ t: "apply", payload }), []);
+  // A local command invalidates older reads, even when only proposal/log data
+  // changed (those do not all increment the membership/edit versions).
+  const apply = useCallback((payload: Envelope) => {
+    if (!payload.state || payload.state.deck.id !== deckId) return;
+    writes.current += 1;
+    dispatch({ t: "apply", payload });
+    // Reconcile equal-version metadata from concurrent commands with a fresh
+    // full server composite. Never merge or fabricate command receipt fields.
+    retry();
+  }, [deckId, retry]);
   const run = useCallback(async <T extends Envelope>(fn: () => Promise<T>): Promise<T | null> => {
+    const generation = lifetime.current;
     dispatch({ t: "error", message: null });
     try {
       const result = await fn();
-      dispatch({ t: "apply", payload: result });
+      if (lifetime.current === generation) apply(result);
       return result;
     } catch (e: unknown) {
-      dispatch({ t: "error", message: e instanceof Error ? e.message : String(e) });
+      if (lifetime.current === generation) dispatch({ t: "error", message: e instanceof Error ? e.message : String(e) });
       return null;
     }
-  }, []);
+  }, [apply]);
   const clearError = useCallback(() => dispatch({ t: "error", message: null }), []);
 
   // Refetched whenever the server reports a change, so what an agent does in
   // another window shows up here without a reload.
   useEffect(() => {
     let current = true;
+    const write = writes.current;
     api
       .getDeck(deckId)
-      .then((r) => current && apply(r))
-      .catch((error: unknown) => current && dispatch({ t: "loadError", status: error instanceof ApiError ? error.status : 0, message: error instanceof Error ? error.message : String(error) }));
+      .then((r) => {
+        if (current && write === writes.current && r.state.deck.id === deckId) dispatch({ t: "apply", payload: r });
+      })
+      .catch((error: unknown) => current && write === writes.current && dispatch({ t: "loadError", status: error instanceof ApiError ? error.status : 0, message: error instanceof Error ? error.message : String(error) }));
     return () => {
       current = false;
     };
-  }, [deckId, apply, live, attempt]);
+  }, [deckId, live, attempt]);
 
   return (
     <DeckContext.Provider value={{ ...data, deckId, apply, run, clearError, retry }}>

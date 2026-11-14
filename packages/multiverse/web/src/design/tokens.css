@@ -25,8 +25,9 @@
   --overlay: var(--surface);
   --line: rgba(255, 255, 255, 0.08);
   --line-strong: rgba(255, 255, 255, 0.11);
+  --control-line: #757575; /* >=3:1 on surface/raised control backgrounds. */
   --line-hover: rgba(255, 255, 255, 0.18);
-  --scrollbar: rgba(255, 255, 255, 0.12);
+  --scrollbar: #757575; /* 4.6:1 against the black scrollbar track. */
   /* Quiet diagonal texture for cards outside the deck's 100. */
   --maybe-pattern: repeating-linear-gradient(
     135deg,
@@ -122,19 +123,19 @@
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Cascadia Mono", "Segoe UI Mono", Consolas,
     "Roboto Mono", "Ubuntu Mono", "DejaVu Sans Mono", "Noto Sans Mono", "Liberation Mono", monospace;
   /* Key caps: at 10px the letters read as dim specks beside 12px labels. */
-  --text-2xs: 11px;
+  --text-2xs: 0.6875rem;
   /* Labels and meta (dates, "Adding to", credits, attribution). 12px, the
      same as --text-sm: at 11px mid-grey meta was hard to read on black. */
-  --text-xs: 12px;
-  --text-sm: 12px;
-  --text-md: 13px;
-  --text-lg: 15px;
-  --text-xl: 17px;
+  --text-xs: 0.75rem;
+  --text-sm: 0.75rem;
+  --text-md: 0.8125rem;
+  --text-lg: 0.9375rem;
+  --text-xl: 1.0625rem;
   /* A shared deck's name under its art: the one display-sized title. */
-  --text-display: 28px;
+  --text-display: 1.75rem;
   --leading-display: 1.2;
   /* The sign-in page's product name, the one place the wordmark leads. */
-  --text-wordmark: 24px;
+  --text-wordmark: 1.5rem;
   --leading: 1.45;
   --leading-prose: 1.55;
 
@@ -156,7 +157,7 @@
   --r-pill: 999px;
 
   /* Control and row heights */
-  --h-sm: 22px;
+  --h-sm: 24px;
   --h-md: 26px;
   --h-lg: 30px;
   /* The card and token panels' "← Back": a comfortable pointer target. */
@@ -269,9 +270,9 @@
      4.53:1 (--text-soft), metadata at >=74% 6.75:1 (--text-soft), amber
      4.73:1. Credits at full opacity share that 6.75:1 floor. The violet fill with black ink
      is 7.72:1, independent of art. Controls use a separate 64% scrim; their blur is optional. */
-  --text-deck-title: 21px;
-  --text-deck-phone: 14px;
-  --text-deck-meta: 14px;
+  --text-deck-title: 1.3125rem;
+  --text-deck-phone: 0.875rem;
+  --text-deck-meta: 0.875rem;
   --deck-meta-symbol-ring: 1px;
   /* Black's collection bar is a solid charcoal, distinct from its track. */
   --collection-mana-b: color-mix(in srgb, var(--mana-b) 55%, var(--mana-b-ring));
@@ -411,13 +412,13 @@
 
 /* Approved playtester extensions: rules remain readable at desktop 100% zoom. */
 :root {
-  --text-rules: 15px;
-  --text-random-result: 32px;
-  --text-hud: 18px;
+  --text-rules: 0.9375rem;
+  --text-random-result: 2rem;
+  --text-hud: 1.125rem;
   --leading-rules: 1.6;
   /* The table shares the black canvas; near-black cards lift off it. */
   --table-bg: var(--bg);
-  --text-card-w: 264px;
+  --text-card-w: 16.5rem;
   --compact-card-w: 208px;
   --compact-card-min-h: 88px;
   --tap-control-size: 28px;

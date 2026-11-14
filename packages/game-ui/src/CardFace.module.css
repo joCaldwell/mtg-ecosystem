@@ -9,4 +9,4 @@
 .card:hover .inspect, .card[aria-pressed='true'] .inspect { color: var(--game-accent); }
 .compact { width: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: var(--game-space-1) var(--game-space-2); flex-basis: auto; }
 .compact .text, .compact .inspect { display: none; }.compact .type { border: 0; padding: 0; }
-@media (min-width: 1800px) { .card:not(.compact) { width: 190px; flex-basis: 190px; min-height: 208px; } }
+@container game-table (min-width: 112.5rem) { .card:not(.compact) { width: 190px; flex-basis: 190px; min-height: 208px; } }

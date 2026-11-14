@@ -38,6 +38,7 @@ export function AddBar() {
   const box = useRef<HTMLDivElement>(null);
   const resultList = useRef<HTMLDivElement>(null);
   const adding = useRef(false);
+  const [pending, setPending] = useState(false);
   const listId = useId();
 
   const q = query.trim();
@@ -147,8 +148,10 @@ export function AddBar() {
     }
     if (adding.current) return;
     adding.current = true;
+    setPending(true);
     const result = await run(() => api.addCard(deckId, card.oracle_id, how));
     adding.current = false;
+    setPending(false);
     if (!result) return;
 
     // Deck membership adds create a log entry. Shortlisting is organization
@@ -188,6 +191,7 @@ export function AddBar() {
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
     if (e.key === "Escape") {
       // This field's Escape is its own; the screen's would also clear the selection.
       e.stopPropagation();
@@ -220,6 +224,9 @@ export function AddBar() {
           value={query}
           placeholder="Card name or query…"
           autoComplete="off"
+          autoCapitalize="none"
+          autoCorrect="off"
+          enterKeyHint="search"
           spellCheck={false}
           role="combobox"
           aria-label="Add a card or search"
@@ -239,7 +246,7 @@ export function AddBar() {
 
       {shown && (
         // Pressing inside must not pull focus out of the input.
-        <div className={styles.drop} onMouseDown={(e) => e.target instanceof HTMLInputElement || e.preventDefault()}>
+        <div className={styles.drop} onMouseDown={(e) => { if (e.target instanceof Element && e.target.closest('[role="option"]')) e.preventDefault(); }}>
           <div ref={resultList} id={listId} role={rows.length > 0 ? "listbox" : undefined} aria-label={rows.length > 0 ? "Card search results" : undefined} className={styles.results}>
             {loading ? (
               <Text role="status" tone="muted" as="div" className={styles.none}>Searching…</Text>
@@ -265,14 +272,29 @@ export function AddBar() {
                   id={`${listId}-${i}`}
                   result={r}
                   highlighted={i === highlighted}
-                  offerCommander={!hasCommander && !!r.card.is_commander && !r.inDeck && !r.onMaybe}
                   onPick={(shift) => void add(r, shift ? { maybe: true } : {})}
-                  onCommander={() => void add(r, { role: "commander" })}
                   onHighlight={() => setIndex(i)}
                 />
               ))
             )}
           </div>
+          {!loading && !error && rows[highlighted] && (
+            // Listbox options cannot expose nested buttons. Keep every action
+            // in an adjacent, tabbable group for the current result instead.
+            <div className={styles.actions} role="group" aria-label={`Actions for ${rows[highlighted].card.name}`} aria-busy={pending}>
+              {viewing ? (
+                <Button size="sm" onClick={() => void add(rows[highlighted])}>View card</Button>
+              ) : (
+                <>
+                  <Button size="sm" disabled={pending} onClick={() => void add(rows[highlighted])}>Add</Button>
+                  <Button size="sm" disabled={pending} kbd="⇧↵" onClick={() => void add(rows[highlighted], { maybe: true })}>Add to maybe</Button>
+                  {!hasCommander && !!rows[highlighted].card.is_commander && (
+                    <Button size="sm" disabled={pending} onClick={() => void add(rows[highlighted], { role: "commander" })}>Add as commander</Button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
           <div className={styles.foot}>
             <span className={styles.hints}>
               {rows.length > 0 && !loading && !error && (viewing ? (

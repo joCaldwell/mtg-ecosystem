@@ -1,3 +1,5 @@
+import { useWindowScroll } from "../../app/windowScroll.ts";
+import styles from "./StandalonePage.module.css";
 import { useSession } from "../../app/Session.tsx";
 import { RichText } from "../../mtg/index.ts";
 import { Page, PageHeader, Stack, Text } from "../../ui/index.ts";
@@ -23,6 +25,7 @@ You retain rights to your content. You permit the operator to store and process 
 
 You may export your data and delete your account from Settings. Deletion and backup retention are described in the privacy policy. This service is not affiliated with or endorsed by Wizards of the Coast, Scryfall, Discord, Google, Anthropic or OpenAI. Magic: The Gathering and related marks belong to their owners. Use is subject to the Wizards of the Coast Fan Content Policy. Updated 2026-10-25.`;
 export function LegalPage({page}:{page:"privacy"|"terms"}) {
+  useWindowScroll();
   const {session}=useSession();
-  return <Page width="md" header={<PageHeader title={page === "privacy" ? "Privacy" : "Terms"} />}><Stack gap={6}><Text>Operator: {session.legal?.operator_name}. Contact: {session.legal?.contact_email}.</Text><RichText text={page === "privacy" ? privacy : terms} /><a href="/">Back to deck builder</a><LegalFooter /></Stack></Page>;
+  return <main id="main-content" tabIndex={-1} className={styles.page}><Page width="md" header={<PageHeader title={page === "privacy" ? "Privacy" : "Terms"} />}><Stack gap={6}><Text>Operator: {session.legal?.operator_name}. Contact: {session.legal?.contact_email}.</Text><RichText text={page === "privacy" ? privacy : terms} /><a href="/">Back to deck builder</a><LegalFooter /></Stack></Page></main>;
 }

@@ -19,7 +19,7 @@ const REASONS: Record<string, string> = {
   unsupported_symbol: "Unsupported cost symbol",
   malformed_cost: "Malformed cost",
 };
-export function ManaComparison({ mana }: { mana: Mana }) {
+export function ManaComparison({ mana, headingLevel = 2 }: { mana: Mana; headingLevel?: 2 | 3 }) {
   const face = mana.first_face, coverage = mana.coverage;
   const distributions = manaDistributions(mana);
   // Unresolved or partial sources mean the source chart undercounts; the
@@ -61,7 +61,7 @@ export function ManaComparison({ mana }: { mana: Mana }) {
     </details>
   );
   return <section className={styles.section} aria-label="Mana demand and sources">
-    <Eyebrow className={styles.label}>Mana costs and sources</Eyebrow>
+    <Eyebrow as={headingLevel === 2 ? "h2" : "h3"} className={styles.label}>Mana costs and sources</Eyebrow>
     <ManaDistribution series={[
       { title: "Cost demand", unit: "fixed coloured symbols", centerUnit: "symbols", distribution: distributions.costs, empty: "No fixed coloured cost symbols." },
       { title: "Direct sources", unit: "source-colour counts", centerUnit: "counts", distribution: distributions.sources, empty: "No named source colours recognized." },

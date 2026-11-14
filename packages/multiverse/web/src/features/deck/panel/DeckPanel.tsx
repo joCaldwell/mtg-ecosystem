@@ -52,6 +52,7 @@ export function DeckPanel({ view, review }: { view: DeckViewModel; review: Revie
   }, [pending, ui.tab, openId]);
 
   return <aside ref={panel} className={styles.panel} aria-label="Deck panel" data-deck-panel onKeyDown={event => {
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
     if (event.key === "Escape" && ui.openCard && !event.defaultPrevented) {
       event.preventDefault(); event.stopPropagation(); ui.openCardPanel(null);
     }
