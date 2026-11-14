@@ -425,28 +425,35 @@ No install/generation is implicit. Qualification is source-bound in
 [engine evidence](game-engine-evidence.md#current-temporary-keyword-family-qualification).
 This foundation expands no playable pool, policy, hosting/search or consumer acceptance.
 
-### Temporary creature-set keyword family
+### Temporary set keyword families
 
-`temporary_creature_set_keyword_program_v1` is a separate complete ordinary
-instant/sorcery family with no targets, modes or additional sacrifice cost. Its
+The creature (`temporary_creature_set_keyword_program_v1`) and permanent
+(`temporary_permanent_set_keyword_program_v1`) families share complete ordinary
+instant/sorcery programs with no targets, modes or additional sacrifice cost. The
 stack instruction program is exactly one `GrantKeywordsSet` with source block 0
 and an optional typed `CreatureStatModifier { power, toughness }`. It creates one
 continuous effect lasting until end of turn; a separate `PumpSet`/grant pair
-rejects. Selectors are only `ControllerCreatures` (current creatures
+rejects. Creature selectors are `ControllerCreatures` (current creatures
 controlled by the frozen invocation controller) and `AttackingCreatures`
-(current attacking creatures, regardless of controller). Signed P/T values are
-shared exact parameters. The descriptor
-`temporary_creature_set_keyword_program` exposes the selector, optional modifier
-and reviewed keyword vector; identities and quantities never select mechanics.
+(current attacking creatures, regardless of controller), with optional exact signed
+P/T parameters. `ControllerPermanents` selects every current battlefield permanent
+controlled by the frozen invocation controller, including noncreatures; its modifier
+must be absent/None, and even Some(0/0) rejects. `TemporarySetKeywordProgram` and
+`temporary_set_keyword_program` expose the shared selector, optional modifier and
+reviewed vector. `temporary_creature_set_keyword_program` and
+`temporary_permanent_set_keyword_program` are disjoint narrow wrappers. Identities
+and quantities never select mechanics.
 
 The family reuses `supported_temporary_creature_keywords`: Flying, Deathtouch,
 Indestructible, Lifelink, Hexproof, Haste, Trample and First Strike, nonempty and
 without duplicates. Every keyword requires its existing primitive capability;
 Hexproof uses `attachments_v1`, and First Strike serializes as `first strike`
 with `first_strike_v1`. Every set grant additionally requires `board_wipes_v1`
-for the shared set machinery and the new family capability, normal layout and
-its ordinary cast-kind capability. Targeted subset/general labels never admit
-this shape. The optional modifier requires no targeted P/T capability. Standalone
+for the shared set machinery, exactly the selector's family capability, normal
+layout and its ordinary cast-kind capability. The permanent selector never infers
+the creature-set label; the real protective pair requires Attachments and
+Indestructible in addition to Board Wipes and its ordinary/family capabilities.
+Targeted subset/general labels never admit this shape. The optional modifier requires no targeted P/T capability. Standalone
 `PumpSet` retains its existing behavior and Board Wipes capability.
 
 The instruction captures one full current ordered set and creates all properties
@@ -459,21 +466,28 @@ never dynamically reselect the effect (CR 608.2h, 611.2c).
 Cleanup expires it through the existing temporary-effect path. Restore validates
 the exact source opcode, modifier, keywords, source block and historical member handles;
 authenticated input replay checks the captured membership. The new controller
-selector rejects in all other movement, damage, bare-pump, mode, activation and
-trigger programs. Permanent-wide protection remains unsupported: the complete
-Heroic Intervention source is not narrowed to creatures.
+selectors reject in all other movement, damage, bare-pump, mode, activation and
+trigger programs, and in cost-conditioned, additional-cost, targeted or malformed
+programs. Exact complete Heroic Intervention source lowers its sole pure GainAbilities
+sentence to ControllerPermanents with Hexproof then Indestructible, no modifier,
+and its unchanged {1}{G} ordinary instant cost. This source-backed protective pair
+is separate from synthetic vectors of the other reviewed keywords.
 
 Frozen Titanic Ultimatum, Overrun, Stampede, Make a Stand and Burst of Speed
-sources witness the two selectors and optional modifier. The compiler consumes
+sources witness the two creature selectors and optional modifier. The compiler consumes
 one complete typed sentence with no bindings: a pure gain, or exactly a fixed
 signed pump followed by a gain with matching reviewed selectors and duration.
 It never coalesces separate sentences, later arbitrary programs or cost-conditioned
 clauses. Dedicated compiler and contracts tests cover exact costs/order/capabilities,
 old split-IR rejection and whole-source negatives.
 [Set schema probes](../packages/game-engine/crates/contracts/tests/creature-set-keyword-schema-probes.mjs)
-are bounded synthetic IR controls; `--prepare-only` constructs them without
-schema execution. The targeted atomic-grant probes remain separate; their prior
-split-format 1,955-probe inventory has its own historical identity. This family
+retain their original 409 controls and payloads. The
+[separate permanent controls](../packages/game-engine/crates/contracts/tests/permanent-set-keyword-schema-probes.mjs)
+cover the new selector, disjoint family/primitive closure, signed/zero modifier
+negatives and all other opcode/context fences. These are bounded synthetic IR
+controls; `--prepare-only` constructs them without schema execution. New Rust tests
+and schema validation remain UNRUN pending parent source-bound qualification.
+The targeted atomic-grant probes remain separate; their prior split-format 1,955-probe inventory has its own historical identity. This family
 changes no catalog bodies, pool/profile/policy,
 hosting/search or consumer admission; Card IR remains schema 1.
 <a id="abilities-targets-and-triggers"></a>
