@@ -3923,6 +3923,14 @@ pub fn catalog_schema() -> serde_json::Value {
                 }
             }));
     }
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":any_grant,"then":{"allOf":[
+            {"properties":{"capabilities":{"contains":{"const":Capability::NormalLayoutV1}}}},
+            {"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
+             "then":{"properties":{"capabilities":{"allOf":[{"contains":{"const":Capability::CastInstantV1}},{"not":{"contains":{"const":Capability::CastSorceryV1}}}]}}},
+             "else":{"properties":{"capabilities":{"allOf":[{"contains":{"const":Capability::CastSorceryV1}},{"not":{"contains":{"const":Capability::CastInstantV1}}}]}}}}
+        ]}
+    }));
     // Other creature-keyword mechanics cannot be spare capabilities on an
     // ordinary grant spell; Flash retains its independent intrinsic meaning.
     schema["$defs"]["Definition"]["allOf"]

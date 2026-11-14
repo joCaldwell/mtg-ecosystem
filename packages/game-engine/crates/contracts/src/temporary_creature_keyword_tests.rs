@@ -59,3 +59,446 @@ fn temporary_creature_keyword_family_preserves_subset_fences() {
         assert_eq!(descriptor.modifier.is_some(), modifier);
     }
 }
+
+fn vectors(prefix: &mut Vec<KeywordAbility>, result: &mut Vec<Vec<KeywordAbility>>) {
+    if !prefix.is_empty() {
+        result.push(prefix.clone());
+    }
+    for keyword in [
+        KeywordAbility::Flying,
+        KeywordAbility::Deathtouch,
+        KeywordAbility::Indestructible,
+        KeywordAbility::Lifelink,
+    ] {
+        if !prefix.contains(&keyword) {
+            prefix.push(keyword);
+            vectors(prefix, result);
+            prefix.pop();
+        }
+    }
+}
+
+#[test]
+fn temporary_creature_keyword_family_all_ordered_vectors_have_exact_requirements() {
+    let mut combinations = vec![];
+    vectors(&mut vec![], &mut combinations);
+    assert_eq!(combinations.len(), 64);
+    for keywords in combinations {
+        assert!(supported_temporary_creature_keywords(&keywords));
+        for modifier in [false, true] {
+            let d = grant(&keywords, modifier);
+            let mut expected = BTreeSet::from([
+                Capability::NormalLayoutV1,
+                Capability::CastInstantV1,
+                Capability::CreatureTargetV1,
+            ]);
+            expected.insert(match (modifier, keywords.as_slice()) {
+                (false, [KeywordAbility::Flying]) => Capability::TemporaryFlyingSpellV1,
+                (false, [KeywordAbility::Deathtouch]) => Capability::TemporaryDeathtouchSpellV1,
+                (false, [KeywordAbility::Indestructible]) => {
+                    Capability::TemporaryIndestructibleSpellV1
+                }
+                (true, [KeywordAbility::Indestructible]) => {
+                    Capability::CompoundIndestructibleSpellV1
+                }
+                _ => Capability::TemporaryCreatureKeywordProgramV1,
+            });
+            if modifier {
+                expected.insert(Capability::TemporaryPowerToughnessV1);
+            }
+            for keyword in &keywords {
+                expected.insert(match keyword {
+                    KeywordAbility::Flying => Capability::FlyingV1,
+                    KeywordAbility::Deathtouch => Capability::DeathtouchV1,
+                    KeywordAbility::Indestructible => Capability::IndestructibleV1,
+                    KeywordAbility::Lifelink => Capability::LifelinkV1,
+                    _ => unreachable!(),
+                });
+            }
+            assert_eq!(d.requirements(), expected);
+            d.validate().unwrap();
+            let raw = canonical(&d).unwrap();
+            let roundtrip: Definition = strict_read(&raw).unwrap();
+            assert_eq!(roundtrip, d);
+            roundtrip.validate().unwrap();
+            for cap in &expected {
+                let mut missing = d.clone();
+                missing.capabilities.remove(cap);
+                assert!(
+                    missing.validate().is_err(),
+                    "missing {cap:?}: {keywords:?}/{modifier}"
+                );
+            }
+            for cap in [
+                Capability::TemporaryFlyingSpellV1,
+                Capability::TemporaryDeathtouchSpellV1,
+                Capability::TemporaryIndestructibleSpellV1,
+                Capability::CompoundIndestructibleSpellV1,
+                Capability::TemporaryCreatureKeywordProgramV1,
+                Capability::FlyingV1,
+                Capability::DeathtouchV1,
+                Capability::IndestructibleV1,
+                Capability::LifelinkV1,
+                Capability::TemporaryPowerToughnessV1,
+                Capability::ReachV1,
+            ] {
+                if !expected.contains(&cap) {
+                    let mut spare = d.clone();
+                    spare.capabilities.insert(cap);
+                    assert!(
+                        spare.validate().is_err(),
+                        "spare {cap:?}: {keywords:?}/{modifier}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn temporary_creature_keyword_family_preserves_exact_parameters_and_pure_provenance() {
+    for (power, toughness) in [
+        ("0", "0"),
+        ("-2", "3"),
+        (
+            "99999999999999999999999999999999999999999",
+            "-99999999999999999999999999999999999999999",
+        ),
+    ] {
+        let mut d = grant(&[KeywordAbility::Flying, KeywordAbility::Lifelink], true);
+        let p = d.spell.as_mut().unwrap();
+        let Instruction::ModifyPowerToughness {
+            power: actual_p,
+            toughness: actual_t,
+            ..
+        } = &mut p.instructions[0]
+        else {
+            unreachable!()
+        };
+        *actual_p = power.parse().unwrap();
+        *actual_t = toughness.parse().unwrap();
+        let descriptor = temporary_creature_keyword_program(p).unwrap();
+        let (actual_p, actual_t) = descriptor.modifier.unwrap();
+        assert_eq!(actual_p.to_string(), power);
+        assert_eq!(actual_t.to_string(), toughness);
+        assert!(compound_indestructible_parameters(p).is_none());
+        d.validate().unwrap();
+        // The helper is program-only; ordinary instant/sorcery kind and timing
+        // are checked by Definition, preserving the existing caller contract.
+        d.characteristics.kind = CardKind::Sorcery;
+        d.spell.as_mut().unwrap().timing = SpellTiming::MainPhase;
+        d.capabilities = d.requirements();
+        d.validate().unwrap();
+    }
+    for keyword in [
+        KeywordAbility::Flying,
+        KeywordAbility::Deathtouch,
+        KeywordAbility::Indestructible,
+        KeywordAbility::Lifelink,
+    ] {
+        for block in [0, 7, u32::MAX] {
+            let mut d = grant(&[keyword], false);
+            let Instruction::GrantKeywords { source_block, .. } =
+                &mut d.spell.as_mut().unwrap().instructions[0]
+            else {
+                unreachable!()
+            };
+            *source_block = block;
+            assert!(temporary_creature_keyword_program(d.spell.as_ref().unwrap()).is_some());
+            d.validate().unwrap();
+            let roundtrip: Definition = strict_read(&canonical(&d).unwrap()).unwrap();
+            assert_eq!(roundtrip, d);
+        }
+    }
+}
+
+#[test]
+fn temporary_creature_keyword_family_rejects_empty_duplicate_and_unreviewed_vocabulary() {
+    assert!(!supported_temporary_creature_keywords(&[]));
+    for keywords in [
+        vec![],
+        vec![KeywordAbility::Flying, KeywordAbility::Flying],
+        vec![
+            KeywordAbility::Lifelink,
+            KeywordAbility::Deathtouch,
+            KeywordAbility::Lifelink,
+        ],
+        vec![KeywordAbility::Reach],
+        vec![KeywordAbility::Haste],
+        vec![KeywordAbility::Vigilance],
+        vec![KeywordAbility::Defender],
+        vec![KeywordAbility::Trample],
+        vec![KeywordAbility::FirstStrike],
+        vec![KeywordAbility::DoubleStrike],
+        vec![KeywordAbility::Menace],
+        vec![KeywordAbility::Flash],
+        vec![KeywordAbility::Hexproof],
+        vec![KeywordAbility::Shroud],
+    ] {
+        assert!(!supported_temporary_creature_keywords(&keywords));
+        for modifier in [false, true] {
+            let d = grant(&keywords, modifier);
+            assert!(temporary_creature_keyword_program(d.spell.as_ref().unwrap()).is_none());
+            assert!(d.validate().is_err(), "{keywords:?}/{modifier}");
+        }
+    }
+}
+
+#[test]
+fn temporary_creature_keyword_family_rejects_complete_program_near_misses() {
+    for modifier in [false, true] {
+        for variant in 0..17 {
+            let mut d = grant(
+                &[KeywordAbility::Flying, KeywordAbility::Lifelink],
+                modifier,
+            );
+            let p = d.spell.as_mut().unwrap();
+            match variant {
+                0 => p.targets.clear(),
+                1 => p.targets.push(p.targets[0].clone()),
+                2 => p.targets[0].slot = 1,
+                3 => p.targets[0].selection_id.clear(),
+                4 => p.targets[0].domain = TargetDomain::ControlledBattlefieldCreature,
+                5 => p.targets[0].domain = TargetDomain::BlockingBattlefieldCreature,
+                6 => p.targets[0].domain = TargetDomain::BattlefieldPermanent,
+                7 => {
+                    p.targets[0].filter = Some(PermanentFilter {
+                        types: vec![],
+                        non_types: vec![],
+                        non_colors: vec![],
+                        opponent: false,
+                        tapped: false,
+                    })
+                }
+                8 => p.functioning_zone = FunctioningZone::Battlefield,
+                9 => p.resolution = SpellResolution::Permanent,
+                10 => {
+                    p.additional_sacrifice = Some(SacrificeFilter {
+                        types: vec![CardKind::Artifact],
+                        subtypes: vec![],
+                    })
+                }
+                11 => {
+                    let child = p.clone();
+                    p.modes.push(SpellMode { program: child });
+                }
+                12 => p.instructions.push(p.instructions.last().unwrap().clone()),
+                13 => p.instructions.push(Instruction::DrawCards {
+                    count: 1.into(),
+                    recipient: None,
+                    source_block: 0,
+                }),
+                14 => {
+                    let Instruction::GrantKeywords { target_slot, .. } =
+                        p.instructions.last_mut().unwrap()
+                    else {
+                        unreachable!()
+                    };
+                    *target_slot = 1;
+                }
+                15 => p.instructions.insert(
+                    0,
+                    Instruction::DrawCards {
+                        count: 1.into(),
+                        recipient: None,
+                        source_block: 0,
+                    },
+                ),
+                _ => p.instructions.clear(),
+            }
+            assert!(
+                temporary_creature_keyword_program(p).is_none(),
+                "{modifier}/{variant}"
+            );
+            d.capabilities = d.requirements();
+            assert!(d.validate().is_err(), "{modifier}/{variant}");
+        }
+    }
+    for variant in 0..4 {
+        let mut d = grant(
+            &[KeywordAbility::Deathtouch, KeywordAbility::Lifelink],
+            true,
+        );
+        let p = d.spell.as_mut().unwrap();
+        match variant {
+            0 => p.instructions.reverse(),
+            1 => {
+                let Instruction::ModifyPowerToughness { source_block, .. } = &mut p.instructions[0]
+                else {
+                    unreachable!()
+                };
+                *source_block = 1;
+            }
+            2 => {
+                let Instruction::GrantKeywords { source_block, .. } = &mut p.instructions[1] else {
+                    unreachable!()
+                };
+                *source_block = 1;
+            }
+            _ => {
+                let Instruction::ModifyPowerToughness { target_slot, .. } = &mut p.instructions[0]
+                else {
+                    unreachable!()
+                };
+                *target_slot = 1;
+            }
+        }
+        assert!(temporary_creature_keyword_program(p).is_none());
+        d.capabilities = d.requirements();
+        assert!(d.validate().is_err());
+    }
+}
+
+#[test]
+fn temporary_creature_keyword_family_rejects_definition_and_ability_contexts() {
+    for kind in [
+        CardKind::Creature,
+        CardKind::Artifact,
+        CardKind::Enchantment,
+        CardKind::Land,
+    ] {
+        let mut d = grant(&[KeywordAbility::Lifelink], false);
+        d.characteristics.kind = kind;
+        assert!(temporary_creature_keyword_program(d.spell.as_ref().unwrap()).is_some());
+        d.capabilities = d.requirements();
+        assert!(d.validate().is_err());
+    }
+    let c = Catalog::read(include_str!(
+        "../../../tests/fixtures/expected-effects-ir.json"
+    ))
+    .unwrap();
+    for name in ["Samite Healer", "Blood Artist"] {
+        for modifier in [false, true] {
+            let mut d = c
+                .definitions
+                .iter()
+                .find(|d| d.name == name)
+                .unwrap()
+                .clone();
+            let p = grant(
+                &[KeywordAbility::Deathtouch, KeywordAbility::Lifelink],
+                modifier,
+            )
+            .spell
+            .unwrap();
+            if let Some(a) = d.activated.first_mut() {
+                a.program = p;
+            } else {
+                d.triggered[0].program = p;
+            }
+            d.capabilities = d.requirements();
+            assert!(d.validate().is_err(), "{name}/{modifier}");
+        }
+    }
+    let mut d = grant(&[KeywordAbility::Lifelink], false);
+    d.provenance.source_sha256 = "0".repeat(64);
+    assert!(d.validate().is_err());
+}
+
+#[test]
+fn temporary_creature_keyword_family_rejects_unrepresentable_json_shapes() {
+    let positive = serde_json::to_value(grant(
+        &[KeywordAbility::Flying, KeywordAbility::Lifelink],
+        true,
+    ))
+    .unwrap();
+    for (pointer, invalid) in [
+        (
+            "/spell/instructions/1/keywords",
+            serde_json::json!(["future-keyword"]),
+        ),
+        (
+            "/spell/instructions/1/keywords",
+            serde_json::json!([{"flying":null}]),
+        ),
+        (
+            "/spell/instructions/0/duration",
+            serde_json::json!("permanent"),
+        ),
+        (
+            "/spell/instructions/1/duration",
+            serde_json::json!("permanent"),
+        ),
+        ("/spell/targets/0/chooser", serde_json::json!("opponent")),
+        ("/spell/targets/0/stage", serde_json::json!("resolution")),
+        ("/spell/targets/0/count", serde_json::json!(2)),
+        ("/spell/instructions/0/power", serde_json::json!(2)),
+        ("/spell/instructions/0/power", serde_json::json!("+2")),
+        ("/spell/instructions/0/toughness", serde_json::json!("-0")),
+    ] {
+        let mut bad = positive.clone();
+        let (parent, key) = pointer.rsplit_once('/').unwrap();
+        bad.pointer_mut(parent)
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .insert(key.into(), invalid);
+        assert!(
+            strict_read::<Definition>(&bad.to_string())
+                .and_then(|d| d.validate())
+                .is_err(),
+            "{pointer}"
+        );
+    }
+}
+
+#[test]
+fn temporary_creature_keyword_family_schema_uses_unique_reviewed_vectors() {
+    let schema = catalog_schema();
+    assert_eq!(schema["$defs"]["TemporaryCreatureKeywords"]["minItems"], 1);
+    assert_eq!(
+        schema["$defs"]["TemporaryCreatureKeywords"]["uniqueItems"],
+        true
+    );
+    assert_eq!(
+        schema["$defs"]["TemporaryCreatureKeywords"]["items"]["enum"],
+        serde_json::json!(["flying", "deathtouch", "indestructible", "lifelink"])
+    );
+    let instructions = &schema["$defs"]["TemporaryCreatureKeywordInstructions"]["anyOf"];
+    assert_eq!(instructions[0]["maxItems"], 1);
+    assert_eq!(instructions[1]["minItems"], 2);
+    assert_eq!(instructions[1]["maxItems"], 2);
+    for field in ["power", "toughness"] {
+        assert_eq!(
+            instructions[1]["prefixItems"][0]["properties"][field],
+            serde_json::json!({"$ref":"#/$defs/ExactQuantity"})
+        );
+    }
+}
+
+#[test]
+fn temporary_creature_keyword_family_preserves_frozen_catalog_requirements_and_canonical_ir() {
+    let root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/catalogs");
+    let mut paths = BTreeSet::new();
+    for entry in std::fs::read_dir(&root).unwrap() {
+        let manifest = entry.unwrap().path();
+        if manifest
+            .extension()
+            .is_some_and(|extension| extension == "json")
+        {
+            let manifest: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(manifest).unwrap()).unwrap();
+            paths.insert(root.join(manifest["expected_ir"].as_str().unwrap()));
+        }
+    }
+    assert!(!paths.is_empty());
+    for path in paths {
+        let bytes = std::fs::read_to_string(&path).unwrap();
+        let frozen: serde_json::Value = serde_json::from_str(&bytes).unwrap();
+        let catalog = Catalog::read(&bytes).unwrap();
+        for d in &catalog.definitions {
+            assert_eq!(d.requirements(), d.capabilities, "{}", d.name);
+            assert!(
+                !d.capabilities
+                    .contains(&Capability::TemporaryCreatureKeywordProgramV1)
+            );
+        }
+        assert_eq!(
+            canonical(&catalog).unwrap(),
+            canonical(&frozen).unwrap(),
+            "{}",
+            path.display()
+        );
+    }
+}
