@@ -509,6 +509,44 @@ struct TriggerFilter {
     #[serde(default, rename = "nonSubtypes")]
     non_subtypes: Vec<String>,
 }
+// CR 113.10, 611.2a/c and 613.1f: gained keyword abilities share the
+// ordinary captured-target grant operation. The complete program is validated
+// by contracts; this decoder must never discard an unreviewed ability or field.
+// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+#[derive(Deserialize)]
+#[serde(tag = "gained", rename_all = "kebab-case", deny_unknown_fields)]
+enum GainedAbility {
+    Keyword { keyword: GainedKeyword },
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GainedKeyword {
+    keyword: KeywordAbility,
+}
+fn lower_temporary_creature_keywords(
+    abilities: &[serde_json::Value],
+) -> Result<Vec<KeywordAbility>, Failure> {
+    let keywords = abilities
+        .iter()
+        .map(|ability| {
+            let GainedAbility::Keyword { keyword } = serde_json::from_value(ability.clone())
+                .map_err(|_| {
+                    unsupported(
+                        "effects.gain-abilities",
+                        "unsupported gained keyword ability",
+                    )
+                })?;
+            Ok(keyword.keyword)
+        })
+        .collect::<Result<Vec<_>, Failure>>()?;
+    if !supported_temporary_creature_keywords(&keywords) {
+        return Err(unsupported(
+            "effects.gain-abilities",
+            "expected nonempty unique reviewed temporary creature keywords",
+        ));
+    }
+    Ok(keywords)
+}
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Sentence {
@@ -1785,39 +1823,14 @@ fn append_spell_effects(
                     what,
                     abilities,
                     duration,
-                } if duration.duration == "end-of-turn"
-                    && (abilities
-                        == &[
-                            serde_json::json!({"gained":"keyword","keyword":{"keyword":"indestructible"}}),
-                        ]
-                        || abilities
-                            == &[
-                                serde_json::json!({"gained":"keyword","keyword":{"keyword":"flying"}}),
-                            ]
-                        || abilities
-                            == &[
-                                serde_json::json!({"gained":"keyword","keyword":{"keyword":"deathtouch"}}),
-                            ]) =>
-                {
+                } if duration.duration == "end-of-turn" => {
+                    let keywords = lower_temporary_creature_keywords(abilities)?;
                     let target: Target = serde_json::from_value(what.clone()).map_err(|_| {
                         unsupported("effects.gain-abilities", "unsupported keyword target")
                     })?;
                     Instruction::GrantKeywords {
                         target_slot: bind_creature_target(program, slots, &target)?,
-                        keywords: vec![if abilities
-                            == &[
-                                serde_json::json!({"gained":"keyword","keyword":{"keyword":"flying"}}),
-                            ] {
-                            KeywordAbility::Flying
-                        } else if abilities
-                            == &[
-                                serde_json::json!({"gained":"keyword","keyword":{"keyword":"deathtouch"}}),
-                            ]
-                        {
-                            KeywordAbility::Deathtouch
-                        } else {
-                            KeywordAbility::Indestructible
-                        }],
+                        keywords,
                         duration: Duration::UntilEndOfTurn,
                         source_block,
                     }
@@ -8475,3 +8488,6 @@ mod temporary_deathtouch_tests;
 
 #[cfg(test)]
 mod collar_source_tests;
+
+#[cfg(test)]
+mod temporary_creature_keyword_tests;

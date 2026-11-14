@@ -122,7 +122,7 @@ fn compound_indestructible_family_new_sources_reject_shape_near_misses() {
                     3 => steps[1]["what"]["selectionId"] = "line:0:1".into(),
                     4 => steps[0]["what"]["count"]["value"] = 2.into(),
                     5 => steps[1]["what"]["filter"]["control"] = "you".into(),
-                    6 => steps[1]["abilities"][0]["keyword"]["keyword"] = "flying".into(),
+                    6 => steps[1]["abilities"][0]["keyword"]["keyword"] = "haste".into(),
                     7 => { let x = steps[1]["abilities"][0].clone(); steps[1]["abilities"].as_array_mut().unwrap().push(x); },
                     8 => { let x = steps[0].clone(); steps.as_array_mut().unwrap().push(x); },
                     9 => steps[0]["power"]["amount"] = json!({"amount":"variable","name":"x"}),
