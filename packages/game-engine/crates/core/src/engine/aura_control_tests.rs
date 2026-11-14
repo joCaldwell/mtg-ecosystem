@@ -1079,3 +1079,7 @@ mod composed_tests;
 #[cfg(test)]
 #[path = "atomic_targeted_keyword_tests.rs"]
 mod atomic_targeted_keyword_tests;
+
+#[cfg(test)]
+#[path = "permanent_set_keyword_tests.rs"]
+mod permanent_set_keyword_tests;
