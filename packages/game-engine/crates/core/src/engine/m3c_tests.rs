@@ -940,6 +940,23 @@ fn m3c_selection_public_ids_work_budget_prefixes_stale_foreign_and_rehashed_forg
         assert_eq!(zero.state, g.state);
         g.submit(validated).unwrap();
         prove(&g);
+        let mut forged_pending = g.fork();
+        forged_pending
+            .state
+            .rules
+            .pending
+            .as_mut()
+            .unwrap()
+            .response = Response::AdditionalCosts {
+            selected: vec!["foreign-cost".into()],
+        };
+        assert!(
+            Game::restore(
+                forged_pending.prepared.as_ref().clone(),
+                &forged_pending.snapshot().unwrap()
+            )
+            .is_err()
+        );
         assert!(matches!(
             g.check_player_response(PlayerId(0), token, response, Budget::unlimited()),
             QueryResult::Rejected(_)
@@ -1100,6 +1117,7 @@ fn m3c_linked_quantity_draw_suspended_prefix_and_commander_replacement_recover()
         );
         let mut replacement = false;
         let mut progress = false;
+        let mut forged_progress_checked = false;
         for _ in 0..80 {
             let mut zero = g.fork();
             zero.advance(Budget::new(0));
@@ -1108,6 +1126,26 @@ fn m3c_linked_quantity_draw_suspended_prefix_and_commander_replacement_recover()
                 Advance::Suspended { .. } => {
                     progress |= matches!(&g.state.rules.frame,Frame::Resolve {frame} if frame.damage_draw.is_some());
                     prove(&g);
+                    if !forged_progress_checked {
+                        let mut forged = g.fork();
+                        if let Frame::Resolve { frame } = &mut forged.state.rules.frame
+                            && let Some(draw) = &mut frame.damage_draw
+                            && draw.remaining > Quantity::zero()
+                        {
+                            // Keep the declared total unchanged: an invented
+                            // successful attempt still needs replay evidence.
+                            draw.completed.add(&1.into());
+                            draw.remaining.subtract(&1.into());
+                            assert!(
+                                Game::restore(
+                                    forged.prepared.as_ref().clone(),
+                                    &forged.snapshot().unwrap()
+                                )
+                                .is_err()
+                            );
+                            forged_progress_checked = true;
+                        }
+                    }
                 }
                 Advance::AwaitingDecision(Request::Priority { .. }) => {
                     if g.state.rules.stack.is_empty() {
@@ -1124,7 +1162,7 @@ fn m3c_linked_quantity_draw_suspended_prefix_and_commander_replacement_recover()
                 other => panic!("quantity draw {other:?}"),
             }
         }
-        assert!(replacement && progress);
+        assert!(replacement && progress && forged_progress_checked);
         assert!(g.state.rules.stack.is_empty());
         assert_eq!(
             g.zone(g.object_id(commander).unwrap()),
