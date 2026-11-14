@@ -359,13 +359,15 @@ fn lower_damage_subject(what: &SourceDamageObject) -> Result<DamageTriggerSource
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SourceTypeFilter {
+    #[serde(default, deserialize_with = "present_ast_field")]
     cls: Option<String>,
+    #[serde(default, deserialize_with = "present_ast_field")]
     types: Option<Vec<String>>,
-    #[serde(rename = "nonTypes")]
+    #[serde(default, rename = "nonTypes", deserialize_with = "present_ast_field")]
     non_types: Option<Vec<String>>,
-    #[serde(rename = "allOf")]
+    #[serde(default, rename = "allOf", deserialize_with = "present_ast_field")]
     all_of: Option<Vec<SourceTypeFilter>>,
-    #[serde(rename = "anyOf")]
+    #[serde(default, rename = "anyOf", deserialize_with = "present_ast_field")]
     any_of: Option<Vec<SourceTypeFilter>>,
 }
 fn lower_type_predicate(
@@ -445,13 +447,15 @@ enum SourceAttacker {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SourceAttackerFilter {
+    #[serde(default, deserialize_with = "present_ast_field")]
     types: Option<Vec<String>>,
-    #[serde(rename = "nonTypes")]
+    #[serde(default, rename = "nonTypes", deserialize_with = "present_ast_field")]
     non_types: Option<Vec<String>>,
-    #[serde(rename = "allOf")]
+    #[serde(default, rename = "allOf", deserialize_with = "present_ast_field")]
     all_of: Option<Vec<SourceTypeFilter>>,
-    #[serde(rename = "anyOf")]
+    #[serde(default, rename = "anyOf", deserialize_with = "present_ast_field")]
     any_of: Option<Vec<SourceTypeFilter>>,
+    #[serde(default, deserialize_with = "present_ast_field")]
     control: Option<String>,
 }
 fn lower_attack_subject(what: &SourceAttacker) -> Result<AttackSubject, Failure> {
@@ -8569,6 +8573,9 @@ mod optional_operand_tests;
 
 #[cfg(test)]
 mod absent_mana_cost_tests;
+
+#[cfg(test)]
+mod type_filter_null_tests;
 
 #[cfg(test)]
 mod null_flag_tests;

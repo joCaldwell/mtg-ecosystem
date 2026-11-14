@@ -29,6 +29,12 @@ represent that distinction, so compilation must not invent ordinary zero-cost
 casting. Lands may retain an empty cost; an explicit `{0}` remains supported.
 Missing, null or malformed mana-cost fields also reject.
 
+Optional AST filter fields distinguish omission from explicit null. Typed cast,
+attack and recursive damage-source type filters reject null class/type/Boolean
+operands and null attacker-control relations; they never erase a supplied
+restriction or turn it into an unrestricted predicate. Valid omissions and
+nonempty supported Boolean filters retain their existing semantics.
+
 Catalog names distinguish source/admission pools; they do not select mechanics. `output_order` is `canonical` (sorted compact JSON), `sorted` (sorted
 pretty JSON), or `struct` (typed field order, pretty JSON); these preserve the
 existing fixture encodings. In the committed fixture layout, `catalogs/*.json`
