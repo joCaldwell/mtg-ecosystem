@@ -437,8 +437,12 @@ daemon was unavailable. The 2026-11-14 ownership refactor independently verified
 filtered install/build/prune, runtime imports and context exclusions, but did not
 execute an actual container image. A future promotion must verify that image and
 ensure watch paths include `packages/multiverse/**`, `packages/deck-builder/**`,
-the shared preview/display inputs and root lock/config files. These documentation
-changes do not update a live service or deploy a release.
+the shared preview/display inputs and root lock/config files. The explicit Railway
+start override must be `sh /usr/local/bin/deck-builder-entrypoint node
+../multiverse/src/server.ts`, from `/app/packages/deck-builder`, matching the image
+command. The old `node src/server.ts` override points at a removed backend file
+and fails before health checks. Source configuration changes take effect only
+after applying the matching service settings and deploying the verified commit.
 
 The image defaults to `USER node`. Railway requires `RAILWAY_RUN_UID=0` for
 its root-owned volume; the entrypoint prepares only the data directory,
