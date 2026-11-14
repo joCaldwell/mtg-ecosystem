@@ -256,6 +256,7 @@ pub enum Capability {
     IndestructibleV1,
     TemporaryIndestructibleSpellV1,
     TemporaryFlyingSpellV1,
+    CompoundIndestructibleSpellV1,
     TrampleV1,
     FirstStrikeV1,
     DoubleStrikeV1,
@@ -2423,7 +2424,17 @@ fn ordinary_keyword_grant(p: &SpellProgram) -> bool {
                 ..
             }]
         )
-        && matches!(p.instructions.as_slice(), [Instruction::GrantKeywords { target_slot: 0, keywords, duration: Duration::UntilEndOfTurn, .. }] if keywords == &[KeywordAbility::Indestructible] || keywords == &[KeywordAbility::Flying])
+        && (matches!(p.instructions.as_slice(), [Instruction::GrantKeywords { target_slot: 0, keywords, duration: Duration::UntilEndOfTurn, .. }] if keywords == &[KeywordAbility::Indestructible] || keywords == &[KeywordAbility::Flying])
+            || compound_indestructible_instructions(p))
+}
+// CR 608.2c/611.2c: one invocation, ordered effects on the same captured target.
+// A distinct capability preserves the pure keyword-grant admission boundary.
+fn compound_indestructible_instructions(p: &SpellProgram) -> bool {
+    matches!(p.instructions.as_slice(), [
+        Instruction::ModifyPowerToughness { target_slot: 0, power, toughness, duration: Duration::UntilEndOfTurn, source_block: 0 },
+        Instruction::GrantKeywords { target_slot: 0, keywords, duration: Duration::UntilEndOfTurn, source_block: 0 }
+    ] if *power == 1.into() && *toughness == 1.into()
+        && keywords == &[KeywordAbility::Indestructible])
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     if has_keyword_grant(p) && !ordinary_keyword_grant(p) {
@@ -3124,6 +3135,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             {
                 Capability::TemporaryFlyingSpellV1
             }
+            Instruction::GrantKeywords { .. } if compound_indestructible_instructions(program) => {
+                Capability::CompoundIndestructibleSpellV1
+            }
             Instruction::GrantKeywords { .. } => Capability::TemporaryIndestructibleSpellV1,
             Instruction::ModifyPowerToughness { .. } => Capability::TemporaryPowerToughnessV1,
             Instruction::PreventCombatDamage { .. } => Capability::CombatDamagePreventionV1,
@@ -3729,6 +3743,15 @@ pub fn catalog_schema() -> serde_json::Value {
             "properties":{"kind":{"const":"creature"},"legendary":{"const":true}}
         }}}
     }));
+    schema["$defs"]["PureKeywordGrantInstructions"] = serde_json::json!({
+        "minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"grant_keywords"},"target_slot":{"const":0},"keywords":{"enum":[["indestructible"],["flying"]]},"duration":{"const":"until_end_of_turn"}}}
+    });
+    schema["$defs"]["CompoundIndestructibleInstructions"] = serde_json::json!({
+        "minItems":2,"maxItems":2,"prefixItems":[
+            {"properties":{"op":{"const":"modify_power_toughness"},"target_slot":{"const":0},"power":{"const":"1"},"toughness":{"const":"1"},"duration":{"const":"until_end_of_turn"},"source_block":{"const":0}}},
+            {"properties":{"op":{"const":"grant_keywords"},"target_slot":{"const":0},"keywords":{"const":["indestructible"]},"duration":{"const":"until_end_of_turn"},"source_block":{"const":0}}}
+        ]
+    });
     // Fence this opcode recursively; it never becomes an activation, trigger,
     // mode, mixed program or general keyword-grant facility.
     schema["$defs"]["KeywordGrantFreeProgram"] = serde_json::json!({"properties":{
@@ -3741,7 +3764,7 @@ pub fn catalog_schema() -> serde_json::Value {
             "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
             "targets":{"minItems":1,"maxItems":1,"items":{"properties":{"slot":{"const":0},"selection_id":{"minLength":1},"chooser":{"const":"controller"},"stage":{"const":"announcement"},"domain":{"const":"battlefield_creature"},"filter":{"type":"null"}}}},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"grant_keywords"},"target_slot":{"const":0},"keywords":{"enum":[["indestructible"],["flying"]]},"duration":{"const":"until_end_of_turn"}}}}
+            "instructions":{"oneOf":[{"$ref":"#/$defs/PureKeywordGrantInstructions"},{"$ref":"#/$defs/CompoundIndestructibleInstructions"}]}
         }}
     }));
     for (keyword, capability, ordinary) in [
@@ -3757,10 +3780,20 @@ pub fn catalog_schema() -> serde_json::Value {
         ),
     ] {
         schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-            "if":temporary_keyword(keyword),"then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},"capabilities":{"allOf":[{"contains":{"const":capability}},{"contains":{"const":ordinary}}]}}},
+            "if":{"allOf":[temporary_keyword(keyword),{"properties":{"spell":{"properties":{"instructions":{"maxItems":1}}}}}]},"then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},"capabilities":{"allOf":[{"contains":{"const":capability}},{"contains":{"const":ordinary}}]}}},
             "else":{"properties":{"capabilities":{"not":{"contains":{"const":capability}}}}}
         }));
     }
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["spell"],"properties":{"spell":{"type":"object","required":["instructions"],"properties":{"instructions":{"$ref":"#/$defs/CompoundIndestructibleInstructions"}}}}},
+        "then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},"capabilities":{"allOf":[
+            {"contains":{"const":Capability::CompoundIndestructibleSpellV1}},
+            {"contains":{"const":Capability::CreatureTargetV1}},
+            {"contains":{"const":Capability::TemporaryPowerToughnessV1}},
+            {"contains":{"const":Capability::IndestructibleV1}}
+        ]}}},
+        "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::CompoundIndestructibleSpellV1}}}}}
+    }));
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({"properties":{
         "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}},
         "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}},
@@ -3958,6 +3991,7 @@ mod tests {
             IndestructibleV1,
             TemporaryIndestructibleSpellV1,
             TemporaryFlyingSpellV1,
+            CompoundIndestructibleSpellV1,
             TrampleV1,
             FirstStrikeV1,
             DoubleStrikeV1,
@@ -4056,6 +4090,7 @@ mod tests {
         definitions.push(indestructible_tests::intrinsic());
         definitions.push(temporary_indestructible_tests::grant());
         definitions.push(temporary_flying_tests::grant());
+        definitions.push(compound_indestructible_tests::compound());
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());
@@ -5678,3 +5713,6 @@ mod temporary_indestructible_tests;
 
 #[cfg(test)]
 mod temporary_flying_tests;
+
+#[cfg(test)]
+mod compound_indestructible_tests;

@@ -166,3 +166,51 @@ Exact consumed source facts, duplicate rejection and accepted-input replay remai
 restore requirements. The suspended-boundary test exercises damage/snapshot
 execution and rejects forged missing, unrelated and duplicate source keywords.
 The shared source-LKI correction is a separate dependency of this foundation.
+
+## Compound pump and Indestructible source foundation
+
+The schema-1 `compound_indestructible_spell_v1` capability separately admits
+exactly one ordinary nonmodal instant/sorcery program: +1/+1 followed by exactly
+`[Indestructible]`, both until end of turn, on the same sole unfiltered creature
+target slot. Both instructions belong to source block 0. It also requires
+`temporary_power_toughness_v1`, `indestructible_v1` and `creature_target_v1`.
+The existing `temporary_indestructible_spell_v1` and `temporary_flying_spell_v1`
+capabilities continue to describe only their pure one-instruction grants.
+Rust and exported schema reject reordered, extra, duplicate or mixed grants,
+other scalar amounts, separate targets, filters, additional sacrifice costs,
+modes, activations and triggers. This source foundation adds no pool, profile,
+policy, hosting, search, server or SDK admission.
+
+Complete frozen [Mortal's Resolve source](../packages/game-engine/tests/fixtures/ef29f979-1a6d-47bb-83f5-4679389471da.json)
+is taken directly from physical line 36184/source index 36182 of retained archive
+`d705222b280a71cb5a5362f657d530b22402ca51687bac3227c1d6db403d0282`.
+Its complete normal-layout source is a green, Commander-legal instant costing
+`{1}{G}`. Its sole parsed sentence has the pump and grant steps sharing
+`line:0:0`; the binding has two bound references and no diagnostics.
+The record SHA-256 is
+`dd42d4da1b3412af58b145b7a6657dfb5cb98a047efca164ecaa1f5fa34560ad`;
+source `71b794378a2dc7529072ebcdc59ed52b203e0e164510d758c3f1de160cbd0d59`;
+AST `3f1ca48780e3f8a0661d987a50c1a69b54e3d3af315f2589afe09b8c2f225811`;
+binding `5f2ba2465e70f10af914637a882a0b8c33466130b22c159b98ecba6f909acef2`.
+The fixture provenance and accepted-archive record list extend additively.
+
+Existing compiler emission and core execution supply both instructions without
+a production core change. The two resolved effects preserve their source/cursor
+provenance and capture the same exact incarnation. Source departure does not end
+either effect; bounce/reentry does not rebind either. Resolution rechecks target
+legality before the program, and SBAs follow the complete invocation (CR 608.2b/c,
+704.3). The keyword union stays unique alongside intrinsic/equipped protection.
+`CleanupEffects` removes both effects and damage marks atomically, so a creature
+with lethal marked damage survives true cleanup; fresh destruction after expiry
+can kill it (CR 514.2). The existing source-LKI correction remains a dependency.
+Rules authority is the pinned 2026-09-25 rules file cited above.
+
+Dedicated compiler/contracts controls fence the source and schema shape.
+Private source-backed gameplay tests use accepted casts and payment, q=1/detailed
+and q=4096/off, with rejected query/response atomicity, incoming destruction,
++1/+1 and keyword union, marked lethal cleanup, bounce/reentry, resolution
+revalidation, snapshot/replay and suspended invocation-prefix restore. Exact
+copied producers, exported schemas, source manifests, command receipts and
+preserved failures are retained under `generated/compound-indestructible/` in
+the implementation checkout; these identify the tested source independently
+from later integration and consumer acceptance.

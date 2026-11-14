@@ -8438,3 +8438,6 @@ mod aura_return_binding_tests;
 
 #[cfg(test)]
 mod temporary_flying_tests;
+
+#[cfg(test)]
+mod compound_indestructible_tests;
