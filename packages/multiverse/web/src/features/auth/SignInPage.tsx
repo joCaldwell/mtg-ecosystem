@@ -28,16 +28,21 @@ export function SignInPage() {
   const providerError = new URLSearchParams(location.search).get("error");
   return <main className={styles.page} id="main-content" tabIndex={-1} aria-label="Sign in"><div className={styles.content}>
     <p className={styles.brand}><BrandMark className={styles.mark} />Multiverse</p>
-    <DeckArt cards={session.backdrop ? [session.backdrop] : null} variant="backdrop" priority="auto"><div className={styles.form}><Stack gap={5}>
+    <DeckArt cards={session.backdrop ? [session.backdrop] : null} variant="backdrop" priority="auto"><form method="post" aria-label="Sign in" className={styles.form} onSubmit={event => {
+      event.preventDefault();
+      const submitter = (event.nativeEvent as SubmitEvent).submitter;
+      const provider = submitter instanceof HTMLButtonElement ? submitter.value : session.providers[0];
+      if (provider && !busy) void signIn(provider);
+    }}><Stack gap={5}>
       <h1 className={styles.title}>Your decks, your decisions</h1>
       <Text>Keep your decks and deck-building knowledge together. Connect an agent when you want help; every write stays attributed to your account.</Text>
       <Field label="Invite or owner claim code" hint={session.invites_required ? "Required for a new account. Leave blank if you have signed in before." : "Optional: enter an owner claim code or invite, or leave blank to create an account."}>
-        <TextField type="password" autoComplete="off" value={code} maxLength={256} onChange={e => setCode(e.target.value)} />
+        <TextField name="invite_code" type="password" autoComplete="one-time-code" autoCapitalize="none" autoCorrect="off" spellCheck={false} disabled={busy} value={code} maxLength={256} onChange={e => setCode(e.target.value)} />
       </Field>
-      <Row gap={3} wrap>{session.providers.map(p => <Button key={p} variant="primary" disabled={busy} onClick={() => signIn(p)}>Continue with {p === "discord" ? "Discord" : "Google"}</Button>)}</Row>
+      <Row gap={3} wrap>{session.providers.map(p => <Button key={p} type="submit" name="provider" value={p} variant="primary" disabled={busy}>Continue with {p === "discord" ? "Discord" : "Google"}</Button>)}</Row>
       {error && <ErrorNote>{error}</ErrorNote>}
       {providerError && <ErrorNote>{providerError === "registration_failed" ? "Registration did not complete. Check your invite or claim code and try again." : "The provider sign-in did not complete or its state expired. Start sign-in again."}</ErrorNote>}
       <Text size="sm" tone="muted" className={styles.legal}>By continuing, you agree to the <a href="/terms">terms</a> and acknowledge the <a href="/privacy">privacy policy</a>.</Text>
-    </Stack></div></DeckArt><LegalFooter />
+    </Stack></form></DeckArt><LegalFooter />
   </div></main>;
 }

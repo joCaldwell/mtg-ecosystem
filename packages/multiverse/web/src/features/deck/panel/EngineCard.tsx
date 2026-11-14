@@ -18,7 +18,7 @@ export function EngineCard({ engine, onEdit, onRemove }: { engine: Pick<Engine, 
   return (
     <Box>
       <div className={styles.head}>
-        <b className={styles.name}>{engine.name}</b>
+        <h3 className={styles.name}>{engine.name}</h3>
         {missing > 0 ? <Chip tone="warn">{missing} missing</Chip> : <Chip tone="add">complete</Chip>}
         {onEdit && onRemove && <span className={styles.actions}>
           <Button size="sm" reach disabled={state.deck.category === "archived"} onClick={onEdit} aria-label={`Edit the engine ${engine.name}`}>

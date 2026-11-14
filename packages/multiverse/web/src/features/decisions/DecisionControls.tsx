@@ -99,8 +99,8 @@ function ReasonField({
           // Typing a reason must not trigger the screen's single-letter
           // shortcuts, and Escape closes this field, not the panel around it.
           e.stopPropagation();
-          if (e.nativeEvent.isComposing) return;
-          if (e.key === "Enter") {
+          if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+          if (e.key === "Enter" && !busy) {
             e.preventDefault();
             onReject(reason);
           } else if (e.key === "Escape") {

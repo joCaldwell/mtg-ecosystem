@@ -12,6 +12,8 @@
   white-space: nowrap;
 }
 
+.interactive { min-width: var(--h-sm); min-height: var(--h-sm); }
+
 .interactive:hover {
   border-color: var(--line-strong);
   color: var(--text);
@@ -67,7 +69,7 @@
 }
 
 /* A chip that does something is a tap target under 720 px. */
-@media (max-width: 719px) {
+@media (max-width: 719px), (pointer: coarse) {
   .interactive {
     min-height: var(--tap);
   }

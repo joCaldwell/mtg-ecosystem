@@ -22,7 +22,7 @@ try {
       await page.goto(origin + "/deck/2/playtest"); await settle(page, watch);
       if (!await page.getByRole("dialog", { name: "New game", exact: true }).count()) {
         await page.getByRole("button", { name: "More", exact: true }).click();
-        await page.getByRole("menuitem", { name: /^New game/ }).click();
+        await page.locator('[focusgroup~="menu"] button, [role="menuitem"]').filter({ hasText: /^New game/ }).click();
       }
       await page.getByRole("button", { name: "Shuffle and draw seven", exact: true }).click(); await settle(page, watch);
       const hand = page.getByRole("region", { name: "Hand", exact: true });

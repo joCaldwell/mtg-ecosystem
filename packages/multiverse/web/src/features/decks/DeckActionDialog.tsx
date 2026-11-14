@@ -56,18 +56,18 @@ export function DeckActionDialog({ deck, action, onClose, onSaved }: {
             type="submit"
             form={formId}
             variant={action === "delete" ? "reject" : "primary"}
-            disabled={busy || unchanged || (action === "rename" && !name.trim())}
+            disabled={busy || unchanged}
           >
             {busy ? "Saving…" : action === "delete" ? "Delete deck" : "Save changes"}
           </Button>
         </>
       }
     >
-      <form id={formId} onSubmit={submit}>
+      <form id={formId} method="post" onSubmit={submit}>
         <Stack gap={4}>
           {action === "rename" ? (
             <Field label="Deck name">
-              <TextField data-autofocus value={name} disabled={busy} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setName(e.target.value)} autoComplete="off" />
+              <TextField name="name" required pattern={".*\\S.*"} data-autofocus value={name} disabled={busy} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setName(e.target.value)} autoComplete="off" />
             </Field>
           ) : action === "category" ? (
             <Field label={`Lifecycle for ${deck.name}`} hint={voice("Paper is a deck you play. Theorycrafted is a work in progress. Archived is read-only. Only you can change this.", "Paper requires agent card proposals; Theorycrafted allows direct agent card edits; Archived is read-only. Only you can change lifecycle.")}>

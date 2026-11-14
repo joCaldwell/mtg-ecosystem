@@ -53,9 +53,9 @@ export function MultiSelect({ label, placeholder = "Select…", options, value, 
     }
   }, [busy, open]);
 
-  function close() {
+  function close(reason?: "outside" | "escape") {
     setOpen(false);
-    anchor?.focus();
+    if (reason !== "outside") anchor?.focus();
   }
 
   async function toggle(option: string) {
@@ -80,9 +80,8 @@ export function MultiSelect({ label, placeholder = "Select…", options, value, 
         ref={setAnchor}
         className={cx(listbox.trigger, styles.trigger, compact && selected.length > 0 && styles.active)}
         aria-label={`${triggerText}, ${label}`}
-        aria-haspopup="listbox"
         aria-expanded={open}
-        aria-controls={open ? `${id}-choices` : undefined}
+        aria-controls={open ? id : undefined}
         onClick={() => setOpen((current) => !current)}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown") {
@@ -125,22 +124,25 @@ export function MultiSelect({ label, placeholder = "Select…", options, value, 
             if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget) && !anchor?.contains(event.relatedTarget)) setOpen(false);
           }}
           onKeyDown={(event) => {
-            if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-            const inputs = Array.from(panel.current?.querySelectorAll<HTMLElement>('input:not(:disabled), [role="option"]:not([aria-disabled="true"]):not(:disabled)') ?? []);
+            if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+            const inputs = Array.from(panel.current?.querySelectorAll<HTMLElement>('input:not(:disabled)') ?? []);
             const current = inputs.indexOf(document.activeElement as HTMLElement);
             event.preventDefault();
             inputs[(current + (event.key === "ArrowDown" ? 1 : inputs.length - 1)) % inputs.length]?.focus();
           }}
         >
-          <TextField ref={search} type="search" aria-label={`Search ${label.toLowerCase()}`} placeholder="Search…" value={query} onChange={(event) => setQuery(event.target.value)} />
-          <div className={listbox.options} id={`${id}-choices`} role="listbox" aria-label={label} aria-multiselectable="true">
+          <TextField ref={search} type="search" autoCorrect="off" autoCapitalize="none" spellCheck={false} aria-label={`Search ${label.toLowerCase()}`} placeholder="Search…" value={query} onChange={(event) => setQuery(event.target.value)} />
+          <div className={listbox.options} id={`${id}-choices`} role="group" aria-label={`${label} choices`}>
             {visible.map((option) => (
-              <button type="button" role="option" key={option.value} className={listbox.option} aria-selected={value.includes(option.value)} disabled={busy} onClick={() => void toggle(option.value)}><span aria-hidden="true">{value.includes(option.value) ? "✓" : "○"}</span>{option.label}</button>
+              <label key={option.value} className={listbox.option}>
+                <input type="checkbox" checked={value.includes(option.value)} disabled={busy} onChange={() => void toggle(option.value)} />
+                {option.label}
+              </label>
             ))}
-            {visible.length === 0 && <p role="option" aria-selected="false" aria-disabled="true" className={listbox.empty}>{options.length ? "No matching options." : emptyText}</p>}
+            {visible.length === 0 && <p className={listbox.empty}>{options.length ? "No matching options." : emptyText}</p>}
           </div>
           {footer}
-          <Button size="sm" variant="ghost" onClick={close}>Done</Button>
+          <Button size="sm" variant="ghost" onClick={() => close()}>Done</Button>
         </div>
       </Popover>
     </div>

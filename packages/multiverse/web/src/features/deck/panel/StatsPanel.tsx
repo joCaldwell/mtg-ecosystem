@@ -11,14 +11,15 @@ const CURVE_BUCKETS = ["0", "1", "2", "3", "4", "5", "6", "7+"];
 // in the editor, so keep its detailed presentation out of the initial bundle.
 const ManaComparison = lazy(() => import("./ManaComparison.tsx").then(module => ({ default: module.ManaComparison })));
 
-export function StatsPanel() {
+export function StatsPanel({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
+  const heading = headingLevel === 2 ? "h2" : "h3";
   const { state, viewer } = useDeckList();
   const { computed } = state;
   const curveTop = Math.max(1, ...CURVE_BUCKETS.map(bucket => computed.curve[bucket] ?? 0));
   const typeOrder = [...TYPE_GROUPS, "Other"].filter(type => (computed.type_counts[type] ?? 0) > 0);
   return <div className={styles.stats}>
       <section className={styles.section}>
-        <Eyebrow className={styles.label}>Deck totals</Eyebrow>
+        <Eyebrow as={heading} className={styles.label}>Deck totals</Eyebrow>
         <dl className={styles.totals}>
           <div><dt>Cards</dt><dd>{computed.card_count}<span className={styles.maximum}> / 100</span></dd></div>
           <div><dt>Lands</dt><dd>{computed.land_count}</dd></div>
@@ -28,7 +29,7 @@ export function StatsPanel() {
       </section>
 
       <section className={styles.section}>
-        <Eyebrow className={styles.label}>Mana curve</Eyebrow>
+        <Eyebrow as={heading} className={styles.label}>Mana curve</Eyebrow>
         <div className={styles.curve} role="img" aria-label={`Mana curve: ${CURVE_BUCKETS.map((b) => `${computed.curve[b] ?? 0} at ${b}`).join(", ")}`}>
           {CURVE_BUCKETS.map((b) => {
             const n = computed.curve[b] ?? 0;
@@ -45,7 +46,7 @@ export function StatsPanel() {
       </section>
 
         <section className={styles.section}>
-          <Eyebrow className={styles.label}>Card types</Eyebrow>
+          <Eyebrow as={heading} className={styles.label}>Card types</Eyebrow>
           {typeOrder.length ? <ul className={styles.types} aria-label="Card-type groups and copy counts">
             {typeOrder.map((t) => (
               <li key={t}>
@@ -58,6 +59,6 @@ export function StatsPanel() {
         </section>
 
       {/* Card types read fastest, so they come before the colour analysis. */}
-      <Suspense fallback={<Loading />}><ManaComparison mana={computed.mana} /></Suspense>
+      <Suspense fallback={<Loading />}><ManaComparison headingLevel={headingLevel} mana={computed.mana} /></Suspense>
   </div>;
 }

@@ -1,5 +1,5 @@
 import { useVoice } from "../../../app/Preferences.tsx";
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { api, type Power, type PowerAssessmentInput, type PowerProfile } from "../../../api/client.ts";
 import { emptyPowerProfile } from "../../../domain/power.ts";
 import { Button, Dialog, ErrorNote, Field, Row, Select, Text, TextArea, TextField } from "../../../ui/index.ts";
@@ -10,6 +10,7 @@ export function PowerEditor({ kind, power, revision, onClose }: {
   kind: "target" | "assessment"; power: Power; revision: number; onClose: () => void;
 }) {
   const voice = useVoice();
+  const formId = useId();
   const { deckId, run, error } = useDeck();
   const target = kind === "target";
   const source = target ? power.target : power.assessment;
@@ -28,6 +29,7 @@ export function PowerEditor({ kind, power, revision, onClose }: {
 
   async function save(e: FormEvent) {
     e.preventDefault();
+    if (busy) return;
     setBusy(true);
     const value = { ...profile, win_turn: first || last ? { min: Number(first), max: Number(last) } : null, early_win_turn: early ? Number(early) : null };
     const result = await run(() => target
@@ -39,9 +41,9 @@ export function PowerEditor({ kind, power, revision, onClose }: {
   const fields = power.fields;
   return <Dialog title={target ? "Set the power target" : "Assess the current deck"} width="lg" onClose={onClose} footer={<>
     <Button onClick={onClose} disabled={busy}>Cancel</Button>
-    <Button variant="primary" type="submit" form="power-editor" disabled={busy}>{busy ? "Saving…" : target ? "Save target" : "Save assessment"}</Button>
+    <Button variant="primary" type="submit" form={formId} disabled={busy}>{busy ? "Saving…" : target ? "Save target" : "Save assessment"}</Button>
   </>}>
-    <form id="power-editor" onSubmit={save} className={styles.form}>
+    <form id={formId} method="post" onSubmit={save} className={styles.form}>
       <Text as="p" tone="muted">{target ? "Describe the experience you want to build toward. Leave undecided fields unknown." : `Describe the list at r${assessedRevision}. Leave uncertain fields unknown and explain your evidence.`}</Text>
       <div className={styles.fields}>
         {fields.map(field => <Field key={field.key} label={field.label} hint={field.options.find(o => o.value === profile[field.key])?.hint ?? voice("Unknown until you assess it.", "Unknown until you or an agent assesses it.")}>
@@ -50,13 +52,15 @@ export function PowerEditor({ kind, power, revision, onClose }: {
         <Field label="Mass land denial" hint="Destroying, bouncing or shutting off several lands or their mana. Review this from card text and the deck's plan.">
           <Select options={[{ value: "", label: "Unknown / undecided" }, { value: "no", label: "None" }, { value: "yes", label: target ? "Allowed" : "Present" }]} value={profile.mass_land_denial == null ? "" : profile.mass_land_denial ? "yes" : "no"} onChange={value => setProfile({ ...profile, mass_land_denial: value === "" ? null : value === "yes" })} />
         </Field>
-        <Field label="Usual win range (turns)" hint={target ? "An acceptable range when the deck normally threatens a win." : "Normal win attempts under representative conditions, rather than one perfect draw."}>
+        <fieldset className={styles.range}>
+          <legend>Usual win range (turns)</legend>
+          <Text size="sm" tone="muted">{target ? "An acceptable range when the deck normally threatens a win." : "Normal win attempts under representative conditions, rather than one perfect draw."}</Text>
           <Row gap={3}>
             <TextField aria-label="First usual win turn" type="number" min={1} max={99} required={!!last} value={first} placeholder="From" onChange={e => setFirst(e.target.value)} />
             <Text>–</Text>
             <TextField aria-label="Last usual win turn" type="number" min={first || 1} max={99} required={!!first} value={last} placeholder="To" onChange={e => setLast(e.target.value)} />
           </Row>
-        </Field>
+        </fieldset>
         <Field label="Occasional early win (turn)" hint="Rare early wins stay separate. If this becomes frequent, include it in the usual range.">
           <TextField type="number" min={1} max={first || 99} value={early} placeholder="Not recorded" onChange={e => setEarly(e.target.value)} />
         </Field>

@@ -37,12 +37,12 @@ export function DecisionGallery({ request, labels, binding, source, cards }: {
     <div className={styles.galleryLayout}><div>
     <section id="captured" className={styles.section} aria-labelledby="captured-title"><h2 id="captured-title">Captured foundation choice</h2>
       <details className={styles.source}><summary>Capture provenance</summary><p>{source}</p><p>Historical permitted capture, checked against the current qualified SDK. This fixture does not advance a match.</p></details>
-      <details ref={capturedHand} className={styles.hand}><summary>Captured hand · {labels.length} objects</summary><ul>{cards.map(card => <li key={card.inspectionId}><CardFace card={card} selected={inspected === card.inspectionId} onInspect={(id, button) => { inspectionTrigger.current = button; setInspected(id); }} /><small>Handle {card.inspectionId}</small></li>)}</ul><a href="/fixtures/opening">Open the captured table</a></details>
+      <details ref={capturedHand} className={styles.hand}><summary>Captured hand · {labels.length} objects</summary><ul role="list">{cards.map(card => <li key={card.inspectionId}><CardFace card={card} selected={inspected === card.inspectionId} onInspect={(id, button) => { inspectionTrigger.current = button; setInspected(id); }} /><small>Handle {card.inspectionId}</small></li>)}</ul><a href="/fixtures/opening">Open the captured table</a></details>
       <DecisionPanel binding={binding} request={request} labels={labels} onComplete={complete} />
     </section>
     <section id="structural" className={styles.section} aria-labelledby="structural-title"><h2 id="structural-title">Synthetic structural exercises</h2>
       <p className={styles.intro}>These generated-type-shaped samples test local bookkeeping only. They contain no card facts and establish no admitted game reachability. Two candidates intentionally share a label.</p>
-      <p><button onClick={() => setGeneration(value => value + 1)}>Replace decision identity</button>{' '}<button onClick={() => setRemoved(value => !value)}>Update candidate set</button></p>
+      <p><button type="button" onClick={() => setGeneration(value => value + 1)}>Replace decision identity</button>{' '}<button type="button" onClick={() => setRemoved(value => !value)}>Update candidate set</button></p>
       <div className={styles.labs}>
         <DecisionPanel binding={labBinding} labels={labLabels} request={{ request: 'discard', player: binding.seat, token: labBinding.token, count: 2, candidates }} onComplete={complete} />
         <DecisionPanel binding={labBinding} labels={labLabels} request={{ request: 'bottom_opening', player: binding.seat, token: labBinding.token, count: 2, candidates }} onComplete={complete} />

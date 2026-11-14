@@ -106,3 +106,15 @@
 @media (pointer: coarse) {
   .bar > kbd { display: none; }
 }
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-4);
+  border-top: 1px solid var(--line);
+}
+
+@media (forced-colors: active) {
+  .bar:focus-within { outline: 2px solid Highlight; outline-offset: 2px; }
+}

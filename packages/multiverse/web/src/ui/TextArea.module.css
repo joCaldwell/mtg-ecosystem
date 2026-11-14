@@ -3,9 +3,8 @@
   width: 100%;
   min-width: 0;
   padding: var(--s-3) var(--s-4);
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--control-line);
   border-radius: var(--r-md);
-  outline: 0;
   background: var(--surface);
   line-height: var(--leading);
   resize: vertical;
@@ -29,3 +28,9 @@
 .area:disabled {
   opacity: 0.5;
 }
+
+@media (forced-colors: active) {
+  .area:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
+}
+
+.area:user-invalid { border-color: var(--cut); }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { api, type Settings } from "../../api/client.ts";
 import { Box, Button, ErrorNote, Field, Row, Stack, Table, Text, TextField } from "../../ui/index.ts";
 import styles from "./BudgetsCard.module.css";
@@ -7,10 +7,10 @@ import styles from "./BudgetsCard.module.css";
 const MIN = 100;
 const MAX = 20000;
 
-const valid = (s: string) => /^\d+$/.test(s.trim()) && Number(s) >= MIN && Number(s) <= MAX;
-
 /** How much memory an agent is handed without asking (spec §7.4), in estimated tokens. */
 export function BudgetsCard({ budgets, usage, onSaved }: { budgets: Settings["budgets"]; usage: Settings["memory_usage"]; onSaved: () => void }) {
+  const headingId = useId();
+  const previous = useRef(budgets);
   const [global, setGlobal] = useState(String(budgets.global));
   const [deck, setDeck] = useState(String(budgets.deck));
   const [busy, setBusy] = useState(false);
@@ -20,16 +20,15 @@ export function BudgetsCard({ budgets, usage, onSaved }: { budgets: Settings["bu
   // Follow the server when it changes (another tab, an agent), unless the fields are being edited.
   const dirty = global !== String(budgets.global) || deck !== String(budgets.deck);
   useEffect(() => {
-    if (!dirty) {
-      setGlobal(String(budgets.global));
-      setDeck(String(budgets.deck));
-    }
-    // `dirty` is derived from the values below; only a change on the server should reset the fields.
+    const before = previous.current;
+    setGlobal(current => current === String(before.global) ? String(budgets.global) : current);
+    setDeck(current => current === String(before.deck) ? String(budgets.deck) : current);
+    previous.current = budgets;
   }, [budgets.global, budgets.deck]);
 
-  const ok = valid(global) && valid(deck);
-
-  async function save() {
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    if (busy || !dirty) return;
     setBusy(true);
     setError(null);
     try {
@@ -45,30 +44,32 @@ export function BudgetsCard({ budgets, usage, onSaved }: { budgets: Settings["bu
 
   return (
     <Box>
-      <Stack gap={5}>
-        <Text as="h2" size="lg" weight="bold">
+      <form method="post" onSubmit={save} aria-labelledby={headingId}><Stack gap={5}>
+        <Text as="h2" id={headingId} size="lg" weight="bold">
           Memory budgets
         </Text>
         <Text tone="muted" size="sm">
           Estimated tokens; newest memories load first. Omitted notes stay searchable.
         </Text>
         <div className={styles.fields}>
-          <Field label="Global limit (tokens)">
+          <Field label="Global limit (tokens)" hint={`Whole number from ${MIN.toLocaleString()} to ${MAX.toLocaleString()}.`}>
             <TextField
+              type="number" min={MIN} max={MAX} step={1} required disabled={busy}
               inputMode="numeric"
               value={global}
-              invalid={!valid(global)}
+              name="global"
               onChange={(e) => {
                 setGlobal(e.target.value);
                 setSaved(false);
               }}
             />
           </Field>
-          <Field label="Per-deck limit (tokens)">
+          <Field label="Per-deck limit (tokens)" hint={`Whole number from ${MIN.toLocaleString()} to ${MAX.toLocaleString()}.`}>
             <TextField
+              type="number" min={MIN} max={MAX} step={1} required disabled={busy}
               inputMode="numeric"
               value={deck}
-              invalid={!valid(deck)}
+              name="deck"
               onChange={(e) => {
                 setDeck(e.target.value);
                 setSaved(false);
@@ -76,18 +77,13 @@ export function BudgetsCard({ budgets, usage, onSaved }: { budgets: Settings["bu
             />
           </Field>
         </div>
-        {!ok && (
-          <Text tone="cut" size="sm" role="alert">
-            Each budget is a whole number between {MIN.toLocaleString()} and {MAX.toLocaleString()}.
-          </Text>
-        )}
         {error && <ErrorNote>{error}</ErrorNote>}
         <Row gap={4}>
-          <Button variant="primary" onClick={save} disabled={busy || !dirty || !ok}>
+          <Button type="submit" variant="primary" disabled={busy || !dirty}>
             {busy ? "Saving…" : "Save"}
           </Button>
           {saved && !dirty && (
-            <Text tone="add" size="sm">
+            <Text tone="add" size="sm" role="status">
               Saved.
             </Text>
           )}
@@ -103,7 +99,7 @@ export function BudgetsCard({ budgets, usage, onSaved }: { budgets: Settings["bu
             </tr>)}</tbody>
           </Table>
         </details>
-      </Stack>
+      </Stack></form>
     </Box>
   );
 }

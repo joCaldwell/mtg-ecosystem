@@ -1,7 +1,7 @@
 import { BrandMark } from "../../app/BrandMark.tsx";
 import { ArtExamples } from "./ArtExamples.tsx";
 import { OnboardingPatterns } from "./OnboardingPatterns.tsx";
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import {
   Badge,
   Banner,
@@ -369,8 +369,8 @@ function Labels() {
       </Section>
       <Section title="Eyebrow and Section">
         <Demo>
-          <Eyebrow>Eyebrow on its own</Eyebrow>
-          <Section title="Section" aside={<Chip tone="agent">aside</Chip>}>
+          <Eyebrow as="h3">Eyebrow as a section heading</Eyebrow>
+          <Section heading="h3" title="Section" aside={<Chip tone="agent">aside</Chip>}>
             <Text tone="soft">A Section is an Eyebrow, an optional aside, and its content in a small stack.</Text>
           </Section>
         </Demo>
@@ -484,6 +484,8 @@ function LifecyclePillDemo() {
 }
 
 function Forms() {
+  const explicitFieldId = useId();
+  const existingDescriptionId = useId();
   const [text, setText] = useState("");
   const [area, setArea] = useState("This one grows as you type.\nTry adding lines.");
   const [checked, setChecked] = useState(true);
@@ -560,6 +562,10 @@ function Forms() {
             <Field label="Deck name" hint="Shown in the sidebar."><TextField defaultValue="Jo's upkeep" /></Field>
             <Field label="Format"><Select options={[{ value: "b", label: "Commander" }]} value="b" onChange={() => undefined} /></Field>
             <Field label="Brief" hint="Only you can set this."><TextArea rows={2} /></Field>
+            <Field label="Explicit field ID" hint="The field keeps its own ID and both descriptions.">
+              <TextField id={explicitFieldId} aria-describedby={existingDescriptionId} />
+            </Field>
+            <Text id={existingDescriptionId} size="sm" tone="muted">Existing description from the caller.</Text>
           </Stack>
         </Demo>
       </Section>

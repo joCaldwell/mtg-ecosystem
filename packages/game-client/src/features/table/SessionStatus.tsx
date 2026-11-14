@@ -11,6 +11,6 @@ export function SessionStatus({ snapshot, onStop }: { snapshot: ReadSnapshot; on
       {outcome && <p>Rules outcome: <strong>{outcome.outcome === 'draw' ? 'Draw' : `Seat ${outcome.player + 1} wins`}</strong></p>}
       {snapshot.metadataMissing && <p>Presentation metadata unavailable. Observed identity and characteristics remain available.</p>}
     </div>
-    {snapshot.connection !== 'idle' && <button onClick={onStop}>Release seat and clear view</button>}
+    {snapshot.connection !== 'idle' && <button type="button" onClick={onStop}>Release seat and clear view</button>}
   </section>;
 }

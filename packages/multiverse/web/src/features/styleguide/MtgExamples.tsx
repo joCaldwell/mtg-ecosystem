@@ -124,7 +124,7 @@ function CardExamples({ cards }: { cards: CardInfo[] }) {
 
       <Example
         title="Hover card"
-        note="Rest the pointer on any element that names a card for half a second. It hides on leave, scroll, mouse down and any key."
+        note="Rest the pointer on a card name or focus it to preview. Move into the preview to keep reading; press Escape to dismiss it."
       >
         <Labelled label="from a name (looked up)">
           <HoverRow card={b.name}>{b.name}</HoverRow>

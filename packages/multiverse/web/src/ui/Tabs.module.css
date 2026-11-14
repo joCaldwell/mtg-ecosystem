@@ -1,11 +1,15 @@
 .tabs {
   display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  scroll-padding-inline: var(--s-5);
   gap: var(--s-1);
   padding: var(--s-4) var(--s-5) 0;
   border-bottom: 1px solid var(--line);
 }
 
 .tab {
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: var(--s-3);

@@ -1,7 +1,8 @@
+.container { container: game-table / inline-size; block-size: 100%; min-inline-size: 0; }
 .table { height: 100%; min-height: 560px; display: grid; grid-template-rows: auto auto minmax(0, 1fr); }
 .orientation { display: flex; align-items: center; flex-wrap: wrap; gap: var(--game-space-3) var(--game-space-5); padding: var(--game-space-3) var(--game-space-4); border-bottom: 1px solid var(--game-line); }
 .title { display: flex; align-items: baseline; gap: var(--game-space-3); }
-.title h1 { margin: 0; font-size: var(--game-text-title); }.title > span { color: var(--game-muted); font-size: var(--game-text-small); }
+.title :is(h1, h2) { margin: 0; font-size: var(--game-text-title); }.title > span { color: var(--game-muted); font-size: var(--game-text-small); }
 .orientation button { margin-left: auto; white-space: nowrap; font-size: var(--game-text-small); }
 .turnline { display: flex; flex-wrap: wrap; gap: var(--game-space-4); color: var(--game-muted); font-size: var(--game-text-small); }
 .turnline strong { font-family: var(--game-mono); font-weight: 500; color: var(--game-soft); }
@@ -9,11 +10,11 @@
 .seat { min-width: 0; padding: var(--game-space-3) var(--game-space-4); border-right: 1px solid var(--game-line); }.seat:last-child { border-right: 0; }
 .seatTop { display: flex; align-items: baseline; justify-content: space-between; gap: var(--game-space-2); }
 .seat h2 { font-size: var(--game-text-body); margin: 0; }.seat h2 span { color: var(--game-accent); font-weight: 500; }
-.life { font: 20px/1 var(--game-mono); white-space: nowrap; }.life small { font: var(--game-text-small) var(--game-sans); color: var(--game-muted); margin-left: var(--game-space-2); }
+.life { font: 1.25rem/1 var(--game-mono); white-space: nowrap; }.life small { font: var(--game-text-small) var(--game-sans); color: var(--game-muted); margin-left: var(--game-space-2); }
 .seat p { color: var(--game-muted); font-size: var(--game-text-small); margin: var(--game-space-1) 0; }.seat p b { color: var(--game-soft); font-family: var(--game-mono); font-weight: 400; }.seat p > span { margin-inline: var(--game-space-1); }
 .commanders { display: flex; flex-wrap: wrap; gap: var(--game-space-1); }
 .commanderLink { color: var(--game-soft); font-size: var(--game-text-small); text-align: left; padding: 2px 0; border: 0; border-radius: 0; min-height: 24px; overflow-wrap: anywhere; }.commanderLink:hover { color: var(--game-accent); }.commanderLink[aria-pressed='true'] { color: var(--game-accent); text-decoration: underline; text-underline-offset: 4px; }
-.layout { display: grid; grid-template-columns: minmax(0, 1fr) clamp(260px, 22vw, 340px) clamp(280px, 23vw, 380px); min-height: 0; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(16.25rem, 22%) minmax(17.5rem, 23%); min-height: 0; }
 .playSurface { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .board { flex: 1; min-height: 100px; overflow: auto; padding: var(--game-space-4); display: flex; flex-direction: column; }
 .battlefield { flex: 1; min-height: 112px; }
@@ -24,6 +25,9 @@
 .command { padding-top: var(--game-space-3); border-top: 1px solid var(--game-line); }.command .cardList { max-width: 420px; }
 .other { margin-top: var(--game-space-4); }.combat { color: var(--game-soft); font-size: var(--game-text-small); }
 .hand { flex: 0 0 auto; padding: var(--game-space-4); border-top: 1px solid var(--game-line); background: var(--game-panel); min-width: 0; }
+.cards, .cardList { list-style: none; padding: 0; margin: 0; }
+.cards > li { display: flex; min-inline-size: 0; }
+.cardList > li { min-inline-size: 0; }
 .cards { display: flex; flex-wrap: wrap; gap: var(--game-space-2); padding: 3px; margin: -3px; }
 .hand .cards { flex-wrap: nowrap; overflow-x: auto; padding: 4px 3px 10px; }
 .cardList { display: grid; gap: var(--game-space-2); }
@@ -34,15 +38,17 @@
 .decision .readOnly { color: var(--game-muted); font-size: var(--game-text-small); padding-top: var(--game-space-3); border-top: 1px solid var(--game-line); }
 .stack { padding: var(--game-space-4); border-top: 1px solid var(--game-line); }
 .provenance { padding: var(--game-space-3) var(--game-space-4); border-top: 1px solid var(--game-line); color: var(--game-muted); font-size: var(--game-text-small); overflow-wrap: anywhere; }
-@media (min-width: 1800px) { .board, .hand, .decision, .stack { padding: var(--game-space-5); }.battlefield { min-height: 160px; } }
-@media (max-width: 1099px) {
+@container game-table (min-width: 112.5rem) { .board, .hand, .decision, .stack { padding: var(--game-space-5); }.battlefield { min-height: 160px; } }
+@container game-table (max-width: 68.6875rem) {
   .table { height: auto; min-height: 100%; grid-template-rows: auto auto auto; }
   .layout { grid-template-columns: minmax(0, 1fr) 300px; align-items: start; }
   .playSurface { min-height: 480px; }.board { max-height: 55vh; }.activity { max-height: 650px; }
-  .orientation .turnline { order: 3; width: 100%; }
+  .orientation .turnline { width: 100%; }
 }
-@media (max-width: 719px) {
-  .orientation { padding: var(--game-space-3); }.title { flex-wrap: wrap; gap: var(--game-space-1) var(--game-space-2); }.title h1 { font-size: 15px; }.orientation button { margin-left: 0; }
-  .seats { grid-template-columns: repeat(2, minmax(0, 1fr)); }.seat { padding: var(--game-space-3); border-bottom: 1px solid var(--game-line); }.seat:nth-child(2) { border-right: 0; }.commanderLink { min-height: 44px; }.life { font-size: 17px; }
-  .layout { grid-template-columns: minmax(0, 1fr); }.activity { grid-row: 1; max-height: none; border-left: 0; }.playSurface { min-height: 0; }.board { max-height: none; }.hand { padding: var(--game-space-3); }
+@container game-table (max-width: 44.9375rem) {
+  .orientation { padding: var(--game-space-3); }.title { flex-wrap: wrap; gap: var(--game-space-1) var(--game-space-2); }.title :is(h1, h2) { font-size: 0.9375rem; }.orientation button { margin-left: 0; }
+  .seats { grid-template-columns: repeat(2, minmax(0, 1fr)); }.seat { padding: var(--game-space-3); border-bottom: 1px solid var(--game-line); }.seat:nth-child(2) { border-right: 0; }.commanderLink { min-height: 44px; }.life { font-size: 1.0625rem; }
+  .layout { grid-template-columns: minmax(0, 1fr); }.activity { max-height: none; border-left: 0; }.playSurface { min-height: 0; }.board { max-height: none; }.hand { padding: var(--game-space-3); }
 }
+
+@media (pointer: coarse) { .commanderLink { min-block-size: 2.75rem; } }

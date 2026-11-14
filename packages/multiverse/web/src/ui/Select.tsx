@@ -56,9 +56,9 @@ export function Select({ options, value, onChange, placeholder, invalid = false,
     setOpen(true);
   }
 
-  function close() {
+  function close(reason?: "outside" | "escape") {
     setOpen(false);
-    anchor?.focus();
+    if (reason !== "outside") anchor?.focus();
   }
 
   function commit(index: number) {
@@ -92,7 +92,7 @@ export function Select({ options, value, onChange, placeholder, invalid = false,
 
   function handleKey(event: KeyboardEvent<HTMLButtonElement>) {
     onKeyDown?.(event);
-    if (event.ctrlKey || event.metaKey) return;
+    if (event.defaultPrevented || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || event.ctrlKey || event.metaKey) return;
     const { key } = event;
     const typing = key === " " ? Date.now() - typed.current.at < TYPEAHEAD_MS && typed.current.text !== "" : key.length === 1;
     if (!shown) {
@@ -115,6 +115,9 @@ export function Select({ options, value, onChange, placeholder, invalid = false,
       if (enabled(active) && options[active].value !== value) onChange(options[active].value);
       return;
     }
+    // Focus stays on the source button, outside the popover's DOM. Native
+    // Escape closes its popup, while parent inspectors must stay open.
+    if (key === "Escape") { event.stopPropagation(); return; }
     let next = active;
     if (typing) {
       next = typeAhead(key, active);

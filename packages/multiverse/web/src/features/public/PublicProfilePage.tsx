@@ -6,33 +6,38 @@ import { api, ApiError } from "../../api/reader.ts";
 import type { PublicProfile } from "../../api/client.ts";
 import { APP_TITLE, href, useScrollRestore } from "../../app/routes.ts";
 import { DeckCard } from "../../mtg/index.ts";
-import { EmptyState, Loading, PageHeader, Text } from "../../ui/index.ts";
+import { Button, EmptyState, Loading, PageHeader, Text } from "../../ui/index.ts";
 import { PublicShell } from "./PublicShell.tsx";
 import styles from "./PublicProfilePage.module.css";
 
 export function PublicProfilePage({ handle }: { handle: string }) {
-  const [profile, setProfile] = useState<PublicProfile | null | "missing">(null);
-  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [response, setResponse] = useState<{ key: string; profile: PublicProfile | "missing" | null; error: string | null } | null>(null);
+  const key = JSON.stringify([handle, attempt]);
+  const current = response?.key === key;
+  const profile = current ? response.profile : null;
+  const error = current ? response.error : null;
   useEffect(() => {
     let current = true;
-    setProfile(null);
     api.publicProfile(handle).then(
-      (r) => current && setProfile(r.profile),
-      (e: unknown) => current && (e instanceof ApiError && e.status === 404 ? setProfile("missing") : setError(e instanceof Error ? e.message : String(e))),
+      r => current && setResponse({ key, profile: r.profile, error: null }),
+      (e: unknown) => current && setResponse({ key, profile: e instanceof ApiError && e.status === 404 ? "missing" : null, error: e instanceof ApiError && e.status === 404 ? null : e instanceof Error ? e.message : String(e) }),
     );
     return () => { current = false; };
-  }, [handle]);
+  }, [handle, attempt]);
   useEffect(() => {
-    if (!profile || profile === "missing") return;
-    document.title = `${profile.display_name} (${profile.handle})`;
+    if (!profile && !error) return;
+    document.title = error ? `This profile could not be loaded · ${APP_TITLE}`
+      : profile === "missing" ? `There is no one with that handle · ${APP_TITLE}`
+      : `${profile!.display_name} (${profile!.handle})`;
     // A cold load's head already carries this page's title, so restore the app's own.
     return () => { document.title = APP_TITLE; };
-  }, [profile]);
+  }, [profile, error]);
   useScrollRestore(profile !== null);
 
   return (
     <PublicShell>
-      {error ? <EmptyState heading="h1" title="This profile could not be loaded">{error}</EmptyState>
+      {error ? <EmptyState heading="h1" title="This profile could not be loaded">{error} <Button size="sm" onClick={() => setAttempt(n => n + 1)}>Retry</Button></EmptyState>
         : profile === null ? <Loading />
         : profile === "missing" ? <EmptyState heading="h1" title="There is no one with that handle">Check the link, or the person may have deleted their account.</EmptyState>
         : (

@@ -1,17 +1,16 @@
 .field {
   width: 100%;
   min-width: 0;
-  height: var(--h-md);
+  min-height: var(--h-md);
   padding: 0 var(--s-4);
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--control-line);
   border-radius: var(--r-md);
-  outline: 0;
   background: var(--surface);
   transition: border-color var(--fast), box-shadow var(--fast);
 }
 
 .lg {
-  height: var(--h-lg);
+  min-height: var(--h-lg);
   padding: 0 var(--s-5);
   border-radius: var(--r-md);
 }
@@ -44,3 +43,9 @@
     min-height: var(--tap);
   }
 }
+
+@media (forced-colors: active) {
+  .field:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
+}
+
+.field:user-invalid { border-color: var(--cut); }

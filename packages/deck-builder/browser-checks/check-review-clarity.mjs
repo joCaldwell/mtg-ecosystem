@@ -65,7 +65,7 @@ try {
   assert.equal(await maybe.locator('[class*="_note_"]').filter({hasText:originNote}).count(),0);
   assert.equal(await maybe.locator('[class*="_note_"]').count(),0,'custom prose is read in details, not list rows');
   await page.screenshot({path:join(out,`maybe-${width}.png`)});await hit.focus();await hit.press('Space');await settle(page,watch);await page.getByRole('heading',{name:imported[0].name,exact:true}).waitFor();await page.getByRole('button',{name:/^Back to /}).click();await settle(page,watch);
-  await page.getByRole('button',{name:'More',exact:true}).click();await page.getByRole('menuitem',{name:/slots and tags/i}).click();await settle(page,watch);
+  await page.getByRole('button',{name:'More',exact:true}).click();await page.locator('[focusgroup~="menu"] button, [role="menuitem"]').filter({hasText:/slots and tags/i}).click();await settle(page,watch);
   const dialog=page.getByRole('dialog'),help=dialog.getByRole('button',{name:'How slot targets work',exact:true});await help.waitFor();
   const slots=dialog.getByText('Slots',{exact:true});
   const gap=await slots.evaluate((el,rect)=>el.getBoundingClientRect().top-rect.bottom,await help.boundingBox().then(b=>({bottom:b.y+b.height})));assert(gap>=20);

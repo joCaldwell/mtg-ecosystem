@@ -14,7 +14,7 @@ try{for(const width of [1280,1440,1920,2560]){
  const context=await newContext(browser,{origin,vp:VIEWPORTS[width],user:1,frozenNow:'2026-10-20T17:00:00Z',notes:{blocked:new Set(),imageFailures:new Set()}}),page=await context.newPage(),watch=watchPage(page);
  await page.goto(origin+'/deck/2/playtest');await settle(page,watch);
  if(!process.argv.includes('--resume')){
-  if(!await page.getByRole('button',{name:'Shuffle and draw seven',exact:true}).count()){await page.getByRole('button',{name:'More',exact:true}).click();await page.getByRole('menuitem',{name:/^New game/}).click();}
+  if(!await page.getByRole('button',{name:'Shuffle and draw seven',exact:true}).count()){await page.getByRole('button',{name:'More',exact:true}).click();await page.locator('[focusgroup~="menu"] button, [role="menuitem"]').filter({hasText:/^New game/}).click();}
   await page.getByRole('button',{name:'Shuffle and draw seven',exact:true}).click();await settle(page,watch);
   await page.getByRole('button',{name:'Keep hand',exact:true}).click();await settle(page,watch);
  }

@@ -28,3 +28,8 @@ the root shared node_modules. `check` runs server/browser types and product test
 `build:web` produces the browser bundle. No product build invokes Cargo or
 regenerates native schemas/SDK artifacts. Browser integration checks use a
 disposable actor-scoped fixture, never hosted user data.
+
+Modern browser contracts and focused regression commands are recorded in
+[the frontend audit](../../docs/frontend-modern-web-audit.md). Preserve native
+modal containment, feature-detected overlay fallbacks, quiet form validation,
+text scaling and deliberate route-focus behavior when extending the UI.

@@ -38,10 +38,10 @@ export function SlotsDialog({ onClose }: { onClose: () => void }) {
             <p>Slots describe purpose; tags track sourcing and status. Both are optional. Only primary slots count toward targets; secondary purposes are counted separately.</p>
             <p>Leave a target blank for no limit. Use the same Min and Max for an exact target.</p>
           </Explainer>
-          <Section title="Slots">
+          <Section heading="h3" title="Slots">
             <SlotsTable />
           </Section>
-          <Section title="Tags">
+          <Section heading="h3" title="Tags">
             <TagsSection />
           </Section>
         </Stack>

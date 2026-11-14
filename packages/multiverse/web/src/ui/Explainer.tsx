@@ -25,13 +25,13 @@ export function Explainer({ title, label, summary, heading: Heading = "h3", defa
   // Only an explicit open moves focus into the explanation.
   useEffect(() => { if (open && asked.current) content.current?.focus(); asked.current = true; }, [open]);
   const hide = () => (control ? control.onClose() : setOwnOpen(false));
-  const close = () => { hide(); anchor?.focus(); };
+  const close = (reason?: "outside" | "escape") => { hide(); if (reason !== "outside") anchor?.focus(); };
   // The panel is portalled to the end of the body (or its dialog), so native
   // Tab order would leave it for the page's end, with the panel still open.
   // Keep the order the trigger implies (WCAG 2.4.3): Tab past the last
   // control continues after the trigger, Shift+Tab before the first returns
   // to it, and focus leaving any other way closes the panel. Native listeners
-  // run before a surrounding dialog's focus trap, which then leaves it alone.
+  // run inside the native modal boundary when the anchor belongs to a dialog.
   useEffect(() => {
     const panel = content.current;
     if (!open || !panel || !anchor) return;
@@ -43,7 +43,7 @@ export function Explainer({ title, label, summary, heading: Heading = "h3", defa
       e.preventDefault();
       hide();
       if (e.shiftKey) return anchor.focus();
-      const order = visible(anchor.closest('[role="dialog"]') ?? document.body).filter(el => !panel.contains(el));
+      const order = visible(anchor.closest('dialog, [role="dialog"]') ?? document.body).filter(el => !panel.contains(el));
       (order[order.indexOf(anchor) + 1] ?? anchor).focus();
     };
     const focusOut = (e: FocusEvent) => {
@@ -56,7 +56,7 @@ export function Explainer({ title, label, summary, heading: Heading = "h3", defa
   }, [open, anchor]);
   const panel = <Popover anchor={anchor} open={open} onClose={close}>
     <section ref={content} tabIndex={-1} id={id} role="region" aria-label={title} className={styles.panel}>
-      <Heading className={styles.heading}>{title}</Heading><div>{children}</div><Button size="sm" onClick={close}>Close explanation</Button>
+      <Heading className={styles.heading}>{title}</Heading><div>{children}</div><Button size="sm" onClick={() => close()}>Close explanation</Button>
     </section>
   </Popover>;
   if (control) return panel;

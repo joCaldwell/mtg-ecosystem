@@ -1,12 +1,13 @@
 .seg {
   display: inline-flex;
-  height: var(--h-md);
-  border: 1px solid var(--line-strong);
+  min-height: var(--h-md);
+  border: 1px solid var(--control-line);
   border-radius: var(--r-md);
   overflow: hidden;
 }
 
 .option {
+  position: relative;
   padding: 0 var(--s-4);
   color: var(--muted);
   font-size: var(--text-sm);
@@ -42,4 +43,11 @@
 .option:disabled {
   opacity: 0.6;
   cursor: progress;
+}
+
+.option[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  inset: auto var(--s-3) 0;
+  border-bottom: 2px solid currentColor;
 }

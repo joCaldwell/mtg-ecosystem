@@ -23,7 +23,7 @@ export function HistoryPanel() {
   return (
     <>
       <section className={styles.section}>
-        <Eyebrow>History · r{deck.revision}</Eyebrow>
+        <Eyebrow as="h2">History · r{deck.revision}</Eyebrow>
         {log.length === 0 ? (
           <Text tone="muted" size="sm" as="p">
             No decisions yet.

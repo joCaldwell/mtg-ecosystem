@@ -188,8 +188,9 @@ validated before the server applies any changes.
 Images are ingested card facts (`image_small`, `image_normal`,
 `image_art_crop`); `mtg/cardImage.ts` selects a stored URL. `CardImage`
 uses a supplied card's stored image URL directly, or resolves through
-`CardLookup` (shared with hover cards) when no URL is known. Every image uses
-lazy loading. Missing image data retains the placeholder. Never construct a
+`CardLookup` (shared with hover cards) when no URL is known. Gallery/rail images
+remain deferred until near view; on-demand inspection images load immediately
+with asynchronous decoding once opened. Missing image data retains the placeholder. Never construct a
 Scryfall API image URL in the client. Mana symbols are the one constructed
 image URL: `mtg/manaSymbols.symbolSvgUrl` names the static SVG on
 `svgs.scryfall.io` that Scryfall's Card Symbols API documents for each symbol
@@ -325,9 +326,11 @@ rotation. Only a card, a header stat, a tab request or the tablet bar’s "Deck 
 opens the sheet; a review runs in the list with its keys, and R opens the
 sheet only for the reason field, closing it again after the reason is sent or
 cancelled. The list scrolls the window. At 1100+ the existing panes scroll
-independently. Dialog's body scroll lock is counted, so nested dialogs that
-close together release the page; Dialog's focus trap listens natively,
-because the portalled panel's React events do not bubble through the sheet.
+independently. Dialog uses native `showModal()` for the top layer, outside
+inertness, focus containment and invoker focus return. It does not lock the body
+or install a manual Tab trap; `:modal`/`::backdrop` contain scroll progressively.
+Nested dropdowns use native popovers when supported and stay inside their
+dialog's DOM boundary, with positioned/dismissal fallbacks in older browsers.
 Escape that starts in a field reaches the field first: an inline editor in a
 sheet cancels, and the next Escape closes the sheet. A specifically labelled Explainer keeps the
 trigger's place in the Tab order and closes when focus leaves it. Up to
@@ -339,7 +342,7 @@ horizontal overflow. Every shell provides the labelled `main-content` skip
 link target. QA must use actual wheel/touch input, never script scrolling.
 
 `App` lazily loads the signed-in routes and public pages. `SignedIn` lazily
-loads playtest, settings and the style guide. Authentication screens, shared
+loads every screen, including the deck editor and phone composition. Authentication screens, shared
 action dialogs and card inspection load when requested. `CardProviders` is a
 small public provider independent of private inbox/focus/preferences. The
 reader API and HTTP transport are separate from editor API methods; wire types
@@ -348,6 +351,21 @@ DeckStore owns editing and re-exports the same hooks. useDeckView receives
 memories as data instead of fetching in the read-only composition. The deck
 page asks `api.deckMemories` for only the memories that can mark its rows: the
 deck's own and the global ones, following `has_more` past the 100-row cap.
+
+`app/routeAccessibility` updates private page titles from the visible h1 and
+focuses it once after navigation, waiting for lazy/data-backed rendering. Query
+selection and live updates do not move focus. Public pages retain their own
+owner/name titles and explicitly title error/missing states. Every standalone
+account/legal document owns a main landmark; long documents release window scrolling.
+Server-rendered OAuth consent uses the same window-scroll marker.
+
+DeckStore internally keys sessions by deck ID, rejects older membership/edit
+versions and fences reads started before a local command result. It refreshes
+the full authoritative composite after a command; it never merges receipts or
+invented local state. Card lookup cache failures similarly evict only the exact
+pending promise they own. Hover previews support focus, pointer entry into the
+preview and Escape; actual keyboard intent wins over synthetic mouse entry
+when a removed top-layer preview reveals another row.
 
 Barrel index.ts files are re-exports only; an architecture test enforces this
 so Vite may tree-shake their unused exports without executing the editor.

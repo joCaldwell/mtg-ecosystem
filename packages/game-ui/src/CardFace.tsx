@@ -9,7 +9,7 @@ export function CardFace({ card, selected, onInspect, compact = false }: {
   compact?: boolean;
   onInspect: (id: string, trigger: HTMLButtonElement) => void;
 }) {
-  return <button className={`${surface.surface} ${styles.card} ${compact ? styles.compact : ''}`} aria-label={`Inspect ${cardName(card)}`}
+  return <button type="button" className={`${surface.surface} ${styles.card} ${compact ? styles.compact : ''}`} aria-label={`Inspect ${cardName(card)}`}
     aria-pressed={selected} onClick={event => onInspect(card.inspectionId, event.currentTarget)}>
     <span className={styles.heading}>{cardName(card)}</span>
     <span className={styles.mana}>{card.printedMana === '' ? 'No printed mana cost' : card.printedMana ?? 'Mana cost unavailable'}</span>
