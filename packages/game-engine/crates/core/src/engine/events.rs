@@ -297,6 +297,14 @@ mod footprint_tests {
 
 fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
     match event {
+        ProposedEvent::RevealSearchLands { objects, .. } => (
+            objects
+                .iter()
+                .map(|o| FactKey::Object(o.card))
+                .chain([FactKey::Libraries])
+                .collect(),
+            BTreeSet::new(),
+        ),
         ProposedEvent::CreateCreatureTokens { .. } => {
             let keys = BTreeSet::from([FactKey::TokenAllocation]);
             (keys.clone(), keys)
@@ -596,6 +604,13 @@ impl Game {
         let mut stack = BTreeSet::new();
         for event in events {
             match event {
+                ProposedEvent::RevealSearchLands {
+                    player,
+                    objects: selected,
+                } => {
+                    objects.extend(selected.iter().copied());
+                    libraries.insert(*player);
+                }
                 ProposedEvent::CreateCreatureTokens { controller, .. } => {
                     // CR608.2m: the invocation owns its fixed token definition.
                     // It reads no current source incarnation after departure.
@@ -1325,6 +1340,22 @@ impl Game {
         before: Option<&PreEventFacts>,
     ) -> Result<EventOutcome, String> {
         let actual = match proposed {
+            ProposedEvent::RevealSearchLands { player, objects } => {
+                if !matches!(self.state.rules.frame, Frame::ResolutionChoice { choice: ResolutionChoice::Search { player: p, split: true, maximum: 2, .. }, .. } if p == *player)
+                    || objects.len() > 2
+                    || !objects.windows(2).all(|w| w[0] < w[1])
+                    || !objects
+                        .iter()
+                        .all(|o| self.search_lands(*player).contains(o))
+                {
+                    return Err("invalid searched land reveal".into());
+                }
+                EventOutcome::SearchLandsRevealed {
+                    player: *player,
+                    objects: objects.clone(),
+                }
+            }
+
             ProposedEvent::FinishLibraryShuffle { player } => {
                 if !matches!(self.state.rules.frame,Frame::ResolutionChoice {choice:ResolutionChoice::Shuffle {player:p,index:0,..},..} if p==*player)
                 {

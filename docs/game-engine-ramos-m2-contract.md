@@ -1,11 +1,12 @@
 # Ramos M2: land and ramp family contract
 
 Preparation against `46ef08faedb8c5fa9c1c1fa9a8afefd1f85e1f6c`, whose parent is
-`origin/main` `bbdba9f5add0bfd0c75c0ec18eb2986581c3e534`. This document specifies
-future work; it adds no executable source support, catalog/profile admission,
-host capability or sampled-search qualification. M0 owns the production compiler
-audit and native verification this wave. Its single support matrix remains the
-authority for per-card diagnostics and evidence; this is not a second matrix.
+`origin/main` `bbdba9f5add0bfd0c75c0ec18eb2986581c3e534`.
+The bounded basic-search checkpoint below now supplies executable source
+support for Cultivate and Kodama’s Reach. The remaining families specify future
+work. M0 owns the frozen production compiler audit; the single support matrix
+remains the authority for per-card diagnostics and evidence. Source execution
+is separate from catalog/profile admission, hosting and sampled-search qualification.
 The [Ramos plan](game-engine-ramos-plan.md) owns the exact revision-17 list.
 
 ## Frozen authorities and reproducible lookup
@@ -174,15 +175,61 @@ could-produce and damage mana; its old version/capacity claims are not current g
 
 ## Checkpoint and integration ownership
 
-**First useful checkpoint after M0: complete Cultivate and Kodama's Reach.**
-Reuse the existing basic-land private search and shuffle foundation; add explicit
-reveal and identity-bound battlefield/hand partition, and validate complete source
-lowering/capability closure at schema 1. This advances exact target ramp without
-needing shock choices, typed nonbasic admission, cycling, or M1's counter-mana
-payment changes. Do not claim either source executable until its complete
-sequence runs. M0 supplies frozen fixtures/provenance and observed baseline
-diagnostics first. A reduced headless profile/witness is separate admission work,
-and never qualifies the exact Ramos deck.
+**First bounded checkpoint after M0: complete Cultivate and Kodama's Reach.**
+The implementation is source-qualified below; broader M2 families remain future
+work. A reduced headless profile/witness is separate admission work and does not
+qualify the exact Ramos deck.
+
+### Bounded basic-search checkpoint
+
+Implemented against `cac4a8b1fb9bdd9ac634faffa8fa81ea4b7c8fb3`, without rebasing or
+integrating another branch. Schema 1 adds `basic_land_split_search_v1` and
+`SearchBasicLandsSplit`: optional zero/one/two basics from the controller's
+library, temporary reveal in place, an explicit battlefield identity choice for
+two, one automatically to battlefield tapped, the rest to hand, then shuffle.
+Both moves use the ordinary simultaneous event/movement authorities; hand
+movement is not a draw. Existing `SearchBasicLands` retains its original behavior.
+Reach retains Arcane. Lowering consumes the complete actors, filter, count,
+reveal reference, pool/remainder, destinations and final shuffle or rejects.
+
+`SearchSplit` retains exact sorted incarnations. Only selected cards become
+public, without library positions; only their controller receives the partition
+request. Search handles expire before partition. Reveal history remains permitted
+after movement/shuffle, while current library/opponent-hand handles are hidden.
+Snapshots, accepted-input replay and query work bind the exact build/catalog/
+configuration; forged duplicate continuations and wrong-build query work reject.
+
+Tests directly include the unchanged Ramos records and accepted header, so no
+extraction into the standard fixture registry was needed. Private source witness
+configurations replace Rampant Growth in an otherwise legal seeded 100-card
+setup **before** constructing Game; all subsequent development, payment and
+choices are accepted inputs. They are source witnesses, not admitted pods.
+Hosting/search reviewed sets and all profiles/decks remain unchanged; their
+capability and pod rejection controls pass. Simulator/server production code
+compiles with the new request; this does not qualify host/SDK acceptance.
+
+Focused evidence: **82 Rust tests passed**: 2 compiler basic-search tests,
+76 contracts library tests, 3 new core tests, and 1 existing basic-search runtime
+regression. The new core tests cover 24 paid source cases (both sources,
+zero/one/two selections, opposite two-card input orders, off/compact/detailed
+traces), restoration/replay at search/reveal/partition/shuffle/completion,
+recovered read-only observation/response queries, invalid/stale/duplicate/foreign/
+nonbasic selections, and opponent privacy. Six supplemental synthetic forks
+exercise zero/singleton remaining libraries and shuffle completion without RNG
+words. `cargo check --locked -p mtg-sim -p mtg-server`, formatting, diff checks,
+and all 85 frozen fixture pins passed. Optimized-test core BUILD_ID:
+`f6cdade55b784a8d6f3db6c659008f52a5c3fcd458fa24bb4a741c94cc75f246`.
+
+Raw commands, source inventories, per-case journal/state digests, timing receipts
+and retained failures are in `generated/ramos/m2-cac4a8b1/`; `checkpoint.json`
+is the consolidated receipt. Initial simulator exhaustiveness errors were fixed.
+A later stale shared-cache contracts artifact contradicted local IR; the failed
+attempt was retained and the documented timestamp-only refresh verified unchanged
+source bytes before rebuilding under the shared lock. No cache/evidence was
+removed. The inherited M0 npm EUSAGE log and this checkout's failed dependency
+doctor are retained; installation was not retried. Omitted: Node source gate,
+full runtime/all-target/release/profile matrices, schema export, exact-deck/pod,
+host/SDK/client/search qualification and retention. The M2 native slot is released.
 
 Subsequent batches: typed search plus shock/Cinder entry; fetch costs/activation;
 hand cycling plus complete triome admission; multiple mana abilities plus pain
@@ -191,7 +238,9 @@ for a small checked checkpoint. Do not add incomplete typed triomes to make the
 typed-search demonstration look broader. Source-backed shocks, once complete,
 provide nonbasic search witnesses before cycling lands become admissible.
 
-Before implementation, the coordinator assigns these concrete boundaries:
+M2 was the sole shared-code and native integration owner for this bounded
+checkpoint; M1 remained research-only. The coordinator assigns the following
+interfaces for subsequent implementation batches:
 
 - M1 owns counter cost/once-per-turn semantics and the shared payment/receipt
   changes in `core/src/engine/mana_permanents.rs` and its announcement callers.

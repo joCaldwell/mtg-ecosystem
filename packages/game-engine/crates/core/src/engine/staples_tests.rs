@@ -1168,7 +1168,8 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | Instruction::CreateTokensFor { .. }
                     | Instruction::DamageTargetController { .. }
                     | Instruction::AttachEquipment { .. }
-                    | Instruction::ReturnAuraFromGraveyard { .. } => {
+                    | Instruction::ReturnAuraFromGraveyard { .. }
+                    | Instruction::SearchBasicLandsSplit { .. } => {
                         panic!("attachment outside historical staples proof")
                     }
                     Instruction::CreateCreatureTokens { .. }
@@ -1393,3 +1394,6 @@ fn concession_keeps_legal_pending_graveyard_target() {
         assert_eq!(g.state.rules.stack.len(), 1);
     }
 }
+
+#[path = "ramos_split_tests.rs"]
+mod ramos_split_tests;

@@ -133,6 +133,14 @@ impl Strategy<'_> {
                     .or_else(|| colors.first().copied())
                     .ok_or("empty mana colors")?,
             },
+            PlayerRequest::SearchLandBattlefield { candidates, .. } => {
+                PlayerResponse::SearchLandBattlefield {
+                    object: candidates
+                        .first()
+                        .cloned()
+                        .ok_or("empty revealed land partition")?,
+                }
+            }
             PlayerRequest::SearchLands {
                 maximum,
                 candidates,

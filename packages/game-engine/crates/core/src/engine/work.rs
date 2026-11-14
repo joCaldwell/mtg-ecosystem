@@ -685,6 +685,7 @@ impl Game {
                         | (
                             Frame::ResolutionChoice { .. },
                             PlayerResponse::SearchLands { .. }
+                            | PlayerResponse::SearchLandBattlefield { .. }
                             | PlayerResponse::OptionalEffect { .. }
                             | PlayerResponse::OptionalRecursion { .. }
                             | PlayerResponse::Sacrifice { .. }

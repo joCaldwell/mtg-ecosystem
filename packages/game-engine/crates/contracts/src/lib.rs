@@ -266,6 +266,7 @@ pub enum Capability {
     DestroyCreatureV1,
     GraveyardRecursionV1,
     BasicLandSearchV1,
+    BasicLandSplitSearchV1,
     CreatureAnthemV1,
     TargetPlayerDrawV1,
     AttachmentsV1,
@@ -557,6 +558,10 @@ pub enum Instruction {
         target_slot: u32,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         optional: bool,
+        source_block: u32,
+    },
+    /// Own-library optional zero-to-two basics, reveal, one tapped/remaining hand, shuffle.
+    SearchBasicLandsSplit {
         source_block: u32,
     },
     SearchBasicLands {
@@ -2766,6 +2771,16 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             Instruction::ReturnOwnGraveyardCreatureToHand { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::OwnGraveyardCreatureCard))
             }
+            Instruction::SearchBasicLandsSplit { .. } => {
+                if p.instructions.len() != 1
+                    || !p.targets.is_empty()
+                    || !p.modes.is_empty()
+                    || p.resolution != SpellResolution::Instructions
+                {
+                    return Err("unsupported basic land split search program".into());
+                }
+                None
+            }
             Instruction::SearchBasicLands { maximum, .. } => {
                 if *maximum == 0 || *maximum > 2 {
                     return Err("unsupported basic land search maximum".into());
@@ -3124,6 +3139,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::ReturnOwnGraveyardCreatureToHand { .. } => {
                 Capability::GraveyardRecursionV1
             }
+            Instruction::SearchBasicLandsSplit { .. } => Capability::BasicLandSplitSearchV1,
             Instruction::SearchBasicLands { .. } => Capability::BasicLandSearchV1,
             Instruction::DrawCards {
                 recipient: Some(_), ..
@@ -3879,6 +3895,9 @@ mod activated_spell_counter_tests;
 mod activated_permanent_return_tests;
 
 #[cfg(test)]
+mod basic_land_split_tests;
+
+#[cfg(test)]
 mod permanent_owner_hand_tests;
 
 #[cfg(test)]
@@ -4001,6 +4020,7 @@ mod tests {
             DestroyCreatureV1,
             GraveyardRecursionV1,
             BasicLandSearchV1,
+            BasicLandSplitSearchV1,
             CreatureAnthemV1,
             TargetPlayerDrawV1,
             CastArtifactV1,
@@ -4099,6 +4119,7 @@ mod tests {
         definitions.push(activated_spell_counter_tests::activated_counter());
         definitions.push(activated_permanent_return_tests::activated_return());
         definitions.push(permanent_owner_hand_tests::permanent_owner_hand());
+        definitions.push(basic_land_split_tests::split_search());
         // Synthetic contract-shape witness only. Complete D2c-e source lowering
         // is checked in compiler/core tests, without fabricated expected IR.
         let mut damage = definitions

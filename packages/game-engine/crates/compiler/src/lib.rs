@@ -536,6 +536,13 @@ enum Step {
         )]
         regeneration_forbidden: Option<bool>,
     },
+    Reveal {
+        who: PlayerSelector,
+        what: serde_json::Value,
+    },
+    Simultaneous {
+        steps: Vec<Step>,
+    },
     Search {
         who: PlayerSelector,
         zones: serde_json::Value,
@@ -1537,6 +1544,55 @@ fn append_spell_effects(
             && !matches!(sentence.steps.as_slice(),[Step::Damage {amount,..}] if *amount==serde_json::json!({"amount":"x"}))
         {
             return Err(unsupported("bindings", "unconsumed count binding"));
+        }
+        // CR 701.20a-b, 701.23b, 701.24a/e (pinned 2026-09-25): consume
+        // the entire reveal/identity partition, never squeeze it into all-entry search.
+        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+        if let [
+            Step::Search { who, zones, find },
+            Step::Reveal {
+                who: revealer,
+                what,
+            },
+            Step::Simultaneous { steps },
+            Step::Shuffle {
+                who: shuffler,
+                library,
+            },
+        ] = sentence.steps.as_slice()
+        {
+            let you = PlayerSelector {
+                player: "you".into(),
+                selection_id: None,
+                of: None,
+            };
+            let split = matches!(steps.as_slice(), [
+                Step::MoveZone { what: first, to: battlefield, tapped: Some(true) },
+                Step::MoveZone { what: rest, to: hand, tapped: None }
+            ] if *first == serde_json::json!({"ref":"from-pool","pool":{"ref":"them"},"count":{"amount":"fixed","value":1}})
+                && *battlefield == serde_json::json!({"zone":"battlefield"})
+                && *rest == serde_json::json!({"ref":"rest"})
+                && *hand == serde_json::json!({"zone":"hand","owner":"your"}));
+            if *who != you
+                || revealer != who
+                || shuffler != who
+                || !split
+                || *zones
+                    != serde_json::json!({"selection":"all","of":[{"zone":"library","owner":"your"}]})
+                || *find
+                    != serde_json::json!({"ref":"filter","filter":{"supertypes":["basic"],"types":["land"],"cls":"card"},"count":{"amount":"fixed","value":2},"upTo":true})
+                || *what != serde_json::json!({"ref":"that","filter":{"cls":"card"},"plural":true})
+                || *library != serde_json::json!({"zone":"library","owner":{"player":"you"}})
+            {
+                return Err(unsupported(
+                    "effects.search",
+                    "unsupported complete search/reveal/split/shuffle sequence",
+                ));
+            }
+            program
+                .instructions
+                .push(Instruction::SearchBasicLandsSplit { source_block });
+            continue;
         }
         if let [
             Step::Search { who, zones, find },
@@ -4707,6 +4763,118 @@ mod tests {
                 ),
                 "{name}"
             );
+        }
+    }
+    #[test]
+    fn basic_land_split_search_complete_frozen_sources_and_near_misses() {
+        let manifest = include_str!("../../../tests/fixtures/ramos/archive-manifest-current.json");
+        for raw in [
+            include_str!("../../../tests/fixtures/ramos/8b755881-a72d-4e21-a369-d2924eb4585a.json"),
+            include_str!("../../../tests/fixtures/ramos/1593ea18-2f2f-4ab4-83fb-6ccc0bec8a90.json"),
+        ] {
+            let CompileResult::Lowered { definition } = compile(manifest, raw) else {
+                panic!(
+                    "complete frozen split-search source: {:?}",
+                    compile(manifest, raw)
+                );
+            };
+            assert_eq!(CURRENT_IR_VERSION, 1);
+            assert!(matches!(
+                definition.spell.as_ref().unwrap().instructions.as_slice(),
+                [Instruction::SearchBasicLandsSplit { .. }]
+            ));
+            assert!(
+                definition
+                    .capabilities
+                    .contains(&Capability::BasicLandSplitSearchV1)
+            );
+            assert!(
+                !definition
+                    .capabilities
+                    .contains(&Capability::BasicLandSearchV1)
+            );
+            if definition.name == "Kodama's Reach" {
+                assert_eq!(definition.characteristics.subtypes, ["Arcane"]);
+            }
+            let mut missing = definition.clone();
+            missing
+                .capabilities
+                .retain(|c| *c != Capability::BasicLandSplitSearchV1);
+            assert!(missing.validate().is_err());
+            let mut extra = definition.clone();
+            extra
+                .spell
+                .as_mut()
+                .unwrap()
+                .instructions
+                .push(Instruction::DrawCards {
+                    count: 1.into(),
+                    recipient: None,
+                    source_block: 0,
+                });
+            extra.capabilities = extra.requirements().into_iter().collect();
+            assert!(extra.validate().is_err());
+            for (pointer, value) in [
+                ("/0/who/player", serde_json::json!("opponent")),
+                ("/0/who/of", serde_json::json!({"ref":"it"})),
+                ("/0/zones/of/0/owner", serde_json::json!("opponent")),
+                ("/0/for/count/value", serde_json::json!(1)),
+                ("/0/for/upTo", serde_json::json!(false)),
+                ("/0/for/filter/supertypes/0", serde_json::json!("snow")),
+                ("/0/for/filter/subtypes", serde_json::json!(["Forest"])),
+                ("/1/who/player", serde_json::json!("opponent")),
+                ("/1/what/ref", serde_json::json!("them")),
+                ("/1/what/plural", serde_json::json!(false)),
+                ("/2/steps/0/what/pool/ref", serde_json::json!("it")),
+                ("/2/steps/0/what/count/value", serde_json::json!(2)),
+                ("/2/steps/0/tapped", serde_json::json!(false)),
+                ("/2/steps/0/to/zone", serde_json::json!("hand")),
+                ("/2/steps/1/what/ref", serde_json::json!("them")),
+                ("/2/steps/1/to/owner", serde_json::json!("opponent")),
+                ("/2/steps/1/tapped", serde_json::json!(false)),
+                ("/3/who/selectionId", serde_json::json!("qualified")),
+                ("/3/library/owner/player", serde_json::json!("opponent")),
+            ] {
+                let bad = changed_source(raw, |r| {
+                    let result = &mut r["faces"][0]["result"];
+                    let steps = &mut result["abilities"][0]["effects"][0]["steps"];
+                    // Insert the leaf as well as replace existing values.
+                    let (parent, key) = pointer.rsplit_once('/').unwrap();
+                    let container = steps.pointer_mut(parent).unwrap();
+                    if let Ok(index) = key.parse::<usize>() {
+                        container[index] = value.clone();
+                    } else {
+                        container[key] = value.clone();
+                    }
+                    result["lines"][0]["ability"] = result["abilities"][0].clone();
+                });
+                assert!(
+                    !matches!(compile(manifest, &bad), CompileResult::Lowered { .. }),
+                    "{pointer}"
+                );
+            }
+            for remove in 0..4 {
+                let bad = changed_source(raw, |r| {
+                    let result = &mut r["faces"][0]["result"];
+                    result["abilities"][0]["effects"][0]["steps"]
+                        .as_array_mut()
+                        .unwrap()
+                        .remove(remove);
+                    result["lines"][0]["ability"] = result["abilities"][0].clone();
+                });
+                assert!(!matches!(
+                    compile(manifest, &bad),
+                    CompileResult::Lowered { .. }
+                ));
+            }
+            let renamed = changed_source(raw, |r| {
+                r["source"]["name"] = "Generic split witness".into();
+                r["faces"][0]["result"]["name"] = "Generic split witness".into();
+            });
+            assert!(matches!(
+                compile(manifest, &renamed),
+                CompileResult::Lowered { .. }
+            ));
         }
     }
     #[test]

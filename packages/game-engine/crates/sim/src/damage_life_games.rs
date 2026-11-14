@@ -288,6 +288,7 @@ impl Strategy {
             }
             PlayerRequest::ManaColor { .. }
             | PlayerRequest::SearchLands { .. }
+            | PlayerRequest::SearchLandBattlefield { .. }
             | PlayerRequest::OptionalEffect { .. }
             | PlayerRequest::OptionalRecursion { .. } => {
                 return Err("staples request unsupported by this completion policy".into());
