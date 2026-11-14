@@ -173,6 +173,30 @@ test("resume admission cannot overwrite a concurrently committed rules outcome w
   } finally { await f.coordinator.close(); f.db.close(); }
 });
 
+test("explicit resume waits for pending stop acknowledgment then reserves and restarts the same match", async () => {
+  const f = fixture();
+  try {
+    const game = (await f.coordinator.launch(OWNER, f.id, f.revision(), key)).game!;
+    let entered!: () => void, release!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    f.adapter.stop = async () => { entered(); await new Promise<void>(resolve => { release = resolve; }); };
+    f.setStatus({ consumers: ["running", "failed", "running"] });
+    const ticking = f.coordinator.tick(); await started;
+    const ensures = f.ensured.length;
+    const resuming = f.coordinator.resume(OWNER, game.id);
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    assert.equal(f.ensured.length, ensures);
+    assert.equal((await f.coordinator.get(OWNER, game.id)).state, "paused");
+    f.setStatus({ consumers: ["running", "running", "running"] });
+    f.adapter.stop = async () => {};
+    release(); await ticking;
+    const result = await resuming;
+    assert.equal(result.game!.state, "active"); assert.equal(result.game!.id, game.id);
+    assert.equal(f.ensured.length, ensures + 1); assert.equal(f.matches.size, 1);
+    assert.equal((await f.coordinator.get(OWNER, game.id)).state, "active");
+  } finally { await f.coordinator.close(); f.db.close(); }
+});
+
 test("default environment and incomplete browser/native gates never create game records", async () => {
   const f = fixture();
   try {
