@@ -120,6 +120,12 @@ fn assert_program(d: &Definition, modifier: Option<(i64, i64)>, keywords: &[Keyw
     if modifier.is_some() {
         capabilities.insert(Capability::TemporaryPowerToughnessV1);
     }
+    capabilities.extend(keywords.iter().map(|keyword| match keyword {
+        KeywordAbility::Haste => Capability::HasteV1,
+        KeywordAbility::Trample => Capability::TrampleV1,
+        KeywordAbility::FirstStrike => Capability::FirstStrikeV1,
+        _ => panic!("unexpected source keyword {keyword:?}"),
+    }));
     assert_eq!(d.capabilities, capabilities);
     assert_eq!(d.capabilities, d.requirements());
     assert!(!d.x_mana_cost);
@@ -415,7 +421,7 @@ fn temporary_combat_keyword_complete_sources_reject_unconsumed_shapes() {
     }
 }
 #[test]
-fn temporary_combat_keyword_compound_rejects_occurrence_duration_and_block_changes() {
+fn temporary_combat_keyword_compound_preserves_sentence_partition_and_rejects_semantic_changes() {
     for w in WITNESSES.iter().filter(|w| w.modifier.is_some()) {
         for variant in 0..10 {
             let raw = changed_ability(w.raw, |a| {
@@ -449,6 +455,13 @@ fn temporary_combat_keyword_compound_rejects_occurrence_duration_and_block_chang
                     }
                 }
             });
+            if variant == 8 {
+                // Source blocks index abilities, not sentences (CR 608.2c).
+                // Repartitioning the same ordered operations within one ability
+                // preserves both instruction provenance and complete semantics.
+                assert_program(&lowered(&raw), w.modifier, w.keywords);
+                continue;
+            }
             assert!(
                 matches!(compile(HEADER, &raw), CompileResult::Unsupported { .. }),
                 "{} variant {variant}",
