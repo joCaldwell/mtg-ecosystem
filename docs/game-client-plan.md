@@ -35,7 +35,7 @@ Deferred: arbitrary decks, matchmaking, ratings, spectators, chat, public accoun
 offline play, browser-local search/WASM, strategic AI, game-state undo, and a 3D
 table. These are separate increments with their own admission and privacy policies.
 
-### Deferred design direction: deck-builder cohesion
+### Active design direction: deck-builder cohesion
 
 Josh's direction, 2026-11-13: the game client and deck builder should feel like
 closely connected parts of one product. Align the client's styling and UX with
@@ -43,10 +43,17 @@ the deck builder, including visual identity, typography, colors, spacing, card
 presentation, controls, navigation and common interaction patterns. The current
 client's appearance does not yet meet this expectation and is provisional.
 
-This is a recorded future design requirement, with low current priority. Continue
-gameplay and integration work before undertaking the visual/UX alignment. Plan
-shared design tokens and reusable presentation primitives when that work becomes
-active, while preserving the applications' existing responsibility boundaries.
+Josh activated UX and styling work on 2026-11-14. Use the deck-builder's current
+design system as the visual reference and this client's own requirements for
+interaction. The solo playtester guidance and implementation are not accepted
+design references: Josh has not been satisfied with that experience. Preserve
+the applications' existing responsibility boundaries; sharing visual conventions
+does not require importing private features or extracting a shared package.
+
+The first reviewable increment improves the existing table, source-backed card
+inspection, opening decisions and join flow. Its design and acceptance criteria
+are in [the client UX direction](game-client-ux.md). Later gameplay support remains
+subject to the existing integration gates.
 
 ## 2. Principles
 

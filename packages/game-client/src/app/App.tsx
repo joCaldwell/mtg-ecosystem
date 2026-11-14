@@ -1,5 +1,5 @@
 import { Component, useEffect, useMemo, useState, useSyncExternalStore, type ErrorInfo, type ReactNode } from 'react';
-import { Link, NavLink, Route, Routes } from 'react-router';
+import { Link, NavLink, Route, Routes, useLocation } from 'react-router';
 import { browserCommandSession } from '../session/effects/browser.ts';
 import { connectionLabel } from '../session/status.ts';
 import { immutable } from '../session/read-state.ts';
@@ -9,6 +9,7 @@ import { SessionStatus } from '../features/table/SessionStatus.tsx';
 import { Table } from '../features/table/Table.tsx';
 import { fixtureTable, missingMetadataTable, decisionGalleryFixture } from './fixture.ts';
 import { DecisionGallery } from '../features/decisions/DecisionGallery.tsx';
+import { OpeningPreview } from './OpeningPreview.tsx';
 import { protocolSchemaHash } from '../../generated/sdk-identity.ts';
 import { LiveOpening, type OpeningDraft } from '../features/opening/LiveOpening.tsx';
 import { CommandStatus } from '../features/opening/CommandStatus.tsx';
@@ -25,6 +26,7 @@ class SurfaceBoundary extends Component<{ children: ReactNode }, { failed: boole
 }
 
 export function App() {
+  const { hash } = useLocation();
   const [session] = useState(() => browserCommandSession(protocolSchemaHash));
   const snapshot = useSyncExternalStore(session.subscribe, session.getSnapshot);
   useEffect(() => () => session.stop(), [session]);
@@ -52,7 +54,7 @@ export function App() {
     <main id="main" tabIndex={-1}><SurfaceBoundary><Routes>
       <Route path="/" element={<Table table={fixtureTable} />} />
       <Route path="/fixtures/opening" element={<Table table={fixtureTable} />} />
-      <Route path="/fixtures/decisions" element={<DecisionGallery {...decisionGalleryFixture} cards={fixtureTable.hand} />} />
+      <Route path="/fixtures/decisions" element={hash === '#table' ? <OpeningPreview /> : <DecisionGallery {...decisionGalleryFixture} cards={fixtureTable.hand} />} />
       <Route path="/table" element={<div className={styles.liveSurface}><SessionStatus snapshot={snapshot} onStop={session.stop} />{table ? <Table table={table}
         choiceStatus={<CommandStatus command={snapshot.command} connected={snapshot.connection === 'ready'} onRetry={() => { void session.retryCommand(); }} />}
         decisionControls={<LiveOpening draft={draft} request={request} labels={openingLabels} enabled={openingEnabled} onIntent={intent => { void session.submitIntent(intent); }} />} /> : <section className={styles.page}><h1>Live table</h1><p>{snapshot.connection === 'pending' ? 'Waiting for the first committed observation.' : 'Import a single-seat file to open your permitted view.'}</p><CommandStatus command={snapshot.command} connected={snapshot.connection === 'ready'} onRetry={() => { void session.retryCommand(); }} /><Link to="/join">Import seat file</Link></section>}</div>} />

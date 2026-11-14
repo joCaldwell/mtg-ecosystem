@@ -123,3 +123,27 @@ live decision families remain outside this build's admitted behavior.
 
 Parent-owned `docs/game-client-plan.md` and `docs/game-client-ux.md` changes remain
 outside this implementation checkpoint and should be committed by the parent.
+
+## Parent review and opening preview
+
+Independent visual review found no blocking clipping or unreachable controls in
+the supplied renders. Independent code review found a gallery focus regression:
+closing inspection after collapsing the captured hand focused a hidden button.
+The hand now reopens before focus returns to the exact originating card, with a
+Chromium/Firefox regression check. Additional independent Chromium checks at
+1100×720, 1280×480, 720×360, 640×360 and 375×720 retained inspection, decision jump
+and freedom from page-wide horizontal overflow.
+
+`/fixtures/decisions#table` now provides an interactive opening preview on the
+actual table, using the unchanged qualified captured request. Confirmation updates
+only a local receipt; it does not advance a game. Inspection preserves the chosen
+option, reload clears it, and the fixture makes no API requests or persistent
+writes. The fragment uses the existing allowed page route and requires no host
+or protocol change. A focused independent source review found no blocking issues.
+
+After these changes, strict types, import boundaries, 114 client tests, production
+build and **28 Chromium/Firefox browser checks** passed. Updated browser evidence
+is under `generated/browser-results/`; Node output is retained in
+`generated/workspace-ux/parent-tests.log`. The existing real-host, dense-board and
+full-game omissions still apply. The owner should assess the two-column context
+tradeoff and hand scrolling before further layout investment.

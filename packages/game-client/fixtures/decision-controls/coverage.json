@@ -43,11 +43,11 @@
     },
     {
       "path": "packages/game-client/src/features/decisions/DecisionPanel.tsx",
-      "sha256": "b540af32cc43257d1a5b217eee419e3ebe1149ee45f89cae39f9c93dc0c9ab91"
+      "sha256": "442def8ab829c17be04d8965834080e373a3e76067fb951ef59c609a7c77ea98"
     },
     {
       "path": "packages/game-client/src/features/decisions/DecisionGallery.tsx",
-      "sha256": "3d792a69a414e1dbb68a2275a59aaec8f6ea214d65923179124077612fbca20c"
+      "sha256": "0959068155fa8ad16d2f0d6bdf52b5d91f8a9d783cbbf992992639176777e04e"
     },
     {
       "path": "packages/game-client/src/features/decisions/decisions.module.css",
@@ -71,7 +71,7 @@
     },
     {
       "path": "packages/game-client/tests/browser/decision-controls.spec.ts",
-      "sha256": "e5e6edb98fd203355278c02c5cf0facf904edadb05cd4006d4a470296e86c90d"
+      "sha256": "2e9b8b2672f5047102f996c77200e503901f73111e03507bb7dd977c0c610411"
     },
     {
       "path": "packages/game-client/fixtures/foundations-opening/provenance.json",

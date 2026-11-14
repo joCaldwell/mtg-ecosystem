@@ -26,7 +26,10 @@ test('captured mulligan completes by keyboard with explicit local-only confirmat
   await expect(captured.getByRole('radio', { name: 'Take mulligan' })).toBeChecked();
   await expect(confirm).toBeEnabled();
   await page.screenshot({ path: testInfo.outputPath('gallery-inspecting-draft.png'), fullPage: true });
-  await page.keyboard.press('Escape'); await expect(card).toBeFocused();
+  // Collapsing the source hand must not strand focus when inspection closes.
+  await captured.getByText('Captured hand · 7 objects', { exact: true }).click();
+  await inspector.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(card).toBeFocused();
   await expect(captured.getByRole('radio', { name: 'Take mulligan' })).toBeChecked();
   await captured.getByRole('radio', { name: 'Take mulligan' }).focus();
   await page.keyboard.press('Tab');
@@ -37,6 +40,34 @@ test('captured mulligan completes by keyboard with explicit local-only confirmat
   expect(errors).toEqual([]);
   await testInfo.attach('browser-version', { body: browser.version(), contentType: 'text/plain' });
   await page.screenshot({ path: testInfo.outputPath('decision-gallery.png'), fullPage: true });
+});
+
+test('opening preview keeps a deliberate choice while inspecting and never sends it', async ({ page }, testInfo) => {
+  const requests: string[] = [];
+  page.on('request', request => requests.push(request.url()));
+  await page.goto('/fixtures/decisions');
+  await page.getByRole('link', { name: 'Try opening choices on the table' }).click();
+  await expect(page.getByRole('heading', { name: 'Opening hand preview', exact: true })).toBeVisible();
+  const decision = page.getByRole('region', { name: 'Opening hand', exact: true });
+  const confirm = decision.getByRole('button', { name: 'Confirm local draft', exact: true });
+  await expect(confirm).toBeDisabled();
+  const keep = decision.getByRole('radio', { name: 'Keep hand', exact: true });
+  await keep.check();
+  const card = page.getByRole('region', { name: 'Your hand', exact: true }).getByRole('button').last();
+  await card.focus(); await page.keyboard.press('Enter');
+  const inspector = page.getByRole('complementary', { name: 'Card inspector' });
+  await expect(inspector.getByRole('heading', { name: 'Plains', exact: true })).toBeFocused();
+  await expect(keep).toBeChecked();
+  await page.keyboard.press('Escape'); await expect(card).toBeFocused();
+  await confirm.click();
+  await expect(decision.getByRole('status').filter({ hasText: 'Preview confirmed: keep this hand.' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Your hand', exact: true }).getByRole('button')).toHaveCount(7);
+  await page.screenshot({ path: testInfo.outputPath('opening-preview.png'), fullPage: true });
+  await page.reload();
+  await expect(keep).not.toBeChecked();
+  await expect(confirm).toBeDisabled();
+  expect(requests.every(url => new URL(url).origin === new URL(page.url()).origin && !/\/(v1|presentation)\/|client-config/.test(url))).toBe(true);
+  expect(await page.evaluate(async () => ({ local: localStorage.length, session: sessionStorage.length, databases: (await indexedDB.databases()).length }))).toEqual({ local: 0, session: 0, databases: 0 });
 });
 
 test('same-label candidates, missing metadata and supplied counts retain distinct identity', async ({ page }) => {
