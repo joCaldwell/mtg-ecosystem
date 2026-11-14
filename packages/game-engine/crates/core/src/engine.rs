@@ -20,6 +20,7 @@ mod state_digest;
 pub use advance_report::*;
 pub use match_admission::*;
 mod commander_policy;
+mod optional_costs;
 pub use commander_policy::policy_digest;
 #[cfg(test)]
 mod activated_permanent_return_tests;
@@ -849,6 +850,8 @@ struct Object {
 #[serde(deny_unknown_fields)]
 struct StackInstance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    selected_additional_costs: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     alternative_cost: Option<cascade::AlternativeCost>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     x: Option<Quantity>,
@@ -954,6 +957,9 @@ enum Frame {
         groups: Vec<Vec<ObjectId>>,
         kept: Vec<ObjectId>,
     },
+    AdditionalCosts {
+        cast: Casting,
+    },
     AnnounceX {
         cast: Casting,
     },
@@ -1058,6 +1064,9 @@ enum Frame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    AdditionalCosts {
+        selected: Vec<String>,
+    },
     LegendRule {
         keep: ObjectId,
     },
@@ -1176,6 +1185,11 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    AdditionalCosts {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<mtg_contracts::OptionalAdditionalManaCost>,
+    },
     LegendRule {
         decision_id: u64,
         player: PlayerId,
@@ -1356,7 +1370,8 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::AnnounceX { decision_id, .. }
+            Self::AdditionalCosts { decision_id, .. }
+            | Self::AnnounceX { decision_id, .. }
             | Self::ManaColor { decision_id, .. }
             | Self::SearchLands { decision_id, .. }
             | Self::SearchLandBattlefield { decision_id, .. }
@@ -1390,7 +1405,8 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::AnnounceX { player, .. }
+            Self::AdditionalCosts { player, .. }
+            | Self::AnnounceX { player, .. }
             | Self::ManaColor { player, .. }
             | Self::SearchLands { player, .. }
             | Self::SearchLandBattlefield { player, .. }
@@ -2430,6 +2446,11 @@ impl Game {
                 decision_id: self.state.rules.revision,
                 player: self.state.rules.priority,
             },
+            Frame::AdditionalCosts { .. } => Request::AdditionalCosts {
+                decision_id: self.state.rules.revision,
+                player: self.top()?.controller,
+                candidates: self.program()?.optional_additional_costs.clone(),
+            },
             Frame::AnnounceX { .. } => Request::AnnounceX {
                 decision_id: self.state.rules.revision,
                 player: self.top()?.controller,
@@ -2462,6 +2483,13 @@ impl Game {
         }
         if matches!(self.state.rules.frame, Frame::LegendRule { .. }) {
             return self.validate_legend_response(player, response);
+        }
+        if let Frame::AdditionalCosts { .. } = self.state.rules.frame {
+            return if let Response::AdditionalCosts { selected } = response {
+                self.validate_additional_cost_selection(player, selected)
+            } else {
+                Err("invalid optional cost announcement".into())
+            };
         }
         if let Frame::AnnounceX { .. } = self.state.rules.frame {
             return if matches!(response, Response::AnnounceX { value } if !value.is_negative())
@@ -2721,6 +2749,7 @@ impl Game {
             | Frame::OptionalDamage { .. } => self.sacrifice_step()?,
             Frame::Setup => self.setup_step()?,
             Frame::DamageAllocation { .. } => self.damage_allocation_step()?,
+            Frame::AdditionalCosts { cast } => self.bind_additional_costs(cast)?,
             Frame::AnnounceX { cast } => self.bind_x(cast)?,
             Frame::Modes { cast } => self.bind_mode(cast)?,
             Frame::CounterPlacement { .. } => self.counter_placement_step()?,
@@ -3046,7 +3075,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 23,
+            snapshot_version: 24,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3088,7 +3117,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 23
+        if s.snapshot_version != 24
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3240,6 +3269,7 @@ impl Game {
                 && (matches!(
                     self.underlying_mana_frame(&s.rules.frame),
                     Frame::TriggerTargets { .. }
+                        | Frame::AdditionalCosts { .. }
                         | Frame::AnnounceX { .. }
                         | Frame::Modes { .. }
                         | Frame::EntityTargets { .. }
@@ -3278,7 +3308,8 @@ impl Game {
         self.validate_sacrifice_state()?;
         self.validate_nested_mana_frame(&s.rules.frame)?;
         match self.underlying_mana_frame(&s.rules.frame) {
-            Frame::AnnounceX { cast }
+            Frame::AdditionalCosts { cast }
+            | Frame::AnnounceX { cast }
             | Frame::Modes { cast }
             | Frame::EntityTargets { cast }
             | Frame::Targets { cast }
@@ -3311,7 +3342,8 @@ impl Game {
                     })
                     || (matches!(
                         self.underlying_mana_frame(&s.rules.frame),
-                        Frame::AnnounceX { .. }
+                        Frame::AdditionalCosts { .. }
+                            | Frame::AnnounceX { .. }
                             | Frame::Modes { .. }
                             | Frame::EntityTargets { .. }
                             | Frame::Targets { .. }
@@ -3327,7 +3359,8 @@ impl Game {
                 }
                 if matches!(
                     self.underlying_mana_frame(&s.rules.frame),
-                    Frame::AnnounceX { .. }
+                    Frame::AdditionalCosts { .. }
+                        | Frame::AnnounceX { .. }
                         | Frame::Modes { .. }
                         | Frame::EntityTargets { .. }
                         | Frame::Targets { .. }

@@ -11,7 +11,9 @@ pub mod catalog;
 pub mod coverage;
 mod diagnostics;
 mod normalization;
+mod optional_costs;
 mod self_reference;
+use optional_costs::KickedCondition;
 mod type_line;
 pub use catalog::*;
 use normalization::source_lines;
@@ -167,14 +169,14 @@ impl<'de> Deserialize<'de> for SourceKeyword {
             "double-strike" => "double strike".to_owned(),
             _ => keyword,
         };
-        if !matches!(keyword.as_str(), "equip" | "enchant" | "cascade")
+        if !matches!(keyword.as_str(), "equip" | "enchant" | "cascade" | "kicker")
             && serde_json::from_value::<KeywordAbility>(serde_json::Value::String(keyword.clone()))
                 .is_err()
         {
             return Err(D::Error::custom(format!("keyword:{keyword}")));
         }
         let allowed = match keyword.as_str() {
-            "equip" => ["keyword", "cost"].as_slice(),
+            "equip" | "kicker" => ["keyword", "cost"].as_slice(),
             "enchant" => ["keyword", "filter"].as_slice(),
             _ => ["keyword"].as_slice(),
         };
@@ -551,6 +553,14 @@ fn lower_temporary_creature_keywords(
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Sentence {
+    #[serde(default, deserialize_with = "present_ast_field")]
+    condition: Option<KickedCondition>,
+    #[serde(
+        default,
+        rename = "conditionKind",
+        deserialize_with = "present_ast_field"
+    )]
+    condition_kind: Option<String>,
     #[serde(default)]
     bindings: Vec<serde_json::Value>,
     steps: Vec<Step>,
@@ -1369,6 +1379,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 // its battlefield abilities are distinct executable programs.
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
                 definition.spell = Some(SpellProgram {
+                    optional_additional_costs: vec![],
                     additional_sacrifice: None,
                     timing: SpellTiming::MainPhase,
                     resolution: SpellResolution::Permanent,
@@ -1410,6 +1421,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                         cost: c.mana.unwrap(),
                                     },
                                     program: SpellProgram {
+                                        optional_additional_costs: vec![],
                                         additional_sacrifice: None,
                                         timing: SpellTiming::MainPhase,
                                         resolution: SpellResolution::Instructions,
@@ -1474,7 +1486,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                         condition: TriggerCondition::SelfSpellCast,
                                         intervening_if: None,
                                         death_filter: None,
-                                        program: SpellProgram { additional_sacrifice: None, timing: SpellTiming::Instant,
+                                        program: SpellProgram { optional_additional_costs: vec![], additional_sacrifice: None, timing: SpellTiming::Instant,
                                             resolution: SpellResolution::Instructions, functioning_zone: FunctioningZone::Stack,
                                             targets: vec![], modes: vec![], instructions: vec![Instruction::Cascade {
                                                 threshold: mtg_contracts::CascadeThreshold::SourceSpellManaValue,
@@ -1563,6 +1575,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 return Err(invalid("source.oracle_text", "spell has no source text"));
             }
             let mut program = SpellProgram {
+                optional_additional_costs: vec![],
                 additional_sacrifice: None,
                 // CR 304.1 / 307.1: ordinary spell timing follows card type.
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -1577,8 +1590,16 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 instructions: vec![],
                 modes: vec![],
             };
+            optional_costs::declare(&abilities, &binding, &definition.oracle_id, &mut program)?;
             let mut slots = BTreeMap::new();
             for (block, ability) in abilities.iter().enumerate() {
+                if let Ability::Keywords { keywords, .. } = ability {
+                    if matches!(keywords.as_slice(), [k] if k.keyword == "kicker") {
+                        continue; // Complete declaration and linked condition checked together.
+                    }
+                    optional_costs::instant_keywords(&mut definition, keywords, block)?;
+                    continue;
+                }
                 if let Ability::AdditionalCost { costs, .. } = ability {
                     if block != 0 || program.additional_sacrifice.is_some() {
                         return Err(unsupported(
@@ -1610,13 +1631,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 // Separate source blocks introduce independent occurrences (CR115.3).
                 // Reusing a selection ID across blocks must not alias targets.
                 slots.clear();
-                append_spell_effects(
-                    &mut program,
-                    effects,
-                    block,
-                    &mut slots,
-                    PlayerBinding::Unbound,
-                )?;
+                optional_costs::append(&mut program, effects, block, &mut slots)?;
             }
             definition.spell = Some(program);
         }
@@ -1692,7 +1707,14 @@ fn append_spell_effects(
     slots: &mut BTreeMap<String, u32>,
     player_binding: PlayerBinding,
 ) -> Result<(), Failure> {
-    if let [Sentence { bindings, steps }] = effects
+    if let [
+        Sentence {
+            bindings,
+            steps,
+            condition: None,
+            condition_kind: None,
+        },
+    ] = effects
         && let [Step::Modal { count, options }] = steps.as_slice()
     {
         // Outer sentence bindings define executable values; recursing only
@@ -1716,6 +1738,7 @@ fn append_spell_effects(
         }
         for option in options {
             let mut child = SpellProgram {
+                optional_additional_costs: vec![],
                 additional_sacrifice: None,
                 timing: program.timing,
                 resolution: program.resolution,
@@ -1749,6 +1772,12 @@ fn append_spell_effects(
     }
     let source_block = source_block(block)?;
     for sentence in effects {
+        if sentence.condition.is_some() || sentence.condition_kind.is_some() {
+            return Err(unsupported(
+                "effects.condition",
+                "unconsumed conditional instruction",
+            ));
+        }
         let counted = if sentence.bindings.is_empty() {
             false
         } else if sentence.bindings
@@ -3645,7 +3674,7 @@ fn lower_trigger(
             || from != "battlefield"
             || *to != serde_json::json!({"zone":"graveyard","owner":"any"})
             || intervening.is_some()
-            || !matches!(effects, [Sentence {bindings, steps}] if bindings.is_empty() && matches!(steps.as_slice(), [Step::ReturnToHand {what,to,optional:None}] if *what == serde_json::json!({"ref":"it"}) && to == "owner"))
+            || !matches!(effects, [Sentence {bindings, steps, condition: None, condition_kind: None}] if bindings.is_empty() && matches!(steps.as_slice(), [Step::ReturnToHand {what,to,optional:None}] if *what == serde_json::json!({"ref":"it"}) && to == "owner"))
         {
             return Err(unsupported("trigger", "unsupported Aura return"));
         }
@@ -3655,6 +3684,7 @@ fn lower_trigger(
             condition: TriggerCondition::SelfAuraToGraveyard,
             intervening_if: None,
             program: SpellProgram {
+                optional_additional_costs: vec![],
                 additional_sacrifice: None,
                 timing: SpellTiming::Instant,
                 resolution: SpellResolution::Instructions,
@@ -3729,7 +3759,7 @@ fn lower_trigger(
             })
     }
     if has_draw_quantity(effects)
-        && !matches!(effects, [Sentence {bindings, steps}] if bindings.is_empty()
+        && !matches!(effects, [Sentence {bindings, steps, condition: None, condition_kind: None}] if bindings.is_empty()
             && matches!(steps.as_slice(), [Step::Draw {amount: DrawAmount::ThatMuch {}, ..}]))
     {
         // Prior effects may produce another quantity. This finite binder only
@@ -3808,7 +3838,7 @@ fn lower_trigger(
     validate_trigger_damage_sources(&condition, effects)?;
     if matches!(condition, TriggerCondition::GroupedDamageDealt { .. })
         && (intervening.is_some()
-            || !matches!(effects, [Sentence {bindings,steps}] if bindings.is_empty()
+            || !matches!(effects, [Sentence {bindings, steps, condition: None, condition_kind: None}] if bindings.is_empty()
             && matches!(steps.as_slice(), [Step::Draw {who,amount:DrawAmount::Fixed {value:1},optional:false}]
                 if who.player == "you" && who.of.is_none() && who.selection_id.is_none())))
     {
@@ -3818,6 +3848,7 @@ fn lower_trigger(
         ));
     }
     let mut program = SpellProgram {
+        optional_additional_costs: vec![],
         additional_sacrifice: None,
         timing: SpellTiming::Instant,
         resolution: SpellResolution::Instructions,
@@ -3958,7 +3989,10 @@ fn lower_mana_ability(
     block: usize,
     kind: CardKind,
 ) -> Result<Option<ManaAbility>, Failure> {
-    if effects.iter().any(|s| !s.bindings.is_empty()) {
+    if effects
+        .iter()
+        .any(|s| !s.bindings.is_empty() || s.condition.is_some() || s.condition_kind.is_some())
+    {
         return Err(unsupported(
             "bindings",
             "bindings outside spell instructions",
@@ -4025,7 +4059,10 @@ fn lower_activation(
     block: usize,
     kind: CardKind,
 ) -> Result<ActivatedAbility, Failure> {
-    if effects.iter().any(|s| !s.bindings.is_empty()) {
+    if effects
+        .iter()
+        .any(|s| !s.bindings.is_empty() || s.condition.is_some() || s.condition_kind.is_some())
+    {
         return Err(unsupported(
             "bindings",
             "bindings outside spell instructions",
@@ -4104,6 +4141,7 @@ fn lower_activation(
     )?;
     let source_block = source_block(block)?;
     let mut program = SpellProgram {
+        optional_additional_costs: vec![],
         additional_sacrifice: None,
         timing: SpellTiming::Instant,
         resolution: SpellResolution::Instructions,
@@ -6305,11 +6343,15 @@ mod tests {
         later_sentence.insert(
             0,
             Sentence {
+                condition: None,
+                condition_kind: None,
                 bindings: vec![],
                 steps: vec![draw],
             },
         );
         let modal = vec![Sentence {
+            condition: None,
+            condition_kind: None,
             bindings: vec![],
             steps: vec![Step::Modal {
                 count: ModeCount { exactly: 1 },
@@ -6428,6 +6470,7 @@ mod tests {
         assert_eq!(
             definition.spell,
             Some(SpellProgram {
+                optional_additional_costs: vec![],
                 additional_sacrifice: None,
                 timing: SpellTiming::Instant,
                 resolution: SpellResolution::Instructions,
@@ -6942,6 +6985,7 @@ mod tests {
                 functioning_zone: FunctioningZone::Battlefield,
                 condition: TriggerCondition::SelfEntersBattlefield,
                 program: SpellProgram {
+                    optional_additional_costs: vec![],
                     additional_sacrifice: None,
                     modes: vec![],
                     functioning_zone: FunctioningZone::Stack,
@@ -8136,6 +8180,7 @@ mod tests {
         assert_eq!(
             ebb.spell,
             Some(SpellProgram {
+                optional_additional_costs: vec![],
                 additional_sacrifice: None,
                 modes: vec![],
                 timing: SpellTiming::MainPhase,
@@ -8304,6 +8349,7 @@ mod tests {
                 functioning_zone: FunctioningZone::Battlefield,
                 cost: ActivationCost::SacrificeSource,
                 program: SpellProgram {
+                    optional_additional_costs: vec![],
                     additional_sacrifice: None,
                     modes: vec![],
                     timing: SpellTiming::Instant,
@@ -8978,3 +9024,6 @@ mod controlled_temporary_creature_keyword_tests;
 
 #[cfg(test)]
 mod aura_control_tests;
+
+#[cfg(test)]
+mod ramos_m3c_tests;

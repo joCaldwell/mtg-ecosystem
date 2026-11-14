@@ -19,6 +19,7 @@ use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, fmt, str::FromStr};
 
 mod archives;
+mod optional_costs;
 pub use archives::*;
 mod strict_io;
 pub use strict_io::strict_read_seekable;
@@ -177,6 +178,7 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+    OptionalAdditionalManaCostV1,
     ResolutionCastV1,
     CascadeV1,
     RandomBottomV1,
@@ -641,6 +643,13 @@ pub enum Instruction {
         recipient: ActionRecipient,
         source_block: u32,
     },
+    /// CR 702.33d/e, 121.2: declared kicker gates a fixed quantity of
+    /// ordinary sequential controller draws, without a resolution-time option.
+    DrawCardsIfAdditionalCost {
+        cost_identity: String,
+        count: Quantity,
+        source_block: u32,
+    },
     DrawCards {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         recipient: Option<LifeRecipient>,
@@ -828,9 +837,20 @@ pub enum SpellResolution {
     Instructions,
     Permanent,
 }
+/// CR 702.33a/e: one source-bound optional fixed mana declaration. The
+/// identity names the exact archived keyword; conditions cannot link by position.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OptionalAdditionalManaCost {
+    pub identity: String,
+    pub source_block: u32,
+    pub mana: ManaCost,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SpellProgram {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub optional_additional_costs: Vec<OptionalAdditionalManaCost>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub additional_sacrifice: Option<SacrificeFilter>,
     pub timing: SpellTiming,
@@ -1359,7 +1379,7 @@ pub fn aura_control_source(definition: &Definition) -> bool {
             p.timing == SpellTiming::MainPhase
                 && p.resolution == SpellResolution::Permanent
                 && p.functioning_zone == FunctioningZone::Stack
-                && p.additional_sacrifice.is_none()
+                && (p.additional_sacrifice.is_none() && p.optional_additional_costs.is_empty())
                 && p.instructions.is_empty()
                 && p.modes.is_empty()
                 && matches!(p.targets.as_slice(), [t]
@@ -1591,6 +1611,7 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        optional_costs::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -2140,8 +2161,16 @@ impl Definition {
                 c.kind,
                 CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
             )
+            && !(matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
+                && self
+                    .triggered
+                    .iter()
+                    .all(|a| a.condition == TriggerCondition::SelfSpellCast))
         {
-            return Err("trigger programs require a supported permanent source".into());
+            return Err(
+                "trigger programs require a supported permanent or exact stack self-cast source"
+                    .into(),
+            );
         }
         for ability in &self.triggered {
             if let TriggerCondition::GroupedDamageDealt {
@@ -2213,7 +2242,7 @@ impl Definition {
                 if ability.functioning_zone != FunctioningZone::Stack
                     || ability.intervening_if.is_some()
                     || ability.death_filter.is_some()
-                    || p.additional_sacrifice.is_some()
+                    || (p.additional_sacrifice.is_some() || !p.optional_additional_costs.is_empty())
                     || p.timing != SpellTiming::Instant
                     || p.functioning_zone != FunctioningZone::Stack
                     || p.resolution != SpellResolution::Instructions
@@ -2302,7 +2331,7 @@ impl Definition {
             }
 
             if ability.functioning_zone != FunctioningZone::Battlefield
-                || p.additional_sacrifice.is_some()
+                || (p.additional_sacrifice.is_some() || !p.optional_additional_costs.is_empty())
                 || p.functioning_zone != FunctioningZone::Stack
                 || p.timing != SpellTiming::Instant
                 || p.resolution != SpellResolution::Instructions
@@ -2539,7 +2568,7 @@ fn validate_permanent_costs(c: &PermanentActivationCosts) -> Result<(), String> 
     Ok(())
 }
 fn ordinary_tap_program(p: &SpellProgram) -> bool {
-    p.additional_sacrifice.is_none()
+    (p.additional_sacrifice.is_none() && p.optional_additional_costs.is_empty())
         && p.modes.is_empty()
         && p.functioning_zone == FunctioningZone::Stack
         && p.resolution == SpellResolution::Instructions
@@ -2555,7 +2584,7 @@ fn ordinary_tap_program(p: &SpellProgram) -> bool {
                 && matches!(&p.instructions[1], Instruction::DrawCards { recipient: None, count, .. } if *count == Quantity::from(1))))
 }
 fn activated_permanent_tap_program(p: &SpellProgram) -> bool {
-    p.additional_sacrifice.is_none()
+    (p.additional_sacrifice.is_none() && p.optional_additional_costs.is_empty())
         && p.modes.is_empty()
         && p.functioning_zone == FunctioningZone::Stack
         && p.timing == SpellTiming::Instant
@@ -2590,7 +2619,7 @@ fn activated_permanent_tap_ability(a: &ActivatedAbility) -> bool {
 fn untap_program(p: &SpellProgram, types: &[CardKind]) -> bool {
     p.functioning_zone == FunctioningZone::Stack
         && p.resolution == SpellResolution::Instructions
-        && p.additional_sacrifice.is_none()
+        && (p.additional_sacrifice.is_none() && p.optional_additional_costs.is_empty())
         && p.modes.is_empty()
         && matches!(
             p.instructions.as_slice(),
@@ -2621,7 +2650,7 @@ fn tap_source_destroy_ability(a: &ActivatedAbility) -> bool {
         && p.timing == SpellTiming::Instant
         && p.functioning_zone == FunctioningZone::Stack
         && p.resolution == SpellResolution::Instructions
-        && p.additional_sacrifice.is_none()
+        && (p.additional_sacrifice.is_none() && p.optional_additional_costs.is_empty())
         && p.modes.is_empty()
         && matches!(
             p.instructions.as_slice(),
@@ -2651,7 +2680,7 @@ fn activated_spell_counter_ability(a: &ActivatedAbility) -> bool {
         && p.timing == SpellTiming::Instant
         && p.functioning_zone == FunctioningZone::Stack
         && p.resolution == SpellResolution::Instructions
-        && p.additional_sacrifice.is_none()
+        && (p.additional_sacrifice.is_none() && p.optional_additional_costs.is_empty())
         && p.modes.is_empty()
         && matches!(
             p.instructions.as_slice(),
@@ -2670,7 +2699,7 @@ fn activated_permanent_owner_hand_ability(a: &ActivatedAbility) -> bool {
         && p.timing == SpellTiming::Instant
         && p.functioning_zone == FunctioningZone::Stack
         && p.resolution == SpellResolution::Instructions
-        && p.additional_sacrifice.is_none()
+        && (p.additional_sacrifice.is_none() && p.optional_additional_costs.is_empty())
         && p.modes.is_empty()
         && matches!(
             p.instructions.as_slice(),
@@ -2725,7 +2754,7 @@ pub struct TemporaryCreatureKeywordProgram<'a> {
 pub fn temporary_creature_keyword_program(
     p: &SpellProgram,
 ) -> Option<TemporaryCreatureKeywordProgram<'_>> {
-    if p.additional_sacrifice.is_some()
+    if (p.additional_sacrifice.is_some() || !p.optional_additional_costs.is_empty())
         || !p.modes.is_empty()
         || p.functioning_zone != FunctioningZone::Stack
         || p.resolution != SpellResolution::Instructions
@@ -2803,10 +2832,11 @@ fn temporary_creature_keyword_capability(p: &SpellProgram) -> Capability {
     }
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
+    optional_costs::validate_program(p)?;
     if p.instructions
         .iter()
         .any(|i| matches!(i, Instruction::Cascade { .. }))
-        && (p.additional_sacrifice.is_some()
+        && ((p.additional_sacrifice.is_some() || !p.optional_additional_costs.is_empty())
             || !p.targets.is_empty()
             || !p.modes.is_empty()
             || p.timing != SpellTiming::Instant
@@ -2821,7 +2851,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         return Err("unsupported temporary keyword grant program".into());
     }
     if has_permanent_owner_hand(p)
-        && (p.additional_sacrifice.is_some()
+        && ((p.additional_sacrifice.is_some() || !p.optional_additional_costs.is_empty())
             || !p.modes.is_empty()
             || p.functioning_zone != FunctioningZone::Stack
             || p.resolution != SpellResolution::Instructions
@@ -2850,7 +2880,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     if p.targets
         .iter()
         .any(|t| t.domain == TargetDomain::BlockingBattlefieldCreature)
-        && (p.additional_sacrifice.is_some()
+        && ((p.additional_sacrifice.is_some() || !p.optional_additional_costs.is_empty())
             || !p.modes.is_empty()
             || p.functioning_zone != FunctioningZone::Stack
             || p.resolution != SpellResolution::Instructions
@@ -3282,6 +3312,21 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     }
                 }
             }
+            Instruction::DrawCardsIfAdditionalCost {
+                count,
+                cost_identity,
+                ..
+            } => {
+                if count <= &Quantity::zero()
+                    || !p
+                        .optional_additional_costs
+                        .iter()
+                        .any(|c| c.identity == *cost_identity)
+                {
+                    return Err("unbound optional-cost draw/quantity".into());
+                }
+                None
+            }
             Instruction::DrawCards {
                 count, recipient, ..
             } => {
@@ -3422,6 +3467,9 @@ fn has_controller_discard(program: &SpellProgram) -> bool {
         .any(|m| has_controller_discard(&m.program))
 }
 fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgram) {
+    if !program.optional_additional_costs.is_empty() {
+        set.insert(Capability::OptionalAdditionalManaCostV1);
+    }
     if program
         .instructions
         .iter()
@@ -3560,7 +3608,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 Capability::TargetPlayerSacrificeCreatureV1
             }
             Instruction::SacrificeCreature { .. } => Capability::EventPlayerSacrificeV1,
-            Instruction::DrawCards { .. } => Capability::ControllerDrawV1,
+            Instruction::DrawCards { .. } | Instruction::DrawCardsIfAdditionalCost { .. } => {
+                Capability::ControllerDrawV1
+            }
             Instruction::OptionalDrawCards { .. } => Capability::OptionalControllerDrawV1,
             Instruction::DrawDamageAmount { .. } => Capability::DamageQuantityDrawV1,
             Instruction::UntapPermanent { .. } => Capability::UntapPermanentV1,
@@ -4505,6 +4555,7 @@ pub fn catalog_schema() -> serde_json::Value {
             "capabilities":{"contains":{"const":Capability::AuraControlV1}}
         }},"then":{"$ref":"#/$defs/AuraControlDefinition"}}),
         ]);
+    optional_costs::schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -4641,6 +4692,7 @@ mod tests {
     fn every_capability_has_a_complete_current_witness() {
         use Capability::*;
         let expected = [
+            OptionalAdditionalManaCostV1,
             ResolutionCastV1,
             CascadeV1,
             RandomBottomV1,
@@ -4781,6 +4833,31 @@ mod tests {
                 catalog.definitions
             })
             .collect::<Vec<_>>();
+        let mut optional = definitions
+            .iter()
+            .find(|d| d.name == "Naturalize")
+            .unwrap()
+            .clone();
+        let identity = format!(
+            "card:{}/faces/0/abilities/0/keywords/0#keyword",
+            optional.oracle_id
+        );
+        let p = optional.spell.as_mut().unwrap();
+        p.optional_additional_costs = vec![OptionalAdditionalManaCost {
+            identity: identity.clone(),
+            source_block: 0,
+            mana: ManaCost {
+                generic: 2.into(),
+                colored: vec![Color::U],
+            },
+        }];
+        p.instructions.push(Instruction::DrawCardsIfAdditionalCost {
+            cost_identity: identity,
+            count: 2.into(),
+            source_block: 1,
+        });
+        optional.capabilities = optional.requirements();
+        definitions.push(optional);
         let mut blocking = definitions
             .iter()
             .find(|d| d.name == "Giant Growth")
@@ -4863,6 +4940,7 @@ mod tests {
             intervening_if: None,
             death_filter: None,
             program: SpellProgram {
+                optional_additional_costs: vec![],
                 additional_sacrifice: None,
                 timing: SpellTiming::Instant,
                 resolution: SpellResolution::Instructions,
@@ -5935,6 +6013,7 @@ mod tests {
             .unwrap()
             .clone();
         let program = SpellProgram {
+            optional_additional_costs: vec![],
             additional_sacrifice: None,
             timing: SpellTiming::Instant,
             resolution: SpellResolution::Instructions,

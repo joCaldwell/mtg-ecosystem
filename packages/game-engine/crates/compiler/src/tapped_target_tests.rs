@@ -108,6 +108,7 @@ fn complete_tapped_creature_spells_preserve_source_and_current_target_predicate(
         assert_eq!(
             definition.spell,
             Some(SpellProgram {
+                optional_additional_costs: vec![],
                 additional_sacrifice: None,
                 timing,
                 resolution: SpellResolution::Instructions,

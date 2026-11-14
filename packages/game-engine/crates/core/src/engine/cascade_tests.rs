@@ -1542,3 +1542,6 @@ fn cascade_paid_aura_control_free_controlled_target_and_owner_departure_recover(
         prove(&g);
     }
 }
+
+#[path = "m3c_tests.rs"]
+mod m3c_tests;

@@ -100,6 +100,16 @@ impl Game {
         from: Zone,
         alternative: Option<cascade::AlternativeCost>,
     ) -> Result<ManaCost, String> {
+        self.announcement_cost_with_additional(card, caster, from, alternative, &[])
+    }
+    pub(super) fn announcement_cost_with_additional(
+        &self,
+        card: CardId,
+        caster: PlayerId,
+        from: Zone,
+        alternative: Option<cascade::AlternativeCost>,
+        selected: &[String],
+    ) -> Result<ManaCost, String> {
         let mut cost = match alternative {
             None => self.definition(card)?.characteristics.mana_cost.clone(),
             Some(cascade::AlternativeCost::WithoutManaCost) => ManaCost {
@@ -107,6 +117,22 @@ impl Game {
                 colored: vec![],
             },
         };
+        // CR 118.9d/601.2f: a free alternative bypasses printed mana,
+        // never selected additional mana. Add before increases/reductions.
+        for identity in selected {
+            let additional = self
+                .definition(card)?
+                .spell
+                .as_ref()
+                .and_then(|p| {
+                    p.optional_additional_costs
+                        .iter()
+                        .find(|c| c.identity == *identity)
+                })
+                .ok_or("foreign optional cost identity")?;
+            cost.generic.add(&additional.mana.generic);
+            cost.colored.extend_from_slice(&additional.mana.colored);
+        }
         if self
             .definition(card)?
             .static_abilities
@@ -554,9 +580,12 @@ impl Game {
                             Some(Instruction::OptionalDrawCards { source_block: b }) => {
                                 b == source_block
                             }
-                            Some(Instruction::DrawDamageAmount { source_block: b }) => {
-                                b == source_block && frame.damage_draw.is_some()
-                            }
+                            Some(
+                                Instruction::DrawDamageAmount { source_block: b }
+                                | Instruction::DrawCardsIfAdditionalCost {
+                                    source_block: b, ..
+                                },
+                            ) => b == source_block && frame.damage_draw.is_some(),
                             _ => false,
                         }
                     {

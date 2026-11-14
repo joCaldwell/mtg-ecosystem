@@ -915,6 +915,7 @@ impl Game {
                         colored: vec![],
                     };
                     self.state.rules.stack.push(StackInstance {
+                        selected_additional_costs: None,
                         alternative_cost: None,
                         x: None,
                         death_controller: trigger.death_controller,

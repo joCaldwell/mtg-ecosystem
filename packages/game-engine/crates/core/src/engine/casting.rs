@@ -137,6 +137,7 @@ impl Game {
             .successor;
         let effect_source_handles = self.capture_trigger_source_handles(source)?;
         self.state.rules.stack.push(StackInstance {
+            selected_additional_costs: None,
             alternative_cost,
             x: (alternative_cost.is_some() && self.definition(card)?.x_mana_cost)
                 .then(Quantity::zero),
@@ -178,12 +179,22 @@ impl Game {
 
     // All supported spells share modes/X/target routing. This selects a stage,
     // never grants a casting permission or changes a target filter's meaning.
-    pub(super) fn spell_announcement_frame(&self, cast: Casting) -> Result<Frame, String> {
+    pub(super) fn spell_announcement_frame(&mut self, cast: Casting) -> Result<Frame, String> {
         let stack = self.top()?;
         if stack.id != cast.stack_id || !stack.kind.is_spell() || !cast.origin.is_spell() {
             return Err("spell announcement binding invariant".into());
         }
         let definition = self.definition(stack.source.card)?;
+        if !definition
+            .spell
+            .as_ref()
+            .ok_or("missing spell")?
+            .optional_additional_costs
+            .is_empty()
+            && stack.selected_additional_costs.is_none()
+        {
+            return Ok(Frame::AdditionalCosts { cast });
+        }
         if definition.x_mana_cost && stack.x.is_none() {
             return Ok(Frame::AnnounceX { cast });
         }

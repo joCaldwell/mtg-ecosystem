@@ -131,6 +131,8 @@ pub enum VisibleEntityTarget {
 #[serde(deny_unknown_fields)]
 pub struct VisibleStackEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_additional_costs: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub x: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana_value: Option<Quantity>,
@@ -183,8 +185,19 @@ pub struct PermittedView {
     pub stack: Vec<VisibleStackEntry>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AdditionalCostChoice {
+    pub id: String,
+    pub mana: ManaCost,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    AdditionalCosts {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<AdditionalCostChoice>,
+    },
     LegendRule {
         token: DecisionToken,
         player: PlayerId,
@@ -389,6 +402,7 @@ impl PlayerRequest {
             | Self::Mulligan { token, .. }
             | Self::BottomOpening { token, .. }
             | Self::DamageAllocation { token, .. }
+            | Self::AdditionalCosts { token, .. }
             | Self::AnnounceX { token, .. }
             | Self::Modes { token, .. }
             | Self::CounterPlacementEffect { token, .. }
@@ -423,6 +437,9 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    AdditionalCosts {
+        selected: Vec<String>,
+    },
     LegendRule {
         keep: ObjectHandle,
     },
@@ -1063,6 +1080,7 @@ impl Game {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(VisibleStackEntry {
+            selected_additional_costs: instance.selected_additional_costs.clone(),
             x: instance.x.clone(),
             mana_value: instance
                 .x
@@ -1269,6 +1287,17 @@ impl Game {
                 required,
                 candidates: vec![],
             }));
+        }
+        if let Frame::AdditionalCosts { .. } = self.state.rules.frame {
+            return if self.top()?.controller == viewer {
+                Ok(Some(PlayerRequest::AdditionalCosts {
+                    token,
+                    player: viewer,
+                    candidates: self.public_additional_cost_choices(viewer)?,
+                }))
+            } else {
+                Ok(None)
+            };
         }
         if let Frame::AnnounceX { .. } = self.state.rules.frame {
             return Ok(
@@ -1804,6 +1833,9 @@ impl Game {
                     Frame::Priority if self.state.rules.priority == viewer => {
                         Some((self.state.rules.revision, 0))
                     }
+                    Frame::AdditionalCosts { .. } if self.top()?.controller == viewer => {
+                        Some((self.state.rules.revision, 20))
+                    }
                     Frame::AnnounceX { .. } if self.top()?.controller == viewer => {
                         Some((self.state.rules.revision, 18))
                     }
@@ -1889,6 +1921,7 @@ impl Game {
         response: &PlayerResponse,
     ) -> Result<Response, String> {
         let size = match response {
+            PlayerResponse::AdditionalCosts { selected } => selected.len(),
             PlayerResponse::Attackers { attacks } => attacks.len(),
             PlayerResponse::Blockers { blocks } => blocks.len(),
             PlayerResponse::Damage { assignments }
@@ -1910,6 +1943,22 @@ impl Game {
             PlayerResponse::DamageAllocation { allocations } => Ok(Response::DamageAllocation {
                 allocations: self.resolve_allocation_response(viewer, allocations)?,
             }),
+            PlayerResponse::AdditionalCosts { selected } => {
+                let choices = self.public_additional_cost_choices(viewer)?;
+                let selected = selected
+                    .iter()
+                    .map(|id| {
+                        let index = choices
+                            .iter()
+                            .position(|c| c.id == *id)
+                            .ok_or("foreign or stale optional cost ID")?;
+                        Ok(self.program()?.optional_additional_costs[index]
+                            .identity
+                            .clone())
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                Ok(Response::AdditionalCosts { selected })
+            }
             PlayerResponse::AnnounceX { value } => Ok(Response::AnnounceX {
                 value: value.clone(),
             }),

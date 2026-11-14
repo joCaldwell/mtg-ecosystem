@@ -1182,6 +1182,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | Instruction::ReturnToOwnerHand { .. }
                     | Instruction::PutOnTopOwnerLibrary { .. }
                     | Instruction::TargetPlayerSacrificeCreature { .. }
+                    | Instruction::DrawCardsIfAdditionalCost { .. }
                     | Instruction::DrawCards { .. }
                     | Instruction::DiscardCards { .. }
                     | Instruction::CounterStackObject { .. }

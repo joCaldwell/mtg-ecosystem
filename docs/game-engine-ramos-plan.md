@@ -12,8 +12,9 @@ The prior keyword/compiler round is integrated. The
 the production-compiler baseline and later bounded source witnesses. M1a Ramos
 and the M2 Cultivate/Reach slice now execute; exact-target qualification remains
 incomplete. The M1 counter-placement family is also source/runtime-qualified.
-The M3 ordinary announcement/payment foundation is implemented; basic cascade
-and resolution casting remain unsupported.
+M3b implements the basic cascade/resolution-casting family. The M3c bounded
+optional-mana/instant-cascade exit cohort is separate from exact-target admission;
+final M3 review/integration remain coordinator-owned.
 This plan is not exact-deck engine acceptance.
 
 ## Target and source authority
@@ -172,9 +173,10 @@ library inspection by policy. Lands support each printed basic subtype.
 The [M3 casting contract](game-engine-ramos-casting-contract.md) records the
 frozen basic sources, shared continuation/payment interfaces and remaining exit
 obligations. M3b now qualifies complete basic Agent/Bloodbraid source/runtime and
-recovery on the checked M3a foundation. M3 remains open for source-qualified
-optional additional costs and a naturally reachable paid prohibition context;
-this does not admit a profile/pod or host/search consumer.
+recovery on the checked M3a foundation. The separate M3c cohort covers source-bound fixed-mana kicker and a naturally
+developed paid prohibition context using two records outside the frozen target.
+Final review/integration remain coordinator-owned; this does not admit a
+profile/pod or host/search consumer.
 
 Introduce a reusable casting-permission and continuation path supporting
 casting from the indicated zone while another invocation resolves, choosing

@@ -437,7 +437,8 @@ impl Game {
         // CR 608.2m: a started invocation owns its frozen instance and keeps
         // resolving after its source leaves. Only an unfinished casting frame
         // whose own source left is discarded; lower departures cannot replace it.
-        if let Frame::AnnounceX { cast }
+        if let Frame::AdditionalCosts { cast }
+        | Frame::AnnounceX { cast }
         | Frame::Modes { cast }
         | Frame::EntityTargets { cast }
         | Frame::Targets { cast }
@@ -463,7 +464,8 @@ impl Game {
                 vec![]
             };
         }
-        if let Frame::AnnounceX { cast }
+        if let Frame::AdditionalCosts { cast }
+        | Frame::AnnounceX { cast }
         | Frame::Modes { cast }
         | Frame::EntityTargets { cast }
         | Frame::Targets { cast }
@@ -479,7 +481,8 @@ impl Game {
             // their identities and recheck them at resolution under608.2b.
             let proposing = matches!(
                 self.state.rules.frame,
-                Frame::AnnounceX { .. }
+                Frame::AdditionalCosts { .. }
+                    | Frame::AnnounceX { .. }
                     | Frame::Modes { .. }
                     | Frame::EntityTargets { .. }
                     | Frame::Targets { .. }

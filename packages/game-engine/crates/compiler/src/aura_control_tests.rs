@@ -128,6 +128,7 @@ fn aura_control_complete_frozen_witnesses_have_pinned_source_and_same_reusable_s
         assert_eq!(
             d.spell,
             Some(SpellProgram {
+                optional_additional_costs: vec![],
                 timing: SpellTiming::MainPhase,
                 resolution: SpellResolution::Permanent,
                 functioning_zone: FunctioningZone::Stack,

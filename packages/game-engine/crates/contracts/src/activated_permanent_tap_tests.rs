@@ -26,6 +26,7 @@ pub(super) fn activated_tap() -> Definition {
             },
         },
         program: SpellProgram {
+            optional_additional_costs: vec![],
             additional_sacrifice: None,
             timing: SpellTiming::Instant,
             resolution: SpellResolution::Instructions,
