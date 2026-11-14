@@ -1,9 +1,10 @@
-/* One floating card for the whole app. It never takes the pointer, so it
-   cannot trap the hover that opened it. */
+/* One floating card for the whole app; pointer access allows magnified
+   readers to move over its text without dismissing the preview. */
 .card {
   position: fixed;
+  inset: auto;
+  margin: 0;
   z-index: var(--z-hover);
-  display: flex;
   align-items: flex-start;
   gap: var(--s-5);
   max-width: calc(100vw - var(--s-4) * 2);
@@ -12,8 +13,13 @@
   border-radius: var(--r-lg);
   background: var(--overlay);
   box-shadow: var(--shadow-pop);
-  pointer-events: none;
+  color: var(--text);
+  max-height: calc(100dvh - var(--s-4) * 2);
+  overflow: auto;
 }
+
+.card:not([popover]) { display: flex; }
+.card:popover-open { display: flex; }
 
 .image,
 .pending {

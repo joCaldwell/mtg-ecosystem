@@ -39,19 +39,19 @@
     },
     {
       "path": "packages/game-client/src/features/decisions/LocalControls.tsx",
-      "sha256": "73510c03e757a458bed03b2acdbfee9cfd3e817855dc117b4c92cbf103f04154"
+      "sha256": "c610c299dbbe57eb9515050c02580be581ce2826a72d5af989b8c6ba84215919"
     },
     {
       "path": "packages/game-client/src/features/decisions/DecisionPanel.tsx",
-      "sha256": "442def8ab829c17be04d8965834080e373a3e76067fb951ef59c609a7c77ea98"
+      "sha256": "061c87220bfc126db8ef8c81f3c45fb97831bb3b9b443c659b9e396305540da9"
     },
     {
       "path": "packages/game-client/src/features/decisions/DecisionGallery.tsx",
-      "sha256": "1b0d918b6c02c6f70e0283846834370395afd1fc70ce635e6e164f336daa9401"
+      "sha256": "1b15be6ca02acea41cdf7264999c5583d610ba2bc1ec53f1a27b8899f1cbaeb6"
     },
     {
       "path": "packages/game-client/src/features/decisions/decisions.module.css",
-      "sha256": "e49debf6e0ae54325f39dfe5ab6907575e89cc3978cd93c8186bf57fe83dcc12"
+      "sha256": "ca279cbf50bb1f6397bdb59cfa931b0f2fca396de6192ad82666036753aea688"
     },
     {
       "path": "packages/game-client/src/preview/fixture.ts",
@@ -71,7 +71,7 @@
     },
     {
       "path": "packages/game-client/tests/browser/decision-controls.spec.ts",
-      "sha256": "2e9b8b2672f5047102f996c77200e503901f73111e03507bb7dd977c0c610411"
+      "sha256": "8a251d4aed0b54fdeab7c857947a5323f698b4de54d6219c60c11902c05f2911"
     },
     {
       "path": "packages/game-client/fixtures/foundations-opening/provenance.json",

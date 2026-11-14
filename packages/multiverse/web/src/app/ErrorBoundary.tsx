@@ -7,9 +7,9 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { failed: 
   static getDerivedStateFromError() { return { failed: true }; }
   componentDidCatch(error: Error) { console.error(error); }
   render() {
-    return this.state.failed ? <Page><EmptyState title="Something went wrong">
+    return this.state.failed ? <main id="main-content" tabIndex={-1}><Page><EmptyState heading="h1" title="Something went wrong">
       Reload to try again. Your saved decks are kept on the server.
       <Button onClick={() => window.location.reload()}>Reload</Button>
-    </EmptyState></Page> : this.props.children;
+    </EmptyState></Page></main> : this.props.children;
   }
 }

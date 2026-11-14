@@ -157,6 +157,9 @@ function onLinkClick(e: MouseEvent): void {
   const url = new URL(a.href, location.href);
   // Only the app's own pages; the API, MCP, metadata and built files belong to the server.
   if (url.origin !== location.origin || /^\/(api|mcp|\.well-known|assets)(\/|$)/.test(url.pathname)) return;
+  // Same-origin documents and downloads outside the route table retain their
+  // native behavior too (including server redirects and 404 responses).
+  if (a.relList.contains("external") || parseRoute(url.pathname, url.search).page === "missing") return;
   // A link to a spot on this same page is the browser's to scroll to.
   if (url.pathname === location.pathname && url.search === location.search && url.hash) return;
   e.preventDefault();

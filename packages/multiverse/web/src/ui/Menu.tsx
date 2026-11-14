@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { Button, type ButtonProps } from "./Button.tsx";
 import { Chevron } from "./Chevron.tsx";
 import { Icon, type IconName } from "./Icon.tsx";
@@ -48,52 +48,86 @@ export function Menu({ label, icon, ariaLabel, items, variant = "default", size 
   }, [triggerRef]);
   const list = useRef<HTMLDivElement>(null);
   const menuId = useId();
+  const triggerId = `${menuId}-trigger`;
+  const enter = useRef<"first" | "last" | null>(null);
+  const nativeFocusGroup = typeof HTMLElement !== "undefined" && "focusGroup" in HTMLElement.prototype;
+  const typed = useRef({ text: "", at: 0 });
 
-  const enabled = () => Array.from(list.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]:not(:disabled)') ?? []);
+  const enabled = () => Array.from(list.current?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? []);
 
   const choice = items.some((item) => item.checked !== undefined);
 
-  // Focus the checked item, or the first, as the menu appears.
+  // Keyboard opens enter the menu; pointer opens leave focus on the trigger.
   useEffect(() => {
     if (!open) return;
     const els = enabled();
-    (els.find((el) => el.getAttribute("aria-checked") === "true") ?? els[0])?.focus({ preventScroll: true });
+    if (enter.current) (enter.current === "last" ? els.at(-1) : els[0])?.focus({ preventScroll: true });
+    else trigger?.focus({ preventScroll: true });
+    enter.current = null;
   }, [open]);
 
-  function close() {
+  function close(reason?: "outside" | "escape") {
     setOpen(false);
-    trigger?.focus();
+    if (reason !== "outside") trigger?.focus();
   }
 
   function onTriggerKeyDown(e: KeyboardEvent) {
-    if (e.key === "ArrowDown" && !open) {
-      e.preventDefault();
+    if (e.key === "Escape" && open) { e.stopPropagation(); return; }
+    if (e.defaultPrevented || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    const direction = e.key === "ArrowUp" ? "last" : "first";
+    if (open) {
+      const els = enabled();
+      (direction === "last" ? els.at(-1) : els[0])?.focus({ preventScroll: true });
+    } else {
+      enter.current = direction;
       setOpen(true);
     }
   }
 
   function onListKeyDown(e: KeyboardEvent) {
+    if (e.defaultPrevented || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
     const els = enabled();
     const i = els.indexOf(document.activeElement as HTMLElement);
+    if (e.key === "Tab") {
+      // Restore the trigger before native sequential navigation chooses its next stop.
+      trigger?.focus();
+      setOpen(false);
+      return;
+    }
+    if (nativeFocusGroup && ["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+    if (e.key.length === 1 && e.key !== " " && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const now = Date.now();
+      const text = (now - typed.current.at < 500 ? typed.current.text + e.key : e.key).toLocaleLowerCase();
+      typed.current = { text, at: now };
+      const query = [...text].every(letter => letter === text[0]) ? text[0] : text;
+      for (let offset = 1; offset <= els.length; offset++) {
+        const item = els[(i + offset) % els.length];
+        if (item.textContent?.trim().toLocaleLowerCase().startsWith(query)) { e.preventDefault(); item.focus(); break; }
+      }
+      return;
+    }
     let next = -1;
     if (e.key === "ArrowDown") next = (i + 1) % els.length;
     else if (e.key === "ArrowUp") next = (i - 1 + els.length) % els.length;
     else if (e.key === "Home") next = 0;
     else if (e.key === "End") next = els.length - 1;
-    else if (e.key === "Tab") {
-      setOpen(false);
-      return;
-    } else return;
+    else return;
     e.preventDefault();
     els[next]?.focus();
   }
 
   const triggerProps = {
     ref: setTrigger,
+    id: triggerId,
     "aria-haspopup": "menu" as const,
     "aria-expanded": open,
     "aria-controls": open ? menuId : undefined,
-    onClick: () => setOpen((o) => !o),
+    onClick: (event: MouseEvent<HTMLButtonElement>) => {
+      enter.current = event.detail === 0 ? "first" : null;
+      setOpen((o) => !o);
+    },
     onKeyDown: onTriggerKeyDown,
   };
 
@@ -122,20 +156,23 @@ export function Menu({ label, icon, ariaLabel, items, variant = "default", size 
         <div
           id={menuId}
           ref={list}
-          role="menu"
+          {...({ focusgroup: "menu nomemory" } as Record<string, string>)}
+          role={nativeFocusGroup ? undefined : "menu"}
+          aria-labelledby={triggerId}
           className={styles.list}
           onKeyDown={onListKeyDown}
         >
           {items.map((item) => (
             <Fragment key={item.id}>
-              {item.separated && <div role="separator" className={styles.separator} />}
+              {item.separated && <hr className={styles.separator} />}
               <button
                 type="button"
-                role={choice && item.checked !== undefined ? "menuitemradio" : "menuitem"}
+                role={choice && item.checked !== undefined ? "menuitemradio" : nativeFocusGroup ? undefined : "menuitem"}
                 aria-checked={choice && item.checked !== undefined ? item.checked : undefined}
-                tabIndex={-1}
+                tabIndex={nativeFocusGroup ? undefined : -1}
                 disabled={item.disabled}
                 className={cx(styles.item, item.tone === "cut" && styles.cut)}
+                onPointerMove={(event) => { if (!item.disabled) event.currentTarget.focus({ preventScroll: true }); }}
                 onClick={() => {
                   setOpen(false);
                   trigger?.focus();

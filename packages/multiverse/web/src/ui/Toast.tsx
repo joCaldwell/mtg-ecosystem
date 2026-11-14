@@ -3,7 +3,9 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -42,6 +44,9 @@ let nextId = 1;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [current, setCurrent] = useState<Current | null>(null);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const region = useRef<HTMLDivElement>(null);
 
   const toast = useCallback((message: ReactNode, opts: ToastOptions = {}) => {
     setCurrent({ id: nextId++, message, opts });
@@ -51,19 +56,28 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   // One timer per toast; a replacement toast has a new id, so it restarts.
   const id = current?.id;
+  useLayoutEffect(() => {
+    // Removing a focused action need not fire blur. Derive pause state from
+    // the new toast's actual DOM rather than carrying it across replacements.
+    setFocused(region.current?.contains(document.activeElement) ?? false);
+    setHovered(region.current?.matches(":hover") ?? false);
+  }, [id]);
   const duration = current?.opts.duration ?? 6000;
   useEffect(() => {
-    if (id === undefined) return;
+    if (id === undefined || hovered || focused) return;
     const t = setTimeout(() => setCurrent((c) => (c?.id === id ? null : c)), duration);
     return () => clearTimeout(t);
-  }, [id, duration]);
+  }, [id, duration, hovered, focused]);
 
   const actions = [current?.opts.action, current?.opts.secondaryAction].filter((a): a is ToastAction => !!a);
   return (
     <ToastContext.Provider value={api}>
       {children}
       {createPortal(
-        <div className={styles.region} role="status" aria-live="polite">
+        <div ref={region} className={styles.region} role="status" aria-live="polite" aria-atomic="true"
+          onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}
+          onFocus={() => setFocused(true)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}
+        >
           {current ? (
             <div key={current.id} className={styles.toast}>
               <span className={styles.message}>{current.message}</span>

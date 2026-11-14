@@ -1,12 +1,13 @@
 /* The closed trigger and the open list shared by Select and MultiSelect. */
 
 .trigger {
+  border-color: var(--control-line);
   justify-content: space-between;
   text-align: left;
 }
 
 .trigger[aria-expanded="true"] {
-  border-color: var(--line-hover);
+  border-color: var(--control-line);
   background: linear-gradient(var(--hover), var(--hover)), var(--surface);
 }
 
@@ -58,3 +59,7 @@
 @media (max-width: 1099px) {
   .option { min-height: var(--tap); }
 }
+
+.option:has(input:checked) { background: var(--sel-bg); color: var(--sel); }
+.option:has(input:focus-visible) { outline: 2px solid var(--sel); outline-offset: -2px; }
+.option input[type="checkbox"] { accent-color: var(--sel); }

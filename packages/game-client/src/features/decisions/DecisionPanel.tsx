@@ -27,7 +27,7 @@ export function DecisionPanel({ binding, request, labels, onComplete, live = fal
   return <section className={`${styles.panel} ${live || embedded ? styles.livePanel : ''}`} aria-label="Local decision draft">
     <p className={styles.announcement} role="status">{state.announcement}</p>
     {!bound ? <><h2>Decision binding unavailable</h2><p>No draft can be completed for this seat or token.</p></>
-      : surface.status === 'supported' ? <LocalControls control={live && request.request === 'bottom_opening'
+      : surface.status === 'supported' ? <LocalControls validationKey={`${identity}:${fingerprint}`} control={live && request.request === 'bottom_opening'
           ? { ...surface.control, description: `Choose exactly ${request.count} cards, then review their order from first to last.` } : surface.control} draft={draft} onChange={next => setState({ ...state, draft: next })}
         confirmLabel={live ? 'Confirm opening choice' : 'Confirm local draft'}
         readyText={live ? 'Ready to confirm. The table will check your choice.' : 'Draft shape complete. Core validation is still required.'}

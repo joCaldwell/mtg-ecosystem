@@ -74,11 +74,14 @@ export function useHotkeys(bindings: Record<string, Handler>, opts: HotkeyOption
   useEffect(() => {
     if (!enabled) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.isComposing) return;
+      if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
       const isEscape = e.key === "Escape";
       if (!allowInInputs && !isEscape && inEditable(e.target)) return;
       // A modal dialog owns the keyboard while it is open.
-      if (document.querySelector('[aria-modal="true"]')) return;
+      if (document.querySelector('dialog:modal, [aria-modal="true"]')) return;
+      // Native popover Escape runs as the browser's default action, after this
+      // listener. Leave it to that layer rather than also closing its inspector.
+      if (Object.hasOwn(HTMLElement.prototype, "popover") && document.querySelector("[popover]:popover-open")) return;
       for (const [combo, handler] of Object.entries(ref.current)) {
         if (matches(parse(combo), e)) {
           handler(e);

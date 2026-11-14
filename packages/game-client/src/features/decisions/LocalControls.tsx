@@ -1,34 +1,54 @@
-import { useId } from 'react';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { draftError, reorderDraft, toggleDraft, type LocalControl, type LocalDraft } from '../../decisions/controls.ts';
 import styles from './decisions.module.css';
 
 /** Controlled presentation only. Native controls supply keyboard conventions;
  * the parent owns local state and completion. No network/storage/SDK runtime. */
-export function LocalControls({ control, draft, onChange, onComplete, confirmLabel = 'Confirm local draft', readyText = 'Draft shape complete. Core validation is still required.' }: {
+export function LocalControls({ control, draft, onChange, onComplete, confirmLabel = 'Confirm local draft', readyText = 'Draft shape complete. Core validation is still required.', validationKey }: {
   readonly control: LocalControl; readonly draft: LocalDraft;
   readonly onChange: (draft: LocalDraft) => void; readonly onComplete: () => void;
   readonly confirmLabel?: string;
   readonly readyText?: string;
+  readonly validationKey?: string;
 }) {
   const id = useId();
   const error = draftError(control, draft);
-  return <form className={styles.control} onSubmit={event => { event.preventDefault(); if (!error) onComplete(); }} aria-describedby={`${id}-help ${id}-error`}>
-    <fieldset><legend>{control.title}</legend><p id={`${id}-help`}>{control.description}</p>
-      {control.kind === 'quantity' ? <label className={styles.quantity}>Exact quantity<input type="text" inputMode="numeric" autoComplete="off" spellCheck={false} value={draft.quantity}
-        aria-invalid={draft.quantity.length > 0 && error !== null} aria-describedby={`${id}-error`} onChange={event => onChange({ ...draft, quantity: event.currentTarget.value })} /></label>
-        : <div className={styles.options}>{control.options.map(option => <label key={option.id} className={styles.option}>
-          <input type={control.kind === 'choice' ? 'radio' : 'checkbox'} name={id} value={option.id} checked={draft.selected.includes(option.id)} onChange={() => onChange(toggleDraft(control, draft, option.id))} />
+  const key = validationKey ?? JSON.stringify(control);
+  const [validation, setValidation] = useState({ key, attempted: false });
+  if (key !== validation.key) setValidation({ key, attempted: false });
+  const showError = validation.key === key && validation.attempted && error !== null;
+  const errorSummary = useRef<HTMLParagraphElement>(null);
+  const [invalidSubmission, setInvalidSubmission] = useState(0);
+  // Only an explicit failed submit routes focus; remote identity/option changes
+  // reset validation without disturbing the player's active control.
+  useLayoutEffect(() => {
+    if (invalidSubmission > 0 && validation.key === key && validation.attempted) errorSummary.current?.focus();
+  }, [invalidSubmission]);
+  return <form className={styles.control} noValidate aria-labelledby={`${id}-title`} onSubmit={event => {
+    event.preventDefault();
+    if (error) {
+      setValidation({ key, attempted: true });
+      setInvalidSubmission(value => value + 1);
+    } else onComplete();
+  }} aria-describedby={`${id}-help`}>
+    <fieldset><legend id={`${id}-title`}>{control.title}</legend><p id={`${id}-help`}>{control.description}</p>
+      {control.kind === 'quantity' ? <div className={styles.quantity}><label htmlFor={`${id}-quantity`}>Exact quantity</label><input id={`${id}-quantity`} name="quantity" type="text" inputMode="numeric" enterKeyHint="done" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} required pattern="0|[1-9][0-9]*" value={draft.quantity}
+        aria-invalid={showError || undefined} aria-describedby={`${id}-help${showError ? ` ${id}-error` : ''}`} onBlur={() => {
+          if (draft.quantity.length) setValidation({ key, attempted: true });
+        }} onChange={event => onChange({ ...draft, quantity: event.currentTarget.value })} /></div>
+        : <div className={styles.options}>{control.options.map((option, index) => <label key={option.id} htmlFor={`${id}-option-${index}`} className={styles.option}>
+          <input id={`${id}-option-${index}`} aria-describedby={`${id}-help${showError ? ` ${id}-error` : ''}`} type={control.kind === 'choice' ? 'radio' : 'checkbox'} name={id} value={option.id} checked={draft.selected.includes(option.id)} onChange={() => onChange(toggleDraft(control, draft, option.id))} />
           <span>{option.label}{option.detail && <small>Handle {option.detail}</small>}</span>
         </label>)}</div>}
       {control.kind === 'selection' && <p className={styles.count}>Selected {draft.selected.length} · Required {control.minimum === control.maximum ? control.minimum : `${control.minimum}–${control.maximum}`}</p>}
       {control.kind === 'selection' && control.ordered && <><h3>Chosen order · first to last</h3><ol className={styles.order}>{draft.selected.map((selected, index) => {
         const option = control.options.find(value => value.id === selected);
         return <li key={selected}><span>{option?.label ?? 'Unavailable object'}<small>Handle {selected}</small></span>
-          <button type="button" aria-label={`Move ${selected} earlier`} aria-disabled={index === 0} onClick={() => onChange(reorderDraft(draft, selected, -1))}>Earlier</button>
-          <button type="button" aria-label={`Move ${selected} later`} aria-disabled={index === draft.selected.length - 1} onClick={() => onChange(reorderDraft(draft, selected, 1))}>Later</button></li>;
+          <button type="button" aria-label={`Move ${selected} earlier`} aria-disabled={index === 0} onClick={() => { if (index > 0) onChange(reorderDraft(draft, selected, -1)); }}>Earlier</button>
+          <button type="button" aria-label={`Move ${selected} later`} aria-disabled={index === draft.selected.length - 1} onClick={() => { if (index < draft.selected.length - 1) onChange(reorderDraft(draft, selected, 1)); }}>Later</button></li>;
       })}</ol></>}
     </fieldset>
-    <p id={`${id}-error`} className={styles.hint} aria-live="polite">{error ?? readyText}</p>
-    <button className={styles.complete} type="submit" disabled={error !== null}>{confirmLabel}</button>
+    <p ref={errorSummary} id={`${id}-error`} tabIndex={-1} className={styles.hint}>{showError ? error : error ? 'Complete your choice, then confirm to review it.' : readyText}</p>
+    <button className={styles.complete} type="submit">{confirmLabel}</button>
   </form>;
 }

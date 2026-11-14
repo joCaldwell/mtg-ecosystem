@@ -11,7 +11,7 @@ import styles from "./SlotsTable.module.css";
 export function SlotsTable() {
   const { deckId } = useDeck();
   const { computed } = useDeckState();
-  const { error, setError, mutate } = useAttempt();
+  const { error, setError, busy, mutate } = useAttempt();
   const formId = useId();
   const [name, setName] = useState("");
   const [min, setMin] = useState("");
@@ -30,6 +30,7 @@ export function SlotsTable() {
 
   async function add(e: FormEvent) {
     e.preventDefault();
+    if (busy || !name.trim()) return;
     const lo = parseTarget(min);
     const hi = parseTarget(max);
     if (!lo.ok || !hi.ok) return setError(TARGET_ERROR);
@@ -66,6 +67,10 @@ export function SlotsTable() {
             <td>
               <TextField
                 form={formId}
+                name="name"
+                required
+                pattern={".*\\S.*"}
+                disabled={busy}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Add a slot"
@@ -96,14 +101,14 @@ export function SlotsTable() {
             </td>
             <td />
             <td className={styles.actions}>
-              <Button size="sm" variant="primary" type="submit" form={formId} disabled={!name.trim()}>
+              <Button size="sm" variant="primary" type="submit" form={formId} disabled={busy}>
                 Add
               </Button>
             </td>
           </tr>
         </tbody>
       </Table>
-      <form id={formId} onSubmit={add} />
+      <form id={formId} method="post" onSubmit={add} />
       {computed.slot_deltas.length === 0 ? (
         <EmptyState title="No slots yet">Name one above, such as ramp or removal, to start filing cards under it.</EmptyState>
       ) : null}

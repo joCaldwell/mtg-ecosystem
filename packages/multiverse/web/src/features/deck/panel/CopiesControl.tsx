@@ -107,7 +107,8 @@ export function CopiesControl({ card }: { card: DeckCard }) {
         else commit();
       }}
       onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+        if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); }
         if (e.key === "Escape") {
           e.stopPropagation();
           holdFire();

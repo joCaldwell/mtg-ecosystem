@@ -21,12 +21,13 @@ export function BriefEditor({ title, value, purpose, onSave, onClose }: {
     finally { setBusy(false); }
   }
   function keyDown(event: KeyboardEvent) {
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
     if (event.key === "Escape") { event.stopPropagation(); onClose(); }
     else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void commit(); }
   }
   return <>
     <div className={styles.head}>
-      <Eyebrow>{title}</Eyebrow>
+      <Eyebrow as="h2">{title}</Eyebrow>
       <div className={styles.actions}>
         <Button size="sm" onClick={onClose} disabled={busy}>Cancel</Button>
         <Button size="sm" variant="primary" onClick={() => void commit()} disabled={busy || draft === value}>{busy ? "Saving…" : "Save"}</Button>

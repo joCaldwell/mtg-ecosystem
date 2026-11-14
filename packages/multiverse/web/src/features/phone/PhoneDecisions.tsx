@@ -37,14 +37,14 @@ export function PhoneDecisions({ view, proposalId }: { view: { units: ReviewUnit
   const open = state.proposals.filter((p) => view.units.some((u) => u.proposalId === p.id)).length;
   return (
     <section className={styles.decisions} aria-label="Waiting on you">
-      {activeProposalId != null && <Eyebrow>Proposal {activeProposalId}</Eyebrow>}
+      <Eyebrow as="h2">{activeProposalId != null ? `Proposal ${activeProposalId}` : "Waiting on you"}</Eyebrow>
       <ol className={styles.units}>
         {selected.map(unit => <Unit key={unit.key} unit={unit} index={view.units.indexOf(unit)} review={review} />)}
       </ol>
       <details className={styles.reviewAll}>
         <summary>Review all decisions · {view.units.length}</summary>
         <div className={styles.all}>
-          <Eyebrow>Waiting on you · {view.units.length} decision{view.units.length === 1 ? "" : "s"}</Eyebrow>
+          <Eyebrow as="h3">Waiting on you · {view.units.length} decision{view.units.length === 1 ? "" : "s"}</Eyebrow>
           <Text size="sm" tone="muted" as="p">Decide everything{open > 1 ? ` in all ${open} proposals` : ""} at once.</Text>
           <TextField fieldSize="lg" className={styles.reason} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500}
             placeholder="Reason for everything, optional" aria-label="Reason for accepting or rejecting everything, optional" />

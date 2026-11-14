@@ -1,7 +1,7 @@
-import { createContext, useContext, useEffect, useState, lazy, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, lazy, type ReactNode } from "react";
 import { api } from "../api/reader.ts";
 import type { Session } from "../api/client.ts";
-import { useToast, ErrorNote, Loading } from "../ui/index.ts";
+import { useToast, Button, EmptyState, ErrorNote, Loading, Page } from "../ui/index.ts";
 const SignInPage = lazy(() => import("../features/auth/index.ts").then(m => ({ default: m.SignInPage })));
 const HandlePicker = lazy(() => import("../features/auth/index.ts").then(m => ({ default: m.HandlePicker })));
 const LegalPage = lazy(() => import("../features/auth/index.ts").then(m => ({ default: m.LegalPage })));
@@ -11,8 +11,19 @@ const Context = /* @__PURE__ */ createContext<{ session: Session; reload: () => 
 export function SessionProvider({ children, open = false }: { children: ReactNode; open?: boolean }) {
   const [session,setSession] = useState<Session | null>(null), [error,setError] = useState<string | null>(null);
   const { toast } = useToast();
-  const reload = () => { api.session().then(setSession).catch(e => setError(e.message)); };
-  useEffect(reload,[]);
+  const pending = useRef<AbortController | null>(null);
+  const reload = useCallback(() => {
+    pending.current?.abort();
+    const controller = new AbortController();
+    pending.current = controller;
+    setError(null);
+    void api.session(controller.signal).then(value => {
+      if (!controller.signal.aborted) setSession(value);
+    }, error => {
+      if (!controller.signal.aborted) setError(error instanceof Error ? error.message : String(error));
+    });
+  }, []);
+  useEffect(() => { reload(); return () => pending.current?.abort(); }, [reload]);
   useEffect(() => {
     const failed = (e: Event) => {
       const { status, retryAfter, message } = (e as CustomEvent).detail;
@@ -23,7 +34,9 @@ export function SessionProvider({ children, open = false }: { children: ReactNod
     };
     window.addEventListener("api-error",failed); return () => window.removeEventListener("api-error",failed);
   },[session?.mode,toast,open]);
-  if (!session) return error ? <ErrorNote>{error}</ErrorNote> : <Loading />;
+  if (!session) return error ? <main id="main-content" tabIndex={-1}><Page><EmptyState heading="h1" title="Unable to open Multiverse">
+    <ErrorNote>{error}</ErrorNote><Button onClick={reload}>Retry</Button>
+  </EmptyState></Page></main> : <Loading />;
   const path = location.pathname;
   return <Context.Provider value={{session,reload}}>
     {session.mode === "hosted" && (path === "/privacy" || path === "/terms") ? <LegalPage page={path.slice(1) as "privacy" | "terms"} /> :

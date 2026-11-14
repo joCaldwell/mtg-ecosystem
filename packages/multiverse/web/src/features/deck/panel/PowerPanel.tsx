@@ -22,7 +22,7 @@ export function PowerPanel() {
   const t = power.target;
   return <>
     <Stack gap={4}>
-      <Row justify="between"><Eyebrow>Deck power</Eyebrow><Button size="sm" reach disabled={readOnly} onClick={() => setEditing("assessment")}>{a ? "Reassess" : "Assess deck"}</Button></Row>
+      <Row justify="between"><Eyebrow as="h2">Deck power</Eyebrow><Button size="sm" reach disabled={readOnly} onClick={() => setEditing("assessment")}>{a ? "Reassess" : "Assess deck"}</Button></Row>
       <div className={styles.summary}>
         <Stack gap={2}><Text size="xs" tone="muted">Current assessment</Text><Text size="xl" mono tone={a?.stale ? "warn" : "soft"}>{a ? bracketLabel(a.mapping) : "Not assessed"}</Text>
           {a && <Text title={`Assessed at r${a.revision}`} size="xs" tone={a.owner_touched ? "muted" : "agent"}>{a.author_display ?? a.author} · {ago(a.created_at)}</Text>}
@@ -41,13 +41,13 @@ export function PowerPanel() {
       <tbody>{powerRows(power).map(row => <tr key={row.field}><th scope="row">{row.field}</th><td>{row.target}</td><td data-different={power.differences.some(d => d.field === row.field)}>{row.current}</td></tr>)}</tbody>
     </table>
     {power.differences.length > 0 && <Stack gap={3}>
-      <Eyebrow>Differences from target</Eyebrow>
+      <Eyebrow as="h3">Differences from target</Eyebrow>
       {power.differences.map(d => <Text key={d.field} tone="warn" size="sm" as="p">{d.field}: {d.current}. Target: {d.target}.</Text>)}
     </Stack>}
-    {a?.notes && <Stack gap={3}><Eyebrow>Assessment reasoning</Eyebrow><RichText text={a.notes} /></Stack>}
-    {t?.notes && <Stack gap={3}><Eyebrow>Target preferences</Eyebrow><RichText text={t.notes} /></Stack>}
+    {a?.notes && <Stack gap={3}><Eyebrow as="h3">Assessment reasoning</Eyebrow><RichText text={a.notes} /></Stack>}
+    {t?.notes && <Stack gap={3}><Eyebrow as="h3">Target preferences</Eyebrow><RichText text={t.notes} /></Stack>}
     {!!power.game_changers.unknown_cards && <Text as="p" size="sm" tone="warn">{power.game_changers.unknown_cards} card(s) have no Game Changer metadata. Refresh card data in Settings to complete the count.</Text>}
-    {!!power.game_changers.cards.length && <Stack gap={2}><Eyebrow>Game Changers in this list</Eyebrow>{power.game_changers.cards.map(c => <CardRef key={c.oracle_id} name={c.name} />)}</Stack>}
+    {!!power.game_changers.cards.length && <Stack gap={2}><Eyebrow as="h3">Game Changers in this list</Eyebrow>{power.game_changers.cards.map(c => <CardRef key={c.oracle_id} name={c.name} />)}</Stack>}
     {(t || a) && <details className={styles.details}><summary>Why these brackets?</summary><Stack gap={6}>
       {t && <PowerMapping title="Target" mapping={t.mapping} />}
       {a && <PowerMapping title={a.stale ? "Previous assessment" : "Current assessment"} mapping={a.mapping} />}

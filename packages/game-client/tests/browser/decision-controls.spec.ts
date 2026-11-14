@@ -10,7 +10,7 @@ test('captured mulligan completes by keyboard with explicit local-only confirmat
   await captured.getByText('Captured hand · 7 objects', { exact: true }).click();
   await expect(captured.getByRole('listitem')).toHaveCount(7);
   const confirm = captured.getByRole('button', { name: 'Confirm local draft' });
-  await expect(confirm).toBeDisabled();
+  await expect(confirm).toBeEnabled();
   const keep = captured.getByRole('radio', { name: 'Keep hand', exact: true });
   await captured.getByRole('link', { name: 'Open the captured table' }).focus();
   await page.keyboard.press('Tab');
@@ -50,7 +50,7 @@ test('opening preview keeps a deliberate choice while inspecting and never sends
   await expect(page.getByRole('heading', { name: 'Opening hand preview', exact: true })).toBeVisible();
   const decision = page.getByRole('region', { name: 'Opening hand', exact: true });
   const confirm = decision.getByRole('button', { name: 'Confirm local draft', exact: true });
-  await expect(confirm).toBeDisabled();
+  await expect(confirm).toBeEnabled();
   const keep = decision.getByRole('radio', { name: 'Keep hand', exact: true });
   await keep.check();
   const card = page.getByRole('region', { name: 'Your hand', exact: true }).getByRole('button').last();
@@ -65,7 +65,7 @@ test('opening preview keeps a deliberate choice while inspecting and never sends
   await page.screenshot({ path: testInfo.outputPath('opening-preview.png'), fullPage: true });
   await page.reload();
   await expect(keep).not.toBeChecked();
-  await expect(confirm).toBeDisabled();
+  await expect(confirm).toBeEnabled();
   expect(requests.every(url => new URL(url).origin === new URL(page.url()).origin && !/\/(v1|presentation)\/|client-config/.test(url))).toBe(true);
   expect(await page.evaluate(async () => ({ local: localStorage.length, session: sessionStorage.length, databases: (await indexedDB.databases()).length }))).toEqual({ local: 0, session: 0, databases: 0 });
 });
@@ -128,7 +128,12 @@ test('exact large quantities, unsupported context, reduced motion and narrow lay
   await page.keyboard.press('Enter');
   await expect(page.getByText('Synthetic exact quantity: 9007199254740993123456789', { exact: true })).toBeVisible();
   await input.fill('1e20');
-  await expect(form.locator('..').getByRole('button', { name: 'Confirm local draft' })).toBeDisabled();
+  const confirm = form.locator('..').getByRole('button', { name: 'Confirm local draft' });
+  await expect(confirm).toBeEnabled();
+  await confirm.click();
+  await expect(form.locator('..').locator('p[tabindex="-1"]')).toBeFocused();
+  await expect(input).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByText('Synthetic exact quantity: 9007199254740993123456789', { exact: true })).toBeVisible();
   const gaps = page.getByRole('region', { name: 'Explicit contract gaps' });
   await expect(gaps.getByRole('heading', { name: 'Decision context unavailable' })).toBeVisible();
   await expect(gaps.getByRole('button')).toHaveCount(0);

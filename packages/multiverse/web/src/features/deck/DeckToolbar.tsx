@@ -38,9 +38,12 @@ export function DeckToolbar() {
               className={styles.searchInput}
               autoComplete="off"
               spellCheck={false}
+              autoCapitalize="none"
+              autoCorrect="off"
               value={ui.searchTerm}
               onChange={(e) => ui.setSearchTerm(e.target.value)}
               onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
                 if (e.key === "Escape") {
                   e.preventDefault();
                   e.stopPropagation();

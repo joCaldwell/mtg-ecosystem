@@ -70,7 +70,7 @@ export function BriefPanel() {
 
       <section className={styles.engines}>
         <div className={styles.head}>
-          <Eyebrow>Engines</Eyebrow>
+          <Eyebrow as="h2">Engines</Eyebrow>
           {!form && !readOnly && (
             <Button size="sm" reach onClick={() => setForm({})}>
               Add an engine

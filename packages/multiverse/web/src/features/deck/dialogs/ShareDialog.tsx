@@ -38,7 +38,7 @@ export function ShareDialog({ onClose }: { onClose: () => void }) {
         </Stack>
 
         <Stack gap={3}>
-          <Eyebrow>Link</Eyebrow>
+          <Eyebrow as="h3">Link</Eyebrow>
           {link ? (
             <div className={styles.link}>
               <TextField readOnly value={link} aria-label="Link to this deck" onFocus={(e) => e.currentTarget.select()} />
@@ -51,7 +51,7 @@ export function ShareDialog({ onClose }: { onClose: () => void }) {
         </Stack>
 
         <Stack gap={3}>
-          <Eyebrow>Decisions</Eyebrow>
+          <Eyebrow as="h3">Decisions</Eyebrow>
           <Checkbox
             checked={deck.publish_decisions}
             disabled={busy}

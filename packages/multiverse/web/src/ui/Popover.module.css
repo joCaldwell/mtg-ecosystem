@@ -1,11 +1,33 @@
 .popover {
   position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 0;
+  color: var(--text);
   z-index: var(--z-pop);
   max-width: calc(100vw - var(--s-7));
-  max-height: calc(100vh - var(--s-7));
+  max-height: calc(100dvh - var(--s-7));
   overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-lg);
   background: var(--overlay);
   box-shadow: var(--shadow-pop);
+}
+
+/* Native anchor positioning takes over without coordinate layout reads. The
+   JS path remains tethered and clamps to the viewport in older browsers. */
+@supports (position-area: block-end) {
+  .popover[data-anchored] {
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+    margin: var(--s-2) 0;
+  }
+  .popover[data-anchored][data-placement="below"][data-align="start"] { position-area: block-end span-inline-end; }
+  .popover[data-anchored][data-placement="below"][data-align="end"] { position-area: block-end span-inline-start; }
+  .popover[data-anchored][data-placement="above"][data-align="start"] { position-area: block-start span-inline-end; }
+  .popover[data-anchored][data-placement="above"][data-align="end"] { position-area: block-start span-inline-start; }
+  .popover[data-anchored][data-placement="right"][data-align="start"] { position-area: inline-end span-block-end; }
+  .popover[data-anchored][data-placement="right"][data-align="end"] { position-area: inline-end span-block-start; }
+  .popover[data-anchored][data-placement="left"][data-align="start"] { position-area: inline-start span-block-end; }
+  .popover[data-anchored][data-placement="left"][data-align="end"] { position-area: inline-start span-block-start; }
 }

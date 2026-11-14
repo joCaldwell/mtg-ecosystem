@@ -27,9 +27,9 @@ export function ContextMenu({ target, label, items, onClose }: ContextMenuProps)
   useEffect(() => {
     if (target && anchor) enabled()[0]?.focus({ preventScroll: true });
   }, [target, anchor, firstEnabled]);
-  function close() {
+  function close(reason?: "outside" | "escape") {
     onClose();
-    target?.element.focus({ preventScroll: true });
+    if (reason !== "outside") target?.element.focus({ preventScroll: true });
   }
   function keyDown(e: KeyboardEvent) {
     // The menu owns these keys; table hotkeys must not fire while it is open.

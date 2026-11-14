@@ -21,41 +21,39 @@ export function EngineEditor({ engine, onClose }: { engine?: Engine; onClose: ()
   const [description, setDescription] = useState(engine?.description ?? "");
   const [pieces, setPieces] = useState<Piece[]>(engine?.pieces.map((p) => ({ oracle_id: p.oracle_id, name: p.name })) ?? []);
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<CardData[] | null>(null);
-  const [searchError, setSearchError] = useState<string | null>(null);
+  const q = query.trim();
+  const searchKey = JSON.stringify([deckId, q]);
+  const [response, setResponse] = useState<{ key: string; cards: CardData[]; error: string | null } | null>(null);
+  const current = !!q && response?.key === searchKey;
+  const results = current ? response.cards : null;
+  const searchError = current ? response.error : null;
   const [busy, setBusy] = useState(false);
 
   // Debounced and abortable: only the latest query's answer is ever shown.
   useEffect(() => {
-    const q = query.trim();
-    if (!q) {
-      setResults(null);
-      setSearchError(null);
-      return;
-    }
+    if (!q) return;
     const abort = new AbortController();
     const timer = setTimeout(() => {
       api
         .search(q, deckId, true, abort.signal)
         .then((found) => {
-          setResults(found.slice(0, 8));
-          setSearchError(null);
+          if (!abort.signal.aborted) setResponse({ key: searchKey, cards: found.slice(0, 8), error: null });
         })
         .catch((e: unknown) => {
           if (abort.signal.aborted) return;
-          setSearchError(e instanceof Error ? e.message : String(e));
+          setResponse({ key: searchKey, cards: [], error: e instanceof Error ? e.message : String(e) });
         });
     }, SEARCH_DELAY_MS);
     return () => {
       clearTimeout(timer);
       abort.abort();
     };
-  }, [query, deckId]);
+  }, [q, deckId]);
 
   function addPiece(card: CardData) {
     setPieces((list) => (list.some((p) => p.oracle_id === card.oracle_id) ? list : [...list, { oracle_id: card.oracle_id, name: card.name }]));
     setQuery("");
-    setResults(null);
+    setResponse(null);
   }
 
   async function submit(e: FormEvent) {
@@ -70,16 +68,16 @@ export function EngineEditor({ engine, onClose }: { engine?: Engine; onClose: ()
   }
 
   function onKeyDown(e: KeyboardEvent) {
+    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
     if (e.key === "Escape") {
       e.stopPropagation();
       onClose();
     }
   }
 
-  const q = query.trim();
   return (
     <Box tone="neutral">
-      <form className={styles.form} onSubmit={submit} onKeyDown={onKeyDown}>
+      <form method="post" className={styles.form} onSubmit={submit} onKeyDown={onKeyDown}>
         <Field
           label="Name"
           // The name is the key the server upserts on, so editing through a
@@ -87,10 +85,10 @@ export function EngineEditor({ engine, onClose }: { engine?: Engine; onClose: ()
           // rename it.
           hint={engine ? "To rename an engine, remove it and add it again." : undefined}
         >
-          <TextField value={name} onChange={(e) => setName(e.target.value)} readOnly={!!engine} autoFocus={!engine} />
+          <TextField name="name" required pattern={".*\\S.*"} disabled={busy} value={name} onChange={(e) => setName(e.target.value)} readOnly={!!engine} autoFocus={!engine} />
         </Field>
         <Field label="Description" hint="What the engine does. Markdown, and [[Card Name]] for a card.">
-          <TextArea autosize rows={2} value={description} onChange={(e) => setDescription(e.target.value)} autoFocus={!!engine} />
+          <TextArea name="description" disabled={busy} autosize rows={2} value={description} onChange={(e) => setDescription(e.target.value)} autoFocus={!!engine} />
         </Field>
 
         <div className={styles.pieces}>
@@ -110,6 +108,7 @@ export function EngineEditor({ engine, onClose }: { engine?: Engine; onClose: ()
             </div>
           ))}
           <TextField
+            type="search" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} disabled={busy}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search for a card to add"
@@ -139,7 +138,7 @@ export function EngineEditor({ engine, onClose }: { engine?: Engine; onClose: ()
           <Button onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" variant="primary" disabled={busy || !name.trim()}>
+          <Button type="submit" variant="primary" disabled={busy}>
             {busy ? "Saving…" : engine ? "Save engine" : "Add engine"}
           </Button>
         </div>
