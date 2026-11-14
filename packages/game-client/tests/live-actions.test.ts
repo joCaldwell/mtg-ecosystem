@@ -117,6 +117,22 @@ test('late in-flight own cursor cleanup finishes before release and uses old aut
   await discovery; await r.stop(running); assert.equal(r.stats().owns, false);
 });
 
+test('shutdown drains late cleanup from an older retired query after a newer generation completes', async () => {
+  const r = rig(), result = deferred<ActionQueryResponse>(), cancellation = deferred<ActionQueryResponse>();
+  let starts = 0;
+  r.handler(async request => request.operation === 'cancel' ? cancellation.promise : ++starts === 1 ? result.promise : complete());
+  const running = r.session.join('seat'); await flush();
+  const first = r.session.startActions(); await flush();
+  await r.session.cancelActions(r.session.getSnapshot().actions!.generation);
+  const next = await r.session.startActions(); assert.ok(next);
+  r.session.stop(); await flush(); assert.equal(r.stats().owns, true);
+  result.resolve(incomplete()); await flush();
+  assert.deepEqual(r.queries.map(query => query.operation), ['start', 'start', 'cancel']);
+  assert.equal(r.stats().owns, true, 'late cancellation must finish under the old exclusive owner');
+  cancellation.resolve({ protocol_version: 1, match_id: binding.match_id, viewer: 0, outcome: { status: 'cancelled' } });
+  await first; await r.stop(running); assert.equal(r.stats().owns, false);
+});
+
 test('unexplained beginnings and mana payment context cannot construct live responses', () => {
   assert.deepEqual(actionResponse(pass, { window: 'priority' }, { scope: 'window' }), { response: 'pass' });
   assert.equal(actionResponse(pass, { window: 'priority' }, { scope: 'object', object: 'a' }), null);
