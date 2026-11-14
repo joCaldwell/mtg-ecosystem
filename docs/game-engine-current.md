@@ -85,21 +85,27 @@ older ordinary damage as newly deathtouch. It has no pool or consumer admission.
 These foundations are scoped in the [keyword contract](game-engine-indestructible.md).
 Damage-source LKI admits validated spell grants while replay authenticates the
 historical appearance; the guard retains duplicate and departure invariants.
-The preceding five-increment focused qualification uses source
-`4b9f8bb2fa5d544ab12947328e5efe2947be3264` and copied producer
-`770125c36502febc3a1f1276094666b34109809e32a4429673a8e7e342aad619`,
-with all 763 compiled source rows verified. It passed 368 Rust tests, including
-both paid admission prefixes and catalog freshness, plus 56 exported-schema
-probes, formatting, workspace all-target compilation and CLI smoke/replay.
+The current three-increment focused qualification uses source
+`babb01b79366c63fe6c31d06d025c4927236f691` and copied CLI producer
+`158bb7dd93e7a9d6aec6f29e5a91d37fcf9cd450ab0d363df1398445efc9c52e`,
+with all 773 compiled source rows verified. It passed 394 Rust tests, including
+compound/Collar and adjacent paid prefixes, shared policy tests and catalog
+freshness, plus 65 exported-schema probes, formatting, workspace all-target
+compilation and CLI smoke/replay. Runtime tests use opt-level 2; the CLI uses
+opt-level 0. Their distinct build identities and exact executed binary hashes
+are retained rather than treating the CLI as the test producer.
 Compiler/core/simulator production Clippy passed strictly; contracts production
 Clippy used only the inherited `collapsible_if` exception. Exact copies,
-commands, source hashes and omissions are retained under
-`generated/five-more/combined01/`. The exported schema SHA-256 is
-`aa24f67db518b6f14a86bd3363a6da5d36af66f4cef388cb9e515a77433da5d7`.
+commands, source hashes and omissions are retained in the active next-three
+worktree under `generated/next-three/combined01/`. The exported schema SHA-256 is
+`544f1d14d2a1f7f6ce5d0c3b016e3929678f76b3443445afb0d445b8df9441c7`.
 This is focused development qualification, excluding full runtime, release,
 profile/completion and downstream consumer matrices. The earlier blue full-game
-witness remains qualified to its separately named producer. The same batch also
-rejects unconsumed Aura-return sentence bindings without changing exact Rancor IR.
+witness remains qualified to its separately named producer. The preceding
+five-increment qualification at `4b9f8bb2fa5d544ab12947328e5efe2947be3264`
+retains its own 763-row producer and evidence in `generated/five-more/combined01/`;
+that batch also rejects unconsumed Aura-return sentence bindings without changing
+exact Rancor IR.
 The only active IR schema is 1 while there are no external consumers; new
 features evolve it in place with capability validation and exact build fencing.
 Current in-place support covers [grouped power-qualified damage and opponent

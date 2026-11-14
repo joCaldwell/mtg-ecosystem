@@ -35,8 +35,9 @@ investigate, not permission to change an expected outcome.
 A mechanic family is the unit of rules development; exact cards are source-backed
 witnesses. Lower typed AST semantics into shared IR operations and execute those
 operations through common runtime systems. Card names and Oracle IDs identify
-source data, never select rules. Prefer parameterized operations and reviewed
-composition over a new capability or branch for each card or printed quantity.
+source data and references, never select rule implementations. Prefer parameterized
+operations and reviewed composition over a new capability or branch for each card
+or printed quantity.
 Verify reuse with different source-backed examples when available, plus negative
 cases at the actual semantic boundary. Keep unsupported combinations explicit;
 existing narrow admission guards must be broadened with evidence rather than
