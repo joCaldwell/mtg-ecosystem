@@ -368,6 +368,7 @@ fn paid_aura_invalid_stale_and_hexproof_targets_never_enter_battlefield() {
             p.config.cards[i].owner = PlayerId(1);
             p.config.cards[i].controller = PlayerId(1);
         }
+        p.config.cards[4].zone = Zone::Hand { owner: PlayerId(1) };
         p.profile_digest = digest(&p.config).unwrap();
         both(p, |g, q| {
             let creature = object(g, 1);
