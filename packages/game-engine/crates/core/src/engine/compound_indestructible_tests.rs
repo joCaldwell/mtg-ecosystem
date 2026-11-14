@@ -67,13 +67,13 @@ fn boosted(g: &Game, id: u32) {
             .count(),
         1
     );
-    assert_eq!(g.state.rules.effects.len(), 2);
-    assert!(
-        matches!(&g.state.rules.effects[0].kind,ResolvedEffectKind::ModifyPowerToughness {target,..} if *target==object(g,id))
-    );
-    assert!(
-        matches!(&g.state.rules.effects[1].kind,ResolvedEffectKind::GrantKeywords {target,..} if *target==object(g,id))
-    );
+    assert_eq!(g.state.rules.effects.len(), 1);
+    assert!(matches!(&g.state.rules.effects[0].kind,
+        ResolvedEffectKind::GrantKeywords { target, modifier: Some(m), keywords }
+        if *target == object(g, id) && m.power == 1.into() && m.toughness == 1.into()
+            && keywords == &[KeywordAbility::Indestructible]));
+    assert_eq!(g.state.rules.effects[0].origin.source_block, 0);
+    assert_eq!(g.state.rules.effects[0].origin.cursor, 0);
 }
 #[test]
 fn compound_indestructible_paid_response_to_destroy_source_departure_and_union() {
@@ -210,9 +210,9 @@ fn compound_indestructible_bounce_reentry_and_resolution_target_recheck() {
         let trace = g.trace.clone();
         for viewer in 0..4 {
             let visible = g.visible_effects(PlayerId(viewer)).unwrap();
-            assert_eq!(visible.len(), 2);
+            assert_eq!(visible.len(), 1);
             assert!(
-                matches!(&visible[1],VisibleEffect::GrantKeywords{target,..} if target.current.is_none())
+                matches!(&visible[0],VisibleEffect::GrantKeywords{target,..} if target.current.is_none())
             );
         }
         assert_eq!(g.state, before);
@@ -343,19 +343,14 @@ fn compound_indestructible_paused_invocation_prefix_snapshot_replay() {
             for _ in 0..2000 {
                 match g.advance(Budget::new(q)) {
                     Advance::Suspended { .. } => {
-                        if g.state.rules.effects.len() == 1 {
-                            prefixes += 1;
-                            assert_eq!(
-                                g.derived_characteristics(object(g, 1))
-                                    .unwrap()
-                                    .power
-                                    .unwrap(),
-                                3.into()
-                            );
+                        if g.state.rules.effects.is_empty() {
                             assert!(!protected(g, 1));
-                            // No priority/SBA boundary exposes a half-completed invocation.
-                            assert!(g.state.rules.pending.is_none());
-                            assert!(matches!(g.state.rules.frame, Frame::Resolve { .. }));
+                            let c = g.derived_characteristics(object(g, 1)).unwrap();
+                            assert_eq!(c.power, Some(2.into()));
+                            assert_eq!(c.toughness, Some(2.into()));
+                        } else {
+                            prefixes += 1;
+                            boosted(g, 1);
                             recover(g);
                         }
                     }
@@ -369,10 +364,7 @@ fn compound_indestructible_paused_invocation_prefix_snapshot_replay() {
                 }
             }
             if q == 1 {
-                assert!(
-                    prefixes > 0,
-                    "actual suspended prefix between effect instructions"
-                );
+                assert!(prefixes > 0, "actual suspended complete atomic grant");
             }
             boosted(g, 1);
             recover(g);
