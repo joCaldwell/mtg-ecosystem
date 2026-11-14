@@ -1825,11 +1825,8 @@ fn append_spell_effects(
                     duration,
                 } if duration.duration == "end-of-turn" => {
                     let keywords = lower_temporary_creature_keywords(abilities)?;
-                    let target: Target = serde_json::from_value(what.clone()).map_err(|_| {
-                        unsupported("effects.gain-abilities", "unsupported keyword target")
-                    })?;
                     Instruction::GrantKeywords {
-                        target_slot: bind_creature_target(program, slots, &target)?,
+                        target_slot: bind_temporary_creature_target(program, slots, what)?,
                         keywords,
                         duration: Duration::UntilEndOfTurn,
                         source_block,
@@ -3162,7 +3159,7 @@ fn life_recipient(
     }
 }
 // CR 509.1g/601.2c/608.2b: consume the entire blocking-creature target.
-// Keep other creature operators on their existing unqualified target binder.
+// The blocking exception stays pump-only; keyword grants use the ordinary/controlled binder.
 fn bind_pump_target(
     program: &mut SpellProgram,
     slots: &mut BTreeMap<String, u32>,
@@ -3182,8 +3179,36 @@ fn bind_pump_target(
             TargetDomain::BlockingBattlefieldCreature,
         );
     }
+    bind_temporary_creature_target(program, slots, what)
+}
+// CR 109.5/601.2c/608.2b: “you” is the invocation controller and remains a
+// target restriction, not an owner test. Consume the exact controlled shape
+// before the ordinary strict decoder; null/other actors and extra filters fail.
+// Only pump and temporary keyword grants use this binder. Contracts require a
+// complete keyword program for controlled pumps; other creature operators keep
+// bind_creature_target's unqualified scope.
+// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+fn bind_temporary_creature_target(
+    program: &mut SpellProgram,
+    slots: &mut BTreeMap<String, u32>,
+    what: &serde_json::Value,
+) -> Result<u32, Failure> {
+    let id = what["selectionId"].as_str().unwrap_or("");
+    if *what
+        == serde_json::json!({"ref":"target","filter":{"types":["creature"],"control":"you"},
+        "count":{"amount":"fixed","value":1},"selectionId":id})
+    {
+        // bind_target checks domain consistency before reusing any selection
+        // slot, so a second operation cannot drop the controller restriction.
+        return bind_target(
+            program,
+            slots,
+            id,
+            TargetDomain::ControlledBattlefieldCreature,
+        );
+    }
     let target = serde_json::from_value(what.clone())
-        .map_err(|_| unsupported("pump", "unsupported complete creature pump target"))?;
+        .map_err(|_| unsupported("targets", "unsupported complete temporary creature target"))?;
     bind_creature_target(program, slots, &target)
 }
 fn bind_creature_target(
@@ -8491,3 +8516,6 @@ mod collar_source_tests;
 
 #[cfg(test)]
 mod temporary_creature_keyword_tests;
+
+#[cfg(test)]
+mod controlled_temporary_creature_keyword_tests;

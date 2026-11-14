@@ -76,7 +76,7 @@ fn temporary_deathtouch_strict_mirror_and_unsupported_source_shapes() {
                 1 => s["abilities"][0]["keyword"]["extra"] = true.into(),
                 2 => s["duration"]["duration"] = "forever".into(),
                 3 => s["what"]["count"]["value"] = 2.into(),
-                4 => s["what"]["filter"]["control"] = "you".into(),
+                4 => s["what"]["filter"]["control"] = "opponent".into(),
                 5 => s["abilities"]
                     .as_array_mut()
                     .unwrap()
