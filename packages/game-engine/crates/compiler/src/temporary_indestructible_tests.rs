@@ -60,7 +60,7 @@ fn temporary_indestructible_strict_mirror_and_unsupported_source_shapes() {
             let a = &mut r["faces"][0]["result"]["abilities"][0];
             let s = &mut a["effects"][0]["steps"][0];
             match variant {
-                0 => s["abilities"][0]["keyword"]["keyword"] = "flying".into(),
+                0 => s["abilities"][0]["keyword"]["keyword"] = "reach".into(),
                 1 => s["abilities"][0]["keyword"]["extra"] = true.into(),
                 2 => s["duration"]["duration"] = "forever".into(),
                 3 => s["what"]["count"]["value"] = 2.into(),

@@ -1020,7 +1020,8 @@ impl Game {
                             && frame.legal_targets.get(*target_slot as usize) == Some(&true)
                             && self.is_battlefield_creature(*target)
                             && keywords == grants
-                            && grants == &[KeywordAbility::Indestructible]
+                            && (grants == &[KeywordAbility::Indestructible]
+                                || grants == &[KeywordAbility::Flying])
                             && *source_block == effect.origin.source_block
                     }
                     (
@@ -1398,7 +1399,8 @@ impl Game {
                         },
                     ) => {
                         keywords == grants
-                            && grants == &[KeywordAbility::Indestructible]
+                            && (grants == &[KeywordAbility::Indestructible]
+                                || grants == &[KeywordAbility::Flying])
                             && *source_block == e.origin.source_block
                             && e.target_handles.len() == 4
                             && self.state.rules.cards.contains_key(&target.card)
