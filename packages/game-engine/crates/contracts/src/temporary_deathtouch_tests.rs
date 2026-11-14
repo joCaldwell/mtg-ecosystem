@@ -41,7 +41,7 @@ fn temporary_deathtouch_exact_capabilities_and_program() {
             }
             1 => {
                 if let Instruction::GrantKeywords { keywords, .. } = &mut p.instructions[0] {
-                    keywords.push(KeywordAbility::Indestructible);
+                    keywords.push(KeywordAbility::Reach);
                 }
             }
             2 => {
