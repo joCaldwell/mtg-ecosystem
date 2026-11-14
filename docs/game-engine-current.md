@@ -37,7 +37,9 @@ Deathtouch, Indestructible, Lifelink and Hexproof, optionally preceded by a fixe
 signed stat modifier. Targets may be ordinary creatures or creatures controlled
 by the invocation controller; old unfiltered subset requirements and consumer/pool
 admission remain unchanged. Current inputs do not provide a control-changing
-effect, so same-incarnation dynamic-control scenarios remain unqualified.
+effect, so same-incarnation dynamic-control scenarios remain unqualified. Admitted
+Auras enter already attached in one typed occurrence; checked semantic timestamps
+preserve attachment order independently of object IDs.
 Features evolve in place with strict capability/shape validation and exact build/
 catalog fencing; old historical IR numbers describe earlier evidence only.
 Snapshots, bundles, public projections, query sidecars, AST archives and protocol
@@ -62,7 +64,8 @@ Acceptance is source-qualified, never inherited by later code:
 | D2c-d `394301d` | Accepted declared-attack triggers at historical IR24, including reviewed demo/Bundle lifetimes |
 | Later D2c-e/IR25 and finite trigger/keyword/interaction additions | Candidate/focused source qualification; no renewed combined acceptance or P7 performance claim |
 | Schema-1 reset | Regenerated 29 active pools, 1,357 definitions unchanged; focused checks only |
-| Latest controlled temporary-keyword family | Source `b505e32cfb29bbfdcf5183b7480fbbd41a750ce1`; 794 compiled rows; focused qualification only, with exact producer and omissions in evidence guide |
+| Controlled temporary-keyword family | Source `b505e32cfb29bbfdcf5183b7480fbbd41a750ce1`; 794 compiled rows; focused qualification only, with exact producer and omissions in evidence guide |
+| Latest attachment-entry foundation | Source `feece7d468b5618b8b5849341650b99a2ad6f331`; 796 compiled rows; focused atomic-entry/timestamp/recovery qualification only |
 | Client/hosting consumers | Retain their own exact producer/schema/catalog/build qualification, separate from current engine HEAD |
 
 [The evidence guide](game-engine-evidence.md) retains exact source/digest and proof

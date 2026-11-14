@@ -167,6 +167,32 @@ selected tests and 230 probes under `generated/temporary-keyword-family/`.
 Earlier mechanic-family, next-three/five-more and full-game/client proofs keep
 their own source identities. No new consumer acceptance follows from these passes.
 
+### Attachment-entry foundation qualification
+
+Source `feece7d468b5618b8b5849341650b99a2ad6f331` passed 82 distinct selected
+Rust tests, workspace all-target compilation, formatting, strict core/simulator
+production Clippy and CLI smoke/replay. The 796-row CLI producer is
+`bf1377dded86288dc92b772471bee24d7ab5098a0d766c1b0326ed9824f46d7b`;
+the independently verified optimized test producer is
+`8d68587f0acd172d2682276844792f6c6b779794991406bb45a5d39ee2f9d3ee`.
+Card IR/schema remains byte-identical to the controlled-target family above.
+Private snapshots are format 22; public/query versions and consumer admission do
+not change. Exact binaries, source/settings proof, command receipts and failures
+are under `generated/attachment-foundation/combined03/` in the original engine
+lane, with earlier failed test setup attempts preserved alongside it.
+
+Paid Rancor, Pacifism and Unholy Strength prove atomic attached entry, chronological
+attachment allocation, same-target no-op, departure/reentry and normalized
+snapshot-forgery rejection at quanta 1/4096 with restore/replay. Nine snapshot/codec
+tests actually ran through the corrected copied-binary selector; the original two
+zero-match invocations are retained and confer no coverage. Four existing combat
+witnesses passed outcome and trace/budget checks and produced exactly the same
+four digests on the new producer and retained pre-change `b505e32c` producer. One
+historical combat golden mismatch was reproduced on both; its expected value is
+unchanged. Full demo/bundle acceptance, full runtime/release/profile/completion,
+server/SDK/consumer matrices and Node suites requiring absent dependencies remain
+unrun. Continuous Aura control sources remain wholly unsupported.
+
 ### Selected current proof locators
 
 `generated/` below is relative to each original implementation lane, not assumed
