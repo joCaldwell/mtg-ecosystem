@@ -1398,7 +1398,7 @@ impl Game {
                 }
             }
             ProposedEvent::EnterAttached { object, target } => {
-                // CR 303.4a/608.3b/603.6a: the Aura is already legally
+                // CR 303.4a/608.3c/603.6a: the Aura is already legally
                 // attached when entry observers and ETB hooks see it.
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
                 let source = self.current(*object)?;

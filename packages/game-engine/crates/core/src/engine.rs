@@ -47,11 +47,11 @@ mod wipes_tests;
 use removal::TargetFacts;
 #[cfg(test)]
 mod artifact_sacrifice_source_tests;
+#[cfg(test)]
+mod attachment_entry_tests;
 mod attachments;
 #[cfg(test)]
 mod attachments_tests;
-#[cfg(test)]
-mod attachment_entry_tests;
 #[cfg(test)]
 mod blocking_target_tests;
 #[cfg(test)]
@@ -1383,7 +1383,7 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
-    /// CR 303.4a/608.3b: entry and legal attachment are one occurrence.
+    /// CR 303.4a/608.3c: entry and legal attachment are one occurrence.
     EnterAttached {
         object: ObjectId,
         target: ObjectId,
