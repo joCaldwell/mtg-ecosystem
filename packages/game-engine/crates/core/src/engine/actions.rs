@@ -593,6 +593,7 @@ impl Game {
         match instruction {
             i @ (Instruction::MoveSet { .. }
             | Instruction::PumpSet { .. }
+            | Instruction::GrantKeywordsSet { .. }
             | Instruction::DamageSet { .. }
             | Instruction::GainLifeDestroyed { .. }
             | Instruction::ExileDamagedThisTurn { .. }

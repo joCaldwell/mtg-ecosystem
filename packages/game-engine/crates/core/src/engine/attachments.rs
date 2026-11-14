@@ -167,11 +167,18 @@ impl Game {
         // CR 611.2c/613.1f/400.7: union only for the captured incarnation;
         // source departure does not end an already resolved EOT grant.
         for effect in &self.state.rules.effects {
-            if let ResolvedEffectKind::GrantKeywords {
-                target,
-                keywords: grants,
-            } = &effect.kind
-                && *target == object
+            let grants = match &effect.kind {
+                ResolvedEffectKind::GrantKeywords { target, keywords } if *target == object => {
+                    Some(keywords)
+                }
+                ResolvedEffectKind::GrantKeywordsSet { targets, keywords }
+                    if targets.contains(&object) =>
+                {
+                    Some(keywords)
+                }
+                _ => None,
+            };
+            if let Some(grants) = grants
                 && self.is_battlefield_creature(object)
             {
                 for keyword in grants {

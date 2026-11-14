@@ -54,6 +54,10 @@ pub struct ResolvedEffect {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "effect", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ResolvedEffectKind {
+    GrantKeywordsSet {
+        targets: Vec<ObjectId>,
+        keywords: Vec<KeywordAbility>,
+    },
     PumpSet {
         targets: Vec<ObjectId>,
         power: Quantity,
@@ -979,6 +983,23 @@ impl Game {
                             && *source_block == effect.origin.source_block
                     }
                     (
+                        Instruction::GrantKeywordsSet {
+                            set,
+                            keywords,
+                            duration: Duration::UntilEndOfTurn,
+                            source_block,
+                        },
+                        ResolvedEffectKind::GrantKeywordsSet {
+                            targets,
+                            keywords: grants,
+                        },
+                    ) => {
+                        *targets == self.objects_in_set(set, frame.spell.controller)
+                            && keywords == grants
+                            && supported_temporary_creature_keywords(grants)
+                            && *source_block == effect.origin.source_block
+                    }
+                    (
                         Instruction::ExileDamagedThisTurn { source_block },
                         ResolvedEffectKind::ExileDamaged { targets },
                     ) => {
@@ -1076,6 +1097,7 @@ impl Game {
                 };
                 let valid_target_handles = match &effect.kind {
                     ResolvedEffectKind::PumpSet { targets, .. }
+                    | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
                     | ResolvedEffectKind::ExileDamaged { targets } => {
                         effect.target_handles.len() == targets.len() * 4
                             && targets.iter().enumerate().all(|(i, o)| {
@@ -1362,6 +1384,26 @@ impl Game {
                             && self.valid_set_effect_targets(e, targets)
                     }
                     (
+                        Instruction::GrantKeywordsSet {
+                            keywords,
+                            duration: Duration::UntilEndOfTurn,
+                            source_block,
+                            ..
+                        },
+                        ResolvedEffectKind::GrantKeywordsSet {
+                            targets,
+                            keywords: grants,
+                        },
+                    ) => {
+                        // CR 611.2c: membership was captured at creation. Current
+                        // controllers/attack status cannot authenticate past eligibility;
+                        // restore's input replay proves the complete ordered capture.
+                        keywords == grants
+                            && supported_temporary_creature_keywords(grants)
+                            && *source_block == e.origin.source_block
+                            && self.valid_set_effect_targets(e, targets)
+                    }
+                    (
                         Instruction::ExileDamagedThisTurn { source_block },
                         ResolvedEffectKind::ExileDamaged { targets },
                     ) => {
@@ -1580,6 +1622,13 @@ pub struct VisibleEffectSource {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "effect", rename_all = "snake_case", deny_unknown_fields)]
 pub enum VisibleEffect {
+    GrantKeywordsSet {
+        handle: EffectHandle,
+        origin: VisibleEffectSource,
+        targets: Vec<VisibleTarget>,
+        keywords: Vec<KeywordAbility>,
+        expires_in_cleanup_of_turn: u64,
+    },
     PumpSet {
         handle: EffectHandle,
         origin: VisibleEffectSource,
@@ -1804,6 +1853,15 @@ impl Game {
                 toughness: toughness.clone(),
                 expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
             },
+            ResolvedEffectKind::GrantKeywordsSet { targets, keywords } => {
+                VisibleEffect::GrantKeywordsSet {
+                    handle,
+                    origin,
+                    targets: set_views(targets)?,
+                    keywords: keywords.clone(),
+                    expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+                }
+            }
             ResolvedEffectKind::ExileDamaged { targets } => VisibleEffect::ExileDamaged {
                 handle,
                 origin,
@@ -2113,7 +2171,8 @@ impl Game {
                                         StaticEffect::ModifyCreatures {keywords,..} if keywords.contains(k)))
                                         || definition.spell.as_ref().is_some_and(|program|
                                             program.instructions.iter().any(|instruction| matches!(instruction,
-                                                Instruction::GrantKeywords {keywords,..} if keywords.contains(k))))
+                                                Instruction::GrantKeywords {keywords,..}
+                                                | Instruction::GrantKeywordsSet {keywords,..} if keywords.contains(k))))
                                 })))
                     })
             };
