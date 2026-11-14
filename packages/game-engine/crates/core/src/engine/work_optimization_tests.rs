@@ -153,7 +153,7 @@ impl Game {
         {
             b.view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
             return Ok(Some(Observation {
-                observation_version: 17,
+                observation_version: 18,
                 view: b.view.clone(),
                 decision: b.decision.clone(),
             }));
@@ -506,7 +506,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 17,
+                    context_version: 18,
                     observation: *observation.clone().ok_or(QueryRejection::Invariant)?,
                     permitted_history: history.clone(),
                     open_decklists: decks.clone(),
@@ -632,7 +632,7 @@ fn compare_with_profile(game: &Game, query: Query, profile: Option<&mut LegalPro
                         assert_eq!(
                             saved,
                             canonical(&SavedWork {
-                                work_version: 17,
+                                work_version: 18,
                                 build_id: BUILD_ID.into(),
                                 catalog_digest: game.prepared.catalog_digest.clone(),
                                 state_sha256: state_sha256.clone(),

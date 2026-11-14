@@ -887,11 +887,37 @@ struct SourceReplacement {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "event", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceDamageEvent {
+    PutCounters {
+        on: Vec<CounterPlacementSourceRecipient>,
+        counter: SourceCounter,
+        cause: String,
+        quantity: SourceCounterThreshold,
+    },
     Damage {
         kind: String,
         source: ReplacementDamageSource,
         to: Vec<ReplacementRecipient>,
     },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CounterPlacementSourceRecipient {
+    #[serde(rename = "ref")]
+    reference: String,
+    filter: CounterPlacementSourceFilter,
+    count: Count,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CounterPlacementSourceFilter {
+    types: Vec<String>,
+    control: String,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceCounterThreshold {
+    op: String,
+    value: Count,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -916,7 +942,8 @@ enum SourceReplacementAction {
 #[serde(deny_unknown_fields)]
 struct SourceQuantityChange {
     operation: String,
-    factor: u32,
+    factor: Option<u32>,
+    amount: Option<Count>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -3065,8 +3092,58 @@ fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
     let SourceStaticEffect::Replacement { replacement } = effect else {
         unreachable!()
     };
-    let SourceDamageEvent::Damage { kind, source, to } = &replacement.event;
     let SourceReplacementAction::ModifyQuantity { change } = &replacement.replace;
+    if let SourceDamageEvent::PutCounters {
+        on,
+        counter,
+        cause,
+        quantity,
+    } = &replacement.event
+    {
+        // CR 614.1a/614.4-5/616.1: bind the affected creature independently of
+        // the provider, whose current controller supplies “you”. Archived
+        // diagnostic binding flags do not authorize execution.
+        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+        let expected = serde_json::json!({"ref":"filter","filter":{"types":["creature"],"control":"you"},"count":{"amount":"fixed","value":1}});
+        if on.len() != 1
+            || on[0]
+                != serde_json::from_value::<CounterPlacementSourceRecipient>(expected)
+                    .expect("counter scope")
+            || counter.r#type != "+1/+1"
+            || cause != "any"
+            || quantity.op != "ge"
+            || !fixed_one(&quantity.value)
+            || replacement.occurrence != "each"
+        {
+            return Err(unsupported(
+                "abilities.static",
+                "unsupported complete counter placement scope",
+            ));
+        }
+        let modification = match (change.operation.as_str(), &change.amount, change.factor) {
+            ("add", Some(amount), None) => CounterPlacementModification::Add {
+                amount: fixed_positive(amount)?,
+            },
+            ("multiply", None, Some(factor)) if factor > 0 => {
+                CounterPlacementModification::Multiply {
+                    factor: i64::from(factor).into(),
+                }
+            }
+            _ => {
+                return Err(unsupported(
+                    "abilities.static",
+                    "unsupported counter placement quantity modification",
+                ));
+            }
+        };
+        return Ok(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::ControllerCreaturePlusOneCounterReplacement { modification },
+        });
+    }
+    let SourceDamageEvent::Damage { kind, source, to } = &replacement.event else {
+        unreachable!()
+    };
     let permanent = |recipient: &ReplacementRecipient| {
         matches!(recipient,
         ReplacementRecipient::Permanent(FilterObject { reference, filter: ObjectFilter::Class(CardFilter { cls }), count })
@@ -3081,7 +3158,8 @@ fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
         || !fixed_one(&source.count)
         || replacement.occurrence != "each"
         || change.operation != "multiply"
-        || change.factor != 2
+        || change.factor != Some(2)
+        || change.amount.is_some()
         || to.len() != 2
         || to.iter().filter(|r| permanent(r)).count() != 1
         || to.iter().filter(|r| player(r)).count() != 1
@@ -8703,3 +8781,6 @@ mod collar_source_tests;
 
 #[cfg(test)]
 mod ramos_m1_tests;
+
+#[cfg(test)]
+mod counter_placement_tests;

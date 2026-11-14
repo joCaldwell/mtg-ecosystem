@@ -200,6 +200,9 @@ impl Strategy {
         let v = &o.view;
         let r = o.decision.as_ref().ok_or("missing action decision")?;
         Ok(match r {
+            PlayerRequest::CounterPlacementEffect { .. } => {
+                return Err("counter placement replacement choices outside this policy".into());
+            }
             PlayerRequest::LegendRule { candidates, .. } => PlayerResponse::LegendRule {
                 keep: candidates.last().ok_or("empty legend choices")?.clone(),
             },

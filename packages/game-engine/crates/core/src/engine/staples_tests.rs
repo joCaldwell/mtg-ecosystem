@@ -1241,6 +1241,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                 match &a.effect {
                     StaticEffect::EntersTapped
                     | StaticEffect::OpponentsCantCastDuringControllerTurn
+                    | StaticEffect::ControllerCreaturePlusOneCounterReplacement { .. }
                     | StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer
                     | StaticEffect::ReduceGenericByCreatureCount
                     | StaticEffect::CantBeCountered
@@ -1401,3 +1402,6 @@ mod ramos_split_tests;
 
 #[path = "ramos_m1_tests.rs"]
 mod ramos_m1_tests;
+
+#[path = "counter_placement_tests.rs"]
+mod counter_placement_tests;

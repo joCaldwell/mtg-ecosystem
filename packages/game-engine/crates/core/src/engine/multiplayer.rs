@@ -443,6 +443,7 @@ impl Game {
             .retain(|s| !lost_stack.contains(&s.id));
         self.revalidate_trigger_departure()?;
         self.revalidate_damage_departure()?;
+        self.revalidate_counter_placement_departure()?;
         for stack_id in &lost_stack {
             self.record_event(Event::StackRemovedForDeparture {
                 stack_id: *stack_id,

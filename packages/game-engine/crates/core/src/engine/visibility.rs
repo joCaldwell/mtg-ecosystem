@@ -259,6 +259,12 @@ pub enum PlayerRequest {
         player: PlayerId,
         candidates: Vec<u32>,
     },
+    CounterPlacementEffect {
+        token: DecisionToken,
+        player: PlayerId,
+        recipient: ObjectHandle,
+        candidates: Vec<VisibleCounterPlacementCandidate>,
+    },
     DamageEffect {
         token: DecisionToken,
         player: PlayerId,
@@ -385,6 +391,7 @@ impl PlayerRequest {
             | Self::DamageAllocation { token, .. }
             | Self::AnnounceX { token, .. }
             | Self::Modes { token, .. }
+            | Self::CounterPlacementEffect { token, .. }
             | Self::DamageEffect { token, .. }
             | Self::OrderTriggers { token, .. }
             | Self::EntityTargets { token, .. }
@@ -454,6 +461,9 @@ pub enum PlayerResponse {
     },
     Modes {
         mode: u32,
+    },
+    CounterPlacementEffect {
+        effect: CounterPlacementEffectHandle,
     },
     DamageEffect {
         effect: EffectHandle,
@@ -1275,6 +1285,23 @@ impl Game {
                 candidates: vec![],
             }));
         }
+        if let Some(Request::CounterPlacementEffect {
+            player, recipient, ..
+        }) = self.counter_placement_request()?
+        {
+            return Ok((player == viewer)
+                .then(|| {
+                    self.handle_for(viewer, recipient).map(|recipient| {
+                        PlayerRequest::CounterPlacementEffect {
+                            token: token.clone(),
+                            player,
+                            recipient,
+                            candidates: vec![],
+                        }
+                    })
+                })
+                .transpose()?);
+        }
         if let Some(Request::DamageEffect {
             player, recipient, ..
         }) = self.damage_effect_request()?
@@ -1698,6 +1725,11 @@ impl Game {
             } else if self.modes_request()?.is_some_and(|r| r.player() == viewer) {
                 Some((self.state.rules.revision, 13))
             } else if self
+                .counter_placement_request()?
+                .is_some_and(|r| r.player() == viewer)
+            {
+                Some((self.state.rules.revision, 21))
+            } else if self
                 .damage_effect_request()?
                 .is_some_and(|r| r.player() == viewer)
             {
@@ -1872,6 +1904,11 @@ impl Game {
                 value: value.clone(),
             }),
             PlayerResponse::Modes { mode } => Ok(Response::Modes { mode: *mode }),
+            PlayerResponse::CounterPlacementEffect { effect } => {
+                Ok(Response::CounterPlacementEffect {
+                    effect: self.resolve_counter_effect(viewer, effect)?,
+                })
+            }
             PlayerResponse::DamageEffect { effect, damage } => {
                 let (effect, damage) = self.resolve_damage_effect_pair(viewer, effect, damage)?;
                 Ok(Response::DamageEffect { effect, damage })

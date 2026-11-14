@@ -52,9 +52,11 @@ mod attachments;
 mod attachments_tests;
 #[cfg(test)]
 mod blocking_target_tests;
+mod counter_placement;
 #[cfg(test)]
 mod four_colors_tests;
 mod staples;
+pub use counter_placement::*;
 mod tokens;
 pub use staples::VisibleSearchLand;
 pub use tokens::{RuleFault, TOKEN_CAPACITY, VisibleToken};
@@ -957,6 +959,9 @@ enum Frame {
     Modes {
         cast: Casting,
     },
+    CounterPlacement {
+        transaction: CounterPlacementTransaction,
+    },
     DamageEffects {
         transaction: DamageTransaction,
     },
@@ -1070,6 +1075,9 @@ pub enum Response {
     },
     Modes {
         mode: u32,
+    },
+    CounterPlacementEffect {
+        effect: CounterPlacementEffectKey,
     },
     DamageEffect {
         effect: EffectKey,
@@ -1219,6 +1227,12 @@ pub enum Request {
         player: PlayerId,
         candidates: Vec<u32>,
     },
+    CounterPlacementEffect {
+        decision_id: u64,
+        player: PlayerId,
+        recipient: ObjectId,
+        candidates: Vec<CounterPlacementEffectKey>,
+    },
     DamageEffect {
         decision_id: u64,
         player: PlayerId,
@@ -1331,6 +1345,7 @@ impl Request {
             | Self::BottomOpening { decision_id, .. }
             | Self::DamageAllocation { decision_id, .. }
             | Self::Modes { decision_id, .. }
+            | Self::CounterPlacementEffect { decision_id, .. }
             | Self::DamageEffect { decision_id, .. }
             | Self::OrderTriggers { decision_id, .. }
             | Self::EntityTargets { decision_id, .. }
@@ -1364,6 +1379,7 @@ impl Request {
             | Self::BottomOpening { player, .. }
             | Self::DamageAllocation { player, .. }
             | Self::Modes { player, .. }
+            | Self::CounterPlacementEffect { player, .. }
             | Self::DamageEffect { player, .. }
             | Self::OrderTriggers { player, .. }
             | Self::EntityTargets { player, .. }
@@ -1422,6 +1438,9 @@ pub enum ProposedEvent {
         source: ObjectId,
         count: u32,
         token: Box<mtg_contracts::CreatureToken>,
+    },
+    ApplyCounterPlacementEffect {
+        effect: CounterPlacementEffectKey,
     },
     PutPlusOneCounters {
         object: ObjectId,
@@ -1560,6 +1579,9 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    CounterPlacementModified {
+        application: CounterPlacementApplication,
+    },
     SearchLandsRevealed {
         player: PlayerId,
         objects: Vec<ObjectId>,
@@ -2269,6 +2291,9 @@ impl Game {
         if let Some(req) = self.modes_request()? {
             return Ok((req.player() == viewer).then_some(req));
         }
+        if let Some(req) = self.counter_placement_request()? {
+            return Ok((req.player() == viewer).then_some(req));
+        }
         if let Some(req) = self.damage_effect_request()? {
             return Ok((req.player() == viewer).then_some(req));
         }
@@ -2423,6 +2448,11 @@ impl Game {
             let mut validation = self.fork();
             validation.state.rules.frame = *resume.clone();
             return validation.validate_response(player, response);
+        }
+        if let (Frame::CounterPlacement { .. }, Response::CounterPlacementEffect { effect }) =
+            (&self.state.rules.frame, response)
+        {
+            return self.validate_counter_placement_response(player, effect);
         }
         if let (Frame::DamageEffects { .. }, Response::DamageEffect { effect, damage }) =
             (&self.state.rules.frame, response)
@@ -2686,6 +2716,7 @@ impl Game {
             Frame::DamageAllocation { .. } => self.damage_allocation_step()?,
             Frame::AnnounceX { cast } => self.bind_x(cast)?,
             Frame::Modes { cast } => self.bind_mode(cast)?,
+            Frame::CounterPlacement { .. } => self.counter_placement_step()?,
             Frame::DamageEffects { .. } => self.damage_effect_step()?,
             Frame::Priority => {
                 let input = self
@@ -3106,7 +3137,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 20,
+            snapshot_version: 21,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3148,7 +3179,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 20
+        if s.snapshot_version != 21
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3253,6 +3284,7 @@ impl Game {
             }
         }
         self.validate_tokens_state()?;
+        self.validate_counter_placement_state()?;
         self.validate_mana_uses()?;
         self.validate_trigger_state()?;
         self.validate_effect_state()?;

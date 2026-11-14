@@ -4,6 +4,7 @@ import { assertAttackTriggerSchema } from "./attack-trigger-contracts.ts";
 import { assertCastTriggerSchema } from "./cast-trigger-contracts.ts";
 import { assertUntapSchema } from "./untap-contracts.ts";
 import { assertRamosSchema } from "./ramos-contracts.ts";
+import { assertCounterPlacementSchema } from "./counter-placement-contracts.ts";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -2299,4 +2300,20 @@ test("exact-source Righteousness preserves its blocking creature target and boun
     assert.equal(fs.readFileSync(record,"utf8"),raw,"compilation preserves the frozen source and diagnostic binding");
     passed=true;
   } finally {if(passed) fs.rmSync(temporary,{recursive:true,force:true});}
+});
+
+
+test("complete frozen counter placement replacement family exports strict schema1", () => {
+  const source=fileURLToPath(new URL("fixtures/ramos/",import.meta.url));
+  const temporary=fs.mkdtempSync(path.join(os.tmpdir(),"mtg-counter-placement-schema-"));
+  const manifest=path.join(temporary,"catalog.json");
+  fs.writeFileSync(manifest,JSON.stringify({schema_version:1,output_order:"canonical",provenance:path.join(source,"provenance.json"),
+    records:["3ed41d2d-211b-4013-8562-8c64d54cc43a","a1f3da21-af6d-450e-bf0b-985d158418e6","ca0cc02b-b106-4eca-9388-d4b48dd3be49"].map(id=>path.join(source,`${id}.json`)),
+    expected_ir:path.join(temporary,"actual-ir.json"),expected_digest:path.join(temporary,"actual.sha256")}));
+  const report=run("catalog","build",manifest,"--write");
+  assert.equal(report.definitions,3);
+  const compiled=JSON.parse(fs.readFileSync(report.expected_ir,"utf8"));
+  const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
+  assert.deepEqual(assertCounterPlacementSchema(validate,compiled),{positives:10,negatives:20});
+  // Preserve generated complete-source evidence with the ordinary test runner.
 });

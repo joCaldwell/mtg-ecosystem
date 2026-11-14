@@ -228,7 +228,7 @@ fn direct_projection(game: &Game, viewer: PlayerId) -> Observation {
     view.objects
         .sort_by(|left, right| left.handle.0.cmp(&right.handle.0));
     Observation {
-        observation_version: 17,
+        observation_version: 18,
         view,
         decision: game.request_header(viewer).unwrap(),
     }

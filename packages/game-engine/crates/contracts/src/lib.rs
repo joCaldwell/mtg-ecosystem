@@ -46,6 +46,9 @@ impl Quantity {
     pub fn add(&mut self, other: &Self) {
         self.0 += &other.0;
     }
+    pub fn multiply(&mut self, other: &Self) {
+        self.0 *= &other.0;
+    }
     pub fn subtract(&mut self, other: &Self) {
         self.0 -= &other.0;
     }
@@ -177,6 +180,7 @@ pub enum Capability {
     CastTriggerV1,
     CastSpellColorCountersV1,
     CounterRemovalManaV1,
+    ControllerCreaturePlusOneCounterReplacementV1,
     AttackTriggerV1,
     DamageTriggerV1,
     SourceDamageTriggerV2,
@@ -719,6 +723,33 @@ pub struct DeathFilter {
 pub enum Duration {
     UntilEndOfTurn,
 }
+/// CR 614.1a/614.5: positive placement quantities only; removal is a cost.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CounterPlacementModification {
+    Add { amount: Quantity },
+    Multiply { factor: Quantity },
+}
+impl CounterPlacementModification {
+    pub fn validate(&self) -> Result<(), String> {
+        let value = match self {
+            Self::Add { amount } => amount,
+            Self::Multiply { factor } => factor,
+        };
+        if *value <= Quantity::zero() {
+            return Err("counter placement parameter must be positive".into());
+        }
+        Ok(())
+    }
+    pub fn apply(&self, value: &Quantity) -> Quantity {
+        let mut result = value.clone();
+        match self {
+            Self::Add { amount } => result.add(amount),
+            Self::Multiply { factor } => result.multiply(factor),
+        }
+        result
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
@@ -737,6 +768,9 @@ pub enum StaticEffect {
     ControllerCreatureAnthem {
         power: Quantity,
         toughness: Quantity,
+    },
+    ControllerCreaturePlusOneCounterReplacement {
+        modification: CounterPlacementModification,
     },
     DoubleDamageToPermanentOrPlayer,
     /// Double damage from creatures controlled by this battlefield source's controller.
@@ -1388,6 +1422,9 @@ impl Definition {
             set.insert(match a.effect {
                 StaticEffect::OpponentsCantCastDuringControllerTurn => {
                     Capability::OpponentCastProhibitionV1
+                }
+                StaticEffect::ControllerCreaturePlusOneCounterReplacement { .. } => {
+                    Capability::ControllerCreaturePlusOneCounterReplacementV1
                 }
                 StaticEffect::EntersTapped => Capability::EntersTappedV1,
                 StaticEffect::ReduceGenericByCreatureCount | StaticEffect::CantBeCountered => {
@@ -2124,6 +2161,10 @@ impl Definition {
         if self.static_abilities.iter().any(|a| {
             a.effect != StaticEffect::EntersTapped
                 && a.effect != StaticEffect::OpponentsCantCastDuringControllerTurn
+                && !matches!(
+                    a.effect,
+                    StaticEffect::ControllerCreaturePlusOneCounterReplacement { .. }
+                )
                 && a.effect != StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer
                 && !matches!(
                     a.effect,
@@ -2153,6 +2194,18 @@ impl Definition {
             return Err("static damage replacement must function on battlefield".into());
         }
         for a in &self.static_abilities {
+            if let StaticEffect::ControllerCreaturePlusOneCounterReplacement { modification } =
+                &a.effect
+            {
+                modification.validate()?;
+                if !matches!(
+                    c.kind,
+                    CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
+                ) {
+                    return Err("counter replacement requires a battlefield permanent".into());
+                }
+                continue;
+            }
             if a.effect == StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer {
                 if !matches!(
                     c.kind,
@@ -3386,8 +3439,31 @@ pub fn canonical<T: Serialize>(value: &T) -> Result<String, String> {
 pub fn digest<T: Serialize>(value: &T) -> Result<String, String> {
     Ok(sha256(canonical(value)?.as_bytes()))
 }
+fn counter_placement_schema(schema: &mut serde_json::Value) {
+    let effect = serde_json::json!({"type":"object","required":["controller_creature_plus_one_counter_replacement"]});
+    schema["$defs"]["CounterPlacementModification"]["allOf"] = serde_json::json!([{"properties": {
+        "amount":{"pattern":"^[1-9][0-9]*$"}, "factor":{"pattern":"^[1-9][0-9]*$"}
+    }}]);
+    schema["$defs"]["StaticAbility"]
+        .as_object_mut()
+        .unwrap()
+        .entry("allOf")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "if":{"required":["effect"],"properties":{"effect":effect.clone()}},
+            "then":{"properties":{"functioning_zone":{"const":"battlefield"}}}
+        }));
+    schema["$defs"]["Definition"].as_object_mut().unwrap().entry("allOf").or_insert_with(||serde_json::json!([])).as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{"effect":effect}}}}},
+        "then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["creature","artifact","enchantment"]}}},"capabilities":{"contains":{"const":Capability::ControllerCreaturePlusOneCounterReplacementV1}}}},
+        "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerCreaturePlusOneCounterReplacementV1}}}}}
+    }));
+}
 pub fn catalog_schema() -> serde_json::Value {
     let mut schema = serde_json::to_value(schemars::schema_for!(Catalog)).expect("schema is JSON");
+    counter_placement_schema(&mut schema);
     // CR 702.12/702.6: only the separately bounded Equipment grant is admitted.
     schema["$defs"]["CreatureToken"]["properties"]["keywords"]["items"] = serde_json::json!({"allOf":[{"$ref":"#/$defs/KeywordAbility"},{"not":{"enum":["flash","indestructible"]}}]});
     let grant = serde_json::json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{"effect":{"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}}}}}}}}});
@@ -4177,6 +4253,7 @@ mod tests {
             CastTriggerV1,
             CastSpellColorCountersV1,
             CounterRemovalManaV1,
+            ControllerCreaturePlusOneCounterReplacementV1,
             AttackTriggerV1,
             DamageTriggerV1,
             SourceDamageTriggerV2,
@@ -4263,6 +4340,9 @@ mod tests {
         definitions.push(permanent_owner_hand_tests::permanent_owner_hand());
         definitions.push(basic_land_split_tests::split_search());
         definitions.push(ramos_m1_tests::ramos());
+        definitions.push(counter_placement_tests::provider(
+            CounterPlacementModification::Add { amount: 7.into() },
+        ));
         // Synthetic contract-shape witness only. Complete D2c-e source lowering
         // is checked in compiler/core tests, without fabricated expected IR.
         let mut damage = definitions
@@ -5886,3 +5966,6 @@ mod temporary_deathtouch_tests;
 
 #[cfg(test)]
 mod ramos_m1_tests;
+
+#[cfg(test)]
+mod counter_placement_tests;

@@ -23,6 +23,7 @@ impl Game {
             | Frame::ResolutionChoice { frame, .. }
             | Frame::ForcedSacrifice { frame, .. }
             | Frame::OptionalDamage { frame } => Some(frame),
+            Frame::CounterPlacement { transaction } => Some(&mut transaction.frame),
             Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
                 match transaction.continuation.as_mut() {
                     DamageContinuation::Instruction { frame } => Some(frame),

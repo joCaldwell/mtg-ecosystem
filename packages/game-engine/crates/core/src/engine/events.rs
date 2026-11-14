@@ -331,7 +331,8 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             let keys = BTreeSet::from([FactKey::Libraries, FactKey::Turn]);
             (keys.clone(), keys)
         }
-        ProposedEvent::AllocateDamageEffect { .. }
+        ProposedEvent::ApplyCounterPlacementEffect { .. }
+        | ProposedEvent::AllocateDamageEffect { .. }
         | ProposedEvent::CreateEffect { .. }
         | ProposedEvent::ApplyDamageEffect { .. }
         | ProposedEvent::CommitDamage { .. }
@@ -547,6 +548,8 @@ fn collect<'a>(
                     matches!(
                         e,
                         ProposedEvent::Setup { .. }
+                            | ProposedEvent::PutPlusOneCounters { .. }
+                            | ProposedEvent::ApplyCounterPlacementEffect { .. }
                             | ProposedEvent::AllocateDamageEffect { .. }
                             | ProposedEvent::CreateEffect { .. }
                             | ProposedEvent::ApplyDamageEffect { .. }
@@ -637,6 +640,9 @@ impl Game {
                     // CR608.2m: the invocation owns its fixed token definition.
                     // It reads no current source incarnation after departure.
                     players.insert(*controller);
+                }
+                ProposedEvent::ApplyCounterPlacementEffect { effect } => {
+                    objects.insert(effect.source);
                 }
                 ProposedEvent::PutPlusOneCounters { object, .. } => {
                     objects.insert(*object);
@@ -1482,7 +1488,8 @@ impl Game {
             ProposedEvent::ShuffleLibraryWord { player, index } => {
                 self.apply_search_shuffle_word(*player, *index)?
             }
-            event @ (ProposedEvent::CreateCreatureTokens { .. }
+            event @ (ProposedEvent::ApplyCounterPlacementEffect { .. }
+            | ProposedEvent::CreateCreatureTokens { .. }
             | ProposedEvent::PutPlusOneCounters { .. }
             | ProposedEvent::CeaseToken { .. }) => self.apply_token_event(event)?,
             ProposedEvent::Setup { action } => EventOutcome::Setup {
