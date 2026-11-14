@@ -197,6 +197,7 @@ pub enum Capability {
     PermanentManaV1,
     CompositeActivationCostV1,
     CastEnchantmentV1,
+    AuraControlV1,
     TemporaryPowerToughnessV1,
     CombatDamagePreventionV1,
     DamageBudgetPreventionV1,
@@ -713,6 +714,10 @@ pub enum Duration {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
+    /// CR 109.5/303.4m/611.3/613.1b: the current source controller controls
+    /// its enchanted creature; this is not a frozen invocation recipient.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    ControlEnchantedCreature,
     /// CR 101.2/109.5/601.3: opponents cannot cast during this controller's turn.
     OpponentsCantCastDuringControllerTurn,
     EntersTapped,
@@ -1180,6 +1185,47 @@ pub struct Definition {
     pub capabilities: BTreeSet<Capability>,
     pub provenance: SourceProvenance,
 }
+/// The complete admitted Aura-control executable shape, without recursive
+/// validation, capability calculation, source identity or mana-cost dispatch.
+/// CR 303.4a/303.4m, 109.5 and 611.3: one creature target and one battlefield
+/// static effect using the current Aura controller. Other Aura families retain
+/// their existing admission rules.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+pub fn aura_control_source(definition: &Definition) -> bool {
+    let c = &definition.characteristics;
+    c.kind == CardKind::Enchantment
+        && c.additional_types.is_empty()
+        && c.subtypes == ["Aura"]
+        && !c.basic
+        && !c.legendary
+        && !c.snow
+        && c.power.is_none()
+        && c.toughness.is_none()
+        && !c.mana_cost.generic.is_negative()
+        && !definition.x_mana_cost
+        && definition.intrinsic_zone.is_none()
+        && definition.keywords.is_empty()
+        && definition.activated.is_empty()
+        && definition.mana_abilities.is_empty()
+        && definition.triggered.is_empty()
+        && matches!(definition.static_abilities.as_slice(), [a]
+            if a.functioning_zone == FunctioningZone::Battlefield
+                && a.effect == StaticEffect::ControlEnchantedCreature)
+        && definition.spell.as_ref().is_some_and(|p| {
+            p.timing == SpellTiming::MainPhase
+                && p.resolution == SpellResolution::Permanent
+                && p.functioning_zone == FunctioningZone::Stack
+                && p.additional_sacrifice.is_none()
+                && p.instructions.is_empty()
+                && p.modes.is_empty()
+                && matches!(p.targets.as_slice(), [t]
+                    if t.slot == 0 && !t.selection_id.is_empty()
+                        && t.domain == TargetDomain::BattlefieldCreature
+                        && t.chooser == Chooser::Controller
+                        && t.stage == EvaluationStage::Announcement
+                        && t.filter.is_none())
+        })
+}
 impl Definition {
     pub fn requirements(&self) -> BTreeSet<Capability> {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1]);
@@ -1361,6 +1407,7 @@ impl Definition {
                 set.insert(Capability::IndestructibleV1);
             }
             set.insert(match a.effect {
+                StaticEffect::ControlEnchantedCreature => Capability::AuraControlV1,
                 StaticEffect::OpponentsCantCastDuringControllerTurn => {
                     Capability::OpponentCastProhibitionV1
                 }
@@ -1389,6 +1436,14 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        if self
+            .static_abilities
+            .iter()
+            .any(|a| a.effect == StaticEffect::ControlEnchantedCreature)
+            && !aura_control_source(self)
+        {
+            return Err("unsupported complete Aura control family".into());
+        }
         if self.activated.iter().any(|a| has_keyword_grant(&a.program))
             || self.triggered.iter().any(|a| has_keyword_grant(&a.program))
             || self.spell.as_ref().is_some_and(|p| {
@@ -2077,6 +2132,10 @@ impl Definition {
             return Err("static damage replacement must function on battlefield".into());
         }
         for a in &self.static_abilities {
+            if a.effect == StaticEffect::ControlEnchantedCreature {
+                // The whole definition was checked by aura_control_source above.
+                continue;
+            }
             if a.effect == StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer {
                 if !matches!(
                     c.kind,

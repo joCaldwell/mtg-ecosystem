@@ -880,6 +880,10 @@ enum AnyTargetReference {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "static", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceStaticEffect {
+    Control {
+        who: SourceControlPlayer,
+        what: SourceControlObject,
+    },
     Prohibit {
         prohibition: serde_json::Value,
     },
@@ -905,6 +909,20 @@ enum SourceStaticEffect {
     Replacement {
         replacement: SourceReplacement,
     },
+}
+// Unlike diagnostic binding.references, these are executable typed operands.
+// No selector, qualifier, sentence binding or duration may be discarded.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceControlPlayer {
+    player: String,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceControlObject {
+    #[serde(rename = "ref")]
+    reference: String,
+    noun: String,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1149,6 +1167,34 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         let b: serde_json::Value = decode(ability.get(), "abilities")?;
         if a != b || line.text.is_empty() {
             return Err(invalid("lines", "line and aggregate ability disagree"));
+        }
+    }
+    if abilities.iter().any(|a| {
+        matches!(
+            a,
+            Ability::Static {
+                effect: SourceStaticEffect::Control { .. },
+                ..
+            }
+        )
+    }) {
+        // This family binds the complete source, never an approximated control
+        // fragment. CR 303.4a/303.4m, 109.5, 611.3 and 613.1b (2026-09-25).
+        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+        if !matches!(abilities.as_slice(), [Ability::Keywords { keywords, .. }, Ability::Static { effect: SourceStaticEffect::Control { .. }, .. }]
+            if matches!(keywords.as_slice(), [k] if k.keyword == "enchant" && k.cost.is_none()
+                && k.filter == Some(serde_json::json!({"types":["creature"]}))))
+            || result
+                .lines
+                .iter()
+                .map(|l| normalization::literal_spelling(&l.text))
+                .collect::<Vec<_>>()
+                != ["Enchant creature", "You control enchanted creature."]
+        {
+            return Err(unsupported(
+                "static.control",
+                "unsupported complete Aura control source",
+            ));
         }
     }
     let kind = types.kind;
@@ -2715,6 +2761,18 @@ fn lower_prevention(
     }
 }
 fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
+    if let SourceStaticEffect::Control { who, what } = effect {
+        if who.player != "you" || what.reference != "enchanted" || what.noun != "creature" {
+            return Err(unsupported(
+                "static.control",
+                "unsupported Aura control operands",
+            ));
+        }
+        return Ok(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::ControlEnchantedCreature,
+        });
+    }
     if let SourceStaticEffect::Prohibit { prohibition } = effect {
         // CR 101.2/109.5/601.3/611.3b: the current battlefield controller
         // defines opponents and whose turn. Consume the whole action scope;
