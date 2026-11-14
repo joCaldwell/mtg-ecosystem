@@ -97,6 +97,8 @@ export interface AppOptions {
   jobs?: Jobs;
   /** Testable static root; production uses the Vite output. */
   webDist?: string;
+  /** Product composition may supply its explicit page surface. */
+  isApplicationPath?: (pathname: string) => boolean;
 }
 
 type Handler = (actor: Actor, params: string[], body: any, url: URL) => unknown | Promise<unknown>;
@@ -594,7 +596,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     if (pathname.startsWith("/mcp") || /^\/(api|\.well-known)(\/|$)/.test(pathname)) return false;
     const file = resolve(root, pathname === "/" ? "index.html" : pathname.slice(1));
     if (!file.startsWith(root + sep)) return false;
-    const appRoute = /^\/(?:decks|inbox|memories|profile|activity|settings|design|signin|consent|privacy|terms|deck\/[^/]+(?:\/(?:review|playtest))?|[du]\/[^/]+)?$/.test(pathname);
+    const appRoute = opts.isApplicationPath?.(pathname) ?? /^\/(?:decks|play(?:\/preview)?|inbox|memories|profile|activity|settings|design|signin|consent|privacy|terms|deck\/[^/]+(?:\/(?:review|playtest))?|[du]\/[^/]+)?$/.test(pathname);
     const target = existsSync(file) && statSync(file).isFile() ? file :
       appRoute && !extname(pathname) ? join(root, "index.html") : null;
     if (!target || !existsSync(target)) return false;

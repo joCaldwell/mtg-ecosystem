@@ -12,7 +12,7 @@ import { ServiceError } from "./errors.ts";
 import { publicProfile } from "./sharing.ts";
 import { publicDeckState } from "./state.ts";
 
-const SITE = "MTG Deck Builder";
+const SITE = "Multiverse";
 const COLOURS: Record<string, string> = { W: "White", U: "Blue", B: "Black", R: "Red", G: "Green" };
 
 export interface LinkPreview {

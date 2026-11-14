@@ -4,9 +4,10 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, existsSync, globSync } from 'node:fs';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const packageFlag = process.argv.indexOf('--package');
+const root = packageFlag < 0 ? resolve(dirname(fileURLToPath(import.meta.url)), '..') : resolve(process.argv[packageFlag + 1]);
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-const file = process.argv[3] ? resolve(process.argv[3]) : join(root, 'runtime-imports.json');
+const file = process.argv[3] && !process.argv[3].startsWith('--') && packageFlag !== 2 ? resolve(process.argv[3]) : join(root, 'runtime-imports.json');
 if (process.argv[2] === '--manifest') {
   const { default: ts } = await import('typescript');
   const imports = [];
@@ -24,7 +25,9 @@ if (process.argv[2] === '--manifest') {
   writeFileSync(file, JSON.stringify(imports));
 } else {
   const imports = JSON.parse(readFileSync(file, 'utf8'));
-  const external = new Set(Object.keys(pkg.dependencies));
+  // Browser-only product dependencies need no Node runtime copy or root export.
+  // The capability service still checks every declared server dependency.
+  const external = new Set(pkg.name === '@mtg-ecosystem/deck-builder' ? Object.keys(pkg.dependencies) : []);
   for (const { file: source, name } of imports) {
     if (name.startsWith('.')) assert.ok(existsSync(resolve(root, dirname(source), name)), `${source}: missing ${name}`);
     else if (!name.startsWith('node:')) external.add(name);
@@ -44,6 +47,6 @@ if (process.argv[2] === '--manifest') {
   }
   for (const [name, range] of Object.entries(pkg.dependencies))
     if (/^\d+\.\d+\.\d+$/.test(range)) assert.equal(versions[name], range, `${name} resolved to a different version`);
-  assert.equal(versions.jose, '6.2.3');
+  if (pkg.dependencies.jose) assert.equal(versions.jose, '6.2.3');
   console.log(JSON.stringify({ runtime_imports_checked: imports.length, versions }));
 }

@@ -1,5 +1,14 @@
 # Deck-builder operations
 
+Product ownership moved on 2026-11-14: browser/account UX, build, process entrypoint
+and local manager now live in `packages/multiverse`. Existing backend npm launch
+commands delegate there. Backend CLI/MCP/refresh/backup commands stay here; data,
+environment names, dotenv lookup and `.dev` PID/log locations remain unchanged.
+From this directory the direct entrypoint is `node ../multiverse/src/server.ts`.
+Historical deployment records below retain their original source paths; a future
+promotion must use the updated image entrypoint, without changing existing data
+mounts or account credentials. This refactor does not deploy anything.
+
 Use Node 26 (`nvm use`, `.nvmrc`). The package declares Node >=24.12 for
 stable native TypeScript stripping; `src/sqlite.ts` uses the renamed Node 26
 `Database` class and the equivalent constructor on Node 24. All connections
@@ -134,7 +143,7 @@ For a nondestructive rehearsal, point the restore at a separate destination:
 
 ```sh
 DECKBUILDER_DB=/tmp/deck-builder-restore.db node src/cli.ts restore /private/path/post-claim-backup.db
-DECKBUILDER_DB=/tmp/deck-builder-restore.db DECKBUILDER_DATA=/tmp/deck-builder-drill DECKBUILDER_PORT=8799 node src/server.ts
+DECKBUILDER_DB=/tmp/deck-builder-restore.db DECKBUILDER_DATA=/tmp/deck-builder-drill DECKBUILDER_PORT=8799 node ../multiverse/src/server.ts
 curl --fail http://127.0.0.1:8799/api/health
 ```
 
@@ -230,7 +239,7 @@ bucket requires configured credentials and remains unverified.
 
 Every variable Phase 3 needs is listed here. The Node service reads the
 process environment; `.env` is loaded only when explicitly requested with
-`node --env-file=.env src/server.ts`. Never print `.env`, tokens, OAuth
+`node --env-file=.env ../multiverse/src/server.ts`. Never print `.env`, tokens, OAuth
 responses, or provider credentials. Local `.env` is ignored and mode 0600.
 
 | Variable | Secret? | Hosted setting |

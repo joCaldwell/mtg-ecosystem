@@ -35,7 +35,7 @@ Deferred: arbitrary decks, matchmaking, ratings, spectators, chat, public accoun
 offline play, browser-local search/WASM, strategic AI, game-state undo, and a 3D
 table. These are separate increments with their own admission and privacy policies.
 
-### Deferred design direction: deck-builder cohesion
+### Active design direction: deck-builder cohesion
 
 Josh's direction, 2026-11-13: the game client and deck builder should feel like
 closely connected parts of one product. Align the client's styling and UX with
@@ -43,10 +43,17 @@ the deck builder, including visual identity, typography, colors, spacing, card
 presentation, controls, navigation and common interaction patterns. The current
 client's appearance does not yet meet this expectation and is provisional.
 
-This is a recorded future design requirement, with low current priority. Continue
-gameplay and integration work before undertaking the visual/UX alignment. Plan
-shared design tokens and reusable presentation primitives when that work becomes
-active, while preserving the applications' existing responsibility boundaries.
+Josh activated UX and styling work on 2026-11-14. Use the deck-builder's current
+design system as the visual reference and this client's own requirements for
+interaction. The solo playtester guidance and implementation are not accepted
+design references: Josh has not been satisfied with that experience. Preserve
+the applications' existing responsibility boundaries; sharing visual conventions
+does not require importing private features or extracting a shared package.
+
+The first reviewable increment improves the existing table, source-backed card
+inspection, opening decisions and join flow. Its design and acceptance criteria
+are in [the client UX direction](game-client-ux.md). Later gameplay support remains
+subject to the existing integration gates.
 
 ## 2. Principles
 
@@ -128,10 +135,15 @@ types and pure helpers only. UI primitives know no protocol. Features compose th
 lower layers through exported interfaces; only `app` owns route/session composition.
 Components never call fetch. Enforce these boundaries with a small import check.
 
-Keep one deployable client initially. Do not add shared packages for hypothetical
-reuse. Reuse deck-builder design ideas and source-backed card presentation patterns;
-extract shared primitives only when both consumers have demonstrated requirements.
-The deck-builder retains independent release, data and authentication contracts.
+Owner direction on 2026-11-14 activates the [unified product](multiverse-app.md):
+the top-level Multiverse application owns account UX, navigation, game setup and
+presentation, using the existing backend identity and capability service.
+The standalone client remains an integration harness. Both consumers now require
+the same table, so pure permitted display components move to `game-ui` through
+explicit public exports. Session recovery, generated-protocol adapters and
+qualified fixture composition stay client-owned. Shared styles are scoped and
+neither consumer imports the other's private features. The deck library retains
+its independent source data and public compatibility contracts.
 
 ## 5. State ownership and flow
 

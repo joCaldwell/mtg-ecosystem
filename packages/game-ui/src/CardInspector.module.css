@@ -1,0 +1,18 @@
+.inspector { background: var(--game-surface); border-left: 1px solid var(--game-line); padding: var(--game-space-4); min-width: 0; min-height: 0; overflow: auto; }
+.top { display: flex; align-items: center; justify-content: space-between; min-height: 30px; gap: var(--game-space-2); }
+.top button { padding: 4px 10px; font-size: var(--game-text-small); }
+.title { font-size: 20px; margin: var(--game-space-4) 0 var(--game-space-2); overflow-wrap: anywhere; }
+.zone { font-size: var(--game-text-small); color: var(--game-muted); margin-bottom: var(--game-space-4); }
+.face { border-top: 1px solid var(--game-line); border-bottom: 1px solid var(--game-line); padding-block: var(--game-space-3); }
+.mana { margin: 0; font: var(--game-text-small)/1.5 var(--game-mono); color: var(--game-soft); }
+.type { font-weight: 600; font-size: var(--game-text-body); color: var(--game-soft); }
+.oracle { font-size: 15px; line-height: 1.65; white-space: pre-line; margin-bottom: 0; }
+.caption { font-size: var(--game-text-small); color: var(--game-muted); }
+.inspector h3 { font-size: var(--game-text-body); margin-top: var(--game-space-5); }
+.facts { font-size: var(--game-text-body); }
+.facts div { display: flex; justify-content: space-between; gap: var(--game-space-3); padding: var(--game-space-2) 0; border-bottom: 1px solid var(--game-line); }.facts dt { color: var(--game-muted); }
+.facts dd { margin: 0; text-align: right; font-family: var(--game-mono); overflow-wrap: anywhere; }
+.source { margin-top: var(--game-space-5); font-size: var(--game-text-small); color: var(--game-muted); overflow-wrap: anywhere; }.source summary { padding: var(--game-space-2) 0; }
+.empty { margin-top: var(--game-space-5); }.empty h2 { font-size: var(--game-text-title); }.empty p { font-size: var(--game-text-body); color: var(--game-soft); max-width: 36ch; }.empty .muted { color: var(--game-muted); }
+@media (min-width: 1800px) { .inspector { padding: var(--game-space-5); } }
+@media (max-width: 1099px) { .inspector { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--game-line); }.face { max-width: 70ch; } }

@@ -1,0 +1,42 @@
+{
+  "name": "@multiverse/app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "launch": "node scripts/serve.mjs launch",
+    "start": "node scripts/serve.mjs start",
+    "stop": "node scripts/serve.mjs stop",
+    "restart": "node scripts/serve.mjs restart",
+    "status": "node scripts/serve.mjs status",
+    "logs": "node scripts/serve.mjs logs",
+    "dev": "node scripts/dev.mjs",
+    "app": "vite build && node src/server.ts",
+    "dev:server": "node --watch src/server.ts",
+    "dev:web": "vite",
+    "check": "npm run build && npm test",
+    "build": "tsc --noEmit && tsc -p web --noEmit",
+    "build:web": "vite build",
+    "test": "node --test 'test/**/*.test.ts'",
+    "install:launcher": "node scripts/install-launcher.mjs",
+    "uninstall:launcher": "node scripts/install-launcher.mjs --uninstall"
+  },
+  "dependencies": {
+    "@mtg-ecosystem/deck-builder": "file:../deck-builder",
+    "@multiverse/game-client": "file:../game-client",
+    "@multiverse/game-ui": "file:../game-ui",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.5.0",
+    "vite": "^7.0.0",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=24.12"
+  }
+}

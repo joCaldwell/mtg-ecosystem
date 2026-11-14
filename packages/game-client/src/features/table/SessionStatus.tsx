@@ -1,6 +1,6 @@
 import type { ReadSnapshot } from '../../session/controller.ts';
 import { connectionLabel, connectionDetail } from '../../session/status.ts';
-import styles from './Table.module.css';
+import styles from './SessionStatus.module.css';
 
 export function SessionStatus({ snapshot, onStop }: { snapshot: ReadSnapshot; onStop(): void }) {
   const outcome = snapshot.read?.outcome;

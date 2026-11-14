@@ -1,0 +1,2 @@
+.status { margin-block: var(--space-3); padding: var(--space-3); border: 1px solid var(--selection-line); border-radius: var(--radius); background: var(--selection); }
+.status p { margin: 0; color: var(--soft); font-size: var(--text-small); }.status p + p { margin-top: var(--space-2); }.status button { margin-top: var(--space-2); }
