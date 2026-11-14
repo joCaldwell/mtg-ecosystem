@@ -135,6 +135,13 @@ fn paid_composed_aura_control_atomic_entry_union_and_same_controller_combat() {
         cast(g, q, 5, target(g, 2));
         let before = g.current(creature).unwrap().clone();
         let effects = g.state.rules.effects.clone();
+        // CR 613.7e: Equipment shares the attachment clock with Auras.
+        assert_eq!(
+            g.current(object(g, 3)).unwrap().attachment_timestamp,
+            Some(2)
+        );
+        let second_timestamp = g.state.rules.next_attachment_timestamp;
+        assert_eq!(second_timestamp, 3);
         announce_modified(g, q, 1, 2);
         let second_stack = g.state.rules.stack.last().unwrap().clone();
         resolve(g, q, |g| {
@@ -155,7 +162,7 @@ fn paid_composed_aura_control_atomic_entry_union_and_same_controller_combat() {
             assert_eq!(entries.len(), 1);
             assert_eq!(entries[0].occurrences.len(), 1);
             assert!(
-                matches!(&entries[0].occurrences[0].actual, EventOutcome::EnteredAttached { movement, target, attachment_timestamp: 2 } if movement.previous == second_stack.source && movement.successor == object(g, 1) && *target == creature)
+                matches!(&entries[0].occurrences[0].actual, EventOutcome::EnteredAttached { movement, target, attachment_timestamp } if movement.previous == second_stack.source && movement.successor == object(g, 1) && *target == creature && *attachment_timestamp == second_timestamp)
             );
         }
         assert_eq!(g.state.rules.effects, effects);
