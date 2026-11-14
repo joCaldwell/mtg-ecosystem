@@ -585,8 +585,8 @@ pub enum Instruction {
         amount: Quantity,
         source_block: u32,
     },
-    /// CR 611.2a/c, 613.1f: the only admitted grant is one creature's
-    /// one supported keyword until cleanup, from an ordinary instant/sorcery.
+    /// CR 611.2c, 613.5–6: one captured set receives all parts of this
+    /// continuous effect, including an optional fixed signed P/T modifier.
     GrantKeywordsSet {
         set: ObjectSet,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2616,7 +2616,7 @@ pub struct TemporaryCreatureSetKeywordProgram<'a> {
     pub modifier: Option<(&'a Quantity, &'a Quantity)>,
     pub keywords: &'a [KeywordAbility],
 }
-/// CR 608.2c/h, 611.2c: select the complete set when each instruction executes.
+/// CR 608.2c/h, 611.2c, 613.5–6: one instruction creates the complete effect.
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 pub fn temporary_creature_set_keyword_program(
     p: &SpellProgram,
@@ -2629,31 +2629,19 @@ pub fn temporary_creature_set_keyword_program(
     {
         return None;
     }
-    let (set, modifier, keywords) = match p.instructions.as_slice() {
-        [
-            Instruction::GrantKeywordsSet {
-                set,
-                keywords,
-                duration: Duration::UntilEndOfTurn,
-                source_block: 0,
-            },
-        ] => (set, None, keywords),
-        [
-            Instruction::PumpSet {
-                set: pump_set,
-                power,
-                toughness,
-                source_block: 0,
-            },
-            Instruction::GrantKeywordsSet {
-                set,
-                keywords,
-                duration: Duration::UntilEndOfTurn,
-                source_block: 0,
-            },
-        ] if set == pump_set => (set, Some((power, toughness)), keywords),
-        _ => return None,
+    let [
+        Instruction::GrantKeywordsSet {
+            set,
+            modifier,
+            keywords,
+            duration: Duration::UntilEndOfTurn,
+            source_block: 0,
+        },
+    ] = p.instructions.as_slice()
+    else {
+        return None;
     };
+    let modifier = modifier.as_ref().map(|m| (&m.power, &m.toughness));
     (matches!(
         set,
         ObjectSet::ControllerCreatures | ObjectSet::AttackingCreatures
@@ -4199,6 +4187,10 @@ pub fn catalog_schema() -> serde_json::Value {
     let set_grant_op =
         serde_json::json!({"required":["op"],"properties":{"op":{"const":"grant_keywords_set"}}});
     let set_grant_program = serde_json::json!({"required":["instructions"],"properties":{"instructions":{"contains":set_grant_op}}});
+    schema["$defs"]["CreatureSetModifier"] = serde_json::json!({
+        "type":"object","additionalProperties":false,"required":["power","toughness"],
+        "properties":{"power":{"$ref":"#/$defs/ExactQuantity"},"toughness":{"$ref":"#/$defs/ExactQuantity"}}
+    });
     let mut set_shapes = Vec::new();
     for set in [
         ObjectSet::ControllerCreatures,
@@ -4206,13 +4198,11 @@ pub fn catalog_schema() -> serde_json::Value {
     ] {
         let grant = serde_json::json!({"properties":{
             "op":{"const":"grant_keywords_set"},"set":{"const":set},
+            "modifier":{"anyOf":[{"type":"null"},{"$ref":"#/$defs/CreatureSetModifier"}]},
             "keywords":{"$ref":"#/$defs/TemporaryCreatureKeywords"},
             "duration":{"const":"until_end_of_turn"},"source_block":{"const":0}
         }});
         set_shapes.push(serde_json::json!({"minItems":1,"maxItems":1,"items":grant}));
-        set_shapes.push(serde_json::json!({"minItems":2,"maxItems":2,"prefixItems":[
-            {"properties":{"op":{"const":"pump_set"},"set":{"const":set},"power":{"$ref":"#/$defs/ExactQuantity"},"toughness":{"$ref":"#/$defs/ExactQuantity"},"source_block":{"const":0}}},grant
-        ]}));
     }
     schema["$defs"]["TemporaryCreatureSetKeywordInstructions"] =
         serde_json::json!({"anyOf":set_shapes});

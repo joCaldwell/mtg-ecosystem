@@ -6,22 +6,15 @@ pub(super) fn grant(set: ObjectSet, keywords: &[KeywordAbility], modifier: bool)
     let p = d.spell.as_mut().unwrap();
     p.targets.clear();
     p.instructions = vec![Instruction::GrantKeywordsSet {
-        set: set.clone(),
+        set,
+        modifier: modifier.then(|| CreatureSetModifier {
+            power: Quantity::from(-2),
+            toughness: Quantity::zero(),
+        }),
         keywords: keywords.to_vec(),
         duration: Duration::UntilEndOfTurn,
         source_block: 0,
     }];
-    if modifier {
-        p.instructions.insert(
-            0,
-            Instruction::PumpSet {
-                set,
-                power: Quantity::from(-2),
-                toughness: Quantity::zero(),
-                source_block: 0,
-            },
-        );
-    }
     d.capabilities = d.requirements();
     d
 }
@@ -95,27 +88,42 @@ fn creature_set_keyword_shapes_and_old_routes_reject() {
         &[KeywordAbility::Haste],
         true,
     );
-    reject(d.clone(), |p| p.instructions.reverse());
     reject(d.clone(), |p| {
         p.instructions.pop();
     });
     reject(d.clone(), |p| {
-        let i = p.instructions[1].clone();
-        p.instructions.push(i);
+        p.instructions.push(p.instructions[0].clone());
     });
-    reject(d.clone(), |p| {
-        if let Instruction::PumpSet { set, .. } = &mut p.instructions[0] {
-            *set = ObjectSet::AttackingCreatures;
+    // CR 611.2c/613.6: a split pair is not one multi-layer effect, even when
+    // both instructions have the same selector and source block.
+    for set in [
+        ObjectSet::ControllerCreatures,
+        ObjectSet::AttackingCreatures,
+    ] {
+        let base = grant(set.clone(), &[KeywordAbility::Haste], true);
+        for reverse in [false, true] {
+            reject(base.clone(), |p| {
+                if let Instruction::GrantKeywordsSet { modifier, .. } = &mut p.instructions[0] {
+                    *modifier = None;
+                }
+                p.instructions.insert(
+                    0,
+                    Instruction::PumpSet {
+                        set: set.clone(),
+                        power: (-2).into(),
+                        toughness: Quantity::zero(),
+                        source_block: 0,
+                    },
+                );
+                if reverse {
+                    p.instructions.reverse();
+                }
+            });
         }
-    });
+    }
     for block in [1, u32::MAX] {
         reject(d.clone(), |p| {
-            if let Instruction::GrantKeywordsSet { source_block, .. } = &mut p.instructions[1] {
-                *source_block = block;
-            }
-        });
-        reject(d.clone(), |p| {
-            if let Instruction::PumpSet { source_block, .. } = &mut p.instructions[0] {
+            if let Instruction::GrantKeywordsSet { source_block, .. } = &mut p.instructions[0] {
                 *source_block = block;
             }
         });
@@ -146,6 +154,12 @@ fn creature_set_keyword_shapes_and_old_routes_reject() {
         );
     }
     for i in [
+        Instruction::PumpSet {
+            set: ObjectSet::ControllerCreatures,
+            power: Quantity::from(1),
+            toughness: Quantity::zero(),
+            source_block: 0,
+        },
         Instruction::MoveSet {
             set: ObjectSet::ControllerCreatures,
             action: SetMove::Destroy,
@@ -171,7 +185,12 @@ fn creature_set_keyword_shapes_and_old_routes_reject() {
     for name in ["Samite Healer", "Blood Artist"] {
         for program in [d.spell.as_ref().unwrap().clone(), {
             let mut p = d.spell.as_ref().unwrap().clone();
-            p.instructions.pop();
+            p.instructions = vec![Instruction::PumpSet {
+                set: ObjectSet::ControllerCreatures,
+                power: Quantity::from(1),
+                toughness: Quantity::zero(),
+                source_block: 0,
+            }];
             p
         }] {
             let mut host = catalog
@@ -244,14 +263,12 @@ fn creature_set_keyword_signed_parameters_mixed_vectors_and_pure_blocks() {
                 ),
             ] {
                 let mut d = grant(set.clone(), &keywords, true);
-                if let Instruction::PumpSet {
-                    power: p,
-                    toughness: t,
-                    ..
+                if let Instruction::GrantKeywordsSet {
+                    modifier: Some(m), ..
                 } = &mut d.spell.as_mut().unwrap().instructions[0]
                 {
-                    *p = power.parse().unwrap();
-                    *t = toughness.parse().unwrap();
+                    m.power = power.parse().unwrap();
+                    m.toughness = toughness.parse().unwrap();
                 }
                 d.validate().unwrap();
                 let p = d.spell.as_ref().unwrap();
@@ -287,5 +304,55 @@ fn creature_set_keyword_signed_parameters_mixed_vectors_and_pure_blocks() {
             d.capabilities = d.requirements();
             assert!(d.validate().is_err());
         }
+    }
+}
+
+#[test]
+fn creature_set_keyword_modifier_strict_io_and_first_strike_serialization() {
+    use serde_json::json;
+    let pure = grant(
+        ObjectSet::ControllerCreatures,
+        &[KeywordAbility::FirstStrike],
+        false,
+    );
+    let compound = grant(
+        ObjectSet::ControllerCreatures,
+        &[KeywordAbility::FirstStrike],
+        true,
+    );
+    let pure = serde_json::to_value(&pure.spell.unwrap().instructions[0]).unwrap();
+    assert_eq!(pure["keywords"], json!(["first strike"]));
+    assert!(pure.get("modifier").is_none());
+    assert!(matches!(
+        serde_json::from_value::<Instruction>(pure.clone()).unwrap(),
+        Instruction::GrantKeywordsSet { modifier: None, .. }
+    ));
+    let compound = serde_json::to_value(&compound.spell.unwrap().instructions[0]).unwrap();
+    assert_eq!(compound["modifier"], json!({"power":"-2","toughness":"0"}));
+    for modifier in [
+        json!({}),
+        json!({"power":"1"}),
+        json!({"toughness":"0"}),
+        json!({"power":"1","toughness":"0","extra":true}),
+        json!({"power":"-0","toughness":"0"}),
+        json!({"power":1,"toughness":"0"}),
+        json!({"power":{"amount":"x"},"toughness":"0"}),
+    ] {
+        let mut bad = compound.clone();
+        bad["modifier"] = modifier;
+        assert!(serde_json::from_value::<Instruction>(bad).is_err());
+    }
+    for (power, toughness) in [
+        ("0", "0"),
+        ("-2", "3"),
+        (
+            "9999999999999999999999999999999999999",
+            "-9999999999999999999999999999999999999",
+        ),
+    ] {
+        let mut value = compound.clone();
+        value["modifier"] = json!({"power":power,"toughness":toughness});
+        let decoded: Instruction = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), value);
     }
 }

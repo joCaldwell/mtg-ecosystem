@@ -157,22 +157,19 @@ fn creature_set_keyword_five_exact_sources_costs_order_and_closure() {
                 SpellTiming::MainPhase
             }
         );
-        let mut instructions = vec![];
-        if let Some((power, toughness)) = w.modifier {
-            instructions.push(Instruction::PumpSet {
+        assert_eq!(
+            p.instructions,
+            vec![Instruction::GrantKeywordsSet {
                 set: w.set.clone(),
-                power: power.into(),
-                toughness: toughness.into(),
+                modifier: w.modifier.map(|(power, toughness)| CreatureSetModifier {
+                    power: power.into(),
+                    toughness: toughness.into(),
+                }),
+                keywords: w.keywords.to_vec(),
+                duration: Duration::UntilEndOfTurn,
                 source_block: 0,
-            });
-        }
-        instructions.push(Instruction::GrantKeywordsSet {
-            set: w.set.clone(),
-            keywords: w.keywords.to_vec(),
-            duration: Duration::UntilEndOfTurn,
-            source_block: 0,
-        });
-        assert_eq!(p.instructions, instructions);
+            }]
+        );
         let desc = temporary_creature_set_keyword_program(p).unwrap();
         assert_eq!(*desc.set, w.set);
         assert_eq!(desc.keywords, w.keywords);
@@ -268,7 +265,7 @@ fn creature_set_keyword_complete_selector_extras_reject_per_occurrence() {
     }
 }
 #[test]
-fn creature_set_keyword_program_boundaries_and_sentence_equivalence() {
+fn creature_set_keyword_program_boundaries_and_separated_sentences_reject() {
     for w in WITNESSES {
         for variant in 0..18 {
             let raw = changed_ability(w.raw, |a| {
@@ -323,8 +320,13 @@ fn creature_set_keyword_program_boundaries_and_sentence_equivalence() {
                 let steps = a["effects"][0]["steps"].clone();
                 a["effects"] = json!([{"steps":[steps[0].clone()]},{"steps":[steps[1].clone()]}]);
             });
-            // Sentence repartition inside the same ability preserves block 0.
-            assert_eq!(lowered(&split).spell, lowered(w.raw).spell);
+            // CR 611.2c/613.6: distinct sentences cannot be coalesced just
+            // because they happen to lower to adjacent operations in block 0.
+            assert!(
+                matches!(compile(HEADER, &split), CompileResult::Unsupported { .. }),
+                "{} separated sentences",
+                w.name
+            );
             let separate = tests::changed_source(w.raw, |r| {
                 let steps = r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"].clone();
                 let abilities = json!([{"kind":"spell","effects":[{"steps":[steps[0].clone()]}]},
@@ -370,6 +372,61 @@ fn creature_set_keyword_program_boundaries_and_sentence_equivalence() {
                     w.name
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn creature_set_keyword_typed_sentence_consumption_and_signed_parameters() {
+    for w in WITNESSES {
+        // Synthetic typed controls derive from frozen sources; they add no
+        // source-card facts. All/each lower to the same closed captured set.
+        let equivalent = changed_ability(w.raw, |a| {
+            for step in a["effects"][0]["steps"].as_array_mut().unwrap() {
+                step["what"]["ref"] = if step["what"]["ref"] == "all" {
+                    "each"
+                } else {
+                    "all"
+                }
+                .into();
+            }
+        });
+        assert_eq!(lowered(&equivalent).spell, lowered(w.raw).spell);
+        if w.modifier.is_none() {
+            continue;
+        }
+        for (power, toughness) in [(0, 0), (-2, 3), (i64::from(u32::MAX), -i64::from(u32::MAX))] {
+            let raw = changed_ability(w.raw, |a| {
+                for (field, value) in [("power", power), ("toughness", toughness)] {
+                    a["effects"][0]["steps"][0][field] = json!({
+                        "sign":if value<0 {-1} else {1},
+                        "amount":{"amount":"fixed","value":value.unsigned_abs()}
+                    });
+                }
+            });
+            let d = lowered(&raw);
+            let desc = temporary_creature_set_keyword_program(d.spell.as_ref().unwrap()).unwrap();
+            assert_eq!(
+                desc.modifier,
+                Some((&Quantity::from(power), &Quantity::from(toughness)))
+            );
+            assert_eq!(d.spell.as_ref().unwrap().instructions.len(), 1);
+        }
+        for before in [false, true] {
+            let raw = changed_ability(w.raw, |a| {
+                let extra = json!({"steps":[{"effect":"draw","who":{"player":"you"},"amount":{"amount":"fixed","value":1}}]});
+                let effects = a["effects"].as_array_mut().unwrap();
+                if before {
+                    effects.insert(0, extra);
+                } else {
+                    effects.push(extra);
+                }
+            });
+            assert!(
+                matches!(compile(HEADER, &raw), CompileResult::Unsupported { .. }),
+                "{} must consume the whole effects array; before={before}",
+                w.name
+            );
         }
     }
 }

@@ -351,9 +351,10 @@ This foundation expands no playable pool, policy, hosting/search or consumer acc
 
 `temporary_creature_set_keyword_program_v1` is a separate complete ordinary
 instant/sorcery family with no targets, modes or additional sacrifice cost. Its
-stack instruction program is one `GrantKeywordsSet`, or `PumpSet` followed by
-`GrantKeywordsSet`, with equal selectors and source block 0. The grant lasts
-until end of turn. Selectors are only `ControllerCreatures` (current creatures
+stack instruction program is exactly one `GrantKeywordsSet` with source block 0
+and an optional typed `CreatureSetModifier { power, toughness }`. It creates one
+continuous effect lasting until end of turn; a separate `PumpSet`/grant pair
+rejects. Selectors are only `ControllerCreatures` (current creatures
 controlled by the frozen invocation controller) and `AttackingCreatures`
 (current attacking creatures, regardless of controller). Signed P/T values are
 shared exact parameters. The descriptor
@@ -367,22 +368,30 @@ Hexproof uses `attachments_v1`, and First Strike serializes as `first strike`
 with `first_strike_v1`. Every set grant additionally requires `board_wipes_v1`
 for the shared set machinery and the new family capability, normal layout and
 its ordinary cast-kind capability. Targeted subset/general labels never admit
-this shape. `PumpSet` retains its existing Board Wipes capability rather than
-acquiring the targeted modifier capability.
+this shape. The optional modifier requires no targeted P/T capability. Standalone
+`PumpSet` retains its existing behavior and Board Wipes capability.
 
-Each instruction captures the full current ordered set once. Grant membership
-and handles bind exact battlefield incarnations; later entry, departure/reentry
-or control changes never dynamically reselect the grant (CR 608.2h, 611.2c).
+The instruction captures one full current ordered set and creates all properties
+atomically. CR 611.2c fixes that membership when the effect begins; CR 613.5–6
+applies its keyword and P/T parts to the same objects across layers. A shared
+capture followed by separately created effects is insufficient: departure LKI
+must never observe only half of this effect. Membership and handles bind exact
+battlefield incarnations; later entry, departure/reentry or control changes
+never dynamically reselect the effect (CR 608.2h, 611.2c).
 Cleanup expires it through the existing temporary-effect path. Restore validates
-the exact source opcode, keywords, source block and historical member handles;
+the exact source opcode, modifier, keywords, source block and historical member handles;
 authenticated input replay checks the captured membership. The new controller
 selector rejects in all other movement, damage, bare-pump, mode, activation and
 trigger programs. Permanent-wide protection remains unsupported: the complete
 Heroic Intervention source is not narrowed to creatures.
 
 Frozen Titanic Ultimatum, Overrun, Stampede, Make a Stand and Burst of Speed
-sources witness the two selectors and optional modifier. Dedicated compiler and
-contracts tests cover exact costs/order/capabilities and whole-source negatives.
+sources witness the two selectors and optional modifier. The compiler consumes
+one complete typed sentence with no bindings: a pure gain, or exactly a fixed
+signed pump followed by a gain with matching reviewed selectors and duration.
+It never coalesces separate sentences, later arbitrary programs or cost-conditioned
+clauses. Dedicated compiler and contracts tests cover exact costs/order/capabilities,
+old split-IR rejection and whole-source negatives.
 [Set schema probes](../packages/game-engine/crates/contracts/tests/creature-set-keyword-schema-probes.mjs)
 are bounded synthetic IR controls; `--prepare-only` constructs them without
 schema execution. The existing targeted 1,955-probe inventory remains separate
