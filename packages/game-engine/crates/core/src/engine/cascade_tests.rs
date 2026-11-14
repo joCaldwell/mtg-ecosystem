@@ -202,7 +202,9 @@ fn paid_by(g: &mut Game, name: &str, player: PlayerId, target: Option<StackId>) 
                             let required =
                                 cost.colored.iter().filter(|symbol| *symbol == *c).count();
                             g.mana(r.player(), **c).unwrap_or_default()
-                                < Quantity::from(required as u64)
+                                < Quantity::from(
+                                    i64::try_from(required).expect("test symbol count"),
+                                )
                         })
                         .copied();
                     let source = g
@@ -1508,22 +1510,7 @@ fn cascade_paid_aura_control_free_controlled_target_and_owner_departure_recover(
             },
         )
         .unwrap();
-        loop {
-            let r = request(&mut g);
-            match &r {
-                Request::Priority { .. } => break,
-                Request::Mana { cost, .. } => {
-                    assert_eq!(cost, &ManaCost::default());
-                    g.respond(
-                        r.player(),
-                        r.decision_id(),
-                        Response::FinishMana { undo_mana: false },
-                    )
-                    .unwrap();
-                }
-                _ => panic!("zero-cost controlled-target completion: {r:?}"),
-            }
-        }
+        assert!(matches!(request(&mut g), Request::Priority { .. }));
         let child = g.top().unwrap().id;
         let child_card = g.top().unwrap().source.card;
         assert_ne!(child, original);
