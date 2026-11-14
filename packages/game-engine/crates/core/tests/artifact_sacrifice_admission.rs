@@ -4,6 +4,9 @@ use mtg_contracts::{Capability, CardKind, Catalog, Color, ManaCost, sha256};
 use mtg_core::*;
 use std::collections::BTreeMap;
 
+#[path = "artifact_sacrifice_admission/indestructible.rs"]
+mod indestructible;
+
 const PROFILE: &str = "commander-sacrifice-v1";
 const SHRAPNEL: &str = "d3c623f3-c7c9-47c0-8096-6dee3267baff";
 
@@ -109,7 +112,10 @@ fn submit(g: &mut Game, response: PlayerResponse, quantum: u64) {
     settle(g, quantum);
 }
 fn setup(c: &Catalog, seed: [u8; 32], quantum: u64) -> (Prepared, Game) {
-    let prepared = Prepared::admit_pod(c.clone(), config(c, seed)).unwrap();
+    setup_config(c, config(c, seed), quantum)
+}
+fn setup_config(c: &Catalog, config: MatchConfig, quantum: u64) -> (Prepared, Game) {
+    let prepared = Prepared::admit_pod(c.clone(), config).unwrap();
     let mut game = Game::with_trace(prepared.clone(), TraceMode::Detailed);
     settle(&mut game, quantum);
     for _ in 0..4 {
@@ -156,7 +162,7 @@ fn artifact_sacrifice_setup_only_seed_probe() {
 #[test]
 fn artifact_sacrifice_default_decks_and_feature_boundaries_remain_legal() {
     let c = catalog();
-    assert_eq!(c.definitions.len(), 156);
+    assert_eq!(c.definitions.len(), 158);
     let profile = match_profile(PROFILE).unwrap();
     assert!(!profile.hosted && !profile.search);
     let config = MatchConfig::for_profile(PROFILE, [29; 32], PlayerId(0)).unwrap();
@@ -176,6 +182,42 @@ fn artifact_sacrifice_default_decks_and_feature_boundaries_remain_legal() {
                 assert_eq!(row.count, 1);
             }
         }
+    }
+    for (seat, deck) in config.decks.iter().enumerate() {
+        assert_eq!(
+            deck.cards
+                .iter()
+                .filter(|r| r.oracle_id == indestructible::RELIC)
+                .map(|r| r.count)
+                .sum::<u32>(),
+            u32::from(seat == 3)
+        );
+        assert!(
+            !deck
+                .cards
+                .iter()
+                .any(|r| r.oracle_id == "f90fe86c-5cca-483b-93c2-6e856fa01c88")
+        );
+    }
+    assert_eq!(
+        config.decks[3]
+            .cards
+            .iter()
+            .find(|r| r.oracle_id == oracle(&c, "Mountain"))
+            .unwrap()
+            .count,
+        68
+    );
+    for id in [
+        indestructible::RELIC,
+        "f90fe86c-5cca-483b-93c2-6e856fa01c88",
+    ] {
+        let d = c.definition_by_oracle_id(id).unwrap();
+        assert_eq!(
+            d.keywords,
+            vec![mtg_contracts::KeywordAbility::Indestructible]
+        );
+        assert!(d.capabilities.contains(&Capability::IndestructibleV1));
     }
     assert_eq!(
         validate_pod(&c, &config)
@@ -364,8 +406,12 @@ fn recover(g: &Game, p: &Prepared, verifier: &mut SnapshotVerifier) {
 }
 fn run(seed: [u8; 32], quantum: u64) -> Game {
     let c = catalog();
-    let ring = oracle(&c, "Sol Ring");
-    let mountain = oracle(&c, "Mountain");
+    run_payment(&c, config(&c, seed), "Sol Ring", quantum)
+}
+fn run_payment(c: &Catalog, config: MatchConfig, artifact: &str, quantum: u64) -> Game {
+    let relic = artifact == "Darksteel Relic"; // Test harness selection only.
+    let ring = oracle(c, artifact);
+    let mountain = oracle(c, "Mountain");
     let source = c.definition_by_oracle_id(SHRAPNEL).unwrap();
     assert_eq!(
         source.characteristics.mana_cost,
@@ -385,7 +431,15 @@ fn run(seed: [u8; 32], quantum: u64) -> Game {
             .types,
         vec![CardKind::Artifact]
     );
-    let (prepared, mut game) = setup(&c, seed, quantum);
+    let (prepared, mut game) = setup_config(c, config, quantum);
+    let artifact_card = prepared
+        .config()
+        .cards
+        .iter()
+        .find(|r| r.owner == PlayerId(0) && r.oracle_id == ring)
+        .unwrap()
+        .id;
+    let mut validated_cost = None;
     let blast_card = prepared
         .config()
         .cards
@@ -394,14 +448,28 @@ fn run(seed: [u8; 32], quantum: u64) -> Game {
         .unwrap()
         .id;
     assert!(
-        opening_has_sources(&game, &c),
+        if relic {
+            indestructible::opening(&game, c)
+        } else {
+            opening_has_sources(&game, c)
+        },
         "pinned seed must actually deal both complete sources"
+    );
+    assert_eq!(
+        observation(&game, PlayerId(0))
+            .view
+            .players
+            .iter()
+            .find(|p| p.player == PlayerId(1))
+            .unwrap()
+            .life,
+        40.into()
     );
     let mut verifier = SnapshotVerifier::new(prepared.clone(), TraceMode::Detailed);
     let (mut ring_cast, mut blast_cast, mut sacrificed) = (false, false, false);
     let (mut ring_mana, mut red_mana) = (0, 0);
     for _ in 0..1200 {
-        let (actor, request) = request(&game);
+        let (actor, pending) = request(&game);
         let view = observation(&game, actor).view;
         if sacrificed && view.stack.is_empty() {
             let own = observation(&game, PlayerId(0)).view;
@@ -418,7 +486,44 @@ fn run(seed: [u8; 32], quantum: u64) -> Game {
                     && o.owner == PlayerId(0)
                     && o.zone == (Zone::Graveyard { owner: PlayerId(0) })));
             }
-            assert_eq!((ring_mana, red_mana), (1, 1));
+            assert_eq!((ring_mana, red_mana), if relic { (0, 2) } else { (1, 1) });
+            if relic {
+                let lands = own
+                    .objects
+                    .iter()
+                    .filter(|o| {
+                        o.oracle_id == mountain
+                            && o.zone == Zone::Battlefield
+                            && o.controller == PlayerId(0)
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(lands.len(), 2);
+                assert!(lands.iter().all(|o| o.tapped));
+                assert!(game.events().iter().any(|e|matches!(e,Event::Committed{actual:EventOutcome::ManaPaid{player:PlayerId(0),cost},..} | Event::Committed{actual:EventOutcome::ManaPaidSelected{player:PlayerId(0),cost,..},..} if *cost == source.characteristics.mana_cost)));
+                let moves = game
+                    .events()
+                    .iter()
+                    .filter_map(|e| match e {
+                        Event::Committed {
+                            actual: EventOutcome::Sacrificed { movement, .. },
+                            ..
+                        } if movement.previous.card == artifact_card => Some(movement),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(moves.len(), 1);
+                assert_eq!(moves[0].previous.card, moves[0].successor.card);
+                assert_ne!(
+                    moves[0].previous.incarnation,
+                    moves[0].successor.incarnation
+                );
+                assert_eq!(
+                    game.zone(moves[0].successor).unwrap(),
+                    Zone::Graveyard { owner: PlayerId(0) }
+                );
+                assert!(!game.events().iter().any(|e| matches!(e,
+                    Event::Committed { actual: EventOutcome::DestructionPrevented { object }, .. } if object.card == artifact_card)));
+            }
             let stack = game
                 .events()
                 .iter()
@@ -451,12 +556,15 @@ fn run(seed: [u8; 32], quantum: u64) -> Game {
                 .find(|p| p.player == PlayerId(0))
                 .unwrap()
                 .mana;
-            assert_eq!(mana.get(&Color::C).cloned().unwrap_or_default(), 1.into());
+            assert_eq!(
+                mana.get(&Color::C).cloned().unwrap_or_default(),
+                if relic { 0.into() } else { 1.into() }
+            );
             assert_eq!(mana.get(&Color::R).cloned().unwrap_or_default(), 0.into());
             recover(&game, &prepared, &mut verifier);
             return game;
         }
-        let response = match request {
+        let response = match pending {
             PlayerRequest::Priority { .. }
                 if actor == PlayerId(0)
                     && view.active == Some(actor)
@@ -489,9 +597,14 @@ fn run(seed: [u8; 32], quantum: u64) -> Game {
                         .objects
                         .iter()
                         .any(|o| o.oracle_id == ring && o.zone == Zone::Battlefield && !o.tapped)
-                    && view.objects.iter().any(|o| {
-                        o.oracle_id == mountain && o.zone == Zone::Battlefield && !o.tapped
-                    })
+                    && view
+                        .objects
+                        .iter()
+                        .filter(|o| {
+                            o.oracle_id == mountain && o.zone == Zone::Battlefield && !o.tapped
+                        })
+                        .count()
+                        >= if relic { 2 } else { 1 }
                 {
                     let card = view
                         .objects
@@ -517,7 +630,7 @@ fn run(seed: [u8; 32], quantum: u64) -> Game {
                     .unwrap()
                     .mana;
                 let amount = |c| mana.get(&c).cloned().unwrap_or_default();
-                if blast_cast && amount(Color::C) < 1.into() {
+                if blast_cast && !relic && amount(Color::C) < 1.into() {
                     let object = view
                         .objects
                         .iter()
@@ -527,7 +640,13 @@ fn run(seed: [u8; 32], quantum: u64) -> Game {
                     PlayerResponse::ActivateMana {
                         object: object.handle.clone(),
                     }
-                } else if amount(Color::R) < if blast_cast { 1.into() } else { cost.generic } {
+                } else if amount(Color::R)
+                    < if blast_cast {
+                        if relic { 2.into() } else { 1.into() }
+                    } else {
+                        cost.generic
+                    }
+                {
                     let object = view
                         .objects
                         .iter()
@@ -555,11 +674,26 @@ fn run(seed: [u8; 32], quantum: u64) -> Game {
                         }
                     );
                     PlayerResponse::SpendMana {
-                        spending: BTreeMap::from([(Color::C, 1.into()), (Color::R, 1.into())]),
+                        spending: if relic {
+                            BTreeMap::from([(Color::R, 2.into())])
+                        } else {
+                            BTreeMap::from([(Color::C, 1.into()), (Color::R, 1.into())])
+                        },
                     }
                 } else {
+                    assert_eq!(
+                        cost,
+                        c.definition_by_oracle_id(&ring)
+                            .unwrap()
+                            .characteristics
+                            .mana_cost
+                    );
                     PlayerResponse::SpendMana {
-                        spending: BTreeMap::from([(Color::R, 1.into())]),
+                        spending: if relic {
+                            BTreeMap::new()
+                        } else {
+                            BTreeMap::from([(Color::R, 1.into())])
+                        },
                     }
                 }
             }
@@ -578,7 +712,48 @@ fn run(seed: [u8; 32], quantum: u64) -> Game {
                     .iter()
                     .find(|o| o.oracle_id == ring && o.zone == Zone::Battlefield)
                     .unwrap();
-                assert!(object.tapped && candidates.contains(&object.handle));
+                assert_eq!(object.tapped, !relic);
+                assert!(candidates.contains(&object.handle));
+                if relic {
+                    assert!(
+                        object
+                            .keywords
+                            .contains(&mtg_contracts::KeywordAbility::Indestructible)
+                    );
+                    let (actor, r) = request(&game);
+                    let before = game.snapshot().unwrap();
+                    let land = view
+                        .objects
+                        .iter()
+                        .find(|o| o.oracle_id == mountain && o.zone == Zone::Battlefield)
+                        .unwrap();
+                    for invalid in [land.handle.clone(), ObjectHandle("unoffered".into())] {
+                        assert!(matches!(
+                            game.check_player_response(
+                                actor,
+                                r.token().clone(),
+                                PlayerResponse::SacrificeCost { object: invalid },
+                                Budget::new(10000)
+                            ),
+                            QueryResult::Rejected(_)
+                        ));
+                        assert_eq!(before, game.snapshot().unwrap());
+                    }
+                    let QueryValue::Validated(receipt) = query(
+                        &game,
+                        game.check_player_response(
+                            actor,
+                            r.token().clone(),
+                            PlayerResponse::SacrificeCost {
+                                object: object.handle.clone(),
+                            },
+                            Budget::new(10000),
+                        ),
+                    ) else {
+                        panic!("cost receipt")
+                    };
+                    validated_cost = Some(receipt);
+                }
                 recover(&game, &prepared, &mut verifier);
                 sacrificed = true;
                 PlayerResponse::SacrificeCost {
@@ -607,6 +782,11 @@ fn run(seed: [u8; 32], quantum: u64) -> Game {
             other => panic!("unexpected pod decision {other:?}"),
         };
         submit(&mut game, response, quantum);
+        if relic && sacrificed && validated_cost.is_some() {
+            let before = game.snapshot().unwrap();
+            assert!(game.submit(validated_cost.take().unwrap()).is_err());
+            assert_eq!(before, game.snapshot().unwrap());
+        }
         if sacrificed && !observation(&game, PlayerId(0)).view.stack.is_empty() {
             recover(&game, &prepared, &mut verifier);
         }

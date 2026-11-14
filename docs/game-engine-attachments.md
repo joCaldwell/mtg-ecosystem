@@ -35,8 +35,13 @@ owner.
 Out of scope: Auras that enchant non-creatures or players; Aura "for each"
 counts (Blanchwood Armor, Ethereal Armor); hybrid costs (Gift of Orzhova);
 "activated abilities can't be activated" (Arrest); equipment with triggers
-(Mask of Memory, Explorer's Scope); umbra armor; indestructible; protection;
+(Mask of Memory, Explorer's Scope); umbra armor; general indestructible grants; protection;
 control-changing effects.
+
+A separate [indestructible foundation](game-engine-indestructible.md) supports only
+an Equipment's zero-stat, single-keyword equipped-creature indestructible grant.
+It requires `indestructible_v1` independently of the source's intrinsic keywords
+and adds no attachment-pool, hosting or search admission.
 
 ## IR and compiler
 

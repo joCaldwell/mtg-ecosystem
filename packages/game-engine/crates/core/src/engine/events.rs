@@ -15,6 +15,7 @@ pub enum BatchCause {
     Combat,
     Cleanup,
     StateBased,
+    DeathtouchCheck,
     LandPlay {
         player: PlayerId,
         decision_id: u64,
@@ -68,6 +69,7 @@ impl BatchCause {
             Self::CommanderReturn => &["903.9a", "903.9b"],
             Self::Combat => &["508", "509", "510"],
             Self::Cleanup => &["514.1", "514.2"],
+            Self::DeathtouchCheck => &["702.2b", "704.3", "704.5h"],
             Self::StateBased => &["704.3", "704.5a", "704.5b", "704.5f", "704.5g"],
             Self::LandPlay { .. } => &["305.1", "305.2", "305.3", "400.7"],
             Self::TurnProgression => &["106.4", "500.5", "800.4j"],
@@ -395,6 +397,11 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             let keys = BTreeSet::from([FactKey::Life(*player)]);
             (keys.clone(), keys)
         }
+        ProposedEvent::ConsumeDeathtouchWindow { objects } => {
+            let mut keys = BTreeSet::from([FactKey::AllDamage]);
+            keys.extend(objects.iter().map(|o| FactKey::Object(o.card)));
+            (keys.clone(), keys)
+        }
         ProposedEvent::ClearDamage => {
             let keys = BTreeSet::from([FactKey::AllDamage]);
             (keys.clone(), keys)
@@ -519,6 +526,7 @@ fn collect<'a>(
                             | ProposedEvent::CounterStackObject { .. }
                             | ProposedEvent::CreateCreatureTokens { .. }
                             | ProposedEvent::ClearDamage
+                            | ProposedEvent::ConsumeDeathtouchWindow { .. }
                             | ProposedEvent::TurnTransition { .. }
                             | ProposedEvent::DeclareAttackers { .. }
                             | ProposedEvent::DeclareBlockers { .. }
@@ -731,7 +739,12 @@ impl Game {
                             .rules
                             .objects
                             .values()
-                            .filter(|o| o.zone == Zone::Battlefield)
+                            .filter(|o| {
+                                o.zone == Zone::Battlefield
+                                    || (matches!(event, ProposedEvent::CleanupEffects)
+                                        && (o.marked_damage > Quantity::zero()
+                                            || o.deathtouch_damage))
+                            })
                             .map(|o| o.id),
                     );
                 }
@@ -830,13 +843,16 @@ impl Game {
                 ProposedEvent::FailedDraw { player } => {
                     players.insert(*player);
                 }
+                ProposedEvent::ConsumeDeathtouchWindow { objects: checked } => {
+                    objects.extend(checked);
+                }
                 ProposedEvent::ClearDamage => {
                     objects.extend(
                         self.state
                             .rules
                             .objects
                             .values()
-                            .filter(|o| o.marked_damage > Quantity::zero())
+                            .filter(|o| o.marked_damage > Quantity::zero() || o.deathtouch_damage)
                             .map(|o| o.id),
                     );
                 }
@@ -1186,7 +1202,7 @@ impl Game {
         before: PreEventFacts,
         out: &mut Vec<OccurrenceResult>,
     ) -> Result<(), String> {
-        let actual = self.apply_occurrence(proposed)?;
+        let actual = self.apply_occurrence_with_prior(proposed, Some(&before))?;
         // Keep the pre-existing native flat trace as a compatibility view.
         let event = match &actual {
             EventOutcome::LeftGame { object, owner } => Event::ObjectLeftGame {
@@ -1264,9 +1280,49 @@ impl Game {
 }
 
 impl Game {
+    fn destruction_is_prevented(
+        &self,
+        object: ObjectId,
+        before: Option<&PreEventFacts>,
+    ) -> Result<bool, String> {
+        let Some(before) = before else {
+            return Ok(self.has_keyword(object, KeywordAbility::Indestructible));
+        };
+        // The leaf's facts are produced against its pre-event fork, not supplied
+        // by a caller. Exact incarnation/zone/type must still agree at commit;
+        // missing facts never mean an unprotected target. Restore verifies the
+        // complete prior payload (including keywords) through boundary replay.
+        let [fact] = before.objects.as_slice() else {
+            return Err("missing or ambiguous destruction prior object".into());
+        };
+        let current = self.current(object)?;
+        let types = &self.definition(object.card)?.characteristics;
+        if fact.object != object
+            || fact.zone != Zone::Battlefield
+            || current.zone != fact.zone
+            || fact.characteristics.kind != types.kind
+            || fact.characteristics.additional_types != types.additional_types
+            || fact.owner != self.state.rules.cards[&object.card].owner
+            || fact.controller != current.controller
+        {
+            return Err("mismatched destruction prior object".into());
+        }
+        Ok(fact.keywords.contains(&KeywordAbility::Indestructible))
+    }
     pub(super) fn apply_occurrence(
         &mut self,
         proposed: &ProposedEvent,
+    ) -> Result<EventOutcome, String> {
+        self.apply_occurrence_with_prior(proposed, None)
+    }
+    // CR 611.3b, 613.1f, 702.12b, 704.3: simultaneous destruction
+    // consumes the common prior layer-6 view. Ordered leaves capture fresh facts.
+    // No new snapshot state: this authority is already in occurrence evidence.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    pub(super) fn apply_occurrence_with_prior(
+        &mut self,
+        proposed: &ProposedEvent,
+        before: Option<&PreEventFacts>,
     ) -> Result<EventOutcome, String> {
         let actual = match proposed {
             ProposedEvent::FinishLibraryShuffle { player } => {
@@ -1324,6 +1380,11 @@ impl Game {
                 {
                     return Err("invalid destroy permanent event".into());
                 }
+                // CR 702.12b, 701.8b, 614.17c: a forbidden destruction
+                // never reaches Move or its death-to-exile replacement.
+                if self.destruction_is_prevented(*object, before)? {
+                    return Ok(EventOutcome::DestructionPrevented { object: *object });
+                }
                 self.apply_occurrence(&ProposedEvent::Move {
                     object: *object,
                     destination: Zone::Graveyard {
@@ -1334,6 +1395,11 @@ impl Game {
             ProposedEvent::DestroyCreature { object } => {
                 if !self.is_battlefield_creature(*object) {
                     return Err("invalid destroy creature event".into());
+                }
+                // CR 702.12b, 701.8b, 614.17c: a forbidden destruction
+                // never reaches Move or its death-to-exile replacement.
+                if self.destruction_is_prevented(*object, before)? {
+                    return Ok(EventOutcome::DestructionPrevented { object: *object });
                 }
                 self.apply_occurrence(&ProposedEvent::Move {
                     object: *object,
@@ -1636,9 +1702,33 @@ impl Game {
                 self.state.rules.players[player.0 as usize].failed_draw = true;
                 EventOutcome::DrawFailed { player: *player }
             }
+            ProposedEvent::ConsumeDeathtouchWindow { objects } => {
+                if objects.is_empty() || objects.windows(2).any(|pair| pair[0] >= pair[1]) {
+                    return Err("empty or noncanonical deathtouch window".into());
+                }
+                // Exact checked incarnations only. Validate the whole set before writing.
+                for object in objects {
+                    let o = self.current(*object)?;
+                    if o.zone != Zone::Battlefield || !o.deathtouch_damage {
+                        return Err("invalid checked deathtouch survivor".into());
+                    }
+                }
+                for object in objects {
+                    self.state
+                        .rules
+                        .objects
+                        .get_mut(&object.card)
+                        .ok_or("missing checked deathtouch object")?
+                        .deathtouch_damage = false;
+                }
+                EventOutcome::DeathtouchWindowConsumed {
+                    objects: objects.clone(),
+                }
+            }
             ProposedEvent::ClearDamage => {
                 let mut previous = vec![];
                 for o in self.state.rules.objects.values_mut() {
+                    o.deathtouch_damage = false;
                     if o.marked_damage > Quantity::zero() {
                         previous.push((o.id, std::mem::take(&mut o.marked_damage)));
                     }
@@ -1663,6 +1753,11 @@ impl Game {
                     }
                 {
                     return Err("invalid creature SBA".into());
+                }
+                if *reason != CreatureLossReason::ZeroToughness
+                    && self.has_keyword(*object, KeywordAbility::Indestructible)
+                {
+                    return Err("indestructible creature ignores destruction SBA".into());
                 }
                 let destination = Zone::Graveyard {
                     owner: self.state.rules.cards[&object.card].owner,

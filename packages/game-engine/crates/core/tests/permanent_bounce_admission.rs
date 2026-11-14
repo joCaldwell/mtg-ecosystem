@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 const PROFILE: &str = "commander-sacrifice-v1";
 fn catalog() -> Catalog {
     let c = match_profile(PROFILE).unwrap().catalog().clone();
-    assert_eq!(c.definitions.len(), 156);
+    assert_eq!(c.definitions.len(), 158);
     c
 }
 fn id(c: &Catalog, name: &str) -> String {

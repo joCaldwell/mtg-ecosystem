@@ -99,8 +99,28 @@ below.
 | U | Disperse | {1}{U} instant: return target nonland permanent to its owner's hand |
 | W | Requiem Angel | {5}{W} 5/5 flying: when another non-Spirit creature you control dies, create a 1/1 white flying Spirit |
 
-The current development pool has 156 definitions. Regress and Disperse are the
-latest source-backed additions; all previous 154 definitions are preserved.
+The current development pool has 158 definitions. Complete Darksteel Myr and
+Darksteel Relic are admitted from the [intrinsic indestructible source slice](game-engine-indestructible.md);
+all previous 156 definition bodies are preserved. The red default adds one
+singleton Relic in place of one Mountain (69→68); Myr is optional pool data.
+The other three defaults, commanders and hosting/search requests are unchanged.
+The [accepted-pod prefix](../packages/game-engine/crates/core/tests/artifact_sacrifice_admission/indestructible.rs)
+uses Rorix, Relic, Shrapnel Blast and 97 Mountains against simple legal white decks.
+A bounded setup-only opening scan precedes real zero-cost Relic casting, two
+Mountain plays and {1}{R} payment, artifact sacrifice and exact 40→35 damage.
+Snapshot/accepted-input replay and quanta 1/4096 cover that prefix; it is not a
+natural full-game completion claim. Synthetic public-observation policy tests
+are separate: sole ordinary target destruction avoids indestructible targets
+at initiation, retaining legal announced-choice fallback and ordinary sacrifice
+preferences. Exile, bounce, damage and compound benefits retain their policy.
+The 158-definition catalog digest is
+`ea382a4cd52a6ce30747e422fa4c3023ae886a7bf962aa96f05b3afe5ba8a820`.
+Focused producer `4a2f1873f6e79904abb087ca9c701eda99f4c33d2beb9897b2e29ab5c2fb38bf`
+and its exact source qualification, receipts and omissions remain under
+`generated/indestructible-sacrifice-admission/`; this is headless development
+evidence and does not establish consumer acceptance.
+
+Regress and Disperse are the preceding source-backed additions.
 They use the separately fenced [permanent owner-hand movement](game-engine-removal.md#permanent-owner-hand-movement)
 contract, with no new runtime mechanic or capacity rule. The blue deck replaces
 two Islands with those singleton spells. This headless admission grants no

@@ -859,7 +859,10 @@ impl Game {
                 .filter(|o| o.zone == Zone::Battlefield && o.attached_to == Some(object.id))
                 .map(|o| self.handle_for(viewer, o.id))
                 .collect::<Result<Vec<_>, _>>()?,
-            keywords: if self.target_is_creature(object.id) {
+            keywords: if self.target_is_creature(object.id)
+                || (object.zone == Zone::Battlefield
+                    && self.has_keyword(object.id, KeywordAbility::Indestructible))
+            {
                 self.current_keywords(object.id)
             } else {
                 vec![]

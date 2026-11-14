@@ -133,12 +133,7 @@ impl Game {
             .map(|object| {
                 let owner = self.state.rules.cards[&object.card].owner;
                 match action {
-                    SetMove::Destroy => {
-                        if self.target_is_creature(object) {
-                            destroyed_creatures += 1;
-                        }
-                        ProposedEvent::DestroyPermanent { object }
-                    }
+                    SetMove::Destroy => ProposedEvent::DestroyPermanent { object },
                     SetMove::Exile => ProposedEvent::Move {
                         object,
                         destination: Zone::Exile,
@@ -162,6 +157,14 @@ impl Game {
             )?;
             for r in batch.occurrences {
                 if let EventOutcome::Moved { movement } = r.actual {
+                    if matches!(action, SetMove::Destroy)
+                        && r.before.objects.iter().any(|o| {
+                            o.object == movement.previous
+                                && o.characteristics.kind == CardKind::Creature
+                        })
+                    {
+                        destroyed_creatures += 1;
+                    }
                     movements.push(movement);
                 }
             }

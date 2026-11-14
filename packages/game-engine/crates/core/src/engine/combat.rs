@@ -617,6 +617,17 @@ impl Game {
             };
             return Ok(());
         }
+        // Freeze the CR 702.2b/704.5h observation window before deciding SBAs.
+        // CR 704.3 repeats checks, not old damage. Marks remain until CR 514.2.
+        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+        let checked_deathtouch = self
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|o| o.zone == Zone::Battlefield && o.deathtouch_damage)
+            .map(|o| o.id)
+            .collect::<Vec<_>>();
         let mut occurrences = vec![];
         for o in self
             .state
@@ -631,6 +642,9 @@ impl Game {
                 .ok_or("missing toughness")?;
             let reason = if toughness <= Quantity::zero() {
                 Some(CreatureLossReason::ZeroToughness)
+            } else if self.has_keyword(o.id, KeywordAbility::Indestructible) {
+                // CR 702.12b/704.5g-h: ignore destructive SBAs entirely.
+                None
             } else if o.marked_damage >= toughness {
                 Some(CreatureLossReason::LethalDamage)
             } else if o.deathtouch_damage {
@@ -702,6 +716,9 @@ impl Game {
                 }
             })
             .collect::<Vec<_>>();
+        if occurrences.is_empty() && losses.is_empty() {
+            self.consume_checked_deathtouch(&checked_deathtouch)?;
+        }
         if occurrences.is_empty()
             && losses.is_empty()
             && self.offer_commander_sba(Frame::Stabilize {
@@ -759,6 +776,9 @@ impl Game {
             BatchCause::StateBased,
             EventGroup::Simultaneous { occurrences },
         )?;
+        // Victim validation must still see the flag in the simultaneous SBA.
+        // Only exact-incarnation survivors consume their checked window afterward.
+        self.consume_checked_deathtouch(&checked_deathtouch)?;
         if !losses.is_empty() {
             self.record_event(Event::PlayersLost {
                 losses: losses.clone(),
@@ -773,6 +793,23 @@ impl Game {
             cleanup,
             changed: true,
         };
+        Ok(())
+    }
+    fn consume_checked_deathtouch(&mut self, checked: &[ObjectId]) -> Result<(), String> {
+        let objects = checked
+            .iter()
+            .copied()
+            .filter(|id| {
+                self.current(*id)
+                    .is_ok_and(|o| o.zone == Zone::Battlefield && o.deathtouch_damage)
+            })
+            .collect::<Vec<_>>();
+        if !objects.is_empty() {
+            self.commit(
+                ProposedEvent::ConsumeDeathtouchWindow { objects },
+                BatchCause::DeathtouchCheck,
+            )?;
+        }
         Ok(())
     }
     pub(super) fn finish_if_ended(&mut self) -> Result<bool, String> {

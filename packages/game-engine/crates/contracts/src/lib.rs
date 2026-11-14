@@ -253,6 +253,7 @@ pub enum Capability {
     HasteV1,
     LifelinkV1,
     DeathtouchV1,
+    IndestructibleV1,
     TrampleV1,
     FirstStrikeV1,
     DoubleStrikeV1,
@@ -421,6 +422,7 @@ pub struct CreatureToken {
 impl CreatureToken {
     pub fn validate(&self) -> Result<(), String> {
         if self.keywords.contains(&KeywordAbility::Flash)
+            || self.keywords.contains(&KeywordAbility::Indestructible)
             || self.colors.contains(&Color::C)
             || self.colors.iter().collect::<BTreeSet<_>>().len() != self.colors.len()
             || self.subtypes.is_empty()
@@ -1090,6 +1092,7 @@ pub enum KeywordAbility {
     Haste,
     Lifelink,
     Deathtouch,
+    Indestructible,
     Trample,
     #[serde(rename = "first strike")]
     FirstStrike,
@@ -1110,6 +1113,7 @@ impl<'de> Deserialize<'de> for KeywordAbility {
             "haste" => Ok(Self::Haste),
             "lifelink" => Ok(Self::Lifelink),
             "deathtouch" => Ok(Self::Deathtouch),
+            "indestructible" => Ok(Self::Indestructible),
             "trample" => Ok(Self::Trample),
             "first strike" => Ok(Self::FirstStrike),
             "double strike" => Ok(Self::DoubleStrike),
@@ -1128,6 +1132,7 @@ impl<'de> Deserialize<'de> for KeywordAbility {
                     "haste",
                     "lifelink",
                     "deathtouch",
+                    "indestructible",
                     "trample",
                     "first strike",
                     "double strike",
@@ -1328,6 +1333,7 @@ impl Definition {
                 KeywordAbility::Haste => Capability::HasteV1,
                 KeywordAbility::Lifelink => Capability::LifelinkV1,
                 KeywordAbility::Deathtouch => Capability::DeathtouchV1,
+                KeywordAbility::Indestructible => Capability::IndestructibleV1,
                 KeywordAbility::Trample => Capability::TrampleV1,
                 KeywordAbility::FirstStrike => Capability::FirstStrikeV1,
                 KeywordAbility::DoubleStrike => Capability::DoubleStrikeV1,
@@ -1336,6 +1342,11 @@ impl Definition {
             });
         }
         for a in &self.static_abilities {
+            if matches!(&a.effect, StaticEffect::ModifyCreatures { keywords, .. }
+                if keywords.contains(&KeywordAbility::Indestructible))
+            {
+                set.insert(Capability::IndestructibleV1);
+            }
             set.insert(match a.effect {
                 StaticEffect::OpponentsCantCastDuringControllerTurn => {
                     Capability::OpponentCastProhibitionV1
@@ -1599,12 +1610,24 @@ impl Definition {
         {
             return Err("unsupported attachment subtype combination".into());
         }
-        if self.keywords.iter().any(|k| *k != KeywordAbility::Flash) && c.kind != CardKind::Creature
+        if self
+            .keywords
+            .iter()
+            .any(|k| !matches!(k, KeywordAbility::Flash | KeywordAbility::Indestructible))
+            && c.kind != CardKind::Creature
         {
             return Err("keywords require creature characteristics".into());
         }
         if self.keywords.contains(&KeywordAbility::Flash) && c.kind == CardKind::Land {
             return Err("flash on lands is outside supported casting semantics".into());
+        }
+        if self.keywords.contains(&KeywordAbility::Indestructible)
+            && !matches!(
+                c.kind,
+                CardKind::Creature | CardKind::Artifact | CardKind::Enchantment | CardKind::Land
+            )
+        {
+            return Err("indestructible requires permanent characteristics".into());
         }
         let cast_timing =
             if c.kind == CardKind::Instant || self.keywords.contains(&KeywordAbility::Flash) {
@@ -2091,6 +2114,13 @@ impl Definition {
                     || (*scope == CreatureScope::Controller
                         && (c.kind != CardKind::Enchantment || aura))
                     || keywords.contains(&KeywordAbility::Flash)
+                    || (keywords.contains(&KeywordAbility::Indestructible)
+                        && (!equipment
+                            || *scope != CreatureScope::Equipped
+                            || *power != Quantity::zero()
+                            || *toughness != Quantity::zero()
+                            || keywords != &[KeywordAbility::Indestructible]
+                            || !restrictions.is_empty()))
                     || keywords
                         .iter()
                         .enumerate()
@@ -3167,6 +3197,33 @@ pub fn digest<T: Serialize>(value: &T) -> Result<String, String> {
 }
 pub fn catalog_schema() -> serde_json::Value {
     let mut schema = serde_json::to_value(schemars::schema_for!(Catalog)).expect("schema is JSON");
+    // CR 702.12/702.6: only the separately bounded Equipment grant is admitted.
+    schema["$defs"]["CreatureToken"]["properties"]["keywords"]["items"] = serde_json::json!({"allOf":[{"$ref":"#/$defs/KeywordAbility"},{"not":{"enum":["flash","indestructible"]}}]});
+    let grant = serde_json::json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{"effect":{"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}}}}}}}}});
+    let intrinsic = serde_json::json!({"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}});
+    schema["$defs"]["StaticAbility"].as_object_mut().unwrap()
+        .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
+        .push(serde_json::json!({
+            "if":{"required":["effect"],"properties":{"effect":{"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}}}}}},
+            "then":{"properties":{"functioning_zone":{"const":"battlefield"}}}
+        }));
+    schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
+        .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
+        .push(serde_json::json!({"properties":{"modify_creatures":{
+            "properties":{"keywords":{"items":{"not":{"const":"flash"}}}},
+            "if":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}},
+            "then":{"properties":{"scope":{"const":"equipped"},"power":{"const":"0"},"toughness":{"const":"0"},"keywords":{"const":["indestructible"]},"restrictions":{"const":[]}}}
+        }}}));
+    schema["$defs"]["Definition"].as_object_mut().unwrap()
+        .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
+        .extend([
+            serde_json::json!({"if":{"anyOf":[intrinsic.clone(),grant.clone()]},"then":{"properties":{"capabilities":{"contains":{"const":"indestructible_v1"}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"indestructible_v1"}}}}}}),
+            serde_json::json!({"if":intrinsic,"then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["creature","artifact","enchantment","land"]}}}}}}),
+            serde_json::json!({"if":grant,"then":{"properties":{"characteristics":{"properties":{"kind":{"const":"artifact"},"subtypes":{"const":["Equipment"]}}}}}}),
+            serde_json::json!({"if":{"properties":{"characteristics":{"properties":{"kind":{"not":{"const":"creature"}}}}}},"then":{"properties":{"keywords":{"items":{"enum":["flash","indestructible"]}}}}}),
+            serde_json::json!({"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"land"}}}}},"then":{"properties":{"keywords":{"items":{"not":{"const":"flash"}}}}}})
+        ]);
+
     schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .push(serde_json::json!({"properties":{"modify_creatures":{
@@ -3791,6 +3848,7 @@ mod tests {
             HasteV1,
             LifelinkV1,
             DeathtouchV1,
+            IndestructibleV1,
             TrampleV1,
             FirstStrikeV1,
             DoubleStrikeV1,
@@ -3886,6 +3944,7 @@ mod tests {
         definitions.push(tapped);
         // Complete typed untap witness; the compiler separately checks the
         // retained source and its complete unqualified target selection.
+        definitions.push(indestructible_tests::intrinsic());
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());
@@ -5496,3 +5555,9 @@ mod tests {
         assert!(strict_read::<serde_json::Value>(r#"{"x":[{"a":1,"a":2}]}"#).is_err());
     }
 }
+
+#[cfg(test)]
+mod indestructible_tests;
+
+#[cfg(test)]
+mod equipped_indestructible_tests;

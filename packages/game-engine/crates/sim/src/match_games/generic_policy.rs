@@ -65,6 +65,14 @@ fn reactive_program(p: &SpellProgram) -> bool {
         })
         || p.modes.iter().any(|m| reactive_program(&m.program))
 }
+// A sole ordinary destruction has no other mandatory benefit to preserve.
+fn sole_target_destruction(p: &SpellProgram, slot: u32) -> bool {
+    p.modes.is_empty()
+        && p.targets.len() == 1
+        && matches!(p.instructions.as_slice(),
+        [I::DestroyTargetCreature { target_slot, .. } | I::DestroyPermanent { target_slot, .. }]
+            if *target_slot == slot)
+}
 fn tapped_destroy_program(d: &Definition, p: &SpellProgram) -> bool {
     matches!(
         d.characteristics.kind,
@@ -334,6 +342,8 @@ impl Strategy<'_> {
             .filter(|o| {
                 candidates.is_none_or(|cs| cs.contains(&o.handle))
                     && (!needs_untapped || !o.tapped)
+                    && (!sole_target_destruction(p, t.slot)
+                        || !o.keywords.contains(&KeywordAbility::Indestructible))
                     && self.object_matches(v, o, t, candidates.is_some())
                     && (o.controller == v.viewer) == own
             })

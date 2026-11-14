@@ -57,6 +57,17 @@ projection/context/query-sidecar formats were 16/16/15. The architecture refacto
 retains snapshot/bundle/public formats but advances query work sidecars to 16
 and adds one charged initialization unit; old sidecars reject. `mtg_contracts::CURRENT_IR_VERSION`
 is the current IR authority; see [version and build checks](game-engine-builds.md).
+A separate [intrinsic indestructible foundation](game-engine-indestructible.md)
+adds complete Myr/Relic source support without pool or consumer admission.
+Its separately bounded equipped-creature extension supports complete Darksteel
+Plate and common-prior keyword authority for simultaneous destruction, including
+destructible typed grant controls. It uses schema 1 and the existing
+`indestructible_v1` capability; the 45-definition blocking and 158-definition
+sacrifice catalogs and host/search sets remain unchanged. Its source-qualified
+evidence is identified in that contract, separately from consumer acceptance.
+Completed SBA checks consume deathtouch observation windows; ordinary damage
+marks remain until cleanup. Later protection loss can expose lethal marked
+damage, while a completed nonlethal deathtouch window cannot cause another death.
 The only active IR schema is 1 while there are no external consumers; new
 features evolve it in place with capability validation and exact build fencing.
 Current in-place support covers [grouped power-qualified damage and opponent
@@ -83,6 +94,11 @@ now lowers its exact one-artifact additional sacrifice cost through the existing
 completion adds no IR fields, capabilities or schema version. The subsequent
 finite sacrifice-pool admission includes it in the red default deck; hosting,
 search and downstream consumer qualification remain separate.
+The subsequent [indestructible sacrifice-pool admission](game-engine-sacrifice.md#profile)
+adds complete Myr/Relic data and a singleton red-default Relic, with a genuine
+paid Shrapnel sacrifice/replay prefix and conservative public-keyword destruction
+policy. Source-qualified headless evidence remains separate from hosted/search
+and downstream consumer qualification.
 The [ordinary tap primitive](game-engine-untap-permanents.md#creature-tap-and-controller-draw)
 supports complete Pressure Point lowering and creature-tap/draw execution, with
 explicit scope validation. Its subsequent headless admission adds Pressure Point

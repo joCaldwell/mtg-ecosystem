@@ -1486,6 +1486,9 @@ pub enum ProposedEvent {
         player: PlayerId,
     },
     ClearDamage,
+    ConsumeDeathtouchWindow {
+        objects: Vec<ObjectId>,
+    },
     StateBasedGraveyard {
         object: ObjectId,
         reason: CreatureLossReason,
@@ -1543,6 +1546,9 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    DestructionPrevented {
+        object: ObjectId,
+    },
     CounterPrevented {
         target: StackId,
     },
@@ -1671,6 +1677,9 @@ pub enum EventOutcome {
     },
     DrawFailed {
         player: PlayerId,
+    },
+    DeathtouchWindowConsumed {
+        objects: Vec<ObjectId>,
     },
     DamageCleared {
         previous: Vec<(ObjectId, Quantity)>,
@@ -3797,3 +3806,12 @@ mod tests {
         assert!(Game::restore(p, &canonical(&snapshot).unwrap()).is_err());
     }
 }
+
+#[cfg(test)]
+mod indestructible_tests;
+
+#[cfg(test)]
+mod equipped_indestructible_tests;
+
+#[cfg(test)]
+mod deathtouch_window_tests;

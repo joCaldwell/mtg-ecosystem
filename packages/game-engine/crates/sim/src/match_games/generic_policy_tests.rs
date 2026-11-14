@@ -3104,3 +3104,189 @@ mod untap_activation_policy_tests {
         );
     }
 }
+
+// Synthetic permitted observations using actual newly admitted source IR.
+#[test]
+fn indestructible_policy_sole_destruction_declines_and_announced_choice_falls_back() {
+    use mtg_contracts::KeywordAbility;
+    let c = mtg_compiler::catalog::embedded_catalog("sacrifice").unwrap();
+    let baseline = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+    for (spell, protected, ordinary) in [
+        ("Murder", "Darksteel Myr", "Grizzly Bears"),
+        ("Shatter", "Darksteel Relic", "Sol Ring"),
+    ] {
+        let mut v = wipe_tests::view(&baseline);
+        v.active = Some(v.viewer);
+        v.turn.step = TurnStep::PrecombatMain;
+        let d = c.definitions.iter().find(|d| d.name == spell).unwrap();
+        let p = d.spell.as_ref().unwrap();
+        v.objects = vec![wipe_tests::card(&c, protected, 0, Zone::Battlefield)];
+        let h = v.objects[0].handle.clone();
+        assert!(
+            v.objects[0]
+                .keywords
+                .contains(&KeywordAbility::Indestructible)
+        );
+        assert!(!strategy(&c).definition_ready(&v, d));
+        assert_eq!(
+            strategy(&c).object_target(&v, d, p, &p.targets[0], Some(std::slice::from_ref(&h))),
+            None
+        );
+        let initiation = |view: &PermittedView| {
+            let mut view = view.clone();
+            view.turn.lands_played = 1;
+            let mut mana =
+                BTreeMap::from([(Color::C, d.characteristics.mana_cost.generic.clone())]);
+            for color in &d.characteristics.mana_cost.colored {
+                mana.entry(*color).or_default().add(&1.into());
+            }
+            view.players
+                .iter_mut()
+                .find(|p| p.player == view.viewer)
+                .unwrap()
+                .mana = mana;
+            view.objects.push(wipe_tests::card(
+                &c,
+                spell,
+                view.viewer.0,
+                Zone::Hand { owner: view.viewer },
+            ));
+            strategy(&c).priority(&observation(view)).unwrap()
+        };
+        assert_eq!(initiation(&v), PlayerResponse::Pass);
+        // Existing mandatory choice fallback remains legal after announcement.
+        let viewer = v.viewer;
+        stack_spell(&mut v, &c, spell, viewer.0);
+        let mut o = observation(v.clone());
+        o.decision = Some(PlayerRequest::Targets {
+            token: mtg_core::DecisionToken("public-announced".into()),
+            player: viewer,
+            occurrences: p.targets.clone(),
+            candidates: vec![h.clone()],
+        });
+        assert_eq!(
+            strategy(&c).choose(&o).unwrap(),
+            PlayerResponse::Targets {
+                objects: vec![h.clone()]
+            }
+        );
+        v.stack.clear();
+        v.objects.retain(|o| o.zone == Zone::Battlefield);
+        v.objects
+            .push(wipe_tests::card(&c, ordinary, 0, Zone::Battlefield));
+        let ordinary_handle = v.objects[1].handle.clone();
+        assert_eq!(
+            initiation(&v),
+            PlayerResponse::Cast {
+                card: ObjectHandle(spell.into())
+            }
+        );
+        assert!(strategy(&c).definition_ready(&v, d));
+        assert_eq!(
+            strategy(&c).object_target(&v, d, p, &p.targets[0], None),
+            Some(ordinary_handle.clone())
+        );
+        assert_eq!(
+            strategy(&c).object_target(&v, d, p, &p.targets[0], Some(&[])),
+            None
+        );
+        assert_eq!(
+            strategy(&c).object_target(
+                &v,
+                d,
+                p,
+                &p.targets[0],
+                Some(&[ObjectHandle("stale".into())])
+            ),
+            None
+        );
+        v.objects[1].controller = viewer;
+        assert!(!strategy(&c).definition_ready(&v, d));
+        v.objects[1].controller = PlayerId(0);
+        v.objects[1].zone = Zone::Graveyard { owner: PlayerId(0) };
+        assert!(!strategy(&c).definition_ready(&v, d));
+        v.objects[0].keywords.clear();
+        // Current public keywords, rather than catalog identity, govern preference.
+        assert!(strategy(&c).definition_ready(&v, d));
+        v.objects[0].keywords = vec![KeywordAbility::Indestructible];
+        v.objects[0].characteristics = Some(
+            c.definitions
+                .iter()
+                .find(|d| d.name == "Mountain")
+                .unwrap()
+                .characteristics
+                .clone(),
+        );
+        assert!(!strategy(&c).definition_ready(&v, d));
+        // Other mandatory benefits keep their previous policy.
+        let mut compound = d.clone();
+        compound
+            .spell
+            .as_mut()
+            .unwrap()
+            .instructions
+            .push(mtg_contracts::Instruction::DrawCards {
+                recipient: None,
+                count: 1.into(),
+                source_block: 0,
+            });
+        v.objects[0] = wipe_tests::card(&c, protected, 0, Zone::Battlefield);
+        assert!(strategy(&c).definition_ready(&v, &compound));
+    }
+}
+
+#[test]
+fn indestructible_policy_exile_bounce_and_real_artifact_sacrifice_keep_preferences() {
+    let c = mtg_compiler::catalog::embedded_catalog("sacrifice").unwrap();
+    let baseline = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+    let mut v = wipe_tests::view(&baseline);
+    v.active = Some(v.viewer);
+    v.turn.step = TurnStep::PrecombatMain;
+    for (spell, target) in [
+        ("Swords to Plowshares", "Darksteel Myr"),
+        ("Unsummon", "Darksteel Myr"),
+        ("Revoke Existence", "Darksteel Relic"),
+        ("Regress", "Darksteel Relic"),
+    ] {
+        v.objects = vec![wipe_tests::card(&c, target, 0, Zone::Battlefield)];
+        let d = c.definitions.iter().find(|d| d.name == spell).unwrap();
+        assert!(strategy(&c).definition_ready(&v, d), "{spell}");
+    }
+    let d = c
+        .definitions
+        .iter()
+        .find(|d| d.name == "Shrapnel Blast")
+        .unwrap();
+    let p = d.spell.as_ref().unwrap();
+    v.players
+        .iter_mut()
+        .find(|p| p.player == PlayerId(0))
+        .unwrap()
+        .life = 5.into();
+    v.objects = vec![wipe_tests::card(
+        &c,
+        "Darksteel Relic",
+        v.viewer.0,
+        Zone::Battlefield,
+    )];
+    assert!(strategy(&c).definition_ready(&v, d));
+    let h = v.objects[0].handle.clone();
+    assert_eq!(
+        strategy(&c)
+            .sacrifice_objects(&v, p.additional_sacrifice.as_ref().unwrap())
+            .iter()
+            .map(|o| o.handle.clone())
+            .collect::<Vec<_>>(),
+        vec![h.clone()]
+    );
+    let viewer = v.viewer;
+    stack_spell(&mut v, &c, "Shrapnel Blast", viewer.0);
+    assert_eq!(
+        strategy(&c)
+            .sacrifice_choice(&v, std::slice::from_ref(&h))
+            .unwrap(),
+        h
+    );
+    v.objects[0].controller = PlayerId(0);
+    assert!(!strategy(&c).definition_ready(&v, d));
+}

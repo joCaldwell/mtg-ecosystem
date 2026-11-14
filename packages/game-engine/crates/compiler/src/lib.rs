@@ -1283,6 +1283,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                 "deathtouch" => {
                                     definition.keywords.push(KeywordAbility::Deathtouch)
                                 }
+                                "indestructible" => {
+                                    definition.keywords.push(KeywordAbility::Indestructible)
+                                }
                                 _ => {
                                     return Err(unsupported(
                                         "abilities.keywords",
@@ -4996,8 +4999,7 @@ mod tests {
     fn defender_whole_source_and_ir_fields_reject_unknown_keyword_semantics() {
         type Mutation = fn(&mut serde_json::Value);
         for mutate in [
-            (|a: &mut serde_json::Value| a["keywords"][0]["keyword"] = "indestructible".into())
-                as Mutation,
+            (|a: &mut serde_json::Value| a["keywords"][0]["keyword"] = "ward".into()) as Mutation,
             |a| a["keywords"][0]["condition"] = true.into(),
             |a| a["keywords"].as_array_mut().unwrap().clear(),
             |a| {
@@ -7695,8 +7697,8 @@ mod tests {
         );
         for (text, ability) in [
             (
-                "Indestructible",
-                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"indestructible"}]}),
+                "Ward {1}",
+                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"ward"}]}),
             ),
             (
                 "When this creature attacks, draw a card.",
@@ -8196,12 +8198,12 @@ mod tests {
                 serde_json::json!({"kind":"keywords","keywords":[{"keyword":"protection"}]}),
             ),
             (
-                "Indestructible",
-                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"indestructible"}]}),
+                "Ward {1}",
+                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"ward"}]}),
             ),
             (
-                "Indestructible",
-                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"indestructible"}]}),
+                "Ward {1}",
+                serde_json::json!({"kind":"keywords","keywords":[{"keyword":"ward"}]}),
             ),
             (
                 "When this creature dies, draw a card.",
@@ -8383,3 +8385,9 @@ mod activated_permanent_return_tests;
 
 #[cfg(test)]
 mod modal_binding_tests;
+
+#[cfg(test)]
+mod indestructible_tests;
+
+#[cfg(test)]
+mod equipped_indestructible_tests;

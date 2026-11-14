@@ -1146,6 +1146,7 @@ impl Game {
                 self.state.rules.effects.clear();
                 for o in self.state.rules.objects.values_mut() {
                     o.marked_damage = Quantity::zero();
+                    o.deathtouch_damage = false;
                 }
                 Ok(EventOutcome::EffectsCleaned { expired, previous })
             }
