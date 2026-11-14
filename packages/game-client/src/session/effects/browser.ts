@@ -49,8 +49,16 @@ function makeBrowserSession(protocolSchemaHash?: string, endpoint?: string): Rea
       try { bootstrap = parseSeatBootstrap(await file.text()); }
       catch { throw new SessionFailure('invalid-file'); }
       if (signal.aborted) throw new SessionFailure('disconnected');
+      if (endpoint && (bootstrap.match_id !== endpoint.split('/')[3] || bootstrap.viewer !== 0)) throw new SessionFailure('invalid-file');
       const origin = window.location.origin;
       const baseURL = `${origin}${endpoint ?? ''}`;
+      // Only the app-selected same-origin proxy needs account cookies as well as
+      // native seat authorization. Keep the standalone SDK's omit policy intact.
+      const scopedFetch: typeof fetch = (input, init) => {
+        const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+        if (url.origin !== origin || !url.pathname.startsWith(`${endpoint}/`)) throw new SessionFailure('incompatible');
+        return fetch(input, { ...init, credentials: 'same-origin' });
+      };
       // The public SDK still validates numeric-loopback client configuration and
       // bounds its body. Only the app-selected path changes its transport; no
       // bootstrap/config value can select a fetch target. Hosted origins retain
@@ -64,7 +72,7 @@ function makeBrowserSession(protocolSchemaHash?: string, endpoint?: string): Rea
       if (bootstrap.server_origin !== config.server_origin) throw new SessionFailure('invalid-file');
       const { capability, bootstrap_version: _version, ...identity } = bootstrap;
       const binding = immutable(identity);
-      const sdk = new GameClient({ baseURL, matchId: binding.match_id, capability });
+      const sdk = new GameClient({ baseURL, matchId: binding.match_id, capability, ...(endpoint ? { fetch: scopedFetch } : {}) });
       const codec = { prepare: prepareCommand, parse: parsePreparedCommand };
       return { binding, ...(protocolSchemaHash ? { actions: {
         protocolSchema: protocolSchemaHash,
