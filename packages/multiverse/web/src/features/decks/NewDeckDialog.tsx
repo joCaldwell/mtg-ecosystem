@@ -33,21 +33,21 @@ export function NewDeckDialog({ onClose }: { onClose: () => void }) {
   return (
     <Dialog
       title="New deck"
-      onClose={onClose}
+      onClose={() => { if (!busy) onClose(); }}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" form={formId} variant="primary" disabled={!name.trim() || busy}>
+          <Button type="submit" form={formId} variant="primary" disabled={busy}>
             {busy ? "Creating…" : "Create deck"}
           </Button>
         </>
       }
     >
-      <form id={formId} onSubmit={create} className={styles.form}>
+      <form id={formId} method="post" onSubmit={create} className={styles.form}>
         <Field label="Deck name">
-          <TextField data-autofocus value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
+          <TextField name="name" required pattern={".*\\S.*"} data-autofocus disabled={busy} value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
         </Field>
         <Field label="Lifecycle" hint={voice("Theorycrafted is a work in progress. Paper is a deck you play. You can archive either later.", "Paper requires agent card proposals; Theorycrafted allows direct agent card edits. Brief changes always need approval. You can archive either later.")}>
           <Select options={DECK_CATEGORY_OPTIONS.filter(o => o.value !== "archived").map(({ value, label }) => ({ value, label }))} value={category} onChange={(value) => setCategory(value as DeckCategory)} disabled={busy} />

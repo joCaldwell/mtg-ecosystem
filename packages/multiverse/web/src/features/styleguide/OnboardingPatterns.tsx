@@ -10,7 +10,7 @@ export function OnboardingPatterns() {
   return <Section title="First-run and tablet patterns">
     <Stack gap={6}>
       <Text as="p" tone="muted">Tab reaches every trigger. Enter or Space opens it; Escape closes popovers and dialogs. The drawer and sheet trap focus and return it to their trigger. Hover and keyboard focus use the selection ring.</Text>
-      <Section title="Contextual details">
+      <Section heading="h3" title="Contextual details">
         <KeyValue items={[
           ["History", <Text mono size="sm">r95</Text>],
           ["Review status", "Unreviewed"],

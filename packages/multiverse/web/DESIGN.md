@@ -146,8 +146,9 @@ Component CSS uses tokens only. If you reach for a literal, add a token.
 Text has four tiers, brightest first: `--text`, `--text-soft`, `--muted`,
 `--faint`. Each passes WCAG AA (4.5:1) on every surface and tint; the measured
 ratios sit beside the tokens. Stacking runs `--z-sticky` < `--z-pop` <
-`--z-dialog` < `--z-hover` < `--z-toast`; a popover inside a dialog is
-portalled into it, so it needs no higher layer. `--measure-wide` is the wide
+`--z-dialog` < `--z-hover` < `--z-toast` in the positioned fallback. Native
+dialogs/popovers use the browser top layer; a popover inside a dialog is
+portalled into it so it remains within the modal's inertness boundary. `--measure-wide` is the wide
 page and first-run width; `--tablet-bar-h` the drawer's menu bar.
 
 `design/base.css` holds the one global utility, `.visually-hidden`, for text
@@ -159,6 +160,11 @@ severity before a message, the rest of a link's name.
 - Body `--text-md` (13px). Secondary `--text-sm` (12px). Labels and meta
   `--text-xs`, also 12px since 2026-10-28: 11px mid-grey meta on black was
   hard to read. `--text-2xs` (10px) is only for key caps.
+- These sizes are rem equivalents at the default 16px root. The root remains
+  100% so browser text preferences scale the interface. Form controls stay at
+  least 1rem on coarse pointers; dense controls have a 24px minimum target and
+  grow with content. `--control-line` supplies meaningful control boundaries
+  at 3:1 contrast while decorative `--line` separators stay quieter.
 - The sign-in product name `--text-wordmark` (24px).
 - Page titles `--text-xl`, weight 650. Card and section titles `--text-lg`.
 - Eyebrows (small section labels): `--text-xs`, uppercase, letter-spaced,
@@ -227,17 +233,17 @@ or about this app.
 | `TextArea` | Multi-line input | `autosize` |
 | `Select` | Pick one of a list: a select-only combobox over the same list as MultiSelect, never a native `<select>` | `options` (item `disabled`, `title`); `placeholder`; `invalid`; `disabled`; `defaultOpen` (style guide only) |
 | `Checkbox` | A native checkbox, restyled | |
-| `MultiSelect` | Searchable multiple-selection listbox with removable selected chips | controlled `value`, async `onChange`, empty state, `compact` trigger summary, dropdown `footer` |
+| `MultiSelect` | Searchable native-checkbox group with removable selected chips | controlled `value`, async `onChange`, empty state, `compact` trigger summary, dropdown `footer` |
 | `Field` | Label, control and hint, wired together | |
 | `Meter` | A bar toward a limit | `neutral` `agent` `warn` `add`; clamps to 0-100% |
 | `Box` | A bordered container | tone `neutral` `agent` `warn`; `dashed`; padding `none` `sm` `md` |
-| `Eyebrow`, `Section` | The small uppercase label, and a titled group with an `aside` | |
+| `Eyebrow`, `Section` | The small uppercase label, and a titled group with an `aside` | `Eyebrow as` and `Section heading` preserve semantic h2/h3 hierarchy |
 | `Stepper` | A number you can type or nudge, with side-by-side arrows that never read as a dropdown | `onStepUp`, `onStepDown`; `upLabel`, `downLabel`; `upDisabled`, `downDisabled` stay focusable; `disabled` |
 | `Stack`, `Row`, `Spacer` | Layout on the spacing scale `--s-1` to `--s-8` | `gap` 1-8; Row `align`, `justify`, `wrap` |
 | `Text` | Text with a tone, size and weight from the tokens | tone: 8; size `xs` to `xl`; `mono`; weight 3 |
 | `Banner` | A full-width strip under a header | `agent` `warn` `error` `neutral`; `actions` |
 | `ErrorNote`, `EmptyState`, `Loading` | An inline error, "nothing here yet", and a loading line | EmptyState `heading` `h1` `h2` when it is all the page has |
-| `Dialog` | A modal: focus trap, Esc, backdrop click, focus restore, `data-autofocus` | width `md` `lg` `wide`; placement `center` `sheet` `drawer`; `footer` |
+| `Dialog` | Native modal: showModal, browser focus containment/return, Esc, backdrop click, `data-autofocus` | width `md` `lg` `wide`; placement `center` `sheet` `drawer`; `footer`; `onEscape` |
 | `ConfirmDialog` | A question with Cancel and a confirm button | tone `default` `danger` |
 | `Explainer` | Specifically labelled help for unfamiliar concepts | closed, open, keyboard focus, close/Escape and focus return; `defaultOpen` (style guide only); `control` (opened by a menu item, beside its anchor, no trigger of its own) |
 | `Popover`, `placeNear` | A panel anchored to an element, kept inside the viewport | placement `below` `right` `above` `left`; `align`; `fitAnchor` |
@@ -298,17 +304,16 @@ sheet over the list (principle 1's existing requested-dialog exception).
   deck panel under 1100 px. The list stays in the window; the requested panel
   has `--sheet-content-h` and scrolls internally. Header stats, tabs and card
   selection open it; Close/Escape returns to the list. Playtest requires 1100 px.
-- **Listbox:** MultiSelect's filtered options have `role=option` and
-  `aria-selected` inside an `aria-multiselectable` listbox. Up/Down navigates
-  search and options; Space/Enter toggles; Escape/Done returns to the trigger.
-  The listbox shows empty and no-match states as a disabled option (so its
-  required option role remains present), and disables writes while busy.
+- **Multiple selection:** MultiSelect's filtered values are native labelled
+  checkboxes in a named group. Tab reaches search, each checkbox and Done;
+  Space toggles without inventing listbox keyboard semantics. Escape/Done
+  returns to the trigger. Empty/no-match states are text; writes disable while busy.
 - **Dropdowns (owner decision, 2026-10-30, replacing native selects):** a
   native select's open list cannot be styled, so every dropdown is `Select`
   or `MultiSelect`, drawn from the same trigger and list
   (`ui/Listbox.module.css`). `Select` is the WAI-ARIA select-only combobox:
   focus stays on the trigger and the list follows `aria-activedescendant`,
-  so a Dialog's focus trap and Escape order are untouched. Up/Down, Home/End,
+  so native modal focus containment and Escape order are preserved. Up/Down, Home/End,
   Page Up/Down and type-ahead move; Enter and Space commit; Escape closes
   without changing anything; Tab keeps the highlighted option and moves on.
   A trigger keeps one width whichever option is chosen. Its list is portalled

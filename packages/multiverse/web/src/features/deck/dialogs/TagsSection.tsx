@@ -10,7 +10,7 @@ import styles from "./TagsSection.module.css";
 export function TagsSection() {
   const { deckId } = useDeck();
   const { tags } = useDeckState();
-  const { error, setError, mutate } = useAttempt();
+  const { error, setError, busy, mutate } = useAttempt();
   const [name, setName] = useState("");
 
   async function rename(tagId: number, next: string) {
@@ -23,6 +23,7 @@ export function TagsSection() {
 
   async function add(e: FormEvent) {
     e.preventDefault();
+    if (busy || !name.trim()) return;
     const result = await mutate(() => api.createTag(deckId, name.trim()));
     if (result) setName("");
   }
@@ -41,10 +42,10 @@ export function TagsSection() {
           No tags yet. Add one below, then put it on cards from the card panel.
         </Text>
       )}
-      <form onSubmit={add}>
+      <form method="post" onSubmit={add}>
         <Row>
-          <TextField value={name} onChange={(e) => setName(e.target.value)} placeholder="Add a tag" aria-label="Name of the new tag" />
-          <Button size="sm" variant="primary" type="submit" disabled={!name.trim()}>
+          <TextField name="name" required pattern={".*\\S.*"} disabled={busy} value={name} onChange={(e) => setName(e.target.value)} placeholder="Add a tag" aria-label="Name of the new tag" />
+          <Button size="sm" variant="primary" type="submit" disabled={busy}>
             Add
           </Button>
         </Row>

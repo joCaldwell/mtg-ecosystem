@@ -7,6 +7,11 @@
   box-sizing: border-box;
 }
 
+html {
+  font-size: 100%;
+  color-scheme: dark;
+}
+
 html,
 body,
 #root {
@@ -85,15 +90,36 @@ a {
   border-radius: var(--r-sm);
 }
 
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+/* Standard styling applies to pane scrollers as well as the viewport. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) var(--bg);
 }
 
-::-webkit-scrollbar-thumb {
-  border: 2px solid var(--bg);
-  border-radius: var(--r-md);
-  background: var(--scrollbar);
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb {
+    border: 2px solid var(--bg);
+    border-radius: var(--r-md);
+    background: var(--scrollbar);
+  }
+}
+
+@media (forced-colors: active) {
+  :root {
+    --bg: Canvas;
+    --surface: Canvas;
+    --raised: Canvas;
+    --overlay: Canvas;
+    --text: CanvasText;
+    --text-soft: CanvasText;
+    --muted: CanvasText;
+    --faint: CanvasText;
+    --sel: Highlight;
+    --control-line: ButtonText;
+  }
+  * { scrollbar-color: auto; }
+  :focus-visible { outline-color: Highlight; }
 }
 
 /* Motion conveys no required state; respect the reader's preference. */
@@ -108,6 +134,7 @@ a {
 .skip-link { position: fixed; top: var(--s-4); left: var(--s-4); z-index: var(--z-toast); padding: var(--s-5); background: var(--raised); color: var(--text); transform: translateY(-200%); }
 .skip-link:focus { transform: none; }
 
-@media (hover: none) {
-  button, input:not([type="checkbox"]), a[role="button"] { min-height: var(--tap); }
+@media (pointer: coarse) {
+  button, input:not([type="checkbox"]), select, a[role="button"] { min-height: var(--tap); }
+  input:not([type="checkbox"]):not([type="radio"]), textarea, select { font-size: max(1rem, 1em); }
 }

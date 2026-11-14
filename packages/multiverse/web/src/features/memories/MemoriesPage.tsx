@@ -113,7 +113,7 @@ export function MemoriesPage() {
       ) : (
         <Stack gap={4} className={styles.listSection}>
           <div className={styles.listHead}>
-            <Eyebrow>{shown.length === 1 ? "1 memory" : `${shown.length} memories`}</Eyebrow>
+            <Eyebrow as="h2">{shown.length === 1 ? "1 memory" : `${shown.length} memories`}</Eyebrow>
           </div>
           {shown.length === 0 ? (
             <EmptyState title={filtered ? "No memories match these filters." : "No memories yet."}>

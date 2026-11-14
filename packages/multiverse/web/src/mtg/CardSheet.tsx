@@ -21,7 +21,7 @@ export function CardSheet({ card, onClose, sheet = false }: { card: CardInfo; on
       <div className={styles.card}>
         {url && image !== "failed" && (
           <img className={image === "loaded" ? styles.image : styles.pending} src={url} alt={`${card.name}, card image`}
-            loading="lazy" onLoad={() => setImage("loaded")} onError={() => setImage("failed")} />
+            decoding="async" onLoad={() => setImage("loaded")} onError={() => setImage("failed")} />
         )}
         <div className={styles.facts}>
           <div className={styles.head}>

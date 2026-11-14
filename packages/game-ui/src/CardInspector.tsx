@@ -13,7 +13,7 @@ export function CardInspector({ card, onClose }: { card: CardView | null; onClos
   return <aside className={`${surface.surface} ${styles.inspector}`} aria-label="Card inspector" onKeyDown={event => {
     if (event.key === 'Escape' && card) { event.preventDefault(); onClose(); }
   }}>
-    <div className={styles.top}><span className={surface.eyebrow}>Card inspector</span>{card && <button className={surface.control} onClick={onClose}>Close</button>}</div>
+    <div className={styles.top}><span className={surface.eyebrow}>Card inspector</span>{card && <button type="button" className={surface.control} onClick={onClose}>Close</button>}</div>
     {card ? <>
       <h2 ref={heading} tabIndex={-1} className={styles.title}>{cardName(card)}</h2>
       <p className={styles.zone}>{card.zoneLabel}</p>

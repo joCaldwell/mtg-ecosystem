@@ -13,7 +13,7 @@ const browser=await chromium.launch({args:BROWSER_ARGS}),results=[];
 try{for(const width of [1280,1440,1920,2560]){
  const context=await newContext(browser,{origin,vp:VIEWPORTS[width],user:1,frozenNow:'2026-10-20T17:00:00Z',notes:{blocked:new Set(),imageFailures:new Set()}});await context.grantPermissions(['clipboard-read','clipboard-write'],{origin});const page=await context.newPage(),watch=watchPage(page);
  await page.goto(origin+'/deck/2');await settle(page,watch);
- const open=async()=>{await page.getByRole('button',{name:'More',exact:true}).click();await page.getByRole('menuitem',{name:'Export',exact:true}).click();await settle(page,watch);};
+ const open=async()=>{await page.getByRole('button',{name:'More',exact:true}).click();await page.locator('[focusgroup~="menu"] button, [role="menuitem"]').filter({hasText:/^Export$/}).click();await settle(page,watch);};
  await open();const dialog=page.getByRole('dialog',{name:'Export',exact:true}),field=dialog.getByRole('textbox',{name:'Exported list',exact:true}),copy=dialog.getByRole('button',{name:'Copy',exact:true});
  const check=async(query,expectedText=true)=>{await settle(page,watch);const expected=await api('/api/decks/2/export?'+query);if(expectedText){assert.equal(await field.inputValue(),expected.text);assert.equal(await copy.isEnabled(),true);await copy.click();assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),expected.text);}else {assert.equal(expected.text,'');assert.equal(await field.count(),0);assert.equal(await copy.isDisabled(),true);}return {cards:expected.card_count,lines:expected.line_count};};
  const whole=await check('');await shoot(page,join(out,`whole-${width}.png`),{full:false});

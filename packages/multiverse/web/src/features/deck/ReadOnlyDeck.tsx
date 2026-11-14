@@ -125,7 +125,7 @@ function ReadOnlyBody({ model, header, decisions, listNavigation, useView = useP
 
             <aside className={styles.aside} aria-label="About this deck">
               <section className={styles.section}>
-                <Eyebrow>Estimated price</Eyebrow>
+                <Eyebrow as="h2">Estimated price</Eyebrow>
                 <Text size="xl" mono as="p">{price.as_of ? formatPrice(price.total_cents, price.currency) : "No prices yet"}</Text>
                 <Text size="xs" tone="muted" as="p">
                   Cheapest printings{price.unpriced ? `; ${price.unpriced} unpriced` : ""}
@@ -135,7 +135,7 @@ function ReadOnlyBody({ model, header, decisions, listNavigation, useView = useP
 
               {/* Shown only with something to show: an unset target is not explained to a reader. */}
               {(power.target || power.assessment) && <section className={styles.section}>
-                <Eyebrow>Power</Eyebrow>
+                <Eyebrow as="h2">Power</Eyebrow>
                 <div className={styles.power}>
                   {power.target && <Stack gap={1}>
                     <Text size="xs" tone="muted">Target</Text>
@@ -158,24 +158,24 @@ function ReadOnlyBody({ model, header, decisions, listNavigation, useView = useP
               <section className={styles.section}>
                 <BriefText title="Thesis" value={model.brief.thesis} purpose="What the deck is trying to do." />
                 <BriefText title="Constraints" value={model.brief.constraints_md} purpose="Budget, pod expectations, cards it will not play." />
-                <Eyebrow>Engines</Eyebrow>
+                <Eyebrow as="h2">Engines</Eyebrow>
                 {model.engines.length === 0
                   ? <Text tone="muted" size="sm" as="p">No engines named.</Text>
                   : model.engines.map((e) => <EngineCard key={e.name} engine={e} />)}
               </section>
 
               <section className={styles.section}>
-                <Eyebrow>Checks</Eyebrow>
-                <ChecksPanel checks={model.checks} />
+                <Eyebrow as="h2">Checks</Eyebrow>
+                <ChecksPanel headingLevel={3} checks={model.checks} />
               </section>
               <section className={styles.section}>
-                <Eyebrow>Stats</Eyebrow>
-                <StatsPanel />
+                <Eyebrow as="h2">Stats</Eyebrow>
+                <StatsPanel headingLevel={3} />
               </section>
 
               {model.decisions && (
                 <section className={styles.section}>
-                  <Eyebrow>Decisions · {model.decisions.length}</Eyebrow>
+                  <Eyebrow as="h2">Decisions · {model.decisions.length}</Eyebrow>
                   <ol className={styles.decisions}>
                     {model.decisions.map((d, i) => (
                       <li key={`${d.at}-${i}`} className={styles.decision}>

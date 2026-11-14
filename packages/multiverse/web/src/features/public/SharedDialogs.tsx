@@ -21,6 +21,7 @@ export function ExportSharedDialog({ shared, onClose }: { shared: PublicDeckStat
   useEffect(() => {
     let current = true;
     setText(null);
+    setError(null);
     api.publicExport(shared.deck.slug, { categories, includeMaybe: maybe }).then(
       (r) => current && setText(r.text), (e) => current && setError(message(e)));
     return () => { current = false; };
@@ -60,16 +61,16 @@ export function ForkSharedDialog({ shared, onClose }: { shared: PublicDeckState;
     } catch (err) { setError(message(err)); } finally { setBusy(false); }
   }
   return (
-    <Dialog title="Fork this deck" onClose={onClose} placement={phone ? "sheet" : "center"}
-      footer={<><Button size={phone ? "touch" : "md"} variant="ghost" onClick={onClose}>Cancel</Button><Button size={phone ? "touch" : "md"} variant="primary" type="submit" form={formId} disabled={!name.trim() || busy}>{busy ? "Forking…" : "Fork"}</Button></>}>
-      <form id={formId} onSubmit={submit}>
+    <Dialog title="Fork this deck" onClose={() => { if (!busy) onClose(); }} placement={phone ? "sheet" : "center"}
+      footer={<><Button size={phone ? "touch" : "md"} variant="ghost" disabled={busy} onClick={onClose}>Cancel</Button><Button size={phone ? "touch" : "md"} variant="primary" type="submit" form={formId} disabled={busy}>{busy ? "Forking…" : "Fork"}</Button></>}>
+      <form id={formId} method="post" onSubmit={submit}>
         <Stack gap={5}>
           <Text tone="muted" as="p">
             Makes a private Theorycrafted deck of your own with this list, its slots, tags, brief and engines. Nothing of
             {" "}{shared.deck.owner.handle}'s notes, decisions or power records comes with it. It remembers where it came from.
           </Text>
           <Field label="Name for your fork">
-            <TextField value={name} onChange={(e) => setName(e.target.value)} onFocus={(e) => e.currentTarget.select()} data-autofocus="" />
+            <TextField name="name" required pattern={".*\\S.*"} disabled={busy} value={name} onChange={(e) => setName(e.target.value)} onFocus={(e) => e.currentTarget.select()} data-autofocus="" />
           </Field>
           {error && <ErrorNote>{error}</ErrorNote>}
         </Stack>
@@ -84,9 +85,13 @@ export function CompareSharedDialog({ shared, onClose }: { shared: PublicDeckSta
   const [mine, setMine] = useState<number | null>(null);
   const [diff, setDiff] = useState<DeckComparison | null>(null);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { api.listDecks().then((d) => setDecks(d), (e) => setError(message(e))); }, []);
   useEffect(() => {
-    if (mine == null) return;
+    let current = true;
+    api.listDecks().then(d => current && setDecks(d), e => current && setError(message(e)));
+    return () => { current = false; };
+  }, []);
+  useEffect(() => {
+    if (mine == null) { setDiff(null); return; }
     let current = true;
     setDiff(null); setError(null);
     api.compareShared(mine, shared.deck.slug).then((d) => current && setDiff(d), (e) => current && setError(message(e)));

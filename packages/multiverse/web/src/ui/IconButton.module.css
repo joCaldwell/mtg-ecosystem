@@ -49,3 +49,7 @@
     min-height: var(--tap);
   }
 }
+
+@media (pointer: coarse) {
+  .iconButton { min-width: var(--tap); min-height: var(--tap); }
+}

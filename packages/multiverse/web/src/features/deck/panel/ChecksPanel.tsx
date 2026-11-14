@@ -13,7 +13,7 @@ import styles from "./ChecksPanel.module.css";
 
 /** Reads the list through useDeckList, so a shared deck and the phone view
  *  draw the same panel; `checks` come with whichever composite was loaded. */
-export function ChecksPanel({ checks }: { checks: Finding[] }) {
+export function ChecksPanel({ checks, headingLevel = 2 }: { checks: Finding[]; headingLevel?: 2 | 3 }) {
   const { state, readOnly, viewer } = useDeckList();
   const ui = useDeckUi();
   const { computed, slots } = state;
@@ -25,7 +25,7 @@ export function ChecksPanel({ checks }: { checks: Finding[] }) {
   return (
     <>
       <section className={styles.section}>
-        <Eyebrow>Findings · {checks.length}</Eyebrow>
+        <Eyebrow as={headingLevel === 2 ? "h2" : "h3"}>Findings · {checks.length}</Eyebrow>
         {checks.length === 0 ? (
           <Text tone="muted" size="sm" as="p">
             No problems found.
@@ -71,7 +71,7 @@ export function ChecksPanel({ checks }: { checks: Finding[] }) {
 
       {!(viewer && slots.length === 0) && (
       <section className={styles.section}>
-          <Eyebrow>Slot targets</Eyebrow>
+          <Eyebrow as={headingLevel === 2 ? "h2" : "h3"}>Slot targets</Eyebrow>
           {offTarget.length > 0 && (
             <Text tone="muted" size="sm" as="p">
               {offTarget.length === 1 ? "One slot is" : `${offTarget.length} slots are`} outside target.

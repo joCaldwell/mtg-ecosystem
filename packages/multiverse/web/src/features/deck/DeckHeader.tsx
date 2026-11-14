@@ -39,6 +39,7 @@ export function DeckHeader({ compact = false }: { compact?: boolean }) {
   }
 
   function onNameKey(e: KeyboardEvent) {
+    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
     if (e.key !== "Escape") return;
     // The deck screen's own Escape would also clear the selection.
     e.stopPropagation();

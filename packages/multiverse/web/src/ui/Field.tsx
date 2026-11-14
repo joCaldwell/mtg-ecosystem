@@ -5,7 +5,7 @@ import styles from "./Field.module.css";
 export interface FieldProps {
   label: ReactNode;
   hint?: ReactNode;
-  /** The control. A single element without its own id is wired to the label. */
+  /** One control; existing IDs and descriptions are preserved when wiring the label and hint. */
   children: ReactNode;
   className?: string;
 }
@@ -14,15 +14,16 @@ export function Field({ label, hint, children, className }: FieldProps) {
   const id = useId();
   const hintId = `${id}-hint`;
   let control = children;
+  let controlId = id;
   if (isValidElement(children) && typeof children.type !== "symbol") {
     const el = children as ReactElement<{ id?: string; "aria-describedby"?: string }>;
-    if (el.props.id === undefined) {
-      control = cloneElement(el, { id, ...(hint ? { "aria-describedby": hintId } : {}) });
-    }
+    controlId = el.props.id ?? id;
+    const descriptions = [el.props["aria-describedby"], hint ? hintId : undefined].filter(Boolean).join(" ");
+    control = cloneElement(el, { id: controlId, ...(descriptions ? { "aria-describedby": descriptions } : {}) });
   }
   return (
     <div className={cx(styles.field, className)}>
-      <label htmlFor={id} className={styles.label}>
+      <label htmlFor={controlId} className={styles.label}>
         {label}
       </label>
       {control}

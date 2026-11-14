@@ -47,12 +47,12 @@ function DeckGate({ startInReview }: { startInReview: boolean }) {
   if (missing)
     return (
       <Page>
-        <EmptyState title="This deck does not exist">
+        <EmptyState heading="h1" title="This deck does not exist">
           It may have been deleted. <a href={href({ page: "decks" })}>Back to all decks</a>
         </EmptyState>
       </Page>
     );
-  if (!state && loadError) return <Page><EmptyState title={loadError.status === 403 ? "You do not have access to this deck" : "Could not load this deck"}>
+  if (!state && loadError) return <Page><EmptyState heading="h1" title={loadError.status === 403 ? "You do not have access to this deck" : "Could not load this deck"}>
     {loadError.status === 403 ? "Return to all decks or retry if your access has changed." : "The server could not be reached or returned an error. Please retry."}
     <Button onClick={retry}>Retry</Button>
   </EmptyState></Page>;

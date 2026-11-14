@@ -5,9 +5,9 @@ import { decisionGalleryFixture, fixtureTable } from './fixture.ts';
 
 /** Local review of an unchanged producer-captured request. No session, storage,
  * transport or simulated game progression: confirming only updates this message. */
-export function OpeningTablePreview() {
+export function OpeningTablePreview({ headingLevel = 1 }: { headingLevel?: 1 | 2 } = {}) {
   const [receipt, setReceipt] = useState('No preview choice confirmed.');
-  return <Table table={{ ...fixtureTable, title: 'Opening hand preview' }} decisionControls={<>
+  return <Table headingLevel={headingLevel} table={{ ...fixtureTable, title: 'Opening hand preview' }} decisionControls={<>
     <p>Interactive preview. Choices stay in this page; the captured game does not advance.</p>
     <DecisionPanel {...decisionGalleryFixture} embedded onComplete={({ response }) => {
       if (response.response === 'mulligan') {

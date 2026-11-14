@@ -12,3 +12,6 @@
 .details a { color: var(--sel); }
 
 .compare td[data-different="true"] { color: var(--warn); }
+
+.range { min-inline-size: 0; margin: 0; padding: 0; border: 0; display: grid; gap: var(--s-2); }
+.range > legend { padding: 0; color: var(--text-soft); font-size: var(--text-sm); }

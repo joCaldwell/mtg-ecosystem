@@ -315,7 +315,7 @@ try {
       await capture('power-editor');
       await dialog.getByRole('button', { name: 'Cancel', exact: true }).click(); await settle(page, watch);
 
-      await page.getByRole('button', { name: 'More', exact: true }).click(); await page.getByRole('menuitem', { name: 'Compare', exact: true }).click();
+      await page.getByRole('button', { name: 'More', exact: true }).click(); await page.locator('[focusgroup~="menu"] button, [role="menuitem"]').filter({ hasText: /^Compare$/ }).click();
       dialog = page.getByRole('dialog', { name: 'Compare decks', exact: true });
       const compare = combo('Compare with', dialog);
       assert.equal(await focused(compare), true, 'data-autofocus reaches the trigger');
@@ -326,7 +326,7 @@ try {
       // Playtest: the library viewer's mode.
       await page.goto(origin + `/deck/${deckId}/playtest`); await settle(page, watch);
       if (!await page.getByRole('dialog', { name: 'New game', exact: true }).count()) {
-        await page.getByRole('button', { name: 'More', exact: true }).click(); await page.getByRole('menuitem', { name: /^New game/ }).click();
+        await page.getByRole('button', { name: 'More', exact: true }).click(); await page.locator('[focusgroup~="menu"] button, [role="menuitem"]').filter({ hasText: /^New game/ }).click();
       }
       await page.getByRole('button', { name: 'Shuffle and draw seven', exact: true }).click(); await settle(page, watch);
       await page.getByRole('button', { name: 'Keep hand', exact: true }).click(); await settle(page, watch);
