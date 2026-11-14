@@ -412,6 +412,7 @@ fn temporary_indestructible_attacker_damage_preserves_exact_keyword_authority() 
                             .source
                             .keywords
                             .retain(|k| *k != KeywordAbility::Indestructible);
+                        invented.state_sha256 = digest(&invented.state).unwrap();
                         assert!(
                             Game::restore(
                                 g.prepared.as_ref().clone(),
