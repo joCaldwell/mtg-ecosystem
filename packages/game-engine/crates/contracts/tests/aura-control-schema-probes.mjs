@@ -39,6 +39,69 @@ const reordered = control(3);
 reordered.definitions[0].capabilities.reverse();
 positive('capability set order independent', reordered);
 
+function composed(power = '2', toughness = '2', keywords = ['flying'], restrictions = []) {
+  const catalog = control(5);
+  catalog.definitions[0].static_abilities.push({ functioning_zone: 'battlefield', effect: {
+    modify_creatures: { scope: 'enchanted', power, toughness, keywords, restrictions },
+  } });
+  return catalog;
+}
+for (const [name, power, toughness, keywords, restrictions] of [
+  ['Spirit Away modifier', '2', '2', ['flying'], []],
+  ["Yavimaya's Embrace modifier", '2', '2', ['trample'], []],
+  ['different parameters and keyword set', '7', '3', ['reach', 'hexproof'], []],
+  ['huge exact stat quantity', '99999999999999999999999999', '0', [], []],
+  ['stat modifier alone', '0', '4', [], []],
+  ['keyword grant alone', '0', '0', ['haste'], []],
+  ['spaced keyword spelling', '1', '0', ['first strike', 'lifelink'], []],
+  ['restriction alone', '0', '0', [], ['cant_be_blocked']],
+  ['combined restrictions', '0', '1', ['shroud'], ['cant_block', 'cant_attack_or_block']],
+]) {
+  const value = composed(power, toughness, keywords, restrictions);
+  assert.deepEqual(value.definitions[0].capabilities, capabilities);
+  positive(name, value);
+}
+const reversedComposition = composed();
+reversedComposition.definitions[0].static_abilities.reverse();
+positive('independent static effect order', reversedComposition);
+
+function negativeComposition(name, mutate) {
+  const value = composed();
+  mutate(value.definitions[0], value.definitions[0].static_abilities[1].effect.modify_creatures);
+  probes.push({ name, value, expected: false });
+}
+for (const [name, mutate] of [
+  ['negative static power', (_d, m) => { m.power = '-1'; }],
+  ['negative static toughness', (_d, m) => { m.toughness = '-1'; }],
+  ['noncanonical signed quantity', (_d, m) => { m.power = '+2'; }],
+  ['number quantity', (_d, m) => { m.power = 2; }],
+  ['empty no-op modifier', (_d, m) => { Object.assign(m, { power: '0', toughness: '0', keywords: [], restrictions: [] }); }],
+  ['empty modifier object', d => { d.static_abilities[1].effect.modify_creatures = {}; }],
+  ['flash static grant', (_d, m) => { m.keywords = ['flash']; }],
+  ['Indestructible static Aura grant', (d, m) => { m.keywords = ['indestructible']; d.capabilities.push('indestructible_v1'); }],
+  ['duplicate static keyword', (_d, m) => { m.keywords = ['flying', 'flying']; }],
+  ['unknown static keyword', (_d, m) => { m.keywords = ['ward']; }],
+  ['keyword unit object spelling', (_d, m) => { m.keywords = [{ flying: null }]; }],
+  ['duplicate restriction', (_d, m) => { m.restrictions = ['cant_block', 'cant_block']; }],
+  ['unknown restriction', (_d, m) => { m.restrictions = ['cant_activate']; }],
+  ['equipped modifier scope', (_d, m) => { m.scope = 'equipped'; }],
+  ['controller modifier scope', (_d, m) => { m.scope = 'controller'; }],
+  ['source modifier scope', (_d, m) => { m.scope = 'source'; }],
+  ['attacking modifier scope', (_d, m) => { m.scope = 'attacking_controller'; }],
+  ['stack modifier', d => { d.static_abilities[1].functioning_zone = 'stack'; }],
+  ['extra modifier', d => { d.static_abilities.push(clone(d.static_abilities[1])); }],
+  ['extra control', d => { d.static_abilities.push(clone(d.static_abilities[0])); }],
+  ['duplicate controls alone', d => { d.static_abilities[1] = clone(d.static_abilities[0]); }],
+  ['modifier replaces control', d => { d.static_abilities.shift(); }],
+  ['modifier qualifier', (_d, m) => { m.duration = 'until_end_of_turn'; }],
+  ['modifier target filter', (_d, m) => { m.filter = { control: 'you' }; }],
+  ['modifier source relation', (_d, m) => { m.source = 'controller'; }],
+  ['setting layer', d => { d.static_abilities[1].effect = { set_creatures: { power: '2', toughness: '2' } }; }],
+  ['all ability removal', (_d, m) => { m.remove_all_abilities = true; }],
+  ['modifier gains spare subset capability', d => { d.capabilities.push('temporary_creature_keyword_program_v1'); }],
+]) negativeComposition(name, mutate);
+for (const capability of capabilities) negativeComposition(`composition missing ${capability}`, d => { d.capabilities = d.capabilities.filter(c => c !== capability); });
+
 function negative(name, mutate) {
   const value = control(3);
   mutate(value.definitions[0], value);
