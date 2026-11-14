@@ -3299,3 +3299,6 @@ mod temporary_protection_policy_tests;
 
 #[path = "temporary_flight_policy_tests.rs"]
 mod temporary_flight_policy_tests;
+
+#[path = "collar_policy_tests.rs"]
+mod collar_policy_tests;

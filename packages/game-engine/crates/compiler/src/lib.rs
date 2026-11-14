@@ -8441,3 +8441,6 @@ mod temporary_flying_tests;
 
 #[cfg(test)]
 mod compound_indestructible_tests;
+
+#[cfg(test)]
+mod collar_source_tests;

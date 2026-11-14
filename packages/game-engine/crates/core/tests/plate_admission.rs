@@ -134,7 +134,9 @@ fn recover(g: &Game, p: &Prepared, v: &mut SnapshotVerifier) {
 fn plate_admission_preserves_catalog_default_delta_and_consumer_guards() {
     let profile = match_profile(PROFILE).unwrap();
     let mut c = profile.catalog().clone();
-    assert_eq!(c.definitions.len(), 159);
+    assert_eq!(c.definitions.len(), 160);
+    c.definitions
+        .retain(|d| d.oracle_id != "f5f4dd28-f4ae-4d39-b9b8-6ebfd63c93fe");
     assert_eq!(c.schema_version, 1);
     let d = c.definition_by_oracle_id(PLATE).unwrap();
     assert_eq!(d.name, "Darksteel Plate");
@@ -165,7 +167,7 @@ fn plate_admission_preserves_catalog_default_delta_and_consumer_guards() {
             .find(|r| r.oracle_id == oracle(&c, "Plains"))
             .unwrap()
             .count,
-        56
+        55
     );
     for f in [Feature::Hosting, Feature::Search] {
         assert!(matches!(
@@ -188,7 +190,9 @@ fn plate_admission_preserves_catalog_default_delta_and_consumer_guards() {
     ))
     .unwrap();
     let rows = raw["decks"][0]["cards"].as_array_mut().unwrap();
-    rows.retain(|r| r["oracle_id"] != PLATE);
+    rows.retain(|r| {
+        r["oracle_id"] != PLATE && r["oracle_id"] != "f5f4dd28-f4ae-4d39-b9b8-6ebfd63c93fe"
+    });
     let plains = rows
         .iter_mut()
         .find(|r| r["oracle_id"] == oracle(&c, "Plains"))
