@@ -225,3 +225,69 @@ copied producers, exported schemas, source manifests, command receipts and
 preserved failures are retained under `generated/compound-indestructible/` in
 the implementation checkout; these identify the tested source independently
 from later integration and consumer acceptance.
+
+## Temporary Deathtouch source foundation
+
+Schema 1's separate `temporary_deathtouch_spell_v1` capability admits exactly
+one ordinary nonmodal instant/sorcery instruction granting `[Deathtouch]` to one
+unfiltered battlefield creature until end of turn. It also requires
+`deathtouch_v1` and the ordinary creature-target capability. Pure Flying,
+pure Indestructible and the exact compound Indestructible program retain their
+separate capability meanings. Mixed/duplicate keywords, arbitrary keywords,
+extra instructions, qualifiers, modes, activations, triggers and additional
+costs remain rejected. No pool, profile, policy, hosting/search, server or SDK
+admission follows from this foundation.
+
+Complete frozen [Serpent's Gift source](../packages/game-engine/tests/fixtures/b75fb789-6a78-4d23-b872-7627b478fb6f.json)
+is physical line 27602/source index 27600 of the retained d705 archive. It is a
+normal-layout, green Commander-legal instant costing `{2}{G}`, with one bound
+`line:0:0` creature selection and a sole end-of-turn Deathtouch grant. The full
+archive SHA-256 is
+`d705222b280a71cb5a5362f657d530b22402ca51687bac3227c1d6db403d0282`;
+record `609022e2d6a4569c836a8490ab9b200501f7abf203eaebaaa9bbf6e149f6e836`;
+source `5e6f68fe1681e09e9f3faa1979b217619b0c58a6d43f2f88159d770c64579e6f`;
+AST `17b8cc784edcd8b8501740cd8f60cbd7a6e04613e18166c75c91db1d7abdbb1d`;
+binding `920737a787011947206ff954053c8cb90425605fc14268f4d16c4ac678879ac1`.
+The record is added to fixture provenance and the accepted archive registry,
+without adding catalog membership. The retained baseline CLI
+`007dfac0f81217d9b409de83eaf577c0933468bda9ace3f639a305cc16cc8bba`
+rejects this exact source; its full-archive RED output remains under
+`generated/temporary-deathtouch/baseline-red/`.
+
+The existing keyword union and damage-time appearance supply deathtouch without
+a combat rewrite. The grant captures an exact incarnation, survives its spell's
+departure, does not follow bounce/reentry, and expires with damage marks in atomic
+cleanup (CR 400.7, 611.2a/c, 613.1f, 514.2). A granted source's positive damage
+can destroy a creature with greater toughness; granting deathtouch after ordinary
+damage cannot retroactively change that damage (CR 702.2a-e, 704.5h). Current
+sources use current appearance at damage, and sacrificed sources retain their
+exact last-known keywords (CR 113.7a, 608.2h, 702.2d/e). Indestructible victims
+retain marked damage but consume the completed deathtouch observation window;
+removing protection later cannot revive that nonlethal window. These use the
+pinned 2026-09-25 rules identified above.
+
+Private source-backed scenarios use paid casts and real damage activations and
+combat: one damage from Prodigal Sorcerer or departed Mogg Fanatic kills Yoked
+Ox, while prior ordinary damage stays ordinary. Other checks cover protection
+loss, source independence, target resolution revalidation, bounce/reentry,
+intrinsic/static keyword union, query and invalid-response atomicity, cleanup,
+and snapshot/replay at varied execution budgets and trace modes. Suspended
+damage snapshots retain unmodified positive controls and reject forged missing,
+unrelated and duplicate keywords after normalizing the state checksum, so the
+negative reaches semantic restore/replay validation.
+
+Exact tested producers, source manifests, command receipts, schema probes and
+preserved failures remain under `generated/temporary-deathtouch/` in the
+implementation checkout. This is focused source-foundation qualification;
+combined integration and exported-client acceptance remain separately owned.
+
+Its focused producer is `962c859db1340f78f1884b2f87babb1e60f4fe4cf8679d8784ebf85387cf915f`
+(767 native source rows); exported schema SHA-256 is
+`544f1d14d2a1f7f6ce5d0c3b016e3929678f76b3443445afb0d445b8df9441c7`. The retained `native02`/`native03`
+receipts record 203 compiler, 79 contracts and 31 distinct core tests, 33
+exported-schema probes, all-target checking and CLI smoke/replay. Production
+compiler/core/simulator Clippy is strict with `--no-deps`; contracts uses the
+inherited `collapsible_if` exception. The source runner passed tooling and
+structure checks but its archive-parser import lacked local Ajv; no dependencies
+were installed. Full runtime, release/profile/consumer and completion matrices
+were omitted. Preserved earlier attempts remain failures, not acceptance.
