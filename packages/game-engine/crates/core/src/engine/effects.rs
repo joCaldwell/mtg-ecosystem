@@ -1021,7 +1021,8 @@ impl Game {
                             && self.is_battlefield_creature(*target)
                             && keywords == grants
                             && (grants == &[KeywordAbility::Indestructible]
-                                || grants == &[KeywordAbility::Flying])
+                                || grants == &[KeywordAbility::Flying]
+                                || grants == &[KeywordAbility::Deathtouch])
                             && *source_block == effect.origin.source_block
                     }
                     (
@@ -1400,7 +1401,8 @@ impl Game {
                     ) => {
                         keywords == grants
                             && (grants == &[KeywordAbility::Indestructible]
-                                || grants == &[KeywordAbility::Flying])
+                                || grants == &[KeywordAbility::Flying]
+                                || grants == &[KeywordAbility::Deathtouch])
                             && *source_block == e.origin.source_block
                             && e.target_handles.len() == 4
                             && self.state.rules.cards.contains_key(&target.card)
