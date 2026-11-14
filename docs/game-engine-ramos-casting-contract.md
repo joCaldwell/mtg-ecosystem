@@ -1,0 +1,351 @@
+# Ramos M3: casting during resolution and basic cascade
+
+Research contract against `0fdbd817e6304eca7873012f4cea40fa2d3bb038`
+(M0/M1a/M1b/M2 plus `main8540`). This proposes a shared implementation; it
+claims no new lowering, runtime, profile, host, SDK or sampled-search support.
+The [Ramos plan](game-engine-ramos-plan.md#m3-build-casting-during-resolution-and-basic-cascade)
+remains the milestone authority. Parent owns combined native qualification.
+
+## Frozen authority and complete sources
+
+Use committed `packages/game-engine/tests/fixtures/ramos/` records, its
+[revision-17 manifest](../packages/game-engine/tests/fixtures/ramos/revision-17.manifest.json),
+`provenance.json`, `accepted-archives.json` and `archive-manifest-current.json`.
+M0 already verified the archive; do not rehash the full archive or query the live
+deck. The app/frozen text comparison remains unverified as recorded in M0.
+Archive SHA-256 is `d705222b280a71cb5a5362f657d530b22402ca51687bac3227c1d6db403d0282`;
+header SHA-256 is `994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a`;
+parser revision is `327b3360ea8e5cffb75b136223e75a348e903cbe`.
+
+These are source witnesses, not a second per-card support matrix:
+
+- [Shardless Agent record](../packages/game-engine/tests/fixtures/ramos/2afbaa9a-c171-4a8b-90f3-5250d8498356.json):
+  Oracle `2afbaa9a-c171-4a8b-90f3-5250d8498356`, printing
+  `b0824e77-c84b-464a-aa0c-44af5f6faa50`, archive line 6419/source index 6417.
+  Complete source: normal-layout {1}{G}{U}, artifact creature, Human Rogue,
+  2/2, green/blue colors and identity; its only ability is cascade.
+  File SHA-256 `343297e44e4d7a6229956fe0a26ea9196e7f116ad50d65947aa61b0c4194cc81`;
+  record `2f89bf8cf99de3b56052d9733888a8baea0484cf2076b154929af29ee796a076`;
+  source `5bb608651d0437646252f3561bdd1999822a5d2874ac0b44ed16421cd69b4ad3`;
+  AST `81e10bd7447faae0a18cf13c6f683c11009cfef9040a8f74833173181f20cbeb`;
+  binding `c8f75f4e5b4dff62650986939d9a2a282eb95edfec4409d419d3f4d6a034e4ac`.
+- [Bloodbraid Elf record](../packages/game-engine/tests/fixtures/ramos/3f0c9466-5ab9-4205-a84f-b4b27b5a678e.json):
+  Oracle `3f0c9466-5ab9-4205-a84f-b4b27b5a678e`, printing
+  `e2f12f6f-9383-47e6-a44f-2834ad130e51`, archive line 9502/source index 9500.
+  Complete source: normal-layout {2}{R}{G}, creature, Elf Berserker,
+  3/2, red/green colors and identity; haste and cascade are both obligations.
+  File SHA-256 `7ae2f1c71a9c786567f8f68fc9d69fef5d886808953098ae0559cf34c73bad52`;
+  record `14e67815bf69178374e884f9b4faad55bfeae82015b00db2140aa2e0ff9b80ab`;
+  source `7b74156a9ae813c46183a139f7ad21b436e13c7c8645e807e7b15b6791a69d52`;
+  AST `1f82b2d96c86eeddcae912574ecaab8d17fa8a244f0a51e618c0a79dcce19df8`;
+  binding `f017da25b0a283d61d73502c4ac504bcb515714cee4878c41f0bd4c7b70346b5`.
+
+Both parsed ASTs have parameterless `keywords`/`cascade`; Bloodbraid has a
+separate `keywords`/`haste` block. Bindings identify cascade as triggered and
+`you` as trigger controller under CR 702.85, with zero reference obligations.
+Archive `fullyBound` does not prove executable support. Compiler keyword dispatch
+currently rejects cascade; preserve complete normalized source/line/aggregate
+checks, artifact-creature type membership, haste and provenance when adding it.
+The abbreviated reminder wording is not a substitute for the full keyword rule,
+especially the resulting spell's second mana-value check.
+
+Use the [official 2026-09-25 rules](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt),
+SHA-256 `8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca`.
+The retained local copy was read and hash-checked; the web endpoint was unavailable.
+Rules below are paraphrased from those pinned bytes, not current card memory.
+
+| Obligation | Pinned CR |
+| --- | --- |
+| Self-cast trigger functions on stack; sequential exile, two strict mana-value checks, optional free cast, random bottom of uncast remainder | 702.85a |
+| Future as-you-cascade action point; independent multiple instances | 702.85b–c |
+| Casting permission does not override prohibitions; full announcement and legality | 101.2, 601.2a–i, 601.3 |
+| Alternative versus additional costs; missing mana cost; X under free casting | 118.6/6a, 118.8–9, 107.3b, 202.3a/e |
+| No priority during resolution; cast finishes before parent continues; deferred triggers/SBAs | 117.2e/5, 601.2i, 603.3a–b, 608.2g, 704.4 |
+| Source independence and current/LKI information | 113.7a, 608.2h/m |
+| Mana ability permission, immediate execution and nonreentrancy; illegal-action reversal | 601.2g–h, 605.3a–c, 733.1–2 |
+| New zone incarnation, public face-up exile, hidden library order | 400.7/7h, 401.2/4, 406.3 |
+| Copy insertion alone is not a cast; departures and Commander choices | 707.10, 800.4, 903.9a–b |
+
+## Shared interface and ownership
+
+Keep schema 1. Rust contracts own the types, capability closure and exported
+constraints. Suggested names below describe typed shapes, not a required wire
+spelling. Do not add an arbitrary effect interpreter, card-name dispatch, or one
+capability per source/printed mana value.
+
+1. Add a stack-functioning `SelfSpellCast` trigger condition, separate from the
+   battlefield `SpellCast { caster, spell }` observer. Lower keyword cascade to
+   one such ability with a targetless stack program containing
+   `Cascade { threshold: SourceSpellManaValue, source_block }`. Use a family
+   capability such as `CascadeV1`, requiring a shared `ResolutionCastV1` and its
+   random-bottom/movement support. Validate the exact zone/condition/program/
+   binding combination; merely relaxing all triggered zones is insufficient.
+2. Extract one announcement entry point with a typed context:
+   `PriorityCast` or `ResolutionCast { permission, completion }`.
+   A `CastPermission` binds caster, exact eligible object incarnation and origin
+   zone, permission owner `(resolving StackId, instruction cursor, source block)`,
+   one-use lifetime, alternative cost, and resulting-spell predicate. M3's
+   permission is exactly this cascade hit in face-up exile, now, with
+   `WithoutManaCost` and strict mana value below the frozen threshold. It grants
+   neither another exile card nor a land play nor a later-turn cast. A triggered
+   invocation's stack-functioning source zone is separate from the originating
+   spell's actual cast-from zone; preserve both rather than overload their meaning.
+3. Share modes, X, targets, restrictions, locked total-cost calculation, complete
+   cost payment and rollback. Persist the chosen alternative separately from
+   printed cost and `paid`/exact spending. An empty paid mana cost is still a
+   completed cast; `paid: None` must continue to mean unfinished announcement.
+   Represent declared optional additional costs as typed selections with stable
+   cost identity and chosen parameters, then form mandatory plus selected costs.
+   Retain those selections on the invocation for source-bound paid-cost effects;
+   an unattached optional-cost flag cannot stand in for their complete semantics.
+   Never treat optional effects during resolution as optional casting costs.
+4. Give `Casting` an owned completion enum: ordinary priority return, or a typed
+   cascade return containing its `Resolving` owner and progress. Only one owner
+   stores that parent; do not duplicate it in both a global slot and nested frame.
+   Keep permission identity through `ManaAbility.resume`, spending and rollback.
+   Success returns `CastCompleted { stack_id }`; failed announcement returns the
+   exact exile incarnation and an unconsumed/renewed offer; decline consumes the
+   permission. A failed attempt cannot resume the parent as a successful cast.
+5. Use a serializable `CascadeProgress`: owner identity, caster/library owner,
+   source-spell identity/current-or-LKI witness, fixed threshold, stage, ordered
+   exiled successor incarnations, optional hit, cast result, randomization cursor
+   and permutation. Stages are scan, offer/announcement, randomize, bottom, finish.
+   Separate semantic stage from pending player input and random-word rejection.
+
+The shared integration owner should own contracts/compiler dispatch plus actual
+required edits in `engine.rs` and `engine/{casting,payments,actions,triggers,
+multiplayer,events,visibility,work,action_query,state_digest,snapshot_codec,
+recovery,capacities}.rs`; a small `cascade.rs` may own this family execution.
+These are reservations to confirm before implementation, not permission to edit
+all files. M1 payment/counter authority is complete; reuse it, with parent doing
+integration. M2 search/partition is independent and must retain its behavior.
+
+Peer `20c7abf6-fa6e-4294-8821-a470a1e2372f` reserves ordinary Pump/Grant lowering
+of exact `control: 'you'` and temporary Hexproof at `main8540`; preserve
+`bind_creature_target` for counter/removal/static semantics. M3 changes casting
+context and calls the existing target authorities; it does not own their filter
+meaning or Hexproof. Compiler dispatch/tests are a genuine shared-file overlap
+requiring an explicit hunk handoff. Query/visibility or target-helper edits by
+that peer would require renewed coordination; none are currently reserved there.
+
+## Concrete implementation gaps at this base
+
+Paths below are relative to `packages/game-engine/crates/`.
+
+| Actual surface | Reuse and precise change needed |
+| --- | --- |
+| `compiler/src/lib.rs` permanent keyword dispatch; `contracts/src/lib.rs::Definition::validate` and exported constraints | Cascade falls through unsupported keyword; triggered validation requires battlefield functioning and narrow instructions. Admit the reviewed self-cast shape and dependency closure without weakening unrelated guards. |
+| `core/src/engine.rs::{validate_response,step}` priority `Response::Cast` | Requires priority, own hand or designated command origin, ordinary timing/empty stack, then constructs stack/casting state inline. Extract construction/announcement stages; context supplies timing/zone permission. Keep ownership checks appropriate to that permission and global prohibitions in `casting.rs::validate_cast_permission`. |
+| `core/src/engine/commander.rs::casting_cost`; `wipes.rs::{bind_x,stack_mana_value}` | Cost starts from printed mana cost and applies reduction/tax; X adds to total cost. Select alternative first, then additional costs/increases/reductions. Share exact mana-value arithmetic with nonstack X=0 and announced stack X, never total paid cost. |
+| `payments.rs::{finish_mana_frame,payment_step}`; `casting.rs::reverse_cast` | Payment records cast/collects triggers then sets Priority and stabilizes; failure also stabilizes. Reversal pops top, restores origin, clears pending, restores passes and returns Priority. Branch completion by context, preserving receipts and parent, with no priority/SBA/trigger placement on resolution return. |
+| `mana_permanents.rs::{ManaActivation,underlying_mana_frame,reserved_mana_source}` and receipt attachment | Typed nested payment/resume and Ramos counter/use receipts already exist. Carry resolution completion through all stages; expose mana activations only in their legal payment window and keep source reservations/rollback scoped to this cast. |
+| `triggers.rs::{collect_cast_triggers,collect_trigger_witness,trigger_step,validate_trigger_source,validate_trigger_witness,validate_trigger_entry}` | Successful cast witness exists, but observers/source facts are battlefield-only; placement hardcodes battlefield origin; cast witness restore accepts hand/command only. Add the casting spell's own stack source exactly once and exile-origin facts authenticated by the new cast path. Preserve existing battlefield observers/APNAP and distinct trigger IDs. |
+| `engine.rs::{StackInstance,Casting,Resolving,Frame}`; `actions.rs::{finish_ability,validate_resolving}`; `multiplayer.rs::begin_resolution` | Resolution keeps its entry on stack; restore requires it at top and completion pops top. New child is above the resolving owner. Bind/validate/remove the exact owner below its completed child, preserving unrelated entries; never pop the child or begin its resolution automatically. |
+| `events.rs::{move_object_for,move_instruction_object}` and `ProposedEvent::Move` | Exact moves/new incarnations and library membership removal exist; library vectors are top-first. Generic library Move appends, while instruction library movement redirects to top. Add typed random-bottom group authority with exact membership/order; do not accidentally call the top-placement wrapper. |
+| `actions.rs::ResolutionChoice`; `staples.rs::{apply_search_shuffle_word,valid_staples_choice}`; `setup.rs` sampler | Existing choices carry a Resolving owner and shuffle is budgeted/deterministic, but shuffles the whole library and increments shuffle history. Reuse RNG/rejection sampling, not that event: cascade permutes only its uncast exile group and never shuffles the library. |
+| `visibility.rs` requests/responses/handles; `work.rs::Task` and response validation; `action_query.rs` | Exile is already public, libraries hidden; action initiation currently distinguishes priority/mana only. Add a caster-only scoped cast/decline offer and validation/query/recovery coverage, not a broad public exile-cast action. Ordinary announcement requests then reuse existing permitted targets/modes. |
+| `engine.rs::validate_state`, `actions.rs::validate_resolving`, `multiplayer.rs` departure revalidation; digest/codec/recovery | Validate every owned parent/progress stage, source incarnation, child relationship, receipts and pending input. Current top-frame and priority-return assumptions recur in departure handling. Accepted-input replay remains the reachability proof, including rehashed forgeries. |
+
+## Resolution and payment semantics
+
+At successful ordinary or permission casting, emit one real cast occurrence only
+after every cost is paid. Preserve `StackId`, caster, actual origin and spell
+incarnation; collect Ramos/other battlefield observers and the spell's own
+cascade from this same occurrence. Cascade triggers while the spell is on the
+stack, never from entering the battlefield. Copy-only insertion must not reach
+this boundary; copies remain unsupported M8 sources. Do not invent a copy runner.
+
+At cascade resolution, determine the original spell's mana value once using its
+exact current stack incarnation, otherwise bounded departure LKI (113.7a/608.2h).
+Store that threshold for the entire scan/offer. Existing CastOccurrence has no
+announced X; extend the witness/reference sufficiently for stack mana value,
+without rewriting immutable cast-event facts. M1's frozen-color fallback is
+valid only in its immutable-color pool. Reuse that bounded current/LKI pattern;
+do not claim general mutable-cost/color/copy characteristics. Prune facts when
+no pending trigger/continuation needs them. Printed mana cost, mana value, spell
+colors, mana actually paid and commander identity are distinct authorities.
+
+Exile the actual top card face up using a normal typed move, retain its actual
+successor, then test it. Repeat one card at a time until the first nonland whose
+mana value is strictly below threshold or exhaustion. A land with additional
+types is still a land. Equal/higher nonlands are skipped; X outside the stack is
+zero. Do not inspect future top cards in queries, search for an eligible card,
+remove an entire prefix secretly, or continue scanning after an uncastable hit.
+Empty/no-hit finishes without a failed draw or decking loss.
+
+Offer that hit only. Global cast prohibitions still win. A creature/sorcery can
+be cast here despite ordinary timing; restrictions actually printed on a spell
+still apply. Check a legal complete mode/target/cost path; never expose an
+impossible mandatory target decision. Decline or an uncastable hit leaves it in
+the remainder. An illegal response is rejected atomically and is not a decline.
+A legal announcement that cannot complete reverses only that announcement under
+733.1, then permits a corrected legal attempt or decline at this same offer;
+no unbounded internal retry loop. Exhausted resources are faults, not declines.
+
+The existing prohibition is opponents-during-controller-turn only. These two
+own-main-phase sources cannot naturally encounter it at their cascade offer.
+Keep a synthetic guard test, but do not label it a legal paid prohibition witness:
+that part of the original M3 exit needs a separately source-qualified reachable
+casting context before signoff. Do not add flash to either complete source or
+quietly waive the exit to manufacture that scenario.
+
+Free casting selects an alternative, not printed cost {0}. Keep mana value and
+colors unchanged; X must be zero for the supported undefined-X family (107.3b).
+Recheck the resulting spell's strict mana-value bound, even though normal-layout
+M3 cards have the same value in exile and on stack. No second alternative cost
+may be combined. Mandatory additional costs still apply; optional additional
+costs may be selected or declined before targets/cost lock and are then paid in
+full. Reuse existing mandatory sacrifice and exact spending authorities. Current
+IR has `additional_sacrifice`, not general optional costs: add only reviewed typed
+optional-cost forms with a frozen complete-source witness before claiming that
+part of the shared interface implemented. Unknown kicker/buyback/other branches
+remain rejected, not silently treated as absent. The basic-source checkpoint
+alone cannot claim the entire M3 optional-cost exit.
+
+A free cast is not a general mana-activation opportunity. Apply 601.2g/605.3a to
+the actual locked cost/payment requirement; mana-bearing additional costs or
+increases can create the window. Distinguish acknowledgment of a real {0} mana
+payment (118.5) from absence of a mana payment. Existing ordinary casting always
+offers its mana window, even when funded; preserve that established path while
+making the permission path obey its actual payment scope. No nonmana activation,
+pass, unrelated cast or opponent response occurs during the announcement.
+
+Payment reversal keeps prior floated mana and unrelated actions, reverses only
+recorded eligible mana receipts in dependency/LIFO order, and restores the exact
+hit exile incarnation/offer. Retain versus undo applies to legal mana activations,
+not to the earlier cascade exile/reveal sequence: 733.1 forbids reversing those
+library-to-public moves. No partial additional costs, phantom cost triggers,
+Ramos use resets, stale permissions or lost original invocation may survive.
+Stage complete payment atomically with existing transaction machinery. Costs
+involving unsupported library/random/irreversible actions remain rejected.
+
+After the child becomes cast, collect its triggers but do not place them, run
+SBAs or offer priority. Resume the parent only after the child's entire
+announcement/payment has completed or been reversed/declined, not merely when
+its proposal or a nested mana ability finishes. Randomize all still-exiled cards
+from this cascade that were not cast, including a declined/uncastable hit; exclude
+the cast child. Put that group on the caster's library bottom, then finish/remove
+this resolving cascade by its own identity. Only now run the normal SBA/Commander
+and APNAP trigger-placement boundary and give priority to the appropriate active
+seat. Original spell, child and each cascade invocation retain distinct IDs.
+
+For Bloodbraid into Shardless, the latter's own cascade/Ramos triggers wait until
+the Bloodbraid cascade has bottomed its remainder and finished. They are then
+ordered normally above Shardless, with Bloodbraid still below it. Nested cascade
+is subsequent stack work, not recursive immediate child resolution. Countering
+the original before its cascade resolves does not cancel the trigger; countering
+the cascade itself performs no exile/cast/bottom program and never refunds the
+original spell. An already resolving invocation may finish after supported source
+movement; concessions obey 800.4, revalidate offers and remove departing owners'
+objects without resurrecting them. If its controller leaves, cancel that player's
+pending announcement/resolution as appropriate; never move cards into a departed
+library or redirect a personal permission to another player.
+
+## Privacy, randomness, bounds and recovery
+
+Face-up exiled identities/movements are public sequential facts, with new handles
+per incarnation. Only the caster receives the actionable cast/decline request;
+opponents may know the hit but cannot answer. Library contents/order, RNG seed/
+words, permutation, internal IDs and trusted continuation/receipts remain private.
+Once bottomed, current exile handles expire. Permitted history retains the known
+identities/set and already public exile sequence, never the hidden randomized
+bottom order. Random bottom is not a library shuffle: do not increment
+`library_shuffles` or discard valid prior top knowledge as if a shuffle occurred.
+Equal permitted histories with different hidden permutations must yield equal
+player projections/requests/query work accounting, until a later public event
+legitimately distinguishes them. No query consumes randomness or mints handles.
+
+Use the match's deterministic RNG and unbiased Fisher–Yates/rejection sampler,
+with a private permutation of only this remainder. Persist index and accepted
+swaps; rejection consumes its actual word and resumes the same index. Zero/one
+cards consume no random words. Commit bottom placement with one explicit typed
+order/membership event group; ordinary zone moves supply successor identities.
+Preserve the existing library prefix. Review movement order/visibility refresh so
+intermediate public history never publishes the secret permutation. Reusing a
+whole-library shuffle or exposing a player bottom-order choice is incorrect.
+
+One scan/movement or random-word attempt per budgeted step gives bounded work;
+queries use permitted rows, not library-length scans. A cascade list is bounded
+by this player's physical library (at most 100 owned cards under the common
+policy, including tucked commanders). These own-card basic sources leave at least
+one owned original outside that library, giving a tighter 99-card scan bound.
+The shared primitive should validate against the common physical bound; extend
+and prove the sampler through 100 rather than silently export its current
+reviewed 2..=99 assumption to future permissions with different ownership. Do not
+use event-group depth as a cascade depth limit. Basic cascade needs one active
+resolving owner plus its announcing child; later cascades wait on stack. Charge
+owned progress/permutations and retained facts/history, count self-cast triggers
+against the shared stack-plus-pending ceiling, and revisit generic trigger sizing
+for stack sources. Preserve common capacity policy and checked cursor/ID math;
+no card/profile-specific ceilings or rules outcomes for exhaustion.
+
+Restore at each scan, offer, mode/X/optional cost/target, nested mana, spending,
+failed-payment return, random-word/rejection, bottom and finish boundary. Validate
+owner cursor/instruction/capability, unique exact exiled membership, hit/threshold,
+permission lifetime, original and child stack IDs, selected costs, current stage,
+receipts and permutation prefix. Recompute rule-derived facts; reject forged
+thresholds, missing/duplicated parents, foreign/stale input, already-consumed
+permissions, child substitutions, impossible origins or completed lower-entry
+changes. Save/restore and accepted-input replay must agree before and after each
+pending input; recovered observation/validation/action Work remains exact-state,
+executor and viewer scoped. Queued departure processing precedes exposing choices.
+
+## Bounded checkpoint and focused exit evidence
+
+First implementation checkpoint: complete both frozen basic cascade sources,
+ordinary and resolution-context announcement/payment completion, sequential public
+exile, legal creature/target/modal free casts, Bloodbraid-to-Shardless nesting,
+random bottom and owned recovery. Include mandatory additional sacrifice and
+rollback composition using existing complete fixtures. Do not postpone the
+second mana-value guard, global prohibitions, owner-below-child completion or
+privacy to later admission. Treat optional additional-cost source admission as a
+subsequent bounded M3 checkpoint if no existing exact supported witness supplies
+it; M3 stays open until that obligation is source-qualified. No new generic runner
+or profile is necessary for private source witnesses; extend existing fixture and
+accepted-input scenario harnesses, with legal paid development before cascade.
+Concrete reusable hit fixtures are `tests/fixtures/{grizzly-bears,unsummon,
+healing-salve,village-rites,bone-splinters,earthquake}.json` under the engine
+package: vanilla creature, return target, both one-mode alternatives, mandatory
+creature sacrifice with draw or target destruction, and X damage respectively.
+Their complete local sources were inspected; use their existing archive/provenance
+authority rather than relabel them as M0 records. Bloodbraid into Shardless
+supplies the nested witness from the two M0 sources themselves.
+
+| Focus | Meaningful required cases |
+| --- | --- |
+| Compiler/contracts | Both entire records with original source pins; haste and artifact type preserved; shared parameterized IR. Missing capability, wrong functioning zone/self binding, extra effect/keyword parameters, malformed threshold/predicate or source mirror reject. Exported constraints agree with Rust validation. |
+| Core semantics | Strict below/equal/above values; land/nonland membership; creature, targeted and every supported modal branch; decline, empty library, exhaustion/no hit, uncastable first hit, prohibition, original countered and cascade countered. Check exact remaining prefix, membership and bottom timing, not merely counts. |
+| Cast/payment | One cast event per successful cast, genuine Ramos color quantity despite zero printed mana paid; no event for decline/failed proposal/copy-only insertion control. X=0 free alternative, mandatory additional costs, optional paid/declined branches when admitted, failed keep/undo with nested Signet/Ramos receipts, preserved unrelated mana/counters/use and complete exile restoration. |
+| Stack/trigger ordering | Paid original; simultaneous Ramos/self-cascade ordering; Bloodbraid into Shardless; child cast trigger collection before parent bottom but placement afterward; no priority/SBA leak; original/child/cascade separately targetable at the proper later windows. Child and original survive exact parent removal. |
+| Recovery/privacy | Accepted-input scenario replay and restore at every new stage, budgets 0/1/ordinary and all trace modes; zero/one/many remainder and rejected RNG words; query-order purity, recovered Work, stale/foreign handles and rehashed continuation/permutation/receipt forgeries. Opponents see exiled cards, never library order or actionable caster choices. |
+| Capacity/departure | Tucked-commander membership and synthetic 100-card sampler range control, countered/source-moved original, caster/other owner concessions at offer/payment/bottom; typed atomic faults with no phantom moves or natural winner. Synthetic forks supplement paid legal source scenarios. |
+
+Use current compiler/contracts libraries, focused core tests near
+`cast_trigger_tests`, `payment_query_tests`, `mana_tests`, `staples_tests`,
+`ramos_m1_tests`, snapshot-codec and Work/recovery regressions; extend existing
+accepted-input scenarios rather than build an alternate runner. A later executable
+owner selects these under the single native lock and records actual counts and
+omissions. These are proposed tests, none executed in this research checkpoint.
+
+Keep multi-face/modal-double-face/split/adventure/meld, unsupported missing-cost
+representations, other exile permissions, grant/multiple cascade, Averna actions,
+affinity, copies and unrelated effects explicitly rejected pending complete source
+work. Do not call an unsupported source a legally uncastable hit: admitted catalogs
+must reject it before play. Synthetic IR can isolate X=0/resulting-value/copy
+boundary controls; only complete archived sources establish source admission.
+Future M4 reuses self-cast identity, permission, return and per-instance progress;
+its grant/history rules require separately retained successful-cast facts, including
+casts before grant-source entry. Trace history is not a semantic ledger. M3's
+cast occurrence/current-LKI references do not claim that turn-history support.
+
+Source lowering, a private paid witness, legal profile/pod admission, useful
+public-observation policy and consumer qualification are separate claims. Hosting,
+SDK and sampled-search reviewed capability sets remain unchanged until explicit
+follow-on work; enum exhaustiveness is not that review. The exact Ramos deck and
+full M3 exit remain unqualified by this document.
+
+Preparation verification: supplied base/clean owned scope, both local file/record
+pins, manifest/provenance/accepted-record membership, exact AST/binding review,
+pinned local rules digest and cited paragraphs, local document links and
+`git diff --check`. No full-archive rehash, live deck fetch, dependency install,
+Cargo, build, test, source/fixture edit, native evidence or consumer qualification.
