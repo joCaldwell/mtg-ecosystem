@@ -171,8 +171,10 @@ library inspection by policy. Lands support each printed basic subtype.
 
 The [M3 casting contract](game-engine-ramos-casting-contract.md) records the
 frozen basic sources, shared continuation/payment interfaces and remaining exit
-obligations. Its ordinary announcement/payment foundation is implemented;
-owned resolution continuations and basic cascade remain the next checkpoint.
+obligations. M3b now qualifies complete basic Agent/Bloodbraid source/runtime and
+recovery on the checked M3a foundation. M3 remains open for source-qualified
+optional additional costs and a naturally reachable paid prohibition context;
+this does not admit a profile/pod or host/search consumer.
 
 Introduce a reusable casting-permission and continuation path supporting
 casting from the indicated zone while another invocation resolves, choosing

@@ -692,6 +692,7 @@ impl Game {
                             | PlayerResponse::SpendMana { .. }
                             | PlayerResponse::ManaColor { .. },
                         ) => true,
+                        (Frame::Cascade { .. }, PlayerResponse::OptionalEffect { .. }) => true,
                         (Frame::AnnounceX { .. }, PlayerResponse::AnnounceX { .. }) => true,
                         (Frame::Modes { .. }, PlayerResponse::Modes { .. }) => true,
                         (Frame::SacrificeCost { .. }, PlayerResponse::SacrificeCost { .. })

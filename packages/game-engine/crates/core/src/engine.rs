@@ -308,7 +308,11 @@ pub use history::History;
 mod recovery;
 pub use recovery::SnapshotVerifier;
 mod actions;
+mod cascade;
+#[cfg(test)]
+mod cascade_tests;
 mod casting;
+use cascade::{CascadeProgress, CastCompletion, CastPermission};
 #[cfg(test)]
 mod casting_foundation_tests;
 mod mana_permanents;
@@ -836,6 +840,8 @@ struct Object {
 #[serde(deny_unknown_fields)]
 struct StackInstance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    alternative_cost: Option<cascade::AlternativeCost>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     x: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     death_controller: Option<PlayerId>,
@@ -871,6 +877,7 @@ struct StackInstance {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Casting {
+    completion: CastCompletion,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sacrifice: Option<ObjectId>,
     #[serde(default, skip_serializing_if = "AnnouncementOrigin::is_spell")]
@@ -930,6 +937,9 @@ struct Resolving {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum Frame {
+    Cascade {
+        progress: Box<CascadeProgress>,
+    },
     LegendRule {
         resume: Box<Frame>,
         groups: Vec<Vec<ObjectId>>,
@@ -2142,13 +2152,13 @@ impl Game {
     }
     fn history_charge(&self) -> usize {
         // Charge actual retained allocations, independently of trace mode.
-        self.state
-            .knowledge
-            .visibility
-            .iter()
-            .fold(self.state.rules.retained_auxiliary_charge, |n, k| {
-                n.saturating_add(k.history.retention_charge())
-            })
+        self.state.knowledge.visibility.iter().fold(
+            self.state
+                .rules
+                .retained_auxiliary_charge
+                .saturating_add(self.cascade_charge()),
+            |n, k| n.saturating_add(k.history.retention_charge()),
+        )
     }
     fn check_history_capacity(&mut self) -> Result<(), String> {
         let requested = self.history_charge();
@@ -2308,6 +2318,9 @@ impl Game {
         if let Some(req) = self.combat_request()? {
             return Ok((req.player() == viewer).then_some(req));
         }
+        if let Some(req) = self.cascade_request()? {
+            return Ok((req.player() == viewer).then_some(req));
+        }
         let req = match &self.state.rules.frame {
             Frame::LegendRule { .. } => {
                 return Ok(self.legend_request()?.filter(|r| r.player() == viewer));
@@ -2423,6 +2436,9 @@ impl Game {
         Ok((req.player() == viewer).then_some(req))
     }
     fn validate_response(&self, player: PlayerId, response: &Response) -> Result<(), String> {
+        if let Frame::Cascade { progress } = &self.state.rules.frame {
+            return self.validate_cascade_response(progress, player, response);
+        }
         if matches!(self.state.rules.frame, Frame::LegendRule { .. }) {
             return self.validate_legend_response(player, response);
         }
@@ -2677,6 +2693,7 @@ impl Game {
             return self.apply_departure(player);
         }
         match self.state.rules.frame.clone() {
+            Frame::Cascade { progress } => self.cascade_step(*progress)?,
             Frame::LegendRule { .. } => self.legend_step()?,
             Frame::SacrificeCost { .. }
             | Frame::ForcedSacrifice { .. }
@@ -2765,7 +2782,7 @@ impl Game {
                     // payment; a tap-only cost grants no mana payment window.
                     self.complete_targeted_activation(cast, input.decision_id)?;
                 } else {
-                    self.state.rules.frame = Frame::Mana { cast };
+                    self.state.rules.frame = self.announcement_mana_frame(cast)?;
                 }
             }
             Frame::Mana { mut cast } => {
@@ -2782,7 +2799,7 @@ impl Game {
                         } else {
                             let receipt = self.activate_intrinsic_mana(&input, object)?;
                             cast.mana_activations.push(receipt);
-                            self.state.rules.frame = Frame::Mana { cast };
+                            self.state.rules.frame = self.announcement_mana_frame(cast)?;
                         }
                     }
                     Response::FinishMana { undo_mana } => {
@@ -2815,6 +2832,9 @@ impl Game {
                     self.finish_spell(&stack, false)?;
                 } else if let Some(instruction) = program.instructions.get(frame.cursor as usize) {
                     match instruction {
+                        Instruction::Cascade { source_block, .. } => {
+                            return self.begin_cascade(frame, *source_block);
+                        }
                         Instruction::ReturnToOwnerHand {
                             target_slot,
                             source_block,
@@ -3006,7 +3026,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 21,
+            snapshot_version: 23,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3048,7 +3068,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 21
+        if s.snapshot_version != 23
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3160,6 +3180,7 @@ impl Game {
         self.validate_choices_state()?;
         self.validate_commander_state()?;
         self.validate_actions_state()?;
+        self.validate_cascade_state()?;
         for p in &s.rules.players {
             if (p.status == PlayerStatus::Left) != p.last_known.is_some()
                 || p.last_known

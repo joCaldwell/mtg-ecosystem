@@ -167,7 +167,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
             "double-strike" => "double strike".to_owned(),
             _ => keyword,
         };
-        if !matches!(keyword.as_str(), "equip" | "enchant")
+        if !matches!(keyword.as_str(), "equip" | "enchant" | "cascade")
             && serde_json::from_value::<KeywordAbility>(serde_json::Value::String(keyword.clone()))
                 .is_err()
         {
@@ -1201,6 +1201,16 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         }
     }
     let kind = types.kind;
+    // CR118.6/118.6a: no mana cost is distinct from a printed {0}. Until the
+    // IR represents absence explicitly, reject nonland sources rather than
+    // granting ordinary casting or silently treating a free hit as cost zero.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    if kind != CardKind::Land && source.mana_cost.is_empty() {
+        return Err(unsupported(
+            "source.mana_cost",
+            "nonland without a mana cost requires an explicit absent-cost representation",
+        ));
+    }
     let basic = types.basic;
     let power = source
         .power
@@ -1368,6 +1378,30 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                 ));
                             }
                             match keyword.keyword.as_str() {
+                                "cascade" if kind != CardKind::Land => {
+                                    if definition
+                                        .triggered
+                                        .iter()
+                                        .any(|a| a.condition == TriggerCondition::SelfSpellCast)
+                                    {
+                                        return Err(unsupported(
+                                            "abilities.keywords",
+                                            "multiple cascade instances require separate support",
+                                        ));
+                                    }
+                                    definition.triggered.push(TriggeredAbility {
+                                        functioning_zone: FunctioningZone::Stack,
+                                        condition: TriggerCondition::SelfSpellCast,
+                                        intervening_if: None,
+                                        death_filter: None,
+                                        program: SpellProgram { additional_sacrifice: None, timing: SpellTiming::Instant,
+                                            resolution: SpellResolution::Instructions, functioning_zone: FunctioningZone::Stack,
+                                            targets: vec![], modes: vec![], instructions: vec![Instruction::Cascade {
+                                                threshold: mtg_contracts::CascadeThreshold::SourceSpellManaValue,
+                                                source_block: u32::try_from(block).map_err(|_| invalid("abilities", "source block limit"))?,
+                                            }] },
+                                    });
+                                }
                                 "flash" => definition.keywords.push(KeywordAbility::Flash),
                                 "defender" => definition.keywords.push(KeywordAbility::Defender),
                                 "trample" => definition.keywords.push(KeywordAbility::Trample),

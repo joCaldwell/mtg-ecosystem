@@ -177,6 +177,9 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+    ResolutionCastV1,
+    CascadeV1,
+    RandomBottomV1,
     CastTriggerV1,
     CastSpellColorCountersV1,
     CounterRemovalManaV1,
@@ -465,6 +468,11 @@ pub enum CounterRecipient {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    /// CR 702.85a: threshold comes from the originating spell, never paid cost.
+    Cascade {
+        threshold: CascadeThreshold,
+        source_block: u32,
+    },
     MoveSet {
         set: ObjectSet,
         action: SetMove,
@@ -889,6 +897,11 @@ pub struct ActivatedAbility {
     pub cost: ActivationCost,
     pub program: SpellProgram,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CascadeThreshold {
+    SourceSpellManaValue,
+}
 /// Mandatory ordinary event patterns. ETB patterns inspect the event's
 /// resulting battlefield, including the entering source itself (CR 603.6a).
 /// Dies inspects the battlefield immediately before the actual graveyard move
@@ -896,6 +909,8 @@ pub struct ActivatedAbility {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerCondition {
+    /// CR 702.85a: functions on the casting spell itself, on the stack.
+    SelfSpellCast,
     /// One occurrence per damaged player and simultaneous combat-damage event.
     GroupedDamageDealt {
         source: DamageTriggerSource,
@@ -1088,6 +1103,7 @@ impl TriggerCondition {
             Self::CreatureAttacked { .. } => "creature_attacked",
             Self::DamageDealt { .. } => "damage_dealt",
             Self::GroupedDamageDealt { .. } => "grouped_damage_dealt",
+            Self::SelfSpellCast => "self_spell_cast",
             Self::SpellCast { .. } => "spell_cast",
             Self::OpponentCreatureDies => "opponent_creature_dies",
             Self::SelfEntersBattlefield => "self_enters_battlefield",
@@ -1368,6 +1384,7 @@ impl Definition {
                     Capability::GroupedCreatureDamageTriggerV1
                 }
                 TriggerCondition::StepBegan { .. } => Capability::StepBeginningTriggerV1,
+                TriggerCondition::SelfSpellCast => Capability::CascadeV1,
                 TriggerCondition::SpellCast { .. } => Capability::CastTriggerV1,
                 TriggerCondition::CreatureAttacked { .. } => Capability::AttackTriggerV1,
                 TriggerCondition::DamageDealt {
@@ -1671,6 +1688,17 @@ impl Definition {
             })
         }) {
             return Err("attachment operations are not spell instructions".into());
+        }
+        fn has_cascade(p: &SpellProgram) -> bool {
+            p.instructions
+                .iter()
+                .any(|i| matches!(i, Instruction::Cascade { .. }))
+                || p.modes.iter().any(|m| has_cascade(&m.program))
+        }
+        if self.spell.as_ref().is_some_and(has_cascade)
+            || self.activated.iter().any(|a| has_cascade(&a.program))
+        {
+            return Err("cascade is only a self-cast triggered program".into());
         }
         // Sacrifice programs admit enchantment programs and creature statics.
         // Other programs retain their narrower kind constraints.
@@ -2051,6 +2079,41 @@ impl Definition {
                 return Err("invalid filtered dies trigger".into());
             }
             let p = &ability.program;
+            if ability.condition == TriggerCondition::SelfSpellCast {
+                if ability.functioning_zone != FunctioningZone::Stack
+                    || ability.intervening_if.is_some()
+                    || ability.death_filter.is_some()
+                    || p.additional_sacrifice.is_some()
+                    || p.timing != SpellTiming::Instant
+                    || p.functioning_zone != FunctioningZone::Stack
+                    || p.resolution != SpellResolution::Instructions
+                    || !p.targets.is_empty()
+                    || !p.modes.is_empty()
+                    || !matches!(
+                        p.instructions.as_slice(),
+                        [Instruction::Cascade {
+                            threshold: CascadeThreshold::SourceSpellManaValue,
+                            ..
+                        }]
+                    )
+                    || self
+                        .triggered
+                        .iter()
+                        .filter(|a| a.condition == TriggerCondition::SelfSpellCast)
+                        .count()
+                        != 1
+                {
+                    return Err("unsupported self-cast cascade shape".into());
+                }
+                validate_instruction_program(p)?;
+                continue;
+            }
+            if p.instructions
+                .iter()
+                .any(|i| matches!(i, Instruction::Cascade { .. }))
+            {
+                return Err("cascade requires its stack-functioning self-cast trigger".into());
+            }
             if aura {
                 if ability.condition != TriggerCondition::SelfAuraToGraveyard
                     || ability.intervening_if.is_some()
@@ -2653,6 +2716,20 @@ fn temporary_creature_keyword_capability(p: &SpellProgram) -> Capability {
     }
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
+    if p.instructions
+        .iter()
+        .any(|i| matches!(i, Instruction::Cascade { .. }))
+        && (p.additional_sacrifice.is_some()
+            || !p.targets.is_empty()
+            || !p.modes.is_empty()
+            || p.timing != SpellTiming::Instant
+            || p.resolution != SpellResolution::Instructions
+            || p.functioning_zone != FunctioningZone::Stack
+            || !matches!(p.instructions.as_slice(), [Instruction::Cascade { .. }]))
+    {
+        return Err("cascade requires one complete targetless program".into());
+    }
+
     if has_keyword_grant(p) && !ordinary_keyword_grant(p) {
         return Err("unsupported temporary keyword grant program".into());
     }
@@ -3005,7 +3082,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 token.validate()?;
                 None
             }
-            Instruction::PutSourcePlusOneCountersForCastColors { .. } => None,
+            Instruction::Cascade { .. }
+            | Instruction::PutSourcePlusOneCountersForCastColors { .. } => None,
             Instruction::PutPlusOneCounters { on, amount, .. } => {
                 if *amount <= Quantity::zero() {
                     return Err("counter amount must be positive".into());
@@ -3345,7 +3423,12 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 }
             }
         }
+        if matches!(instruction, Instruction::Cascade { .. }) {
+            set.insert(Capability::ResolutionCastV1);
+            set.insert(Capability::RandomBottomV1);
+        }
         set.insert(match instruction {
+            Instruction::Cascade { .. } => Capability::CascadeV1,
             Instruction::MoveSet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::DamageSet { .. }
@@ -3541,6 +3624,39 @@ fn counter_placement_schema(schema: &mut serde_json::Value) {
         "then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["creature","artifact","enchantment"]}}},"capabilities":{"contains":{"const":Capability::ControllerCreaturePlusOneCounterReplacementV1}}}},
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerCreaturePlusOneCounterReplacementV1}}}}}
     }));
+}
+fn cascade_schema(schema: &mut serde_json::Value) {
+    let cascade = serde_json::json!({"required":["op"],"properties":{"op":{"const":"cascade"}}});
+    let self_condition = serde_json::json!({"required":["condition"],"properties":{"condition":{"const":"self_spell_cast"}}});
+    let ability = serde_json::json!({"properties":{
+        "functioning_zone":{"const":"stack"},"intervening_if":{"type":"null"},"death_filter":{"type":"null"},
+        "program":{"properties":{"additional_sacrifice":{"type":"null"},"timing":{"const":"instant"},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"targets":{"maxItems":0},"modes":{"maxItems":0},"instructions":{"minItems":1,"maxItems":1,"items":cascade}}}
+    }});
+    schema["$defs"]["CascadeFreeProgram"] = serde_json::json!({"properties":{
+        "instructions":{"items":{"not":cascade}},"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}}
+    }});
+    schema["$defs"]["TriggeredAbility"].as_object_mut().unwrap().entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap().push(serde_json::json!({
+        "if":self_condition,"then":ability,
+        "else":{"properties":{"functioning_zone":{"const":"battlefield"},"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}
+    }));
+    let present = serde_json::json!({"required":["triggered"],"properties":{"triggered":{"contains":self_condition}}});
+    let requirements = [
+        Capability::CascadeV1,
+        Capability::ResolutionCastV1,
+        Capability::RandomBottomV1,
+    ];
+    let yes: Vec<_> = requirements
+        .iter()
+        .map(|cap| serde_json::json!({"contains":{"const":cap}}))
+        .collect();
+    let no: Vec<_> = requirements
+        .iter()
+        .map(|cap| serde_json::json!({"not":{"contains":{"const":cap}}}))
+        .collect();
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().extend([
+        serde_json::json!({"properties":{"spell":{"anyOf":[{"type":"null"},{"$ref":"#/$defs/CascadeFreeProgram"}]},"activated":{"items":{"properties":{"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}}}}),
+        serde_json::json!({"if":present,"then":{"properties":{"capabilities":{"allOf":yes},"triggered":{"contains":self_condition,"minContains":1,"maxContains":1}}},"else":{"properties":{"capabilities":{"allOf":no}}}})
+    ]);
 }
 pub fn catalog_schema() -> serde_json::Value {
     let mut schema = serde_json::to_value(schemars::schema_for!(Catalog)).expect("schema is JSON");
@@ -4205,6 +4321,7 @@ pub fn catalog_schema() -> serde_json::Value {
         "then":{"properties":{"characteristics":{"properties":{"kind":{"const":"creature"}}},"capabilities":{"allOf":[{"contains":{"const":Capability::CastSpellColorCountersV1}},{"contains":{"const":Capability::PlusOneCountersV1}},{"contains":{"const":Capability::CastTriggerV1}}]}}},
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::CastSpellColorCountersV1}}}}}
     }));
+    cascade_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -4341,6 +4458,9 @@ mod tests {
     fn every_capability_has_a_complete_current_witness() {
         use Capability::*;
         let expected = [
+            ResolutionCastV1,
+            CascadeV1,
+            RandomBottomV1,
             NormalLayoutV1,
             BasicLandManaV1,
             LandPlayV1,
@@ -4547,6 +4667,29 @@ mod tests {
         };
         damage.capabilities = damage.requirements();
         definitions.push(damage.clone());
+        // Complete synthetic contract-shape witness, not source admission.
+        // Compiler/core M3 tests separately consume both exact frozen records.
+        let mut cascade = damage.clone();
+        cascade.triggered = vec![TriggeredAbility {
+            functioning_zone: FunctioningZone::Stack,
+            condition: TriggerCondition::SelfSpellCast,
+            intervening_if: None,
+            death_filter: None,
+            program: SpellProgram {
+                additional_sacrifice: None,
+                timing: SpellTiming::Instant,
+                resolution: SpellResolution::Instructions,
+                functioning_zone: FunctioningZone::Stack,
+                targets: vec![],
+                modes: vec![],
+                instructions: vec![Instruction::Cascade {
+                    threshold: CascadeThreshold::SourceSpellManaValue,
+                    source_block: 0,
+                }],
+            },
+        }];
+        cascade.capabilities = cascade.requirements();
+        definitions.push(cascade);
         let mut optional = damage.clone();
         optional.triggered[0].program.targets.clear();
         optional.triggered[0].program.instructions =

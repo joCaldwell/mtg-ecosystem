@@ -317,7 +317,7 @@ fn pending_spending_survives_unrelated_departure_but_never_resurrects_a_departed
 }
 
 #[test]
-fn targeted_player_leaving_at_accepted_spending_reverses_the_incomplete_cast() {
+fn targeted_player_leaving_at_accepted_spending_keeps_payment_then_fails_at_resolution() {
     let catalog = Catalog::read(include_str!(
         "../../../../tests/fixtures/expected-action-ir.json"
     ))
@@ -344,19 +344,50 @@ fn targeted_player_leaving_at_accepted_spending_reverses_the_incomplete_cast() {
     );
     g.concede(PlayerId(1)).unwrap();
     settle(&mut g);
-    assert!(g.state.rules.stack.is_empty());
-    assert_eq!(
-        g.zone(g.object_id(CardId(4)).unwrap()),
-        Some(Zone::Hand { owner: PlayerId(0) })
+    // CR601.6/608.2b: losing targets after proposal legality does not
+    // reverse payment or casting-time mana. The paid spell fails its later
+    // resolution-start legality check. Exact 4fc61cfe baseline failure retained.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    assert_eq!(g.state.rules.stack.len(), 1);
+    assert!(g.top().unwrap().paid.is_some());
+    assert_eq!(g.zone(g.object_id(CardId(4)).unwrap()), Some(Zone::Stack));
+    assert!(
+        g.state.rules.players[0]
+            .mana
+            .values()
+            .all(|q| *q == Quantity::zero())
     );
-    assert!(g.state.rules.players[0].mana.is_empty());
     for card in [2, 3] {
         assert!(
-            !g.current(g.object_id(CardId(card)).unwrap())
+            g.current(g.object_id(CardId(card)).unwrap())
                 .unwrap()
                 .tapped
         );
     }
+    assert!(
+        !g.events()
+            .iter()
+            .any(|e| matches!(e, Event::CastReversed { .. }))
+    );
+    for player in [PlayerId(0), PlayerId(2), PlayerId(3)] {
+        let r = settle(&mut g);
+        assert_eq!(r.player(), player);
+        g.respond(r.player(), r.decision_id(), Response::Pass)
+            .unwrap();
+    }
+    settle(&mut g);
+    assert!(g.state.rules.stack.is_empty());
+    assert_eq!(
+        g.zone(g.object_id(CardId(4)).unwrap()),
+        Some(Zone::Graveyard { owner: PlayerId(0) })
+    );
+    assert!(g.events().iter().any(|e| matches!(
+        e,
+        Event::SpellCompleted {
+            resolved: false,
+            ..
+        }
+    )));
     let replay = Game::replay(g.prepared.as_ref().clone(), &g.replay_journal()).unwrap();
     assert_eq!(replay.state_digest().unwrap(), g.state_digest().unwrap());
 }

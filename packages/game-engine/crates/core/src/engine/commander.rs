@@ -3,6 +3,9 @@ use super::*;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "continuation", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum CommanderContinuation {
+    CascadeBottom {
+        progress: Box<CascadeProgress>,
+    },
     BoardReturn {
         frame: Resolving,
         objects: Vec<ObjectId>,
@@ -88,7 +91,22 @@ impl Game {
         caster: PlayerId,
         from: Zone,
     ) -> Result<ManaCost, String> {
-        let mut cost = self.definition(card)?.characteristics.mana_cost.clone();
+        self.announcement_cost(card, caster, from, None)
+    }
+    pub(super) fn announcement_cost(
+        &self,
+        card: CardId,
+        caster: PlayerId,
+        from: Zone,
+        alternative: Option<cascade::AlternativeCost>,
+    ) -> Result<ManaCost, String> {
+        let mut cost = match alternative {
+            None => self.definition(card)?.characteristics.mana_cost.clone(),
+            Some(cascade::AlternativeCost::WithoutManaCost) => ManaCost {
+                generic: Quantity::zero(),
+                colored: vec![],
+            },
+        };
         if self
             .definition(card)?
             .static_abilities
@@ -233,6 +251,9 @@ impl Game {
             destination
         };
         match continuation {
+            CommanderContinuation::CascadeBottom { progress } => {
+                self.resume_cascade_commander(progress, object, to_command)?
+            }
             CommanderContinuation::BoardReturn {
                 frame,
                 objects,
@@ -438,6 +459,15 @@ impl Game {
             }
             let current = self.current(*object)?;
             match continuation.as_ref() {
+                CommanderContinuation::CascadeBottom { progress } => {
+                    self.validate_cascade_commander_choice(progress, *object, *destination)?;
+                    if *destination != (Zone::Library { owner })
+                        || current.zone != Zone::Exile
+                        || progress.stage != cascade::CascadeStage::Bottom
+                    {
+                        return Err("snapshot cascade commander replacement invariant".into());
+                    }
+                }
                 CommanderContinuation::BoardReturn {
                     frame,
                     objects,

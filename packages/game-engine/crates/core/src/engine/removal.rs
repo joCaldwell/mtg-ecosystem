@@ -20,6 +20,7 @@ pub(super) struct TargetFacts {
 impl Game {
     fn target_information_frame(frame: &mut Frame) -> Option<&mut Resolving> {
         match frame {
+            Frame::Cascade { progress } => Some(&mut progress.frame),
             Frame::Resolve { frame }
             | Frame::ResolutionChoice { frame, .. }
             | Frame::ForcedSacrifice { frame, .. }
@@ -42,6 +43,7 @@ impl Game {
                 | CommanderContinuation::StateBasedBatch { resume, .. } => {
                     Self::target_information_frame(resume)
                 }
+                CommanderContinuation::CascadeBottom { progress } => Some(&mut progress.frame),
                 CommanderContinuation::Draw { .. } => None,
             },
             _ => None,
