@@ -154,7 +154,7 @@ fn temporary_creature_keyword_complete_five_frozen_sources() {
         assert_eq!(
             d.characteristics.mana_cost,
             ManaCost {
-                generic: w.generic.into(),
+                generic: i64::from(w.generic).into(),
                 colored: vec![w.color]
             }
         );
