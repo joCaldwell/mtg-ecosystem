@@ -69,6 +69,11 @@ consumer acceptance.
 Completed SBA checks consume deathtouch observation windows; ordinary damage
 marks remain until cleanup. Later protection loss can expose lethal marked
 damage, while a completed nonlethal deathtouch window cannot cause another death.
+The separate `temporary_indestructible_spell_v1` capability supports complete
+Withstand Death source as an ordinary single-creature indestructible grant.
+Its resolved effect captures an exact incarnation and expires atomically with
+damage cleanup; intrinsic and equipped protection still union normally.
+This source foundation adds no pool, hosting/search or consumer admission.
 The only active IR schema is 1 while there are no external consumers; new
 features evolve it in place with capability validation and exact build fencing.
 Current in-place support covers [grouped power-qualified damage and opponent
