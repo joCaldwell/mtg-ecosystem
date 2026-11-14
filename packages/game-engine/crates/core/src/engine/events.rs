@@ -59,6 +59,7 @@ pub enum BatchCause {
     Departure {
         player: PlayerId,
     },
+    ControlReconciliation,
     Fixture,
 }
 impl BatchCause {
@@ -81,6 +82,7 @@ impl BatchCause {
             Self::Instruction { .. } => &["400.7", "608.2"],
             Self::SpellCompletion { .. } => &["400.7", "608.2", "608.3a"],
             Self::Departure { .. } => &["800.4a"],
+            Self::ControlReconciliation => &["110.2", "613.1b", "800.4a", "800.4c"],
             Self::Fixture => &["700.1"],
         };
         rules.iter().map(|r| (*r).into()).collect()
@@ -130,6 +132,8 @@ pub struct AttachmentBefore {
 #[serde(deny_unknown_fields)]
 pub struct PreEventFacts {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) control: Option<Box<ControlBefore>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_attachment_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<AttachmentBefore>,
@@ -150,6 +154,17 @@ pub struct PreEventFacts {
     pub turn: Option<TurnBefore>,
     pub objects: Vec<ObjectBefore>,
     pub players: Vec<PlayerBefore>,
+}
+/// Consumed layer-2 authority, separate from the leaf's ordinary object facts
+/// (whose narrow shape is part of destruction and damage validation).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ControlBefore {
+    pub(super) objects: Vec<ObjectBefore>,
+    pub(super) attachments: Vec<AttachmentBefore>,
+    pub(super) effects: Vec<ControlEffect>,
+    pub(super) live_players: Vec<PlayerId>,
+    pub(super) next_attachment_timestamp: u64,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -305,6 +320,23 @@ mod footprint_tests {
             .insert(FactKey::Object(CardId(0)));
         assert!(!independent_footprints(conflicting));
     }
+}
+
+fn changes_control_inputs(event: &ProposedEvent) -> bool {
+    matches!(
+        event,
+        ProposedEvent::Move { .. }
+            | ProposedEvent::DestroyPermanent { .. }
+            | ProposedEvent::DestroyCreature { .. }
+            | ProposedEvent::StateBasedGraveyard { .. }
+            | ProposedEvent::Sacrifice { .. }
+            | ProposedEvent::DiscardCard { .. }
+            | ProposedEvent::PutOnTopOwnerLibrary { .. }
+            | ProposedEvent::SearchLandEntry { .. }
+            | ProposedEvent::EnterAttached { .. }
+            | ProposedEvent::Attach { .. }
+            | ProposedEvent::ReversePermanentMana { .. }
+    )
 }
 
 fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
@@ -536,6 +568,25 @@ fn collect<'a>(
             if occurrences.is_empty() || occurrences.len() > limit {
                 return Err("empty or oversized simultaneous group".into());
             }
+            // A departure removal wave is owned by multiplayer's existing
+            // refresh boundary, after every losing owner's objects are absent.
+            if occurrences
+                .iter()
+                .any(|e| matches!(e, ProposedEvent::LeaveGame { .. }))
+                && occurrences
+                    .iter()
+                    .any(|e| !matches!(e, ProposedEvent::LeaveGame { .. }))
+            {
+                return Err("unsupported simultaneous departure/control dependency".into());
+            }
+            if occurrences.len() > 1
+                && occurrences.iter().any(|event| {
+                    matches!(event, ProposedEvent::Attach { object, .. }
+                        if game.definition(object.card).is_ok_and(mtg_contracts::aura_control_source))
+                })
+            {
+                return Err("unsupported simultaneous Aura control attachment dependency".into());
+            }
             if occurrences.len() > 1
                 && occurrences.iter().any(|e| {
                     matches!(
@@ -572,6 +623,81 @@ fn collect<'a>(
     Ok(())
 }
 impl Game {
+    pub(super) fn control_before(&self) -> Result<Option<Box<ControlBefore>>, String> {
+        let objects = self
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|object| object.zone == Zone::Battlefield)
+            .collect::<Vec<_>>();
+        if self.state.rules.control_effects.is_empty()
+            && !objects.iter().any(|object| {
+                !self.is_live(object.default_controller)
+                    || self.definition(object.id.card).is_ok_and(|definition| {
+                        definition
+                            .static_abilities
+                            .iter()
+                            .any(|ability| ability.effect == StaticEffect::ControlEnchantedCreature)
+                    })
+            })
+        {
+            return Ok(None);
+        }
+        Ok(Some(Box::new(ControlBefore {
+            objects: objects
+                .iter()
+                .map(|object| self.object_before(object.id))
+                .collect::<Result<_, _>>()?,
+            attachments: objects
+                .iter()
+                .filter(|object| object.attached_to.is_some())
+                .map(|object| AttachmentBefore {
+                    object: object.id,
+                    target: object.attached_to,
+                    timestamp: object.attachment_timestamp,
+                })
+                .collect(),
+            effects: self.state.rules.control_effects.clone(),
+            live_players: self.live_players(),
+            next_attachment_timestamp: self.state.rules.next_attachment_timestamp,
+        })))
+    }
+
+    /// CR 800.4a/c exile is an immediate rule consequence, not an SBA or a
+    /// nested general commit. The enclosing rule step/batch owns rollback.
+    pub(super) fn exile_without_controller(
+        &mut self,
+        object: ObjectId,
+        authority: Option<Box<ControlBefore>>,
+    ) -> Result<(), String> {
+        let proposed = ProposedEvent::Move {
+            object,
+            destination: Zone::Exile,
+        };
+        let mut before = self.facts(&[&proposed])?;
+        before.control = authority;
+        let batch_id = self.state.rules.next_batch_id;
+        self.state.rules.next_batch_id =
+            batch_id.checked_add(1).ok_or("batch ID resource limit")?;
+        let mut occurrences = vec![];
+        self.apply_leaf(&proposed, batch_id, &[], before.clone(), &mut occurrences)?;
+        // Only this exact BF -> exile movement cannot match any currently
+        // supported dies/ETB trigger. General movement still uses apply_group.
+        let cause = BatchCause::ControlReconciliation;
+        self.record_evidence(EvidenceRecord::Batch {
+            batch: Box::new(CommittedBatch {
+                batch_id,
+                rules: cause.rules(),
+                cause,
+                group: EventGroup::Occurrence { proposed },
+                before,
+                occurrences,
+            }),
+        })?;
+        Ok(())
+    }
+
     fn facts(&self, events: &[&ProposedEvent]) -> Result<PreEventFacts, String> {
         let mut damage_sources = vec![];
         let effects_event = events.iter().any(|e| {
@@ -1061,6 +1187,11 @@ impl Game {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(PreEventFacts {
+            control: if events.iter().any(|event| changes_control_inputs(event)) {
+                self.control_before()?
+            } else {
+                None
+            },
             next_attachment_timestamp: events
                 .iter()
                 .any(|event| {
@@ -1200,6 +1331,9 @@ impl Game {
                 let offset = out.len();
                 let before = self.facts(&[proposed])?;
                 self.apply_leaf(proposed, batch, path, before, out)?;
+                if changes_control_inputs(proposed) {
+                    self.reconcile_controllers()?;
+                }
                 if let Some(before) = trigger_before {
                     self.collect_triggers(&before, &out[offset..])?;
                 }
@@ -1249,6 +1383,9 @@ impl Game {
                             self.retain_source_facts(&common.object_before(o.id)?);
                         }
                     }
+                }
+                if occurrences.iter().any(changes_control_inputs) {
+                    self.reconcile_controllers()?;
                 }
                 self.collect_triggers(&common, &out[offset..])?;
             }
