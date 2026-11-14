@@ -117,14 +117,26 @@ wrong-player target submissions reject without semantic mutation. Snapshot
 verification, restoration, accepted-input replay and advance quanta 1/4096
 are checked independently of the synthetic permitted-IR policy controls.
 
-The original combat witness currently exposes a foundation defect after the
-successful protection response: damage-source keyword LKI validation admits
-intrinsic/static grant vocabulary but omits ordinary spell `GrantKeywords`.
-The retained RED faults before combat damage; this admission is a development
-candidate pending the separately owned narrow runtime fix and rerun of that
-unchanged witness. The failure remains under
-`generated/temporary-protection-admission/red-combat/` in the implementation
-checkout. Passing policy/admission checks do not clear this runtime defect.
+The unchanged original paid combat regression passes after the separately
+published damage-source LKI vocabulary correction at `05869a508a1da48afdcc31d31a4ee6c36c1e14af`.
+The initial foundation fault remains retained under
+`generated/temporary-protection-admission/red-combat/`; it was corrected by the
+runtime owner rather than avoided by changing the witness.
+
+The final focused pass ran 63 tests: one paid-pod integration test covering both
+advance quanta, three admission tests, 58 generic-policy tests and the exact
+all-catalog freshness test. Formatting, workspace all-target compilation,
+focused simulator/core-integration Clippy and the debug simulator build passed.
+The copied producer is `1eb84d10b5434a79c5b641a2c8a7fff76769a9a5baf2dcd1968a9a057d32469c`;
+all 752 native source rows match the final implementation, and its schema is
+byte-identical to the retained main producer at SHA-256
+`c804f5091b6c7674e9e5626354ef3860245195017b562a4623cd8059402656c7`.
+Exact tests, executable, exports, source inventories, receipts and failures remain
+under `generated/temporary-protection-admission/` in the implementation checkout.
+Nine older legal-pod prefixes passed on the separately recorded pre-fix producer;
+those results do not become final-source runtime evidence. Full release/profile/
+runtime matrices, Node suites, SDK/server/consumer qualification and a new
+full-game completion were omitted. Missing Node dependencies were left untouched.
 
 ## Blue default admission
 
