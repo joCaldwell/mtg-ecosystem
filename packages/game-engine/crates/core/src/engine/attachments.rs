@@ -168,9 +168,9 @@ impl Game {
         // source departure does not end an already resolved EOT grant.
         for effect in &self.state.rules.effects {
             let grants = match &effect.kind {
-                ResolvedEffectKind::GrantKeywords { target, keywords } if *target == object => {
-                    Some(keywords)
-                }
+                ResolvedEffectKind::GrantKeywords {
+                    target, keywords, ..
+                } if *target == object => Some(keywords),
                 ResolvedEffectKind::GrantKeywordsSet {
                     targets, keywords, ..
                 } if targets.contains(&object) => Some(keywords),
