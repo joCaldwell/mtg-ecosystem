@@ -28,11 +28,14 @@
     "./browser": {
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js"
-    }
+    },
+    "./policies": "./src/policies.ts"
   },
   "types": "./dist/browser.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "src",
+    "generated"
   ],
   "sideEffects": false
 }

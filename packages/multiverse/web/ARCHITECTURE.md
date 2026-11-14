@@ -237,15 +237,31 @@ explicit unsupported outcomes because that CLI cannot represent them. Ordinary
 Commander legality cannot establish engine support. No environment flag can mark
 native lifecycle or browser sessions qualified.
 
-Real Start game remains gated. The actual native create/recover bridge must fence
-uncertain operations by launch ID, retain operator/bot capabilities privately,
-run three independently owned consumers, supervise process death and stop/join
-all consumers. Coordinator sweeps enforce persisted human think-time and total
-lifetime limits; failed stop acknowledgments are retried after restart. The bridge
-must validate human file bytes with the generated SDK and bind seat 0, match,
-origin, builds and catalog before delivery. No bridge or authenticated same-origin
-native proxy currently meets that contract. The product default therefore supplies
-only authoritative admission and cannot provision a real game.
+Real Start game remains gated by browser qualification. The opt-in product native
+lifecycle adapter captures a durable native binding and seed under each game ID,
+then creates or recovers exactly one private offline registry and bounded native
+server. Native and three separate bot processes retain stdin lifetime pipes;
+shutdown/process death releases those pipes, and explicit stop advances a durable
+generation before awaiting worker and consumer joins. Delayed ensure cannot cross
+that generation. A later explicit resume recovers the same match in a fresh
+generation. Bot capabilities, exact-command journals and exclusive kernel leases
+remain private, with a stable configured logical product origin across native
+port changes. Native clock/resource pauses remain separate from rules outcomes.
+The current finite foundations pass/draw policy explicitly stops on unsupported
+decisions; attachments automation and whole-profile play remain unqualified.
+
+The authenticated same-origin proxy lives at
+`/api/games/:id/native/{client-config.json,v1/...}`. Existing UI Actor/account
+ownership and active native identity are checked before and after I/O. Only exact
+reviewed routes for that match and human seat 0 are forwarded; original UTF-8
+command bodies and bearer headers remain in memory. Upstream is a fixed numeric
+loopback endpoint with internal Host/Origin. The app chooses the SDK base prefix;
+bootstrap cannot select a target. Scoped config is fetched explicitly and parsed
+with the generated SDK, since its root config fetch helper rejects path prefixes.
+Human bootstrap remains bound to the configured numeric loopback HTTP product
+origin, match, seat 0 and exact builds/catalog. Remote hosting needs separate
+protocol and browser qualification. [Native lifecycle](../../../docs/game-engine-server.md#product-native-lifecycle)
+owns durable bridge semantics.
 
 Browser session composition, Web Locks, exact command journaling, unknown outcomes
 and every reachable decision also require qualification before enabling launch.
