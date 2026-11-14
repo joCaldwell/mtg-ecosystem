@@ -70,8 +70,8 @@ schema bytes are unchanged from the equipped-grant foundation.
 The separate `temporary_indestructible_spell_v1` capability admits one complete,
 ordinary nonmodal instant/sorcery granting exactly `[Indestructible]` to exactly
 one unqualified battlefield creature target until end of turn. Its `GrantKeywords`
-instruction also requires `indestructible_v1`. Rust and exported schema reject
-other keywords, duplicate/mixed grants, filters, additional costs, modes,
+instruction also requires `indestructible_v1`. Rust and exported schema fence that capability to Indestructible and reject
+duplicate/mixed grants, filters, additional costs, modes,
 activated/triggered programs and mixed instructions. The existing intrinsic and
 equipped grants retain their contracts. No hosting/search capability set, pool,
 policy, SDK, server contract or schema version expands.
@@ -116,3 +116,49 @@ release/performance and full-matrix checks were omitted; local JavaScript
 installation was absent and no dependencies were installed. This candidate
 checkpoint remains separately source-qualified from combined integration and
 consumer acceptance.
+
+
+## Temporary Flying source foundation
+
+The separate `temporary_flying_spell_v1` capability admits exactly one ordinary
+nonmodal instant/sorcery instruction granting `[Flying]` to exactly one
+unfiltered battlefield creature until end of turn. It also requires `flying_v1`.
+`temporary_indestructible_spell_v1` and its `indestructible_v1` requirement are
+unchanged. Schema 1 remains the only IR schema. Grants of other keywords,
+compound/duplicate grants, mixed instructions, additional costs, filters, modes,
+activations and triggers reject. No pool, default deck, host, search, policy or
+consumer admission follows from source lowering.
+
+Complete frozen [Jump source](../packages/game-engine/tests/fixtures/f7518456-45ed-41d4-bd3c-5aacea28eb35.json)
+is the exact physical line 37410/source index 37408 of archive
+`d705222b280a71cb5a5362f657d530b22402ca51687bac3227c1d6db403d0282`.
+The complete source is a normal-layout `{U}` instant, blue identity, Commander
+legal, with sole Oracle instruction “Target creature gains flying until end of
+turn.” Its AST has that sole end-of-turn gain step and a single unfiltered
+creature target; its reference binding is fully bound with no diagnostics.
+Record SHA-256 (excluding the line terminator):
+`a164fca57e67134c6f5e1a44b482f4f2a945aac42e41ead3e9586e845de30e8f`;
+source `315f9af7b00e1d3c7c122a0be565cac5f7abfd89de5a346a4c3595faaba5b81e`;
+AST `fd86fe1803247a0573bdc4c45c9dbaa18ea76fd03b2582744c8fea681eca764c`;
+binding `8c5dce2342d524fe04512520f3ef40628e37fc2bacb0aeb35b0c9e28d9ae0269`.
+Fixture provenance and the accepted-archive list add this record without changing
+existing archive or catalog membership. The original positive test rejects before
+feature enablement; its RED log remains under `generated/temporary-flying/`.
+
+The existing current-keyword union supplies Flying to the existing blocking rule
+(CR 702.9b/702.17b), which excludes grounded blockers and permits Flying or Reach.
+It retains the same exact-incarnation resolved effect, source independence,
+historical public target handles and atomic cleanup expiry as temporary
+Indestructible (CR 611.2a/c, 613.1f, 400.7, 514.2). Intrinsic/static grants survive
+expiry. Tests use paid exact-source casts and normal combat declarations, plus
+bounce/reentry, opponent targeting, invalid-response atomicity, forged snapshot
+rejection and snapshot/replay checks with varying execution budgets.
+Rules are the pinned 2026-09-25 file, SHA-256
+`8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca`.
+
+Damage-source frozen-keyword validation must recognize event-time resolved grants
+without replacing exact source authority with a blanket catalog vocabulary.
+Exact consumed source facts, duplicate rejection and accepted-input replay remain
+restore requirements. The suspended-boundary test exercises damage/snapshot
+execution and rejects forged missing, unrelated and duplicate source keywords.
+The shared source-LKI correction is a separate dependency of this foundation.

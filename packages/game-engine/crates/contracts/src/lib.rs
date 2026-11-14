@@ -255,6 +255,7 @@ pub enum Capability {
     DeathtouchV1,
     IndestructibleV1,
     TemporaryIndestructibleSpellV1,
+    TemporaryFlyingSpellV1,
     TrampleV1,
     FirstStrikeV1,
     DoubleStrikeV1,
@@ -572,7 +573,7 @@ pub enum Instruction {
         source_block: u32,
     },
     /// CR 611.2a/c, 613.1f: the only admitted grant is one creature's
-    /// indestructible until cleanup, from an ordinary instant/sorcery.
+    /// one supported keyword until cleanup, from an ordinary instant/sorcery.
     GrantKeywords {
         target_slot: u32,
         keywords: Vec<KeywordAbility>,
@@ -2422,7 +2423,7 @@ fn ordinary_keyword_grant(p: &SpellProgram) -> bool {
                 ..
             }]
         )
-        && matches!(p.instructions.as_slice(), [Instruction::GrantKeywords { target_slot: 0, keywords, duration: Duration::UntilEndOfTurn, .. }] if keywords == &[KeywordAbility::Indestructible])
+        && matches!(p.instructions.as_slice(), [Instruction::GrantKeywords { target_slot: 0, keywords, duration: Duration::UntilEndOfTurn, .. }] if keywords == &[KeywordAbility::Indestructible] || keywords == &[KeywordAbility::Flying])
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     if has_keyword_grant(p) && !ordinary_keyword_grant(p) {
@@ -3074,8 +3075,18 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         {
             set.insert(Capability::AttachmentsV1);
         }
-        if matches!(instruction, Instruction::GrantKeywords { .. }) {
-            set.insert(Capability::IndestructibleV1);
+        if let Instruction::GrantKeywords { keywords, .. } = instruction {
+            for keyword in keywords {
+                match keyword {
+                    KeywordAbility::Indestructible => {
+                        set.insert(Capability::IndestructibleV1);
+                    }
+                    KeywordAbility::Flying => {
+                        set.insert(Capability::FlyingV1);
+                    }
+                    _ => (), // Rejected by ordinary_keyword_grant, never admitted here.
+                }
+            }
         }
         set.insert(match instruction {
             Instruction::MoveSet { .. }
@@ -3108,6 +3119,11 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             } => Capability::TargetPlayerDrawV1,
             Instruction::CreateCreatureTokens { .. } => Capability::CreatureTokensV1,
             Instruction::PutPlusOneCounters { .. } => Capability::PlusOneCountersV1,
+            Instruction::GrantKeywords { keywords, .. }
+                if keywords == &[KeywordAbility::Flying] =>
+            {
+                Capability::TemporaryFlyingSpellV1
+            }
             Instruction::GrantKeywords { .. } => Capability::TemporaryIndestructibleSpellV1,
             Instruction::ModifyPowerToughness { .. } => Capability::TemporaryPowerToughnessV1,
             Instruction::PreventCombatDamage { .. } => Capability::CombatDamagePreventionV1,
@@ -3253,7 +3269,7 @@ pub fn catalog_schema() -> serde_json::Value {
     // CR 702.12/702.6: only the separately bounded Equipment grant is admitted.
     schema["$defs"]["CreatureToken"]["properties"]["keywords"]["items"] = serde_json::json!({"allOf":[{"$ref":"#/$defs/KeywordAbility"},{"not":{"enum":["flash","indestructible"]}}]});
     let grant = serde_json::json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{"effect":{"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}}}}}}}}});
-    let temporary = serde_json::json!({"required":["spell"],"properties":{"spell":{"type":"object","required":["instructions"],"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"grant_keywords"}}}}}}}});
+    let temporary_keyword = |keyword: &str| serde_json::json!({"required":["spell"],"properties":{"spell":{"type":"object","required":["instructions"],"properties":{"instructions":{"contains":{"required":["op","keywords"],"properties":{"op":{"const":"grant_keywords"},"keywords":{"contains":{"const":keyword}}}}}}}}});
     let intrinsic = serde_json::json!({"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}});
     schema["$defs"]["StaticAbility"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
@@ -3271,7 +3287,7 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["Definition"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .extend([
-            serde_json::json!({"if":{"anyOf":[intrinsic.clone(),grant.clone(),temporary.clone()]},"then":{"properties":{"capabilities":{"contains":{"const":"indestructible_v1"}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"indestructible_v1"}}}}}}),
+            serde_json::json!({"if":{"anyOf":[intrinsic.clone(),grant.clone(),temporary_keyword("indestructible")]},"then":{"properties":{"capabilities":{"contains":{"const":"indestructible_v1"}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"indestructible_v1"}}}}}}),
             serde_json::json!({"if":intrinsic,"then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["creature","artifact","enchantment","land"]}}}}}}),
             serde_json::json!({"if":grant,"then":{"properties":{"characteristics":{"properties":{"kind":{"const":"artifact"},"subtypes":{"const":["Equipment"]}}}}}}),
             serde_json::json!({"if":{"properties":{"characteristics":{"properties":{"kind":{"not":{"const":"creature"}}}}}},"then":{"properties":{"keywords":{"items":{"enum":["flash","indestructible"]}}}}}),
@@ -3725,13 +3741,26 @@ pub fn catalog_schema() -> serde_json::Value {
             "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
             "targets":{"minItems":1,"maxItems":1,"items":{"properties":{"slot":{"const":0},"selection_id":{"minLength":1},"chooser":{"const":"controller"},"stage":{"const":"announcement"},"domain":{"const":"battlefield_creature"},"filter":{"type":"null"}}}},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"grant_keywords"},"target_slot":{"const":0},"keywords":{"const":["indestructible"]},"duration":{"const":"until_end_of_turn"}}}}
+            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"grant_keywords"},"target_slot":{"const":0},"keywords":{"enum":[["indestructible"],["flying"]]},"duration":{"const":"until_end_of_turn"}}}}
         }}
     }));
-    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":temporary,"then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},"capabilities":{"contains":{"const":Capability::TemporaryIndestructibleSpellV1}}}},
-        "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::TemporaryIndestructibleSpellV1}}}}}
-    }));
+    for (keyword, capability, ordinary) in [
+        (
+            "indestructible",
+            Capability::TemporaryIndestructibleSpellV1,
+            Capability::IndestructibleV1,
+        ),
+        (
+            "flying",
+            Capability::TemporaryFlyingSpellV1,
+            Capability::FlyingV1,
+        ),
+    ] {
+        schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+            "if":temporary_keyword(keyword),"then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},"capabilities":{"allOf":[{"contains":{"const":capability}},{"contains":{"const":ordinary}}]}}},
+            "else":{"properties":{"capabilities":{"not":{"contains":{"const":capability}}}}}
+        }));
+    }
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({"properties":{
         "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}},
         "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}},
@@ -3928,6 +3957,7 @@ mod tests {
             DeathtouchV1,
             IndestructibleV1,
             TemporaryIndestructibleSpellV1,
+            TemporaryFlyingSpellV1,
             TrampleV1,
             FirstStrikeV1,
             DoubleStrikeV1,
@@ -4025,6 +4055,7 @@ mod tests {
         // retained source and its complete unqualified target selection.
         definitions.push(indestructible_tests::intrinsic());
         definitions.push(temporary_indestructible_tests::grant());
+        definitions.push(temporary_flying_tests::grant());
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());
@@ -5644,3 +5675,6 @@ mod equipped_indestructible_tests;
 
 #[cfg(test)]
 mod temporary_indestructible_tests;
+
+#[cfg(test)]
+mod temporary_flying_tests;

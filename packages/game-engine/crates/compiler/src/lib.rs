@@ -1773,17 +1773,28 @@ fn append_spell_effects(
                     abilities,
                     duration,
                 } if duration.duration == "end-of-turn"
-                    && abilities
+                    && (abilities
                         == &[
                             serde_json::json!({"gained":"keyword","keyword":{"keyword":"indestructible"}}),
-                        ] =>
+                        ]
+                        || abilities
+                            == &[
+                                serde_json::json!({"gained":"keyword","keyword":{"keyword":"flying"}}),
+                            ]) =>
                 {
                     let target: Target = serde_json::from_value(what.clone()).map_err(|_| {
                         unsupported("effects.gain-abilities", "unsupported keyword target")
                     })?;
                     Instruction::GrantKeywords {
                         target_slot: bind_creature_target(program, slots, &target)?,
-                        keywords: vec![KeywordAbility::Indestructible],
+                        keywords: vec![if abilities
+                            == &[
+                                serde_json::json!({"gained":"keyword","keyword":{"keyword":"flying"}}),
+                            ] {
+                            KeywordAbility::Flying
+                        } else {
+                            KeywordAbility::Indestructible
+                        }],
                         duration: Duration::UntilEndOfTurn,
                         source_block,
                     }
@@ -8419,3 +8430,6 @@ mod equipped_indestructible_tests;
 
 #[cfg(test)]
 mod temporary_indestructible_tests;
+
+#[cfg(test)]
+mod temporary_flying_tests;
