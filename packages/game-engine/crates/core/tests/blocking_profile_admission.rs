@@ -23,15 +23,15 @@ fn oracle(catalog: &Catalog, name: &str) -> String {
 }
 
 #[test]
-fn development_profile_adds_thirteen_complete_definitions_and_admits_four_legal_decks() {
+fn development_profile_adds_fourteen_complete_definitions_and_admits_four_legal_decks() {
     let catalog = catalog();
     let original = Catalog::read(include_str!(
         "../../../tests/fixtures/expected-match-ir.json"
     ))
     .unwrap();
     assert_eq!(catalog.schema_version, 1);
-    assert_eq!(catalog.definitions.len(), original.definitions.len() + 13);
-    assert_eq!(catalog.definitions.len(), 47);
+    assert_eq!(catalog.definitions.len(), original.definitions.len() + 14);
+    assert_eq!(catalog.definitions.len(), 48);
     let jump = oracle(&catalog, "Jump");
     assert_eq!(jump, "f7518456-45ed-41d4-bd3c-5aacea28eb35");
     assert!(
@@ -41,12 +41,21 @@ fn development_profile_adds_thirteen_complete_definitions_and_admits_four_legal_
             .capabilities
             .contains(&Capability::TemporaryFlyingSpellV1)
     );
+    let compound = oracle(&catalog, "Mortal's Resolve");
+    assert_eq!(compound, "ef29f979-1a6d-47bb-83f5-4679389471da");
+    assert!(
+        catalog
+            .definition_by_oracle_id(&compound)
+            .unwrap()
+            .capabilities
+            .contains(&Capability::CompoundIndestructibleSpellV1)
+    );
     let mut previous = catalog.clone();
-    previous.definitions.retain(|d| d.oracle_id != jump);
-    assert_eq!(previous.definitions.len(), 46);
+    previous.definitions.retain(|d| d.oracle_id != compound);
+    assert_eq!(previous.definitions.len(), 47);
     assert_eq!(
         mtg_contracts::digest(&previous).unwrap(),
-        "c80f12b257ac00fc46e395480b81ee1c619158d7b97238905577f242937e5444"
+        "506c116e66c54ef67485ff3f59beea782cd6d02eb1250ae3c46329654b73932b"
     );
 
     for definition in &original.definitions {
@@ -134,9 +143,10 @@ fn development_profile_adds_thirteen_complete_definitions_and_admits_four_legal_
             (&seeker, u32::from(matches!(seat, 1 | 3))),
             (&elf, u32::from(matches!(seat, 1 | 3))),
             (&protection, u32::from(matches!(seat, 1 | 3))),
+            (&compound, u32::from(matches!(seat, 1 | 3))),
             (
                 &oracle(&catalog, "Forest"),
-                if matches!(seat, 1 | 3) { 39 } else { 0 },
+                if matches!(seat, 1 | 3) { 38 } else { 0 },
             ),
             (
                 &oracle(&catalog, "Swamp"),
@@ -341,7 +351,7 @@ fn defaults_have_exact_source_backed_compositions_and_preserve_profile_contract(
     assert!(commander.characteristics.has_type(CardKind::Creature));
     assert_eq!(commander.characteristics.color_identity, vec![Color::U]);
 
-    // Other seats preserve the exact protection-admission compositions.
+    // Other seats preserve the exact compositions apart from the compound singleton.
     let white = [
         "Yoked Ox",
         "Sacred Nectar",
@@ -374,6 +384,7 @@ fn defaults_have_exact_source_backed_compositions_and_preserve_profile_contract(
         "Elvish Visionary",
         "Assassinate",
         "Withstand Death",
+        "Mortal's Resolve",
     ];
     for (seat, commander, singletons, basics) in [
         (
@@ -386,13 +397,13 @@ fn defaults_have_exact_source_backed_compositions_and_preserve_profile_contract(
             1,
             "Yargle and Multani",
             black_green.as_slice(),
-            vec![("Swamp", 43), ("Forest", 39)],
+            vec![("Swamp", 43), ("Forest", 38)],
         ),
         (
             3,
             "Yargle and Multani",
             black_green.as_slice(),
-            vec![("Swamp", 43), ("Forest", 39)],
+            vec![("Swamp", 43), ("Forest", 38)],
         ),
     ] {
         let deck = &config.decks[seat];

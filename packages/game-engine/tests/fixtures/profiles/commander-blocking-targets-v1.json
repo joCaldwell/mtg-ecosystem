@@ -131,7 +131,7 @@
           "oracle_id": "aa5e6894-8c97-46f8-a0fd-07c6db51e9a7"
         },
         {
-          "count": 39,
+          "count": 38,
           "oracle_id": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6"
         },
         {
@@ -145,6 +145,10 @@
         {
           "count": 1,
           "oracle_id": "ce979f36-84f2-4419-b400-971263494cc6"
+        },
+        {
+          "oracle_id": "ef29f979-1a6d-47bb-83f5-4679389471da",
+          "count": 1
         }
       ],
       "commander": "980e1721-3717-4425-95a4-938dbf2ac661"
@@ -269,7 +273,7 @@
           "oracle_id": "aa5e6894-8c97-46f8-a0fd-07c6db51e9a7"
         },
         {
-          "count": 39,
+          "count": 38,
           "oracle_id": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6"
         },
         {
@@ -283,6 +287,10 @@
         {
           "count": 1,
           "oracle_id": "ce979f36-84f2-4419-b400-971263494cc6"
+        },
+        {
+          "oracle_id": "ef29f979-1a6d-47bb-83f5-4679389471da",
+          "count": 1
         }
       ],
       "commander": "980e1721-3717-4425-95a4-938dbf2ac661"
