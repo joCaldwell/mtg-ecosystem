@@ -42,9 +42,13 @@ The spending suite has **6 pass / 1 fail**:
 `targeted_player_leaving_at_accepted_spending_reverses_the_incomplete_cast`
 expects an empty stack after target departure; the stack remains. Expectations
 and frozen rule code were preserved. Cruel Edict is in both hosted pools; the
-specific concurrent host path and independent baseline were not isolated. Production
+specific concurrent host path was not requalified here. The parent's rules/source
+review classifies this as a stale regression expectation: retained CR 601.6 and
+[deliberate target preservation](https://github.com/joCaldwell/mtg-ecosystem/commit/66aef19943ede8ce6229057789a1adf57f429f21)
+keep a legal proposal when illegality arises during payment. A separate test-only
+followup repairs that expectation; the frozen receipt remains failed. Production
 Clippy also fails on the unchanged grouped-damage `collapsible_if` block. Neither
-failure is waived by metadata qualification. Raw failures, empty selectors,
+receipt is rewritten or counted as passing by metadata qualification. Raw failures, empty selectors,
 cache-freshness repair receipts and rejected injected-board snapshot evidence are
 preserved. Injected prevention setup proves source/privacy/query-work context;
 accepted-input paid-turn and optional witnesses separately prove snapshot/replay.
