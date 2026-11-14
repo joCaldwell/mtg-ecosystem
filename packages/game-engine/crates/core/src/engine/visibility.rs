@@ -211,6 +211,11 @@ pub enum PlayerRequest {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mana_ability_source: Option<ObjectHandle>,
     },
+    SearchLandBattlefield {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+    },
     SearchLands {
         token: DecisionToken,
         player: PlayerId,
@@ -370,6 +375,7 @@ impl PlayerRequest {
             Self::LegendRule { token, .. }
             | Self::ManaColor { token, .. }
             | Self::SearchLands { token, .. }
+            | Self::SearchLandBattlefield { token, .. }
             | Self::OptionalEffect { token, .. }
             | Self::OptionalRecursion { token, .. }
             | Self::Mulligan { token, .. }
@@ -425,6 +431,9 @@ pub enum PlayerResponse {
     },
     SearchLands {
         objects: Vec<ObjectHandle>,
+    },
+    SearchLandBattlefield {
+        object: ObjectHandle,
     },
     OptionalEffect {
         perform: bool,
@@ -741,6 +750,14 @@ impl Game {
     // CR 400.2, 401.2, 402.3: own hand is visible; all libraries and other
     // hands remain hidden. https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     fn visible_to(&self, viewer: PlayerId, object: &Object) -> bool {
+        // CR 701.20a-b: only this selected set is temporarily public; it
+        // remains in the library, without publishing positions or other candidates.
+        if matches!(&self.state.rules.frame,
+            Frame::ResolutionChoice { choice: ResolutionChoice::SearchSplit { objects, .. }, .. }
+            if objects.contains(&object.id))
+        {
+            return true;
+        }
         match object.zone {
             Zone::Hand { owner } => owner == viewer,
             Zone::Library { .. } => false,
@@ -1273,6 +1290,13 @@ impl Game {
                     .collect::<Result<Vec<_>, _>>()
             };
             return Ok(Some(match request {
+                Request::SearchLandBattlefield { candidates, .. } => {
+                    PlayerRequest::SearchLandBattlefield {
+                        token,
+                        player: viewer,
+                        candidates: handles(candidates)?,
+                    }
+                }
                 Request::SearchLands {
                     maximum,
                     candidates,
@@ -1870,6 +1894,11 @@ impl Game {
             PlayerResponse::PlayerTargets { players } => Ok(Response::PlayerTargets {
                 players: players.clone(),
             }),
+            PlayerResponse::SearchLandBattlefield { object } => {
+                Ok(Response::SearchLandBattlefield {
+                    object: self.resolve_handle(viewer, object)?,
+                })
+            }
             PlayerResponse::SearchLands { objects } => Ok(Response::SearchLands {
                 objects: objects
                     .iter()

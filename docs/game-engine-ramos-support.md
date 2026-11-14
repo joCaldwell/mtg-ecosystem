@@ -72,12 +72,17 @@ binding diagnostics; the manifest supplies all identity hashes.
 
 Matrix legend: source **V** = archive-byte verified; parse **P/U** = complete
 parse/parser unsupported; binding **F/I** = archived fullyBound true/false;
-lowering **L/U** = complete lowering/Unsupported; capability **V/—** = singleton
-catalog validation passed/not reached. Scenario **NR** = no Ramos accepted-input
-scenario run. Admission **—** = exact target not admitted; consumer **—/—** =
+lowering **L/U** = complete lowering/Unsupported; capability **V/—** = executable
+catalog validation passed/not reached (M0 singletons; M2 source-witness catalog).
+Scenario **NR** = no Ramos accepted-input scenario run; **S** = the bounded M2
+private paid source witness, qualified in the
+[M2 contract](game-engine-ramos-m2-contract.md#bounded-basic-search-checkpoint).
+Admission **—** = exact target not admitted; consumer **—/—** =
 exact target not hosted/search-enabled. Existing other pools are not requalified
-by these rows. Every row has the same M0 checks above; none claims a new runtime
-test. The owner milestone remains the completion/witness owner even for L rows.
+by these rows. Rows retain M0 evidence except the two S rows, which add the
+separately qualified M2 lowering/capability/runtime checks. The immutable M0
+baseline and its 11/74 counts are unchanged; no full target re-audit or executable
+target catalog is claimed. The owner milestone remains the completion/witness owner.
 
 | Definition × quantity | Source | Parse | Binding | Lowering | Capability | Scenario | Admission | Host/search | Owner | First diagnostic reason |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -103,7 +108,7 @@ test. The owner milestone remains the completion/witness owner even for L rows.
 | [Conflux](../packages/game-engine/tests/fixtures/ramos/32ebb029-9f03-49c9-b9bb-cb1954e2a324.json) ×1 | V | P | I | U | — | NR | — | —/— | M6 | `effect:reveal` |
 | [Corpsejack Menace](../packages/game-engine/tests/fixtures/ramos/ca0cc02b-b106-4eca-9388-d4b48dd3be49.json) ×1 | V | P | I | U | — | NR | — | —/— | M1 | `event:put-counters` |
 | [Creative Technique](../packages/game-engine/tests/fixtures/ramos/c336b735-3e6b-471e-be7a-84d7402ae2f5.json) ×1 | V | U | I | U | — | NR | — | —/— | M8 | `complete-card parsing is required` |
-| [Cultivate](../packages/game-engine/tests/fixtures/ramos/8b755881-a72d-4e21-a369-d2924eb4585a.json) ×1 | V | P | F | U | — | NR | — | —/— | M2 | `effect:reveal` |
+| [Cultivate](../packages/game-engine/tests/fixtures/ramos/8b755881-a72d-4e21-a369-d2924eb4585a.json) ×1 | V | P | F | L | V | S | — | —/— | M2 | `—` |
 | [Dauntless Escort](../packages/game-engine/tests/fixtures/ramos/c0516c2c-d7c9-4763-9180-980f60205a28.json) ×1 | V | P | F | U | — | NR | — | —/— | M7 | `unsupported activated operator, controller or cardinality` |
 | [Door to Nothingness](../packages/game-engine/tests/fixtures/ramos/b919cca5-88c0-4104-b54e-49644fbf78a5.json) ×1 | V | P | F | U | — | NR | — | —/— | M10 | `effect:lose-game` |
 | [Double Major](../packages/game-engine/tests/fixtures/ramos/ece44a82-dcf0-4439-bdd9-a09c99a6f159.json) ×1 | V | U | I | U | — | NR | — | —/— | M8 | `complete-card parsing is required` |
@@ -123,7 +128,7 @@ test. The owner milestone remains the completion/witness owner even for L rows.
 | [Imoti, Celebrant of Bounty](../packages/game-engine/tests/fixtures/ramos/eca32dcd-6845-433e-a631-ed1f0ee78f25.json) ×1 | V | P | F | U | — | NR | — | —/— | M4 | `keyword:cascade` |
 | [Island](../packages/game-engine/tests/fixtures/ramos/b2c6aa39-2d2a-459c-a555-fb48ba993373.json) ×2 | V | P | F | L | V | NR | — | —/— | M2 | `—` |
 | [Ketria Triome](../packages/game-engine/tests/fixtures/ramos/6bae00e8-06cf-4ac4-a1cc-757e454109fe.json) ×1 | V | P | F | U | — | NR | — | —/— | M2 | `keyword:cycling` |
-| [Kodama's Reach](../packages/game-engine/tests/fixtures/ramos/1593ea18-2f2f-4ab4-83fb-6ccc0bec8a90.json) ×1 | V | P | F | U | — | NR | — | —/— | M2 | `effect:reveal` |
+| [Kodama's Reach](../packages/game-engine/tests/fixtures/ramos/1593ea18-2f2f-4ab4-83fb-6ccc0bec8a90.json) ×1 | V | P | F | L | V | S | — | —/— | M2 | `—` |
 | [Leyline of the Guildpact](../packages/game-engine/tests/fixtures/ramos/6b2e6a51-b9e6-4848-b7d7-98f02f2b897f.json) ×1 | V | P | F | U | — | NR | — | —/— | M5 | `static:opening-hand-action` |
 | [Maelstrom Archangel](../packages/game-engine/tests/fixtures/ramos/ac50ef98-1791-4dd4-9c1f-8cea7db7ade5.json) ×1 | V | P | F | U | — | NR | — | —/— | M10 | `effect:play-card` |
 | [Maelstrom Nexus](../packages/game-engine/tests/fixtures/ramos/b1c346a4-fc9b-474a-9d51-cac168e363fa.json) ×1 | V | P | F | U | — | NR | — | —/— | M4 | `static:cast-spell-abilities` |
@@ -176,7 +181,7 @@ refine the [plan's dependency order](game-engine-ramos-plan.md#dependencies-and-
 | Owner | Measured source blockers and next completion obligations | Dependencies |
 | --- | --- | --- |
 | M1 | Ramos rejects multiplication `factors`; both counter replacements reject `event:put-counters`. The replacements' archived bindings are incomplete; Ramos's are fully bound. Ramos's cast-color facts, remove-five cost, ten mana and per-turn use limit still need complete implementation and paid replay witnesses. | M0; one contracts/payment integration owner |
-| M2 | Eight definitions already lower: the five basics, Command Tower, Arcane Signet and Golgari Signet. The other 24 reject entry choice/conditions, cycling, pay-life costs, reveal/search sequences, opponent production or mana choice. Preserve all modes and land subtypes. | M0; coordinate payment/search/entry interfaces with M1 |
+| M2 | M0’s eight lowering definitions remain: the five basics, Command Tower, Arcane Signet and Golgari Signet. Cultivate and Kodama’s Reach now also lower and execute in the bounded private source witnesses (S). The other 22 definitions remain future M2 work: entry choice/conditions, cycling, pay-life costs, typed searches, opponent production and mana choice. Preserve all modes and land subtypes. | M0; coordinate payment/search/entry interfaces with M1 |
 | M3 | Shardless Agent and Bloodbraid Elf reject `keyword:cascade`. Build generic casting during resolution and a continuation before cascade. | M1 payment foundation; M2 useful opening infrastructure |
 | M4 | Cascade/affinity, cast grants/history and non-hand casts remain unsupported. Call Forth, Averna and Yidris lack complete archived parses. | M3; narrowly scoped parser intake before complete lowering |
 | M5 | Opening-hand action, modifier scopes and dynamic mana reject. Selvala and Omnath lack complete parses; Faeburrow's binding is incomplete. Hybrid/Phyrexian payment, land types/color layers and unspent-mana replacement remain obligations. | M1/M2 payments; layers and private-choice contracts |

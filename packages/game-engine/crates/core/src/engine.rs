@@ -1050,6 +1050,9 @@ pub enum Response {
     SearchLands {
         objects: Vec<ObjectId>,
     },
+    SearchLandBattlefield {
+        object: ObjectId,
+    },
     OptionalEffect {
         perform: bool,
     },
@@ -1169,6 +1172,11 @@ pub enum Request {
         decision_id: u64,
         player: PlayerId,
         colors: Vec<Color>,
+    },
+    SearchLandBattlefield {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
     },
     SearchLands {
         decision_id: u64,
@@ -1316,6 +1324,7 @@ impl Request {
             Self::AnnounceX { decision_id, .. }
             | Self::ManaColor { decision_id, .. }
             | Self::SearchLands { decision_id, .. }
+            | Self::SearchLandBattlefield { decision_id, .. }
             | Self::OptionalEffect { decision_id, .. }
             | Self::OptionalRecursion { decision_id, .. }
             | Self::Mulligan { decision_id, .. }
@@ -1348,6 +1357,7 @@ impl Request {
             Self::AnnounceX { player, .. }
             | Self::ManaColor { player, .. }
             | Self::SearchLands { player, .. }
+            | Self::SearchLandBattlefield { player, .. }
             | Self::OptionalEffect { player, .. }
             | Self::OptionalRecursion { player, .. }
             | Self::Mulligan { player, .. }
@@ -1379,6 +1389,10 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    RevealSearchLands {
+        player: PlayerId,
+        objects: Vec<ObjectId>,
+    },
     Attach {
         object: ObjectId,
         target: Option<ObjectId>,
@@ -1546,6 +1560,10 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    SearchLandsRevealed {
+        player: PlayerId,
+        objects: Vec<ObjectId>,
+    },
     DestructionPrevented {
         object: ObjectId,
     },

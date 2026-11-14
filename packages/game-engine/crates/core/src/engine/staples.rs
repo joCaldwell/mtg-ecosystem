@@ -208,10 +208,16 @@ impl Game {
                     self.recur_creature(frame, target, source_block)
                 }
             }
-            Instruction::SearchBasicLands {
-                maximum,
-                source_block,
-            } => {
+            op @ (Instruction::SearchBasicLands { .. }
+            | Instruction::SearchBasicLandsSplit { .. }) => {
+                let (maximum, source_block, split) = match op {
+                    Instruction::SearchBasicLands {
+                        maximum,
+                        source_block,
+                    } => (maximum, source_block, false),
+                    Instruction::SearchBasicLandsSplit { source_block } => (2, source_block, true),
+                    _ => unreachable!(),
+                };
                 if !self.is_live(frame.spell.controller) {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
@@ -220,6 +226,7 @@ impl Game {
                     choice: ResolutionChoice::Search {
                         player: frame.spell.controller,
                         maximum,
+                        split,
                         source_block,
                     },
                     frame,
@@ -270,6 +277,25 @@ impl Game {
         };
         match (choice, response) {
             (
+                ResolutionChoice::SearchSplit {
+                    player: p, objects, ..
+                },
+                Response::SearchLandBattlefield { object },
+            ) => Some(
+                if *p == player
+                    && self.is_live(player)
+                    && objects.len() == 2
+                    && objects.contains(object)
+                    && objects
+                        .iter()
+                        .all(|o| self.search_lands(player).contains(o))
+                {
+                    Ok(())
+                } else {
+                    Err("invalid revealed land partition".into())
+                },
+            ),
+            (
                 ResolutionChoice::Search {
                     player: p, maximum, ..
                 },
@@ -305,7 +331,8 @@ impl Game {
         choice: ResolutionChoice,
     ) -> Result<(), String> {
         let player = match choice {
-            ResolutionChoice::Search { player, .. }
+            ResolutionChoice::SearchSplit { player, .. }
+            | ResolutionChoice::Search { player, .. }
             | ResolutionChoice::Shuffle { player, .. }
             | ResolutionChoice::OptionalRecursion { player, .. }
             | ResolutionChoice::OptionalDraw { player, .. } => player,
@@ -347,7 +374,11 @@ impl Game {
                 };
                 Ok(())
             }
-            ResolutionChoice::Search { source_block, .. } => {
+            ResolutionChoice::Search {
+                source_block,
+                split,
+                ..
+            } => {
                 let input = self
                     .state
                     .rules
@@ -359,6 +390,25 @@ impl Game {
                 let Response::SearchLands { mut objects } = input.response else {
                     return Err("search response invariant".into());
                 };
+                if split {
+                    objects.sort();
+                    self.commit(
+                        ProposedEvent::RevealSearchLands {
+                            player,
+                            objects: objects.clone(),
+                        },
+                        Self::staple_cause(&frame, source_block),
+                    )?;
+                    self.state.rules.frame = Frame::ResolutionChoice {
+                        frame,
+                        choice: ResolutionChoice::SearchSplit {
+                            player,
+                            objects,
+                            source_block,
+                        },
+                    };
+                    return Ok(());
+                }
                 // All found cards enter together; response order is not semantic.
                 objects.sort();
                 if !objects.is_empty() {
@@ -368,6 +418,65 @@ impl Game {
                             occurrences: objects
                                 .into_iter()
                                 .map(|object| ProposedEvent::SearchLandEntry { object, player })
+                                .collect(),
+                        },
+                    )?;
+                }
+                let index = self
+                    .state
+                    .rules
+                    .libraries
+                    .get(&player)
+                    .map_or(0, |l| l.len().saturating_sub(1)) as u32;
+                self.state.rules.frame = Frame::ResolutionChoice {
+                    frame,
+                    choice: ResolutionChoice::Shuffle {
+                        player,
+                        index,
+                        source_block,
+                    },
+                };
+                Ok(())
+            }
+            ResolutionChoice::SearchSplit {
+                objects,
+                source_block,
+                ..
+            } => {
+                let battlefield = if objects.len() == 2 {
+                    let input = self
+                        .state
+                        .rules
+                        .pending
+                        .take()
+                        .ok_or("missing partition input")?;
+                    self.validate_staples_response(input.player, &input.response)
+                        .ok_or("wrong partition response")??;
+                    let Response::SearchLandBattlefield { object } = input.response else {
+                        return Err("partition response invariant".into());
+                    };
+                    Some(object)
+                } else {
+                    objects.first().copied()
+                };
+                if let Some(battlefield) = battlefield {
+                    // CR 608.2c, 121.5: partition by identity; the hand move is
+                    // not a draw. Both moves share the common-prior event group.
+                    self.commit_batch(
+                        Self::staple_cause(&frame, source_block),
+                        EventGroup::Simultaneous {
+                            occurrences: objects
+                                .into_iter()
+                                .map(|object| {
+                                    if object == battlefield {
+                                        ProposedEvent::SearchLandEntry { object, player }
+                                    } else {
+                                        ProposedEvent::Move {
+                                            object,
+                                            destination: Zone::Hand { owner: player },
+                                        }
+                                    }
+                                })
                                 .collect(),
                         },
                     )?;
@@ -511,13 +620,39 @@ impl Game {
                 ResolutionChoice::Search {
                     player,
                     maximum,
+                    split,
                     source_block,
                 },
-                Instruction::SearchBasicLands {
-                    maximum: m,
-                    source_block: b,
+                instruction,
+            ) => {
+                *player == frame.spell.controller
+                    && match instruction {
+                        Instruction::SearchBasicLands {
+                            maximum: m,
+                            source_block: b,
+                        } => !split && maximum == m && source_block == b,
+                        Instruction::SearchBasicLandsSplit { source_block: b } => {
+                            *split && *maximum == 2 && source_block == b
+                        }
+                        _ => false,
+                    }
+            }
+            (
+                ResolutionChoice::SearchSplit {
+                    player,
+                    objects,
+                    source_block,
                 },
-            ) => *player == frame.spell.controller && maximum == m && source_block == b,
+                Instruction::SearchBasicLandsSplit { source_block: b },
+            ) => {
+                *player == frame.spell.controller
+                    && source_block == b
+                    && objects.len() <= 2
+                    && objects.windows(2).all(|w| w[0] < w[1])
+                    && objects
+                        .iter()
+                        .all(|o| self.search_lands(*player).contains(o))
+            }
             (
                 ResolutionChoice::Shuffle {
                     player,
@@ -526,7 +661,8 @@ impl Game {
                 },
                 Instruction::SearchBasicLands {
                     source_block: b, ..
-                },
+                }
+                | Instruction::SearchBasicLandsSplit { source_block: b },
             ) => {
                 *player == frame.spell.controller
                     && source_block == b

@@ -41,6 +41,12 @@ pub(super) enum ResolutionChoice {
     Search {
         player: PlayerId,
         maximum: u32,
+        split: bool,
+        source_block: u32,
+    },
+    SearchSplit {
+        player: PlayerId,
+        objects: Vec<ObjectId>,
         source_block: u32,
     },
     Shuffle {
@@ -278,6 +284,15 @@ impl Game {
                 maximum: *maximum,
                 candidates: self.search_lands(*player),
             }),
+            ResolutionChoice::SearchSplit {
+                player, objects, ..
+            } if self.is_live(*player) && objects.len() == 2 => {
+                Some(Request::SearchLandBattlefield {
+                    decision_id,
+                    player: *player,
+                    candidates: objects.clone(),
+                })
+            }
             ResolutionChoice::OptionalEffect { player, .. }
             | ResolutionChoice::OptionalDraw { player, .. }
                 if self.is_live(*player) =>
@@ -454,6 +469,7 @@ impl Game {
                     choice,
                     ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
+                        | ResolutionChoice::SearchSplit { .. }
                         | ResolutionChoice::Shuffle { .. }
                         | ResolutionChoice::OptionalRecursion { .. }
                         | ResolutionChoice::OptionalDraw { .. }
@@ -464,6 +480,7 @@ impl Game {
                     let outcome = match choice {
                         ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
+                        | ResolutionChoice::SearchSplit { .. }
                         | ResolutionChoice::Shuffle { .. }
                         | ResolutionChoice::OptionalRecursion { .. }
                         | ResolutionChoice::OptionalDraw { .. } => unreachable!(),
@@ -492,6 +509,7 @@ impl Game {
                 let source_block = match choice {
                     ResolutionChoice::OptionalEffect { .. }
                     | ResolutionChoice::Search { .. }
+                    | ResolutionChoice::SearchSplit { .. }
                     | ResolutionChoice::Shuffle { .. }
                     | ResolutionChoice::OptionalRecursion { .. }
                     | ResolutionChoice::OptionalDraw { .. } => unreachable!(),
@@ -621,7 +639,10 @@ impl Game {
             op @ (Instruction::DestroyTargetCreature { .. }
             | Instruction::DestroyAllCreatures { .. }
             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
-            | Instruction::SearchBasicLands { .. }) => self.execute_staples_instruction(frame, op),
+            | Instruction::SearchBasicLands { .. }
+            | Instruction::SearchBasicLandsSplit { .. }) => {
+                self.execute_staples_instruction(frame, op)
+            }
             op @ (Instruction::CreateCreatureTokens { .. }
             | Instruction::PutPlusOneCounters { .. }) => self.execute_token_instruction(frame, op),
             op @ (Instruction::GrantKeywords { .. }
