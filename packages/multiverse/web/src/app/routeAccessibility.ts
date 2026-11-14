@@ -4,6 +4,7 @@ import { APP_TITLE, isPublicRoute, type Route } from "./routes.ts";
 /** Query/selection changes within a screen do not constitute a new page. */
 export function routeIdentity(route: Route): string {
   if (route.page === "deck" || route.page === "playtest") return `${route.page}:${route.deckId}`;
+  if (route.page === "live-game") return `live-game:${route.gameId}`;
   if (route.page === "shared") return `shared:${route.slug}`;
   if (route.page === "user") return `user:${route.handle}`;
   return route.page;

@@ -240,7 +240,7 @@ describe("product package boundaries", () => {
       if (imp.spec.startsWith("@mtg-ecosystem/deck-builder") && !(imp.spec === "@mtg-ecosystem/deck-builder/contracts" && imp.typeOnly && layerOf(imp.file) === "api")) {
         problems.push(`${describeImport(imp)} bypasses the backend public contract`);
       }
-      if (imp.spec.startsWith("@multiverse/game-client") && !(imp.spec === "@multiverse/game-client/preview" && imp.file === "features/game/GamePreview.tsx")) {
+      if (imp.spec.startsWith("@multiverse/game-client") && !((imp.spec === "@multiverse/game-client/preview" && imp.file === "features/game/GamePreview.tsx") || (imp.spec === "@multiverse/game-client/session" && imp.file === "features/live-game/LiveGamePage.tsx"))) {
         problems.push(`${describeImport(imp)} bypasses the hosted game surface`);
       }
     }

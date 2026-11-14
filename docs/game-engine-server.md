@@ -45,6 +45,43 @@ public detail. Malformed input fails without reflecting input bytes. A configure
 Git/source hash is not an authoritative native field. Admission creates no game,
 credential or consumer and makes no launch/recovery/supervision claim.
 
+## Product native lifecycle
+
+`mtg-server lifecycle ROOT` consumes one bounded strict version-1 binding line on
+stdin and retains that pipe as its lifetime lease. The binding includes game ID,
+operation generation, exact profile/build/catalog pins, immutable Oracle deck and
+its product digest, and canonical numeric loopback human origin. It persists the
+binding and randomly seeded four-deck config before registration. Existing bindings,
+all four decks and native registry metadata must agree on recovery; an ambiguous
+partial registration fails closed rather than creating a replacement match.
+Each game owns one private offline registry and bounded local server, with the
+existing systemd worker resource limits. Before spawn, the exact generated worker
+unit is durably recorded; stop/join verifies that unit inactive and its resource
+group empty, including uncertain startup and parent death. Recovery quiesces that
+unit before replacing it. This lifecycle uses explicit adapter recovery, without
+hidden broker replacement units. No shared hot registration is implemented.
+
+The lifetime reader watches EOF during startup and hosting. Stop cancels startup
+or pauses permitted running execution, shuts the host and joins the worker owner.
+Only a lifecycle-issued operator pause authorizes automatic lifetime recovery;
+clock/resource faults never become rules results or receive refilled limits.
+`lifecycle-stop ROOT` advances the durable generation before waiting for the
+exclusive owner lease; old ensure generations fail even after caller uncertainty.
+`lifecycle-join ROOT` waits for ownership after an already-written fence. A later
+explicit recovery can own the new generation of the same immutable match. EOF
+shutdown does not advance the generation. Registry, bindings, single-seat files,
+operator capabilities and journals remain host-private (0700/0600); none are served
+as assets. A persisted human decision token anchors a stable wait timestamp;
+status exports only that timestamp and native typed outcome.
+
+`lifecycle-profile PROFILE` reports exact executable pins and the reviewed public
+pod without provisioning. The product runs three separately leased SDK processes,
+each with only one seat capability and its own durable exact-command journal.
+Their current public foundations pass/draw policy is finite; unsupported decisions
+stop explicitly. Attachments retain separate admission and no automated-launch
+qualification. [Product launch](../packages/multiverse/web/ARCHITECTURE.md#game-launch)
+owns Actor authorization, scoped proxy and remaining browser gates.
+
 ## Protocol authority and private streams
 
 Rust DTOs embed the actual public core Observation, PlayerRequest and

@@ -45,3 +45,20 @@ test("new product destinations preserve same-origin sign-in return checks", () =
   assert.equal(safeNext("//outside.invalid/play"), "/");
   assert.equal(safeNext("https://outside.invalid/play"), "/");
 });
+
+test("live games have exact private match routes and remain distinct from captured previews", async () => {
+  const { isApplicationPath } = await import("../src/page-paths.ts");
+  const { routeIdentity } = await import("../web/src/app/routeAccessibility.ts");
+  const gameId = "a".repeat(32), second = "b".repeat(32);
+  const route = { page: "live-game" as const, gameId };
+  assert.equal(href(route), `/play/games/${gameId}`);
+  assert.deepEqual(parseRoute(href(route)), route);
+  assert.equal(isPublicRoute(route), false);
+  assert.equal(isApplicationPath(href(route)), true);
+  assert.notEqual(routeIdentity(route), routeIdentity({ ...route, gameId: second }));
+  for (const invalid of ["", "a".repeat(31), "a".repeat(33), "A".repeat(32), "../outside", `${gameId}/native`, `%61${"a".repeat(31)}`]) {
+    assert.deepEqual(parseRoute(`/play/games/${invalid}`), { page: "missing" });
+    assert.equal(isApplicationPath(`/play/games/${invalid}`), false);
+  }
+  assert.deepEqual(parseRoute("/play/preview"), { page: "game-preview" });
+});

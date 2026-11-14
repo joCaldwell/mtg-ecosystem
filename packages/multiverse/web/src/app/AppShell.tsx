@@ -16,7 +16,7 @@ export function AppShell({ route, children }: { route: Route; children: ReactNod
   const { sidebarCollapsed, sidebarBusy, setSidebarCollapsed, loaded } = usePreferences();
   const tablet = useMediaQuery(PANEL_QUERY);
   const collapsed = !tablet && sidebarCollapsed;
-  const focused = !tablet && (route.page === "playtest" || route.page === "game-preview");
+  const focused = !tablet && (route.page === "playtest" || route.page === "game-preview" || route.page === "live-game");
   return (
     <div className={tablet ? styles.tablet : `${styles.shell} ${collapsed ? styles.collapsed : ""} ${focused ? styles.focused : ""}`}>
       {tablet ? <TabletBar route={route} /> : !focused && <div className={styles.side}><Sidebar route={route} collapsed={collapsed} onToggle={!tablet ? () => setSidebarCollapsed(!sidebarCollapsed) : undefined} toggleDisabled={sidebarBusy || !loaded} /></div>}
