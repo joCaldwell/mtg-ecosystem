@@ -54,7 +54,8 @@ record this separate qualification. The separate
 uses complete Dismantling Blow and Natural Reclamation records outside these 85
 definitions. It adds source-bound kicker and the naturally developed paid
 prohibition witness; it changes no target membership or profile/pod/consumer
-admission. Full M3 closure remains coordinator-owned after review/integration.
+admission. Parent `2b83a482` closes the focused M3 source/runtime exit after review fixes
+and current-main integration; exact-deck and consumer admission remain open.
 
 ## Measured baseline and matrix
 
@@ -109,7 +110,7 @@ target catalog is claimed. The owner milestone remains the completion/witness ow
 | [Arcane Signet](../packages/game-engine/tests/fixtures/ramos/0bc7f093-bef0-4f1a-852c-4b75ebf54838.json) ×1 | V | P | F | L | V | NR | — | —/— | M2 | `—` |
 | [Avacyn, Angel of Hope](../packages/game-engine/tests/fixtures/ramos/216cb26e-8da9-478b-bfbc-8030f7adee72.json) ×1 | V | P | F | U | — | NR | — | —/— | M7 | `unsupported modifier scope` |
 | [Averna, the Chaos Bloom](../packages/game-engine/tests/fixtures/ramos/23695bc2-86d3-4d78-b374-9e83c4cc9cc4.json) ×1 | V | U | I | U | — | NR | — | —/— | M4 | `complete-card parsing is required` |
-| [Bloodbraid Elf](../packages/game-engine/tests/fixtures/ramos/3f0c9466-5ab9-4205-a84f-b4b27b5a678e.json) ×1 | V | P | F | L | V | B | — | —/— | M3 basic complete; full M3 open | `—` |
+| [Bloodbraid Elf](../packages/game-engine/tests/fixtures/ramos/3f0c9466-5ab9-4205-a84f-b4b27b5a678e.json) ×1 | V | P | F | L | V | B | — | —/— | M3 source/runtime qualified | `—` |
 | [Breeding Pool](../packages/game-engine/tests/fixtures/ramos/20283c4a-f1f0-42f0-bc08-6da87474426b.json) ×1 | V | P | F | U | — | NR | — | —/— | M2 | `static:entry-choice` |
 | [Breya, Etherium Shaper](../packages/game-engine/tests/fixtures/ramos/d460a9e2-5a7d-4562-880e-45174be19a9d.json) ×1 | V | P | F | U | — | NR | — | —/— | M10 | `unsupported token characteristic shape` |
 | [Call Forth the Tempest](../packages/game-engine/tests/fixtures/ramos/0623c51a-e829-413f-a3a0-817c0902821e.json) ×1 | V | U | I | U | — | NR | — | —/— | M4 | `complete-card parsing is required` |
@@ -161,7 +162,7 @@ target catalog is claimed. The owner milestone remains the completion/witness ow
 | [Ruinous Ultimatum](../packages/game-engine/tests/fixtures/ramos/a6f38908-aa4f-4f99-a28e-85d11dab52e4.json) ×1 | V | P | F | U | — | NR | — | —/— | M7 | `unsupported complete filter` |
 | [Sakashima's Protege](../packages/game-engine/tests/fixtures/ramos/cf127842-5fb1-44df-8d91-8cc0f48c559a.json) ×1 | V | P | I | U | — | NR | — | —/— | M8 | `keyword:cascade` |
 | [Selvala, Heart of the Wilds](../packages/game-engine/tests/fixtures/ramos/1d725121-e50c-42f0-9128-56802f07c89e.json) ×1 | V | U | I | U | — | NR | — | —/— | M5 | `complete-card parsing is required` |
-| [Shardless Agent](../packages/game-engine/tests/fixtures/ramos/2afbaa9a-c171-4a8b-90f3-5250d8498356.json) ×1 | V | P | F | L | V | B | — | —/— | M3 basic complete; full M3 open | `—` |
+| [Shardless Agent](../packages/game-engine/tests/fixtures/ramos/2afbaa9a-c171-4a8b-90f3-5250d8498356.json) ×1 | V | P | F | L | V | B | — | —/— | M3 source/runtime qualified | `—` |
 | [Skyshroud Claim](../packages/game-engine/tests/fixtures/ramos/376c9d3f-21d3-4251-bb6a-026fa9e1b0e1.json) ×1 | V | P | F | U | — | NR | — | —/— | M2 | `unsupported complete spell operator, destination, chooser or cardinality` |
 | [Spara's Headquarters](../packages/game-engine/tests/fixtures/ramos/3123ec89-8e95-4761-ba17-747ec667509f.json) ×1 | V | P | F | U | — | NR | — | —/— | M2 | `keyword:cycling` |
 | [Stomping Ground](../packages/game-engine/tests/fixtures/ramos/16052b52-ade1-406f-a06b-ce7ea607fb63.json) ×1 | V | P | F | U | — | NR | — | —/— | M2 | `static:entry-choice` |
@@ -196,7 +197,7 @@ refine the [plan's dependency order](game-engine-ramos-plan.md#dependencies-and-
 | --- | --- | --- |
 | M1 | M1a and M1b complete frozen Ramos/Scales/Corpsejack through parameterized shared families: cast-color counters, counter-cost/use/undo, prospective placement replacements and affected-controller order/recovery. Full paid-source composition and direct/source/target producers are witnessed; diagnostic bindings remain unchanged. Entry-with-counters and simultaneous/distributed placement producers, exact target and consumer admission remain separate/excluded. | [M1 contract](game-engine-ramos-m1-contract.md#bounded-m1b-counter-placement-family); M0 pins retained |
 | M2 | M0’s eight lowering definitions remain: the five basics, Command Tower, Arcane Signet and Golgari Signet. Cultivate and Kodama’s Reach now also lower and execute in the bounded private source witnesses (S). The other 22 definitions remain future M2 work: entry choice/conditions, cycling, pay-life costs, typed searches, opponent production and mana choice. Preserve all modes and land subtypes. | M0; coordinate payment/search/entry interfaces with M1 |
-| M3 | Both complete frozen basic cascade sources lower and have private paid/recovery witnesses through shared owned resolution casting, exact self-cast triggers and private random bottom. The separate M3c cohort covers optional fixed-mana kicker and naturally developed paid prohibition, using two records outside the frozen target; final review/integration remain coordinator-owned. | Checked M3a foundation; M3b casting contract; profile/consumer admission separate |
+| M3 | Both complete frozen basic cascade sources lower and have private paid/recovery witnesses through shared owned resolution casting, exact self-cast triggers and private random bottom. The separate M3c cohort covers optional fixed-mana kicker and naturally developed paid prohibition, using two records outside the frozen target; parent `2b83a482` closes the focused source/runtime exit after review fixes and current-main integration. | Checked M3a foundation; M3b casting contract; profile/consumer admission separate |
 | M4 | Cascade/affinity, cast grants/history and non-hand casts remain unsupported. Call Forth, Averna and Yidris lack complete archived parses. | M3; narrowly scoped parser intake before complete lowering |
 | M5 | Opening-hand action, modifier scopes and dynamic mana reject. Selvala and Omnath lack complete parses; Faeburrow's binding is incomplete. Hybrid/Phyrexian payment, land types/color layers and unspent-mana replacement remain obligations. | M1/M2 payments; layers and private-choice contracts |
 | M6 | Whirlwind of Thought already lowers; runtime/admission witnesses remain separate. Other rows reject color/property triggers, optional-payment conditions, distributed counters, reveal, discard, shuffle or extra lands. Abzan Charm and Conflux have incomplete bindings. | Stable trigger/choice/search contracts; M5 where relevant |

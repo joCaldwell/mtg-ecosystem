@@ -47,8 +47,11 @@ preserve attachment order independently of object IDs.
 The bounded [Ramos basic cascade family](game-engine-ramos-casting-contract.md#m3b-complete-basic-cascade-checkpoint)
 now lowers complete frozen Agent/Bloodbraid sources and executes owned resolution
 casting with self-cast triggers, sequential public exile and private random bottom.
-It is private source qualification; full M3 and profile/consumer admission remain
-open. The combined private snapshot is 23; public/context/query forms remain 18.
+The bounded optional-cost/instant-cascade extension also qualifies source-bound
+kicker and a naturally developed paid prohibition pair. M3’s focused source/runtime
+exit is qualified on `2b83a482`, combined with main `33dcbe9d`; profile/consumer
+admission remains open. Private snapshots are 24; public/context/query forms are 19.
+The later set-family 25/20 producer requires separate combined qualification.
 The individual producer results remain distinct from combined qualification.
 Features evolve in place with strict capability/shape validation and exact build/
 catalog fencing; old historical IR numbers describe earlier evidence only.

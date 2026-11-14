@@ -14,7 +14,8 @@ and the M2 Cultivate/Reach slice now execute; exact-target qualification remains
 incomplete. The M1 counter-placement family is also source/runtime-qualified.
 M3b implements the basic cascade/resolution-casting family. The M3c bounded
 optional-mana/instant-cascade exit cohort is separate from exact-target admission;
-final M3 review/integration remain coordinator-owned.
+M3’s focused source/runtime exit is now qualified on the combined source below;
+exact-target and consumer admission remain separate.
 This plan is not exact-deck engine acceptance.
 
 ## Target and source authority
@@ -175,8 +176,9 @@ frozen basic sources, shared continuation/payment interfaces and remaining exit
 obligations. M3b now qualifies complete basic Agent/Bloodbraid source/runtime and
 recovery on the checked M3a foundation. The separate M3c cohort covers source-bound fixed-mana kicker and a naturally
 developed paid prohibition context using two records outside the frozen target.
-Final review/integration remain coordinator-owned; this does not admit a
-profile/pod or host/search consumer.
+Parent source `2b83a482` integrates main `33dcbe9d` and closes the focused M3
+source/runtime exit after the single review’s fixes, 528 distinct Rust tests and
+2,160 schema probes. This does not admit a profile/pod or host/search consumer.
 
 Introduce a reusable casting-permission and continuation path supporting
 casting from the indicated zone while another invocation resolves, choosing

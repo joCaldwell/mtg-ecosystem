@@ -442,3 +442,23 @@ The baseline is `1c3eca4c37b90de02decca316fefab5c8035140e`.
 Raw evidence locations can belong to preserved worktrees. Their absence from a
 fresh checkout is not permission to recreate, relocate or delete them. No raw
 evidence, historical source fixtures, credentials or worktrees were cleanup targets.
+
+### Ramos optional-cost and paid-prohibition combined qualification
+
+Source `2b83a4824a8d6561402aaf560cbd4dbba5561389` combines the M3c kicker/instant
+cascade cohort with main `33dcbe9d`. The single fresh review's empty-source-block
+and stale-format findings are fixed; actual RED/GREEN compiler evidence and exact
+spool regression are retained. It passes 528 distinct selected Rust tests (538
+executions), 2,160 exported-schema probes, workspace all-target compilation and
+formatting; all 925 native source rows match. Source-bound kicker and the naturally
+paid Aura/Kutzil prohibition pair close M3's focused source/runtime exit.
+
+Exact copied test/CLI executables, opt2/opt0 producer identities, source inventories,
+review continuity, schema and timing are in the Ramos coordinator's
+`generated/ramos/m3c-integrated/integration.json`, linking the retained RED and GREEN
+runs. A shared-cache CLI failure is preserved separately from the successful
+hash-preserving refresh; no old producer is relabeled. Snapshot/public-context-work
+are 24/19, IR remains 1. Later set-family 25/20 needs fresh combined qualification.
+Full runtime, fresh combined Clippy, release/profile, Node workspace and all
+consumer/exact-deck admission gates remain omitted; historical client acceptance
+is separate. See the [casting contract](game-engine-ramos-casting-contract.md#m3c-parent-review-and-combined-qualification).

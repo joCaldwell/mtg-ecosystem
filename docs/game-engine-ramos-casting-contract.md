@@ -4,9 +4,9 @@ The original research boundary was `0fdbd817e6304eca7873012f4cea40fa2d3bb038`
 (M0/M1a/M1b/M2 plus `main8540`). The bounded M3b implementation below builds on
 checked ordinary announcement/payment base `4fc61cfe86045b5a2dc14e434d7518ab07a8bc55`.
 Both complete frozen basic sources now lower and have private paid runtime witnesses;
-M3c adds the bounded optional-mana/instant-cascade exit cohort below. Full M3
-closure remains coordinator-owned; no profile, host, SDK or sampled-search
-qualification follows.
+M3c adds the bounded optional-mana/instant-cascade exit cohort below. Parent
+`2b83a482` closes M3’s focused source/runtime exit after review fixes and current-main
+integration; no exact-deck, profile, host, SDK or sampled-search qualification follows.
 The [Ramos plan](game-engine-ramos-plan.md#m3-build-casting-during-resolution-and-basic-cascade)
 remains the milestone authority. Parent owns combined native qualification.
 
@@ -633,6 +633,44 @@ coordinator-owned until the one fresh production/test review and fresh main
 integration. This cohort makes no exact-deck, pod/profile, hosting, SDK,
 sampled-search or consumer qualification claim.
 
+## M3c parent review and combined qualification
+
+Combined source `2b83a4824a8d6561402aaf560cbd4dbba5561389` integrates the
+M3c producer with main `33dcbe9d` (temporary combat keywords and strict filter
+presence decoding). The single fresh review found two defects: silently ignored
+empty spell-effect blocks and stale format expectations. The compiler now rejects
+empty blocks before iterating; the complete-source regression failed before the
+fix and passes afterward. Spool and simulator expectations now match 24/19.
+Rehashed accepted-cost responses and conditional-draw progress also have dedicated
+rejection probes. Earlier producer evidence keeps its original identity.
+
+The combined source passed **528 distinct Rust tests** (538 executions including
+nested-selector overlap): 108 contracts, 269 compiler and 151 selected core tests.
+These include the actual paid prohibition pair, selected-kicker nested payment,
+ordinary/cascade regression groups, counters, Aura control, temporary combat keywords,
+payments, queries, exact spool checkpoints, departures and snapshot recovery.
+Workspace all-target compilation and formatting passed. The copied CLI's schema
+passed **2,160 Ajv probes**; all **925 compiled-source rows** match the frozen source.
+Existing Ramos, basic cascade and additional-cost compiled catalog bytes remain
+unchanged. Private/public-context-work formats are **24/19**, Card IR is **1**.
+
+The opt2 test producer is `7bd4f7e43dfd1cdf5a8cbb7abfd838a4c34607448bb3ebdc8aa03e3cb0e97de9`;
+the opt0 CLI producer is `5aba2e466603c235d719414a6a8814da22783b2e1db69a6945bedb9f7c170f57`.
+Exported schema SHA-256 is `4e556e68b37f340ead3edcce4c49378cd39455a166bbc19269f4627b2386f682`.
+The coordinator's ignored `generated/ramos/m3c-integrated/integration.json` links
+actual copied binaries/settings/source, review continuity, RED/GREEN receipts and
+timing. A CLI-only stale shared-cache failure and its hash-preserving own-source
+refresh are retained; no cache was deleted or test producer relabeled.
+
+This closes the focused M3 source/runtime exit using the two explicitly separate
+non-target family witnesses. Full runtime, fresh combined Clippy, release/profile,
+Node workspace, server/SDK/host/search and exact-target admission remain omitted.
+The 100-card M2 continuation witness and direct recovered-Work/nested-payment
+concession forgery coverage remain limited as recorded above. The separately
+published set-family 25/20 producer is not included in this qualification.
+Native work is released. Next is complete Apex multiple cascade; Wanderer's static
+haste scope and the remaining M4 families retain their rejection boundaries.
+
 ## Bounded checkpoint and focused exit evidence
 
 The basic checkpoint above qualifies both frozen basic cascade sources,
@@ -641,9 +679,8 @@ exile, legal creature/target/modal free casts, Bloodbraid-to-Shardless nesting,
 random bottom and owned recovery. Include mandatory additional sacrifice and
 rollback composition using existing complete fixtures. Do not postpone the
 second mana-value guard, global prohibitions, owner-below-child completion or
-privacy to later admission. The next bounded M3 checkpoint supplies optional
-additional-cost source admission and a reachable paid prohibition context;
-M3 stays open until those obligations are source-qualified. No new generic runner
+privacy to later admission. M3c and its parent integration above supply optional
+additional-cost source admission and a reachable paid prohibition context. No new generic runner
 or profile is necessary for private source witnesses; extend existing fixture and
 accepted-input scenario harnesses, with legal paid development before cascade.
 Concrete reusable hit fixtures are `tests/fixtures/{grizzly-bears,unsummon,
@@ -684,8 +721,8 @@ cast occurrence/current-LKI references do not claim that turn-history support.
 Source lowering, a private paid witness, legal profile/pod admission, useful
 public-observation policy and consumer qualification are separate claims. Hosting,
 SDK and sampled-search reviewed capability sets remain unchanged until explicit
-follow-on work; enum exhaustiveness is not that review. The exact Ramos deck and
-full M3 exit remain unqualified by this document.
+follow-on work; enum exhaustiveness is not that review. The exact Ramos deck remains unqualified; the focused M3 source/runtime
+exit is qualified only on the combined source identified above.
 
 Preparation verification: supplied base/clean owned scope, both local file/record
 pins, manifest/provenance/accepted-record membership, exact AST/binding review,
