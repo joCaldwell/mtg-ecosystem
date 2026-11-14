@@ -193,6 +193,41 @@ unchanged. Full demo/bundle acceptance, full runtime/release/profile/completion,
 server/SDK/consumer matrices and Node suites requiring absent dependencies remain
 unrun. Continuous Aura control sources remain wholly unsupported.
 
+### Continuous Aura-control family qualification
+
+Source `945c37a9da2902d7449caa4e1724a1d3d133f9f5` passed 497 distinct Rust tests
+(499 executions, including two overlapping filters), 1,710 exported-schema
+probes, workspace all-target compilation, formatting and CLI smoke/replay. Its
+802 compiled rows match the retained CLI producer
+`cdf572262656e9aa9ea0ab6f2b2fe11d8c6d1164c43364dfa265e6702e83e522`;
+optimized executed tests independently match
+`d8963e5fa0eb7bc1d25c666c9a0f11c32a2a543625a6c286007d4777536f91bd`.
+Schema 1 evolves in place; exported SHA-256 is
+`263d0e04d3367c88466c0bf7d61a978921c76082d6a8bc5b0d6ef705f100d947`.
+Private snapshots remain 22; public/query formats and consumer qualification do
+not change. Exact binaries, source/settings proof, schema outcomes and command
+receipts are under `generated/aura-control-family/combined04/` in the original
+engine lane. Failed compilation/registration and private-driver attempts remain
+preserved alongside the successful pass.
+
+Eight paid functions use complete Mind Control and Control Magic sources for
+actual entry/control changes, opposing timestamp order, same-controller no-ops,
+combat/readiness, ownership/default control, dynamic controlled targets/Hexproof,
+frozen invocations, departures/simultaneous removal, reentry and normalized
+snapshot forgeries at quanta 1/4096 with restore/replay. Seven kernel functions
+cover bounded reconciliation and explicit unsupported composition. The sacrificed
+mana receipt is synthetic: source admission still rejects sacrifice mana, so it
+establishes no reachable paid reversal claim. Contracts/compiler libraries,
+adjacent attachment/targeting/departure/snapshot/mana/staples and public-policy
+groups actually executed. Compiler/core/simulator production Clippy passed
+strictly; contracts retains its inherited `collapsible_if` exception. Source
+review found no correctness issue; exhaustive test/witness registrations and two
+private response-driver omissions were corrected without changing gameplay
+expectations or runtime guards. Pools and hosting/search sets remain unchanged.
+Full runtime/demo/release/profile/completion, server/SDK/consumer matrices and
+Node suites requiring absent local dependencies remain omitted. Pending Ramos
+counter-choice/cascade work requires its own later combined qualification.
+
 ### Selected current proof locators
 
 `generated/` below is relative to each original implementation lane, not assumed
