@@ -82,36 +82,37 @@ damage cleanup; intrinsic and equipped protection still union normally.
 This source foundation adds no pool, hosting/search or consumer admission.
 The separately fenced `temporary_flying_spell_v1` foundation supports complete
 Jump source through the same exact-incarnation keyword union and cleanup.
-`compound_indestructible_spell_v1` supports complete Mortal's Resolve as exactly
-+1/+1 then indestructible on one shared target; the pure-grant contracts remain
-unchanged. The separate `temporary_deathtouch_spell_v1` foundation supports
+`compound_indestructible_spell_v1` supports an ordered fixed signed stat modifier
+then indestructible on one shared target. Mortal's Resolve, Adamant Will and
+Unlikely Aid use that same parameterized contract and runtime; only Mortal's
+Resolve has pool admission. Pure-grant contracts remain unchanged. The separate `temporary_deathtouch_spell_v1` foundation supports
 complete Serpent's Gift source as one ordinary creature grant until cleanup;
 damage uses the source's current or latest departure appearance and never treats
 older ordinary damage as newly deathtouch. It has no pool or consumer admission.
 These foundations are scoped in the [keyword contract](game-engine-indestructible.md).
 Damage-source LKI admits validated spell grants while replay authenticates the
 historical appearance; the guard retains duplicate and departure invariants.
-The current three-increment focused qualification uses source
-`babb01b79366c63fe6c31d06d025c4927236f691` and copied CLI producer
-`158bb7dd93e7a9d6aec6f29e5a91d37fcf9cd450ab0d363df1398445efc9c52e`,
-with all 773 compiled source rows verified. It passed 394 Rust tests, including
-compound/Collar and adjacent paid prefixes, shared policy tests and catalog
-freshness, plus 65 exported-schema probes, formatting, workspace all-target
-compilation and CLI smoke/replay. Runtime tests use opt-level 2; the CLI uses
-opt-level 0. Their distinct build identities and exact executed binary hashes
-are retained rather than treating the CLI as the test producer.
-Compiler/core/simulator production Clippy passed strictly; contracts production
-Clippy used only the inherited `collapsible_if` exception. Exact copies,
-commands, source hashes and omissions are retained in the active next-three
-worktree under `generated/next-three/combined01/`. The exported schema SHA-256 is
-`544f1d14d2a1f7f6ce5d0c3b016e3929678f76b3443445afb0d445b8df9441c7`.
-This is focused development qualification, excluding full runtime, release,
-profile/completion and downstream consumer matrices. The earlier blue full-game
-witness remains qualified to its separately named producer. The preceding
-five-increment qualification at `4b9f8bb2fa5d544ab12947328e5efe2947be3264`
-retains its own 763-row producer and evidence in `generated/five-more/combined01/`;
-that batch also rejects unconsumed Aura-return sentence bindings without changing
-exact Rancor IR.
+The current mechanic-family qualification retains CLI source
+`17e58bb5397543403bc1f690439529a9292050d7`, producer
+`545b877cbdce4f1af61762a0a4242d2a8414a224784ba7f1a15cbc44574e52e6`
+and all 779 compiled source rows. It passed 90 affected runtime/policy tests and
+86 exported-schema probes, production Clippy and CLI smoke/replay. The earlier
+source `5b10c43ff9b1cbf9f20b221a8580df38a1b034f1` passed 213 compiler and 82
+contracts tests plus workspace all-target compilation. The retry changes only
+one core test's payment setup, advancing to the caster's natural untap; the
+compiler/contracts sources and fixtures are byte-identical across those passes.
+The same compiler repair rejects explicit null token recipients or life-count
+operands instead of silently treating them as absent. Public policy consumes the
+shared family recognizer while considering the complete spell's survival benefit.
+Exact executed binaries, failed attempts, source bridges and test/CLI optimization
+identities are retained under `generated/mechanic-families/`. The schema SHA-256 is
+`2829a07e7693c67244626b5f94e4ce4a703ea5c98e40195855a62a79d32163c8`.
+Compiler/core/simulator production Clippy passed strictly; contracts retains only
+the inherited `collapsible_if` exception. This is focused qualification, excluding
+full runtime, release/profile/completion, server/SDK and consumer matrices.
+Earlier source-qualified evidence remains in `generated/next-three/` and
+`generated/five-more/`; the blue full-game and client acceptances retain their own
+producer identities. No new consumer acceptance follows from these changes.
 The only active IR schema is 1 while there are no external consumers; new
 features evolve it in place with capability validation and exact build fencing.
 Current in-place support covers [grouped power-qualified damage and opponent
