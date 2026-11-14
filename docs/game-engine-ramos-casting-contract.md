@@ -353,6 +353,20 @@ The one read-only production review found no actionable issue; production bytes
 remained unchanged through all test repairs. No full runtime/release/profile,
 Node parser/Ajv, SDK, host/search or consumer qualification is claimed.
 
+Combined source `4fc61cfe86045b5a2dc14e434d7518ab07a8bc55` integrates this
+foundation with controlled-protection main `6a880cbb`. It passed 425 selected
+Rust tests (97 contracts, 236 compiler, 92 core), workspace all-target compilation,
+formatting and 1,709 exported-schema probes. All 895 compiled-source rows match;
+the three-source Ramos/Scales/Corpsejack IR is unchanged. Only additive compiler
+test registrations needed manual merge resolution. The reviewed foundation's
+production semantics are unchanged; main adds a core test registration and a
+documentation comment within those seven paths. Exact copied binaries,
+optimization/build identities, source inventories, timing and omissions are in
+the coordinator's `generated/ramos/m3a-integrated/integration.json`.
+This focused combined result does not expand the foundation's admission or
+consumer scope. Native work is released; the 100-card continuation/replay and
+broader runtime/profile/SDK/client/host/search checks remain omitted.
+
 Remaining basic checkpoint work is the shared owned resolution cast permission,
 `WithoutManaCost` and X=0, stack-functioning self-cast triggers, complete source
 lowering/capability guards, sequential cascade exile/current-or-LKI threshold,
@@ -364,7 +378,7 @@ No full target-deck, profile, hosting, search, SDK or consumer claim follows.
 
 ## Bounded checkpoint and focused exit evidence
 
-First implementation checkpoint: complete both frozen basic cascade sources,
+Next implementation checkpoint: complete both frozen basic cascade sources,
 ordinary and resolution-context announcement/payment completion, sequential public
 exile, legal creature/target/modal free casts, Bloodbraid-to-Shardless nesting,
 random bottom and owned recovery. Include mandatory additional sacrifice and

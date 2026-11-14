@@ -12,6 +12,8 @@ The prior keyword/compiler round is integrated. The
 the production-compiler baseline and later bounded source witnesses. M1a Ramos
 and the M2 Cultivate/Reach slice now execute; exact-target qualification remains
 incomplete. The M1 counter-placement family is also source/runtime-qualified.
+The M3 ordinary announcement/payment foundation is implemented; basic cascade
+and resolution casting remain unsupported.
 This plan is not exact-deck engine acceptance.
 
 ## Target and source authority
@@ -169,7 +171,8 @@ library inspection by policy. Lands support each printed basic subtype.
 
 The [M3 casting contract](game-engine-ramos-casting-contract.md) records the
 frozen basic sources, shared continuation/payment interfaces and remaining exit
-obligations. It is preparation, not cascade acceptance.
+obligations. Its ordinary announcement/payment foundation is implemented;
+owned resolution continuations and basic cascade remain the next checkpoint.
 
 Introduce a reusable casting-permission and continuation path supporting
 casting from the indicated zone while another invocation resolves, choosing

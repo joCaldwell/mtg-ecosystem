@@ -170,8 +170,8 @@ Current tests to extend, not acceptance evidence for this proposed work:
 `compiler/src/lib.rs::{mana_complete_sources_and_negatives,basic_land_search_rejects_qualified_search_and_shuffle_players,white_mana_fixture_does_not_admit_additional_land_semantics}`;
 `core/src/engine/staples_tests.rs::search_zero_one_two_private_handles_shuffle_and_pending_restore`;
 `core/src/engine/mana_tests.rs` nested spending, forged receipts and recovered queries.
-The historical [mana contract](game-engine-mana-permanents.md) explicitly excludes
-could-produce and damage mana; its old version/capacity claims are not current gates.
+The current [casting and mana boundaries](game-engine-mechanics.md#casting-costs-targets-and-stack)
+replace the historical mana contract. Its old version/capacity claims are not current gates.
 
 ## Checkpoint and integration ownership
 
