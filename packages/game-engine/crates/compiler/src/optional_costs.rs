@@ -218,6 +218,12 @@ pub(super) fn append(
 ) -> Result<(), Failure> {
     // Each condition was proven complete against its exact source keyword above.
     // Ordinary instructions still use the unchanged shared target binder.
+    if effects.is_empty() {
+        return Err(unsupported(
+            "effects",
+            "empty spell effects are unsupported",
+        ));
+    }
     for sentence in effects {
         if sentence.condition.is_some() {
             let [cost] = program.optional_additional_costs.as_slice() else {
