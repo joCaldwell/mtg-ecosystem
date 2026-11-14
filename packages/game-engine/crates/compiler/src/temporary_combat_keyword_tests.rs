@@ -415,7 +415,7 @@ fn temporary_combat_keyword_complete_sources_reject_unconsumed_shapes() {
     }
 }
 #[test]
-fn temporary_combat_keyword_compound_preserves_sentence_partition_and_rejects_semantic_changes() {
+fn temporary_combat_keyword_compound_rejects_sentence_partition_and_semantic_changes() {
     for w in WITNESSES.iter().filter(|w| w.modifier.is_some()) {
         for variant in 0..10 {
             let raw = changed_ability(w.raw, |a| {
@@ -449,13 +449,9 @@ fn temporary_combat_keyword_compound_preserves_sentence_partition_and_rejects_se
                     }
                 }
             });
-            if variant == 8 {
-                // Source blocks index abilities, not sentences (CR 608.2c).
-                // Repartitioning the same ordered operations within one ability
-                // preserves both instruction provenance and complete semantics.
-                assert_program(&lowered(&raw), w.modifier, w.keywords);
-                continue;
-            }
+            // CR 611.2c/613.5–6: this family consumes one complete sentence
+            // into one effect. A split representation cannot recover its atomic
+            // membership and characteristic application; it remains unsupported.
             assert!(
                 matches!(compile(HEADER, &raw), CompileResult::Unsupported { .. }),
                 "{} variant {variant}",
