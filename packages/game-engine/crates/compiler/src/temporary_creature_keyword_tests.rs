@@ -229,7 +229,7 @@ fn temporary_creature_keyword_parser_preserves_order_and_rejects_every_bad_item(
         json!({"gained":"keyword","keyword":{"keyword":"lifelink","filter":{}}}),
         json!({"gained":"keyword","keyword":{"keyword":"reach"}}),
         json!({"gained":"keyword","keyword":{"keyword":"haste"}}),
-        json!({"gained":"keyword","keyword":{"keyword":"hexproof"}}),
+        json!({"gained":"keyword","keyword":{"keyword":"shroud"}}),
     ];
     assert!(lower_temporary_creature_keywords(&[]).is_err());
     for bad in malformed {
@@ -328,7 +328,7 @@ fn temporary_creature_keyword_complete_sources_reject_unconsumed_shapes() {
                     12 => steps[last]["what"] = Value::Null,
                     13 => steps[last]["what"]["selectionId"] = "".into(),
                     14 => steps[last]["what"]["count"]["value"] = 2.into(),
-                    15 => steps[last]["what"]["filter"]["control"] = "you".into(),
+                    15 => steps[last]["what"]["filter"]["control"] = "opponent".into(),
                     16 => steps[last]["what"]["filter"]["tapped"] = true.into(),
                     17 => steps[last]["what"]["filter"]["types"] = json!(["artifact"]),
                     18 => steps[last]["what"]["filter"]["subtypes"] = json!(["Goblin"]),
