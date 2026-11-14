@@ -61,6 +61,7 @@ impl Game {
             .targets
             .is_empty();
         self.state.rules.stack.push(StackInstance {
+            alternative_cost: None,
             x: None,
             death_controller: None,
             sacrificed: None,
@@ -98,6 +99,7 @@ impl Game {
                 return Err("unsupported targeted activation cost".into());
             }
             let cast = Casting {
+                completion: CastCompletion::Priority,
                 sacrifice: None,
                 origin: AnnouncementOrigin::Activated,
                 spending: None,
@@ -122,6 +124,7 @@ impl Game {
         } else if mana {
             self.state.rules.frame = Frame::Mana {
                 cast: Casting {
+                    completion: CastCompletion::Priority,
                     sacrifice: None,
                     origin: AnnouncementOrigin::Activated,
                     spending: None,
@@ -136,6 +139,7 @@ impl Game {
             // CR 602.2b/601.2g-h: no mana opportunity for a cost with no mana.
             self.state.rules.frame = Frame::SacrificeCost {
                 cast: Casting {
+                    completion: CastCompletion::Priority,
                     sacrifice: None,
                     origin: AnnouncementOrigin::Activated,
                     spending: Some(BTreeMap::new()),
@@ -271,6 +275,16 @@ impl Game {
     }
     pub(super) fn validate_stack_bindings(&self, entry: &StackInstance) -> Result<(), String> {
         self.validate_damage_bindings(entry)?;
+        if entry.alternative_cost.is_some()
+            && (!entry.kind.is_spell()
+                || entry.cast_from != Zone::Exile
+                || entry.x.as_ref().is_some_and(|x| *x != Quantity::zero()))
+            || (entry.kind.is_spell()
+                && entry.cast_from == Zone::Exile
+                && entry.alternative_cost != Some(cascade::AlternativeCost::WithoutManaCost))
+        {
+            return Err("snapshot alternative casting cost/origin invariant".into());
+        }
         let x_spell = self.definition(entry.source.card)?.x_mana_cost && entry.kind.is_spell();
         let announcing =
             matches!(&self.state.rules.frame,Frame::AnnounceX {cast} if cast.stack_id==entry.id);
@@ -388,7 +402,7 @@ impl Game {
             .ok_or("missing stack target invocation")?;
         top.stack_targets = entries;
         top.announced_stack_targets = announced;
-        self.state.rules.frame = Frame::Mana { cast };
+        self.state.rules.frame = self.announcement_mana_frame(cast)?;
         Ok(())
     }
     // CR 701.6a-b/608.2b: remove precisely the bound stack object. Paid costs

@@ -49,6 +49,7 @@ pub struct CastOccurrenceId {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CastOccurrence {
+    pub x: Option<Quantity>,
     pub stack_id: StackId,
     pub caster: PlayerId,
     pub cast_from: Zone,
@@ -502,6 +503,7 @@ impl Game {
         }
         let witness = TriggerEventWitness::SpellCast {
             cast: Box::new(CastOccurrence {
+                x: entry.x.clone(),
                 stack_id: entry.id,
                 caster: entry.controller,
                 cast_from: entry.cast_from,
@@ -553,7 +555,7 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield)
+            .filter(|o| o.zone == Zone::Battlefield || matches!(&witness, TriggerEventWitness::SpellCast {cast} if o.zone == Zone::Stack && o.id == cast.spell.object))
         {
             for (ability, definition) in observers
                 .definition(object.id.card)?
@@ -601,6 +603,7 @@ impl Game {
                         matches!(&witness, TriggerEventWitness::CreatureAttacked { attacker, .. }
                             if attack_matches(predicate, object.id, object.controller, attacker))
                     }
+                    TriggerCondition::SelfSpellCast => matches!(&witness, TriggerEventWitness::SpellCast { cast } if cast.spell.object == object.id && cast.caster == object.controller),
                     TriggerCondition::SpellCast { caster, spell } => {
                         matches!(&witness, TriggerEventWitness::SpellCast {cast} if caster_matches(*caster, cast.caster, object.controller) && spell.matches(&cast.spell.characteristics))
                     }
@@ -647,7 +650,7 @@ impl Game {
                                 .any(|s| f.non_subtypes.contains(s))
                     });
                 if matches
-                    && definition.functioning_zone == FunctioningZone::Battlefield
+                    && matches!((definition.functioning_zone, object.zone), (FunctioningZone::Battlefield, Zone::Battlefield) | (FunctioningZone::Stack, Zone::Stack))
                     && observers.is_live(object.controller)
                 {
                     let mut matched_witness = witness.clone();
@@ -911,12 +914,13 @@ impl Game {
                         colored: vec![],
                     };
                     self.state.rules.stack.push(StackInstance {
+                        alternative_cost: None,
                         x: None,
                         death_controller: trigger.death_controller,
                         sacrificed: None,
                         mode: None,
                         effect_source_handles: vec![],
-                        source_facts: Some(trigger.source_facts),
+                        source_facts: Some(trigger.source_facts.clone()),
                         entity_targets: vec![],
                         announced_entity_targets: vec![],
                         stack_targets: vec![],
@@ -937,7 +941,7 @@ impl Game {
                         announced_targets: vec![vec![]; 4],
                         paid: (!targeted).then_some(zero.clone()),
                         total_cost: zero,
-                        cast_from: Zone::Battlefield,
+                        cast_from: trigger.source_facts.zone,
                     });
                     placement.changed |= placement.cleanup;
                     self.state.rules.passes.clear();
@@ -1152,9 +1156,20 @@ impl Game {
                     .owner
             || fact.controller.0 >= 4
             || fact.default_controller.0 >= 4
-            || fact.zone != Zone::Battlefield
+            || !matches!(
+                (
+                    definition.functioning_zone,
+                    fact.zone,
+                    &definition.condition
+                ),
+                (FunctioningZone::Battlefield, Zone::Battlefield, _)
+                    | (
+                        FunctioningZone::Stack,
+                        Zone::Stack,
+                        TriggerCondition::SelfSpellCast
+                    )
+            )
             || handles.len() != 4
-            || definition.functioning_zone != FunctioningZone::Battlefield
         {
             return Err("snapshot trigger source invariant".into());
         }
@@ -1331,8 +1346,13 @@ impl Game {
                         .cards
                         .get(&cast.spell.object.card)
                         .is_some_and(|c| c.owner == cast.spell.owner)
-                    && matches!(cast.cast_from, Zone::Hand { owner } | Zone::Command { owner } if owner == cast.spell.owner)
-                    && matches!(condition, TriggerCondition::SpellCast {caster,spell} if caster_matches(*caster, cast.caster, controller) && spell.matches(&cast.spell.characteristics))
+                    && (matches!(cast.cast_from, Zone::Hand { owner } | Zone::Command { owner } if owner == cast.spell.owner)
+                        || cast.cast_from == Zone::Exile)
+                    && cast.x.as_ref().is_none_or(|x| !x.is_negative())
+                    && (matches!(condition, TriggerCondition::SpellCast {caster,spell} if caster_matches(*caster, cast.caster, controller) && spell.matches(&cast.spell.characteristics))
+                        || (*condition == TriggerCondition::SelfSpellCast
+                            && cast.spell.object == source
+                            && cast.caster == controller))
                     && death_controller.is_none()
             }
 
@@ -1359,7 +1379,8 @@ impl Game {
                     && m.successor.card == m.previous.card
                     && m.previous.incarnation.checked_add(1) == Some(m.successor.incarnation)
                     && (match condition {
-                        TriggerCondition::StepBegan { .. }
+                        TriggerCondition::SelfSpellCast
+                        | TriggerCondition::StepBegan { .. }
                         | TriggerCondition::SpellCast { .. }
                         | TriggerCondition::CreatureAttacked { .. }
                         | TriggerCondition::DamageDealt { .. }
@@ -1448,7 +1469,14 @@ impl Game {
         )?;
         if trigger_id.0 >= self.state.rules.next_trigger_id
             || !self.valid_trigger_occurrence(event, witness)
-            || entry.cast_from != Zone::Battlefield
+            || entry.cast_from
+                != if self.definition(entry.source.card)?.triggered[*ability as usize].condition
+                    == TriggerCondition::SelfSpellCast
+                {
+                    Zone::Stack
+                } else {
+                    Zone::Battlefield
+                }
             || (!entry.targets.is_empty()
                 && self.program_for(entry)?.targets.first().is_none_or(|t| {
                     !matches!(

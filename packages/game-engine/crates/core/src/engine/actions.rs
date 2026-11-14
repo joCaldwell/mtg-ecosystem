@@ -454,7 +454,7 @@ impl Game {
                     .last_mut()
                     .ok_or("missing player-target stack entry")?
                     .player_targets = players;
-                self.state.rules.frame = Frame::Mana { cast };
+                self.state.rules.frame = self.announcement_mana_frame(cast)?;
             }
             Frame::ResolutionChoice { frame, choice } => {
                 if let ResolutionChoice::OptionalEffect {
@@ -609,6 +609,7 @@ impl Game {
     ) -> Result<(), String> {
         let player = frame.spell.controller;
         match instruction {
+            Instruction::Cascade { source_block, .. } => self.begin_cascade(frame, source_block),
             i @ (Instruction::MoveSet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::DamageSet { .. }
@@ -1056,24 +1057,7 @@ impl Game {
         entry: &StackInstance,
         resolved: bool,
     ) -> Result<(), String> {
-        if self
-            .state
-            .rules
-            .stack
-            .last()
-            .is_some_and(|top| top.id == entry.id)
-        {
-            self.state.rules.stack.pop();
-        } else if self.is_live(entry.controller)
-            || self
-                .state
-                .rules
-                .stack
-                .iter()
-                .any(|item| item.id == entry.id)
-        {
-            return Err("ability completion binding invariant".into());
-        }
+        self.remove_resolved_entry(entry)?;
         if matches!(entry.kind, StackKind::Triggered { .. }) {
             self.record_event(Event::TriggeredAbilityCompleted {
                 stack_id: entry.id,
@@ -1091,6 +1075,27 @@ impl Game {
             .ok_or("no live player after ability")?;
         self.stabilize()
     }
+    pub(super) fn remove_resolved_entry(&mut self, entry: &StackInstance) -> Result<(), String> {
+        if let Some(index) = self.state.rules.stack.iter().position(|s| s.id == entry.id) {
+            let child = self.resolution_child(entry.id);
+            if self.state.rules.stack[index] != *entry
+                || match child {
+                    None => index + 1 != self.state.rules.stack.len(),
+                    Some(child) => {
+                        index + 2 != self.state.rules.stack.len()
+                            || self.top()?.id != child
+                            || self.top()?.paid.is_none()
+                    }
+                }
+            {
+                return Err("exact resolving owner completion invariant".into());
+            }
+            self.state.rules.stack.remove(index);
+        } else if self.invocation_lives(entry) {
+            return Err("missing live resolving owner".into());
+        }
+        Ok(())
+    }
     pub(super) fn invocation_lives(&self, entry: &StackInstance) -> bool {
         if entry.kind.is_spell() {
             self.state
@@ -1103,6 +1108,13 @@ impl Game {
         }
     }
     pub(super) fn validate_resolving(&self, frame: &Resolving) -> Result<(), String> {
+        self.validate_resolving_owned(frame, None)
+    }
+    pub(super) fn validate_resolving_owned(
+        &self,
+        frame: &Resolving,
+        child: Option<StackId>,
+    ) -> Result<(), String> {
         self.validate_trigger_entry(&frame.spell)?;
         self.validate_mode_binding(&frame.spell)?;
         self.validate_condition_cache(frame)?;
@@ -1129,8 +1141,24 @@ impl Game {
             .iter()
             .any(|item| item.id == entry.id)
         {
-            if self.top()? != entry {
-                return Err("snapshot resolving top binding".into());
+            let position = self
+                .state
+                .rules
+                .stack
+                .iter()
+                .position(|s| s.id == entry.id)
+                .ok_or("missing resolving entry")?;
+            if self.state.rules.stack.get(position) != Some(entry)
+                || match child {
+                    None => position + 1 != self.state.rules.stack.len(),
+                    Some(child) => {
+                        position + 2 != self.state.rules.stack.len()
+                            || self.top()?.id != child
+                            || child <= entry.id
+                    }
+                }
+            {
+                return Err("snapshot resolving owner/child binding".into());
             }
         } else if self.invocation_lives(entry) {
             return Err("snapshot detached invocation invariant".into());

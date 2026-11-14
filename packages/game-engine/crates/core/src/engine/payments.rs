@@ -142,23 +142,43 @@ impl Game {
     }
 
     pub(super) fn payment_step(&mut self, cast: Casting) -> Result<(), String> {
+        let during_resolution = matches!(cast.completion, CastCompletion::Resolution { .. });
         match self.pay_announcement_costs(&cast)? {
-            AnnouncementPayment::Completed(completed) => {
-                self.state.rules.priority = completed.controller;
-                self.state.rules.frame = Frame::Priority;
-            }
+            AnnouncementPayment::Completed(completed) => match cast.completion {
+                CastCompletion::Priority => {
+                    self.state.rules.priority = completed.controller;
+                    self.state.rules.frame = Frame::Priority;
+                }
+                CastCompletion::Resolution {
+                    permission,
+                    mut progress,
+                } => {
+                    if completed.stack_id != cast.stack_id
+                        || completed.controller != permission.caster
+                    {
+                        return Err("resolution payment completion identity".into());
+                    }
+                    progress.child = Some(completed.stack_id);
+                    progress.stage = cascade::CascadeStage::Randomize;
+                    self.prepare_cascade_remainder(&mut progress)?;
+                    self.state.rules.frame = Frame::Cascade { progress };
+                }
+            },
             AnnouncementPayment::Unpayable => {
                 let undo = cast.undo_mana;
                 self.reverse_cast(cast, "insufficient mana", undo)?;
             }
         }
-        self.stabilize()
+        if during_resolution {
+            Ok(())
+        } else {
+            self.stabilize()
+        }
     }
 
     // CR 601.2h-i / 608.2g: payment and cast-trigger collection do not grant
-    // priority or stabilize. The ordinary caller above supplies that boundary;
-    // a later resolution caller must instead return to its owned continuation.
-    // This primitive alone does not admit any resolution casting permission.
+    // priority or stabilize. The caller returns either to priority or to its
+    // owned resolving continuation. Payment itself never supplies permission.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(super) fn pay_announcement_costs(
         &mut self,
@@ -170,6 +190,11 @@ impl Game {
             || stack.kind.is_spell() != cast.origin.is_spell()
         {
             return Err("announcement payment binding invariant".into());
+        }
+        if let CastCompletion::Resolution { permission, .. } = &cast.completion
+            && !self.resulting_permission_matches(permission, &stack)?
+        {
+            return Ok(AnnouncementPayment::Unpayable);
         }
         let cost = stack.total_cost.clone();
         if !self.can_pay(stack.controller, &cost)? {

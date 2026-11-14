@@ -3,13 +3,13 @@ use super::*;
 /// Owned, preflighted proposal. Only a permission authority in this module can
 /// construct one. It is consumed before any announcement decision is exposed;
 /// ongoing announcement ownership remains in `Casting` (including nested mana).
-/// This checkpoint has only the ordinary priority permission authority. Exile
-/// and resolution permissions remain unsupported until their full continuation
-/// and recovery contract is implemented.
+/// Priority and the exact one-use cascade permission supply separate authorities;
+/// both consume this proposal and use the same announcement/payment stages.
 struct SpellAnnouncement {
     player: PlayerId,
     original_object: ObjectId,
     cast_from: Zone,
+    completion: CastCompletion,
 }
 
 impl Game {
@@ -57,6 +57,7 @@ impl Game {
             player,
             original_object: object.id,
             cast_from: object.zone,
+            completion: CastCompletion::Priority,
         })
     }
 
@@ -77,6 +78,23 @@ impl Game {
         self.begin_spell_announcement(announcement)
     }
 
+    pub(super) fn announce_resolution_spell(
+        &mut self,
+        permission: CastPermission,
+        progress: Box<CascadeProgress>,
+    ) -> Result<(), String> {
+        self.validate_resolution_permission(&permission, &progress)?;
+        self.begin_spell_announcement(SpellAnnouncement {
+            player: permission.caster,
+            original_object: permission.object,
+            cast_from: Zone::Exile,
+            completion: CastCompletion::Resolution {
+                permission,
+                progress,
+            },
+        })
+    }
+
     // CR 601.2a-i: one proposal constructor owns the move, fresh stack identity
     // and unfinished payment marker. No cast occurrence is emitted here.
     fn begin_spell_announcement(&mut self, announcement: SpellAnnouncement) -> Result<(), String> {
@@ -84,10 +102,20 @@ impl Game {
             player,
             original_object,
             cast_from,
+            completion,
         } = announcement;
         let card = original_object.card;
         self.check_stack_capacity(1)?;
-        let total_cost = self.casting_cost(card, player, cast_from)?;
+        let alternative_cost = match &completion {
+            CastCompletion::Priority => None,
+            CastCompletion::Resolution { permission, .. } => Some(permission.alternative_cost),
+        };
+        let total_cost = match alternative_cost {
+            None => self.casting_cost(card, player, cast_from)?,
+            Some(alternative) => {
+                self.announcement_cost(card, player, cast_from, Some(alternative))?
+            }
+        };
         let id = StackId(self.state.rules.next_stack_id);
         self.state.rules.next_stack_id = self
             .state
@@ -109,7 +137,9 @@ impl Game {
             .successor;
         let effect_source_handles = self.capture_trigger_source_handles(source)?;
         self.state.rules.stack.push(StackInstance {
-            x: None,
+            alternative_cost,
+            x: (alternative_cost.is_some() && self.definition(card)?.x_mana_cost)
+                .then(Quantity::zero),
             death_controller: None,
             sacrificed: None,
             mode: None,
@@ -131,6 +161,7 @@ impl Game {
             cast_from,
         });
         let cast = Casting {
+            completion,
             sacrifice: None,
             origin: AnnouncementOrigin::Spell,
             spending: None,
@@ -168,7 +199,7 @@ impl Game {
         }
         Ok(
             match self.program()?.targets.first().map(|target| target.domain) {
-                None => Frame::Mana { cast },
+                None => self.announcement_mana_frame(cast)?,
                 Some(TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility) => {
                     Frame::StackTargets { cast }
                 }
@@ -194,6 +225,12 @@ impl Game {
         if !self.is_live(player) {
             return Err("departed player cannot cast spells".into());
         }
+        if self.cast_is_prohibited(player)? {
+            return Err("opponent cannot cast during source controller's turn".into());
+        }
+        Ok(())
+    }
+    pub(super) fn cast_is_prohibited(&self, player: PlayerId) -> Result<bool, String> {
         for source in self.state.rules.objects.values().filter(|o| {
             o.zone == Zone::Battlefield
                 && o.controller == self.state.rules.turn_owner
@@ -205,10 +242,10 @@ impl Game {
                 .iter()
                 .any(|a| a.effect == StaticEffect::OpponentsCantCastDuringControllerTurn)
             {
-                return Err("opponent cannot cast during source controller's turn".into());
+                return Ok(true);
             }
         }
-        Ok(())
+        Ok(false)
     }
     pub(super) fn validate_mana_activation(
         &self,
@@ -353,7 +390,21 @@ impl Game {
         } else {
             vec![]
         };
-        self.state.rules.frame = Frame::Priority;
+        self.state.rules.frame = match cast.completion {
+            CastCompletion::Priority => Frame::Priority,
+            CastCompletion::Resolution {
+                permission,
+                mut progress,
+            } => {
+                if permission.object != cast.original_object
+                    || permission.caster != stack.controller
+                {
+                    return Err("resolution cast reversal permission invariant".into());
+                }
+                progress.stage = cascade::CascadeStage::Offer;
+                Frame::Cascade { progress }
+            }
+        };
         self.record_event(Event::CastReversed {
             stack_id: cast.stack_id,
             reason: reason.into(),

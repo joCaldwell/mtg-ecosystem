@@ -46,6 +46,7 @@ fn update_source_appearance_frame(frame: &mut Frame, fact: &ObjectBefore) {
 }
 fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
     match frame {
+        Frame::Cascade { progress } => Some(&progress.frame.spell),
         Frame::Resolve { frame }
         | Frame::ResolutionChoice { frame, .. }
         | Frame::ForcedSacrifice { frame, .. }
@@ -64,6 +65,7 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
             | CommanderContinuation::ResolutionDraw { frame, .. } => Some(&frame.spell),
             CommanderContinuation::StateBased { resume }
             | CommanderContinuation::StateBasedBatch { resume, .. } => resolving_entry(resume),
+            CommanderContinuation::CascadeBottom { progress } => Some(&progress.frame.spell),
             CommanderContinuation::Draw { .. } => None,
         },
         _ => None,
@@ -71,6 +73,7 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
 }
 fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
     match frame {
+        Frame::Cascade { progress } => update_entry(&mut progress.frame.spell, fact),
         Frame::Resolve { frame }
         | Frame::ResolutionChoice { frame, .. }
         | Frame::ForcedSacrifice { frame, .. }
@@ -96,6 +99,9 @@ fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
             }
             CommanderContinuation::StateBased { resume }
             | CommanderContinuation::StateBasedBatch { resume, .. } => update_frame(resume, fact),
+            CommanderContinuation::CascadeBottom { progress } => {
+                update_entry(&mut progress.frame.spell, fact)
+            }
             CommanderContinuation::Draw { .. } => {}
         },
         _ => {}
@@ -260,7 +266,7 @@ impl Game {
         top.entity_targets = entities;
         top.announced_entity_targets = announced;
         if cast.origin.is_spell() {
-            self.state.rules.frame = Frame::Mana { cast };
+            self.state.rules.frame = self.announcement_mana_frame(cast)?;
         } else {
             self.complete_targeted_activation(cast, input.decision_id)?;
         }
@@ -284,7 +290,7 @@ impl Game {
                     return Ok(());
                 }
                 ActivationCost::SacrificePermanent { mana: Some(_), .. } => {
-                    self.state.rules.frame = Frame::Mana { cast };
+                    self.state.rules.frame = self.announcement_mana_frame(cast)?;
                     return Ok(());
                 }
                 ActivationCost::SacrificeSource => {

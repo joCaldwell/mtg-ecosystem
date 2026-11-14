@@ -1278,6 +1278,11 @@ impl Game {
                 }),
             );
         }
+        if let Some(Request::OptionalEffect { player, .. }) = self.cascade_request()? {
+            return Ok(
+                (player == viewer).then_some(PlayerRequest::OptionalEffect { token, player })
+            );
+        }
         if let Some(Request::Modes { player, .. }) = self.modes_request()? {
             return Ok((player == viewer).then_some(PlayerRequest::Modes {
                 token,
@@ -1722,6 +1727,11 @@ impl Game {
                 .is_some_and(|r| r.player() == viewer)
             {
                 Some((self.state.rules.revision, 17))
+            } else if self
+                .cascade_request()?
+                .is_some_and(|r| r.player() == viewer)
+            {
+                Some((self.state.rules.revision, 22))
             } else if self.modes_request()?.is_some_and(|r| r.player() == viewer) {
                 Some((self.state.rules.revision, 13))
             } else if self

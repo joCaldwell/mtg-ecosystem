@@ -38,6 +38,13 @@ signed stat modifier. Targets may be ordinary creatures or creatures controlled
 by the invocation controller; old unfiltered subset requirements and consumer/pool
 admission remain unchanged. Current inputs do not provide a control-changing
 effect, so same-incarnation dynamic-control scenarios remain unqualified.
+The bounded [Ramos basic cascade family](game-engine-ramos-casting-contract.md#m3b-complete-basic-cascade-checkpoint)
+now lowers complete frozen Agent/Bloodbraid sources and executes owned resolution
+casting with self-cast triggers, sequential public exile and private random bottom.
+It is private source qualification; full M3 and profile/consumer admission remain
+open. Private snapshot 23 is reserved for its owned frame; public/context/query
+forms remain 18. Snapshot 22 belongs to the independent Aura lane; parent
+integration remains a separately qualified source.
 Features evolve in place with strict capability/shape validation and exact build/
 catalog fencing; old historical IR numbers describe earlier evidence only.
 Snapshots, bundles, public projections, query sidecars, AST archives and protocol

@@ -1,8 +1,11 @@
 # Ramos M3: casting during resolution and basic cascade
 
-Research contract against `0fdbd817e6304eca7873012f4cea40fa2d3bb038`
-(M0/M1a/M1b/M2 plus `main8540`). This proposes a shared implementation; it
-claims no new lowering, runtime, profile, host, SDK or sampled-search support.
+The original research boundary was `0fdbd817e6304eca7873012f4cea40fa2d3bb038`
+(M0/M1a/M1b/M2 plus `main8540`). The bounded M3b implementation below builds on
+checked ordinary announcement/payment base `4fc61cfe86045b5a2dc14e434d7518ab07a8bc55`.
+Both complete frozen basic sources now lower and have private paid runtime witnesses;
+optional additional-cost source work and the full M3 exit remain open. No profile,
+host, SDK or sampled-search qualification follows.
 The [Ramos plan](game-engine-ramos-plan.md#m3-build-casting-during-resolution-and-basic-cascade)
 remains the milestone authority. Parent owns combined native qualification.
 
@@ -43,9 +46,9 @@ These are source witnesses, not a second per-card support matrix:
 Both parsed ASTs have parameterless `keywords`/`cascade`; Bloodbraid has a
 separate `keywords`/`haste` block. Bindings identify cascade as triggered and
 `you` as trigger controller under CR 702.85, with zero reference obligations.
-Archive `fullyBound` does not prove executable support. Compiler keyword dispatch
-currently rejects cascade; preserve complete normalized source/line/aggregate
-checks, artifact-creature type membership, haste and provenance when adding it.
+Archive `fullyBound` does not prove executable support. M3b's compiler keyword
+dispatch now lowers these entire records, preserving complete normalized
+source/line/aggregate checks, artifact-creature type membership, haste and provenance.
 The abbreviated reminder wording is not a substitute for the full keyword rule,
 especially the resulting spell's second mana-value check.
 
@@ -130,7 +133,9 @@ that peer would require renewed coordination; none are currently reserved there.
 
 ## Concrete implementation gaps at this base
 
-Paths below are relative to `packages/game-engine/crates/`.
+This table records the pre-foundation research gaps, not current rejection
+status. M3a/M3b below distinguish their implemented scope. Paths are relative to
+`packages/game-engine/crates/`.
 
 | Actual surface | Reuse and precise change needed |
 | --- | --- |
@@ -299,12 +304,12 @@ executor and viewer scoped. Queued departure processing precedes exposing choice
 
 ## M3a announcement/payment foundation (basic cascade still rejected)
 
-The first implementation checkpoint is deliberately narrower than the basic
-cascade exit below. `casting.rs` now owns ordinary-priority preflight and a
+This historical checkpoint was deliberately narrower than basic cascade.
+At that source, `casting.rs` owned ordinary-priority preflight and a
 consumed `SpellAnnouncement` proposal (caster, exact object and actual origin),
 one stack proposal constructor, and common X/mode/target routing. The only
-implemented permission authority remains ordinary hand/designated-command casting;
-no exile or resolution permission is constructible through player inputs.
+implemented permission authority at M3a was ordinary hand/designated-command casting;
+no exile or resolution permission was constructible through player inputs.
 `payments.rs::pay_announcement_costs` completes the existing locked mana and
 mandatory sacrifice costs and collects the one actual cast occurrence, then
 returns a typed `AnnouncementPayment::{Completed, Unpayable}`. Completion carries
@@ -353,14 +358,125 @@ The one read-only production review found no actionable issue; production bytes
 remained unchanged through all test repairs. No full runtime/release/profile,
 Node parser/Ajv, SDK, host/search or consumer qualification is claimed.
 
-Remaining basic checkpoint work is the shared owned resolution cast permission,
+The following basic work remained at M3a and is implemented by M3b below:
+the shared owned resolution cast permission,
 `WithoutManaCost` and X=0, stack-functioning self-cast triggers, complete source
 lowering/capability guards, sequential cascade exile/current-or-LKI threshold,
 caster-only offer, exact owner-below-child resumption, private random remainder
 bottom with Commander replacement, and authenticated recovery/privacy/departure
-coverage. The basic-cascade exit below remains wholly open, as do the separate
-source-qualified optional-additional-cost and reachable casting-prohibition exits.
-No full target-deck, profile, hosting, search, SDK or consumer claim follows.
+coverage. M3a did not qualify these exits. The separate source-qualified
+optional-additional-cost and reachable paid casting-prohibition exits remain open
+after M3b. No full target-deck, profile, hosting, search, SDK or consumer claim follows.
+
+## M3b complete basic cascade checkpoint
+
+IR schema remains 1. `SelfSpellCast` functions only on the exact casting stack
+incarnation and admits one standalone targetless `Cascade` program. Its threshold
+is `SourceSpellManaValue`; its family closure requires `CascadeV1`,
+`ResolutionCastV1` and `RandomBottomV1`. Ordinary battlefield cast observers keep
+their separate functioning zone. Both observers collect from the same real cast
+occurrence after all costs, including zero mana spending. Cast facts retain actual
+origin and announced X separately from the trigger's stack source zone. Agent's
+artifact membership and Bloodbraid's haste remain complete source obligations.
+Multiple/granted cascade, copies, alternate faces and other permissions still reject.
+Nonland source with an empty mana-cost string now rejects explicitly until the IR
+represents absent costs; printed `{0}` and land sources retain their prior behavior.
+This is an engine representation boundary, not a claim that CR 118.6a forbids a
+free alternative for an object without a mana cost.
+
+A one-use `CastPermission` binds the exact face-up exile hit, caster, resolving
+stack owner/cursor/source block, `WithoutManaCost` and strict resulting mana-value
+bound. `Casting::completion` alone owns the boxed parent progress, including through
+`ManaAbility.resume`; there is no global duplicate parent slot. Modes and targets
+use the existing authorities, X is fixed to zero for the free alternative, and
+mandatory additional sacrifice uses ordinary payment. A free alternative with no
+mana payment grants no mana-activation window; ordinary casting preserves its
+existing window and explicit zero-cost acknowledgment. The resulting spell is
+checked again before payment completion. Decline or a failed attempt never emits a
+cast occurrence. Reversal restores the exact exile incarnation and offer while
+retaining prior public exile and unrelated resources; the existing receipt authority
+owns keep/undo of nested mana activations.
+
+`CascadeProgress` owns scan, offer, randomize, bottom and finish stages. Scan moves
+one actual top card face up per step and stops at the first strict nonland hit,
+including an uncastable one. Empty/no-hit never draws or causes decking loss. The
+threshold freezes once from the originating spell's exact current stack instance
+or immutable cast witness/LKI. A paid Counterspell-original witness exercises
+source independence; a paid Stifle-cascade witness performs no cascade program.
+The caster alone receives the existing token-scoped `OptionalEffect` cast/decline
+request. No new public request/context/query form was added; those formats retain
+18, with a new internal decision discriminator. Private snapshots use **23**, with
+22 reserved by the independent Aura lane; no Aura source was imported here.
+
+The child remains above its resolving owner and becomes fully cast before the
+parent continues. Its cast triggers are collected immediately, then wait until
+parent bottoming/completion before SBA/APNAP placement. Exact owner removal never
+pops or resolves the child. Only this invocation's uncast exile group is permuted
+with the shared unbiased physical-100 sampler, one random-word attempt per step.
+Zero/one groups consume no words. An ordered typed move group appends the private
+permutation, preserves the library prefix and never increments `library_shuffles`.
+Commander 903.9b choices follow public scan order, remove redirected objects from
+bottom placement and keep the child/parent owned continuation; 903.9a SBAs stay
+deferred. Progress/permutations are charged against common retained capacity.
+The own original outside the library bounds these source scans below 100; no new
+100-card M2 accepted-input continuation witness is claimed.
+
+Focused qualification is **429 distinct passing Rust tests**: 97 contracts,
+237 compiler and 95 core. The core selection is cascade 17, foundation 6, ordinary
+cast triggers 22, payments 12, payment queries 3, spending 7, mana 14, Ramos M1 5,
+snapshot codec 6 and streamed snapshots 3. Cascade's real 99-card setup exercises
+private random bottom, every-stage accepted-input snapshot verification, rejected
+permutation forgery, equal observations/query work for different hidden orders,
+and budgets 0/1/unlimited in Off/Compact/Detailed modes. Other private paid cases
+cover both complete originals, creature/target/modal/X=0 hits, mandatory sacrifice,
+strict equal/above and uncastable-first-hit behavior, both Commander choices,
+nested cascade, source/trigger countering, genuine Ramos observers, stale/foreign
+queries, Work recovery, rehashed owner/membership/cursor/child forgeries and departure.
+Synthetic prohibition and locked mana-increase Signet/Ramos keep/undo probes are
+explicitly not optional-cost source or accepted recovery-origin witnesses.
+
+Workspace all-target compilation, formatting, structural guard and production
+Clippy passed with explicit existing-base exceptions: contracts
+`collapsible_if` (two unchanged blocks), core `large_enum_variant` and
+`needless_question_mark` (three unchanged diagnostics). Compiler Clippy is strict.
+No source lint allowances or unrelated production rewrites were added. The one
+source review found an accepted pending offer escaping after the last target's
+owner conceded; the fix consumes only the frame-owned invalidated choice, and both
+accepted-perform and accepted-decline regressions now restore/replay in all three
+trace modes. The later absent-cost rejection was inspected separately. One old
+spending expectation failed identically on the retained exact 4fc baseline binary;
+only that test was corrected under CR 601.6/608.2b, with both failures preserved.
+
+Authoritative native receipts are this implementation worktree's
+`generated/ramos/m3b/focused8/` plus `supplement/`: frozen source inventory
+`0749a2c484c6ba75d31605a8c5eafd563fb28744104e6ccc94f66d057337b55c`,
+copied actual tests/CLI, `source.tar`, schema and native-source manifest. The own
+CLI verifies **897** compiled source files; opt-0 CLI build
+`f4f8d52440445039d3a6737e4da1d993a0ae914b858b9d3077a83d5b830a4182`
+is distinct from opt-2/debug-asserting test build
+`1eaa984d197f7be41dffb49496be4f50a1e7f55f174bdfa4e43ac4d1142feb33`.
+Schema SHA-256 is `0cf64f239d17edeebb96669cd4ca636657db3726fc787f5ec35970ad153bd7dd`;
+the two-source catalog digest is
+`b3ea8c0b214d1363c4188c607f0dee281ea29361cfcd78011974c554842ada6b`.
+External Ajv 8.20.0 from the existing root installation passed **27** isolated
+schema probes (3 positives, 24 negatives) against these exact exports, including
+both complete records, capability/zone/condition closure, multiple instances,
+threshold shape and forbidden root-program/intrinsic-keyword paths. This required
+no install, Cargo or root engine import; `schema/result.json` retains the result.
+The catalog file SHA-256 (including its encoding) is
+`988f9f3fe8019bc634041312fcaba15bbe8e5133c3dcaf8a327d65f31859e301`.
+Three early zero selectors are retained as **not executed**; supplement uses the
+same copied executable and actual nested module paths (5/6/3 tests). Earlier stale
+cross-worktree contracts metadata failures retain file/artifact hashes and mtimes;
+repairs refreshed only the owned source timestamp under lock, without changing
+bytes or deleting cache. No old executable is relabeled as this source.
+
+The complete basic checkpoint is source-qualified separately from later parent
+integration. Full M3 remains open for source-qualified optional additional costs
+and a naturally reachable paid prohibition context. Full runtime/release/profile,
+exact-deck/pod admission, host, SDK, sampled search, parser/Node dependency setup and
+consumer qualification remain omitted. Frozen revision 17 and its 85/100/37 pins
+are unchanged.
 
 ## Bounded checkpoint and focused exit evidence
 
