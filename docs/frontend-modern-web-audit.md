@@ -1,7 +1,8 @@
 # Frontend modernization — 2026-11-14
 
 Implemented on `feat/frontend-modern-web`, based on current `main` at
-`a42b76cd`. Three implementation agents covered product primitives/design,
+`a42b76cd`, with subsequent main changes integrated through `ab9aa3c4`.
+Three implementation agents covered product primitives/design,
 product/deck-building features, and shared game presentation/client. The parent
 owned routing, account bootstrap, card previews/cache, standalone consent and
 integration. A separate review of the parent changes found three defects;
@@ -199,3 +200,27 @@ provider, live private game-host, engine matrix, retention, deployment or merge
 acceptance is claimed. The standalone diagnostic harness still has its existing
 large eager SDK bundle warning; the product preview remains free of SDK/session
 runtime. No Core Web Vitals or performance acceptance follows from bundle gates.
+
+## Independent PR review and focused regressions
+
+Three independent reviewers examined exact implementation head `f68062e9`,
+covering generic platform/primitives, deck features/consent, and shared game
+presentation/client. Feature/consent review was clean. Two confirmed findings
+were corrected: semantic list wrappers now preserve each hand card's intrinsic
+width instead of shrinking beneath its button, and toast pause state reconciles
+against current DOM focus/hover when a toast is replaced or dismissed. Removing
+a focused action no longer leaves subsequent notifications permanently paused.
+
+The browser regressions check card/wrapper containment, nonoverlapping hit
+targets, local hand scrolling and focus at desktop, narrow embedded and wide
+sizes; toast checks keep a keyboard action focused beyond expiry, remove it,
+then verify a subsequent ordinary notification expires. The toast regression
+passes in both native and missing-feature paths in Chromium 151 / Firefox 153
+(16 checks each). Multiverse, game-ui and game-client package gates pass after
+integrating main; the public bundle remains within budget at 109060 gzip bytes.
+The full game-client browser suite passes all 44 cases in Chromium 158 / Firefox
+159 after the fixes. A Firefox automation crash in locator element adoption was
+isolated with a minimal static reproduction; the new geometry regression keeps
+measurements and DOM focus inside page evaluation, retaining all assertions.
+Review reports, meaningful failed browser attempts and focused validation logs
+remain under ignored `generated/frontend-modern-web/`.

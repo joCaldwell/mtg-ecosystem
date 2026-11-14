@@ -3,7 +3,9 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -44,6 +46,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [current, setCurrent] = useState<Current | null>(null);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
+  const region = useRef<HTMLDivElement>(null);
 
   const toast = useCallback((message: ReactNode, opts: ToastOptions = {}) => {
     setCurrent({ id: nextId++, message, opts });
@@ -53,6 +56,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   // One timer per toast; a replacement toast has a new id, so it restarts.
   const id = current?.id;
+  useLayoutEffect(() => {
+    // Removing a focused action need not fire blur. Derive pause state from
+    // the new toast's actual DOM rather than carrying it across replacements.
+    setFocused(region.current?.contains(document.activeElement) ?? false);
+    setHovered(region.current?.matches(":hover") ?? false);
+  }, [id]);
   const duration = current?.opts.duration ?? 6000;
   useEffect(() => {
     if (id === undefined || hovered || focused) return;
@@ -65,7 +74,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={api}>
       {children}
       {createPortal(
-        <div className={styles.region} role="status" aria-live="polite" aria-atomic="true"
+        <div ref={region} className={styles.region} role="status" aria-live="polite" aria-atomic="true"
           onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}
           onFocus={() => setFocused(true)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}
         >

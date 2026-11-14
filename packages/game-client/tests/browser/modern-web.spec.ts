@@ -71,6 +71,40 @@ test('shared game table responds to its embedding container in a wide window', a
   await expect(hand.getByRole('button').last()).toBeFocused();
 });
 
+test('hand cards retain separate hit targets and scroll within their list', async ({ page }) => {
+  for (const [viewportWidth, containerWidth] of [[1280, null], [1440, 600], [1920, null]] as const) {
+    await page.setViewportSize({ width: viewportWidth, height: 900 });
+    await page.goto('/');
+    if (containerWidth) {
+      await page.getByRole('heading', { name: 'Commander table', exact: true }).evaluate((heading, width) => {
+        const container = heading.parentElement?.parentElement?.parentElement?.parentElement;
+        if (container) container.style.inlineSize = `${width}px`;
+      }, containerWidth);
+    }
+    const hand = page.getByRole('region', { name: 'Your hand', exact: true });
+    const cards = hand.getByRole('button');
+    const geometry = await cards.evaluateAll(elements => elements.map(element => {
+      const card = element.getBoundingClientRect();
+      const item = element.parentElement!.getBoundingClientRect();
+      return { left: card.left, right: card.right, itemLeft: item.left, itemRight: item.right };
+    }));
+    expect(geometry.length).toBeGreaterThan(1);
+    geometry.forEach((card, index) => {
+      expect(card.left).toBeGreaterThanOrEqual(card.itemLeft - 1);
+      expect(card.right).toBeLessThanOrEqual(card.itemRight + 1);
+      if (index) expect(card.left).toBeGreaterThanOrEqual(geometry[index - 1]!.right);
+    });
+    const list = hand.getByRole('list');
+    // Keep these operations in the page: Firefox's automation element-handle
+    // adoption can crash on this horizontally scrollable list.
+    expect(await list.evaluateAll(elements => elements.map(element => element.scrollWidth > element.clientWidth))).toEqual([true]);
+    await cards.evaluateAll(elements => (elements.at(-1) as HTMLElement).focus());
+    expect(await cards.evaluateAll(elements => elements.at(-1) === document.activeElement)).toBe(true);
+    await expect.poll(() => list.evaluateAll(elements => elements[0]?.scrollLeft ?? 0)).toBeGreaterThan(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+});
+
 test('text scaling reflows the table and keeps labels and controls inside the page', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/');

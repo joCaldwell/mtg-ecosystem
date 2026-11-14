@@ -26,7 +26,7 @@
 .other { margin-top: var(--game-space-4); }.combat { color: var(--game-soft); font-size: var(--game-text-small); }
 .hand { flex: 0 0 auto; padding: var(--game-space-4); border-top: 1px solid var(--game-line); background: var(--game-panel); min-width: 0; }
 .cards, .cardList { list-style: none; padding: 0; margin: 0; }
-.cards > li { display: flex; min-inline-size: 0; }
+.cards > li { display: flex; flex: 0 0 auto; min-inline-size: 0; }
 .cardList > li { min-inline-size: 0; }
 .cards { display: flex; flex-wrap: wrap; gap: var(--game-space-2); padding: 3px; margin: -3px; }
 .hand .cards { flex-wrap: nowrap; overflow-x: auto; padding: 4px 3px 10px; }

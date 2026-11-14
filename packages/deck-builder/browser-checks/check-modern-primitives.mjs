@@ -65,6 +65,25 @@ try {
       await page.mouse.click(3, 3); await absent(dialog);
     });
 
+    await check(`${mode}: toast focus pauses only the toast that still owns focus`, async () => {
+      await page.getByRole("button", { name: "With action", exact: true }).click();
+      const region = page.getByRole("status");
+      const action = region.getByRole("button", { name: /Undo/ });
+      await focused(action);
+      await page.mouse.move(0, 0);
+      await page.waitForTimeout(6500);
+      assert.ok(await action.isVisible(), "Focused toast action remains available beyond its timeout");
+      await page.keyboard.press("Enter");
+      await absent(action);
+      // Keyboard activation leaves the focused DOM node disconnected without
+      // guaranteeing a blur event. The next toast must regain its own timer.
+      await page.getByRole("button", { name: "Plain toast", exact: true }).click();
+      await page.mouse.move(0, 0);
+      const message = region.getByText("Deck saved.", { exact: true });
+      await message.waitFor();
+      await message.waitFor({ state: "hidden", timeout: 7500 });
+    });
+
     await check(`${mode}: destructive confirmation autofocuses the safe action`, async () => {
       await page.getByRole("button", { name: "Confirm, danger", exact: true }).click();
       const dialog = page.getByRole("dialog", { name: "Delete this deck?", exact: true });
