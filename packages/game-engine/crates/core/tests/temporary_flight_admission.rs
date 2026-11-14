@@ -248,7 +248,7 @@ fn assert_grounded_block_control(g: &Game, q: u64) {
 fn run(index: u32, q: u64) -> Game {
     let c = catalog();
     assert_eq!(c.schema_version, 1);
-    assert_eq!(c.definitions.len(), 47);
+    assert_eq!(c.definitions.len(), 48);
     let jump = id(&c, "Jump");
     assert_eq!(jump, "f7518456-45ed-41d4-bd3c-5aacea28eb35");
     let source: serde_json::Value = serde_json::from_str(
