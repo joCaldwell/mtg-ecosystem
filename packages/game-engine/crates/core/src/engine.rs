@@ -47,11 +47,11 @@ mod wipes_tests;
 use removal::TargetFacts;
 #[cfg(test)]
 mod artifact_sacrifice_source_tests;
+#[cfg(test)]
+mod attachment_entry_tests;
 mod attachments;
 #[cfg(test)]
 mod attachments_tests;
-#[cfg(test)]
-mod attachment_entry_tests;
 #[cfg(test)]
 mod blocking_target_tests;
 #[cfg(test)]
