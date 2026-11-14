@@ -167,6 +167,17 @@ restore requirements. The suspended-boundary test exercises damage/snapshot
 execution and rejects forged missing, unrelated and duplicate source keywords.
 The shared source-LKI correction is a separate dependency of this foundation.
 
+Its source-qualified producer is
+`04bf3603573fd58966fde374bdd436ca815b646b0226994f3bc174f2e9fa3a09`
+at `f7ee94483e7186d656975902704383f18e4773d7`, with all 754 compiled source
+rows matched to that commit. Ninety focused Rust tests, 24 exported-schema
+probes and CLI smoke/replay passed. Production-library Clippy used the explicit
+inherited `collapsible_if` exception; the strict failed attempt remains retained.
+The schema SHA-256 is
+`6be3ff88b68b3ea9cd77eac65c80790fdf5144e3ee7420ddcbe4be6667a7eaa8`.
+Its immutable artifacts and receipts are under `generated/temporary-flying/` in
+the implementation checkout; broader runtime/release/consumer checks are excluded.
+
 ## Compound pump and Indestructible source foundation
 
 The schema-1 `compound_indestructible_spell_v1` capability separately admits

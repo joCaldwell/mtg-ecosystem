@@ -74,7 +74,14 @@ Withstand Death source as an ordinary single-creature indestructible grant.
 Its resolved effect captures an exact incarnation and expires atomically with
 damage cleanup; intrinsic and equipped protection still union normally.
 This source foundation adds no pool, hosting/search or consumer admission.
-The combined Plate admission, blue default and temporary-grant source at
+The separately fenced `temporary_flying_spell_v1` foundation supports complete
+Jump source through the same exact-incarnation keyword union and cleanup.
+`compound_indestructible_spell_v1` supports complete Mortal's Resolve as exactly
++1/+1 then indestructible on one shared target; the pure-grant contracts remain
+unchanged. Both foundations are scoped in the [keyword contract](game-engine-indestructible.md).
+Damage-source LKI admits validated spell grants while replay authenticates the
+historical appearance; the guard retains duplicate and departure invariants.
+The earlier combined Plate admission, blue default and temporary-grant source at
 `b19498657bf73402bcfe559017e0956eb5b696fe` has copied producer
 `9cb71fca155ea489d4d204ad77e0236c99e78ea1af44ccaf7500cabb3a434555`,
 with all 750 native source rows verified. Its focused combined pass ran 84 tests,
@@ -96,10 +103,16 @@ Righteousness lowering, authoritative blocker status and payment-time target
 binding correctness. Its subsequent [headless development profile](game-engine-blocking-matches.md)
 adds explicit separate-pool admission and public-view policy support, with a
 paid accepted-pod combat/replay witness and one fixed-index completion game.
-Its current default uses an existing-pool Ertai blue deck in seat 2, preserving
-the other seats and the 45-definition pool. A separate fixed-index game finished
-naturally and replayed, with paid blue cast/activation coverage qualified in that
-contract. Hosting/search admission and the earlier pools remain unchanged.
+The Ertai blue-default addition preserved the then-45-definition pool. Its
+separate fixed-index game finished naturally and replayed, with paid blue
+cast/activation coverage qualified in that contract. Subsequent Withstand Death
+and Jump admission brings the blocking pool to 47 definitions: each black/green
+default replaces one Forest with protection (39 Forests), and blue replaces one
+Island with Jump (89 Islands). Conservative public-IR policy responds to supported
+threats or lifts an actual attacker before blockers. Paid legal-pod prefixes verify
+protection/combat/cleanup/fresh destruction and flight/blocking/commander damage,
+including atomic rejection, snapshots and replay. Hosting/search, consumer
+qualification and the earlier pools remain separate.
 Current development also supports [tapped-permanent target filters](game-engine-tapped-targets.md),
 with exact Swift Response and Assassinate source fixtures. The existing headless
 development pool now admits both; hosting and search capability sets remain unchanged.
