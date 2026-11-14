@@ -91,10 +91,12 @@ private paid source witness, qualified in the
 [M2 contract](game-engine-ramos-m2-contract.md#bounded-basic-search-checkpoint).
 **B** = M3b's bounded private paid basic-cascade source/recovery witnesses in the
 [casting contract](game-engine-ramos-casting-contract.md#m3b-complete-basic-cascade-checkpoint).
+**A** = M4a's bounded private paid Apex multiple-self-cascade and recovery
+witnesses in the [casting contract](game-engine-ramos-casting-contract.md#m4a-direct-multiple-self-cascade-on-permanent-spells).
 Admission **—** = exact target not admitted; consumer **—/—** =
 exact target not hosted/search-enabled. Existing other pools are not requalified
-by these rows. Rows retain M0 evidence except the three R, two S and two B rows, which add
-separately qualified M1a/M1b/M2/M3b lowering/capability/runtime checks. The immutable M0
+by these rows. Rows retain M0 evidence except the three R, two S, two B and one A rows, which add
+separately qualified M1a/M1b/M2/M3b/M4a lowering/capability/runtime checks. The immutable M0
 baseline and its 11/74 counts are unchanged; no full target re-audit or executable
 target catalog is claimed. The owner milestone remains the completion/witness owner.
 
@@ -104,7 +106,7 @@ target catalog is claimed. The owner milestone remains the completion/witness ow
 | [Abzan Charm](../packages/game-engine/tests/fixtures/ramos/4137a22c-f793-4e27-a9b2-72740a6e2121.json) ×1 | V | P | I | U | — | NR | — | —/— | M6 | `effect:distribute-counters` |
 | [Akroma's Will](../packages/game-engine/tests/fixtures/ramos/fd949f82-fc10-4e37-8aa9-6c7569fe3c55.json) ×1 | V | P | F | U | — | NR | — | —/— | M7 | `abilities[*].effects[*].steps[*].conditionalCount` |
 | [Anguished Unmaking](../packages/game-engine/tests/fixtures/ramos/ad09b3c3-c8e7-481c-8c45-e7f234935117.json) ×1 | V | P | F | L | V | NR | — | —/— | M7 | `—` |
-| [Apex Devastator](../packages/game-engine/tests/fixtures/ramos/b4d6747c-3516-4e71-be30-af007c6b1dc4.json) ×1 | V | P | F | U | — | NR | — | —/— | M4 | `keyword:cascade` |
+| [Apex Devastator](../packages/game-engine/tests/fixtures/ramos/b4d6747c-3516-4e71-be30-af007c6b1dc4.json) ×1 | V | P | F | L | V | A | — | —/— | M4a complete source; full M4 open | `—` |
 | [Aragorn, the Uniter](../packages/game-engine/tests/fixtures/ramos/3f31c423-d45c-4c3e-b7d4-ca125be0f92c.json) ×1 | V | P | F | U | — | NR | — | —/— | M6 | `abilities[*].trigger.colors` |
 | [Arcane Signet](../packages/game-engine/tests/fixtures/ramos/0bc7f093-bef0-4f1a-852c-4b75ebf54838.json) ×1 | V | P | F | L | V | NR | — | —/— | M2 | `—` |
 | [Avacyn, Angel of Hope](../packages/game-engine/tests/fixtures/ramos/216cb26e-8da9-478b-bfbc-8030f7adee72.json) ×1 | V | P | F | U | — | NR | — | —/— | M7 | `unsupported modifier scope` |
@@ -146,7 +148,7 @@ target catalog is claimed. The owner milestone remains the completion/witness ow
 | [Leyline of the Guildpact](../packages/game-engine/tests/fixtures/ramos/6b2e6a51-b9e6-4848-b7d7-98f02f2b897f.json) ×1 | V | P | F | U | — | NR | — | —/— | M5 | `static:opening-hand-action` |
 | [Maelstrom Archangel](../packages/game-engine/tests/fixtures/ramos/ac50ef98-1791-4dd4-9c1f-8cea7db7ade5.json) ×1 | V | P | F | U | — | NR | — | —/— | M10 | `effect:play-card` |
 | [Maelstrom Nexus](../packages/game-engine/tests/fixtures/ramos/b1c346a4-fc9b-474a-9d51-cac168e363fa.json) ×1 | V | P | F | U | — | NR | — | —/— | M4 | `static:cast-spell-abilities` |
-| [Maelstrom Wanderer](../packages/game-engine/tests/fixtures/ramos/ad9b7fbc-61c8-43ee-a65c-99206fd1e4df.json) ×1 | V | P | F | U | — | NR | — | —/— | M4 | `keyword:cascade` |
+| [Maelstrom Wanderer](../packages/game-engine/tests/fixtures/ramos/ad9b7fbc-61c8-43ee-a65c-99206fd1e4df.json) ×1 | V | P | F | U | — | NR | — | —/— | M4 | `invalid static creature modification` |
 | [Mosswort Bridge](../packages/game-engine/tests/fixtures/ramos/7cb9e29f-835f-4155-a2a5-4b778866c773.json) ×1 | V | P | I | U | — | NR | — | —/— | M9 | `keyword:hideaway` |
 | [Mountain](../packages/game-engine/tests/fixtures/ramos/a3fb7228-e76b-4e96-a40e-20b5fed75685.json) ×4 | V | P | F | L | V | NR | — | —/— | M2 | `—` |
 | [Nature's Lore](../packages/game-engine/tests/fixtures/ramos/78826359-fe63-44ad-adc4-a17ffcd710e4.json) ×1 | V | P | F | U | — | NR | — | —/— | M2 | `unsupported complete spell operator, destination, chooser or cardinality` |
@@ -197,7 +199,7 @@ refine the [plan's dependency order](game-engine-ramos-plan.md#dependencies-and-
 | M1 | M1a and M1b complete frozen Ramos/Scales/Corpsejack through parameterized shared families: cast-color counters, counter-cost/use/undo, prospective placement replacements and affected-controller order/recovery. Full paid-source composition and direct/source/target producers are witnessed; diagnostic bindings remain unchanged. Entry-with-counters and simultaneous/distributed placement producers, exact target and consumer admission remain separate/excluded. | [M1 contract](game-engine-ramos-m1-contract.md#bounded-m1b-counter-placement-family); M0 pins retained |
 | M2 | M0’s eight lowering definitions remain: the five basics, Command Tower, Arcane Signet and Golgari Signet. Cultivate and Kodama’s Reach now also lower and execute in the bounded private source witnesses (S). The other 22 definitions remain future M2 work: entry choice/conditions, cycling, pay-life costs, typed searches, opponent production and mana choice. Preserve all modes and land subtypes. | M0; coordinate payment/search/entry interfaces with M1 |
 | M3 | Both complete frozen basic cascade sources lower and have private paid/recovery witnesses through shared owned resolution casting, exact self-cast triggers and private random bottom. The separate M3c cohort covers optional fixed-mana kicker and naturally developed paid prohibition, using two records outside the frozen target; final review/integration remain coordinator-owned. | Checked M3a foundation; M3b casting contract; profile/consumer admission separate |
-| M4 | Cascade/affinity, cast grants/history and non-hand casts remain unsupported. Call Forth, Averna and Yidris lack complete archived parses. | M3; narrowly scoped parser intake before complete lowering |
+| M4 | Apex has complete-source direct multiple-self-cascade qualification (A). Wanderer's controller-creature static haste source remains unsupported; no partial admission. Affinity, returns, grants/history, non-hand casts and as-you-cascade actions remain open. Call Forth, Averna and Yidris lack complete archived parses. | M3; narrowly scoped parser intake before complete lowering |
 | M5 | Opening-hand action, modifier scopes and dynamic mana reject. Selvala and Omnath lack complete parses; Faeburrow's binding is incomplete. Hybrid/Phyrexian payment, land types/color layers and unspent-mana replacement remain obligations. | M1/M2 payments; layers and private-choice contracts |
 | M6 | Whirlwind of Thought already lowers; runtime/admission witnesses remain separate. Other rows reject color/property triggers, optional-payment conditions, distributed counters, reveal, discard, shuffle or extra lands. Abzan Charm and Conflux have incomplete bindings. | Stable trigger/choice/search contracts; M5 where relevant |
 | M7 | Anguished Unmaking and Void Rend already lower; exact-deck scenarios/admission remain unrun. Other rows reject recipient scope, no-regeneration mass destruction, activated operator, ability removal, variable modal count or wipe filter. Complete every protection/wipe branch. | Keyword/target/choice primitives; coordinate common contracts |

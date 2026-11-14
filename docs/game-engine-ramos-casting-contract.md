@@ -692,3 +692,78 @@ pins, manifest/provenance/accepted-record membership, exact AST/binding review,
 pinned local rules digest and cited paragraphs, local document links and
 `git diff --check`. No full-archive rehash, live deck fetch, dependency install,
 Cargo, build, test, source/fixture edit, native evidence or consumer qualification.
+
+## M4a: direct multiple-self cascade on permanent spells
+
+This bounded checkpoint builds on exact dependent base
+`2b83a4824a8d6561402aaf560cbd4dbba5561389`. It qualifies the complete frozen
+[Apex Devastator record](../packages/game-engine/tests/fixtures/ramos/b4d6747c-3516-4e71-be30-af007c6b1dc4.json),
+not the full M4 package. Source fixtures/provenance and revision 17's unchanged
+85-definition/100-card/37-land list remain fixed. M3 closure and fresh main
+integration remain coordinator-owned.
+
+Apex is a normal green {8}{G}{G}, mana-value-10, nonlegendary Creature — Chimera
+Hydra, 10/10. Oracle ID is `b4d6747c-3516-4e71-be30-af007c6b1dc4`, printing
+`8fa281e1-5c48-4bba-b8e9-88c6f5f53abb`, archive line 27234/source index 27232.
+File SHA-256 is `203a47f8178a07b91c366e934714d9717c76244b04d01bdcb676764f1de0fce1`;
+record SHA-256 is `747b12953a8b77993cb4db8f3dd7fcdf33552921a31f249ef507cb77b8996dc1`.
+Its one AST keyword block has four parameterless cascade entries and four
+distinct archived keyword/controller binding nodes, fully bound. Archived
+binding metadata is preserved; this adds no new generic binding-node validator.
+
+Under pinned [CR 702.85c](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt),
+each keyword occurrence emits a separate TriggeredAbility in source order.
+All four retain source block 0; ability indices 0–3, fresh TriggerIds and fresh
+StackIds distinguish invocations. One actual paid cast emits one SpellCast and
+one CastOccurrence shared by the four self abilities and ordinary battlefield
+observers. Ramos observes that actual cast once; each actual child cast is a
+separate event. APNAP and controller-chosen bottom-to-top placement remain explicit.
+
+Rust validation and schema allow repeated validated instances, with no printed
+instance-count ceiling. Each instance must still be a targetless, modeless,
+costless, stack-functioning self-cast trigger containing exactly one supported
+Cascade instruction. Keyword extras, mixed programs, optional costs and orphan
+Cascade reject. The instant/sorcery complete-source emitter retains its narrower
+single-self-instance fence. Capability closure stays CascadeV1, ResolutionCastV1
+and RandomBottomV1 at IR 1. No serialized fields change: this dependent producer
+retains private snapshot 24 and observation/context/query-work 19.
+
+Each resolving sibling recomputes its threshold from the exact current original
+spell or its bounded original-spell LKI, and owns its own permission, scan and
+private bottom group. Countering the original before or between siblings does
+not remove them; Stifle removes only its targeted sibling. Child payment keeps
+the owner below the child until completion, and child triggers wait for ordinary
+placement after the owner finishes. A different sibling's same source block
+never authorizes a foreign permission. The [common capacity proof and batch
+preflight](game-engine-capacity-policy.md#owned-basic-cascade-progress) count
+validated vectors and preserve existing stack, pending and payload limits.
+
+Focused qualification passed three compiler and thirteen core tests. Witnesses
+include paid Apex with battlefield Ramos and an opponent's complete Managorger
+Hydra observer, exact APNAP/order/handles, original and sibling counters,
+current/LKI thresholds, strict equal-value skips/no hit/decline, nested complete
+Bloodbraid/Agent, M3c kicker selected/declined, owned payment, rehashed
+duplicate/drop/swapped-index/witness and cross-sibling permission/token negatives.
+The real trusted-RNG setup develops ten lands through actual decisions, pays
+for Apex, and replays four private bottom groups in all three trace modes with
+tiny/generous budgets. Four-view observations and query-work counts hide both
+future library order and the private permutation. Prepared midgame scenarios,
+real trusted-RNG setup and source-admitted pods are separate claims. Synthetic
+generic-vector, capacity and ID-boundary injections are labelled separately;
+actual paid-root rollback and direct collector preflight are both checked.
+
+Receipts, failed attempts, executed binaries and the verified opt-2 producer
+source/settings manifest are retained under this worktree's
+`generated/ramos/m4a/`. The complete focused core pass took 833.18 seconds,
+dominated by cold replay of real-setup forgery controls; avoid repeating that
+case through overlapping selectors. External own-CLI/schema export and adjacent
+regressions remain pending the coordinated native handoff at this checkpoint.
+The missing local Node installation is not repaired or retried.
+
+Complete Maelstrom Wanderer remains Unsupported because its independent static
+controller-creature haste grant exceeds the existing source-kind contract.
+Neither intrinsic haste nor omission of that block completes its source.
+Wanderer, grants/history, affinity, graveyard return, as-you-cascade actions,
+parser intake, copies and the full M4 package remain open. No profile, pool,
+host/search/SDK or exact-deck admission follows. One fresh consolidated M4a
+source/test review remains parent-assigned; no delegate was started here.

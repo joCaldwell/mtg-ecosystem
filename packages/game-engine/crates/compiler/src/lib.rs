@@ -1475,16 +1475,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                             }
                             match keyword.keyword.as_str() {
                                 "cascade" if kind != CardKind::Land => {
-                                    if definition
-                                        .triggered
-                                        .iter()
-                                        .any(|a| a.condition == TriggerCondition::SelfSpellCast)
-                                    {
-                                        return Err(unsupported(
-                                            "abilities.keywords",
-                                            "multiple cascade instances require separate support",
-                                        ));
-                                    }
+                                    // CR 702.85c: each exact keyword occurrence is
+                                    // independent, even inside one source block.
                                     definition.triggered.push(TriggeredAbility {
                                         functioning_zone: FunctioningZone::Stack,
                                         condition: TriggerCondition::SelfSpellCast,
@@ -9028,6 +9020,8 @@ mod temporary_creature_keyword_tests;
 
 #[cfg(test)]
 mod ramos_m3_tests;
+#[cfg(test)]
+mod ramos_m4a_tests;
 
 #[cfg(test)]
 mod controlled_temporary_creature_keyword_tests;

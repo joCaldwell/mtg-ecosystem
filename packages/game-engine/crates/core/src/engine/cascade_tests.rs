@@ -1545,3 +1545,6 @@ fn cascade_paid_aura_control_free_controlled_target_and_owner_departure_recover(
 
 #[path = "m3c_tests.rs"]
 mod m3c_tests;
+
+#[path = "m4a_tests.rs"]
+mod m4a_tests;

@@ -95,7 +95,7 @@ fn at_priority(g: &mut Game, player: PlayerId) {
     }
     panic!("priority owner");
 }
-fn fund_response(g: &Game, r: &Request) -> Response {
+pub(super) fn fund_response(g: &Game, r: &Request) -> Response {
     let Request::Mana { player, cost, .. } = r else {
         panic!()
     };
@@ -131,7 +131,10 @@ fn fund_response(g: &Game, r: &Request) -> Response {
         .id;
     Response::ActivateMana { object: source }
 }
-fn spending(cost: &ManaCost, available: &BTreeMap<Color, Quantity>) -> BTreeMap<Color, Quantity> {
+pub(super) fn spending(
+    cost: &ManaCost,
+    available: &BTreeMap<Color, Quantity>,
+) -> BTreeMap<Color, Quantity> {
     let mut pool = available.clone();
     let mut out = BTreeMap::<Color, Quantity>::new();
     for c in &cost.colored {
@@ -149,7 +152,12 @@ fn spending(cost: &ManaCost, available: &BTreeMap<Color, Quantity>) -> BTreeMap<
     assert_eq!(generic, 0.into());
     out
 }
-fn finish_announcement(g: &mut Game, kick: bool, target: Option<ObjectId>, stack: Option<StackId>) {
+pub(super) fn finish_announcement(
+    g: &mut Game,
+    kick: bool,
+    target: Option<ObjectId>,
+    stack: Option<StackId>,
+) {
     for _ in 0..120 {
         let r = request(g);
         let response = match &r {
