@@ -261,6 +261,7 @@ pub enum Capability {
     CompoundIndestructibleSpellV1,
     TemporaryCreatureKeywordProgramV1,
     TemporaryCreatureSetKeywordProgramV1,
+    TemporaryPermanentSetKeywordProgramV1,
     TrampleV1,
     FirstStrikeV1,
     DoubleStrikeV1,
@@ -340,6 +341,7 @@ pub struct PermanentFilter {
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum ObjectSet {
     ControllerCreatures,
+    ControllerPermanents,
     Creatures,
     NonlandPermanents,
     Enchantments,
@@ -2601,18 +2603,16 @@ pub fn temporary_creature_keyword_program(
     supported_temporary_creature_keywords(keywords)
         .then_some(TemporaryCreatureKeywordProgram { modifier, keywords })
 }
-/// Borrowed parameters of the complete ordinary temporary creature-set family.
+/// Borrowed parameters of the complete ordinary temporary set-keyword family.
 #[derive(Clone, Copy, Debug)]
-pub struct TemporaryCreatureSetKeywordProgram<'a> {
+pub struct TemporarySetKeywordProgram<'a> {
     pub set: &'a ObjectSet,
     pub modifier: Option<(&'a Quantity, &'a Quantity)>,
     pub keywords: &'a [KeywordAbility],
 }
 /// CR 608.2c/h, 611.2c, 613.5–6: one instruction creates the complete effect.
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-pub fn temporary_creature_set_keyword_program(
-    p: &SpellProgram,
-) -> Option<TemporaryCreatureSetKeywordProgram<'_>> {
+pub fn temporary_set_keyword_program(p: &SpellProgram) -> Option<TemporarySetKeywordProgram<'_>> {
     if p.additional_sacrifice.is_some()
         || !p.modes.is_empty()
         || !p.targets.is_empty()
@@ -2634,15 +2634,34 @@ pub fn temporary_creature_set_keyword_program(
         return None;
     };
     let modifier = modifier.as_ref().map(|m| (&m.power, &m.toughness));
-    (matches!(
+    ((matches!(
         set,
         ObjectSet::ControllerCreatures | ObjectSet::AttackingCreatures
-    ) && supported_temporary_creature_keywords(keywords))
-    .then_some(TemporaryCreatureSetKeywordProgram {
+    ) || (*set == ObjectSet::ControllerPermanents && modifier.is_none()))
+        && supported_temporary_creature_keywords(keywords))
+    .then_some(TemporarySetKeywordProgram {
         set,
         modifier,
         keywords,
     })
+}
+/// Creature-only view of the shared complete ordinary set-keyword family.
+pub fn temporary_creature_set_keyword_program(
+    p: &SpellProgram,
+) -> Option<TemporarySetKeywordProgram<'_>> {
+    let program = temporary_set_keyword_program(p)?;
+    matches!(
+        program.set,
+        ObjectSet::ControllerCreatures | ObjectSet::AttackingCreatures
+    )
+    .then_some(program)
+}
+/// Permanent-only view; a permanent grant never carries a stat modifier.
+pub fn temporary_permanent_set_keyword_program(
+    p: &SpellProgram,
+) -> Option<TemporarySetKeywordProgram<'_>> {
+    let program = temporary_set_keyword_program(p)?;
+    (*program.set == ObjectSet::ControllerPermanents).then_some(program)
 }
 /// Narrow reviewed subset retained for existing protection policy callers.
 /// Quantities remain exact signed parameters of the shared program descriptor.
