@@ -331,7 +331,8 @@ fn paid_aura_control_source_and_target_bounce_never_follow_successor() {
         announce(g, q, 3, target(g, 1));
         let mut paused = false;
         resolve(g, q, |g| {
-            if g.current(creature).is_err()
+            if !paused
+                && g.current(creature).is_err()
                 && g.current(second_aura)
                     .is_ok_and(|o| o.zone == Zone::Battlefield)
             {
@@ -484,6 +485,24 @@ fn paid_aura_control_dynamic_controlled_targets_hexproof_and_stale_query_receipt
                 assert!(g.has_keyword(creature, KeywordAbility::Hexproof));
                 assert!(g.targetable_by(creature, PlayerId(0)));
                 assert!(!g.targetable_by(creature, PlayerId(1)));
+                let mut opposing = g.fork();
+                until_player(&mut opposing, q, PlayerId(1));
+                let r = request(&mut opposing, q);
+                let before = opposing.state.clone();
+                let trace = opposing.trace.clone();
+                // There is no other creature to target: the ordinary casting
+                // guard must reject this opponent's actual source proposal.
+                assert!(
+                    opposing
+                        .respond(
+                            r.player(),
+                            r.decision_id(),
+                            Response::Cast { card: CardId(5) }
+                        )
+                        .is_err()
+                );
+                assert_eq!(opposing.state, before);
+                assert_eq!(opposing.trace, trace);
                 announce(g, q, 4, target(g, 1));
                 let bounce = g.state.rules.stack.last().unwrap().id;
                 until_player(g, q, PlayerId(1));
@@ -509,11 +528,15 @@ fn paid_aura_control_dynamic_controlled_targets_hexproof_and_stale_query_receipt
                     assert!(g.events().iter().any(|e| matches!(e,Event::SpellCompleted {stack_id,resolved:false} if *stack_id==protection_stack)));
                 }
             }
+            let before = g.state.clone();
+            let trace = g.trace.clone();
             assert!(g.submit(duplicate).is_err());
             assert!(matches!(
                 g.resume_work(stale, Budget::unlimited()),
                 QueryResult::Rejected(QueryRejection::StaleOrForeignWork)
             ));
+            assert_eq!(g.state, before);
+            assert_eq!(g.trace, trace);
         });
     }
 }
@@ -565,8 +588,32 @@ fn paid_aura_control_sickness_haste_tap_authority_and_frozen_invocation_controll
             g.validate_permanent_mana_activation(PlayerId(1), object(g, 4))
                 .is_err()
         );
+        // Exercise the real declaration boundary too: Haste permits this
+        // stolen creature immediately, while the other two remain ineligible.
+        let goblin = object(g, 5);
+        let mut declared = false;
+        for _ in 0..100 {
+            let r = request(g, q);
+            if let Request::Attackers { candidates, .. } = &r {
+                assert!(candidates.contains(&goblin));
+                assert!(!candidates.contains(&object(g, 3)));
+                assert!(!candidates.contains(&object(g, 4)));
+                answer(
+                    g,
+                    q,
+                    Response::Attackers {
+                        attacks: vec![(goblin, PlayerId(1))],
+                    },
+                );
+                declared = true;
+                break;
+            }
+            answer(g, q, pass(&r));
+        }
+        assert!(declared);
         let turn = g.turn().number;
         own_main(g, q, 0, turn);
+        assert_eq!(g.state.rules.players[1].life, 39.into());
         let looter = object(g, 3);
         let elf = object(g, 4);
         assert!(g.current(looter).unwrap().attack_ready);
@@ -763,6 +810,17 @@ fn paid_aura_control_departures_simultaneous_losses_and_common_prior_wipe() {
                         let wipe=batches(g).into_iter().find(|b|b.occurrences.iter().any(|o|matches!(&o.actual,EventOutcome::Moved {movement} if movement.previous==target_object))).unwrap();
                         assert!(wipe.occurrences.len() >= 3);
                         for occurrence in &wipe.occurrences {
+                            let authority = occurrence
+                                .before
+                                .control
+                                .as_ref()
+                                .expect("common-prior Aura authority");
+                            let target_fact = authority
+                                .objects
+                                .iter()
+                                .find(|o| o.object == target_object)
+                                .unwrap();
+                            assert_eq!(target_fact.controller, PlayerId(1));
                             if let Some(fact) = occurrence
                                 .before
                                 .objects
@@ -786,9 +844,39 @@ fn paid_aura_control_complete_sources_enter_attached_before_observation() {
         lands(&mut rows, "Island", 0, cost);
         both(prepared(&rows), |g, q| {
             let creature = object(g, 1);
+            let mut proposal = g.fork();
+            answer(&mut proposal, q, Response::Cast { card: CardId(0) });
+            let r = request(&mut proposal, q);
+            assert!(matches!(r, Request::Targets { .. }));
+            let before = proposal.state.clone();
+            let trace = proposal.trace.clone();
+            for objects in [
+                vec![],
+                vec![object(g, 2)],
+                vec![ObjectId {
+                    incarnation: creature.incarnation + 1,
+                    ..creature
+                }],
+            ] {
+                assert!(
+                    proposal
+                        .respond(r.player(), r.decision_id(), Response::Targets { objects })
+                        .is_err()
+                );
+                assert_eq!(proposal.state, before);
+                assert_eq!(proposal.trace, trace);
+            }
             announce(g, q, 0, target(g, 1));
             let stack = g.state.rules.stack.last().unwrap().clone();
             assert!(stack.paid.is_some());
+            assert_eq!(
+                stack.paid.as_ref().unwrap().colored,
+                vec![Color::U, Color::U]
+            );
+            assert_eq!(
+                stack.paid.as_ref().unwrap().generic,
+                Quantity::from((cost - 2) as i64)
+            );
             recover(g);
             let mut entered = false;
             resolve(g, q, |g| {
