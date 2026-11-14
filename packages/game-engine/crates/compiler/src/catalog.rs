@@ -547,7 +547,7 @@ fn extract_verified(
         }
         let record: ExtractRecord = serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
         // Excluded archive records retain only their source and exclusion
-        // reason; binding exists only for in-scope records (data_schemas.md).
+        // reason; binding exists only for in-scope records (oracle_parser.md#ast-archive).
         let binding_valid = match (&record.binding, &record.binding_sha256) {
             (Some(binding), Some(hash)) => sha256(binding.get().as_bytes()) == *hash,
             (None, None) => true,

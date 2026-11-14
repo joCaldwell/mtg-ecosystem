@@ -1,144 +1,95 @@
 # Engine evidence and qualification
 
-Read [the current map](game-engine-current.md) for active support and
-[mechanics](game-engine-mechanics.md) for semantic contracts. This guide retains
-source-qualified acceptance and proof locations, not a new release claim.
-Historical commands/counts are evidence for their named source, never mandatory
-checks for every edit. Use [focused verification](game-engine-verification-workflow.md).
+[Current support](game-engine-current.md), [mechanics](game-engine-mechanics.md)
+and [development](game-engine-development.md#choose-focused-checks) are separate
+from these source-qualified proofs. Counts and historical gates never transfer
+to current HEAD or become mandatory checks for every edit.
 
 ## Evidence authority and reproduction
 
-A valid claim binds exact source manifest, executable and effective toolchain/build
-settings, complete source/catalog/profile digests, command/exit status, actual
-executed selectors, raw receipt locations and omissions. Git SHA alone does not
-identify a dirty measured source. Independent replay/source verification does not
-follow from compilation. Shared-host timings are not a quiet performance gate.
-
-Preserve meaningful failed/interrupted attempts and original wrapper exits. A
-corrected reader may authenticate a completed prefix without overwriting an earlier
-failure or relabeling it a clean gate. New documentation cannot transfer acceptance
-to different bytes. Reused outputs need an explicit unchanged-source bridge.
-Small current receipts/fixtures remain tracked; large outputs stay ignored/external.
-[Storage](game-engine-storage.md) prohibits age-based deletion of unique evidence.
-
-Use [catalog](game-engine-catalogs.md) commands to compile/verify frozen sources,
-not a fresh Scryfall download. Run only the affected selectors under the shared
-Cargo lock. `match-game PROFILE INDEX`, `match-batch PROFILE NEW_OUTPUT`,
-`match-replay PROFILE FILE` and `match-replay-live PROFILE FILE` retain explicit
-profile/build/catalog identity. New output paths must not exist. Native binaries,
-SDK outputs and browser consumer pins must be qualified separately.
+A claim binds measured source manifest, executable/toolchain/settings, complete
+catalog/profile digests, commands/exits, executed selectors, receipt locations
+and omissions. Git SHA alone cannot identify dirty measured bytes. Compilation
+is not replay/source verification; shared-host feedback is not quiet P7 evidence.
+Preserve failed/interrupted attempts and original wrapper status. Corrected
+readers may authenticate completed prefixes but cannot relabel failures or transfer
+acceptance; reuse requires an unchanged-source bridge. [Storage](game-engine-storage.md)
+protects unique ignored/external evidence. Use frozen [catalog inputs](game-engine-catalogs.md),
+new output paths and separately qualified native/SDK/browser producers.
 
 ## Accepted D2c-d and lifetime freeze
 
-**Combined acceptance and independent parent audit passed at `394301d`.**
-IR24 attack triggers and the source-reviewed demo/Bundle lifetime optimization
-share one designated full gate. IR25 damage triggers and the subsequent digest
-reuse candidate are excluded. Snapshot/bundle remain 19/20; public versions remain
-16/16/15; hosting/search review sets remain unchanged.
+**Combined acceptance and independent audit passed at
+`394301de011432bede865f2631da668811bedb22`**, tree
+`89d819f925153a075fdde7aa868454dce9532aa3`. This covers historical IR24 attack
+triggers and reviewed demo/Bundle lifetimes; IR25 damage and later digest reuse
+are excluded. Snapshot/bundle 19/20, public 16/16/15 and consumer sets stayed fixed.
 
-Original mechanics source `c6893aaf6e67d5a52b99154705c385222edb19e3` and handoff
-`39e010da1792b182552f2525443759faaf6c5f73` passed independent source review.
-Parent integration preserves all reviewed code/fixture bytes; the combined
-freeze is `394301de011432bede865f2631da668811bedb22`, tree
-`89d819f925153a075fdde7aa868454dce9532aa3`.
+The full matrix, 540 trace executions, 216 games/replays, exact equivalence/counts
+and reconstructed source closure are frozen in the
+[original acceptance record](https://github.com/joCaldwell/mtg-ecosystem/blob/33dcbe9df5c0cc7fef5f8d67f97adb85a3af4cdb/docs/game-engine-evidence.md#accepted-d2c-d-and-lifetime-freeze).
+Reviewed mechanics source `c6893aaf6e67d5a52b99154705c385222edb19e3`, handoff
+`39e010da1792b182552f2525443759faaf6c5f73`; read-only proof root:
+`~/.local/share/mtg-ecosystem/engine-evidence/d2cd-lifetime-394301d-20261104T030216Z/`.
 
-The current pinned gate passed **1,040 Rust / 21 ignored, 67 normal Node plus
-26 mandatory cheap checks, 195 release checks / 2 ignored, 47 SDK tests, strict
-TypeScript and 33 response variants**. The complete demo retained all **540 trace
-executions** and independent bundle/recovery/source-negative checks. All twelve
-unchanged profiles produced **216 winners and 216 explicit replays**, zero
-faults/truncations. Complete objects, reports, interactions and sites equal
-accepted a7 after exactly 456 named timing/build fields and 48 exact leading
-checkpoint build IDs. All **79 reference files and 173 historical hashes** are
-unchanged. Coverage is **1,985/32,116 (6.18072%), +17/-0**, with all 23 complete
-source fixtures and 17 source/AST/binding/IR admissions independently checked.
+| Retained identity | SHA-256 |
+| --- | --- |
+| Seal | `d2f62df82ff48ace935f5c2aa66b4c62cb1d430ebbfdb86bfb37f8602c0d37a0` |
+| Engine build | `e4be16dfa3116de9c19cdec23c6e7a0ccde66088e39bc3962e9466650388d8d0` |
+| Server build | `831a5cbdf38c9968a1476740f5bef6160fc1b61871a19afd525693b4758d490f` |
+| Simulator executable | `ad0cafef450091a327bd19a8966c01f611f2a25a2cce343b7761177a23ce2e75` |
+| Server executable | `e795a6497313cf652c1136bfcb5d3550ce3531153a555268fd2fb0adf561d2fe` |
+| Native archive | `47f85bdc06d587af27e45e27f5b2e8336d70ccb074d0f91673c64e15cd481508` |
+| Git archive | `823d4146e8e49a2d25c81981c5be67c8cdcc480c7f7948f86575cf5eb52aed17` |
 
-Parent audited all **2,045 retained files / 10,915,505,624 bytes**, 1,392 Git
-archive members, **606 native / 175 engine inputs**, reconstructed engine/server
-identities, and all 29 debug discovery/runtime executable pins. The input-count
-difference from focused604/173 is the two unchanged a7 receipt modules.
-
-Read-only combined proof:
-`/home/josh/.local/share/mtg-ecosystem/engine-evidence/d2cd-lifetime-394301d-20261104T030216Z/`
-
-Seal SHA256 `d2f62df82ff48ace935f5c2aa66b4c62cb1d430ebbfdb86bfb37f8602c0d37a0`.
-Engine `e4be16dfa3116de9c19cdec23c6e7a0ccde66088e39bc3962e9466650388d8d0`;
-server `831a5cbdf38c9968a1476740f5bef6160fc1b61871a19afd525693b4758d490f`.
-Simulator SHA256 `ad0cafef450091a327bd19a8966c01f611f2a25a2cce343b7761177a23ce2e75`;
-server SHA256 `e795a6497313cf652c1136bfcb5d3550ce3531153a555268fd2fb0adf561d2fe`.
-Native archive `47f85bdc06d587af27e45e27f5b2e8336d70ccb074d0f91673c64e15cd481508`;
-Git archive `823d4146e8e49a2d25c81981c5be67c8cdcc480c7f7948f86575cf5eb52aed17`.
-
-Four evidence-only setup/reader failures remain preserved. The original driver
-stopped at its read-only comparison audit; corrected final audit and retention
-steps exited0 on unchanged source and passed runtime artifacts. No engine
-runtime, game, replay or successful full gate was rerun. Parent reader attempts
-also remain: a reference-pin key assumption and an assertion expecting the
-original failed wrapper status to be overwritten. The resumed independent audit
-preserves that status and authenticates its completed prefix. Parent result:
-`generated/final-engine-verification/resumed-20261103/394-combined-parent-audit.json`.
-These are shared-host functional checks, not a new quiet P7 result, phase-overlap
-budget, group-memory peak or fresh offline rebuild. Earlier1.99.1 development
-and source-only evidence below retain their original qualifications.
-
+Four setup/reader failures and parent key/status-assumption failures remain
+preserved. Corrected read-only audit/retention exited0 on unchanged artifacts,
+without rerunning runtime/game/replay or overwriting the original failed wrapper.
+Parent result: `generated/final-engine-verification/resumed-20261103/394-combined-parent-audit.json`.
+This is no new quiet P7, overlap/group-memory proof or fresh offline rebuild.
 
 ### Lifetime and digest reuse boundaries
 
-The combined freeze accepts production lifetime source
-`e9c43de53519db2deeb558fb2cfc89c4e868326d`: completed scenario Game vectors drop
-after reports/evidence own the data; Bundle serializes once and drops before
-unchanged independent verification. Canonical/source-negative proofs remain.
-Focused proof: `~/.local/share/mtg-ecosystem/engine-evidence/demo-lifetime-febe92e-focused-20261104T0122Z`,
-manifest `2924b1819042f62f396ba19fad46af114cb8e2b6bdbb976dec261d25362d3b51`.
-Bundle20 v2 component proof: `demo-lifetime-febe92e-bundle20-v2-20261104` under the
-same root, manifest `53059ef9df98e38c4b9cbff7ac989af7b2eb266320a4525ecd70b693e43416fc`.
-Its 3,090,499,241-byte input SHA is
-`2b7ff7cc6f06f213084a62a347d115cbc20bcf7c5ad572cdc9a1460c5d66750c`.
-Component peak/ownership results establish no wall-time speedup, group concurrency
-budget or quiet P7 claim. Older missing-initial decode and limit-reader failures
-remain in those proofs; diagnostic harnesses were not integrated.
+Accepted lifetime source `e9c43de53519db2deeb558fb2cfc89c4e868326d` drops completed
+Games after report ownership and serializes Bundle once before independent proof.
+The following paths are under `~/.local/share/mtg-ecosystem/engine-evidence/`:
 
-Later trace-digest source `f9a051530077029456e82889709e602fc933382f`, staged at
-`f0be4ac47325b7f29b9035459cb999f1ec3217ed`, is outside `394301d` acceptance.
-Only immutable digest reuse is integrated; mode guards, fallible ordering and all
-540 production trace executions remain required when that full workload is chosen.
-Original component evidence:
-`~/.local/share/mtg-ecosystem/engine-evidence/trace-digest-f9a0515-650e-stopped-20261104T033217Z`,
-manifest `349698e2e620037b769015d54067ea0391baded887e6f71b19098048c5ec089a`.
-Test-only lint completion `9e2c4e843c93f156da0838656282154fd3b87a15` is separately
-retained at `trace-digest-9e2c4e8-lint-completion-20261104T033728Z`, manifest
-`14c3f6d392d01733e1f794f5b5f016580946d7c30774680965f2ad688ae5357c`.
-Runtime passes retain original binaries; later lint success is not one-freeze acceptance.
+| Component | Retained proof / manifest |
+| --- | --- |
+| Focused lifetime | `demo-lifetime-febe92e-focused-20261104T0122Z`; `2924b1819042f62f396ba19fad46af114cb8e2b6bdbb976dec261d25362d3b51` |
+| Bundle20 v2 | `demo-lifetime-febe92e-bundle20-v2-20261104`; `53059ef9df98e38c4b9cbff7ac989af7b2eb266320a4525ecd70b693e43416fc`; 3,090,499,241-byte input `2b7ff7cc6f06f213084a62a347d115cbc20bcf7c5ad572cdc9a1460c5d66750c` |
+| Later digest source `f9a051530077029456e82889709e602fc933382f`, staged `f0be4ac47325b7f29b9035459cb999f1ec3217ed` | `trace-digest-f9a0515-650e-stopped-20261104T033217Z`; `349698e2e620037b769015d54067ea0391baded887e6f71b19098048c5ec089a` |
+| Separate lint source `9e2c4e843c93f156da0838656282154fd3b87a15` | `trace-digest-9e2c4e8-lint-completion-20261104T033728Z`; `14c3f6d392d01733e1f794f5b5f016580946d7c30774680965f2ad688ae5357c` |
+
+Missing-initial decode and limit-reader failures remain retained; diagnostic
+harnesses were not integrated. Component memory/ownership proofs establish no
+timing/group-concurrency claim. Digest reuse is outside the freeze; mode guards,
+fallible ordering and all 540 trace executions remain when choosing that full
+workload. Later lint success is not one-freeze runtime acceptance.
 
 ## Later focused engine qualification
 
-D2c-e started as a source-only candidate (`1699eb4b`, tree
-`9a04fa3fc5a42a518f43d3db8357c9fbdce3e572`). Source review did not establish runtime.
-Follow-up `841227a8b4d7a59ecf50f347251486812764a055` tightened forged-snapshot
-validation and preserved capacity-fault precedence. Subsequent IR25–33 extensions
-have their own focused receipts; none renews combined acceptance or hosted/search
-review. The schema-1 reset is distinct: all 29 active pools regenerated, 1,357
-source memberships/definitions unchanged, 124 compiler/24 contracts/36 selected
-core tests, one coverage/one registry case, 40 Node contracts, 54 SDK tests/strict
-TypeScript and smoke replay. Full runtime/game/release/retention matrices were omitted.
-Reset receipts: `~/.local/share/mtg-ecosystem/engine-verification/correctness-loop-20261112/single-ir-*`.
+D2c-e source-only candidate `1699eb4b`, tree
+`9a04fa3fc5a42a518f43d3db8357c9fbdce3e572`, gained forged-snapshot/fault-precedence
+checks at `841227a8b4d7a59ecf50f347251486812764a055`. Later IR25–33 receipts do not
+renew combined acceptance or consumer review. Schema-1 reset regenerated 29 pools,
+1,357 memberships/definitions unchanged, with focused compiler/contracts/core,
+coverage/registry, Node/SDK/types and smoke/replay checks; full runtime/game/release/
+retention omitted. Receipts: `~/.local/share/mtg-ecosystem/engine-verification/correctness-loop-20261112/single-ir-*`.
 
-The preceding mechanic-family CLI source was
-`17e58bb5397543403bc1f690439529a9292050d7`, producer
-`545b877cbdce4f1af61762a0a4242d2a8414a224784ba7f1a15cbc44574e52e6`,
-779 compiled rows. It passed 90 affected runtime/policy tests, 86 exported-schema
-probes, production Clippy and smoke/replay. Earlier source
-`5b10c43ff9b1cbf9f20b221a8580df38a1b034f1` passed 213 compiler/82 contracts tests
-and all-target compilation. The retry changes only a core test payment setup to
-natural untap; compiler/contracts/fixtures are byte-identical across passes.
-Explicit-null token recipients/life operands now reject instead of being treated
-as absent. Public policy uses the shared family recognizer and whole-spell benefit.
-Schema SHA: `2829a07e7693c67244626b5f94e4ce4a703ea5c98e40195855a62a79d32163c8`.
-Exact binaries, failed attempts, source bridges and optimization identities remain
-under the original lane's `generated/mechanic-families/`; earlier receipts remain
-under `generated/next-three/` and `generated/five-more/`. Production compiler/core/
-simulator Clippy passed; contracts used only its inherited `collapsible_if` exception.
-Full runtime, release/profile/completion, host/SDK and consumer matrices were omitted.
+Prior mechanic source `17e58bb5397543403bc1f690439529a9292050d7`, producer
+`545b877cbdce4f1af61762a0a4242d2a8414a224784ba7f1a15cbc44574e52e6`, verified 779 rows,
+90 affected runtime/policy tests and 86 schema probes. Source
+`5b10c43ff9b1cbf9f20b221a8580df38a1b034f1` passed 213 compiler / 82 contracts tests and
+all-target compilation; only core payment-test setup changed across the retry.
+Schema `2829a07e7693c67244626b5f94e4ce4a703ea5c98e40195855a62a79d32163c8`;
+original-lane `generated/{mechanic-families,next-three,five-more}/` retains exact
+binaries, failures and bridges. Explicit-null token/life operands reject; policy
+uses shared recognition/whole-spell benefit. Compiler/core/sim production Clippy
+passed; contracts retains inherited `collapsible_if`. Full runtime/release/profile/
+completion/host/SDK/consumer matrices were omitted.
+
+<a id="current-temporary-keyword-family-qualification"></a>
 
 ### Temporary-keyword family qualification
 
@@ -366,7 +317,7 @@ p95 2,719,864µs, max 2,990,379µs, process high-water 311,537,664 bytes. All si
 attempts remain in the denominator. The later hosting-build measurement/replays
 and capacity requalification retain their own source in the original search report.
 [Search](game-engine-search.md) retains the supported root/information contract;
-[host](game-engine-server.md) and [attachments](game-engine-server-attachments.md)
+[host](game-engine-server.md) and [attachments](game-engine-server.md#hosted-profiles)
 retain consumer scope. Neither compiler coverage nor a local preview renews P7/P8.
 
 The later diagnostic build

@@ -7,6 +7,26 @@ native consumer. [Evidence](game-engine-evidence.md) owns source-qualified P8 pr
 [client delivery](game-client.md) owns browser assets, bootstrap and opening scope.
 Deployment/lobby/matchmaking and account-to-seat provisioning remain unfinished.
 
+## Hosted profiles
+
+`commander-foundations-v1` and `commander-attachments-v1` request hosting through
+strict discovered profile data. Reviewed capability sets, whole-pod construction
+and exact catalogs/builds admit them; other headless profiles remain rejected.
+This selects admission, never profile-specific rules. Public attachments, grants,
+counters/tokens are permitted projections; hands, libraries and search choices
+remain viewer-private. SDK completion policies use only their seat observation
+and public manifest/catalog; they are not browser controls or strategic proof.
+
+Historical P8.2 attachment acceptance required one real four-client default pod,
+unchanged 25-minute watchdog, natural typed win/draw at all clients, zero retries/
+CoreConcede, final state/input/turn/memory records and completed-game recovery
+within 120 seconds with durable tables/head unchanged except generation. Worker
+limits stayed 4 GiB, swap zero, tasks 32. Registry/recovery/strict decoding/search
+privacy and generated variants had separate checks. [Engine evidence](game-engine-evidence.md)
+retains original proof locators; this is not current-HEAD acceptance. Focused host/
+SDK checks follow [development](game-engine-development.md#choose-focused-checks).
+Resource/time failures never authorize weaker limits or broader admission.
+
 ## Protocol authority and private streams
 
 Rust DTOs embed the actual public core Observation, PlayerRequest and
@@ -125,7 +145,7 @@ map field types, serialization and public schemas retain their original form.
 
 ## Hosting limits and clocks
 
-Axum 0.8.9 and Tokio 1.53.3 provide the HTTP1 loopback supervisor. No HTTP
+The HTTP1 loopback supervisor uses the pinned Rust dependencies. No HTTP
 executor runs Game. A separate systemd-user transient service owns each match;
 startup verifies the actual resource-group identity and kernel limits before
 loading its catalog or Game.
@@ -164,7 +184,7 @@ never a Magic outcome. Storage/query/publication limits have the same separation
 The original P8 completed functional, crash/retry/isolation and offline retained
 reconstruction proofs for its exact source. Later attachments, schema and transport
 increments retain separate acceptance. See [evidence](game-engine-evidence.md),
-[attachments scope](game-engine-server-attachments.md), [client qualification](game-client.md#reproducibility-and-current-acceptance)
+[hosted profiles](#hosted-profiles), [client qualification](game-client.md#reproducibility-and-current-acceptance)
 and [SDK commands](../packages/game-server/sdk/README.md). No older test count is
 current-HEAD acceptance. Full historical proof tables are linked from evidence.
 

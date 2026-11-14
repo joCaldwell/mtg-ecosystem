@@ -99,6 +99,8 @@ const tooling: CheckPhase[] = [
   { label: "structure-tests", command: "python3", args: ["-B", "scripts/test-engine-structure.py"] },
   { label: "cache-tests", command: "python3", args: ["-B", "scripts/test-engine-cache.py"] },
   { label: "structure-guard", command: "python3", args: ["-B", "scripts/engine-structure-check.py"] },
+  { label: "documentation-tests", command: "python3", args: ["-B", "scripts/test-check-docs.py"] },
+  { label: "documentation-guard", command: "python3", args: ["-B", "scripts/check-docs.py"] },
 ];
 export const cachePreflight: CheckPhase = { label: "cache-preflight", command: "python3", args: ["-B", "scripts/engine-cache.py", "check"] };
 
