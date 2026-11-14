@@ -954,17 +954,28 @@ impl Game {
                 }
             }
         }
-        let attachments = objects
+        let explicit_attachments = events
             .iter()
-            .map(|object| {
-                let o = self.current(*object)?;
-                Ok(AttachmentBefore {
+            .filter_map(|event| match event {
+                ProposedEvent::Attach { object, .. }
+                | ProposedEvent::EnterAttached { object, .. } => Some(*object),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+        let mut attachments = vec![];
+        for object in &objects {
+            let o = self.current(*object)?;
+            if explicit_attachments.contains(object)
+                || o.attached_to.is_some()
+                || o.attachment_timestamp.is_some()
+            {
+                attachments.push(AttachmentBefore {
                     object: *object,
                     target: o.attached_to,
                     timestamp: o.attachment_timestamp,
-                })
-            })
-            .collect::<Result<Vec<_>, String>>()?;
+                });
+            }
+        }
         let objects = objects
             .into_iter()
             .map(|object| {
