@@ -23,7 +23,7 @@ const keywordCaps = {
 };
 // Separate lookup: keywordCaps also defines the frozen legacy permutation set.
 const combatKeywordCaps = {
-  haste: 'haste_v1', trample: 'trample_v1', first_strike: 'first_strike_v1',
+  haste: 'haste_v1', trample: 'trample_v1', 'first strike': 'first_strike_v1',
 };
 const subsetCaps = {
   flying: 'temporary_flying_spell_v1',
@@ -203,12 +203,12 @@ assert.deepEqual(legacyFamily, {
   frozen_controls_sha256: '9e558adbff21f0f56d3ba9c898b1d9ff21b115449497c348a17c1988a5f22fc9',
 });
 const combatVectors = [
-  ['haste'], ['trample'], ['first_strike'],
-  ['first_strike', 'haste'], ['haste', 'first_strike'],
-  ['first_strike', 'trample'], ['trample', 'first_strike'],
+  ['haste'], ['trample'], ['first strike'],
+  ['first strike', 'haste'], ['haste', 'first strike'],
+  ['first strike', 'trample'], ['trample', 'first strike'],
   ['haste', 'trample'], ['trample', 'haste'],
   ['haste', 'flying'], ['deathtouch', 'trample'],
-  ['indestructible', 'first_strike'], ['lifelink', 'haste'], ['hexproof', 'trample'],
+  ['indestructible', 'first strike'], ['lifelink', 'haste'], ['hexproof', 'trample'],
   [...reviewed, ...Object.keys(combatKeywordCaps)],
   [...reviewed, ...Object.keys(combatKeywordCaps)].reverse(),
 ];
@@ -223,7 +223,7 @@ for (const keywords of combatVectors) {
 for (const domain of ['battlefield_creature', 'controlled_battlefield_creature']) {
   for (const modifier of [false, true]) {
     const name = `combat:${domain}:${modifier ? 'modifier' : 'pure'}`;
-    const base = control(['first_strike', 'haste'], modifier, domain);
+    const base = control(['first strike', 'haste'], modifier, domain);
     boundaries(name, base, true);
     if (modifier) compoundBoundaries(name, base);
     for (const capability of Object.values(combatKeywordCaps)) {
@@ -231,7 +231,7 @@ for (const domain of ['battlefield_creature', 'controlled_battlefield_creature']
         negative(`${name}:spare:${capability}`, base, d => { d.capabilities.push(capability); });
       }
     }
-    for (const invalid of [null, 'haste', [{ haste: null }], ['first_strike', 'haste', 'first_strike'], ['haste', 'vigilance'], ['haste', 'double_strike']]) {
+    for (const invalid of [null, 'haste', [{ haste: null }], ['first strike', 'haste', 'first strike'], ['haste', 'vigilance'], ['haste', 'double strike']]) {
       negative(`${name}:malformed-keywords:${JSON.stringify(invalid)}`, base, d => { d.spell.instructions.at(-1).keywords = clone(invalid); });
     }
     for (const keyword of Object.keys(combatKeywordCaps)) {

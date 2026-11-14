@@ -537,7 +537,7 @@ fn temporary_creature_keyword_family_schema_uses_unique_reviewed_vectors() {
             "hexproof",
             "haste",
             "trample",
-            "first_strike"
+            "first strike"
         ])
     );
     let instructions = &schema["$defs"]["TemporaryCreatureKeywordInstructions"]["anyOf"];

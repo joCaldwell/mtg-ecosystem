@@ -3943,7 +3943,7 @@ pub fn catalog_schema() -> serde_json::Value {
     });
     schema["$defs"]["TemporaryCreatureKeywords"] = serde_json::json!({
         "type":"array","minItems":1,"uniqueItems":true,
-        "items":{"enum":["flying","deathtouch","indestructible","lifelink","hexproof","haste","trample","first_strike"]}
+        "items":{"enum":[KeywordAbility::Flying,KeywordAbility::Deathtouch,KeywordAbility::Indestructible,KeywordAbility::Lifelink,KeywordAbility::Hexproof,KeywordAbility::Haste,KeywordAbility::Trample,KeywordAbility::FirstStrike]}
     });
     schema["$defs"]["TemporaryCreatureKeywordInstructions"] = serde_json::json!({"anyOf":[
         {"minItems":1,"maxItems":1,"items":{"properties":{
