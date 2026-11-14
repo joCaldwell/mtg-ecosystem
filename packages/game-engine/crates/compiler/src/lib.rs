@@ -2312,6 +2312,8 @@ fn lower_object_set(v: &serde_json::Value) -> Result<ObjectSet, Failure> {
         ObjectSet::Enchantments
     } else if *f == json!({"types":["creature"],"status":["attacking"]}) {
         ObjectSet::AttackingCreatures
+    } else if *f == json!({"types":["creature"],"control":"you"}) {
+        ObjectSet::ControllerCreatures
     } else if *f == json!({"types":["creature"],"control":"opponent"}) {
         ObjectSet::OpponentCreatures
     } else if *f == json!({"types":["creature"],"withAbility":["flying"]}) {
@@ -2331,6 +2333,20 @@ fn lower_wipes_step(
 ) -> Result<Option<Instruction>, Failure> {
     use serde_json::json;
     Ok(Some(match step {
+        Step::GainAbilities {
+            what,
+            abilities,
+            duration,
+        } if (what["ref"] == "all" || what["ref"] == "each")
+            && duration.duration == "end-of-turn" =>
+        {
+            Instruction::GrantKeywordsSet {
+                set: lower_object_set(what)?,
+                keywords: lower_temporary_creature_keywords(abilities)?,
+                duration: Duration::UntilEndOfTurn,
+                source_block,
+            }
+        }
         Step::Exile { what } if what["ref"] == "all" || what["ref"] == "each" => {
             Instruction::MoveSet {
                 set: lower_object_set(what)?,
