@@ -62,8 +62,8 @@ fn aura_control_complete_frozen_witnesses_have_pinned_source_and_same_reusable_s
             "5912546a-acc2-448c-b042-64bdac5ec129",
             "708e8919bb3f44c792b79faf93099984b6161f87c3318ae1933e7ff1166569d0",
             "822114230f5a5a7abec8f00f67a1c11eb3b99697f34d4c141fd0470513029d31",
-            3,
-            13385,
+            3_i64,
+            13385_u32,
         ),
         (
             MAGIC,
@@ -71,8 +71,8 @@ fn aura_control_complete_frozen_witnesses_have_pinned_source_and_same_reusable_s
             "cd0d7141-46d2-4aa3-bc77-6b3b4513803e",
             "80d4ccb9c5269361e67499ffc76d03442c2f75de2a6042f5b669e0e6f2b3220c",
             "227becbedfa4b8592d744bdbfad0ca8115cbdb8d57287dd9988e1d17f74c8d2c",
-            2,
-            30912,
+            2_i64,
+            30912_u32,
         ),
     ] {
         assert_eq!(sha256(raw.trim_end().as_bytes()), record_hash);

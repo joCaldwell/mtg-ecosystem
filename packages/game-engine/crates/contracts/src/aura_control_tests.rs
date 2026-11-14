@@ -31,7 +31,7 @@ fn aura_control_has_exact_nonrecursive_requirements_and_no_identity_dispatch() {
             Capability::AuraControlV1,
         ])
     );
-    for generic in [0, 2, 3, 7] {
+    for generic in [0_i64, 2, 3, 7] {
         d.characteristics.mana_cost.generic = generic.into();
         d.oracle_id = format!("synthetic-aura-{generic}");
         d.name = format!("Synthetic Aura {generic}");
