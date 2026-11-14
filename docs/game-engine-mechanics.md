@@ -299,8 +299,12 @@ Both operations target slot 0 until end of turn. P/T parameters are exact signed
 quantities, including zero and values beyond machine integers.
 
 Keyword vectors are nonempty, duplicate-free and limited to Flying, Deathtouch,
-Indestructible, Lifelink and Hexproof; serialized order is retained. Pure Lifelink, mixed
-vectors and modifier-plus-Flying/Deathtouch/Lifelink require the general capability.
+Indestructible, Lifelink, Hexproof, Haste, Trample and First Strike; serialized order
+is retained. Pure Lifelink/Hexproof/Haste/Trample/First Strike, mixed vectors and
+modifier-plus-Flying/Deathtouch/Lifelink/Hexproof/Haste/Trample/First Strike require
+the general capability. Haste, Trample and First Strike reuse existing readiness
+and combat-damage rules (CR 702.10, 702.19, 702.7); this vocabulary extension adds
+no opcode, capability or runtime mechanism.
 Existing unfiltered singleton Flying/Deathtouch/Indestructible and modifier-plus-singleton
 Indestructible retain their old temporary/compound subset capabilities; the general
 capability is spare and rejects on those shapes. Every granted keyword still
@@ -316,9 +320,8 @@ mixed plain/controlled uses of one selection ID reject. Bare controlled pumps
 remain unsupported outside this complete keyword family. Hexproof uses existing
 targetability: opponents cannot target the protected creature, its controller
 can, and a previously announced opposing target is checked again at resolution.
-Resolved grants retain their captured incarnation until cleanup. Current inputs
-have no supported control-changing effect, so same-incarnation dynamic-control
-scenarios are excluded from runtime qualification rather than simulated by mutation.
+Resolved grants retain their captured incarnation until cleanup; later control
+changes do not end the grant (CR 611.2c).
 
 Contracts' borrowed `TemporaryCreatureKeywordProgram` descriptor and
 `temporary_creature_keyword_program` / `supported_temporary_creature_keywords`
@@ -330,10 +333,14 @@ reordered/extra operations, duplicate/unreviewed keywords and mismatched paired
 source blocks reject. Compiler decoding independently rejects unconsumed clauses.
 Complete frozen sources witness the family; card identities never dispatch it.
 
-Synthetic typed controls cover the reviewed ordered vectors in both forms and domains,
-missing/spare capabilities, signed/large quantities and preserved legacy provenance.
+Synthetic typed controls preserve the original five-keyword ordered-vector coverage
+and add bounded representative Haste/Trample/First Strike vectors in both forms and
+domains, including mixed and reversed orders. They cover missing/spare capabilities,
+signed/large quantities, preserved legacy provenance and unsupported/context negatives.
 [Schema probes](../packages/game-engine/crates/contracts/tests/temporary-creature-keyword-schema-probes.mjs)
-clone exact controls and verify they remain unchanged. `--prepare-only` checks
+retain the frozen 230- and 1,657-probe inventories before appending representative
+combat-keyword controls, clone exact controls and verify they remain unchanged.
+`--prepare-only` checks
 construction without Ajv/schema execution; explicit `--schema PATH --ajv-root
 NODE_MODULES_DIRECTORY` validates exported schema and uint32 using existing Ajv2020.
 No install/generation is implicit. Qualification is source-bound in

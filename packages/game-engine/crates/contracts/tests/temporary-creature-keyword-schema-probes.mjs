@@ -21,6 +21,10 @@ const keywordCaps = {
   flying: 'flying_v1', deathtouch: 'deathtouch_v1',
   indestructible: 'indestructible_v1', lifelink: 'lifelink_v1',
 };
+// Separate lookup: keywordCaps also defines the frozen legacy permutation set.
+const combatKeywordCaps = {
+  haste: 'haste_v1', trample: 'trample_v1', first_strike: 'first_strike_v1',
+};
 const subsetCaps = {
   flying: 'temporary_flying_spell_v1',
   deathtouch: 'temporary_deathtouch_spell_v1',
@@ -39,7 +43,7 @@ function control(keywords, modifier = false, domain = 'battlefield_creature') {
     if (!modifier && subsetCaps[keywords[0]]) capability = subsetCaps[keywords[0]];
     if (modifier && keywords[0] === 'indestructible') capability = 'compound_indestructible_spell_v1';
   }
-  d.capabilities = [...new Set(['normal_layout_v1', 'cast_instant_v1', domain === 'battlefield_creature' ? 'creature_target_v1' : 'attachments_v1', capability, ...keywords.map(k => k === 'hexproof' ? 'attachments_v1' : keywordCaps[k]), ...(modifier ? [pt] : [])])];
+  d.capabilities = [...new Set(['normal_layout_v1', 'cast_instant_v1', domain === 'battlefield_creature' ? 'creature_target_v1' : 'attachments_v1', capability, ...keywords.map(k => k === 'hexproof' ? 'attachments_v1' : keywordCaps[k] ?? combatKeywordCaps[k]), ...(modifier ? [pt] : [])])];
   return freeze({ ...clone(effects), definitions: [d] });
 }
 const probes = [];
@@ -187,11 +191,62 @@ for (const [name, extra] of [['bare', false], ['other-composition', true]]) {
   });
 }
 negative('plain-lifelink:spare-attachments', pure, d => { d.capabilities.push('attachments_v1'); });
+// Freeze the entire pre-extension inventory before appending bounded controls.
+const legacyFamily = {
+  probes: probes.length,
+  positive: probes.filter(p => p.expected).length,
+  negative: probes.filter(p => !p.expected).length,
+  frozen_controls_sha256: createHash('sha256').update(JSON.stringify(positives)).digest('hex'),
+};
+assert.deepEqual(legacyFamily, {
+  probes: 1657, positive: 1331, negative: 326,
+  frozen_controls_sha256: '9e558adbff21f0f56d3ba9c898b1d9ff21b115449497c348a17c1988a5f22fc9',
+});
+const combatVectors = [
+  ['haste'], ['trample'], ['first_strike'],
+  ['first_strike', 'haste'], ['haste', 'first_strike'],
+  ['first_strike', 'trample'], ['trample', 'first_strike'],
+  ['haste', 'trample'], ['trample', 'haste'],
+  ['haste', 'flying'], ['deathtouch', 'trample'],
+  ['indestructible', 'first_strike'], ['lifelink', 'haste'], ['hexproof', 'trample'],
+  [...reviewed, ...Object.keys(combatKeywordCaps)],
+  [...reviewed, ...Object.keys(combatKeywordCaps)].reverse(),
+];
+assert.equal(combatVectors.length, 16);
+for (const keywords of combatVectors) {
+  for (const domain of ['battlefield_creature', 'controlled_battlefield_creature']) {
+    for (const modifier of [false, true]) {
+      positive(`combat:${domain}:${modifier ? 'modifier' : 'pure'}:${keywords.join('+')}`, control(keywords, modifier, domain));
+    }
+  }
+}
+for (const domain of ['battlefield_creature', 'controlled_battlefield_creature']) {
+  for (const modifier of [false, true]) {
+    const name = `combat:${domain}:${modifier ? 'modifier' : 'pure'}`;
+    const base = control(['first_strike', 'haste'], modifier, domain);
+    boundaries(name, base, true);
+    if (modifier) compoundBoundaries(name, base);
+    for (const capability of Object.values(combatKeywordCaps)) {
+      if (!base.definitions[0].capabilities.includes(capability)) {
+        negative(`${name}:spare:${capability}`, base, d => { d.capabilities.push(capability); });
+      }
+    }
+    for (const invalid of [null, 'haste', [{ haste: null }], ['first_strike', 'haste', 'first_strike'], ['haste', 'vigilance'], ['haste', 'double_strike']]) {
+      negative(`${name}:malformed-keywords:${JSON.stringify(invalid)}`, base, d => { d.spell.instructions.at(-1).keywords = clone(invalid); });
+    }
+    for (const keyword of Object.keys(combatKeywordCaps)) {
+      const preserved = clone(control([keyword], false, domain));
+      preserved.definitions[0].spell.instructions[0].source_block = 4294967295;
+      positive(`${name}:${keyword}:preserved-provenance`, preserved);
+    }
+  }
+}
 for (const row of positives) assert.equal(JSON.stringify(row.value), row.exact, `mutated positive: ${row.name}`);
 const summary = {
   format_version: 1,
   status: 'prepared_only',
   legacy,
+  legacy_family: legacyFamily,
   probes: probes.length,
   positive: probes.filter(p => p.expected).length,
   negative: probes.filter(p => !p.expected).length,

@@ -258,11 +258,8 @@ fn temporary_creature_keyword_family_rejects_empty_duplicate_and_unreviewed_voca
             KeywordAbility::Lifelink,
         ],
         vec![KeywordAbility::Reach],
-        vec![KeywordAbility::Haste],
         vec![KeywordAbility::Vigilance],
         vec![KeywordAbility::Defender],
-        vec![KeywordAbility::Trample],
-        vec![KeywordAbility::FirstStrike],
         vec![KeywordAbility::DoubleStrike],
         vec![KeywordAbility::Menace],
         vec![KeywordAbility::Flash],
@@ -537,7 +534,10 @@ fn temporary_creature_keyword_family_schema_uses_unique_reviewed_vectors() {
             "deathtouch",
             "indestructible",
             "lifelink",
-            "hexproof"
+            "hexproof",
+            "haste",
+            "trample",
+            "first_strike"
         ])
     );
     let instructions = &schema["$defs"]["TemporaryCreatureKeywordInstructions"]["anyOf"];
