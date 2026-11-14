@@ -711,6 +711,7 @@ impl Instruction {
             Self::CreateCreatureTokens { source_block, .. } => *source_block,
             Self::PutPlusOneCounters { source_block, .. } => *source_block,
             Self::GrantKeywords { source_block, .. } => *source_block,
+            Self::GrantKeywordsSet { source_block, .. } => *source_block,
             Self::ModifyPowerToughness { source_block, .. } => *source_block,
             Self::PreventCombatDamage { source_block, .. } => *source_block,
             Self::PreventNextDamage { source_block, .. } => *source_block,
