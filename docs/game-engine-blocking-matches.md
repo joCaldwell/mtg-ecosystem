@@ -143,7 +143,12 @@ The copied producer build is
 `531b58fc7ac3938e806450fef585e564dba1dabed74e26e5bae1edf42ef8721b`,
 executable SHA-256
 `4ed623b1f5333de16e6a9e1724a14fa19afae226b2b06215ce1437984a51c0f0`.
-All 765 native source rows match the implementation source. The schema SHA-256
+All 765 native source rows match the implementation source. The optimized test
+producer is separately identified as
+`a04210de8f102faf8ef2f3404165628504ff3fa1136fbce558bdb74c07a6d844`:
+its optimization level is 2, versus 0 for the copied debug CLI. Independent
+build-hash reconstruction verifies both identities from the same final native
+source bytes; snapshots retain the test identity. The schema SHA-256
 `aa24f67db518b6f14a86bd3363a6da5d36af66f4cef388cb9e515a77433da5d7`
 is byte-identical to the separately retained combined baseline; the peer
 standalone-Deathtouch schema is not incorporated. The paid prefix has 927
