@@ -625,39 +625,28 @@ fn temporary_creature_keyword_legacy_ir_caps_and_pure_source_block_provenance() 
         {
             assert_eq!(canonical(&d).unwrap(), canonical(expected).unwrap());
         }
-        // A complete earlier keyword block shifts pure-grant source attribution;
-        // compounds still require both operations in block zero. Empty spell
-        // blocks are unsupported, so they cannot serve as a positive control.
-        let shifted = tests::changed_source(raw, |r| {
-            let text = r["source"]["oracle_text"].as_str().unwrap().to_owned();
-            r["source"]["oracle_text"] = format!("Flash\n{text}").into();
-            let earlier = json!({"kind":"keywords","keywords":[{"keyword":"flash"}]});
-            r["faces"][0]["result"]["abilities"]
-                .as_array_mut()
-                .unwrap()
-                .insert(0, earlier.clone());
-            r["faces"][0]["result"]["lines"]
-                .as_array_mut()
-                .unwrap()
-                .insert(0, json!({"text":"Flash","ok":true,"ability":earlier}));
-        });
+        // Typed IR provenance controls, not claims that complete-source
+        // lowering emits arbitrary earlier blocks. Empty spell blocks and
+        // nonspell blocks on instants/sorceries remain unsupported.
+        let mut shifted = d.clone();
+        for instruction in &mut shifted.spell.as_mut().unwrap().instructions {
+            match instruction {
+                Instruction::GrantKeywords { source_block, .. }
+                | Instruction::ModifyPowerToughness { source_block, .. } => {
+                    *source_block = 1;
+                }
+                _ => unreachable!(),
+            }
+        }
+        assert_eq!(shifted.capabilities, d.capabilities);
         if modifier.is_none() {
-            let shifted = lowered(&shifted);
-            let mut expected_caps = d.capabilities.clone();
-            expected_caps.insert(Capability::FlashV1);
-            assert_eq!(shifted.capabilities, expected_caps);
-            let mut expected = d.spell.clone().unwrap();
-            let Instruction::GrantKeywords { source_block, .. } = &mut expected.instructions[0]
-            else {
-                unreachable!()
-            };
-            *source_block = 1;
-            assert_eq!(shifted.spell, Some(expected));
+            shifted.validate().unwrap();
+            let descriptor =
+                temporary_creature_keyword_program(shifted.spell.as_ref().unwrap()).unwrap();
+            assert_eq!(descriptor.keywords, &[keyword]);
+            assert!(descriptor.modifier.is_none());
         } else {
-            assert!(!matches!(
-                compile(HEADER, &shifted),
-                CompileResult::Lowered { .. }
-            ));
+            assert!(shifted.validate().is_err());
         }
     }
     // The existing catalog::tests::all_committed_catalogs_are_fresh selector
