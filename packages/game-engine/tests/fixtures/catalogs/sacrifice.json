@@ -159,7 +159,8 @@
     "../gurmag-swiftwing.json",
     "../vampire-nighthawk.json",
     "../f90fe86c-5cca-483b-93c2-6e856fa01c88.json",
-    "../2bda1fb1-528c-4e66-89f1-bb1a85e9181e.json"
+    "../2bda1fb1-528c-4e66-89f1-bb1a85e9181e.json",
+    "../b5b4cf54-ed5e-42d0-9d98-5fec76b0b0b8.json"
   ],
   "expected_ir": "../expected-sacrifice-ir.json",
   "expected_digest": "sacrifice.sha256",

@@ -99,7 +99,8 @@ below.
 | U | Disperse | {1}{U} instant: return target nonland permanent to its owner's hand |
 | W | Requiem Angel | {5}{W} 5/5 flying: when another non-Spirit creature you control dies, create a 1/1 white flying Spirit |
 
-The current development pool has 158 definitions. Complete Darksteel Myr and
+The preceding indestructible admission brought the development pool to 158
+definitions. Complete Darksteel Myr and
 Darksteel Relic are admitted from the [intrinsic indestructible source slice](game-engine-indestructible.md);
 all previous 156 definition bodies are preserved. The red default adds one
 singleton Relic in place of one Mountain (69→68); Myr is optional pool data.
@@ -154,13 +155,61 @@ Each deck adds its colored cards. Basics fill each deck to 100 cards:
 
 | Deck | Adds | Basics |
 | --- | --- | --- |
-| White | Requiem Angel | 57 Plains |
+| White | Requiem Angel and Darksteel Plate | 56 Plains |
 | Black/green | the eleven black cards and Sakura-Tribe Elder | 9 Forest, 10 Swamp |
 | Blue | Regress and Disperse | 69 Islands |
-| Red | the six red cards | 69 Mountains |
+| Red | the six red cards and Darksteel Relic | 68 Mountains |
 
 The default pod and the batch pods are those of removal-v1. The seed domain is
 `commander-sacrifice-v1/completion-batch/`.
+
+### Darksteel Plate headless admission
+
+The current sacrifice catalog has **159 definitions**, adding only exact
+`b5b4cf54-ed5e-42d0-9d98-5fec76b0b0b8` (Darksteel Plate). The complete existing
+source fixture lowers to a {3} Artifact — Equipment with intrinsic indestructible,
+a zero-power/zero-toughness equipped-creature indestructible grant, and a
+main-phase {2} equip activation. This admission adds no source extraction,
+schema, capability or engine mechanic. Schema remains 1. Removing Plate restores
+the preceding catalog's exact canonical digest, covering all 158 definition
+bodies and the catalog envelope. The new digest is
+`b2caa24cbe465b05f4dd7157c00d530dc1de94840844a446bbccb0ae780a22ec`.
+
+White's default replaces one of its **57 Plains with Plate (56 Plains)**. The
+other three defaults, commander declarations, other profiles and host/search
+requests remain unchanged. Admission tests reverse precisely that deck delta
+and recover the base profile's canonical digest. Requested and forcibly enabled
+hosting/search still reject through the existing feature/capability guards.
+
+The [dedicated paid-pod test](../packages/game-engine/crates/core/tests/plate_admission.rs)
+uses legal 100-card decks: Isamaru, Plate and 98 Plains against simple Isamaru
+and 99-Plains white decks. The first opening-only setup index is 0 in
+`commander-sacrifice-v1/opening-plate/`; setup keeps all four hands and stops at
+Upkeep, before gameplay or outcome choices. Actual Plains pay Isamaru's {W},
+Plate's {3}, and equip's {2}. Natural turns and an own-main equip precede a real
+opposing Isamaru block. Both creatures deal 2; the equipped commander survives,
+while the opposing commander's owner chooses the command zone. Public keywords
+and attachment links, atomic foreign/unoffered/stale equip rejection, stale
+receipt rejection, snapshot restoration, accepted-input replay and quanta 1/4096
+are asserted. This is an accepted-pod prefix, not full-game completion evidence.
+
+The generic equipment policy recognizes pure protection from public IR alone.
+It selects a valuable targetable friendly creature, declines a new target already
+protected by another source, and compares the current attachment before moving.
+The current recipient stays in that comparison even though this equipment makes
+it indestructible; equal or lesser alternatives do not cause repeated re-equips.
+Buff/restriction equipment retains its existing policy, and announced mandatory
+target choices retain legal fallback. The
+[synthetic policy tests](../packages/game-engine/crates/sim/src/match_games/plate_policy_tests.rs)
+use actual IR with separately constructed permitted observations; they are not
+paid gameplay evidence. They cover readiness, timing, control, targetability,
+offered/current handles, independent protection, strict improvement, equal-value
+retention, repeated decisions, Bonesplitter and announced fallback.
+
+Focused source-qualified evidence, copied debug binaries, the opening probe,
+failed attempts and receipts are retained under `generated/plate-admission/`.
+The base is `0d2ed30bc71f97b6574b59afa6f578098afcfe6b`; this headless admission
+makes no hosted/search, release, full-completion, SDK or combined-acceptance claim.
 
 ### Resource bounds
 

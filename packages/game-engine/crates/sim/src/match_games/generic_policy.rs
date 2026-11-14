@@ -73,6 +73,16 @@ fn sole_target_destruction(p: &SpellProgram, slot: u32) -> bool {
         [I::DestroyTargetCreature { target_slot, .. } | I::DestroyPermanent { target_slot, .. }]
             if *target_slot == slot)
 }
+// Pure protection needs an incremental benefit. Match public semantics rather
+// than a card or profile identity; buff/restriction equipment keeps its policy.
+fn pure_indestructible_equipment(d: &Definition, p: &SpellProgram) -> bool {
+    matches!(p.instructions.as_slice(), [I::AttachEquipment { .. }])
+        && matches!(d.static_abilities.as_slice(), [a] if matches!(&a.effect,
+            StaticEffect::ModifyCreatures { scope: mtg_contracts::CreatureScope::Equipped,
+                power, toughness, keywords, restrictions }
+                if *power == Quantity::zero() && *toughness == Quantity::zero()
+                    && keywords == &[KeywordAbility::Indestructible] && restrictions.is_empty()))
+}
 fn tapped_destroy_program(d: &Definition, p: &SpellProgram) -> bool {
     matches!(
         d.characteristics.kind,
@@ -332,6 +342,16 @@ impl Strategy<'_> {
             }
             return self.defensive_untap_target(v, d, p, t, candidates);
         }
+        if pure_indestructible_equipment(d, p) {
+            let source = v
+                .stack
+                .last()
+                .and_then(|s| s.ability.as_ref())
+                .filter(|a| a.oracle_id == d.oracle_id)
+                .and_then(|a| a.source.current.as_ref())
+                .and_then(|h| v.objects.iter().find(|o| &o.handle == h));
+            return self.protection_equipment_target(v, t, candidates, source);
+        }
         let own = self.target_beneficial(d, p, t.slot)
             || t.domain == TargetDomain::OwnGraveyardCreatureCard;
         // A paid source-tap activation should change its target's status.
@@ -348,6 +368,36 @@ impl Strategy<'_> {
                     && (o.controller == v.viewer) == own
             })
             .max_by_key(|o| (self.value(o), o.handle.0.clone()))
+            .map(|o| o.handle.clone())
+    }
+    fn protection_equipment_target(
+        &self,
+        v: &PermittedView,
+        t: &TargetSpec,
+        candidates: Option<&[ObjectHandle]>,
+        source: Option<&VisibleObject>,
+    ) -> Option<ObjectHandle> {
+        let current = source
+            .filter(|s| s.zone == Zone::Battlefield && s.controller == v.viewer)
+            .and_then(|s| s.attached_to.as_ref());
+        v.objects
+            .iter()
+            .filter(|o| {
+                o.controller == v.viewer
+                && candidates.is_none_or(|cs| cs.contains(&o.handle))
+                && self.object_matches(v, o, t, candidates.is_some())
+                // Keep this source's current recipient in the comparison. Removing
+                // it as "already protected" would alternate between two creatures.
+                && (current == Some(&o.handle)
+                    || !o.keywords.contains(&KeywordAbility::Indestructible))
+            })
+            .max_by_key(|o| {
+                (
+                    self.value(o),
+                    current == Some(&o.handle),
+                    o.handle.0.clone(),
+                )
+            })
             .map(|o| o.handle.clone())
     }
     fn defensive_untap_target(
@@ -1379,7 +1429,11 @@ impl Strategy<'_> {
             .any(|i| matches!(i, I::AttachEquipment { .. }))
         {
             let t = a.program.targets.first()?;
-            let target = self.object_target(v, d, &a.program, t, None)?;
+            let target = if pure_indestructible_equipment(d, &a.program) {
+                self.protection_equipment_target(v, t, None, Some(o))?
+            } else {
+                self.object_target(v, d, &a.program, t, None)?
+            };
             if o.attached_to.as_ref() == Some(&target) {
                 return None;
             }
@@ -1388,6 +1442,8 @@ impl Strategy<'_> {
                 .as_ref()
                 .and_then(|h| v.objects.iter().find(|o| &o.handle == h))
                 && let Some(next) = v.objects.iter().find(|o| o.handle == target)
+                && (!pure_indestructible_equipment(d, &a.program)
+                    || (current.zone == Zone::Battlefield && current.controller == v.viewer))
                 && self.value(current) >= self.value(next)
             {
                 return None;

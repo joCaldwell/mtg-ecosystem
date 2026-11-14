@@ -3290,3 +3290,6 @@ fn indestructible_policy_exile_bounce_and_real_artifact_sacrifice_keep_preferenc
     v.objects[0].controller = PlayerId(0);
     assert!(!strategy(&c).definition_ready(&v, d));
 }
+
+#[path = "plate_policy_tests.rs"]
+mod plate_policy_tests;

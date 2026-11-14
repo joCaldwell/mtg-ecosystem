@@ -162,7 +162,7 @@ fn artifact_sacrifice_setup_only_seed_probe() {
 #[test]
 fn artifact_sacrifice_default_decks_and_feature_boundaries_remain_legal() {
     let c = catalog();
-    assert_eq!(c.definitions.len(), 158);
+    assert_eq!(c.definitions.len(), 159);
     let profile = match_profile(PROFILE).unwrap();
     assert!(!profile.hosted && !profile.search);
     let config = MatchConfig::for_profile(PROFILE, [29; 32], PlayerId(0)).unwrap();
