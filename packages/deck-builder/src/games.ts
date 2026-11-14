@@ -112,6 +112,10 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
       record.consumers_stopped = false;
       owned.set(record.id, record);
       if (now() - record.created_at >= lifetime) { await pause(record, "lifetime_exceeded"); return record; }
+      // Reserve durable cleanup ownership before any operation that may start
+      // consumers. A concurrent account deletion must observe this false flag
+      // and atomically retain its minimal native stop identity.
+      if (!await save(record)) { owned.delete(record.id); return record; }
       await call(signal => native.ensure(structuredClone(record), signal));
       const status = await call(signal => native.status(structuredClone(record), signal));
       if (!statusValid(status) || !sameIdentity(record.identity, status.identity)) { await pause(record, "identity_mismatch"); return record; }
@@ -181,7 +185,10 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
     // Reconcile the immutable game deck, never the mutable library deck.
     const admitted = await check(game.deck);
     if (admitted.state !== "supported" || !sameIdentity(game.identity, admitted.identity)) return { admission: unavailable("identity_mismatch"), game };
-    if (game.state === "paused" && game.pause !== "human_timeout" && game.pause !== "lifetime_exceeded") { game.state = "provisioning"; game.pause = null; await save(game); }
+    if (game.state === "paused" && game.pause !== "human_timeout" && game.pause !== "lifetime_exceeded") {
+      game.state = "provisioning"; game.pause = null; game.consumers_stopped = false;
+      if (!await save(game)) throw new ServiceError("Game not found", 404);
+    }
     const result = await run(game);
     await sql(() => read(actor, id));
     return { admission: admitted, game: result };
