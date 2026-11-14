@@ -216,7 +216,18 @@ fn announce_paid(g: &mut Game, q: u64, id: u32, targets: Vec<TargetEntity>) {
     // SpendMana and target lifecycle. For new set spells prove no target window.
     if targets.is_empty() {
         answer(g, q, Response::Cast { card: CardId(id) });
-        assert!(matches!(request(g, q), Request::Mana { .. }));
+        let r = request(g, q);
+        assert!(matches!(r, Request::Mana { .. }));
+        let before = g.state.clone();
+        let trace = g.trace.clone();
+        for response in [
+            Response::Targets { objects: vec![] },
+            Response::EntityTargets { entities: vec![] },
+        ] {
+            assert!(g.respond(r.player(), r.decision_id(), response).is_err());
+            assert_eq!(g.state, before);
+            assert_eq!(g.trace, trace);
+        }
         pay_announcement(g, q);
     } else {
         temporary_indestructible_tests::announce(g, q, id, targets);
@@ -545,7 +556,45 @@ fn creature_set_keyword_overrun_titanic_real_trample_first_strike_and_lifelink()
                     amount: excess.into(),
                 },
             );
-            seek(g, q, |g, _| g.turn().step == TurnStep::EndCombat);
+            let mut captured_damage = false;
+            for _ in 0..2000 {
+                if let Frame::DamageEffects { transaction } = &g.state.rules.frame {
+                    if transaction
+                        .entries
+                        .iter()
+                        .any(|d| d.source.object == object(g, 1))
+                    {
+                        g.validate_damage_transaction(transaction).unwrap();
+                        let source = &transaction
+                            .entries
+                            .iter()
+                            .find(|d| d.source.object == object(g, 1))
+                            .unwrap()
+                            .source;
+                        for keyword in w.keywords {
+                            assert!(source.keywords.contains(keyword));
+                        }
+                        if !captured_damage {
+                            recover(g);
+                        }
+                        captured_damage = true;
+                    }
+                }
+                match g.advance(Budget::new(q)) {
+                    Advance::Suspended { .. } => (),
+                    Advance::AwaitingDecision(r) => {
+                        if g.turn().step == TurnStep::EndCombat {
+                            break;
+                        }
+                        g.respond(r.player(), r.decision_id(), pass(&r)).unwrap();
+                    }
+                    x => panic!("set-keyword combat damage {x:?}"),
+                }
+            }
+            assert_eq!(g.turn().step, TurnStep::EndCombat);
+            if q == 1 {
+                assert!(captured_damage, "actual captured damage/LKI frame");
+            }
             assert!(grave(g, 2));
             assert_eq!(g.state.rules.players[1].life, (40 - excess).into());
             assert_eq!(
@@ -778,15 +827,84 @@ fn creature_set_keyword_queries_atomic_target_rejection_forgery_and_suspended_pr
             let before = g.state.clone();
             let trace = g.trace.clone();
             for viewer in 0..4 {
-                assert!(
-                    matches!(g.visible_effects(PlayerId(viewer)).unwrap().last().unwrap(),VisibleEffect::GrantKeywordsSet {targets,keywords,..} if targets.len()==ids.len() && keywords==w.keywords)
+                let effects = g.visible_effects(PlayerId(viewer)).unwrap();
+                let VisibleEffect::GrantKeywordsSet {
+                    handle,
+                    origin,
+                    targets,
+                    keywords,
+                    expires_in_cleanup_of_turn,
+                } = effects.last().unwrap()
+                else {
+                    panic!("visible set grant")
+                };
+                let (effect, captured, _) = grant(g);
+                assert_eq!(
+                    handle,
+                    &g.effect_handle(PlayerId(viewer), &EffectKey::Resolved { id: effect.id })
+                        .unwrap()
                 );
+                assert_eq!(origin.controller, effect.origin.controller);
+                assert_eq!(
+                    origin.oracle_id,
+                    g.definition(effect.origin.source.card).unwrap().oracle_id
+                );
+                assert_eq!(
+                    origin.source.announced,
+                    effect.origin.source_handles[viewer as usize]
+                );
+                assert_eq!(
+                    origin.source.current,
+                    g.handle_for(PlayerId(viewer), effect.origin.source).ok()
+                );
+                assert_eq!(
+                    *expires_in_cleanup_of_turn,
+                    effect.expires_in_cleanup_of_turn
+                );
+                assert_eq!(targets.len(), ids.len());
+                assert_eq!(keywords, w.keywords);
+                for (i, recipient) in targets.iter().enumerate() {
+                    assert_eq!(
+                        recipient.announced,
+                        effect.target_handles[i * 4 + viewer as usize]
+                    );
+                    assert_eq!(
+                        recipient.current,
+                        g.handle_for(PlayerId(viewer), captured[i]).ok()
+                    );
+                }
                 finish_query(g, g.observe(PlayerId(viewer), Budget::new(0)));
             }
             assert_eq!(g.state, before);
             assert_eq!(g.trace, trace);
             recover(g);
             let good = g.snapshot().unwrap();
+            // Coherently change both captures and all four historical recipient
+            // handles. This is structurally valid and needs authenticated input
+            // replay, rather than local membership or state-hash checks, to fail.
+            let forged_targets = vec![object(g, 2)];
+            let forged_handles: Vec<_> = (0..4)
+                .map(|v| g.handle_for(PlayerId(v), forged_targets[0]).unwrap())
+                .collect();
+            let mut coherent: Snapshot = strict_read(&good).unwrap();
+            for effect in &mut coherent.state.rules.effects {
+                match &mut effect.kind {
+                    ResolvedEffectKind::PumpSet { targets, .. }
+                    | ResolvedEffectKind::GrantKeywordsSet { targets, .. } => {
+                        *targets = forged_targets.clone()
+                    }
+                    _ => unreachable!(),
+                }
+                effect.target_handles = forged_handles.clone();
+            }
+            let mut structural = g.fork();
+            structural.state = coherent.state.clone();
+            structural.validate_effect_state().unwrap();
+            coherent.state_sha256 = digest(&coherent.state).unwrap();
+            assert!(
+                Game::restore(g.prepared.as_ref().clone(), &canonical(&coherent).unwrap()).is_err(),
+                "coherent forged ordered capture and predecessor"
+            );
             for variant in 0..13 {
                 let mut bad: Snapshot = strict_read(&good).unwrap();
                 let e = bad.state.rules.effects.last_mut().unwrap();
@@ -896,6 +1014,19 @@ fn creature_set_keyword_source_owner_departure_after_grant_or_paused_pump_prefix
                 !paused
             );
             recover(g);
+            let mut owner_left = g.fork();
+            owner_left.concede(PlayerId(2)).unwrap();
+            request(&mut owner_left, q);
+            assert!(owner_left.object_id(CardId(1)).is_none());
+            for viewer in [1, 3] {
+                let effects = owner_left.visible_effects(PlayerId(viewer)).unwrap();
+                let VisibleEffect::GrantKeywordsSet { targets, .. } = effects.last().unwrap()
+                else {
+                    panic!("departed recipient projection")
+                };
+                assert!(targets.iter().all(|t| t.current.is_none()));
+            }
+            recover(&owner_left);
             through_cleanup(g, q);
             stats(g, 1, 2, 2);
             assert!(!g.has_keyword(captured, KeywordAbility::Indestructible));
