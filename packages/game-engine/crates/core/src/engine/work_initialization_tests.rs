@@ -79,13 +79,13 @@ fn initialization_and_first_body_prefix_recover_for_every_query_kind() {
             assert_eq!(matches!(work.data.task, Task::Initialize), !initialized);
             let saved = game.save_work(&work).unwrap();
             let envelope: serde_json::Value = serde_json::from_str(&saved).unwrap();
-            assert_eq!(envelope["work_version"], 16);
+            assert_eq!(envelope["work_version"], 20);
             let cold = restored.restore_work(&saved).unwrap();
             assert_eq!(cold.data, work.data);
             assert!(cold.belongs_to_viewer(PlayerId(0)));
             assert!(!cold.belongs_to_viewer(PlayerId(1)));
             let mut old = envelope.clone();
-            old["work_version"] = 15.into();
+            old["work_version"] = 16.into();
             assert!(restored.restore_work(&old.to_string()).is_err());
             let mut changed = envelope;
             changed["data"]["units_done"] = (u64::from(initialized) + 1).into();

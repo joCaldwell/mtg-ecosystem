@@ -260,6 +260,7 @@ pub enum Capability {
     TemporaryDeathtouchSpellV1,
     CompoundIndestructibleSpellV1,
     TemporaryCreatureKeywordProgramV1,
+    TemporaryCreatureSetKeywordProgramV1,
     TrampleV1,
     FirstStrikeV1,
     DoubleStrikeV1,
@@ -338,6 +339,7 @@ pub struct PermanentFilter {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum ObjectSet {
+    ControllerCreatures,
     Creatures,
     NonlandPermanents,
     Enchantments,
@@ -453,6 +455,13 @@ impl CreatureToken {
 pub enum CounterRecipient {
     Source,
     Target { target_slot: u32 },
+}
+/// Fixed signed power/toughness changes belonging to one creature-set effect.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreatureSetModifier {
+    pub power: Quantity,
+    pub toughness: Quantity,
 }
 // Tagged operations are deliberate; unknown variants and fields reject.
 // https://serde.rs/enum-representations.html
@@ -576,8 +585,16 @@ pub enum Instruction {
         amount: Quantity,
         source_block: u32,
     },
-    /// CR 611.2a/c, 613.1f: the only admitted grant is one creature's
-    /// one supported keyword until cleanup, from an ordinary instant/sorcery.
+    /// CR 611.2c, 613.5–6: one captured set receives all parts of this
+    /// continuous effect, including an optional fixed signed P/T modifier.
+    GrantKeywordsSet {
+        set: ObjectSet,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        modifier: Option<CreatureSetModifier>,
+        keywords: Vec<KeywordAbility>,
+        duration: Duration,
+        source_block: u32,
+    },
     GrantKeywords {
         target_slot: u32,
         keywords: Vec<KeywordAbility>,
@@ -1584,6 +1601,19 @@ impl Definition {
         {
             return Err("unsupported complete Aura control family".into());
         }
+        if self
+            .spell
+            .as_ref()
+            .is_some_and(|p| temporary_creature_set_keyword_program(p).is_some())
+            && (!self.keywords.is_empty()
+                || !self.static_abilities.is_empty()
+                || !self.activated.is_empty()
+                || !self.triggered.is_empty()
+                || !self.mana_abilities.is_empty()
+                || self.x_mana_cost)
+        {
+            return Err("set keyword grant requires a complete ordinary spell definition".into());
+        }
         if self.activated.iter().any(|a| has_keyword_grant(&a.program))
             || self.triggered.iter().any(|a| has_keyword_grant(&a.program))
             || self.spell.as_ref().is_some_and(|p| {
@@ -2574,13 +2604,16 @@ fn activated_permanent_owner_hand_ability(a: &ActivatedAbility) -> bool {
         })
 }
 fn has_keyword_grant(p: &SpellProgram) -> bool {
-    p.instructions
-        .iter()
-        .any(|i| matches!(i, Instruction::GrantKeywords { .. }))
-        || p.modes.iter().any(|m| has_keyword_grant(&m.program))
+    p.instructions.iter().any(|i| {
+        matches!(
+            i,
+            Instruction::GrantKeywords { .. } | Instruction::GrantKeywordsSet { .. }
+        )
+    }) || p.modes.iter().any(|m| has_keyword_grant(&m.program))
 }
 fn ordinary_keyword_grant(p: &SpellProgram) -> bool {
     temporary_creature_keyword_program(p).is_some()
+        || temporary_creature_set_keyword_program(p).is_some()
 }
 /// Reviewed temporary-grant vocabulary. Order is retained, but repetitions and
 /// keywords outside this nonempty family are unsupported.
@@ -2656,6 +2689,49 @@ pub fn temporary_creature_keyword_program(
     supported_temporary_creature_keywords(keywords)
         .then_some(TemporaryCreatureKeywordProgram { modifier, keywords })
 }
+/// Borrowed parameters of the complete ordinary temporary creature-set family.
+#[derive(Clone, Copy, Debug)]
+pub struct TemporaryCreatureSetKeywordProgram<'a> {
+    pub set: &'a ObjectSet,
+    pub modifier: Option<(&'a Quantity, &'a Quantity)>,
+    pub keywords: &'a [KeywordAbility],
+}
+/// CR 608.2c/h, 611.2c, 613.5–6: one instruction creates the complete effect.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+pub fn temporary_creature_set_keyword_program(
+    p: &SpellProgram,
+) -> Option<TemporaryCreatureSetKeywordProgram<'_>> {
+    if p.additional_sacrifice.is_some()
+        || !p.modes.is_empty()
+        || !p.targets.is_empty()
+        || p.functioning_zone != FunctioningZone::Stack
+        || p.resolution != SpellResolution::Instructions
+    {
+        return None;
+    }
+    let [
+        Instruction::GrantKeywordsSet {
+            set,
+            modifier,
+            keywords,
+            duration: Duration::UntilEndOfTurn,
+            source_block: 0,
+        },
+    ] = p.instructions.as_slice()
+    else {
+        return None;
+    };
+    let modifier = modifier.as_ref().map(|m| (&m.power, &m.toughness));
+    (matches!(
+        set,
+        ObjectSet::ControllerCreatures | ObjectSet::AttackingCreatures
+    ) && supported_temporary_creature_keywords(keywords))
+    .then_some(TemporaryCreatureSetKeywordProgram {
+        set,
+        modifier,
+        keywords,
+    })
+}
 /// Narrow reviewed subset retained for existing protection policy callers.
 /// Quantities remain exact signed parameters of the shared program descriptor.
 pub fn compound_indestructible_parameters(p: &SpellProgram) -> Option<(&Quantity, &Quantity)> {
@@ -2693,6 +2769,21 @@ fn temporary_creature_keyword_capability(p: &SpellProgram) -> Capability {
     }
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
+    // ControllerCreatures is reserved for the exact new family. The shared set
+    // decoder must not admit it into old movement, damage, pump or mode routes.
+    fn controller_set(p: &SpellProgram) -> bool {
+        p.instructions.iter().any(|i| match i {
+            Instruction::MoveSet { set, .. }
+            | Instruction::PumpSet { set, .. }
+            | Instruction::GrantKeywordsSet { set, .. } => *set == ObjectSet::ControllerCreatures,
+            Instruction::DamageSet { sets, .. } => sets.contains(&ObjectSet::ControllerCreatures),
+            _ => false,
+        }) || p.modes.iter().any(|m| controller_set(&m.program))
+    }
+    if controller_set(p) && temporary_creature_set_keyword_program(p).is_none() {
+        return Err("controller creature set requires complete temporary keyword family".into());
+    }
+
     if has_keyword_grant(p) && !ordinary_keyword_grant(p) {
         return Err("unsupported temporary keyword grant program".into());
     }
@@ -2849,6 +2940,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         let binding = match instruction {
             Instruction::MoveSet { .. }
             | Instruction::PumpSet { .. }
+            | Instruction::GrantKeywordsSet { .. }
             | Instruction::EachPlayerSacrifice { .. }
             | Instruction::OptionalDrawCards { .. }
             | Instruction::DrawDamageAmount { .. } => None,
@@ -3285,6 +3377,20 @@ fn has_controller_discard(program: &SpellProgram) -> bool {
         .iter()
         .any(|m| has_controller_discard(&m.program))
 }
+// One primitive mapping for targeted and set grants, including schema closure.
+fn temporary_keyword_primitive_capability(keyword: KeywordAbility) -> Option<Capability> {
+    Some(match keyword {
+        KeywordAbility::Flying => Capability::FlyingV1,
+        KeywordAbility::Deathtouch => Capability::DeathtouchV1,
+        KeywordAbility::Indestructible => Capability::IndestructibleV1,
+        KeywordAbility::Lifelink => Capability::LifelinkV1,
+        KeywordAbility::Hexproof => Capability::AttachmentsV1,
+        KeywordAbility::Haste => Capability::HasteV1,
+        KeywordAbility::Trample => Capability::TrampleV1,
+        KeywordAbility::FirstStrike => Capability::FirstStrikeV1,
+        _ => return None,
+    })
+}
 fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgram) {
     if has_permanent_owner_hand(program) {
         // Existing creature-bounce and permanent-target capabilities alone do
@@ -3345,38 +3451,23 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         {
             set.insert(Capability::AttachmentsV1);
         }
-        if let Instruction::GrantKeywords { keywords, .. } = instruction {
+        if let Instruction::GrantKeywords { keywords, .. }
+        | Instruction::GrantKeywordsSet { keywords, .. } = instruction
+        {
             for keyword in keywords {
-                match keyword {
-                    KeywordAbility::Indestructible => {
-                        set.insert(Capability::IndestructibleV1);
-                    }
-                    KeywordAbility::Flying => {
-                        set.insert(Capability::FlyingV1);
-                    }
-                    KeywordAbility::Deathtouch => {
-                        set.insert(Capability::DeathtouchV1);
-                    }
-                    KeywordAbility::Lifelink => {
-                        set.insert(Capability::LifelinkV1);
-                    }
-                    KeywordAbility::Hexproof => {
-                        set.insert(Capability::AttachmentsV1);
-                    }
-                    KeywordAbility::Haste => {
-                        set.insert(Capability::HasteV1);
-                    }
-                    KeywordAbility::Trample => {
-                        set.insert(Capability::TrampleV1);
-                    }
-                    KeywordAbility::FirstStrike => {
-                        set.insert(Capability::FirstStrikeV1);
-                    }
-                    _ => (), // Rejected by ordinary_keyword_grant, never admitted here.
+                if let Some(capability) = temporary_keyword_primitive_capability(*keyword) {
+                    set.insert(capability);
                 }
             }
         }
+
+        if matches!(instruction, Instruction::GrantKeywordsSet { .. }) {
+            set.insert(Capability::BoardWipesV1);
+        }
         set.insert(match instruction {
+            Instruction::GrantKeywordsSet { .. } => {
+                Capability::TemporaryCreatureSetKeywordProgramV1
+            }
             Instruction::MoveSet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::DamageSet { .. }
@@ -3553,6 +3644,7 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["CreatureToken"]["properties"]["keywords"]["items"] = serde_json::json!({"allOf":[{"$ref":"#/$defs/KeywordAbility"},{"not":{"enum":["flash","indestructible"]}}]});
     let grant = serde_json::json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{"effect":{"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}}}}}}}}});
     let temporary_keyword = |keyword: &str| serde_json::json!({"required":["spell"],"properties":{"spell":{"type":"object","required":["instructions"],"properties":{"instructions":{"contains":{"required":["op","keywords"],"properties":{"op":{"const":"grant_keywords"},"keywords":{"contains":{"const":keyword}}}}}}}}});
+    let temporary_set_keyword = |keyword: KeywordAbility| serde_json::json!({"required":["spell"],"properties":{"spell":{"type":"object","required":["instructions"],"properties":{"instructions":{"contains":{"required":["op","keywords"],"properties":{"op":{"const":"grant_keywords_set"},"keywords":{"contains":{"const":keyword}}}}}}}}});
     let intrinsic = serde_json::json!({"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}});
     schema["$defs"]["StaticAbility"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
@@ -3570,7 +3662,7 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["Definition"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .extend([
-            serde_json::json!({"if":{"anyOf":[intrinsic.clone(),grant.clone(),temporary_keyword("indestructible")]},"then":{"properties":{"capabilities":{"contains":{"const":"indestructible_v1"}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"indestructible_v1"}}}}}}),
+            serde_json::json!({"if":{"anyOf":[intrinsic.clone(),grant.clone(),temporary_keyword("indestructible"),temporary_set_keyword(KeywordAbility::Indestructible)]},"then":{"properties":{"capabilities":{"contains":{"const":"indestructible_v1"}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"indestructible_v1"}}}}}}),
             serde_json::json!({"if":intrinsic,"then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["creature","artifact","enchantment","land"]}}}}}}),
             serde_json::json!({"if":grant,"then":{"properties":{"characteristics":{"properties":{"kind":{"const":"artifact"},"subtypes":{"const":["Equipment"]}}}}}}),
             serde_json::json!({"if":{"properties":{"characteristics":{"properties":{"kind":{"not":{"const":"creature"}}}}}},"then":{"properties":{"keywords":{"items":{"enum":["flash","indestructible"]}}}}}),
@@ -4170,6 +4262,95 @@ pub fn catalog_schema() -> serde_json::Value {
         "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}},
         "spell":{"properties":{"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}}}}
     }}));
+    // The set family has its own non-targeted shape; targeted any_grant above
+    // deliberately continues to match only GrantKeywords.
+    let set_grant_op =
+        serde_json::json!({"required":["op"],"properties":{"op":{"const":"grant_keywords_set"}}});
+    let set_grant_program = serde_json::json!({"required":["instructions"],"properties":{"instructions":{"contains":set_grant_op}}});
+    schema["$defs"]["CreatureSetModifier"] = serde_json::json!({
+        "type":"object","additionalProperties":false,"required":["power","toughness"],
+        "properties":{"power":{"$ref":"#/$defs/ExactQuantity"},"toughness":{"$ref":"#/$defs/ExactQuantity"}}
+    });
+    let mut set_shapes = Vec::new();
+    for set in [
+        ObjectSet::ControllerCreatures,
+        ObjectSet::AttackingCreatures,
+    ] {
+        let grant = serde_json::json!({"properties":{
+            "op":{"const":"grant_keywords_set"},"set":{"const":set},
+            "modifier":{"anyOf":[{"type":"null"},{"$ref":"#/$defs/CreatureSetModifier"}]},
+            "keywords":{"$ref":"#/$defs/TemporaryCreatureKeywords"},
+            "duration":{"const":"until_end_of_turn"},"source_block":{"const":0}
+        }});
+        set_shapes.push(serde_json::json!({"minItems":1,"maxItems":1,"items":grant}));
+    }
+    schema["$defs"]["TemporaryCreatureSetKeywordInstructions"] =
+        serde_json::json!({"anyOf":set_shapes});
+    let set_family_program = serde_json::json!({"properties":{
+        "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},"targets":{"maxItems":0},
+        "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
+        "instructions":{"$ref":"#/$defs/TemporaryCreatureSetKeywordInstructions"}
+    }});
+    let controller_set = serde_json::json!({"anyOf":[
+        {"required":["set"],"properties":{"set":{"const":ObjectSet::ControllerCreatures}}},
+        {"required":["sets"],"properties":{"sets":{"contains":{"const":ObjectSet::ControllerCreatures}}}}
+    ]});
+    schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"anyOf":[set_grant_program,{"required":["instructions"],"properties":{"instructions":{"contains":controller_set}}}]},
+        "then":set_family_program
+    }));
+    // Recursion fences every mode, trigger and activation as well as top-level spells.
+    schema["$defs"]["KeywordGrantFreeProgram"]["properties"]["instructions"]["items"]["not"]["properties"]
+        ["op"] = serde_json::json!({"enum":["grant_keywords","grant_keywords_set"]});
+    let any_set_grant = serde_json::json!({"required":["spell"],"properties":{"spell":{"type":"object","allOf":[set_grant_program]}}});
+    let family_cap = Capability::TemporaryCreatureSetKeywordProgramV1;
+    let mut allowed_caps = vec![
+        Capability::NormalLayoutV1,
+        Capability::CastInstantV1,
+        Capability::CastSorceryV1,
+        Capability::BoardWipesV1,
+        family_cap,
+    ];
+    let mut exact_caps = Vec::new();
+    for keyword in [
+        KeywordAbility::Flying,
+        KeywordAbility::Deathtouch,
+        KeywordAbility::Indestructible,
+        KeywordAbility::Lifelink,
+        KeywordAbility::Hexproof,
+        KeywordAbility::Haste,
+        KeywordAbility::Trample,
+        KeywordAbility::FirstStrike,
+    ] {
+        let cap = temporary_keyword_primitive_capability(keyword).unwrap();
+        allowed_caps.push(cap);
+        let contains = temporary_set_keyword(keyword);
+        exact_caps.push(serde_json::json!({"if":contains,
+            "then":{"properties":{"capabilities":{"contains":{"const":cap}}}},
+            "else":{"properties":{"capabilities":{"not":{"contains":{"const":cap}}}}}
+        }));
+    }
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":any_set_grant,"then":{"allOf":[
+            {"properties":{
+                "spell":set_family_program,
+                "keywords":{"maxItems":0},"static_abilities":{"maxItems":0},
+                "activated":{"maxItems":0},"triggered":{"maxItems":0},
+                "mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},
+                "intrinsic_zone":{"type":"null"},
+                "characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},
+                    "legendary":{"const":false},"basic":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"},"additional_types":{"maxItems":0}}},
+                "capabilities":{"items":{"enum":allowed_caps},"allOf":[
+                    {"contains":{"const":family_cap}},{"contains":{"const":Capability::BoardWipesV1}},
+                    {"contains":{"const":Capability::NormalLayoutV1}}
+                ]}
+            }},
+            {"allOf":exact_caps},
+            {"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
+             "then":{"properties":{"spell":{"properties":{"timing":{"const":"instant"}}},"capabilities":{"allOf":[{"contains":{"const":Capability::CastInstantV1}},{"not":{"contains":{"const":Capability::CastSorceryV1}}}]}}},
+             "else":{"properties":{"spell":{"properties":{"timing":{"const":"main_phase"}}},"capabilities":{"allOf":[{"contains":{"const":Capability::CastSorceryV1}},{"not":{"contains":{"const":Capability::CastInstantV1}}}]}}}}
+        ]},"else":{"properties":{"capabilities":{"not":{"contains":{"const":family_cap}}}}}
+    }));
     // Keep the Aura-control operation and capability paired with its complete
     // executable shape. This addition does not narrow other attachment families.
     // Derive the scoped keyword vocabulary through the shared static-layer
@@ -4462,6 +4643,7 @@ mod tests {
             TemporaryDeathtouchSpellV1,
             CompoundIndestructibleSpellV1,
             TemporaryCreatureKeywordProgramV1,
+            TemporaryCreatureSetKeywordProgramV1,
             TrampleV1,
             FirstStrikeV1,
             DoubleStrikeV1,
@@ -4532,6 +4714,11 @@ mod tests {
                 catalog.definitions
             })
             .collect::<Vec<_>>();
+        definitions.push(creature_set_keyword_tests::grant(
+            ObjectSet::ControllerCreatures,
+            &[KeywordAbility::Haste],
+            false,
+        ));
         let mut blocking = definitions
             .iter()
             .find(|d| d.name == "Giant Growth")
@@ -6208,3 +6395,6 @@ mod temporary_combat_keyword_tests;
 
 #[cfg(test)]
 mod aura_control_tests;
+
+#[cfg(test)]
+mod creature_set_keyword_tests;

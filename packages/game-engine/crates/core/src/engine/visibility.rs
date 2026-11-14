@@ -1732,7 +1732,7 @@ impl Game {
                         Some((self.state.rules.revision, 7))
                     }
                     Frame::ManaAbility { ref activation } if activation.player == viewer => {
-                        Some((self.state.rules.revision, 16))
+                        Some((self.state.rules.revision, 20))
                     }
                     Frame::SpendMana { .. } if self.top()?.controller == viewer => {
                         Some((self.state.rules.revision, 8))

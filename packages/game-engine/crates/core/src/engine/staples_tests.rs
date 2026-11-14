@@ -1147,6 +1147,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     // event-player sacrifice and untapping. Untap can reuse
                     // producers; keep it outside this frozen lifetime proof.
                     Instruction::GrantKeywords { .. }
+                    | Instruction::GrantKeywordsSet { .. }
                     | Instruction::OptionalDrawCards { .. }
                     | Instruction::DrawDamageAmount { .. }
                     | Instruction::SacrificeCreature { .. }

@@ -208,6 +208,42 @@ release/profile/completion/performance, server/SDK/host/search/consumer matrices
 Node suites requiring absent dependencies remain unrun. Plain control source and
 all committed catalog IR remain unchanged; older proofs keep their own identities.
 
+### Captured creature-set keyword qualification
+
+Source `0eabb031831f041eed3ce1506be8bc516718038a` passed 458 distinct selected
+Rust tests (259 compiler, 107 contracts, 92 core), 2,364 exported-schema probes,
+workspace all-target compilation, formatting and CLI smoke/replay. All 825
+compiled source rows match Git. CLI producer:
+`935cf02ab063686040396b02d02871a71ed69a434845d1456179bd039365d367`;
+optimized test producer:
+`1d67b54914a0b7fefd0b7415b7cf11e6485fdfab5826fe55a03fa9a1e0ea2f54`.
+Schema 1 SHA-256:
+`9a80424e2d41b4baeb48b578bd15e467282a97e746ed41656099012a0ff89eb3`.
+Private snapshot 25 and public/context/query-work 20 require separate downstream
+qualification; historical client/SDK acceptance retains its own producer.
+
+Five complete frozen sources exercise controller-creature or attacking-creature
+sets; Heroic Intervention remains wholly unsupported. One shared instruction and
+effect capture recipients once and apply optional signed stat changes together
+with keywords. Ten paid and five kernel tests cover combat, cleanup, incarnation
+and control changes, owner departure, common-prior LKI, queries, atomic rollback
+and normalized recovery forgeries. Existing targeted-family controls and all
+committed catalog IR remain unchanged. No profile, policy or host/search admission
+expands. Compiler/core/simulator production Clippy passed strictly; contracts
+retains its inherited `collapsible_if` exception.
+
+The original split stat/grant implementation was rejected after rules review
+(CR 611.2c/613.5–6): it could expose different recipient sets and incomplete
+characteristics during departure. Its diagnostic passes, interrupted broad wipe
+group and incorrect expectation remain preserved, without acceptance claims.
+The atomic repair received a focused source review. A later kernel-publication
+failure was corrected at the normal handle-publication seam. Final exact binaries,
+schema results, review continuity, source/settings proof and command receipts are
+under `generated/set-keyword-grants/combined04/` and `integration.json` in the
+original engine lane. Full runtime/release/profile/completion/performance/retention,
+server/SDK/host/search/consumer matrices and Node suites requiring missing local
+dependencies remain omitted.
+
 ### Complete-source compiler input rejection
 
 Compiler source `6dc5e91c` rejects empty printed mana costs on nonlands rather

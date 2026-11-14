@@ -1702,6 +1702,61 @@ fn append_spell_effects(
         return Err(unsupported("abilities.effects", "empty spell effects"));
     }
     let source_block = source_block(block)?;
+    // CR 608.2c/h, 611.2c, 613.5–6: consume the whole typed sentence as one
+    // continuous effect, with one membership capture across all its layers.
+    // Never join distinct sentences or scan arbitrary later instruction pairs.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    if source_block == 0
+        && player_binding == PlayerBinding::Unbound
+        && program.functioning_zone == FunctioningZone::Stack
+        && program.resolution == SpellResolution::Instructions
+        && program.additional_sacrifice.is_none()
+        && program.targets.is_empty()
+        && program.instructions.is_empty()
+        && let [Sentence { bindings, steps }] = effects
+        && bindings.is_empty()
+        && let [
+            Step::Pump {
+                what: pump_what,
+                power,
+                toughness,
+                duration: pump_duration,
+            },
+            Step::GainAbilities {
+                what,
+                abilities,
+                duration,
+            },
+        ] = steps.as_slice()
+        && matches!(pump_what["ref"].as_str(), Some("all" | "each"))
+        && matches!(what["ref"].as_str(), Some("all" | "each"))
+        && pump_duration == duration
+        && duration.duration == "end-of-turn"
+    {
+        let set = lower_object_set(what)?;
+        if lower_object_set(pump_what)? != set
+            || !matches!(
+                set,
+                ObjectSet::ControllerCreatures | ObjectSet::AttackingCreatures
+            )
+        {
+            return Err(unsupported(
+                "set",
+                "compound set effect requires the same reviewed selector",
+            ));
+        }
+        program.instructions.push(Instruction::GrantKeywordsSet {
+            set,
+            modifier: Some(CreatureSetModifier {
+                power: signed_fixed(power)?,
+                toughness: signed_fixed(toughness)?,
+            }),
+            keywords: lower_temporary_creature_keywords(abilities)?,
+            duration: Duration::UntilEndOfTurn,
+            source_block,
+        });
+        return Ok(());
+    }
     for sentence in effects {
         let counted = if sentence.bindings.is_empty() {
             false
@@ -2348,6 +2403,8 @@ fn lower_object_set(v: &serde_json::Value) -> Result<ObjectSet, Failure> {
         ObjectSet::Enchantments
     } else if *f == json!({"types":["creature"],"status":["attacking"]}) {
         ObjectSet::AttackingCreatures
+    } else if *f == json!({"types":["creature"],"control":"you"}) {
+        ObjectSet::ControllerCreatures
     } else if *f == json!({"types":["creature"],"control":"opponent"}) {
         ObjectSet::OpponentCreatures
     } else if *f == json!({"types":["creature"],"withAbility":["flying"]}) {
@@ -2367,6 +2424,21 @@ fn lower_wipes_step(
 ) -> Result<Option<Instruction>, Failure> {
     use serde_json::json;
     Ok(Some(match step {
+        Step::GainAbilities {
+            what,
+            abilities,
+            duration,
+        } if (what["ref"] == "all" || what["ref"] == "each")
+            && duration.duration == "end-of-turn" =>
+        {
+            Instruction::GrantKeywordsSet {
+                set: lower_object_set(what)?,
+                modifier: None,
+                keywords: lower_temporary_creature_keywords(abilities)?,
+                duration: Duration::UntilEndOfTurn,
+                source_block,
+            }
+        }
         Step::Exile { what } if what["ref"] == "all" || what["ref"] == "each" => {
             Instruction::MoveSet {
                 set: lower_object_set(what)?,
@@ -8676,3 +8748,6 @@ mod temporary_combat_keyword_tests;
 
 #[cfg(test)]
 mod source_label_tests;
+
+#[cfg(test)]
+mod creature_set_keyword_tests;
