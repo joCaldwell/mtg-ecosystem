@@ -78,7 +78,11 @@ The separately fenced `temporary_flying_spell_v1` foundation supports complete
 Jump source through the same exact-incarnation keyword union and cleanup.
 `compound_indestructible_spell_v1` supports complete Mortal's Resolve as exactly
 +1/+1 then indestructible on one shared target; the pure-grant contracts remain
-unchanged. Both foundations are scoped in the [keyword contract](game-engine-indestructible.md).
+unchanged. The separate `temporary_deathtouch_spell_v1` foundation supports
+complete Serpent's Gift source as one ordinary creature grant until cleanup;
+damage uses the source's current or latest departure appearance and never treats
+older ordinary damage as newly deathtouch. It has no pool or consumer admission.
+These foundations are scoped in the [keyword contract](game-engine-indestructible.md).
 Damage-source LKI admits validated spell grants while replay authenticates the
 historical appearance; the guard retains duplicate and departure invariants.
 The current focused combined qualification uses source

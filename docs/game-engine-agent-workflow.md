@@ -74,6 +74,11 @@ global Git and 1Password configuration intact. Interactive signing is reserved
 for work Josh explicitly requests to sign; do not queue routine checkpoints
 behind a password or signing approval.
 
+Verification harnesses that create temporary Git repositories must also disable
+commit signing in each owned scratch repository or pass a process-local Git
+configuration override to the harness. Scratch repositories do not inherit the
+workspace's local configuration. Keep global Git configuration unchanged.
+
 For any other authentication delay, request the required access once and continue
 useful work in separate owned checkouts. Preserve verified batches as exact
 patches/source snapshots with their bases, dependencies, checks and omissions;
