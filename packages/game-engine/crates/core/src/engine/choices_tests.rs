@@ -489,7 +489,8 @@ fn allocation_input_conversion_is_per_entry_and_recovered_scratch_is_proved() {
             QueryResult::Incomplete { work, .. } => {
                 let saved = g.save_work(&work).unwrap();
                 let value: serde_json::Value = serde_json::from_str(&saved).unwrap();
-                if units == 2 {
+                // Initialize consumes one unit before header checking and conversion.
+                if units == 3 {
                     assert_eq!(
                         value["data"]["task"]["converted_allocations"]
                             .as_array()
@@ -508,6 +509,6 @@ fn allocation_input_conversion_is_per_entry_and_recovered_scratch_is_proved() {
             _ => panic!("allocation conversion recovery"),
         };
     }
-    assert_eq!(units, 5);
+    assert_eq!(units, 6);
     assert_eq!(g.state_digest().unwrap(), before);
 }

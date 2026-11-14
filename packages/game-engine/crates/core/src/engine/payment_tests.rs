@@ -298,7 +298,7 @@ fn mana_stage_rejects_opponents_pass_cast_and_stale_or_repeated_activations_atom
 }
 
 #[test]
-fn unrelated_departure_preserves_mana_stage_and_target_departure_undoes_only_casting_mana() {
+fn departures_after_proposal_preserve_payment_and_illegal_target_fails_at_resolution() {
     let mut game = Game::new(prepared());
     announce(&mut game, 0);
     activate(&mut game, 0, land(0));
@@ -316,6 +316,35 @@ fn unrelated_departure_preserves_mana_stage_and_target_departure_undoes_only_cas
     assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::from(1)));
     let departed = game.state.rules.players[3].last_known.clone();
     game.concede(PlayerId(1)).unwrap();
+    // CR 601.6 / 608.2b: after proposal legality, losing the target during
+    // payment preserves the cast and legal mana activations. Resolution checks
+    // the historical exact target instead of retargeting or refunding the cast.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    assert!(matches!(
+        settle(&mut game),
+        Advance::AwaitingDecision(Request::Mana {
+            player: PlayerId(0),
+            ..
+        })
+    ));
+    assert_eq!(game.state.rules.stack.len(), 1);
+    assert!(game.top().unwrap().paid.is_none());
+    assert_eq!(game.object_id(spell(0)).unwrap().incarnation, 1);
+    assert!(game.state.rules.objects[&land(0)].tapped);
+    assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::from(1)));
+    assert_eq!(game.state.rules.players[3].last_known, departed);
+    assert!(game.object_id(CardId(2)).is_none());
+    finish(&mut game, 0, true);
+    assert!(game.top().unwrap().paid.is_some());
+    assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::zero()));
+    assert!(
+        !game
+            .events()
+            .iter()
+            .any(|event| matches!(event, Event::CastReversed { .. }))
+    );
+    input(&mut game, 0, Response::Pass);
+    input(&mut game, 2, Response::Pass);
     assert!(matches!(
         settle(&mut game),
         Advance::AwaitingDecision(Request::Priority {
@@ -324,11 +353,17 @@ fn unrelated_departure_preserves_mana_stage_and_target_departure_undoes_only_cas
         })
     ));
     assert!(game.state.rules.stack.is_empty());
-    assert_eq!(game.object_id(spell(0)).unwrap().incarnation, 0);
-    assert!(!game.state.rules.objects[&land(0)].tapped);
-    assert!(game.state.rules.players[0].mana.is_empty());
-    assert_eq!(game.state.rules.players[3].last_known, departed);
-    assert!(game.object_id(CardId(2)).is_none());
+    assert_eq!(
+        game.zone(game.object_id(spell(0)).unwrap()),
+        Some(Zone::Graveyard { owner: PlayerId(0) })
+    );
+    assert!(game.events().iter().any(|event| matches!(
+        event,
+        Event::SpellCompleted {
+            resolved: false,
+            ..
+        }
+    )));
     let replay = Game::replay(prepared(), &game.replay_journal()).unwrap();
     assert_eq!(replay.state, game.state);
 }
@@ -367,28 +402,41 @@ fn payer_departure_retains_last_known_mana_and_does_not_reverse_foreign_lands() 
 }
 
 #[test]
-fn vanished_mana_source_is_not_resurrected_when_target_departure_reverses_cast() {
+fn vanished_mana_source_keeps_floated_mana_and_paid_cast_after_target_departure() {
     let mut p = prepared();
     let borrowed = extra_land(&mut p, 1, 0, ISLAND);
     let mut game = Game::new(p);
     announce(&mut game, 0);
     activate(&mut game, 0, borrowed);
     game.concede(PlayerId(1)).unwrap();
+    // The already legal mana activation survives its owner's departure; its
+    // source never returns, and the floated mana can finish this cast (601.6).
     assert!(matches!(
         settle(&mut game),
-        Advance::AwaitingDecision(Request::Priority {
+        Advance::AwaitingDecision(Request::Mana {
             player: PlayerId(0),
             ..
         })
     ));
     assert!(game.object_id(borrowed).is_none());
     assert!(game.object_id(CardId(2)).is_none());
-    assert!(game.state.rules.players[0].mana.is_empty());
+    assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::from(1)));
     assert_eq!(
         game.zone(game.object_id(spell(0)).unwrap()),
-        Some(Zone::Hand { owner: PlayerId(0) })
+        Some(Zone::Stack)
     );
     assert_eq!(game.state.rules.players[1].status, PlayerStatus::Left);
+    finish(&mut game, 0, true);
+    assert!(game.top().unwrap().paid.is_some());
+    assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::zero()));
+    assert!(game.object_id(borrowed).is_none());
+    assert!(
+        !game
+            .events()
+            .iter()
+            .any(|event| matches!(event, Event::CastReversed { .. }))
+    );
+    recover(&game);
 }
 
 #[test]

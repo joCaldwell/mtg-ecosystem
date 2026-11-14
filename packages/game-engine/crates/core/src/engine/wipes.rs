@@ -76,7 +76,7 @@ impl Game {
             player: input.player,
             value,
         })?;
-        self.state.rules.frame = Frame::Mana { cast };
+        self.state.rules.frame = self.spell_announcement_frame(cast)?;
         Ok(())
     }
     pub(super) fn cant_counter(&self, id: StackId) -> bool {

@@ -291,25 +291,7 @@ impl Game {
             player: input.player,
             mode,
         })?;
-        let p = self.program()?;
-        self.state.rules.frame = if p.targets.is_empty() {
-            Frame::Mana { cast }
-        } else {
-            match p.targets[0].domain {
-                TargetDomain::AnyDamageTarget => Frame::EntityTargets { cast },
-                TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => {
-                    Frame::PlayerTargets { cast }
-                }
-                TargetDomain::ControlledBattlefieldCreature
-                | TargetDomain::BattlefieldPermanent
-                | TargetDomain::BattlefieldCreature
-                | TargetDomain::BlockingBattlefieldCreature
-                | TargetDomain::OwnGraveyardCreatureCard => Frame::Targets { cast },
-                TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
-                    Frame::StackTargets { cast }
-                }
-            }
-        };
+        self.state.rules.frame = self.spell_announcement_frame(cast)?;
         Ok(())
     }
     // CR603.4 checks twice; CR608.2h/113.7a use current expected-zone

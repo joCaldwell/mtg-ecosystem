@@ -1,6 +1,191 @@
 use super::*;
 
+/// Owned, preflighted proposal. Only a permission authority in this module can
+/// construct one. It is consumed before any announcement decision is exposed;
+/// ongoing announcement ownership remains in `Casting` (including nested mana).
+/// This checkpoint has only the ordinary priority permission authority. Exile
+/// and resolution permissions remain unsupported until their full continuation
+/// and recovery contract is implemented.
+struct SpellAnnouncement {
+    player: PlayerId,
+    original_object: ObjectId,
+    cast_from: Zone,
+}
+
 impl Game {
+    fn priority_spell_announcement(
+        &self,
+        player: PlayerId,
+        card: CardId,
+    ) -> Result<SpellAnnouncement, String> {
+        if !matches!(self.state.rules.frame, Frame::Priority) || self.state.rules.priority != player
+        {
+            return Err("spell proposal requires its ordinary priority owner".into());
+        }
+        self.validate_cast_permission(player)?;
+        let object = self.state.rules.objects.get(&card).ok_or("invalid cast")?;
+        if !(object.zone == (Zone::Hand { owner: player })
+            || (object.zone == (Zone::Command { owner: player })
+                && self.state.rules.commanders.history(card).is_some()))
+            || self.state.rules.cards[&card].owner != player
+            || self.definition(card)?.spell.is_none()
+        {
+            return Err("invalid or unsupported cast".into());
+        }
+        let program = self
+            .definition(card)?
+            .spell
+            .as_ref()
+            .ok_or("missing cast program")?;
+        // CR 601.2/702.8a: only the permission authority supplies timing/zone
+        // access. Global prohibitions still apply to every eventual authority.
+        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+        if program.timing == SpellTiming::MainPhase && !self.main_phase_action(player) {
+            return Err("main-phase spell casting requires active-player main-phase priority and empty stack".into());
+        }
+        if program
+            .additional_sacrifice
+            .as_ref()
+            .is_some_and(|filter| self.sacrifice_candidates(player, filter).is_empty())
+        {
+            return Err("no payable sacrifice cost".into());
+        }
+        if !self.has_target_domain(program, player) {
+            return Err("no legal target for this proposal".into());
+        }
+        Ok(SpellAnnouncement {
+            player,
+            original_object: object.id,
+            cast_from: object.zone,
+        })
+    }
+
+    pub(super) fn validate_priority_spell_cast(
+        &self,
+        player: PlayerId,
+        card: CardId,
+    ) -> Result<(), String> {
+        self.priority_spell_announcement(player, card).map(|_| ())
+    }
+
+    pub(super) fn announce_priority_spell(
+        &mut self,
+        player: PlayerId,
+        card: CardId,
+    ) -> Result<(), String> {
+        let announcement = self.priority_spell_announcement(player, card)?;
+        self.begin_spell_announcement(announcement)
+    }
+
+    // CR 601.2a-i: one proposal constructor owns the move, fresh stack identity
+    // and unfinished payment marker. No cast occurrence is emitted here.
+    fn begin_spell_announcement(&mut self, announcement: SpellAnnouncement) -> Result<(), String> {
+        let SpellAnnouncement {
+            player,
+            original_object,
+            cast_from,
+        } = announcement;
+        let card = original_object.card;
+        self.check_stack_capacity(1)?;
+        let total_cost = self.casting_cost(card, player, cast_from)?;
+        let id = StackId(self.state.rules.next_stack_id);
+        self.state.rules.next_stack_id = self
+            .state
+            .rules
+            .next_stack_id
+            .checked_add(1)
+            .ok_or("stack ID resource limit")?;
+        self.record_event(Event::SpellProposed { card, stack_id: id })?;
+        let source = self
+            .move_object_for(
+                original_object,
+                Zone::Stack,
+                BatchCause::Casting {
+                    stack_id: id,
+                    player,
+                    source: original_object,
+                },
+            )?
+            .successor;
+        let effect_source_handles = self.capture_trigger_source_handles(source)?;
+        self.state.rules.stack.push(StackInstance {
+            x: None,
+            death_controller: None,
+            sacrificed: None,
+            mode: None,
+            effect_source_handles,
+            source_facts: Some(self.object_before(source)?),
+            entity_targets: vec![],
+            announced_entity_targets: vec![],
+            stack_targets: vec![],
+            announced_stack_targets: vec![],
+            kind: StackKind::Spell,
+            player_targets: vec![],
+            id,
+            source,
+            controller: player,
+            targets: vec![],
+            announced_targets: vec![vec![]; 4],
+            paid: None,
+            total_cost,
+            cast_from,
+        });
+        let cast = Casting {
+            sacrifice: None,
+            origin: AnnouncementOrigin::Spell,
+            spending: None,
+            stack_id: id,
+            original_object,
+            prior_passes: self.state.rules.passes.clone(),
+            mana_activations: vec![],
+            undo_mana: false,
+        };
+        self.state.rules.frame = self.spell_announcement_frame(cast)?;
+        self.state.rules.passes.clear();
+        Ok(())
+    }
+
+    // All supported spells share modes/X/target routing. This selects a stage,
+    // never grants a casting permission or changes a target filter's meaning.
+    pub(super) fn spell_announcement_frame(&self, cast: Casting) -> Result<Frame, String> {
+        let stack = self.top()?;
+        if stack.id != cast.stack_id || !stack.kind.is_spell() || !cast.origin.is_spell() {
+            return Err("spell announcement binding invariant".into());
+        }
+        let definition = self.definition(stack.source.card)?;
+        if definition.x_mana_cost && stack.x.is_none() {
+            return Ok(Frame::AnnounceX { cast });
+        }
+        if !definition
+            .spell
+            .as_ref()
+            .ok_or("missing spell")?
+            .modes
+            .is_empty()
+            && stack.mode.is_none()
+        {
+            return Ok(Frame::Modes { cast });
+        }
+        Ok(
+            match self.program()?.targets.first().map(|target| target.domain) {
+                None => Frame::Mana { cast },
+                Some(TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility) => {
+                    Frame::StackTargets { cast }
+                }
+                Some(TargetDomain::AnyDamageTarget) => Frame::EntityTargets { cast },
+                Some(TargetDomain::OpponentPlayer | TargetDomain::AnyPlayer) => {
+                    Frame::PlayerTargets { cast }
+                }
+                Some(
+                    TargetDomain::ControlledBattlefieldCreature
+                    | TargetDomain::BattlefieldPermanent
+                    | TargetDomain::BattlefieldCreature
+                    | TargetDomain::BlockingBattlefieldCreature
+                    | TargetDomain::OwnGraveyardCreatureCard,
+                ) => Frame::Targets { cast },
+            },
+        )
+    }
     /// CR 101.2/109.5/601.3/611.3a, 800.4j: "your turn" names the
     /// retained turn owner even when there is no active player. The current
     /// battlefield controller supplies "your"; ownership does not.
