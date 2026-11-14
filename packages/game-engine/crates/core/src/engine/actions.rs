@@ -644,7 +644,10 @@ impl Game {
                 self.execute_staples_instruction(frame, op)
             }
             op @ (Instruction::CreateCreatureTokens { .. }
-            | Instruction::PutPlusOneCounters { .. }) => self.execute_token_instruction(frame, op),
+            | Instruction::PutPlusOneCounters { .. }
+            | Instruction::PutSourcePlusOneCountersForCastColors { .. }) => {
+                self.execute_token_instruction(frame, op)
+            }
             op @ (Instruction::GrantKeywords { .. }
             | Instruction::ModifyPowerToughness { .. }
             | Instruction::PreventCombatDamage { .. }

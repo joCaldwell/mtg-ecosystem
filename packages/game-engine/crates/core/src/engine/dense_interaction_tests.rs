@@ -591,7 +591,7 @@ fn direct_interaction_projection(g: &Game, viewer: PlayerId) -> Observation {
         _ => (),
     }
     Observation {
-        observation_version: 16,
+        observation_version: 17,
         view,
         decision,
     }

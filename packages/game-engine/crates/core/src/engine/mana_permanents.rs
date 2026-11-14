@@ -30,6 +30,22 @@ pub(super) struct ManaActivation {
     receipts: Vec<ManaActivationUndo>,
     paid: Option<Box<PermanentManaUndo>>,
 }
+/// CR 602.5b: restriction belongs to the ability on this incarnation, across
+/// control changes, during each player's turn. Index zero reserves the eventual
+/// selector without expanding the singleton public action.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ManaAbilityKind {
+    Mana,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ManaAbilityUse {
+    pub source: ObjectId,
+    pub kind: ManaAbilityKind,
+    pub index: u32,
+    pub turn: u64,
+}
 /// A receipt describes only this activation's production, spending and source
 /// costs. Reverse in LIFO order so a Signet refunds its input before the land
 /// receipt subtracts that mana. Existing zero entries keep their exact shape.
@@ -39,6 +55,10 @@ pub struct PermanentManaUndo {
     pub player: PlayerId,
     pub source: ObjectBefore,
     pub counters: Quantity,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ability_use: Option<ManaAbilityUse>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub previously_used: bool,
     pub produced: BTreeMap<Color, Quantity>,
     pub spent: BTreeMap<Color, Quantity>,
     pub absent: BTreeSet<Color>,
@@ -46,6 +66,40 @@ pub struct PermanentManaUndo {
     pub cost_triggers: Vec<TriggerId>,
 }
 impl Game {
+    pub(super) fn mana_use_key(&self, source: ObjectId) -> ManaAbilityUse {
+        ManaAbilityUse {
+            source,
+            kind: ManaAbilityKind::Mana,
+            index: 0,
+            turn: self.state.rules.turn.number,
+        }
+    }
+    pub(super) fn mana_ability_used(&self, source: ObjectId) -> bool {
+        self.state
+            .rules
+            .mana_ability_uses
+            .contains(&self.mana_use_key(source))
+    }
+    pub(super) fn validate_mana_uses(&self) -> Result<(), String> {
+        if self.state.rules.mana_ability_uses.len() > self.state.rules.objects.len() {
+            return Err("mana use capacity invariant".into());
+        }
+        for k in &self.state.rules.mana_ability_uses {
+            if k.index != 0
+                || k.turn != self.state.rules.turn.number
+                || self.current(k.source)?.zone != Zone::Battlefield
+                || self
+                    .definition(k.source.card)?
+                    .mana_abilities
+                    .first()
+                    .is_none_or(|a| a.restriction.is_none())
+            {
+                return Err("mana ability use invariant".into());
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn is_permanent_mana(&self, object: ObjectId) -> bool {
         self.definition(object.card)
             .is_ok_and(|d| !d.mana_abilities.is_empty())
@@ -115,15 +169,30 @@ impl Game {
         player: PlayerId,
         source: ObjectId,
     ) -> Result<(), String> {
+        self.validate_permanent_mana_costs(player, source, true)
+    }
+    fn validate_permanent_mana_costs(
+        &self,
+        player: PlayerId,
+        source: ObjectId,
+        check_reserved: bool,
+    ) -> Result<(), String> {
         let o = self.current(source)?;
         let d = self.definition(source.card)?;
-        if self.reserved_mana_source(source)
+        let a = d.mana_abilities.first().ok_or("missing mana ability")?;
+        if (check_reserved && self.reserved_mana_source(source))
             || d.mana_abilities.len() != 1
             || o.zone != Zone::Battlefield
             || o.controller != player
             || !self.is_live(player)
-            || o.tapped
-            || (d.characteristics.kind == CardKind::Creature
+            || (a.costs.tap && o.tapped)
+            || a.costs
+                .remove_source_plus_one_counters
+                .as_ref()
+                .is_some_and(|n| o.plus_one_counters < *n)
+            || (a.restriction.is_some() && self.mana_ability_used(source))
+            || (a.costs.tap
+                && d.characteristics.kind == CardKind::Creature
                 && !o.attack_ready
                 && !self.has_keyword(source, KeywordAbility::Haste))
         {
@@ -279,12 +348,15 @@ impl Game {
         mut a: ManaActivation,
         spending: BTreeMap<Color, Quantity>,
     ) -> Result<(), String> {
+        self.validate_permanent_mana_costs(a.player, a.source, false)?;
         // No costs are paid until the nested payment succeeds (601.2g-h).
         let pool = &self.state.rules.players[a.player.0 as usize].mana;
         let mut receipt = PermanentManaUndo {
             player: a.player,
             source: self.object_before(a.source)?,
             counters: self.current(a.source)?.plus_one_counters.clone(),
+            ability_use: a.ability.restriction.map(|_| self.mana_use_key(a.source)),
+            previously_used: self.mana_ability_used(a.source),
             produced: BTreeMap::new(),
             spent: spending.clone(),
             absent: [Color::W, Color::U, Color::B, Color::R, Color::G, Color::C]
@@ -311,6 +383,9 @@ impl Game {
         }
         let first_trigger = self.state.rules.next_trigger_id;
         self.pay_permanent_source_costs(a.source, a.player, &a.ability.costs, cause)?;
+        if let Some(k) = receipt.ability_use {
+            self.state.rules.mana_ability_uses.insert(k);
+        }
         receipt.cost_triggers = self
             .state
             .rules
@@ -344,6 +419,24 @@ impl Game {
         let o = self.current(source)?;
         if o.zone != Zone::Battlefield || o.controller != player || (costs.tap && o.tapped) {
             return Err("permanent cost source changed".into());
+        }
+        if costs
+            .remove_source_plus_one_counters
+            .as_ref()
+            .is_some_and(|n| o.plus_one_counters < *n)
+        {
+            return Err("insufficient source counters".into());
+        }
+        // CR 118.3/605.3b: this is removal as a cost, never a placement.
+        // The enclosing staged rule step commits cost/use/production atomically.
+        if let Some(n) = &costs.remove_source_plus_one_counters {
+            self.state
+                .rules
+                .objects
+                .get_mut(&source.card)
+                .ok_or("missing source")?
+                .plus_one_counters
+                .subtract(n);
         }
         let mut children = vec![];
         if costs.tap {
@@ -529,10 +622,21 @@ impl Game {
                     .objects
                     .get_mut(&r.source.object.card)
                     .ok_or("missing surviving mana source")?;
-                if o.id != r.source.object || o.zone != Zone::Battlefield || !o.tapped {
-                    return Err("mana reversal source changed".into());
+                if o.id == r.source.object && o.zone == Zone::Battlefield {
+                    if r.ability_use.is_none() && !o.tapped {
+                        return Err("mana reversal source changed".into());
+                    }
+                    o.tapped = r.source.tapped;
+                    // CR 733: exact restoration bypasses placement/replacement.
+                    o.plus_one_counters = r.counters.clone();
                 }
-                o.tapped = r.source.tapped;
+                // CR 400.7/733: a departed source is never restored or rebound.
+            }
+        }
+        if let Some(k) = r.ability_use {
+            self.state.rules.mana_ability_uses.remove(&k);
+            if r.previously_used {
+                self.state.rules.mana_ability_uses.insert(k);
             }
         }
         self.state
@@ -550,16 +654,9 @@ impl Game {
         while let Frame::ManaAbility { activation: a } = f {
             invalid |= !self.is_live(a.player)
                 || (a.paid.is_none()
-                    && self.current(a.source).map_or(true, |o| {
-                        o.zone != Zone::Battlefield
-                            || o.controller != a.player
-                            || o.tapped
-                            || (self
-                                .characteristics(a.source)
-                                .is_ok_and(|c| c.kind == CardKind::Creature)
-                                && !o.attack_ready
-                                && !self.has_keyword(a.source, KeywordAbility::Haste))
-                    }));
+                    && self
+                        .validate_permanent_mana_costs(a.player, a.source, false)
+                        .is_err());
             f = &a.resume;
         }
         if let Frame::Mana { cast } = f {

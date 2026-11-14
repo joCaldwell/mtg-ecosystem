@@ -1173,6 +1173,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                         panic!("attachment outside historical staples proof")
                     }
                     Instruction::CreateCreatureTokens { .. }
+                    | Instruction::PutSourcePlusOneCountersForCastColors { .. }
                     | Instruction::PutPlusOneCounters { .. }
                     | Instruction::ModifyPowerToughness { .. }
                     | Instruction::PreventCombatDamage { .. }
@@ -1397,3 +1398,6 @@ fn concession_keeps_legal_pending_graveyard_target() {
 
 #[path = "ramos_split_tests.rs"]
 mod ramos_split_tests;
+
+#[path = "ramos_m1_tests.rs"]
+mod ramos_m1_tests;

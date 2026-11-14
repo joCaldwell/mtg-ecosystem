@@ -9,6 +9,7 @@ mod reactive_tests {
         let card = |name: &str, owner: u8, zone: Zone| {
             let d = c.definitions.iter().find(|d| d.name == name).unwrap();
             VisibleObject {
+                mana_ability_used: None,
                 attached_to: None,
                 attachments: vec![],
                 keywords: vec![],
@@ -207,6 +208,7 @@ mod wipe_tests {
     pub(super) fn card(c: &Catalog, name: &str, owner: u8, zone: Zone) -> VisibleObject {
         let d = c.definitions.iter().find(|d| d.name == name).unwrap();
         VisibleObject {
+            mana_ability_used: None,
             attached_to: None,
             attachments: vec![],
             keywords: d.keywords.clone(),
@@ -444,7 +446,7 @@ fn tap_loot_is_used_before_combat_can_tap_the_source() {
     };
     assert_eq!(
         s.priority(&Observation {
-            observation_version: 16,
+            observation_version: 17,
             decision: None,
             view: v
         })
@@ -464,7 +466,7 @@ fn strategy(c: &Catalog) -> Strategy<'_> {
 }
 fn observation(view: PermittedView) -> Observation {
     Observation {
-        observation_version: 16,
+        observation_version: 17,
         decision: None,
         view,
     }

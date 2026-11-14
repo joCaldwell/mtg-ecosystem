@@ -74,19 +74,21 @@ Matrix legend: source **V** = archive-byte verified; parse **P/U** = complete
 parse/parser unsupported; binding **F/I** = archived fullyBound true/false;
 lowering **L/U** = complete lowering/Unsupported; capability **V/—** = executable
 catalog validation passed/not reached (M0 singletons; M2 source-witness catalog).
-Scenario **NR** = no Ramos accepted-input scenario run; **S** = the bounded M2
+Scenario **R** = the bounded M1a private paid Ramos source witness (not an admitted pod),
+qualified in the [M1 contract](game-engine-ramos-m1-contract.md#bounded-m1a-implementation);
+**NR** = no per-source runtime witness; **S** = the bounded M2
 private paid source witness, qualified in the
 [M2 contract](game-engine-ramos-m2-contract.md#bounded-basic-search-checkpoint).
 Admission **—** = exact target not admitted; consumer **—/—** =
 exact target not hosted/search-enabled. Existing other pools are not requalified
-by these rows. Rows retain M0 evidence except the two S rows, which add the
+by these rows. Rows retain M0 evidence except the R row and two S rows, which add the
 separately qualified M2 lowering/capability/runtime checks. The immutable M0
 baseline and its 11/74 counts are unchanged; no full target re-audit or executable
 target catalog is claimed. The owner milestone remains the completion/witness owner.
 
 | Definition × quantity | Source | Parse | Binding | Lowering | Capability | Scenario | Admission | Host/search | Owner | First diagnostic reason |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| [Ramos, Dragon Engine (commander)](../packages/game-engine/tests/fixtures/ramos/3ed41d2d-211b-4013-8562-8c64d54cc43a.json) ×1 | V | P | F | U | — | NR | — | —/— | M1 | `abilities[*].effects[*].steps[*].factors` |
+| [Ramos, Dragon Engine (commander)](../packages/game-engine/tests/fixtures/ramos/3ed41d2d-211b-4013-8562-8c64d54cc43a.json) ×1 | V | P | F | L | V | R | — | —/— | M1b replacements pending | `—` |
 | [Abzan Charm](../packages/game-engine/tests/fixtures/ramos/4137a22c-f793-4e27-a9b2-72740a6e2121.json) ×1 | V | P | I | U | — | NR | — | —/— | M6 | `effect:distribute-counters` |
 | [Akroma's Will](../packages/game-engine/tests/fixtures/ramos/fd949f82-fc10-4e37-8aa9-6c7569fe3c55.json) ×1 | V | P | F | U | — | NR | — | —/— | M7 | `abilities[*].effects[*].steps[*].conditionalCount` |
 | [Anguished Unmaking](../packages/game-engine/tests/fixtures/ramos/ad09b3c3-c8e7-481c-8c45-e7f234935117.json) ×1 | V | P | F | L | V | NR | — | —/— | M7 | `—` |
@@ -180,7 +182,7 @@ refine the [plan's dependency order](game-engine-ramos-plan.md#dependencies-and-
 
 | Owner | Measured source blockers and next completion obligations | Dependencies |
 | --- | --- | --- |
-| M1 | Ramos rejects multiplication `factors`; both counter replacements reject `event:put-counters`. The replacements' archived bindings are incomplete; Ramos's are fully bound. Ramos's cast-color facts, remove-five cost, ten mana and per-turn use limit still need complete implementation and paid replay witnesses. | M0; one contracts/payment integration owner |
+| M1 | M1a completes frozen Ramos: exact cast-color counters, no-tap remove-five mana, ten fixed symbols, current-turn per-incarnation use, nested retain/undo and private paid source replay. M1b remains: both counter replacements reject `event:put-counters`, their archived bindings remain incomplete, and replacement order/recovery/composed witnesses are excluded. | M0; one contracts/payment integration owner |
 | M2 | M0’s eight lowering definitions remain: the five basics, Command Tower, Arcane Signet and Golgari Signet. Cultivate and Kodama’s Reach now also lower and execute in the bounded private source witnesses (S). The other 22 definitions remain future M2 work: entry choice/conditions, cycling, pay-life costs, typed searches, opponent production and mana choice. Preserve all modes and land subtypes. | M0; coordinate payment/search/entry interfaces with M1 |
 | M3 | Shardless Agent and Bloodbraid Elf reject `keyword:cascade`. Build generic casting during resolution and a continuation before cascade. | M1 payment foundation; M2 useful opening infrastructure |
 | M4 | Cascade/affinity, cast grants/history and non-hand casts remain unsupported. Call Forth, Averna and Yidris lack complete archived parses. | M3; narrowly scoped parser intake before complete lowering |
@@ -190,14 +192,14 @@ refine the [plan's dependency order](game-engine-ramos-plan.md#dependencies-and-
 | M8 | Creative Technique and Double Major lack complete parses; Protege rejects cascade and has an incomplete copy binding. Complete copy characteristics, actual-cast distinction and copied-token trigger capacity proof. | M3/M4 casting history; capacity review before admission |
 | M9 | Hideaway and bestow reject; Thunder is a non-normal layout (Saga). Mosswort's linked permission binding is incomplete. | Linking/private exile, payment, layers and copy primitives |
 | M10 | Simultaneous/phasing, repeated choices, unbound Progenitus replacement, play-card, token shape, was-cast condition and lose-game reject. Zacama has bound references but fullyBound false: event-history feature needs review. | Relevant earlier continuations/replacements/payments; never erase target alternatives |
-| M11 | No Ramos catalog/profile, pod admission, accepted-input witnesses, policies, completion batch, host or search qualification exists. Reuse L rows without calling them admitted. | Complete source/capability closure and resource proof across M1–M10; host/SDK separate; search follow-on |
+| M11 | No exact Ramos catalog/profile, pod admission, policies, completion batch, host or search qualification exists. The M1a private paid source witness and M2 split-search witnesses do not establish those gates. Reuse L rows without calling them admitted. | Complete source/capability closure and resource proof across M1–M10; host/SDK separate; search follow-on |
 
 The seven failed parses must be repaired through the parser's own manual and
 archive/provenance process. Do not hand-edit these frozen ASTs or bindings to
 force successful compilation. Incomplete bindings additionally affect Corpsejack,
 Hardened Scales, Abzan Charm, Conflux, Faeburrow, Mosswort, Progenitus, Protege,
 Unite and Zacama; exact diagnostics and engine features are in their source files.
-Ramos's archived fullyBound status does not mean its semantic lowering is supported.
+Ramos's archived fullyBound status was not M0 semantic support; M1a now separately checks its complete source lowering and private runtime witness.
 
 ## Reproduce and verification limits
 

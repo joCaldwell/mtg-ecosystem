@@ -137,6 +137,7 @@ enum Ability {
         effects: Vec<Sentence>,
     },
     Activated {
+        restriction: Option<SourceActivationRestriction>,
         #[serde(rename = "abilityWord")]
         ability_word: Option<String>,
         costs: Vec<SourceCost>,
@@ -561,7 +562,7 @@ enum Step {
     PutCounters {
         on: SourceCounterRecipient,
         counter: SourceCounter,
-        count: Count,
+        count: serde_json::Value,
     },
     Modal {
         count: ModeCount,
@@ -649,6 +650,11 @@ enum SourceCounterRecipient {
     Source(ThisObject),
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "restriction", rename_all = "kebab-case", deny_unknown_fields)]
+enum SourceActivationRestriction {
+    OnceEachTurn {},
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SourceCounter {
     r#type: String,
@@ -656,9 +662,18 @@ struct SourceCounter {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields, tag = "cost", rename_all = "kebab-case")]
 enum SourceCost {
-    Sacrifice { what: serde_json::Value },
+    RemoveCounters {
+        counter: SourceCounter,
+        count: Count,
+        from: serde_json::Value,
+    },
+    Sacrifice {
+        what: serde_json::Value,
+    },
     TapSelf {},
-    Mana { symbols: Vec<String> },
+    Mana {
+        symbols: Vec<String>,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "ref", rename_all = "kebab-case", deny_unknown_fields)]
@@ -1307,10 +1322,23 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                             }
                         }
                     }
-                    Ability::Activated { costs, effects, .. } => {
-                        if let Some(mana) = lower_mana_ability(costs, effects, block, kind)? {
+                    Ability::Activated {
+                        costs,
+                        effects,
+                        restriction,
+                        ..
+                    } => {
+                        if let Some(mana) =
+                            lower_mana_ability(costs, effects, restriction.as_ref(), block, kind)?
+                        {
                             definition.mana_abilities.push(mana);
                         } else {
+                            if restriction.is_some() {
+                                return Err(unsupported(
+                                    "restriction",
+                                    "restriction requires counter-removal mana",
+                                ));
+                            }
                             definition
                                 .activated
                                 .push(lower_activation(costs, effects, block, kind)?);
@@ -1801,6 +1829,21 @@ fn append_spell_effects(
                         source_block,
                     }
                 }
+                Step::PutCounters {
+                    on: SourceCounterRecipient::Source(r),
+                    counter,
+                    count,
+                } if r.reference == "this"
+                    && r.noun == "creature"
+                    && counter.r#type == "+1/+1"
+                    && *count
+                        == serde_json::json!({"amount":"product","factors":[
+                            {"amount":"fixed","value":1},
+                            {"amount":"distinct-count","characteristic":"color","among":{"ref":"that","filter":{"cls":"spell"}}}
+                        ]}) =>
+                {
+                    Instruction::PutSourcePlusOneCountersForCastColors { source_block }
+                }
                 Step::PutCounters { on, counter, count } if counter.r#type == "+1/+1" => {
                     let on = match on {
                         SourceCounterRecipient::Target(t) => CounterRecipient::Target {
@@ -1820,7 +1863,10 @@ fn append_spell_effects(
                     };
                     Instruction::PutPlusOneCounters {
                         on,
-                        amount: fixed_positive(count)?,
+                        amount: fixed_positive(&decode::<Count>(
+                            &count.to_string(),
+                            "effects.counters.count",
+                        )?)?,
                         source_block,
                     }
                 }
@@ -3579,12 +3625,27 @@ fn lower_permanent_costs(
     kind: CardKind,
 ) -> Result<PermanentActivationCosts, Failure> {
     let mut result = PermanentActivationCosts {
+        remove_source_plus_one_counters: None,
         tap: false,
         mana: None,
         sacrifice: false,
     };
     for cost in costs {
         match cost {
+            SourceCost::RemoveCounters {
+                counter,
+                count,
+                from,
+            } if result.remove_source_plus_one_counters.is_none()
+                && counter.r#type == "+1/+1"
+                && count.amount == "fixed"
+                && count.value > 0
+                && kind == CardKind::Creature
+                && *from == serde_json::json!({"ref":"this","noun":"creature"}) =>
+            {
+                result.remove_source_plus_one_counters =
+                    Some(Quantity::from(i64::from(count.value)));
+            }
             SourceCost::TapSelf {} if !result.tap => result.tap = true,
             SourceCost::Mana { symbols }
                 if result.mana.is_none()
@@ -3628,6 +3689,7 @@ fn lower_permanent_costs(
 fn lower_mana_ability(
     costs: &[SourceCost],
     effects: &[Sentence],
+    restriction: Option<&SourceActivationRestriction>,
     block: usize,
     kind: CardKind,
 ) -> Result<Option<ManaAbility>, Failure> {
@@ -3669,10 +3731,23 @@ fn lower_mana_ability(
         _ => return Err(unsupported("mana", "unsupported complete mana production")),
     };
     let costs = lower_permanent_costs(costs, kind)?;
-    if !costs.tap {
-        return Err(unsupported("mana", "mana ability requires tap-self"));
+    if costs.remove_source_plus_one_counters.is_some() {
+        if costs.tap
+            || costs.mana.is_some()
+            || costs.sacrifice
+            || restriction.is_none()
+            || !matches!(&production, ManaProduction::Fixed { symbols } if !symbols.is_empty())
+        {
+            return Err(unsupported(
+                "mana",
+                "unsupported counter-removal mana shape",
+            ));
+        }
+    } else if !costs.tap || restriction.is_some() {
+        return Err(unsupported("mana", "unsupported mana cost/restriction"));
     }
     Ok(Some(ManaAbility {
+        restriction: restriction.map(|_| ManaActivationRestriction::OnceEachTurn),
         costs,
         production,
         source_block: source_block(block)?,
@@ -8609,3 +8684,6 @@ mod temporary_flying_tests;
 
 #[cfg(test)]
 mod compound_indestructible_tests;
+
+#[cfg(test)]
+mod ramos_m1_tests;

@@ -162,6 +162,7 @@ mod tests {
         let card = |name: &str, zone: Zone| {
             let d = catalog.definitions.iter().find(|d| d.name == name).unwrap();
             mtg_core::VisibleObject {
+                mana_ability_used: None,
                 attached_to: None,
                 attachments: vec![],
                 keywords: vec![],
@@ -187,7 +188,7 @@ mod tests {
             keywords: vec![],
         });
         let mut observation = Observation {
-            observation_version: 16,
+            observation_version: 17,
             decision: None,
             view: mtg_core::PermittedView {
                 sacrifice_choices: vec![],

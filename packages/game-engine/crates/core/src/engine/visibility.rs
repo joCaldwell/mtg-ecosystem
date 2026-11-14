@@ -72,6 +72,8 @@ pub struct VisiblePlayer {
 #[serde(deny_unknown_fields)]
 pub struct VisibleObject {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mana_ability_used: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attached_to: Option<ObjectHandle>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<ObjectHandle>,
@@ -901,6 +903,11 @@ impl Game {
                     name: t.definition.name.clone(),
                     keywords: t.definition.keywords.clone(),
                 }),
+            mana_ability_used: self
+                .definition(object.id.card)?
+                .mana_abilities
+                .first()
+                .and_then(|a| a.restriction.map(|_| self.mana_ability_used(object.id))),
             plus_one_counters: object.plus_one_counters.clone(),
             characteristics: { Some(self.characteristics(object.id)?) },
             marked_damage: object.marked_damage.clone(),
@@ -1742,7 +1749,7 @@ impl Game {
                         Some((self.state.rules.revision, 7))
                     }
                     Frame::ManaAbility { ref activation } if activation.player == viewer => {
-                        Some((self.state.rules.revision, 16))
+                        Some((self.state.rules.revision, 17))
                     }
                     Frame::SpendMana { .. } if self.top()?.controller == viewer => {
                         Some((self.state.rules.revision, 8))
