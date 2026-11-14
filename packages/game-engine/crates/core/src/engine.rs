@@ -346,6 +346,7 @@ mod trace;
 mod turns_tests;
 pub use events::*;
 pub use trace::*;
+mod control;
 mod multiplayer;
 pub use multiplayer::*;
 mod permitted_history;
@@ -3236,6 +3237,7 @@ impl Game {
             }
         }
         self.validate_attachment_state()?;
+        self.validate_control_state()?;
         self.validate_tokens_state()?;
         self.validate_trigger_state()?;
         self.validate_effect_state()?;

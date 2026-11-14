@@ -299,57 +299,13 @@ impl Game {
         self.reverse_cast(cast, "departure made casting targets illegal", true)
     }
     fn refresh_controllers(&mut self, departing: PlayerId) -> Result<(), String> {
-        // CR 110.2, 800.4a-c: ending a grant restores the latest remaining
-        // grant or the default controller, never ownership as a substitute.
-        let objects = self
-            .state
-            .rules
-            .objects
-            .values()
-            .filter(|o| o.zone == Zone::Battlefield)
-            .cloned()
-            .collect::<Vec<_>>();
-        for object in objects {
-            let controller = self
-                .state
-                .rules
-                .control_effects
-                .iter()
-                .filter(|e| e.object == object.id && self.is_live(e.controller))
-                .max_by_key(|e| e.id)
-                .map(|e| e.controller)
-                .unwrap_or(object.default_controller);
-            if !self.is_live(controller) {
-                self.move_object_for(
-                    object.id,
-                    Zone::Exile,
-                    BatchCause::Departure { player: departing },
-                )?;
-            } else if controller != object.controller {
-                self.state
-                    .rules
-                    .objects
-                    .get_mut(&object.id.card)
-                    .ok_or("missing control object")?
-                    .controller = controller;
-                self.remove_from_combat(object.id);
-                self.state
-                    .rules
-                    .objects
-                    .get_mut(&object.id.card)
-                    .ok_or("missing control object")?
-                    .attack_ready = false;
-                let fact = self.object_before(object.id)?;
-                self.retain_damage_control_facts(&fact);
-                self.record_event(Event::ControlChanged {
-                    object: object.id,
-                    previous: object.controller,
-                    controller,
-                })?;
-            }
-        }
-        Ok(())
+        // All losing owners' objects are already absent at this existing
+        // refresh point. Reuse the event-boundary layer-2 derivation without
+        // touching departure/frame recursion or treating ownership as control.
+        let _ = departing;
+        self.reconcile_controllers()
     }
+
     fn begin_departure(&mut self, player: PlayerId) -> Result<Vec<ObjectId>, String> {
         if self
             .state
