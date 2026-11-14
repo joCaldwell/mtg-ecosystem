@@ -8577,3 +8577,6 @@ mod temporary_creature_keyword_tests;
 
 #[cfg(test)]
 mod controlled_temporary_creature_keyword_tests;
+
+#[cfg(test)]
+mod aura_control_tests;

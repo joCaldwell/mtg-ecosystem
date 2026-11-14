@@ -4048,6 +4048,51 @@ pub fn catalog_schema() -> serde_json::Value {
         "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}},
         "spell":{"properties":{"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}}}}
     }}));
+    // Keep the Aura-control operation and capability paired with its complete
+    // executable shape. This addition does not narrow other attachment families.
+    schema["$defs"]["AuraControlDefinition"] = serde_json::json!({
+        "required":["spell","static_abilities","capabilities"],"properties":{
+            "x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},
+            "characteristics":{"properties":{
+                "kind":{"const":"enchantment"},"additional_types":{"maxItems":0},
+                "subtypes":{"const":["Aura"]},"basic":{"const":false},
+                "legendary":{"const":false},"snow":{"const":false},
+                "power":{"type":"null"},"toughness":{"type":"null"},
+                "mana_cost":{"properties":{"generic":{"pattern":"^(0|[1-9][0-9]*)$"}}}
+            }},
+            "activated":{"maxItems":0},"mana_abilities":{"maxItems":0},
+            "triggered":{"maxItems":0},"keywords":{"maxItems":0},
+            "static_abilities":{"const":[{"functioning_zone":"battlefield","effect":"control_enchanted_creature"}]},
+            "spell":{"type":"object","properties":{
+                "timing":{"const":"main_phase"},"resolution":{"const":"permanent"},
+                "functioning_zone":{"const":"stack"},"additional_sacrifice":{"type":"null"},
+                "instructions":{"maxItems":0},"modes":{"maxItems":0},
+                "targets":{"minItems":1,"maxItems":1,"items":{"properties":{
+                    "slot":{"const":0},"selection_id":{"minLength":1},
+                    "chooser":{"const":"controller"},"stage":{"const":"announcement"},
+                    "domain":{"const":"battlefield_creature"},"filter":{"type":"null"}
+                }}}
+            }},
+            "capabilities":{"minItems":5,"maxItems":5,"uniqueItems":true,"items":{"enum":[
+                Capability::NormalLayoutV1,Capability::CastEnchantmentV1,
+                Capability::CreatureTargetV1,Capability::AttachmentsV1,Capability::AuraControlV1
+            ]}}
+        }
+    });
+    let aura_control = serde_json::json!({"required":["static_abilities"],"properties":{
+        "static_abilities":{"contains":{"required":["effect"],"properties":{
+            "effect":{"const":StaticEffect::ControlEnchantedCreature}
+        }}}
+    }});
+    schema["$defs"]["Definition"]["allOf"]
+        .as_array_mut()
+        .unwrap()
+        .extend([
+            serde_json::json!({"if":aura_control,"then":{"$ref":"#/$defs/AuraControlDefinition"}}),
+            serde_json::json!({"if":{"required":["capabilities"],"properties":{
+            "capabilities":{"contains":{"const":Capability::AuraControlV1}}
+        }},"then":{"$ref":"#/$defs/AuraControlDefinition"}}),
+        ]);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -5980,3 +6025,6 @@ mod temporary_deathtouch_tests;
 
 #[cfg(test)]
 mod temporary_creature_keyword_tests;
+
+#[cfg(test)]
+mod aura_control_tests;
