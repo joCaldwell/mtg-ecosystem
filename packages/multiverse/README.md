@@ -53,6 +53,6 @@ Disposable cross-app regressions are documented in
 
 [Application boundaries](../../docs/multiverse-app.md) own the architecture;
 [design](web/DESIGN.md) and [frontend architecture](web/ARCHITECTURE.md) own browser
-conventions. [The integration report](INTEGRATION-REPORT.md) preserves exact
+conventions. [The integration report](../../docs/game-client.md#reproducibility-and-current-acceptance) preserves exact
 executed evidence and omissions. Historical release/audit documents remain
 source-qualified records, not current paths or deployment instructions.

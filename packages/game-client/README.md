@@ -47,7 +47,7 @@ sh scripts/engine-env.sh npm --prefix packages/game-client ci --workspaces=false
 
 Obtain the serving owner's exact native exports for source
 `ebfa6dde266139c45220959c4179ddedf6a38433` (the current qualification pin;
-see `sdk-qualification.json` and `LIVE-OPENING-REPORT.md`):
+see `sdk-qualification.json` and [opening evidence](../../docs/game-client-evidence.md#opening-and-recovery-evidence)):
 
 - Protocol SHA-256: `a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3`.
 - Bootstrap SHA-256: `0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a`.
@@ -67,7 +67,7 @@ sh scripts/engine-env.sh npm --prefix packages/game-client run check --workspace
 The native operator exports an explicit allowlist from `dist/`, provisions a
 private match and four individual seat files, and serves the production bundle,
 API and catalog-bound presentation artifact at one numeric loopback origin.
-Follow [the serving contract](../../docs/game-client-local-serving.md) for the
+Follow [the serving contract](../../docs/game-client.md#native-delivery-and-operator-procedure) for the
 exact export/launch commands and native source identities. Never place operator
 credentials or seat files under client/dist, public bundle or presentation roots.
 
@@ -119,11 +119,9 @@ Traces, HAR, videos and automatic screenshots are disabled for authenticated
 tests so Authorization headers cannot be captured. Reports retain public
 identities/counts only. Preserve failed evidence before repeating a run.
 
-See [LIVE-OPENING-REPORT.md](LIVE-OPENING-REPORT.md) for qualified opening submission
-and recovery evidence, and [LIVE-SESSION-REPORT.md](LIVE-SESSION-REPORT.md) for the
-historical read-only scope. Shared product/presentation acceptance belongs in the
-[Multiverse report](../multiverse/INTEGRATION-REPORT.md). Historical captures and
-reports retain their original source identities; none establishes full-game play.
+[Opening and recovery evidence](../../docs/game-client-evidence.md#opening-and-recovery-evidence)
+and [product/shared display evidence](../../docs/game-client-evidence.md#productshared-display-evidence-pr24)
+retain exact source identities, failures and omissions. Neither establishes full-game play.
 
 ## Ownership and remaining work
 
@@ -135,7 +133,7 @@ Missing metadata keeps observed identity and characteristics; no card facts,
 active faces, legal actions or source-ability labels are inferred.
 
 Current source implements durable opening-choice journaling, submission and
-reconciliation; see `LIVE-OPENING-REPORT.md` for exact accepted source and limits.
+reconciliation; see [opening evidence](../../docs/game-client-evidence.md#opening-and-recovery-evidence) for exact accepted source and limits.
 Full decision/action-context integration, natural games, account-to-seat mapping,
 automated match supervision and M2–M4 acceptance remain separate. Safari and
 human usability studies are not claimed.

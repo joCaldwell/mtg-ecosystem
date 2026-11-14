@@ -5,7 +5,7 @@
     "native_source": "ebfa6dde266139c45220959c4179ddedf6a38433",
     "protocol_schema_sha256": "a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3",
     "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
-    "scope": "Combined current-source producer preserving the dc12222 compiler fix and reviewed PR22/PR23. Passed 15 focused native delivery/HTTP/protocol tests; built server/provisioner; verified 677 source rows and independently rederived build identities. Source fingerprint b7e30b5e01dfba5a0ab9d3e76996840803b35745dae878009c512ae60e5c8191. SDK and production App opening/proxy qualification are recorded in LIVE-OPENING-REPORT.md; historical 2aaf/e86 and fixture provenance remain unchanged.",
+    "scope": "Combined current-source producer preserving the dc12222 compiler fix and reviewed PR22/PR23. Passed 15 focused native delivery/HTTP/protocol tests; built server/provisioner; verified 677 source rows and independently rederived build identities. Source fingerprint b7e30b5e01dfba5a0ab9d3e76996840803b35745dae878009c512ae60e5c8191. SDK and production App opening/proxy qualification are recorded in docs/game-client-evidence.md#opening-and-recovery-evidence; historical 2aaf/e86 and fixture provenance remain unchanged.",
     "sdk_source": "ebfa6dde266139c45220959c4179ddedf6a38433",
     "sdk_build_manifest_sha256": "793333249d3f65e391505bb346415ef5ec010141e5c0e7574a9d4e9ee27f8123",
     "sdk_generation_sha256": "c8507de687345e9df5b911f3ddb12e072e8b52d7533ee901ce8268d3e26bcb5b"
@@ -19,15 +19,15 @@
   "evidence": [
     {
       "path": "docs/game-client-core-queries.md",
-      "sha256": "d585dbc153b76e54ffbcfb2bd80b4d8a706e8f2243578a4aa13ea5e20a9ab70e"
+      "sha256": "a86f6773eb3c4d6a0c970c0056c9d67480dd556ef69efaa2caeeedf95c5d92d1"
     },
     {
       "path": "docs/game-engine-current.md",
-      "sha256": "d230ef1d676e7506f9d4df3f0cf3071bbfa3d3578664732c92d6baaad4e718f8"
+      "sha256": "0aa37dbf076b76e5ba92a6296332d26d7e9ce9e5b00b93b5822e5205963e6c68"
     },
     {
       "path": "docs/game-engine-server-attachments.md",
-      "sha256": "39e2eb56824e4468381c45b0822a3ee15bb35c1fb9a83b8a9638a9326e9d04b5"
+      "sha256": "eb0ed4a29fe9b2da92e29b53b0870561d064654e5e2d8caa99a3abc378b65177"
     },
     {
       "path": "packages/game-engine/crates/core/src/engine/visibility.rs",

@@ -119,4 +119,4 @@ resolution. Keyword counts measure involvement in combat declarations/damage,
 including tokens and granted keywords, rather than claiming each keyword changed
 the result. The report lists every unreached catalog instruction site and unused
 catalog card, so omissions remain visible and need capability witnesses.
-See [D1c verification](game-engine-cards-as-data-d1c.md).
+See [D1c verification](game-engine-evidence.md#later-focused-engine-qualification).

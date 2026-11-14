@@ -1,70 +1,41 @@
-# MTG Ecosystem (Project Multiverse)
+# Project Multiverse
 
-An agent-first Magic: The Gathering platform with explicit contracts between
-card parsing, executable rules, local hosting and applications. TypeScript owns
-source ingestion/parsing and clients; Rust owns semantic compilation, deterministic
-rules, native simulation/search and hosting.
+An agent-first Commander platform: a deck library and product application backed
+by a finite, deterministic Rust rules engine. Start with [AGENTS.md](AGENTS.md)
+for package ownership and development constraints.
 
-## What works today
+## Current product
 
-| Layer | Implementation and boundary |
+[Multiverse](packages/multiverse/README.md) owns account/session UX, navigation,
+Home, the deck editor, Play setup and the browser build/process. The existing
+[deck-builder backend](packages/deck-builder/AGENTS.md) owns authentication,
+Actor/SQLite capabilities, deck data, CLI and MCP. There is one account/data
+system; no authentication or database migration occurred.
+
+Home and owned-deck setup work. The table preview is a qualified captured sample,
+not the selected library deck. The initial game direction is one human and three
+automated opponents. Real automated launch, account-to-seat provisioning,
+arbitrary-deck admission and complete browser play remain unfinished.
+Product sign-in grants no Rust seat. See [application contracts](docs/multiverse-app.md).
+
+## Documentation map
+
+| Task | Canonical starting point |
 | --- | --- |
-| Source data | TypeScript parser and archived AST subset; Rust compiler lowers supported complete sources to executable catalogs. Bulk Card IR emission remains unimplemented. |
-| Rules | Deterministic finite Commander matches, events, private decisions, snapshots/forks and replay; unsupported semantics reject or fault explicitly. |
-| Search and hosting | Sampled-world search on the reviewed foundations profile; local Rust hosting for foundations and attachments with generated TypeScript SDK. |
-| Applications | Top-level Multiverse account/navigation, deck editor and game setup; existing Scryfall/SQLite backend and MCP; shared game display and qualified local table preview. |
+| Package/language ownership and dependency boundaries | [Architecture](docs/architecture.md) |
+| Product setup and browser conventions | [Product README](packages/multiverse/README.md), [frontend architecture](packages/multiverse/web/ARCHITECTURE.md), [design](packages/multiverse/web/DESIGN.md) |
+| Deck behavior, permissions and public compatibility | [Deck specification](docs/deck-builder-spec.md), [MCP workflows](docs/deck-builder-mcp-workflows.md), [tags](docs/deck-builder-tags.md) |
+| Backend operations and checks | [Operations](packages/deck-builder/OPERATIONS.md), [testing](packages/deck-builder/TESTING.md) |
+| Client/session contracts, delivery and acceptance | [Game client](docs/game-client.md), [client setup](packages/game-client/README.md) |
+| Engine support and source-qualified acceptance | [Current engine map](docs/game-engine-current.md), [mechanics](docs/game-engine-mechanics.md), [evidence](docs/game-engine-evidence.md) |
+| Engine environment, verification and storage | [Development](docs/game-engine-development.md), [agent workflow](docs/game-engine-agent-workflow.md), [storage](docs/game-engine-storage.md) |
+| Parser, archives and ingestion | [Parser](docs/oracle_parser.md), [data contracts](docs/data_schemas.md), [Scryfall](docs/scryfall-integration.md) |
 
-These are finite supported capabilities, not arbitrary-deck Commander or a
-complete Magic rules implementation. Real automated-game launch and full browser
-play still require their own integration. See [application boundaries](docs/multiverse-app.md)
-and [architecture](docs/architecture.md).
+Read the target package's `AGENTS.md` before editing. Use its locked local tools
+and focused checks; there is no root application/native acceptance command.
+Engine bootstrap is conditional on missing/broken dependencies, not onboarding
+work for every task. See [contributing](CONTRIBUTING.md).
 
-## Engine development
-
-Read [the engine manual](packages/game-engine/AGENTS.md) and
-[current map](docs/game-engine-current.md). From a fresh worktree:
-
-```sh
-sh scripts/engine-bootstrap.sh
-sh scripts/engine-env.sh npm run check:engine:source
-sh scripts/engine-env.sh npm run check:engine -- --plan
-```
-
-Bootstrap uses existing pinned tools and installs minimal locked engine/parser
-Node dependencies. The environment launcher configures commands and their child
-processes. [Development instructions](docs/game-engine-development.md) explain
-missing-tool setup, doctor output and choosing focused checks. The default native
-check is intentionally narrower than runtime or full acceptance; report omissions.
-
-Accepted D2c-d at `394301d` is separate from later IR25 candidate work and tooling
-changes. [Current evidence boundaries](docs/game-engine-current.md#evidence-boundaries-at-the-platform-baseline)
-link the exact source-qualified reports. Old release counts and performance
-measurements are in the [historical index](docs/history/engine/index.md).
-
-## Other packages
-
-Read the relevant manual before changing a package:
-
-- [Multiverse](packages/multiverse/AGENTS.md): product application, account UX, navigation and browser setup.
-- [Deck-builder](packages/deck-builder/AGENTS.md): existing account/API backend, deck capabilities and MCP.
-- [Game UI](packages/game-ui/AGENTS.md): shared permitted table presentation.
-- [Game client](packages/game-client/AGENTS.md): session/decision adapters and standalone integration harness.
-- [Oracle parser](packages/oracle-parser/AGENTS.md): TypeScript AST/archive tools and structural checks.
-- [Game server](packages/game-server/AGENTS.md): local hosting and generated client protocol.
-- [Server SDK](packages/game-server/sdk/AGENTS.md): separate SDK dependencies and verification.
-
-The parser's root commands include `ingest`, `archive-parser`, and `validate`;
-read its manual before downloading a corpus or interpreting acceptance results.
-`npm run build-ir` deliberately rejects the unimplemented bulk pipeline. The
-minimal engine bootstrap does not install every application's dependencies.
-
-## Documentation
-
-[Architecture](docs/architecture.md), [language decision](docs/runtime-language-decision.md),
-[project structure](docs/project-structure.md), [parser design](docs/oracle_parser.md),
-[data schemas](docs/data_schemas.md), [agent design](docs/agent_design.md),
-[decisions](docs/decisions.md), [glossary](docs/glossary.md),
-[Scryfall integration](docs/scryfall-integration.md), and [contributing](CONTRIBUTING.md).
-The [engine plan](docs/game-engine-plan.md) and [specification](docs/game-engine-spec.md)
-include goals beyond the implemented finite scope; current onboarding is the
-engine map above.
+Current manuals describe supported behavior; Rust/types/data and exact evidence
+identities resolve implementation details. Old plans and transcripts live in Git
+history. Historical test counts never establish current combined acceptance.
