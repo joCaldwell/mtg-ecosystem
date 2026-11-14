@@ -75,3 +75,11 @@ Docker daemon/socket (`generated/product-docker-build.log`). No deployment,
 native host game, automated match launch, full-game browser play, dense-board
 acceptance or strategic-opponent quality is claimed. Those require the explicit
 coordinator and admission work in `docs/multiverse-app.md`.
+
+## Pre-merge current-main integration
+
+Integrated main at `ac95b1cf` before the requested fresh review. Its engine/doc
+changes required refreshing only the decision inventory's current-map digest;
+no application runtime or qualification pins changed. The client `check` passed
+again, including all 116 tests and the production build. The log is
+`generated/pr24-current-main-client-check.log`. No native matrix was repeated.
