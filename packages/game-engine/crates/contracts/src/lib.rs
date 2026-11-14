@@ -456,6 +456,13 @@ pub enum CounterRecipient {
     Source,
     Target { target_slot: u32 },
 }
+/// Fixed signed power/toughness changes belonging to one creature-set effect.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreatureSetModifier {
+    pub power: Quantity,
+    pub toughness: Quantity,
+}
 // Tagged operations are deliberate; unknown variants and fields reject.
 // https://serde.rs/enum-representations.html
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -582,6 +589,8 @@ pub enum Instruction {
     /// one supported keyword until cleanup, from an ordinary instant/sorcery.
     GrantKeywordsSet {
         set: ObjectSet,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        modifier: Option<CreatureSetModifier>,
         keywords: Vec<KeywordAbility>,
         duration: Duration,
         source_block: u32,
