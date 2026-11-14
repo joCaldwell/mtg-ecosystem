@@ -197,6 +197,12 @@ visibility and accepted-input replay. Never simulate cascade as a free draw.
 
 ### M4 Complete the cascade package and casting history
 
+The bounded [M4a Apex checkpoint](game-engine-ramos-casting-contract.md#m4a-direct-multiple-self-cascade-on-permanent-spells)
+qualifies complete frozen Apex Devastator through the existing cascade family,
+with independent indexed self triggers and whole-batch capacity preflight.
+Wanderer's complete controller-creature haste grant still rejects; its intrinsic
+haste is not a substitute. M4 remains open for Wanderer and the full package below.
+
 Add separate multiple cascade triggers for Maelstrom Wanderer, Apex Devastator
 and Call Forth the Tempest. Complete Ethersworn Sphinx's affinity and Enigma
 Sphinx's graveyard trigger and third-from-top insertion as part of their source

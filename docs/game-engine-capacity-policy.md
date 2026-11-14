@@ -72,10 +72,28 @@ Stack-functioning self-cast triggers are separate from battlefield observers.
 A successful cast collects both against the same shared stack-plus-pending ceiling;
 no family/profile flag bypasses `check_stack_capacity`. The historical simultaneous
 creature-death formula above remains that wave's bound, not a separate claim about
-all future stack sources. Basic cascade admits one self instance per definition,
-one active resolving owner and one announcing child; child cascade triggers wait
-for later ordinary stack resolution. No copied/granted/multiple instances or pool
-admission are added by this checkpoint.
+all future stack sources. Direct permanent self-cascade now admits independent
+validated instances, including repeated keywords in one source block. Each actual
+cast visits each battlefield observer and its casting source once, enumerating
+their complete validated trigger vectors without deduplication. One conservative
+fanout bound is the sum of those vectors over all allocated physical sources,
+at most `400 * max(validated definition.triggered.len())`, using checked arithmetic
+when sizing a catalog. Generated creature tokens currently have empty trigger
+vectors; copied/granted token abilities must extend this proof before admission.
+The common u32 ability-index representation is checked by Definition validation.
+Neither the source name nor its printed instance count sets a ceiling.
+
+Before publishing a collected batch, preflight its entire effective emission
+(excluding failed intervening conditions) against the retained stack plus pending
+count, checked TriggerId arithmetic and StackId headroom for existing pending
+triggers plus the new batch. Per-insertion guards and retained-payload charges
+remain in place. Actual paid-root overflow rolls back payment, events, IDs and
+all siblings atomically; synthetic boundary injection is not legal-game reachability.
+The death-wave proof above does not bound every repeated casting episode.
+
+One active resolving owner and one announcing child remain the execution shape;
+sibling and child cascade triggers wait for later ordinary stack resolution.
+No copied/granted instances or pool admission follow from direct multiplicity.
 
 Each cascade progress/exile/permutation list uses the common physical-card bound
 of 100 and charges its owned serialized payload against retained capacity. A frozen

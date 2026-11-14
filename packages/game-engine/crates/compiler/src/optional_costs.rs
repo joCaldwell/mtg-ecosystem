@@ -271,6 +271,8 @@ pub(super) fn instant_keywords(
             "unsupported spell keyword combination",
         ));
     };
+    // This narrower complete-source instant/sorcery family still admits one
+    // direct self instance; permanent keyword multiplicity is independent.
     if keyword.keyword != "cascade"
         || keyword.cost.is_some()
         || keyword.filter.is_some()

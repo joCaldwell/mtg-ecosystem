@@ -1612,6 +1612,9 @@ impl Definition {
     }
     pub fn validate(&self) -> Result<(), String> {
         optional_costs::validate_definition(self)?;
+        // Every occurrence retains its own u32 ability index, including repeated
+        // keywords in one source block (CR 702.85c). No per-card instance cap.
+        u32::try_from(self.triggered.len()).map_err(|_| "trigger ability index limit")?;
         if self
             .static_abilities
             .iter()
@@ -2255,12 +2258,6 @@ impl Definition {
                             ..
                         }]
                     )
-                    || self
-                        .triggered
-                        .iter()
-                        .filter(|a| a.condition == TriggerCondition::SelfSpellCast)
-                        .count()
-                        != 1
                 {
                     return Err("unsupported self-cast cascade shape".into());
                 }
@@ -3775,11 +3772,13 @@ fn counter_placement_schema(schema: &mut serde_json::Value) {
     }));
 }
 fn cascade_schema(schema: &mut serde_json::Value) {
+    schema["$defs"]["Definition"]["properties"]["triggered"]["maxItems"] =
+        serde_json::json!(u32::MAX);
     let cascade = serde_json::json!({"required":["op"],"properties":{"op":{"const":"cascade"}}});
     let self_condition = serde_json::json!({"required":["condition"],"properties":{"condition":{"const":"self_spell_cast"}}});
     let ability = serde_json::json!({"properties":{
         "functioning_zone":{"const":"stack"},"intervening_if":{"type":"null"},"death_filter":{"type":"null"},
-        "program":{"properties":{"additional_sacrifice":{"type":"null"},"timing":{"const":"instant"},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"targets":{"maxItems":0},"modes":{"maxItems":0},"instructions":{"minItems":1,"maxItems":1,"items":cascade}}}
+        "program":{"properties":{"optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"},"timing":{"const":"instant"},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"targets":{"maxItems":0},"modes":{"maxItems":0},"instructions":{"minItems":1,"maxItems":1,"items":cascade}}}
     }});
     schema["$defs"]["CascadeFreeProgram"] = serde_json::json!({"properties":{
         "instructions":{"items":{"not":cascade}},"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}}
@@ -3804,7 +3803,7 @@ fn cascade_schema(schema: &mut serde_json::Value) {
         .collect();
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().extend([
         serde_json::json!({"properties":{"spell":{"anyOf":[{"type":"null"},{"$ref":"#/$defs/CascadeFreeProgram"}]},"activated":{"items":{"properties":{"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}}}}),
-        serde_json::json!({"if":present,"then":{"properties":{"capabilities":{"allOf":yes},"triggered":{"contains":self_condition,"minContains":1,"maxContains":1}}},"else":{"properties":{"capabilities":{"allOf":no}}}})
+        serde_json::json!({"if":present,"then":{"properties":{"capabilities":{"allOf":yes},"triggered":{"contains":self_condition,"minContains":1}}},"else":{"properties":{"capabilities":{"allOf":no}}}})
     ]);
 }
 pub fn catalog_schema() -> serde_json::Value {

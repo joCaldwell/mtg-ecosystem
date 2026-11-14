@@ -704,6 +704,14 @@ impl Game {
                 }
             }
         }
+        // Preflight the COMPLETE effective emission before diagnostics, handles,
+        // IDs or pending rows publish. Failed intervening checks still retain
+        // their ordinary diagnostic below, but consume no trigger capacity.
+        let emission = matched
+            .iter()
+            .filter(|(_, _, _, condition, _)| condition.as_ref().is_none_or(|c| c.passed()))
+            .count();
+        self.preflight_trigger_emission(emission)?;
         for (death_controller, source_facts, ability, match_condition, witness) in matched {
             if let Some(check) = &match_condition {
                 self.record_event(Event::TriggerConditionChecked {
@@ -753,6 +761,27 @@ impl Game {
                 source_facts: Box::new(consumed),
             })?;
         }
+        Ok(())
+    }
+    pub(super) fn preflight_trigger_emission(&mut self, additional: usize) -> Result<(), String> {
+        self.check_stack_capacity(additional)?;
+        let additional = u64::try_from(additional).map_err(|_| "trigger ID resource limit")?;
+        self.state
+            .rules
+            .next_trigger_id
+            .checked_add(additional)
+            .ok_or("trigger ID resource limit")?;
+        // Pending triggers will each need a fresh StackId. Reserve arithmetic
+        // headroom for all of them as well as this batch before publication.
+        let pending = u32::try_from(self.state.rules.pending_triggers.len())
+            .map_err(|_| "stack ID resource limit")?;
+        let additional = u32::try_from(additional).map_err(|_| "stack ID resource limit")?;
+        self.state
+            .rules
+            .next_stack_id
+            .checked_add(pending)
+            .and_then(|id| id.checked_add(additional))
+            .ok_or("stack ID resource limit")?;
         Ok(())
     }
     fn apnap_players(&self) -> Vec<PlayerId> {

@@ -41,9 +41,9 @@ fn complete(
     let mut wrong = definition.clone();
     wrong.triggered[0].functioning_zone = FunctioningZone::Battlefield;
     assert!(wrong.validate().is_err());
-    let mut wrong = definition.clone();
-    wrong.triggered.push(wrong.triggered[0].clone());
-    assert!(wrong.validate().is_err());
+    let mut repeated = definition.clone();
+    repeated.triggered.push(repeated.triggered[0].clone());
+    repeated.validate().unwrap(); // CR 702.85c, separate indexed occurrences.
     let mut wrong = definition.clone();
     wrong.triggered[0].condition = TriggerCondition::SelfEntersBattlefield;
     wrong.capabilities = wrong.requirements();
