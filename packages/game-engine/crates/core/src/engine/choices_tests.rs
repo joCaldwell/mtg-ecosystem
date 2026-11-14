@@ -498,7 +498,8 @@ fn allocation_input_conversion_is_per_entry_and_recovered_scratch_is_proved() {
             QueryResult::Incomplete { work, .. } => {
                 let saved = g.save_work(&work).unwrap();
                 let value: serde_json::Value = serde_json::from_str(&saved).unwrap();
-                if units == 2 {
+                // One initialization unit precedes header checking and per-entry conversion.
+                if units == 3 {
                     assert_eq!(
                         value["data"]["task"]["converted_allocations"]
                             .as_array()
@@ -517,6 +518,50 @@ fn allocation_input_conversion_is_per_entry_and_recovered_scratch_is_proved() {
             _ => panic!("allocation conversion recovery"),
         };
     }
-    assert_eq!(units, 5);
+    assert_eq!(units, 6);
     assert_eq!(g.state_digest().unwrap(), before);
+}
+
+#[test]
+fn selected_prevention_source_context_is_exact_private_and_query_work_restores() {
+    let (mut g, effect) = allocation();
+    g.refresh_visibility().unwrap();
+    let source = g.definition(CardId(5)).unwrap();
+    let expected = source.source_labels.as_ref().unwrap().spell_modes[1].clone();
+    let QueryResult::Complete(QueryValue::Observation(own)) =
+        g.observe(PlayerId(0), Budget::unlimited())
+    else {
+        panic!("observation");
+    };
+    let context = own.decision_context.as_ref().unwrap();
+    assert_eq!(
+        context.source.as_ref().unwrap().kind,
+        DecisionSourceKind::Effect
+    );
+    assert_eq!(context.source.as_ref().unwrap().oracle_id, source.oracle_id);
+    assert_eq!(context.instruction.as_ref().unwrap().text, expected);
+    assert_eq!(
+        g.effect_decision_context(PlayerId(0), &effect).as_ref(),
+        Some(context)
+    );
+    let QueryResult::Complete(QueryValue::Observation(other)) =
+        g.observe(PlayerId(1), Budget::unlimited())
+    else {
+        panic!("peer");
+    };
+    assert!(other.decision.is_none() && other.decision_context.is_none());
+    // This board uses explicit private effect injection, not accepted input history.
+    assert!(Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).is_err());
+    let mut pending = g.observe(PlayerId(0), Budget::new(0));
+    let after = loop {
+        pending = match pending {
+            QueryResult::Complete(QueryValue::Observation(after)) => break after,
+            QueryResult::Incomplete { work, .. } => {
+                let saved = g.save_work(&work).unwrap();
+                g.resume_work(g.restore_work(&saved).unwrap(), Budget::new(1))
+            }
+            _ => panic!("query work recovery"),
+        };
+    };
+    assert_eq!(own, after);
 }

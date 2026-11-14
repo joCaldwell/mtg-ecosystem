@@ -158,7 +158,9 @@ Context is `priority` or `mana { cost, source }`. Mana source uses the nested
 mana-ability source or the ordinary current stack source's existing permitted handle.
 `ActionLabel` retains `unavailable` and adds `available { text, source? }`: core owns
 action wording, and optional source descriptions use offline compiler bindings.
-Indexed activated abilities without a bound source label remain unavailable.
+Cast and nonintrinsic activations without a bound source label remain unavailable.
+Intrinsic land mana uses the runtime's CR 305.6 production query and an explicit
+core-authored source description naming the produced color.
 Labels grant no affordability, target, payment or submission permission.
 
 `Observation.decision_context` is optional for historical projections. Its optional
@@ -171,7 +173,7 @@ mechanical capabilities and reviewed hosted/search sets stay unchanged; catalog
 and build identities change. Metadata never admits new mechanics.
 
 Current announcement/payment/target and resolution choices receive source context.
-A resolving instruction supplies its exact source block; selected prevention
+A resolving instruction supplies its exact source block or selected mode option; prevention
 allocation and damage replacement candidate labels use the actual effect origin.
 Trigger-order candidates carry optional ability labels. Missing fields remain
 unavailable: do not infer mode/X meaning, optional instructions, numeric bounds or
