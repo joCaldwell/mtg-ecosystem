@@ -74,6 +74,16 @@ Withstand Death source as an ordinary single-creature indestructible grant.
 Its resolved effect captures an exact incarnation and expires atomically with
 damage cleanup; intrinsic and equipped protection still union normally.
 This source foundation adds no pool, hosting/search or consumer admission.
+The combined Plate admission, blue default and temporary-grant source at
+`b19498657bf73402bcfe559017e0956eb5b696fe` has copied producer
+`9cb71fca155ea489d4d204ad77e0236c99e78ea1af44ccaf7500cabb3a434555`,
+with all 750 native source rows verified. Its focused combined pass ran 84 tests,
+workspace all-target compilation, production compiler/core/simulator Clippy,
+catalog freshness and CLI smoke/replay; the exported schema matches the
+temporary-grant producer. Exact copies and receipts are retained under
+`generated/parallel-round/native01/`. The blue full-game witness remains
+qualified to its separately named producer; no combined full-completion,
+release/profile/runtime matrix or downstream consumer qualification is claimed.
 The only active IR schema is 1 while there are no external consumers; new
 features evolve it in place with capability validation and exact build fencing.
 Current in-place support covers [grouped power-qualified damage and opponent

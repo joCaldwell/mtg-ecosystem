@@ -114,4 +114,5 @@ source snapshots, CLI smoke/replay and preserved failures are retained under
 compiler/core no-deps Clippy with warnings denied. Broader runtime/consumer,
 release/performance and full-matrix checks were omitted; local JavaScript
 installation was absent and no dependencies were installed. This candidate
-checkpoint is separate from parent integration and consumer acceptance.
+checkpoint remains separately source-qualified from combined integration and
+consumer acceptance.
