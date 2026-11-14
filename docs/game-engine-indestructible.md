@@ -74,10 +74,11 @@ schema bytes are unchanged from the equipped-grant foundation.
 The separate `temporary_indestructible_spell_v1` capability admits one complete,
 ordinary nonmodal instant/sorcery granting exactly `[Indestructible]` to exactly
 one unqualified battlefield creature target until end of turn. Its `GrantKeywords`
-instruction also requires `indestructible_v1`. Rust and exported schema fence that capability to Indestructible and reject
-duplicate/mixed grants, filters, additional costs, modes,
-activated/triggered programs and mixed instructions. The existing intrinsic and
-equipped grants retain their contracts. No hosting/search capability set, pool,
+instruction also requires `indestructible_v1`. Rust and exported schema fence
+that subset capability to singleton Indestructible. Reviewed mixed vectors use
+the general family capability below; duplicates, unreviewed keywords, filters,
+additional costs, modes, activated/triggered programs and extra instructions
+reject. The existing intrinsic and equipped grants retain their contracts. No hosting/search capability set, pool,
 policy, SDK, server contract or schema version expands.
 
 Complete frozen [Withstand Death source](../packages/game-engine/tests/fixtures/c462adf3-4ade-4b90-bdec-7247b080471f.json)
@@ -128,10 +129,11 @@ The separate `temporary_flying_spell_v1` capability admits exactly one ordinary
 nonmodal instant/sorcery instruction granting `[Flying]` to exactly one
 unfiltered battlefield creature until end of turn. It also requires `flying_v1`.
 `temporary_indestructible_spell_v1` and its `indestructible_v1` requirement are
-unchanged. Schema 1 remains the only IR schema. Grants of other keywords,
-compound/duplicate grants, mixed instructions, additional costs, filters, modes,
-activations and triggers reject. No pool, default deck, host, search, policy or
-consumer admission follows from source lowering.
+unchanged. Schema 1 remains the only IR schema. Other reviewed vectors and
+modifier-plus-grant combinations use the general family capability below.
+Unreviewed keywords, duplicates, extra instructions, additional costs, filters,
+modes, activations and triggers reject. No pool, default deck, host, search,
+policy or consumer admission follows from source lowering.
 
 Complete frozen [Jump source](../packages/game-engine/tests/fixtures/f7518456-45ed-41d4-bd3c-5aacea28eb35.json)
 is the exact physical line 37410/source index 37408 of archive
@@ -188,9 +190,10 @@ target slot. Both instructions belong to source block 0. It also requires
 `temporary_power_toughness_v1`, `indestructible_v1` and `creature_target_v1`.
 The existing `temporary_indestructible_spell_v1` and `temporary_flying_spell_v1`
 capabilities continue to describe only their pure one-instruction grants.
-Rust and exported schema reject reordered, extra, duplicate or mixed grants,
-separate targets, filters, additional sacrifice costs,
-modes, activations and triggers. This source foundation adds no pool, profile,
+Rust and exported schema reject reordered, extra or duplicate grants,
+separate targets, filters, additional sacrifice costs, modes, activations and
+triggers. Other reviewed keyword vectors use the general family capability below;
+the compound Indestructible subset remains exactly singleton Indestructible. This source foundation adds no pool, profile,
 policy, hosting, search, server or SDK admission.
 
 Complete frozen [Mortal's Resolve source](../packages/game-engine/tests/fixtures/ef29f979-1a6d-47bb-83f5-4679389471da.json)
@@ -287,10 +290,11 @@ one ordinary nonmodal instant/sorcery instruction granting `[Deathtouch]` to one
 unfiltered battlefield creature until end of turn. It also requires
 `deathtouch_v1` and the ordinary creature-target capability. Pure Flying,
 pure Indestructible and the exact compound Indestructible program retain their
-separate capability meanings. Mixed/duplicate keywords, arbitrary keywords,
-extra instructions, qualifiers, modes, activations, triggers and additional
-costs remain rejected. No pool, profile, policy, hosting/search, server or SDK
-admission follows from this foundation.
+separate capability meanings. Reviewed mixed vectors use the general family
+capability below. Duplicate or unreviewed keywords, extra instructions,
+qualifiers, modes, activations, triggers and additional costs remain rejected.
+No pool, profile, policy, hosting/search, server or SDK admission follows from
+this foundation.
 
 Complete frozen [Serpent's Gift source](../packages/game-engine/tests/fixtures/b75fb789-6a78-4d23-b872-7627b478fb6f.json)
 is physical line 27602/source index 27600 of the retained d705 archive. It is a
@@ -345,3 +349,81 @@ inherited `collapsible_if` exception. The source runner passed tooling and
 structure checks but its archive-parser import lacked local Ajv; no dependencies
 were installed. Full runtime, release/profile/consumer and completion matrices
 were omitted. Preserved earlier attempts remain failures, not acceptance.
+
+
+## Temporary creature keyword program family
+
+The schema-1 `temporary_creature_keyword_program_v1` capability admits the newly
+reviewed combinations of the existing temporary grant machinery. A complete
+ordinary nonmodal instant/sorcery has exactly one unfiltered battlefield-creature
+target at slot 0, a nonempty selection ID, and controller choice at announcement.
+Its program is either a single `GrantKeywords`, retaining the existing pure-grant
+source-block provenance, or `ModifyPowerToughness` followed by `GrantKeywords`,
+both from source block 0. Both operations use target slot 0 and last until end of
+turn. Fixed power and toughness are arbitrary signed `ExactQuantity` parameters,
+including zero and quantities larger than machine integers.
+
+The grant vector is nonempty, unique and drawn only from Flying, Deathtouch,
+Indestructible and Lifelink. Order remains serialized as supplied. Pure Lifelink,
+multiple keywords, and modifier-plus-Flying/Deathtouch/Lifelink use the one general
+capability. Pure singleton Flying, Deathtouch and Indestructible retain exactly
+their existing temporary-spell capabilities; modifier-plus-singleton
+Indestructible retains `compound_indestructible_spell_v1`. The general capability
+is spare and rejects on those existing subsets. Every granted keyword separately
+requires its existing primitive capability (`flying_v1`, `deathtouch_v1`,
+`indestructible_v1`, `lifelink_v1`); the modifier requires
+`temporary_power_toughness_v1`. Every program requires `creature_target_v1`.
+No existing catalog or capability set needs to migrate to describe an unrelated
+extension. There is no schema-version change, decoder compatibility path, per-keyword
+pair capability or quantity-specific capability.
+
+Contracts exposes these shared borrowed APIs:
+
+```rust
+pub struct TemporaryCreatureKeywordProgram<'a> {
+    pub modifier: Option<(&'a Quantity, &'a Quantity)>,
+    pub keywords: &'a [KeywordAbility],
+}
+pub fn temporary_creature_keyword_program(
+    p: &SpellProgram,
+) -> Option<TemporaryCreatureKeywordProgram<'_>>;
+pub fn supported_temporary_creature_keywords(keywords: &[KeywordAbility]) -> bool;
+```
+
+The descriptor checks the complete program shape; the definition validator or
+caller additionally checks the ordinary spell kind/context.
+`compound_indestructible_parameters` is a narrow wrapper over this descriptor
+and still recognizes only the existing modifier-plus-singleton Indestructible
+subset. Existing pure-grant validation uses the same descriptor. Additional
+costs, modes, activation/trigger grant contexts, filters, multiple targets,
+nonzero target slots, unsupported durations, reordered/extra operations,
+duplicates, unreviewed keywords and mismatched two-operation source blocks reject.
+The compiler independently rejects unconsumed source clauses. Runtime creation,
+equipment union, damage appearance, exact-incarnation capture and atomic cleanup
+continue through the shared systems described above; the contract adds no new
+runtime operation. Profile/pool, policy, hosting/search and consumer admission
+remain separately owned.
+
+`temporary_creature_keyword_tests` contains synthetic typed controls for all 64
+ordered unique keyword vectors in both program forms, exact missing/spare
+capabilities, signed/large quantities, preserved pure provenance and structural,
+JSON and context rejection, plus frozen-catalog capability/canonical-IR controls.
+Existing singleton/compound tests deliberately use
+unreviewed vocabulary for former mixed-vector negatives; newly admitted mixed
+shapes have explicit positive controls. The exported schema retains the existing
+subset definitions and uses a separate general instruction union. Legacy spell
+capabilities classify exact singleton vectors, while primitive capabilities check
+each contained keyword. The general capability rejects on old subset shapes.
+
+Reusable parent probes are in
+[`temporary-creature-keyword-schema-probes.mjs`](../packages/game-engine/crates/contracts/tests/temporary-creature-keyword-schema-probes.mjs).
+Every mutation clones an exact frozen positive control, and the harness verifies
+that all controls remain byte-identical. `--prepare-only` checks probe construction
+without loading Ajv or executing schema validation. Parent execution takes
+`--schema PATH --ajv-root NODE_MODULES_DIRECTORY`, loads Ajv2020 from the existing
+package root, and explicitly validates `uint32`. It reports the schema hash,
+Ajv version, control hash and named failures. Nothing is installed or generated.
+All new-source native tests and exported-schema validation are **UNRUN** in this
+source-only layer; only rustfmt, source guards and probe preparation are checked.
+The parent's single combined pass owns final qualification and exact producer
+identity. Earlier executed evidence above retains its original source scope.
