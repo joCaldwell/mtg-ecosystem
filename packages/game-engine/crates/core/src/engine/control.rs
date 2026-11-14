@@ -555,6 +555,8 @@ mod tests {
             .unwrap()
             .plus_one_counters = 3.into();
         let receipt = PermanentManaUndo {
+            ability_use: None,
+            previously_used: false,
             player: PlayerId(1),
             source: game.object_before(target).unwrap(),
             counters: 3.into(),
