@@ -85,7 +85,7 @@ older ordinary damage as newly deathtouch. It has no pool or consumer admission.
 These foundations are scoped in the [keyword contract](game-engine-indestructible.md).
 Damage-source LKI admits validated spell grants while replay authenticates the
 historical appearance; the guard retains duplicate and departure invariants.
-The current focused combined qualification uses source
+The preceding five-increment focused qualification uses source
 `4b9f8bb2fa5d544ab12947328e5efe2947be3264` and copied producer
 `770125c36502febc3a1f1276094666b34109809e32a4429673a8e7e342aad619`,
 with all 763 compiled source rows verified. It passed 368 Rust tests, including
@@ -115,10 +115,12 @@ paid accepted-pod combat/replay witness and one fixed-index completion game.
 The Ertai blue-default addition preserved the then-45-definition pool. Its
 separate fixed-index game finished naturally and replayed, with paid blue
 cast/activation coverage qualified in that contract. Subsequent Withstand Death
-and Jump admission brings the blocking pool to 47 definitions: each black/green
-default replaces one Forest with protection (39 Forests), and blue replaces one
-Island with Jump (89 Islands). Conservative public-IR policy responds to supported
-threats or lifts an actual attacker before blockers. Paid legal-pod prefixes verify
+and Jump admission brought the blocking pool to 47 definitions. Complete Mortal's
+Resolve admission brings it to 48: black/green defaults each retain Withstand Death
+and add the compound spell (38 Forests); blue retains Jump (89 Islands).
+Conservative public-IR policy responds to supported threats, accounts for the
+compound pump as well as protection, or lifts an actual attacker before blockers.
+Paid legal-pod prefixes verify
 protection/combat/cleanup/fresh destruction and flight/blocking/commander damage,
 including atomic rejection, snapshots and replay. Hosting/search, consumer
 qualification and the earlier pools remain separate.
@@ -138,10 +140,14 @@ search and downstream consumer qualification remain separate.
 The subsequent [indestructible sacrifice-pool admission](game-engine-sacrifice.md#profile)
 adds complete Myr/Relic data and a singleton red-default Relic, with a genuine
 paid Shrapnel sacrifice/replay prefix and conservative public-keyword destruction
-policy. Subsequent Darksteel Plate admission brings that pool to 159 definitions
+policy. Subsequent Darksteel Plate admission brought that pool to 159 definitions
 and replaces one white-default Plains with Plate. Its public-IR equip policy
 retains equal-value protection and moves only for useful improvement, with a
 paid combat/snapshot/replay prefix and separate synthetic policy probes.
+Complete Basilisk Collar admission brings the pool to 160 and adds a singleton
+to white (55 Plains), preserving Plate. Its existing static grants, equip, damage
+and attachment mechanics execute unchanged; the paid pod verifies deathtouch
+lethal damage, lifelink and grant loss after removal at both budget quanta.
 Source-qualified headless evidence remains separate from hosted/search
 and downstream consumer qualification.
 The [ordinary tap primitive](game-engine-untap-permanents.md#creature-tap-and-controller-draw)
