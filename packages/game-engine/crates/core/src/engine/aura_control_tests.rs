@@ -186,6 +186,599 @@ fn visible(g: &Game, aura: u32, creature: u32, controller: u8) {
     assert_eq!(g.trace, trace);
 }
 
+fn fund(g: &mut Game, q: u64, name: &str, count: usize) {
+    for _ in 0..count {
+        let r = request(g, q);
+        let source = g
+            .state
+            .rules
+            .objects
+            .values()
+            .find(|o| {
+                o.controller == r.player()
+                    && o.zone == Zone::Battlefield
+                    && !o.tapped
+                    && g.definition(o.id.card).unwrap().name == name
+            })
+            .unwrap()
+            .id;
+        g.respond(
+            r.player(),
+            r.decision_id(),
+            Response::ActivateMana { object: source },
+        )
+        .unwrap();
+    }
+}
+
+fn finish_query(g: &Game, mut result: QueryResult) -> QueryValue {
+    for _ in 0..10000 {
+        result = match result {
+            QueryResult::Complete(v) => return v,
+            QueryResult::Incomplete { work, .. } => g.resume_work(work, Budget::new(1)),
+            QueryResult::Rejected(r) => panic!("query rejected {r:?}"),
+        };
+    }
+    panic!("bounded query")
+}
+
+#[test]
+fn paid_aura_control_same_controller_preserves_combat_real_change_preserves_other_facts() {
+    let mut rows = vec![
+        ("Mind Control", 0, 0, true),
+        ("Control Magic", 0, 0, true),
+        ("Charging Monstrosaur", 2, 1, false),
+        ("Bonesplitter", 0, 0, false),
+        ("Battlegrowth", 0, 0, true),
+        ("Lightning Bolt", 0, 0, true),
+        ("Naturalize", 0, 0, true),
+        ("Naturalize", 0, 0, true),
+    ];
+    lands(&mut rows, "Island", 0, 10);
+    lands(&mut rows, "Forest", 0, 5);
+    lands(&mut rows, "Mountain", 0, 1);
+    both(prepared(&rows), |g, q| {
+        cast(g, q, 0, target(g, 2));
+        assert!(!g.current(object(g, 2)).unwrap().attack_ready);
+        let turn = g.turn().number;
+        own_main(g, q, 0, turn);
+        let creature = object(g, 2);
+        assert!(g.current(creature).unwrap().attack_ready);
+        equip(g, q, 3, 2);
+        fund(g, q, "Forest", 1);
+        cast(g, q, 4, target(g, 2));
+        fund(g, q, "Mountain", 1);
+        cast(g, q, 5, target(g, 2));
+        let before = g.current(creature).unwrap().clone();
+        cast(g, q, 1, target(g, 2));
+        assert_eq!(
+            g.current(creature).unwrap(),
+            &before,
+            "same controller preserves readiness and marks"
+        );
+        for _ in 0..100 {
+            let r = request(g, q);
+            if let Request::Attackers { ref candidates, .. } = r {
+                assert!(candidates.contains(&creature));
+                answer(
+                    g,
+                    q,
+                    Response::Attackers {
+                        attacks: vec![(creature, PlayerId(1))],
+                    },
+                );
+                break;
+            }
+            answer(g, q, pass(&r));
+        }
+        until_player(g, q, PlayerId(0));
+        assert!(g.state.rules.combat.iter().any(|a| a.attacker == creature));
+        let before = g.current(creature).unwrap().clone();
+        fund(g, q, "Forest", 2);
+        cast(g, q, 6, target(g, 1));
+        assert_eq!(g.current(creature).unwrap(), &before);
+        assert!(g.state.rules.combat.iter().any(|a| a.attacker == creature));
+        recover(g);
+        fund(g, q, "Forest", 2);
+        cast(g, q, 7, target(g, 0));
+        control(g, 2, 1, 2, 1);
+        let after = g.current(creature).unwrap();
+        assert!(!after.attack_ready);
+        assert!(after.tapped);
+        assert_eq!(after.marked_damage, 3.into());
+        assert_eq!(after.plus_one_counters, 1.into());
+        assert!(
+            !g.state
+                .rules
+                .combat
+                .iter()
+                .any(|a| a.attacker == creature || a.blockers.contains(&creature))
+        );
+        assert_eq!(g.current(object(g, 3)).unwrap().attached_to, Some(creature));
+        assert_eq!(g.current(object(g, 3)).unwrap().controller, PlayerId(0));
+    });
+}
+
+#[test]
+fn paid_aura_control_source_and_target_bounce_never_follow_successor() {
+    let mut rows = vec![
+        ("Mind Control", 0, 0, true),
+        ("Grizzly Bears", 0, 1, false),
+        ("Disperse", 0, 0, true),
+        ("Unsummon", 0, 0, true),
+    ];
+    lands(&mut rows, "Island", 0, 15);
+    lands(&mut rows, "Forest", 0, 2);
+    both(prepared(&rows), |g, q| {
+        cast(g, q, 0, target(g, 1));
+        let aura = object(g, 0);
+        let creature = object(g, 1);
+        cast(g, q, 2, target(g, 0));
+        control(g, 1, 1, 0, 1);
+        assert!(g.current(aura).is_err());
+        assert_eq!(
+            g.current(object(g, 0)).unwrap().zone,
+            Zone::Hand { owner: PlayerId(0) }
+        );
+        assert_eq!(g.current(object(g, 0)).unwrap().attachment_timestamp, None);
+        cast(g, q, 0, target(g, 1));
+        assert_eq!(
+            g.current(object(g, 0)).unwrap().attachment_timestamp,
+            Some(2)
+        );
+        let second_aura = object(g, 0);
+        assert_ne!(second_aura, aura);
+        announce(g, q, 3, target(g, 1));
+        let mut paused = false;
+        resolve(g, q, |g| {
+            if g.current(creature).is_err()
+                && g.current(second_aura)
+                    .is_ok_and(|o| o.zone == Zone::Battlefield)
+            {
+                paused = true;
+                recover(g);
+                assert_eq!(g.current(second_aura).unwrap().attached_to, Some(creature));
+                assert_ne!(
+                    g.current(second_aura).unwrap().attached_to,
+                    Some(object(g, 1))
+                );
+            }
+        });
+        if q == 1 {
+            assert!(paused);
+        }
+        assert_eq!(
+            g.current(object(g, 0)).unwrap().zone,
+            Zone::Graveyard { owner: PlayerId(0) }
+        );
+        let successor = g.current(object(g, 1)).unwrap();
+        assert_eq!(successor.zone, Zone::Hand { owner: PlayerId(0) });
+        fund(g, q, "Forest", 2);
+        cast(g, q, 1, vec![]);
+        assert_ne!(object(g, 1), creature);
+        control(g, 1, 0, 0, 0);
+        assert_eq!(g.current(object(g, 0)).unwrap().attached_to, None);
+        assert_eq!(g.state.rules.next_attachment_timestamp, 3);
+    });
+}
+
+#[test]
+fn paid_aura_control_dynamic_controlled_targets_hexproof_and_stale_query_receipts() {
+    // Both branches remove a real paid control source in response. Masterful
+    // Flourish rechecks "you control"; Dive Down resolves first and its existing
+    // Hexproof follows current control when the paid source subsequently leaves.
+    for protection in ["Masterful Flourish", "Dive Down"] {
+        let mut rows = vec![
+            ("Mind Control", 0, 0, true),
+            ("Grizzly Bears", 2, 1, false),
+            (protection, 0, 0, true),
+            ("Disperse", 1, 1, true),
+            ("Unsummon", 0, 0, true),
+            ("Unsummon", 1, 1, true),
+        ];
+        lands(&mut rows, "Island", 0, 7);
+        lands(&mut rows, "Swamp", 0, 1);
+        lands(&mut rows, "Island", 1, 4);
+        both(prepared(&rows), |g, q| {
+            cast(g, q, 0, target(g, 1));
+            control(g, 1, 0, 2, 1);
+            let creature = object(g, 1);
+            answer(g, q, Response::Cast { card: CardId(2) });
+            let r = request(g, q);
+            assert!(matches!(&r,Request::Targets {candidates,..} if candidates==&vec![creature]));
+            let before = g.state.clone();
+            let trace = g.trace.clone();
+            let QueryValue::Decision(Some(PlayerRequest::Targets {
+                token, candidates, ..
+            })) = finish_query(g, g.player_decision_for(PlayerId(0), Budget::new(0)))
+            else {
+                panic!("current-controller target query")
+            };
+            assert_eq!(candidates.len(), 1);
+            for seat in 1..4 {
+                assert!(matches!(
+                    finish_query(g, g.player_decision_for(PlayerId(seat), Budget::new(0))),
+                    QueryValue::Decision(None)
+                ));
+            }
+            let QueryResult::Incomplete { work: stale, .. } =
+                g.observe(PlayerId(0), Budget::new(0))
+            else {
+                panic!("suspended observation")
+            };
+            let QueryValue::Validated(receipt) = finish_query(
+                g,
+                g.check_player_response(
+                    PlayerId(0),
+                    token.clone(),
+                    PlayerResponse::Targets {
+                        objects: candidates.clone(),
+                    },
+                    Budget::new(0),
+                ),
+            ) else {
+                panic!("target validation receipt")
+            };
+            let QueryValue::Validated(duplicate) = finish_query(
+                g,
+                g.check_player_response(
+                    PlayerId(0),
+                    token,
+                    PlayerResponse::Targets {
+                        objects: candidates,
+                    },
+                    Budget::new(0),
+                ),
+            ) else {
+                panic!("second receipt before change")
+            };
+            assert_eq!(g.state, before);
+            assert_eq!(g.trace, trace);
+            g.submit(receipt).unwrap();
+            if protection == "Masterful Flourish" {
+                // The spell is now in its actual mana window.
+                let r = request(g, q);
+                assert!(matches!(r, Request::Mana { .. }));
+                let land = g
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .find(|o| {
+                        o.zone == Zone::Battlefield
+                            && !o.tapped
+                            && g.definition(o.id.card).unwrap().name == "Swamp"
+                    })
+                    .unwrap()
+                    .id;
+                answer(g, q, Response::ActivateMana { object: land });
+            }
+            // The existing payment helper completes the accepted target binding.
+            // Stop at priority rather than resolving the pending spell here.
+            loop {
+                let r = request(g, q);
+                match r {
+                    Request::Mana { .. } => {
+                        if g.payment_pool(
+                            r.player(),
+                            match &r {
+                                Request::Mana { cost, .. } => cost,
+                                _ => unreachable!(),
+                            },
+                        )
+                        .is_ok()
+                        {
+                            answer(g, q, Response::FinishMana { undo_mana: false });
+                        } else {
+                            fund(g, q, "Island", 1);
+                        }
+                    }
+                    Request::Priority { .. } => break,
+                    x => panic!("one-symbol paid protection {x:?}"),
+                }
+            }
+            let protection_stack = g.state.rules.stack.last().unwrap().id;
+            assert!(g.state.rules.stack.last().unwrap().paid.is_some());
+            if protection == "Dive Down" {
+                resolve(g, q, |_| {});
+                assert!(g.has_keyword(creature, KeywordAbility::Hexproof));
+                assert!(g.targetable_by(creature, PlayerId(0)));
+                assert!(!g.targetable_by(creature, PlayerId(1)));
+                announce(g, q, 4, target(g, 1));
+                let bounce = g.state.rules.stack.last().unwrap().id;
+                until_player(g, q, PlayerId(1));
+                cast(g, q, 3, target(g, 0));
+                control(g, 1, 1, 2, 1);
+                assert!(g.targetable_by(creature, PlayerId(1)));
+                assert!(!g.targetable_by(creature, PlayerId(0)));
+                assert_eq!(object(g, 1), creature);
+                if g.trace.mode == TraceMode::Detailed {
+                    assert!(g.events().iter().any(|e| matches!(e,Event::SpellCompleted {stack_id,resolved:false} if *stack_id==bounce)));
+                }
+                until_player(g, q, PlayerId(1));
+                cast(g, q, 5, target(g, 1)); // Actual current controller can target it.
+                assert!(g.current(creature).is_err());
+            } else {
+                until_player(g, q, PlayerId(1));
+                cast(g, q, 3, target(g, 0));
+                control(g, 1, 1, 2, 1);
+                assert_eq!(object(g, 1), creature);
+                assert!(!g.has_keyword(creature, KeywordAbility::Indestructible));
+                assert_eq!(g.characteristics(creature).unwrap().power, Some(2.into()));
+                if g.trace.mode == TraceMode::Detailed {
+                    assert!(g.events().iter().any(|e| matches!(e,Event::SpellCompleted {stack_id,resolved:false} if *stack_id==protection_stack)));
+                }
+            }
+            assert!(g.submit(duplicate).is_err());
+            assert!(matches!(
+                g.resume_work(stale, Budget::unlimited()),
+                QueryResult::Rejected(QueryRejection::StaleOrForeignWork)
+            ));
+        });
+    }
+}
+
+#[test]
+fn paid_aura_control_sickness_haste_tap_authority_and_frozen_invocation_controller() {
+    let mut rows = vec![
+        ("Mind Control", 0, 0, true),
+        ("Control Magic", 0, 0, true),
+        ("Control Magic", 0, 0, true),
+        ("Merfolk Looter", 2, 1, false),
+        ("Llanowar Elves", 2, 1, false),
+        ("Raging Goblin", 2, 1, false),
+        ("Disperse", 1, 1, true),
+    ];
+    lands(&mut rows, "Island", 0, 13);
+    lands(&mut rows, "Island", 1, 2);
+    both(prepared(&rows), |g, q| {
+        for (a, t) in [(0, 3), (1, 4), (2, 5)] {
+            cast(g, q, a, target(g, t));
+            control(g, t, 0, 2, 1);
+        }
+        for id in [3, 4, 5] {
+            assert!(!g.current(object(g, id)).unwrap().attack_ready);
+        }
+        let r = request(g, q);
+        let before = g.state.clone();
+        let trace = g.trace.clone();
+        for response in [
+            Response::ActivateAbility {
+                object: object(g, 3),
+                ability: 0,
+            },
+            Response::ActivateMana {
+                object: object(g, 4),
+            },
+        ] {
+            assert!(g.respond(r.player(), r.decision_id(), response).is_err());
+            assert_eq!(g.state, before);
+            assert_eq!(g.trace, trace);
+        }
+        assert!(!g.creatures(PlayerId(0), true).contains(&object(g, 3)));
+        assert!(!g.creatures(PlayerId(0), true).contains(&object(g, 4)));
+        assert!(
+            g.creatures(PlayerId(0), true).contains(&object(g, 5)),
+            "exact intrinsic Haste overrides new control sickness"
+        );
+        assert!(
+            g.validate_permanent_mana_activation(PlayerId(1), object(g, 4))
+                .is_err()
+        );
+        let turn = g.turn().number;
+        own_main(g, q, 0, turn);
+        let looter = object(g, 3);
+        let elf = object(g, 4);
+        assert!(g.current(looter).unwrap().attack_ready);
+        assert!(g.current(elf).unwrap().attack_ready);
+        assert!(
+            g.validate_permanent_mana_activation(PlayerId(1), elf)
+                .is_err()
+        );
+        answer(g, q, Response::ActivateMana { object: elf });
+        request(g, q);
+        assert!(g.current(elf).unwrap().tapped);
+        assert_eq!(
+            g.state.rules.players[0].mana.get(&Color::G),
+            Some(&1.into())
+        );
+        answer(
+            g,
+            q,
+            Response::ActivateAbility {
+                object: looter,
+                ability: 0,
+            },
+        );
+        loop {
+            let r = request(g, q);
+            match r {
+                Request::Mana { .. } => answer(g, q, Response::FinishMana { undo_mana: false }),
+                Request::Priority { .. } => break,
+                x => panic!("paid zero-mana tap ability {x:?}"),
+            }
+        }
+        let invocation = g.state.rules.stack.last().unwrap().clone();
+        assert!(invocation.paid.is_some());
+        assert_eq!(invocation.controller, PlayerId(0));
+        assert!(g.current(looter).unwrap().tapped);
+        recover(g);
+        let library = |g: &Game, seat: u8| {
+            g.state
+                .rules
+                .objects
+                .values()
+                .filter(|o| {
+                    o.zone
+                        == (Zone::Library {
+                            owner: PlayerId(seat),
+                        })
+                })
+                .count()
+        };
+        let old0 = library(g, 0);
+        let old1 = library(g, 1);
+        until_player(g, q, PlayerId(1));
+        announce(g, q, 6, target(g, 0));
+        let mut changed_before_resolution = false;
+        resolve(g, q, |g| {
+            if !changed_before_resolution
+                && g.current(looter).unwrap().controller == PlayerId(1)
+                && g.state.rules.stack.iter().any(|s| s.id == invocation.id)
+            {
+                changed_before_resolution = true;
+                let frozen = g
+                    .state
+                    .rules
+                    .stack
+                    .iter()
+                    .find(|s| s.id == invocation.id)
+                    .unwrap();
+                assert_eq!(frozen.controller, PlayerId(0));
+                assert_eq!(frozen.source, looter);
+                recover(g);
+            }
+        });
+        if q == 1 {
+            assert!(changed_before_resolution);
+        }
+        control(g, 3, 1, 2, 1);
+        assert_eq!(library(g, 0), old0 - 1);
+        assert_eq!(library(g, 1), old1);
+        assert!(g.current(looter).unwrap().tapped);
+        assert!(!g.current(looter).unwrap().attack_ready);
+    });
+}
+
+#[test]
+fn paid_aura_control_departures_simultaneous_losses_and_common_prior_wipe() {
+    for scenario in [
+        "owner",
+        "aura_owner",
+        "dead_default",
+        "losses",
+        "wipe_source_first",
+        "wipe_target_first",
+    ] {
+        let mut rows = vec![
+            ("Mind Control", 0, 0, true),
+            ("Control Magic", 1, 1, true),
+            ("Grizzly Bears", 3, 2, false),
+            ("Disperse", 0, 0, true),
+            ("Planar Cleansing", 0, 0, true),
+            ("Earthquake", 0, 0, true),
+        ];
+        let (older, creature) = if scenario == "wipe_target_first" {
+            rows.swap(0, 2);
+            (2, 0)
+        } else {
+            (0, 2)
+        };
+        lands(&mut rows, "Island", 0, 8);
+        lands(&mut rows, "Island", 1, 4);
+        lands(&mut rows, "Plains", 0, 6);
+        lands(&mut rows, "Mountain", 0, 2);
+        let mut p = prepared(&rows);
+        if scenario == "losses" {
+            p.config.initial.life = [40.into(), 1.into(), 1.into(), 40.into()];
+            p.profile_digest = digest(&p.config).unwrap();
+        }
+        both(p, |g, q| {
+            cast(g, q, older, target(g, creature));
+            let turn = g.turn().number;
+            own_main(g, q, 1, turn);
+            cast(g, q, 1, target(g, creature));
+            let target_object = object(g, creature);
+            control(g, creature, 1, 3, 2);
+            recover(g);
+            match scenario {
+                "owner" => {
+                    g.concede(PlayerId(3)).unwrap();
+                    request(g, q);
+                    assert!(g.object_id(CardId(creature)).is_none());
+                    for aura in [older, 1] {
+                        assert_eq!(
+                            g.current(object(g, aura)).unwrap().zone,
+                            Zone::Graveyard {
+                                owner: if aura == 1 { PlayerId(1) } else { PlayerId(0) }
+                            }
+                        );
+                    }
+                }
+                "aura_owner" => {
+                    g.concede(PlayerId(1)).unwrap();
+                    request(g, q);
+                    assert!(g.object_id(CardId(1)).is_none());
+                    control(g, creature, 0, 3, 2);
+                    g.concede(PlayerId(0)).unwrap();
+                    request(g, q);
+                    control(g, creature, 2, 3, 2);
+                }
+                "dead_default" => {
+                    g.concede(PlayerId(2)).unwrap();
+                    request(g, q);
+                    control(g, creature, 1, 3, 2);
+                    g.concede(PlayerId(1)).unwrap();
+                    request(g, q);
+                    control(g, creature, 0, 3, 2);
+                    until_player(g, q, PlayerId(0));
+                    cast(g, q, 3, target(g, older));
+                    assert!(g.current(target_object).is_err());
+                    assert_eq!(g.current(object(g, creature)).unwrap().zone, Zone::Exile);
+                }
+                "losses" => {
+                    let turn = g.turn().number;
+                    own_main(g, q, 0, turn);
+                    fund(g, q, "Mountain", 2);
+                    answer(g, q, Response::Cast { card: CardId(5) });
+                    answer(g, q, Response::AnnounceX { value: 1.into() });
+                    super::equipped_indestructible_tests::pay_and_resolve(g, q, vec![]);
+                    assert!(!g.is_live(PlayerId(1)));
+                    assert!(!g.is_live(PlayerId(2)));
+                    control(g, creature, 0, 3, 2);
+                    assert_eq!(g.current(target_object).unwrap().marked_damage, 1.into());
+                    if g.trace.mode == TraceMode::Detailed {
+                        assert!(g.events().iter().any(|e| matches!(e,Event::PlayersLost {losses} if losses.iter().map(|(p,_)|*p).collect::<Vec<_>>()==vec![PlayerId(1),PlayerId(2)])));
+                    }
+                    cast(g, q, 3, target(g, older));
+                    assert_eq!(g.current(object(g, creature)).unwrap().zone, Zone::Exile);
+                }
+                _ => {
+                    let turn = g.turn().number;
+                    own_main(g, q, 0, turn);
+                    fund(g, q, "Plains", 6);
+                    let count = g.events().len();
+                    cast(g, q, 4, vec![]);
+                    assert!(g.current(target_object).is_err());
+                    for (id, owner) in [(older, 0), (1, 1), (creature, 3)] {
+                        assert_eq!(
+                            g.current(object(g, id)).unwrap().zone,
+                            Zone::Graveyard {
+                                owner: PlayerId(owner)
+                            }
+                        );
+                    }
+                    if g.trace.mode == TraceMode::Detailed {
+                        assert!(!g.events().iter().skip(count).any(|e| matches!(e,Event::ControlChanged {object,..} if *object==target_object)),"no transient survivor control during one wipe");
+                        let wipe=batches(g).into_iter().find(|b|b.occurrences.iter().any(|o|matches!(&o.actual,EventOutcome::Moved {movement} if movement.previous==target_object))).unwrap();
+                        assert!(wipe.occurrences.len() >= 3);
+                        for occurrence in &wipe.occurrences {
+                            if let Some(fact) = occurrence
+                                .before
+                                .objects
+                                .iter()
+                                .find(|o| o.object == target_object)
+                            {
+                                assert_eq!(fact.controller, PlayerId(1));
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+}
+
 #[test]
 fn paid_aura_control_complete_sources_enter_attached_before_observation() {
     for (name, cost) in [("Mind Control", 5), ("Control Magic", 4)] {
@@ -259,7 +852,8 @@ fn paid_aura_control_chronology_beats_physical_order_and_reveals_older() {
         both(prepared(&rows), |g, q| {
             cast(g, q, first, target(g, 2));
             control(g, 2, 0, 3, 2);
-            own_main(g, q, 1, g.turn().number);
+            let turn = g.turn().number;
+            own_main(g, q, 1, turn);
             cast(g, q, second, target(g, 2));
             control(g, 2, 1, 3, 2);
             assert_eq!(
@@ -296,11 +890,12 @@ fn paid_aura_control_snapshot_rejects_coherent_timestamp_controller_and_provenan
     both(prepared(&rows), |g, q| {
         cast(g, q, 0, target(g, 2));
         recover(g);
-        own_main(g, q, 1, g.turn().number);
+        let turn = g.turn().number;
+        own_main(g, q, 1, turn);
         cast(g, q, 1, target(g, 2));
         recover(g);
         let wire = g.snapshot().unwrap();
-        for variant in 0..4 {
+        for variant in 0..3 {
             let mut bad: Snapshot = strict_read(&wire).unwrap();
             match variant {
                 0 => {
@@ -332,10 +927,13 @@ fn paid_aura_control_snapshot_rejects_coherent_timestamp_controller_and_provenan
                         .unwrap()
                         .controller = PlayerId(2)
                 }
-                2 => {
+                _ => {
                     let a = bad.state.rules.objects.get_mut(&CardId(1)).unwrap();
                     a.attached_to = None;
                     a.attachment_timestamp = None;
+                    a.zone = Zone::Graveyard { owner: PlayerId(1) };
+                    a.id.incarnation += 1;
+                    a.attack_ready = false;
                     bad.state
                         .rules
                         .objects
@@ -343,7 +941,16 @@ fn paid_aura_control_snapshot_rejects_coherent_timestamp_controller_and_provenan
                         .unwrap()
                         .controller = PlayerId(0);
                 }
-                _ => bad.state.rules.control_effects.clear(),
+            }
+            if variant == 0 {
+                let mut structural = g.fork();
+                structural.state = bad.state.clone();
+                structural.validate_state().unwrap(); // Locally coherent, historically false.
+            }
+            if variant == 1 {
+                let mut structural = g.fork();
+                structural.state = bad.state.clone();
+                assert!(structural.validate_control_state().is_err());
             }
             bad.state_sha256 = digest(&bad.state).unwrap();
             assert!(
