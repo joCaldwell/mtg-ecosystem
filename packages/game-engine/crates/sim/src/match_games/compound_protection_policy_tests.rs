@@ -47,9 +47,12 @@ fn parameterized_fixture(power: i64, toughness: i64) -> (Catalog, PermittedView)
     d.name = format!("Synthetic compound {power}/{toughness}");
     d.oracle_id = format!("synthetic-compound-{power}-{toughness}");
     let p = d.spell.as_mut().unwrap();
-    let I::ModifyPowerToughness {
-        power: p_bonus,
-        toughness: t_bonus,
+    let I::GrantKeywords {
+        modifier:
+            Some(mtg_contracts::CreatureStatModifier {
+                power: p_bonus,
+                toughness: t_bonus,
+            }),
         ..
     } = &mut p.instructions[0]
     else {
@@ -95,7 +98,7 @@ fn compound_policy_complete_ir_has_distinct_identity_and_two_mana_payment() {
     let p = d.spell.as_ref().unwrap();
     assert!(compound_indestructible_spell(d, p));
     assert!(!temporary_indestructible_spell(d, p));
-    assert_eq!(p.instructions.len(), 2);
+    assert_eq!(p.instructions.len(), 1);
     let before = canonical(&v).unwrap();
     let mut s = strategy(&c);
     assert_eq!(
@@ -210,29 +213,57 @@ fn compound_policy_exact_shape_capability_and_identity_controls() {
         let mut b = original.clone();
         let p = b.spell.as_mut().unwrap();
         match n {
-            0 => p.instructions.reverse(),
+            0 => {
+                // A formerly split same-target program is no longer a complete effect.
+                let I::GrantKeywords {
+                    modifier: Some(m),
+                    keywords,
+                    duration,
+                    source_block,
+                    target_slot,
+                } = p.instructions[0].clone()
+                else {
+                    unreachable!()
+                };
+                p.instructions = vec![
+                    I::ModifyPowerToughness {
+                        target_slot,
+                        power: m.power,
+                        toughness: m.toughness,
+                        duration,
+                        source_block,
+                    },
+                    I::GrantKeywords {
+                        target_slot,
+                        modifier: None,
+                        keywords,
+                        duration,
+                        source_block,
+                    },
+                ];
+            }
             1 => {
-                if let I::ModifyPowerToughness { target_slot, .. } = &mut p.instructions[0] {
+                if let I::GrantKeywords { target_slot, .. } = &mut p.instructions[0] {
                     *target_slot = 1;
                 }
             }
             2 => {
-                if let I::ModifyPowerToughness { source_block, .. } = &mut p.instructions[0] {
+                if let I::GrantKeywords { source_block, .. } = &mut p.instructions[0] {
                     *source_block = 1;
                 }
             }
             3 => {
-                if let I::GrantKeywords { source_block, .. } = &mut p.instructions[1] {
-                    *source_block = 1;
+                if let I::GrantKeywords { keywords, .. } = &mut p.instructions[0] {
+                    keywords.push(K::Indestructible);
                 }
             }
             4 => {
-                if let I::GrantKeywords { target_slot, .. } = &mut p.instructions[1] {
-                    *target_slot = 1;
+                if let I::GrantKeywords { modifier, .. } = &mut p.instructions[0] {
+                    *modifier = None;
                 }
             }
             5 => {
-                if let I::GrantKeywords { keywords, .. } = &mut p.instructions[1] {
+                if let I::GrantKeywords { keywords, .. } = &mut p.instructions[0] {
                     *keywords = vec![K::Flying];
                 }
             }
@@ -272,7 +303,11 @@ fn compound_policy_exact_shape_capability_and_identity_controls() {
         );
     }
     let mut detached = original.spell.as_ref().unwrap().clone();
-    if let I::ModifyPowerToughness { power, .. } = &mut detached.instructions[0] {
+    if let I::GrantKeywords {
+        modifier: Some(mtg_contracts::CreatureStatModifier { power, .. }),
+        ..
+    } = &mut detached.instructions[0]
+    {
         *power = 2.into();
     }
     assert!(compound_indestructible_parameters(&detached).is_some());
@@ -377,7 +412,7 @@ fn compound_policy_parameterized_validated_ir_preserves_complete_defensive_benef
         let p = d.spell.as_ref().unwrap();
         assert!(compound_indestructible_spell(d, p));
         assert!(!temporary_indestructible_spell(d, p));
-        assert_eq!(p.instructions.len(), 2);
+        assert_eq!(p.instructions.len(), 1);
         let before = canonical(&v).unwrap();
         let program_before = p.clone();
         let mut s = strategy(&c);
