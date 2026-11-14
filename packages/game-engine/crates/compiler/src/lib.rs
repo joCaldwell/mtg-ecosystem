@@ -560,6 +560,11 @@ enum Step {
         count: ModeCount,
         options: Vec<ModeOption>,
     },
+    GainAbilities {
+        what: serde_json::Value,
+        abilities: Vec<serde_json::Value>,
+        duration: SourceDuration,
+    },
     Pump {
         what: serde_json::Value,
         power: SignedAmount,
@@ -1760,6 +1765,26 @@ fn append_spell_effects(
                     Instruction::PutPlusOneCounters {
                         on,
                         amount: fixed_positive(count)?,
+                        source_block,
+                    }
+                }
+                Step::GainAbilities {
+                    what,
+                    abilities,
+                    duration,
+                } if duration.duration == "end-of-turn"
+                    && abilities
+                        == &[
+                            serde_json::json!({"gained":"keyword","keyword":{"keyword":"indestructible"}}),
+                        ] =>
+                {
+                    let target: Target = serde_json::from_value(what.clone()).map_err(|_| {
+                        unsupported("effects.gain-abilities", "unsupported keyword target")
+                    })?;
+                    Instruction::GrantKeywords {
+                        target_slot: bind_creature_target(program, slots, &target)?,
+                        keywords: vec![KeywordAbility::Indestructible],
+                        duration: Duration::UntilEndOfTurn,
                         source_block,
                     }
                 }
@@ -3862,8 +3887,8 @@ mod tests {
                 "trigger:player-dealt-damage",
             ),
             (
-                r#"[{"kind":"spell","effects":[{"steps":[{"effect":"gain-abilities"}]}]}]"#,
-                "effect:gain-abilities",
+                r#"[{"kind":"spell","effects":[{"steps":[{"effect":"future-effect"}]}]}]"#,
+                "effect:future-effect",
             ),
             (
                 r#"[{"kind":"keywords","keywords":[{"keyword":"ward","cost":[]}]}]"#,
@@ -8391,3 +8416,6 @@ mod indestructible_tests;
 
 #[cfg(test)]
 mod equipped_indestructible_tests;
+
+#[cfg(test)]
+mod temporary_indestructible_tests;
