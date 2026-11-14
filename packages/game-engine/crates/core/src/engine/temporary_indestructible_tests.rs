@@ -38,7 +38,7 @@ fn prepared(rows: &[(&str, bool)]) -> Prepared {
     p.profile_digest = digest(&p.config).unwrap();
     p
 }
-fn target(g: &Game, id: u32) -> Vec<TargetEntity> {
+pub(super) fn target(g: &Game, id: u32) -> Vec<TargetEntity> {
     vec![TargetEntity::Object {
         object: object(g, id),
     }]
@@ -46,7 +46,7 @@ fn target(g: &Game, id: u32) -> Vec<TargetEntity> {
 fn protected(g: &Game, id: u32) -> bool {
     g.has_keyword(object(g, id), KeywordAbility::Indestructible)
 }
-fn pass(r: &Request) -> Response {
+pub(super) fn pass(r: &Request) -> Response {
     match r {
         Request::Priority { .. } => Response::Pass,
         Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
@@ -59,7 +59,7 @@ fn pass(r: &Request) -> Response {
         x => panic!("turn {x:?}"),
     }
 }
-fn through_cleanup(g: &mut Game, q: u64) {
+pub(super) fn through_cleanup(g: &mut Game, q: u64) {
     let turn = g.state.rules.turn.number;
     for _ in 0..200 {
         let r = request(g, q);
@@ -70,7 +70,7 @@ fn through_cleanup(g: &mut Game, q: u64) {
     }
     panic!("cleanup bound")
 }
-fn until_player(g: &mut Game, q: u64, p: PlayerId) {
+pub(super) fn until_player(g: &mut Game, q: u64, p: PlayerId) {
     for _ in 0..500 {
         let r = request(g, q);
         if matches!(r,Request::Priority {player,..} if player==p) {
@@ -81,7 +81,7 @@ fn until_player(g: &mut Game, q: u64, p: PlayerId) {
     panic!("priority bound")
 }
 // Announce/pay a spell, stopping at priority before its resolution.
-fn announce(g: &mut Game, q: u64, id: u32, t: Vec<TargetEntity>) {
+pub(super) fn announce(g: &mut Game, q: u64, id: u32, t: Vec<TargetEntity>) {
     answer(g, q, Response::Cast { card: CardId(id) });
     loop {
         let r = request(g, q);
