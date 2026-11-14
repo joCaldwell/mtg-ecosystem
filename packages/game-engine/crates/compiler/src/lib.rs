@@ -1457,9 +1457,17 @@ fn append_spell_effects(
     slots: &mut BTreeMap<String, u32>,
     player_binding: PlayerBinding,
 ) -> Result<(), Failure> {
-    if let [Sentence { steps, .. }] = effects
+    if let [Sentence { bindings, steps }] = effects
         && let [Step::Modal { count, options }] = steps.as_slice()
     {
+        // Outer sentence bindings define executable values; recursing only
+        // into the options would bypass ordinary binding validation below.
+        if !bindings.is_empty() {
+            return Err(unsupported(
+                "bindings",
+                "bindings on standalone modal instructions are unsupported",
+            ));
+        }
         if count.exactly != 1
             || options.len() < 2
             || !program.modes.is_empty()
@@ -8366,3 +8374,6 @@ mod activated_spell_counter_tests;
 
 #[cfg(test)]
 mod activated_permanent_return_tests;
+
+#[cfg(test)]
+mod modal_binding_tests;
