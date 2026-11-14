@@ -62,9 +62,10 @@ adds complete Myr/Relic source support without pool or consumer admission.
 Its separately bounded equipped-creature extension supports complete Darksteel
 Plate and common-prior keyword authority for simultaneous destruction, including
 destructible typed grant controls. It uses schema 1 and the existing
-`indestructible_v1` capability; the 45-definition blocking and 158-definition
-sacrifice catalogs and host/search sets remain unchanged. Its source-qualified
-evidence is identified in that contract, separately from consumer acceptance.
+`indestructible_v1` capability. That source slice preserved catalogs and
+host/search sets; later headless admission is qualified separately below.
+Its source-qualified evidence is identified in that contract, separately from
+consumer acceptance.
 Completed SBA checks consume deathtouch observation windows; ordinary damage
 marks remain until cleanup. Later protection loss can expose lethal marked
 damage, while a completed nonlethal deathtouch window cannot cause another death.
@@ -97,7 +98,11 @@ search and downstream consumer qualification remain separate.
 The subsequent [indestructible sacrifice-pool admission](game-engine-sacrifice.md#profile)
 adds complete Myr/Relic data and a singleton red-default Relic, with a genuine
 paid Shrapnel sacrifice/replay prefix and conservative public-keyword destruction
-policy. Source-qualified headless evidence remains separate from hosted/search
+policy. Subsequent Darksteel Plate admission brings that pool to 159 definitions
+and replaces one white-default Plains with Plate. Its public-IR equip policy
+retains equal-value protection and moves only for useful improvement, with a
+paid combat/snapshot/replay prefix and separate synthetic policy probes.
+Source-qualified headless evidence remains separate from hosted/search
 and downstream consumer qualification.
 The [ordinary tap primitive](game-engine-untap-permanents.md#creature-tap-and-controller-draw)
 supports complete Pressure Point lowering and creature-tap/draw execution, with
