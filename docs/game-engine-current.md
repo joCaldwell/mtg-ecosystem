@@ -81,7 +81,10 @@ Righteousness lowering, authoritative blocker status and payment-time target
 binding correctness. Its subsequent [headless development profile](game-engine-blocking-matches.md)
 adds explicit separate-pool admission and public-view policy support, with a
 paid accepted-pod combat/replay witness and one fixed-index completion game.
-Hosting/search admission and the earlier pools remain unchanged.
+Its current default uses an existing-pool Ertai blue deck in seat 2, preserving
+the other seats and the 45-definition pool. A separate fixed-index game finished
+naturally and replayed, with paid blue cast/activation coverage qualified in that
+contract. Hosting/search admission and the earlier pools remain unchanged.
 Current development also supports [tapped-permanent target filters](game-engine-tapped-targets.md),
 with exact Swift Response and Assassinate source fixtures. The existing headless
 development pool now admits both; hosting and search capability sets remain unchanged.
