@@ -121,7 +121,18 @@ pub struct PlayerBefore {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct AttachmentBefore {
+    pub object: ObjectId,
+    pub target: Option<ObjectId>,
+    pub timestamp: Option<u64>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PreEventFacts {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_attachment_timestamp: Option<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<AttachmentBefore>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub match_state: Option<MatchState>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -206,6 +217,7 @@ impl CommittedBatch {
 }
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum FactKey {
+    AttachmentAllocation,
     TokenAllocation,
     Stack(StackId),
     Turn,
@@ -406,8 +418,20 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             let keys = BTreeSet::from([FactKey::AllDamage]);
             (keys.clone(), keys)
         }
+        ProposedEvent::EnterAttached { object, target } => {
+            let writes =
+                BTreeSet::from([FactKey::Object(object.card), FactKey::AttachmentAllocation]);
+            let mut reads = writes.clone();
+            reads.insert(FactKey::Object(target.card));
+            (reads, writes)
+        }
         ProposedEvent::Attach { object, target } => {
-            let writes = BTreeSet::from([FactKey::Object(object.card)]);
+            let mut writes = BTreeSet::from([FactKey::Object(object.card)]);
+            // Two new attachments have semantic timestamp order and cannot
+            // silently acquire that order from simultaneous leaf iteration.
+            if target.is_some() {
+                writes.insert(FactKey::AttachmentAllocation);
+            }
             let mut reads = writes.clone();
             if let Some(target) = target {
                 reads.insert(FactKey::Object(target.card));
@@ -516,7 +540,8 @@ fn collect<'a>(
                 && occurrences.iter().any(|e| {
                     matches!(
                         e,
-                        ProposedEvent::Setup { .. }
+                        ProposedEvent::EnterAttached { .. }
+                            | ProposedEvent::Setup { .. }
                             | ProposedEvent::AllocateDamageEffect { .. }
                             | ProposedEvent::CreateEffect { .. }
                             | ProposedEvent::ApplyDamageEffect { .. }
@@ -856,6 +881,10 @@ impl Game {
                             .map(|o| o.id),
                     );
                 }
+                ProposedEvent::EnterAttached { object, target } => {
+                    objects.insert(*object);
+                    objects.insert(*target);
+                }
                 ProposedEvent::Attach { object, target } => {
                     objects.insert(*object);
                     if let Some(target) = target {
@@ -925,6 +954,17 @@ impl Game {
                 }
             }
         }
+        let attachments = objects
+            .iter()
+            .map(|object| {
+                let o = self.current(*object)?;
+                Ok(AttachmentBefore {
+                    object: *object,
+                    target: o.attached_to,
+                    timestamp: o.attachment_timestamp,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
         let objects = objects
             .into_iter()
             .map(|object| {
@@ -1010,6 +1050,16 @@ impl Game {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(PreEventFacts {
+            next_attachment_timestamp: events
+                .iter()
+                .any(|event| {
+                    matches!(
+                        event,
+                        ProposedEvent::Attach { .. } | ProposedEvent::EnterAttached { .. }
+                    )
+                })
+                .then_some(self.state.rules.next_attachment_timestamp),
+            attachments,
             match_state: if events.iter().any(|e| {
                 matches!(
                     e,
@@ -1347,26 +1397,86 @@ impl Game {
                     count: *count,
                 }
             }
+            ProposedEvent::EnterAttached { object, target } => {
+                // CR 303.4a/608.3b/603.6a: the Aura is already legally
+                // attached when entry observers and ETB hooks see it.
+                // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+                let source = self.current(*object)?;
+                let definition = self.definition(object.card)?;
+                if source.zone != Zone::Stack
+                    || definition.characteristics.kind != CardKind::Enchantment
+                    || definition.characteristics.subtypes != ["Aura"]
+                    || !self.is_live(source.controller)
+                    || !self.is_battlefield_creature(*target)
+                    || !self
+                        .current(*target)
+                        .is_ok_and(|o| self.is_live(o.controller))
+                    || !self.targetable_by(*target, source.controller)
+                {
+                    return Err("invalid attached Aura entry".into());
+                }
+                // Check allocation before movement/LKI writes, even for direct
+                // private application; the batch/rule-step owns full rollback.
+                let (attachment_timestamp, _) = self.next_attachment_allocation()?;
+                let EventOutcome::Moved { movement } = self.apply_occurrence_with_prior(
+                    &ProposedEvent::Move {
+                        object: *object,
+                        destination: Zone::Battlefield,
+                    },
+                    before,
+                )?
+                else {
+                    return Err("attached entry movement invariant".into());
+                };
+                if movement.destination != Zone::Battlefield {
+                    return Err("unsupported replaced attached entry".into());
+                }
+                self.apply_occurrence(&ProposedEvent::Attach {
+                    object: movement.successor,
+                    target: Some(*target),
+                })?;
+                EventOutcome::EnteredAttached {
+                    movement,
+                    target: *target,
+                    attachment_timestamp,
+                }
+            }
             ProposedEvent::Attach { object, target } => {
                 if self.current(*object)?.zone != Zone::Battlefield
+                    || !self.is_live(self.current(*object)?.controller)
                     || !self
                         .definition(object.card)?
                         .characteristics
                         .subtypes
                         .iter()
                         .any(|s| s == "Equipment" || s == "Aura")
-                    || target.is_some_and(|t| t == *object || !self.is_battlefield_creature(t))
+                    || target.is_some_and(|t| {
+                        t == *object
+                            || !self.is_battlefield_creature(t)
+                            || !self.current(t).is_ok_and(|o| self.is_live(o.controller))
+                    })
                 {
                     return Err("invalid attachment event".into());
                 }
+                let previous = self.current(*object)?.attached_to;
+                let allocation = if previous != *target && target.is_some() {
+                    Some(self.next_attachment_allocation()?)
+                } else {
+                    None
+                };
                 let o = self
                     .state
                     .rules
                     .objects
                     .get_mut(&object.card)
                     .ok_or("missing attachment")?;
-                let previous = o.attached_to;
-                o.attached_to = *target;
+                if previous != *target {
+                    o.attached_to = *target;
+                    o.attachment_timestamp = allocation.map(|(timestamp, _)| timestamp);
+                    if let Some((_, next)) = allocation {
+                        self.state.rules.next_attachment_timestamp = next;
+                    }
+                }
                 EventOutcome::AttachmentChanged {
                     object: *object,
                     previous,
@@ -2087,6 +2197,7 @@ impl Game {
                     object.card,
                     Object {
                         attached_to: None,
+                        attachment_timestamp: None,
                         plus_one_counters: Quantity::zero(),
                         marked_damage: Quantity::zero(),
                         attack_ready: false,
