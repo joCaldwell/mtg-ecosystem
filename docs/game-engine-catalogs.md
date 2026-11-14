@@ -115,6 +115,14 @@ exclusions are authoritative. Lutri's companion-only category remains distinct.
 Pool review derives from authenticated source legality/type/text and the selected
 list, not per-profile copies. A new dated list requires no Rust edit.
 
+Optional compiler-owned `Definition.source_labels` is descriptive metadata. Its
+exact Oracle text, verified normalized blocks and lowerer index bindings follow
+[the permitted decision-context contract](game-client.md#core-action-discovery).
+Active outputs are regenerated through the compiler, never edited by hand.
+Removing only this metadata reproduces the prior mechanical IR; requirements and
+reviewed Hosting/Search capability sets do not expand. Catalog/build identities
+still change and must be qualified independently.
+
 `Definition::requirements` is exhaustive over enum variants, not new struct fields.
 Every IR field addition requires reviewing capability derivation and hosted/search
 sets before admitting a catalog. Profiles never bypass shared rules or capacities.

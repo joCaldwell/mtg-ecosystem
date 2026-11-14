@@ -7,6 +7,53 @@ acceptance or a requirement to repeat the entire matrix for documentation edits.
 Original source/proof identities are preserved in their named evidence locations
 or the explicit retirement archive below; no raw evidence was discarded.
 
+## Producer context and admission qualification
+
+Frozen producer source `565a1204d6e4b14443b9f49dda2ecbc6b46ee85a` supplies
+compiler-bound action/ability/mode/trigger/effect descriptions and optional permitted
+decision context at observation version **16**. The consumer pin in
+[`sdk-qualification.json`](../packages/game-client/sdk-qualification.json) qualifies
+this source separately from later integrated observation version 20 and lifecycle
+work. Historical captures retain their original identities.
+
+Evidence root:
+`~/.local/share/mtg-ecosystem/engine-evidence/authoritative-decision-context-565a1204-20261114/`.
+`qualification.json` (SHA-256 `a2d9a7fb607e584a6dc27750104d7f9062b48549a58df58e7eac9625202a0053`)
+pins exact native binaries, source snapshot, SDK sources/generated/distribution and
+passing/failing logs. Reusable SDK is `sdk/`; native exports and proofs are `native/`.
+No original source/cache/evidence was removed.
+
+| Focused boundary | Actual result |
+| --- | --- |
+| Complete frozen source/compiler | 255 tests; all 30 active catalogs compiler-regenerated, 1,412 rows; removing only source labels reproduces prior mechanical IR |
+| Native permitted context | 11 action tests including paid first-turn commander sequences in both hosted profiles; 9 choices, 6 optional, 6 effects and 34 query regression tests |
+| Admission/privacy/recovery | Search admission 1 separately; host admission 2, hosted profiles 1, seat recovery 1, delivery 4; actual retained CLI admits both exact default profiles and rejects wrong builds |
+| Native delivery | Workspace all-target type check and real debug server/provisioner build passed; 882 source rows unchanged before/after, both actual build identities independently rederived |
+| Generated SDK | Exact final exports, strict declarations/browser build and 66 tests passed; historical observations remain valid without optional context |
+
+Source manifest SHA-256: `c19f36a3f8f9c87f298d88d31fb4aa72c7920073ec4832bfe619cd2304843bd8`.
+Engine build: `719552cf7e12c01bdd608f8ccdf0ce65f25b968a6c8c36eb2322d657888f38dc`.
+Server build: `8fb3296863d538d39b51e0cb76da8c86557c6a79cff32cfd4b52d7940919fb15`.
+Protocol schema: `2eb874b2fa9e306b57d7da05d2e9a26b6965f2a639711d6705981e790d906ba5`.
+SDK browser: `7c28e57929a198d77973af9f97d59b57a1cd415b3f99ecf57a776eed3c8c6df1`.
+Binary/bootstrap/config hashes remain in `native/final-binaries.json`.
+
+The spending suite has **6 pass / 1 fail**:
+`targeted_player_leaving_at_accepted_spending_reverses_the_incomplete_cast`
+expects an empty stack after target departure; the stack remains. Expectations
+and frozen rule code were preserved. Cruel Edict is in both hosted pools; the
+specific concurrent host path and independent baseline were not isolated. Production
+Clippy also fails on the unchanged grouped-damage `collapsible_if` block. Neither
+failure is waived by metadata qualification. Raw failures, empty selectors,
+cache-freshness repair receipts and rejected injected-board snapshot evidence are
+preserved. Injected prevention setup proves source/privacy/query-work context;
+accepted-input paid-turn and optional witnesses separately prove snapshot/replay.
+
+Full runtime matrices, completed hosted games, browser first-turn/full-play/CSP,
+performance and full offline retention were omitted. Later combined source needs
+fresh schema/SDK, compiler metadata regeneration and native qualification before
+claiming latest-HEAD support or expanded hosting/search.
+
 ## Opening and recovery evidence
 
 The parent opening lane retained `generated/opening-integration/`, separate from
