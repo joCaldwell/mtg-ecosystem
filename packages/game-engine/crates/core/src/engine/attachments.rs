@@ -6,6 +6,92 @@ use super::*;
 // each enter the graveyard once per episode; recasting requires an empty stack.
 
 impl Game {
+    /// Only the inner permanent-completion movement changes; the caller still
+    /// owns stack removal, completion history, priority and stabilization.
+    pub(super) fn finish_spell_aura_entry(
+        &mut self,
+        source: ObjectId,
+        controller: PlayerId,
+        target: ObjectId,
+        stack_id: StackId,
+    ) -> Result<(), String> {
+        if self.current(source)?.controller != controller {
+            return Err("Aura completion controller mismatch".into());
+        }
+        self.commit(
+            ProposedEvent::EnterAttached {
+                object: source,
+                target,
+            },
+            BatchCause::SpellCompletion {
+                stack_id,
+                player: controller,
+                source,
+            },
+        )?;
+        Ok(())
+    }
+
+    pub(super) fn next_attachment_allocation(&self) -> Result<(u64, u64), String> {
+        let timestamp = self.state.rules.next_attachment_timestamp;
+        if timestamp == 0 {
+            return Err("invalid attachment timestamp counter".into());
+        }
+        let next = timestamp
+            .checked_add(1)
+            .ok_or("attachment timestamp resource limit")?;
+        Ok((timestamp, next))
+    }
+
+    pub(super) fn validate_attachment_state(&self) -> Result<(), String> {
+        let next = self.state.rules.next_attachment_timestamp;
+        if next == 0 {
+            return Err("snapshot attachment counter invariant".into());
+        }
+        let mut timestamps = BTreeSet::new();
+        for o in self.state.rules.objects.values() {
+            if o.attached_to.is_some() != o.attachment_timestamp.is_some()
+                || o.attachment_timestamp
+                    .is_some_and(|t| t == 0 || t >= next || !timestamps.insert(t))
+            {
+                return Err("snapshot attachment timestamp invariant".into());
+            }
+            let Some(target) = o.attached_to else {
+                continue;
+            };
+            // A departed/moved target can remain recorded until CR 704.5m/n.
+            // Never follow its successor or accept an invented future target.
+            let known_target = self.state.rules.objects.get(&target.card).map_or_else(
+                || {
+                    self.state
+                        .rules
+                        .cards
+                        .get(&target.card)
+                        .is_some_and(|c| !self.is_live(c.owner))
+                },
+                |current| {
+                    current.id.incarnation > target.incarnation
+                        || (current.id == target && current.zone == Zone::Battlefield)
+                },
+            );
+            if o.zone != Zone::Battlefield
+                || !self.is_live(o.controller)
+                || o.id == target
+                || !self
+                    .definition(o.id.card)?
+                    .characteristics
+                    .subtypes
+                    .iter()
+                    .any(|s| s == "Equipment" || s == "Aura")
+                || !known_target
+                || self.definition(target.card)?.characteristics.kind != CardKind::Creature
+            {
+                return Err("snapshot attachment invariant".into());
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn target_is_creature(&self, object: ObjectId) -> bool {
         self.current(object)
             .is_ok_and(|o| o.zone == Zone::Battlefield)

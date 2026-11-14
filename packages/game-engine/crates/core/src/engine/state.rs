@@ -92,6 +92,8 @@ state_layout! {
         #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
         commander_returns: BTreeSet<ObjectId>,
         control_effects: Vec<ControlEffect>,
+        // CR 613.7: semantic attachment order, independent of IDs and trace.
+        next_attachment_timestamp: u64,
         pending_concessions: Vec<PlayerId>,
         priority: PlayerId,
         passes: Vec<PlayerId>,

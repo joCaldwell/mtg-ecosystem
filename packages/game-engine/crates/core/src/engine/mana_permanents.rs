@@ -511,6 +511,7 @@ impl Game {
                     r.source.object.card,
                     Object {
                         attached_to: None,
+                        attachment_timestamp: None,
                         id: r.source.object,
                         controller: r.source.controller,
                         default_controller: r.source.default_controller,

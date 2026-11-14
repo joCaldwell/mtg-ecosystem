@@ -242,7 +242,8 @@ fn attack_matches(
 }
 fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
     match outcome {
-        EventOutcome::Moved { movement }
+        EventOutcome::EnteredAttached { movement, .. }
+        | EventOutcome::Moved { movement }
         | EventOutcome::Sacrificed { movement, .. }
         | EventOutcome::CardDiscarded { movement, .. }
         | EventOutcome::StateBasedMoved { movement, .. }

@@ -816,6 +816,8 @@ struct Card {
 struct Object {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     attached_to: Option<ObjectId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    attachment_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     plus_one_counters: Quantity,
     marked_damage: Quantity,
@@ -1379,6 +1381,11 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    /// CR 303.4a/608.3b: entry and legal attachment are one occurrence.
+    EnterAttached {
+        object: ObjectId,
+        target: ObjectId,
+    },
     Attach {
         object: ObjectId,
         target: Option<ObjectId>,
@@ -1546,6 +1553,11 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    EnteredAttached {
+        movement: MoveOutcome,
+        target: ObjectId,
+        attachment_timestamp: u64,
+    },
     DestructionPrevented {
         object: ObjectId,
     },
@@ -1988,6 +2000,7 @@ impl Game {
                     c.id,
                     Object {
                         attached_to: None,
+                        attachment_timestamp: None,
                         plus_one_counters: Quantity::zero(),
                         marked_damage: Quantity::zero(),
                         deathtouch_damage: false,
@@ -2052,6 +2065,7 @@ impl Game {
                 pending_concessions: vec![],
                 priority: PlayerId(0),
                 passes: vec![],
+                next_attachment_timestamp: 1,
                 next_stack_id: 0,
                 stack: vec![],
                 frame: Frame::Priority,
@@ -2995,24 +3009,23 @@ impl Game {
                 } else {
                     Zone::Graveyard { owner }
                 };
-            self.move_object_for(
-                stack.source,
-                destination,
-                BatchCause::SpellCompletion {
-                    stack_id: stack.id,
-                    player: stack.controller,
-                    source: stack.source,
-                },
-            )?;
             if destination == Zone::Battlefield
                 && self.definition(stack.source.card)?.characteristics.subtypes == ["Aura"]
             {
-                let object = self.state.rules.objects[&stack.source.card].id;
-                self.commit(
-                    ProposedEvent::Attach {
-                        object,
-                        target: stack.targets.first().copied(),
-                    },
+                self.finish_spell_aura_entry(
+                    stack.source,
+                    stack.controller,
+                    stack
+                        .targets
+                        .first()
+                        .copied()
+                        .ok_or("missing Aura target")?,
+                    stack.id,
+                )?;
+            } else {
+                self.move_object_for(
+                    stack.source,
+                    destination,
                     BatchCause::SpellCompletion {
                         stack_id: stack.id,
                         player: stack.controller,
@@ -3087,7 +3100,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 19,
+            snapshot_version: 22,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3129,7 +3142,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 19
+        if s.snapshot_version != 22
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3218,21 +3231,7 @@ impl Game {
                 return Err("snapshot zone-owner invariant".into());
             }
         }
-        for o in s.rules.objects.values() {
-            if let Some(target) = o.attached_to
-                && (o.zone != Zone::Battlefield
-                    || o.id == target
-                    || !self
-                        .definition(o.id.card)?
-                        .characteristics
-                        .subtypes
-                        .iter()
-                        .any(|s| s == "Equipment" || s == "Aura")
-                    || self.definition(target.card)?.characteristics.kind != CardKind::Creature)
-            {
-                return Err("snapshot attachment invariant".into());
-            }
-        }
+        self.validate_attachment_state()?;
         self.validate_tokens_state()?;
         self.validate_trigger_state()?;
         self.validate_effect_state()?;
