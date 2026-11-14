@@ -283,6 +283,9 @@ impl Game {
             cursor: frame.cursor,
             source_block: block,
         };
+        if let ProposedEvent::PutPlusOneCounters { object, amount } = event {
+            return self.begin_counter_placement(frame, object, amount, cause);
+        }
         let actual = self.commit(event, cause)?;
         self.finish_instruction(
             frame,
@@ -363,7 +366,11 @@ impl Game {
                     token: token.clone(),
                 })
             }
+            ProposedEvent::ApplyCounterPlacementEffect { effect } => {
+                self.apply_counter_placement_effect(effect)
+            }
             ProposedEvent::PutPlusOneCounters { object, amount } => {
+                self.validate_counter_placement_commit(*object, amount)?;
                 if !self.is_battlefield_creature(*object) || *amount <= Quantity::zero() {
                     return Err("invalid counter placement".into());
                 }

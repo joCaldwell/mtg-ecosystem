@@ -74,21 +74,21 @@ Matrix legend: source **V** = archive-byte verified; parse **P/U** = complete
 parse/parser unsupported; binding **F/I** = archived fullyBound true/false;
 lowering **L/U** = complete lowering/Unsupported; capability **V/—** = executable
 catalog validation passed/not reached (M0 singletons; M2 source-witness catalog).
-Scenario **R** = the bounded M1a private paid Ramos source witness (not an admitted pod),
-qualified in the [M1 contract](game-engine-ramos-m1-contract.md#bounded-m1a-implementation);
+Scenario **R** = the bounded M1a/M1b private paid source witnesses (not admitted pods),
+qualified in the [M1 contract](game-engine-ramos-m1-contract.md#bounded-m1b-counter-placement-family);
 **NR** = no per-source runtime witness; **S** = the bounded M2
 private paid source witness, qualified in the
 [M2 contract](game-engine-ramos-m2-contract.md#bounded-basic-search-checkpoint).
 Admission **—** = exact target not admitted; consumer **—/—** =
 exact target not hosted/search-enabled. Existing other pools are not requalified
-by these rows. Rows retain M0 evidence except the R row and two S rows, which add the
-separately qualified M1a/M2 lowering/capability/runtime checks. The immutable M0
+by these rows. Rows retain M0 evidence except the three R rows and two S rows, which add the
+separately qualified M1a/M1b/M2 lowering/capability/runtime checks. The immutable M0
 baseline and its 11/74 counts are unchanged; no full target re-audit or executable
 target catalog is claimed. The owner milestone remains the completion/witness owner.
 
 | Definition × quantity | Source | Parse | Binding | Lowering | Capability | Scenario | Admission | Host/search | Owner | First diagnostic reason |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| [Ramos, Dragon Engine (commander)](../packages/game-engine/tests/fixtures/ramos/3ed41d2d-211b-4013-8562-8c64d54cc43a.json) ×1 | V | P | F | L | V | R | — | —/— | M1b replacements pending | `—` |
+| [Ramos, Dragon Engine (commander)](../packages/game-engine/tests/fixtures/ramos/3ed41d2d-211b-4013-8562-8c64d54cc43a.json) ×1 | V | P | F | L | V | R | — | —/— | M1 complete; admission separate | `—` |
 | [Abzan Charm](../packages/game-engine/tests/fixtures/ramos/4137a22c-f793-4e27-a9b2-72740a6e2121.json) ×1 | V | P | I | U | — | NR | — | —/— | M6 | `effect:distribute-counters` |
 | [Akroma's Will](../packages/game-engine/tests/fixtures/ramos/fd949f82-fc10-4e37-8aa9-6c7569fe3c55.json) ×1 | V | P | F | U | — | NR | — | —/— | M7 | `abilities[*].effects[*].steps[*].conditionalCount` |
 | [Anguished Unmaking](../packages/game-engine/tests/fixtures/ramos/ad09b3c3-c8e7-481c-8c45-e7f234935117.json) ×1 | V | P | F | L | V | NR | — | —/— | M7 | `—` |
@@ -108,7 +108,7 @@ target catalog is claimed. The owner milestone remains the completion/witness ow
 | [City of Brass](../packages/game-engine/tests/fixtures/ramos/f25351e3-539b-4bbc-b92d-6480acf4d722.json) ×1 | V | P | F | U | — | NR | — | —/— | M2 | `trigger:becomes-tapped` |
 | [Command Tower](../packages/game-engine/tests/fixtures/ramos/0895c9b7-ae7d-4bb3-af17-3b75deb50a25.json) ×1 | V | P | F | L | V | NR | — | —/— | M2 | `—` |
 | [Conflux](../packages/game-engine/tests/fixtures/ramos/32ebb029-9f03-49c9-b9bb-cb1954e2a324.json) ×1 | V | P | I | U | — | NR | — | —/— | M6 | `effect:reveal` |
-| [Corpsejack Menace](../packages/game-engine/tests/fixtures/ramos/ca0cc02b-b106-4eca-9388-d4b48dd3be49.json) ×1 | V | P | I | U | — | NR | — | —/— | M1 | `event:put-counters` |
+| [Corpsejack Menace](../packages/game-engine/tests/fixtures/ramos/ca0cc02b-b106-4eca-9388-d4b48dd3be49.json) ×1 | V | P | I | L | V | R | — | —/— | M1b complete; admission separate | `—` |
 | [Creative Technique](../packages/game-engine/tests/fixtures/ramos/c336b735-3e6b-471e-be7a-84d7402ae2f5.json) ×1 | V | U | I | U | — | NR | — | —/— | M8 | `complete-card parsing is required` |
 | [Cultivate](../packages/game-engine/tests/fixtures/ramos/8b755881-a72d-4e21-a369-d2924eb4585a.json) ×1 | V | P | F | L | V | S | — | —/— | M2 | `—` |
 | [Dauntless Escort](../packages/game-engine/tests/fixtures/ramos/c0516c2c-d7c9-4763-9180-980f60205a28.json) ×1 | V | P | F | U | — | NR | — | —/— | M7 | `unsupported activated operator, controller or cardinality` |
@@ -126,7 +126,7 @@ target catalog is claimed. The owner milestone remains the completion/witness ow
 | [Forest](../packages/game-engine/tests/fixtures/ramos/b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6.json) ×6 | V | P | F | L | V | NR | — | —/— | M2 | `—` |
 | [Golgari Signet](../packages/game-engine/tests/fixtures/ramos/1cf51f50-24e4-48d0-95b3-1dad3ffa4bf5.json) ×1 | V | P | F | L | V | NR | — | —/— | M2 | `—` |
 | [Hallowed Fountain](../packages/game-engine/tests/fixtures/ramos/f1750962-a87c-49f6-b731-02ae971ac6ea.json) ×1 | V | P | F | U | — | NR | — | —/— | M2 | `static:entry-choice` |
-| [Hardened Scales](../packages/game-engine/tests/fixtures/ramos/a1f3da21-af6d-450e-bf0b-985d158418e6.json) ×1 | V | P | I | U | — | NR | — | —/— | M1 | `event:put-counters` |
+| [Hardened Scales](../packages/game-engine/tests/fixtures/ramos/a1f3da21-af6d-450e-bf0b-985d158418e6.json) ×1 | V | P | I | L | V | R | — | —/— | M1b complete; admission separate | `—` |
 | [Imoti, Celebrant of Bounty](../packages/game-engine/tests/fixtures/ramos/eca32dcd-6845-433e-a631-ed1f0ee78f25.json) ×1 | V | P | F | U | — | NR | — | —/— | M4 | `keyword:cascade` |
 | [Island](../packages/game-engine/tests/fixtures/ramos/b2c6aa39-2d2a-459c-a555-fb48ba993373.json) ×2 | V | P | F | L | V | NR | — | —/— | M2 | `—` |
 | [Ketria Triome](../packages/game-engine/tests/fixtures/ramos/6bae00e8-06cf-4ac4-a1cc-757e454109fe.json) ×1 | V | P | F | U | — | NR | — | —/— | M2 | `keyword:cycling` |
@@ -182,7 +182,7 @@ refine the [plan's dependency order](game-engine-ramos-plan.md#dependencies-and-
 
 | Owner | Measured source blockers and next completion obligations | Dependencies |
 | --- | --- | --- |
-| M1 | M1a completes frozen Ramos: exact cast-color counters, no-tap remove-five mana, ten fixed symbols, current-turn per-incarnation use, nested retain/undo and private paid source replay. M1b remains: both counter replacements reject `event:put-counters`, their archived bindings remain incomplete, and replacement order/recovery/composed witnesses are excluded. | M0; one contracts/payment integration owner |
+| M1 | M1a and M1b complete frozen Ramos/Scales/Corpsejack through parameterized shared families: cast-color counters, counter-cost/use/undo, prospective placement replacements and affected-controller order/recovery. Full paid-source composition and direct/source/target producers are witnessed; diagnostic bindings remain unchanged. Entry-with-counters and simultaneous/distributed placement producers, exact target and consumer admission remain separate/excluded. | [M1 contract](game-engine-ramos-m1-contract.md#bounded-m1b-counter-placement-family); M0 pins retained |
 | M2 | M0’s eight lowering definitions remain: the five basics, Command Tower, Arcane Signet and Golgari Signet. Cultivate and Kodama’s Reach now also lower and execute in the bounded private source witnesses (S). The other 22 definitions remain future M2 work: entry choice/conditions, cycling, pay-life costs, typed searches, opponent production and mana choice. Preserve all modes and land subtypes. | M0; coordinate payment/search/entry interfaces with M1 |
 | M3 | Shardless Agent and Bloodbraid Elf reject `keyword:cascade`. Build generic casting during resolution and a continuation before cascade. | M1 payment foundation; M2 useful opening infrastructure |
 | M4 | Cascade/affinity, cast grants/history and non-hand casts remain unsupported. Call Forth, Averna and Yidris lack complete archived parses. | M3; narrowly scoped parser intake before complete lowering |
@@ -199,7 +199,7 @@ archive/provenance process. Do not hand-edit these frozen ASTs or bindings to
 force successful compilation. Incomplete bindings additionally affect Corpsejack,
 Hardened Scales, Abzan Charm, Conflux, Faeburrow, Mosswort, Progenitus, Protege,
 Unite and Zacama; exact diagnostics and engine features are in their source files.
-Ramos's archived fullyBound status was not M0 semantic support; M1a now separately checks its complete source lowering and private runtime witness.
+Ramos's archived fullyBound status was not M0 semantic support; M1a/M1b separately check complete source lowering and private runtime witnesses. M1b independently consumes both replacement scopes without rewriting their incomplete archived binding diagnostics.
 
 ## Reproduce and verification limits
 

@@ -70,6 +70,10 @@ pub(super) fn choose(
     let beneficial =
         selected_program(catalog, observation).is_some_and(search_candidates::beneficial);
     Ok(match request {
+        PlayerRequest::CounterPlacementEffect { .. } => {
+            return Err("counter placement replacement choices outside this policy".into());
+        }
+
         PlayerRequest::LegendRule { candidates, .. } => PlayerResponse::LegendRule {
             keep: candidates.last().ok_or("empty legend choices")?.clone(),
         },

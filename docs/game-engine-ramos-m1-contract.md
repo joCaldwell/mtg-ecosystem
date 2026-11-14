@@ -6,9 +6,10 @@ M1a implementation starts from integrated `9c2a4b0c2e1efe5e652bf8ec6255c7856c1ee
 quantity, counter-removal mana cost, per-incarnation once-each-turn use and
 payment reversal. The remainder of this document retains the family design;
 [M0's single matrix](game-engine-ramos-support.md) separates the source witness
-from exact-target/profile/consumer admission. M1b counter replacements remain
-excluded, as do spell copying/color changes, cascade, multiple mana selectors,
-life/damage/hybrid costs and host/SDK/search expansion.
+from exact-target/profile/consumer admission. M1b counter replacements were excluded from that checkpoint; the separate
+[M1b family below](#bounded-m1b-counter-placement-family) now completes them.
+Spell copying/color changes, cascade, multiple mana selectors,
+life/damage/hybrid costs and host/SDK/search expansion remain excluded.
 
 ## Frozen authority
 
@@ -138,7 +139,7 @@ requirements):
    if retained, their counter cost and use remain spent. Reversal restores the
    counter quantity directly, not through a placement event or replacements.
 6. Add `ControllerCreaturePlusOneCounterReplacementV1` and a closed static
-   replacement operation (`AddOne` / `Double`). Bind the replacement source's
+   replacement operation (`Add { amount }` / `Multiply { factor }`). Bind the replacement source's
    controller and affected creature separately. No card-name dispatch, generic
    replacement language, counter removal, or damage-replacement reuse by alias.
    Typed validation and exported-schema constraints must agree with capability
@@ -384,3 +385,128 @@ server files and identical contracts code outside `catalog_schema`; copied rules
 test binaries keep their original producer identity. Schema checks use the new
 copied CLI. Interrupted attempts and zero-match selectors remain recorded and
 are not treated as passed tests. This does not qualify the exact deck or host.
+
+## Bounded M1b counter-placement family
+
+M1b starts at `5f3ea51d4f69343f1f887fdb96e288132e43daae`,
+2026-11-14 17:11:29 UTC, in its own orchestrator checkout. It completes both
+unchanged archived replacement sources above, independently of their retained
+0/2 diagnostic binding flags. Strict typed lowering consumes the affected
+creature/control predicate, positive threshold, counter kind, any cause, each
+occurrence and the entire quantity change. Corpsejack's full creature
+characteristics and ordinary permanent program are retained. No source fixture,
+AST, binding record, admission catalog, exact revision-17 target or host/search
+capability set changes.
+
+`ControllerCreaturePlusOneCounterReplacementV1` is one mechanic-family capability.
+Its `CounterPlacementModification` is `Add { amount }` or `Multiply { factor }`,
+with arbitrary positive exact parameters. Runtime and validation do not branch
+on names, Oracle IDs or printed one/two. Negative/zero parameters, unsupported
+source kinds/zones, unknown fields and missing/extra capability closure reject.
+The exported schema uses the actual Rust enum encoding and remains schema 1.
+
+`counter_placement.rs` owns a separate typed transaction, not a damage alias.
+The exact resolving stack incarnation/cursor/cause identify the original singleton
+placement and continuation. An applied key is exact provider incarnation plus
+static ability index; each prefix retains its qualification and exact arithmetic.
+Every prefix recomputes current creature/controller/provider applicability.
+Counter state changes once, at final commit; quantity zero never enters the
+positive transaction. The affected current controller chooses the next effect
+under CR 616.1. No provider/recipient is resurrected, and an already applied key
+never runs again. Concessions invalidate stale queued choices while preserving
+accepted input/replay and completed prefixes.
+
+Producer inspection covered all executable placements: fixed target spells,
+self-enters target/source instructions, sacrifice-source activations, step/cast
+triggers and Ramos's color quantity, all through `execute_token_instruction`.
+Existing source witnesses include Battlegrowth, Ironpaw Aspirant, Satyr
+Grovedancer, Carrion Feeder, Fretwork Colony, Generous Visitor, Pyre Hound and
+Managorger Hydra. Counter-removal costs and receipt undo use their separate
+existing authority. Raw placement events cannot bypass the transaction.
+There is no admitted entry-with-counters or simultaneous-placement producer;
+CR 122.6/614.12 entry contexts and APNAP placement groups remain unavailable.
+The explicit aggregate guard rejects that unsupported input, and complete Abzan
+Charm remains rejected rather than being silently serialized. Other simultaneous
+families retain their existing authority and bounds.
+
+The current authoritative frame changes snapshot 20 to **21**. The independent
+public request/response union changes observation/search-context 17 to **18**;
+incremental query decision scratch and its replay validation change private work
+17 to **18**. No unrelated bundle/sample/IR version or consumer set changes.
+A chooser-only order request carries public provider object handles with public
+ability indices and the allowed before/after quantities. Raw stack/cause IDs,
+provider qualification records, prefixes and receipts remain trusted only.
+Queries do not mutate state/trace or mint handles; ordinary visibility refresh
+supplies public source-incarnation handles. Existing legacy policies explicitly
+refuse this unadmitted window without choosing an order or expanding admission.
+
+The small private source witness pays for complete Ramos, Scales and Corpsejack
+from ordinary initial zones and lands, then exercises both orders, repeated
+placements and a paid colorless zero control. A separate synthetic color-count
+variation witnesses exactly 3→8 and 3→7 with snapshots before input, pending input,
+each applied prefix and final commit. Tests cover fixed producers, a genuinely
+borrowed Carrion Feeder, owner concession before/after a prefix, recipient
+concession, stale/foreign/applied-prefix responses, query save/restore, forged
+rehashes and payment removal/retain/undo with both providers active. Explicit
+synthetic zone probes cover duplicate providers, source reentry and recipient
+reentry; no reachable mid-transaction entry producer is claimed.
+
+Independent read-only production/fixture review reported no actionable findings;
+all twelve production hashes remained equal throughout that review. Its manifest
+is retained at
+`/home/josh/.t3/worktrees/mtg-ecosystem/t3-02328819-365b7a4025a6b944/generated/reviews/m1b-current-frozen-review-manifest.json`.
+Later changes only add explicit legacy-policy refusal arms and refine/add tests;
+the reviewed contracts/compiler/core replacement bytes remain unchanged.
+
+
+### M1b focused verification and evidence
+
+The final replacement-runtime pass runs **7/7** dedicated core tests, and the
+preserved exact test executable runs **70/70** focused regressions: M1a/M2,
+controlled-creature damage, snapshot codec, payment query, Work/spool and related
+query recovery. Compiler library tests pass **210/210**. Contracts initially
+pass **83/84**, with only the capability vocabulary/witness test missing the new
+family registration; that test-only omission is repaired and the affected test
+passes **1/1** in attempt 14.
+The failed full package result remains retained rather than being relabeled.
+
+The own-source dev CLI is copied under the lock before export. Its compiled
+source manifest verifies 872 inputs; BUILD_ID is
+`d0a07fd23f214a9b46fccd1e21fa5cbb2551196dffe5dae66ec128d90370f357`,
+binary SHA-256 `7740454266c36f94f2dae801c5d32f2b15f87d04551f5a027bf3e4e88f1fc979`.
+It uses Rust 1.99.0, x86_64, optimization 0, debug/assertions enabled, no extra
+Rust flags and incremental disabled. Tests use the ordinary optimized test
+profile with checks enabled; their exact binaries and separate dirty-source
+inventories are retained. The CLI producer predates only later test-helper and
+capability-witness edits; its retained source snapshot qualifies its exact build.
+The production prefix of contracts `lib.rs` is unchanged by that `cfg(test)` repair.
+
+Raw evidence lives in this checkout's `generated/ramos-m1b/`. Each measured
+attempt retains command/resource/lock receipts, byte inventories and source
+copies; executed test binaries are copied before lock release. Attempt 11 also
+retains the own CLI, source manifest, build settings and complete-source schema/IR
+exports. Earlier failures preserve the wrong initial manifest invocation,
+strict source-filter decoding error, missing private Sol Ring definition,
+test lifecycle/visibility assumptions, stale shared-cache contracts diagnostics,
+and the capability-witness registration omission. A narrow, byte-preserving
+contracts timestamp refresh under lock forces the own source after cross-worktree
+cache reuse; stale library hashes/metadata and unchanged before/after source hashes
+are recorded. No cache or historical evidence is deleted.
+
+The known isolated Node dependency/EUSAGE condition remains unchanged; no installer
+or unrelated manifest/lockfile is touched. The parent runs the builtin-only
+`counter-placement-contracts.ts` assertions with existing external Ajv against
+these immutable own exports, without importing root engine code or running root
+Cargo. Its first attempt reveals only a helper expectation: canonical absent
+optional mana is omitted, while null is another supported Option input. The helper
+is corrected to the actual canonical omission and the failed gate is preserved.
+The full rerun is **30/30** (10 positives, 20 negatives), using Ajv 8.20.0.
+The parent verifies all four artifact pins before/after and all 872 compiled
+source rows against retained/current matching source bytes. The green receipt is
+`/home/josh/.t3/worktrees/mtg-ecosystem/feat-engine-ramos-integ-83ca7e724cff4f47/generated/ramos/m1b-ajv-attempt11-canonical-none/result.json`;
+the failed helper attempt is retained beside it.
+
+Omitted: release/full workspace/runtime/profile/completion/retention matrices,
+Clippy, full Node parser/source gate, all-target server/SDK/client builds, exact
+deck/pod admission, and host/search qualification. Source identity, focused tests
+and synthetic kernel witnesses do not grant any of those consumer claims.
