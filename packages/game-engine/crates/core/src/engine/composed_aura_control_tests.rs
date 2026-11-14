@@ -136,6 +136,7 @@ fn paid_composed_aura_control_atomic_entry_union_and_same_controller_combat() {
         let before = g.current(creature).unwrap().clone();
         let effects = g.state.rules.effects.clone();
         announce_modified(g, q, 1, 2);
+        let second_stack = g.state.rules.stack.last().unwrap().clone();
         resolve(g, q, |g| {
             if g.current(object(g, 1)).unwrap().zone == Zone::Battlefield {
                 assert_eq!(g.current(creature).unwrap(), &before);
@@ -149,6 +150,14 @@ fn paid_composed_aura_control_atomic_entry_union_and_same_controller_combat() {
                 public_stats(g, 1, 2, 0);
             }
         });
+        if g.trace.mode == TraceMode::Detailed {
+            let entries: Vec<_> = batches(g).into_iter().filter(|b| matches!(b.cause, BatchCause::SpellCompletion { stack_id, .. } if stack_id == second_stack.id)).collect();
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].occurrences.len(), 1);
+            assert!(
+                matches!(&entries[0].occurrences[0].actual, EventOutcome::EnteredAttached { movement, target, attachment_timestamp: 2 } if movement.previous == second_stack.source && movement.successor == object(g, 1) && *target == creature)
+            );
+        }
         assert_eq!(g.state.rules.effects, effects);
         assert_eq!(g.current(creature).unwrap().plus_one_counters, 1.into());
         let mut attacked = false;
@@ -233,7 +242,7 @@ fn paid_composed_aura_control_opposing_chronology_removal_and_source_forgery() {
                 assert!(g.state.rules.effects.is_empty());
                 recover(g);
                 let wire = g.snapshot().unwrap();
-                for variant in 0..2 {
+                for variant in 0..3 {
                     let mut bad: Snapshot = strict_read(&wire).unwrap();
                     if variant == 0 {
                         bad.state
@@ -254,7 +263,7 @@ fn paid_composed_aura_control_opposing_chronology_removal_and_source_forgery() {
                             .get_mut(&CardId(2))
                             .unwrap()
                             .controller = PlayerId(0);
-                    } else {
+                    } else if variant == 1 {
                         // A shape-valid forged modifier source redirects the actual
                         // attached Aura; modifiers themselves remain immutable catalog data.
                         let decoy = object(g, 5);
@@ -273,6 +282,15 @@ fn paid_composed_aura_control_opposing_chronology_removal_and_source_forgery() {
                         let d = bad.state.rules.objects.get_mut(&CardId(5)).unwrap();
                         d.controller = PlayerId(if modified_first { 0 } else { 1 });
                         d.attack_ready = false;
+                    } else {
+                        // Current Aura control masks this invented default;
+                        // only replay proves the underlying control authority.
+                        bad.state
+                            .rules
+                            .objects
+                            .get_mut(&CardId(2))
+                            .unwrap()
+                            .default_controller = PlayerId(0);
                     }
                     let mut structural = g.fork();
                     structural.state = bad.state.clone();
@@ -312,5 +330,233 @@ fn paid_composed_aura_control_opposing_chronology_removal_and_source_forgery() {
                 assert_eq!(g.state.rules.next_attachment_timestamp, 3);
             });
         }
+    }
+}
+
+#[test]
+fn paid_composed_aura_control_bounce_reentry_invalid_targets_and_atomic_inputs() {
+    for (name, keyword) in WITNESSES {
+        let mut rows = vec![
+            (name, 0, 0, true),
+            ("Grizzly Bears", 0, 1, false),
+            ("Disperse", 0, 0, true),
+            ("Unsummon", 0, 0, true),
+            ("Unsummon", 1, 1, true),
+        ];
+        lands(&mut rows, "Island", 0, 20);
+        lands(&mut rows, "Forest", 0, 4);
+        lands(&mut rows, "Island", 1, 1);
+        both(prepared_with_sources(&rows, &SOURCES), |g, q| {
+            let creature = object(g, 1);
+            let r = request(g, q);
+            let before = g.state.clone();
+            let trace = g.trace.clone();
+            assert!(
+                g.respond(
+                    PlayerId(1),
+                    r.decision_id(),
+                    Response::Cast { card: CardId(0) }
+                )
+                .is_err()
+            );
+            assert_eq!(g.state, before);
+            assert_eq!(g.trace, trace);
+            let mut proposal = g.fork();
+            answer(&mut proposal, q, Response::Cast { card: CardId(0) });
+            let r = request(&mut proposal, q);
+            assert!(matches!(r, Request::Targets { .. }));
+            let before = proposal.state.clone();
+            let trace = proposal.trace.clone();
+            let land = object(g, 5);
+            for objects in [
+                vec![],
+                vec![land],
+                vec![creature, creature],
+                vec![ObjectId {
+                    incarnation: creature.incarnation + 1,
+                    ..creature
+                }],
+            ] {
+                assert!(
+                    proposal
+                        .respond(r.player(), r.decision_id(), Response::Targets { objects })
+                        .is_err()
+                );
+                assert_eq!(proposal.state, before);
+                assert_eq!(proposal.trace, trace);
+            }
+            announce_modified(g, q, 0, 1);
+            resolve(g, q, |_| {});
+            let aura = object(g, 0);
+            stats(g, 1, 4, 4, &[keyword]);
+            cast(g, q, 2, target(g, 0));
+            control(g, 1, 1, 0, 1);
+            stats(g, 1, 2, 2, &[]);
+            assert!(g.current(aura).is_err());
+            assert_eq!(
+                g.current(object(g, 0)).unwrap().zone,
+                Zone::Hand { owner: PlayerId(0) }
+            );
+            assert_eq!(g.current(object(g, 0)).unwrap().attachment_timestamp, None);
+            recover(g);
+
+            // The target becomes illegal after accepted payment. Resolution may
+            // not create a transient grant, attach to its hand successor, or enter.
+            let mut invalid = g.fork();
+            announce_modified(&mut invalid, q, 0, 1);
+            let stack = invalid.state.rules.stack.last().unwrap().id;
+            let event_count = invalid.events().len();
+            until_player(&mut invalid, q, PlayerId(1));
+            cast(&mut invalid, q, 4, target(g, 1));
+            assert!(invalid.current(creature).is_err());
+            assert_eq!(
+                invalid.current(object(&invalid, 0)).unwrap().zone,
+                Zone::Graveyard { owner: PlayerId(0) }
+            );
+            assert_eq!(
+                invalid.current(object(&invalid, 1)).unwrap().zone,
+                Zone::Hand { owner: PlayerId(0) }
+            );
+            assert_eq!(invalid.state.rules.next_attachment_timestamp, 2);
+            if invalid.trace.mode == TraceMode::Detailed {
+                assert!(invalid.events().iter().any(|e| matches!(e, Event::SpellCompleted { stack_id, resolved: false } if *stack_id == stack)));
+                assert!(!invalid.events().iter().skip(event_count).any(
+                    |e| matches!(e, Event::ControlChanged { object, .. } if *object == creature)
+                ));
+            }
+            recover(&invalid);
+
+            announce_modified(g, q, 0, 1);
+            resolve(g, q, |_| {});
+            let second_aura = object(g, 0);
+            assert_ne!(second_aura, aura);
+            assert_eq!(
+                g.current(second_aura).unwrap().attachment_timestamp,
+                Some(2)
+            );
+            stats(g, 1, 4, 4, &[keyword]);
+            announce(g, q, 3, target(g, 1));
+            let mut paused = false;
+            resolve(g, q, |g| {
+                if !paused
+                    && g.current(creature).is_err()
+                    && g.current(second_aura)
+                        .is_ok_and(|o| o.zone == Zone::Battlefield)
+                {
+                    paused = true;
+                    recover(g);
+                    assert_eq!(g.current(second_aura).unwrap().attached_to, Some(creature));
+                    assert_ne!(
+                        g.current(second_aura).unwrap().attached_to,
+                        Some(object(g, 1))
+                    );
+                }
+            });
+            if q == 1 {
+                assert!(paused);
+            }
+            assert_eq!(
+                g.current(object(g, 0)).unwrap().zone,
+                Zone::Graveyard { owner: PlayerId(0) }
+            );
+            assert_eq!(
+                g.current(object(g, 1)).unwrap().zone,
+                Zone::Hand { owner: PlayerId(0) }
+            );
+            fund(g, q, "Forest", 1);
+            cast(g, q, 1, vec![]);
+            assert_ne!(object(g, 1), creature);
+            control(g, 1, 0, 0, 0);
+            stats(g, 1, 2, 2, &[]);
+            assert_eq!(g.current(object(g, 0)).unwrap().attached_to, None);
+            assert_eq!(g.state.rules.next_attachment_timestamp, 3);
+            assert!(g.state.rules.effects.is_empty());
+        });
+    }
+}
+
+#[test]
+fn paid_composed_aura_control_toughness_loss_restores_older_control_before_lethal_sba() {
+    // Exact existing frozen sources: Lightning Bolt deals 3; Naturalize destroys
+    // the Aura. A 2/2 survives as 4/4, then dies at the next SBA after losing +2/+2.
+    for (name, keyword) in WITNESSES {
+        let mut rows = vec![
+            ("Mind Control", 0, 0, true),
+            (name, 1, 1, true),
+            ("Grizzly Bears", 3, 2, false),
+            ("Lightning Bolt", 1, 1, true),
+            ("Naturalize", 1, 1, true),
+        ];
+        lands(&mut rows, "Island", 0, 5);
+        lands(&mut rows, "Island", 1, 9);
+        lands(&mut rows, "Forest", 1, 3);
+        lands(&mut rows, "Mountain", 1, 1);
+        both(prepared_with_sources(&rows, &SOURCES), |g, q| {
+            cast(g, q, 0, target(g, 2));
+            let turn = g.turn().number;
+            own_main(g, q, 1, turn);
+            announce_modified(g, q, 1, 2);
+            resolve(g, q, |_| {});
+            control(g, 2, 1, 3, 2);
+            stats(g, 2, 4, 4, &[keyword]);
+            let creature = object(g, 2);
+            fund(g, q, "Mountain", 1);
+            cast(g, q, 3, target(g, 2));
+            assert_eq!(g.current(creature).unwrap().marked_damage, 3.into());
+            assert_eq!(g.current(creature).unwrap().zone, Zone::Battlefield);
+            recover(g);
+            fund(g, q, "Forest", 1);
+            announce(g, q, 4, target(g, 1));
+            let mut between = false;
+            resolve(g, q, |g| {
+                if !between
+                    && g.current(object(g, 1)).unwrap().zone != Zone::Battlefield
+                    && g.current(creature).is_ok()
+                {
+                    between = true;
+                    control(g, 2, 0, 3, 2);
+                    stats(g, 2, 2, 2, &[]);
+                    assert_eq!(g.current(creature).unwrap().marked_damage, 3.into());
+                    recover(g);
+                }
+            });
+            if q == 1 {
+                assert!(
+                    between,
+                    "recoverable boundary after Aura loss, before lethal SBA"
+                );
+            }
+            assert!(g.current(creature).is_err());
+            assert_eq!(
+                g.current(object(g, 2)).unwrap().zone,
+                Zone::Graveyard { owner: PlayerId(3) }
+            );
+            assert_eq!(
+                g.current(object(g, 1)).unwrap().zone,
+                Zone::Graveyard { owner: PlayerId(1) }
+            );
+            assert_eq!(
+                g.current(object(g, 0)).unwrap().zone,
+                Zone::Graveyard { owner: PlayerId(0) }
+            );
+            if g.trace.mode == TraceMode::Detailed {
+                let deaths: Vec<_> = batches(g).into_iter().filter(|b| matches!(b.cause, BatchCause::StateBased)).flat_map(|b| &b.occurrences).filter(|o| matches!(&o.actual, EventOutcome::StateBasedMoved { movement, reason: CreatureLossReason::LethalDamage } if movement.previous == creature)).collect();
+                assert_eq!(deaths.len(), 1);
+                let fact = deaths[0]
+                    .before
+                    .objects
+                    .iter()
+                    .find(|o| o.object == creature)
+                    .unwrap();
+                assert_eq!(fact.controller, PlayerId(0));
+                assert_eq!(fact.owner, PlayerId(3));
+                assert_eq!(fact.default_controller, PlayerId(2));
+                assert_eq!(fact.marked_damage, 3.into());
+                assert_eq!(fact.characteristics.power, Some(2.into()));
+                assert_eq!(fact.characteristics.toughness, Some(2.into()));
+                assert!(!fact.keywords.contains(&keyword));
+                assert!(g.events().iter().any(|e| matches!(e, Event::ControlChanged { object, previous, controller } if *object == creature && *previous == PlayerId(1) && *controller == PlayerId(0))));
+            }
+        });
     }
 }
