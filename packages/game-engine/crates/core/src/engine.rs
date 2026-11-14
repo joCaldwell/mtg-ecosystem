@@ -49,6 +49,8 @@ use removal::TargetFacts;
 mod artifact_sacrifice_source_tests;
 #[cfg(test)]
 mod attachment_entry_tests;
+#[cfg(test)]
+mod attachment_foundation_tests;
 mod attachments;
 #[cfg(test)]
 mod attachments_tests;
