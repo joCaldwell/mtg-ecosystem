@@ -112,6 +112,11 @@ fn resolve(g: &mut Game, q: u64, mut inspect: impl FnMut(&Game)) {
                     Request::OrderTriggers { candidates, .. } => Response::OrderTriggers {
                         order: candidates.clone(),
                     },
+                    Request::ResolveDiscard {
+                        candidates, count, ..
+                    } => Response::ResolveDiscard {
+                        objects: candidates.iter().take(*count as usize).copied().collect(),
+                    },
                     _ => pass(&r),
                 };
                 g.respond(r.player(), r.decision_id(), response).unwrap();
@@ -473,6 +478,17 @@ fn paid_aura_control_dynamic_controlled_targets_hexproof_and_stale_query_receipt
                         } else {
                             fund(g, q, "Island", 1);
                         }
+                    }
+                    Request::SpendMana { cost, .. } => {
+                        assert_eq!(cost.generic, Quantity::zero());
+                        assert_eq!(cost.colored.len(), 1);
+                        answer(
+                            g,
+                            q,
+                            Response::SpendMana {
+                                spending: BTreeMap::from([(cost.colored[0], 1.into())]),
+                            },
+                        );
                     }
                     Request::Priority { .. } => break,
                     x => panic!("one-symbol paid protection {x:?}"),
