@@ -625,27 +625,27 @@ fn temporary_creature_keyword_legacy_ir_caps_and_pure_source_block_provenance() 
         {
             assert_eq!(canonical(&d).unwrap(), canonical(expected).unwrap());
         }
-        // Empty earlier spell blocks preserve the historical pure-grant source
-        // attribution; compounds require both operations in block zero.
+        // A complete earlier keyword block shifts pure-grant source attribution;
+        // compounds still require both operations in block zero. Empty spell
+        // blocks are unsupported, so they cannot serve as a positive control.
         let shifted = tests::changed_source(raw, |r| {
             let text = r["source"]["oracle_text"].as_str().unwrap().to_owned();
-            r["source"]["oracle_text"] = format!("Synthetic empty spell block.\n{text}").into();
-            let empty = json!({"kind":"spell","effects":[]});
+            r["source"]["oracle_text"] = format!("Flash\n{text}").into();
+            let earlier = json!({"kind":"keywords","keywords":[{"keyword":"flash"}]});
             r["faces"][0]["result"]["abilities"]
                 .as_array_mut()
                 .unwrap()
-                .insert(0, empty.clone());
+                .insert(0, earlier.clone());
             r["faces"][0]["result"]["lines"]
                 .as_array_mut()
                 .unwrap()
-                .insert(
-                    0,
-                    json!({"text":"Synthetic empty spell block.","ok":true,"ability":empty}),
-                );
+                .insert(0, json!({"text":"Flash","ok":true,"ability":earlier}));
         });
         if modifier.is_none() {
             let shifted = lowered(&shifted);
-            assert_eq!(shifted.capabilities, d.capabilities);
+            let mut expected_caps = d.capabilities.clone();
+            expected_caps.insert(Capability::FlashV1);
+            assert_eq!(shifted.capabilities, expected_caps);
             let mut expected = d.spell.clone().unwrap();
             let Instruction::GrantKeywords { source_block, .. } = &mut expected.instructions[0]
             else {
