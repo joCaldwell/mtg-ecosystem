@@ -131,8 +131,12 @@
           "oracle_id": "aa5e6894-8c97-46f8-a0fd-07c6db51e9a7"
         },
         {
-          "count": 40,
+          "count": 39,
           "oracle_id": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6"
+        },
+        {
+          "oracle_id": "c462adf3-4ade-4b90-bdec-7247b080471f",
+          "count": 1
         },
         {
           "count": 1,
@@ -261,8 +265,12 @@
           "oracle_id": "aa5e6894-8c97-46f8-a0fd-07c6db51e9a7"
         },
         {
-          "count": 40,
+          "count": 39,
           "oracle_id": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6"
+        },
+        {
+          "oracle_id": "c462adf3-4ade-4b90-bdec-7247b080471f",
+          "count": 1
         },
         {
           "count": 1,

@@ -7,7 +7,7 @@ pub(super) fn source_catalog() -> Catalog {
         .unwrap()
         .catalog()
         .clone();
-    assert_eq!(c.definitions.len(), 45);
+    assert_eq!(c.definitions.len(), 46);
     c
 }
 pub(super) fn oracle(c: &Catalog, name: &str) -> String {

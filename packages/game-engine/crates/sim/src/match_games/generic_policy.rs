@@ -153,6 +153,25 @@ fn tap_source_creature_untap(d: &Definition, p: &SpellProgram) -> bool {
                 && a.cost == ActivationCost::TapSource
         })
 }
+// Recognize only the complete ordinary creature protection spell. Additional
+// benefits, modal/activated programs and other grants retain their own policy.
+fn temporary_indestructible_spell(d: &Definition, p: &SpellProgram) -> bool {
+    use mtg_contracts::{Chooser, Duration, EvaluationStage, FunctioningZone};
+    d.characteristics.kind == CardKind::Instant
+        && d.spell.as_ref() == Some(p)
+        && p.timing == SpellTiming::Instant
+        && p.functioning_zone == FunctioningZone::Stack
+        && p.resolution == SpellResolution::Instructions
+        && p.modes.is_empty()
+        && p.additional_sacrifice.is_none()
+        && matches!(p.targets.as_slice(), [t] if t.slot == 0
+            && !t.selection_id.is_empty() && t.chooser == Chooser::Controller
+            && t.stage == EvaluationStage::Announcement
+            && t.domain == TargetDomain::BattlefieldCreature && t.filter.is_none())
+        && matches!(p.instructions.as_slice(), [I::GrantKeywords {
+            target_slot: 0, keywords, duration: Duration::UntilEndOfTurn, ..
+        }] if keywords == &[KeywordAbility::Indestructible])
+}
 fn contains_untap(p: &SpellProgram) -> bool {
     p.instructions
         .iter()
@@ -245,6 +264,9 @@ impl Strategy<'_> {
             if power.is_negative() || toughness.is_negative() || restrictions.contains(&CreatureRestriction::CantAttackOrBlock)))
     }
     pub(super) fn target_beneficial(&self, d: &Definition, p: &SpellProgram, slot: u32) -> bool {
+        if temporary_indestructible_spell(d, p) {
+            return slot == 0;
+        }
         if d.characteristics.subtypes.iter().any(|s| s == "Aura") {
             return !self.harmful_attachment(d);
         }
@@ -342,6 +364,20 @@ impl Strategy<'_> {
             }
             return self.defensive_untap_target(v, d, p, t, candidates);
         }
+        if temporary_indestructible_spell(d, p) {
+            return v
+                .objects
+                .iter()
+                .filter(|o| {
+                    o.controller == v.viewer
+                        && !o.keywords.contains(&KeywordAbility::Indestructible)
+                        && candidates.is_none_or(|cs| cs.contains(&o.handle))
+                        && self.object_matches(v, o, t, candidates.is_some())
+                        && self.protection_threat(v, d, o)
+                })
+                .max_by_key(|o| (self.value(o), o.handle.0.clone()))
+                .map(|o| o.handle.clone());
+        }
         if pure_indestructible_equipment(d, p) {
             let source = v
                 .stack
@@ -369,6 +405,135 @@ impl Strategy<'_> {
             })
             .max_by_key(|o| (self.value(o), o.handle.0.clone()))
             .map(|o| o.handle.clone())
+    }
+    // Deliberately narrow: inspect the next completed public invocation, or
+    // unambiguous one-on-one combat with no intervening stack. No hidden facts,
+    // speculative future targets, multi-block allocation or outcome search.
+    fn protection_threat(&self, v: &PermittedView, d: &Definition, o: &VisibleObject) -> bool {
+        let mut entries = v.stack.iter().rev();
+        let mut next = entries.next();
+        if next.is_some_and(|s| {
+            !s.cast_complete
+                && s.controller == v.viewer
+                && s.ability.is_none()
+                && s.triggered.is_none()
+                && self.entry_program(v, s).is_some_and(|(top, p)| {
+                    top.oracle_id == d.oracle_id && temporary_indestructible_spell(top, p)
+                })
+        }) {
+            next = entries.next();
+        }
+        let damage_safe =
+            !v.effects.iter().any(|e| {
+                matches!(e,
+            mtg_core::VisibleEffect::PreventCombatDamage { .. }
+            | mtg_core::VisibleEffect::PreventNextDamage { .. }
+            | mtg_core::VisibleEffect::DoubleDamageToPermanentOrPlayer { .. }
+            | mtg_core::VisibleEffect::DoubleControllerCreatureDamageToPermanentOrPlayer { .. })
+            });
+        let lethal = |amount: &Quantity| {
+            let mut total = o.marked_damage.clone();
+            total.add(amount);
+            *amount > Quantity::zero()
+                && o.characteristics
+                    .as_ref()
+                    .and_then(|c| c.toughness.as_ref())
+                    .is_some_and(|t| *t > Quantity::zero() && total >= *t)
+        };
+        if let Some(s) = next {
+            if !s.cast_complete || s.controller == v.viewer || s.mode.is_some() {
+                return false;
+            }
+            let Some((_, p)) = self.entry_program(v, s) else {
+                return false;
+            };
+            if !p.modes.is_empty() {
+                return false;
+            }
+            // Recheck the incoming caster's current visible target eligibility.
+            let mut caster = v.clone();
+            caster.viewer = s.controller;
+            let target_valid = |slot| {
+                p.targets
+                    .iter()
+                    .find(|t| t.slot == slot)
+                    .is_some_and(|t| self.object_matches(&caster, o, t, false))
+            };
+            return match p.instructions.as_slice() {
+                [
+                    I::DestroyTargetCreature { target_slot, .. }
+                    | I::DestroyPermanent {
+                        target_slot,
+                        optional: false,
+                        ..
+                    },
+                ] => {
+                    target_valid(*target_slot)
+                        && s.targets
+                            .get(*target_slot as usize)
+                            .is_some_and(|t| t.current.as_ref() == Some(&o.handle))
+                }
+                [I::DestroyAllCreatures { .. }] => true,
+                [
+                    I::DealDamage {
+                        target_slot,
+                        amount,
+                        ..
+                    },
+                ] => {
+                    damage_safe
+                        && target_valid(*target_slot)
+                        && lethal(amount)
+                        && s.entity_targets
+                            .get(*target_slot as usize)
+                            .is_some_and(|t| {
+                                entity_matches(
+                                    t,
+                                    &PlayerTargetEntity::Object {
+                                        object: o.handle.clone(),
+                                    },
+                                )
+                            })
+                }
+                _ => false,
+            };
+        }
+        if !damage_safe
+            || !matches!(
+                v.turn.step,
+                TurnStep::DeclareBlockers | TurnStep::FirstStrikeDamage
+            )
+            || o.keywords.iter().any(|k| {
+                matches!(
+                    k,
+                    KeywordAbility::FirstStrike | KeywordAbility::DoubleStrike
+                )
+            })
+        {
+            return false;
+        }
+        v.combat.iter().filter(|a| a.blockers.len() == 1).any(|a| {
+            let source = if a.attacker == o.handle {
+                Some(&a.blockers[0])
+            } else if a.blockers[0] == o.handle {
+                Some(&a.attacker)
+            } else {
+                None
+            };
+            source
+                .and_then(|h| v.objects.iter().find(|s| &s.handle == h))
+                .is_some_and(|s| {
+                    s.zone == Zone::Battlefield && s.controller != v.viewer
+                    // First-strike damage may already have happened. Without
+                    // its participant ledger we do not infer remaining strikes.
+                    && !s.keywords.iter().any(|k| matches!(k,
+                        KeywordAbility::FirstStrike | KeywordAbility::DoubleStrike))
+                    && s.characteristics.as_ref().and_then(|c| c.power.as_ref())
+                        .is_some_and(|power| lethal(power)
+                            || (*power > Quantity::zero()
+                                && s.keywords.contains(&KeywordAbility::Deathtouch)))
+                })
+        })
     }
     fn protection_equipment_target(
         &self,
@@ -1217,7 +1382,10 @@ impl Strategy<'_> {
         // Only the ordinary nonmodal spell is recognized here. In particular,
         // a modal child or activated program does not acquire this new policy.
         self.program_ready(v, d, p)
-            && (reactive_program(p) || tapped_destroy_spell(d, p) || defensive_untap_spell(d, p))
+            && (reactive_program(p)
+                || tapped_destroy_spell(d, p)
+                || defensive_untap_spell(d, p)
+                || temporary_indestructible_spell(d, p))
     }
     fn cast(
         &mut self,

@@ -3293,3 +3293,6 @@ fn indestructible_policy_exile_bounce_and_real_artifact_sacrifice_keep_preferenc
 
 #[path = "plate_policy_tests.rs"]
 mod plate_policy_tests;
+
+#[path = "temporary_protection_policy_tests.rs"]
+mod temporary_protection_policy_tests;
