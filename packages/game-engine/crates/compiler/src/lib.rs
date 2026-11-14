@@ -301,6 +301,18 @@ where
 {
     T::deserialize(deserializer).map(Some)
 }
+// Raw JSON operands still require presence to survive decoding. Their lowering
+// operators validate supported shapes; explicit null must never mean omission.
+fn present_json_operand<'de, D>(deserializer: D) -> Result<Option<serde_json::Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    if value.is_null() {
+        return Err(serde::de::Error::custom("expected a non-null JSON operand"));
+    }
+    Ok(Some(value))
+}
 fn lower_damage_subject(what: &SourceDamageObject) -> Result<DamageTriggerSource, Failure> {
     match what {
         SourceDamageObject::This { noun } if noun == "creature" => {
@@ -547,6 +559,7 @@ enum Step {
         library: serde_json::Value,
     },
     CreateToken {
+        #[serde(default, deserialize_with = "present_json_operand")]
         who: Option<serde_json::Value>,
         count: Count,
         token: SourceToken,
@@ -588,7 +601,7 @@ enum Step {
     GainLife {
         who: PlayerSelector,
         amount: serde_json::Value,
-        #[serde(rename = "forEach")]
+        #[serde(default, rename = "forEach", deserialize_with = "present_json_operand")]
         for_each: Option<serde_json::Value>,
     },
     LoseLife {
@@ -8410,6 +8423,9 @@ mod tap_tests;
 
 #[cfg(test)]
 mod permanent_owner_hand_tests;
+
+#[cfg(test)]
+mod optional_operand_tests;
 
 #[cfg(test)]
 mod null_flag_tests;
