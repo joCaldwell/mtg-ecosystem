@@ -369,3 +369,92 @@ fn temporary_indestructible_resolution_rechecks_departed_target() {
         },
     );
 }
+
+#[test]
+fn temporary_indestructible_attacker_damage_preserves_exact_keyword_authority() {
+    both(
+        prepared(&[
+            ("Withstand Death", true),
+            ("Grizzly Bears", false),
+            ("Forest", false),
+        ]),
+        |g, q| {
+            cast(g, q, 0, target(g, 1));
+            assert!(protected(g, 1));
+            let mut checked_damage = false;
+            for _ in 0..300 {
+                let r = loop {
+                    if !checked_damage
+                        && let Frame::DamageEffects { transaction } = &g.state.rules.frame
+                        && transaction
+                            .entries
+                            .iter()
+                            .any(|d| d.source.object == object(g, 1))
+                    {
+                        g.validate_damage_transaction(transaction).unwrap();
+                        assert!(
+                            transaction.entries[0]
+                                .source
+                                .keywords
+                                .contains(&KeywordAbility::Indestructible)
+                        );
+                        // Keywords can legitimately differ from current facts
+                        // after attachment departure. Restore's input replay,
+                        // rather than that local vocabulary check, proves LKI.
+                        let mut invented: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
+                        let Frame::DamageEffects {
+                            transaction: changed,
+                        } = &mut invented.state.rules.frame
+                        else {
+                            panic!("captured damage frame")
+                        };
+                        changed.entries[0]
+                            .source
+                            .keywords
+                            .retain(|k| *k != KeywordAbility::Indestructible);
+                        assert!(
+                            Game::restore(
+                                g.prepared.as_ref().clone(),
+                                &canonical(&invented).unwrap()
+                            )
+                            .is_err(),
+                            "catalog grant vocabulary cannot authenticate invented historical facts"
+                        );
+                        let mut duplicate = transaction.clone();
+                        duplicate.entries[0]
+                            .source
+                            .keywords
+                            .push(KeywordAbility::Indestructible);
+                        assert!(g.validate_damage_transaction(&duplicate).is_err());
+                        checked_damage = true;
+                    }
+                    match g.advance(Budget::new(q)) {
+                        Advance::Suspended { .. } => (),
+                        Advance::AwaitingDecision(r) => break r,
+                        other => panic!("protected attacker advance: {other:?}"),
+                    }
+                };
+                if g.state.rules.players[1].life == 38.into() {
+                    assert!(protected(g, 1));
+                    if q == 1 {
+                        assert!(checked_damage, "budget-one capture reached actual damage");
+                    }
+                    recover(g);
+                    return;
+                }
+                let response = match &r {
+                    Request::Attackers { candidates, .. } => {
+                        let attacker = object(g, 1);
+                        assert!(candidates.contains(&attacker));
+                        Response::Attackers {
+                            attacks: vec![(attacker, PlayerId(1))],
+                        }
+                    }
+                    _ => pass(&r),
+                };
+                g.respond(r.player(), r.decision_id(), response).unwrap();
+            }
+            panic!("protected attacker failed to deal combat damage")
+        },
+    );
+}
