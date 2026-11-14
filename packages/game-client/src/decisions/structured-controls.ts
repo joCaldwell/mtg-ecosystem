@@ -97,7 +97,9 @@ export function completeStructuredDecision(request: PlayerRequest, draft: LocalD
     }
     case 'damage_allocation': return { response: 'damage_allocation', allocations: request.candidates.map(candidate => [candidate.damage, read(draft, candidate.damage)]) };
     case 'commander_return': return { response: 'commander_return', to_command: draft.selected[0] === 'command' };
-    case 'spend_mana': return { response: 'spend_mana', spending: Object.fromEntries(colors.filter(color => request.available[color] !== undefined).map(color => [color, read(draft, color)])) };
+    // Native selected_payment_pool requires sparse, strictly positive entries.
+    // Explicit zero inputs remain visible draft intent but add no wire entry.
+    case 'spend_mana': return { response: 'spend_mana', spending: Object.fromEntries(colors.filter(color => request.available[color] !== undefined && read(draft, color) !== '0').map(color => [color, read(draft, color)])) };
     case 'attackers': return { response: 'attackers', attacks: request.candidates.filter(handle => read(draft, handle) !== unused).map(handle => [handle, request.defenders.find(seat => identity(seat) === read(draft, handle))!]) };
     case 'blockers': return { response: 'blockers', blocks: request.candidates.filter(handle => read(draft, handle) !== unused).map(handle => [handle, request.attackers.find(attacker => identity(attacker) === read(draft, handle))!]) };
     case 'damage': {

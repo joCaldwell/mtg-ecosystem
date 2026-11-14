@@ -31,12 +31,13 @@ async function bounded<T>(signal: AbortSignal, operation: (signal: AbortSignal) 
 
 /** Command-enabled composition requires the explicitly qualified SDK build
  * identity. The app separately gates reviewed opening-hand interactions. */
-export function browserCommandSession(protocolSchemaHash: string): ReadSession<File> {
+export function browserCommandSession(protocolSchemaHash: string, options?: { readonly endpoint: string }): ReadSession<File> {
   if (!/^[0-9a-f]{64}$/.test(protocolSchemaHash)) throw new SessionFailure('incompatible');
-  return makeBrowserSession(protocolSchemaHash);
+  if (options && !/^\/api\/games\/[a-f0-9]{1,64}\/native$/.test(options.endpoint)) throw new SessionFailure('incompatible');
+  return makeBrowserSession(protocolSchemaHash, options?.endpoint);
 }
 export function browserReadSession(): ReadSession<File> { return makeBrowserSession(); }
-function makeBrowserSession(protocolSchemaHash?: string): ReadSession<File> {
+function makeBrowserSession(protocolSchemaHash?: string, endpoint?: string): ReadSession<File> {
   const effects: SessionEffects<File> = {
     cancellation() { const abort = new AbortController(); return { signal: abort.signal, abort: () => abort.abort() }; },
     acquire: acquireSeat, wait, classify,
@@ -48,8 +49,15 @@ function makeBrowserSession(protocolSchemaHash?: string): ReadSession<File> {
       try { bootstrap = parseSeatBootstrap(await file.text()); }
       catch { throw new SessionFailure('invalid-file'); }
       if (signal.aborted) throw new SessionFailure('disconnected');
-      const baseURL = window.location.origin;
-      const config = await bounded(signal, deadline => readClientConfig(baseURL, { signal: deadline }));
+      const origin = window.location.origin;
+      const baseURL = `${origin}${endpoint ?? ''}`;
+      // The public SDK still validates numeric-loopback client configuration and
+      // bounds its body. Only the app-selected path changes its transport; no
+      // bootstrap/config value can select a fetch target. Hosted origins retain
+      // an explicit gate until that separate transport contract is qualified.
+      const config = await bounded(signal, deadline => readClientConfig(origin, { signal: deadline,
+        ...(endpoint ? { fetch: (_input, init) => fetch(`${baseURL}/client-config.json`, { ...init, credentials: 'same-origin' }) } : {}),
+      }));
       if (signal.aborted) throw new SessionFailure('disconnected');
       // Both producer/parser contracts require the explicit SocketAddr spelling,
       // including :80. URL.origin alone would lose the default port distinction.

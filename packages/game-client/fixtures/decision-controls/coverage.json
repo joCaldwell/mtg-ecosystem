@@ -23,7 +23,7 @@
     },
     {
       "path": "docs/game-engine-current.md",
-      "sha256": "404c494f5b3727cba80d59600b3ff9116238552465f99e1c32d69ce7e5f96ce5"
+      "sha256": "d2148be8b7e7d219070435d145cfb2039ae4bbe90385b30439430a8f00030b43"
     },
     {
       "path": "docs/game-engine-server.md",
@@ -31,7 +31,7 @@
     },
     {
       "path": "packages/game-engine/crates/core/src/engine/visibility.rs",
-      "sha256": "065c4144c06a2491723d0332f874324cad3461b2d5852bd06dffc46693e9484c"
+      "sha256": "ded6413279683485b7c1f362ec2ba5f3bfdfea816cb807afc0309c97372ee2ad"
     },
     {
       "path": "packages/game-client/src/decisions/controls.ts",
@@ -39,7 +39,7 @@
     },
     {
       "path": "packages/game-client/src/decisions/structured-controls.ts",
-      "sha256": "93498c67377e19a59f4ccdf125b4178cb14c5c55b61edf5cc7426a1bbf6520c2"
+      "sha256": "88079c3d893e1412ac611295516a395cb790abe94b28b930aa9d0f4c824acb65"
     },
     {
       "path": "packages/game-client/src/features/decisions/LocalControls.tsx",
@@ -71,7 +71,7 @@
     },
     {
       "path": "packages/game-client/tests/structured-controls.test.ts",
-      "sha256": "d259ba5eec035cbb0b31f4ac8f1019c564f2379e26c7975b033c240f1200b192"
+      "sha256": "39c2c9f71e1346d23c7554b534ea545d61dc69c82bce7496a9af8abf84e16b7b"
     },
     {
       "path": "packages/game-client/tests/decision-inventory.test.ts",
