@@ -4,10 +4,13 @@ Make Jo's Cascade, with Ramos, Dragon Engine as commander, executable end to end
 using its unchanged saved list. Development follows the dependencies below and
 delivers complete mechanic families in small verified checkpoints.
 
-This is a planning handoff. Finish and reconcile the currently running engine
-increments before starting this workstream. The baseline must be rechecked
-against then-current origin/main; the observations below are planning inputs,
-not engine acceptance results.
+M0 is frozen against `origin/main` at
+`bbdba9f5add0bfd0c75c0ec18eb2986581c3e534`, with the planning-only commit
+`46ef08faedb8c5fa9c1c1fa9a8afefd1f85e1f6c` directly above it.
+The prior keyword/compiler round is integrated. The
+[M0 support matrix and dependency backlog](game-engine-ramos-support.md) records
+the exact production-compiler baseline; later milestones remain unimplemented
+for this target. This plan is not exact-deck engine acceptance.
 
 ## Target and source authority
 
@@ -102,6 +105,16 @@ Map each rejection to a milestone below. Preserve the failing baseline.
 
 Exit: a reproducible target manifest, support matrix and dependency backlog.
 This audit is bounded setup, not a new coverage percentage or a tooling project.
+
+Completed input/compiler audit: [support matrix](game-engine-ramos-support.md),
+[revision-17 manifest](../packages/game-engine/tests/fixtures/ramos/revision-17.manifest.json)
+and [preserved baseline](../packages/game-engine/tests/fixtures/ramos/baseline-46ef08fa.json).
+All 85 definitions resolve to verified archive lines; the export has 100 cards
+and 37 lands with the stated digest. Eleven definitions lower and validate;
+74 reject, including the seven parser-stage failures listed above.
+The connected app requires reauthentication, so the app/frozen Oracle-text
+comparison remains explicitly unverified. No new deck revision was read.
+This source audit does not admit a Ramos catalog, headless profile, host or search.
 
 ### M1 Complete Ramos and counter replacement
 
@@ -331,9 +344,8 @@ single integration owner when multiple families touch them. Source/rules
 research and dedicated scenarios can run in parallel. Native builds/tests
 remain serialized through the documented shared Cargo lock.
 
-The currently running temporary-keyword and compiler work can supply reviewed
-foundations after integration. Do not restart it or assume pending evidence
-has passed.
+The prior temporary-keyword and compiler work is integrated at this M0 baseline.
+Reuse its source-qualified foundations; it does not by itself qualify this deck.
 
 ## Verification and progress reporting
 
@@ -353,7 +365,7 @@ For each checkpoint:
 - Keep generated source dumps, build outputs and raw receipts ignored.
   Preserve useful evidence and existing shared caches.
 
-Maintain one card support matrix linked from this plan once M0 creates it.
+Maintain the [single card support matrix](game-engine-ramos-support.md).
 Each row needs the complete card source status, owning milestone, current
 diagnostic, tests and exact evidence. Update that matrix instead of adding
 repetitive implementation transcripts. A parser-only pass, compilation,
