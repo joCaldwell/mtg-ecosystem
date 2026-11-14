@@ -384,3 +384,20 @@ server files and identical contracts code outside `catalog_schema`; copied rules
 test binaries keep their original producer identity. Schema checks use the new
 copied CLI. Interrupted attempts and zero-match selectors remain recorded and
 are not treated as passed tests. This does not qualify the exact deck or host.
+
+The combined rules producer passed **427 selected Rust tests**: 82 contracts,
+207 compiler, 64 core (Ramos/M2, mana, cast triggers, payment queries, snapshot
+recovery and temporary deathtouch), two paid compound/Collar admission controls,
+and 72 public-IR policy tests. Workspace all-target compilation and formatting
+passed. Its optimized-test BUILD_ID is
+`84085fde9fa83e609a661d5452854b2d4af4eea98c58732b0e9539606ae3d254`.
+The schema-only correction is separately checked as described above; old rules
+binaries are not relabeled with its build ID. The corrected opt-level 0 CLI
+retains debug assertions and BUILD_ID
+`a77d38476920ada9b4f23fcde09339c53694c28ee5bb3345ad25676c083e34d0`.
+Its exported schema SHA-256 is
+`3ec4e749e36ff073c99fe723cf831917d63aa3dd61a6bf65470999befaddff7f`.
+The authoritative receipt remains
+`/home/josh/Code/mtg-ecosystem/generated/ramos/schema-final/integration.json`,
+with phase receipts, source identities, interruptions and omissions. Parent
+native work is released; M1b uses a separate checkout and qualification.
