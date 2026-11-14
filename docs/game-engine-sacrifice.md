@@ -155,7 +155,7 @@ Each deck adds its colored cards. Basics fill each deck to 100 cards:
 
 | Deck | Adds | Basics |
 | --- | --- | --- |
-| White | Requiem Angel and Darksteel Plate | 56 Plains |
+| White | Requiem Angel, Darksteel Plate and Basilisk Collar | 55 Plains |
 | Black/green | the eleven black cards and Sakura-Tribe Elder | 9 Forest, 10 Swamp |
 | Blue | Regress and Disperse | 69 Islands |
 | Red | the six red cards and Darksteel Relic | 68 Mountains |
@@ -165,7 +165,7 @@ The default pod and the batch pods are those of removal-v1. The seed domain is
 
 ### Darksteel Plate headless admission
 
-The current sacrifice catalog has **159 definitions**, adding only exact
+The preceding Plate admission brought the sacrifice catalog to **159 definitions**, adding only exact
 `b5b4cf54-ed5e-42d0-9d98-5fec76b0b0b8` (Darksteel Plate). The complete existing
 source fixture lowers to a {3} Artifact — Equipment with intrinsic indestructible,
 a zero-power/zero-toughness equipped-creature indestructible grant, and a
@@ -210,6 +210,53 @@ Focused source-qualified evidence, copied debug binaries, the opening probe,
 failed attempts and receipts are retained under `generated/plate-admission/`.
 The base is `0d2ed30bc71f97b6574b59afa6f578098afcfe6b`; this headless admission
 makes no hosted/search, release, full-completion, SDK or combined-acceptance claim.
+
+### Basilisk Collar headless admission
+
+The sacrifice catalog now has **160 definitions**, adding only exact Basilisk
+Collar (`f5f4dd28-f4ae-4d39-b9b8-6ebfd63c93fe`). Removing it recovers the
+preceding 159-definition canonical digest
+`b2caa24cbe465b05f4dd7157c00d530dc1de94840844a446bbccb0ae780a22ec`.
+The complete record is physical line **37192** (source index 37190) of the frozen
+`d705222b280a71cb` archive. Its record SHA-256 is
+`5770056421b0b617e49684f854025744fa5af4a826c56a605a8b92ab2f14da5a`.
+The baseline compiler already lowers its complete normal, colorless, Commander-legal
+{1} Artifact — Equipment source: a zero-stat equipped-creature modifier granting
+**both deathtouch and lifelink**, plus own-main-phase equip {2}. The accepted
+archive and provenance entries are additive. There is no new mechanic or
+capability, compiler/core production change, contract/schema change, or consumer
+admission; schema remains 1.
+
+White replaces exactly one of its 56 Plains with the singleton Collar, leaving
+**55 Plains**. Plate, red Relic, all other cards/decks, commanders and profile
+flags remain unchanged. Reversing this one deck delta recovers the previous
+profile digest `e972431a9ab20a50f416cb462943aedf60a6860b9f3bb1ae26cefc5f2a78d062`.
+Requested or forcibly enabled hosting/search retain their existing rejection.
+
+The [dedicated accepted-pod test](../packages/game-engine/crates/core/tests/collar_admission.rs)
+uses four legal 100-card decks and real land mana. A bounded opening-only probe
+keeps all hands and stops at Upkeep before gameplay. Its first qualifying index is
+**73** in `commander-sacrifice-v1/opening-collar/`. White pays {W} for Isamaru,
+{1} for Collar and {2} to equip. Blue pays {1}{U} for the exact 0/8 Caelorna
+commander. Isamaru's actual 2 combat damage destroys that blocker via deathtouch
+and simultaneously raises white's life from 40 to 42 via lifelink. The blocker
+enters its owner's graveyard and follows the owner-requested commander-return
+path. White then pays {1}{W} for Disenchant targeting Collar: its source leaves,
+the attachment disappears and Isamaru loses both granted keywords. This follows
+pinned CR 301.5b–f, 702.6a, 702.2b, 702.15b and 903.9a
+([2026-09-25 rules](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt)).
+The test checks atomic foreign/unoffered/stale equip responses, stale receipt
+rejection, snapshots, accepted-input replay and equality at quanta 1/4096.
+
+The [synthetic policy tests](../packages/game-engine/crates/sim/src/match_games/collar_policy_tests.rs)
+exercise the existing generic equipment policy over actual admitted IR. They
+check paid readiness, timing, control, targetability, offered handles, highest-value
+recipient and stable repeated decisions after attachment; these observations are
+separate from paid gameplay evidence. No card-name policy branch is added.
+Focused evidence, exact baseline lowering, source hashes, command receipts,
+failed attempts and copied producers are retained under
+`generated/basilisk-collar-admission/`. This is headless prefix qualification,
+with no renewed completion, release, SDK, host/search or combined-acceptance claim.
 
 ### Resource bounds
 
