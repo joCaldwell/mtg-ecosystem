@@ -378,6 +378,9 @@ fn set_keyword_kernel_compound_execution_creates_all_layers_once_and_rolls_back(
         power: Quantity::from(1),
         toughness: Quantity::zero(),
     });
+    // This kernel invoked the instruction directly. Normal advance publishes
+    // these handles before any query; the query itself must never mint them.
+    g.refresh_effect_handles().unwrap();
     for viewer in 0..4 {
         let visible = g.visible_effects(PlayerId(viewer)).unwrap();
         assert_eq!(visible.len(), 1);
