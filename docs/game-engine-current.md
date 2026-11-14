@@ -81,16 +81,21 @@ Jump source through the same exact-incarnation keyword union and cleanup.
 unchanged. Both foundations are scoped in the [keyword contract](game-engine-indestructible.md).
 Damage-source LKI admits validated spell grants while replay authenticates the
 historical appearance; the guard retains duplicate and departure invariants.
-The earlier combined Plate admission, blue default and temporary-grant source at
-`b19498657bf73402bcfe559017e0956eb5b696fe` has copied producer
-`9cb71fca155ea489d4d204ad77e0236c99e78ea1af44ccaf7500cabb3a434555`,
-with all 750 native source rows verified. Its focused combined pass ran 84 tests,
-workspace all-target compilation, production compiler/core/simulator Clippy,
-catalog freshness and CLI smoke/replay; the exported schema matches the
-temporary-grant producer. Exact copies and receipts are retained under
-`generated/parallel-round/native01/`. The blue full-game witness remains
-qualified to its separately named producer; no combined full-completion,
-release/profile/runtime matrix or downstream consumer qualification is claimed.
+The current focused combined qualification uses source
+`4b9f8bb2fa5d544ab12947328e5efe2947be3264` and copied producer
+`770125c36502febc3a1f1276094666b34109809e32a4429673a8e7e342aad619`,
+with all 763 compiled source rows verified. It passed 368 Rust tests, including
+both paid admission prefixes and catalog freshness, plus 56 exported-schema
+probes, formatting, workspace all-target compilation and CLI smoke/replay.
+Compiler/core/simulator production Clippy passed strictly; contracts production
+Clippy used only the inherited `collapsible_if` exception. Exact copies,
+commands, source hashes and omissions are retained under
+`generated/five-more/combined01/`. The exported schema SHA-256 is
+`aa24f67db518b6f14a86bd3363a6da5d36af66f4cef388cb9e515a77433da5d7`.
+This is focused development qualification, excluding full runtime, release,
+profile/completion and downstream consumer matrices. The earlier blue full-game
+witness remains qualified to its separately named producer. The same batch also
+rejects unconsumed Aura-return sentence bindings without changing exact Rancor IR.
 The only active IR schema is 1 while there are no external consumers; new
 features evolve it in place with capability validation and exact build fencing.
 Current in-place support covers [grouped power-qualified damage and opponent
