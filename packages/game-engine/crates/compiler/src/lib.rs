@@ -3261,11 +3261,13 @@ fn lower_trigger(
     block: usize,
 ) -> Result<TriggeredAbility, Failure> {
     if let SourceTrigger::PutIntoGraveyard { what, from, to } = trigger {
+        // This shortcut emits no binding instructions; unconsumed sentence
+        // bindings must not disappear when bypassing append_spell_effects.
         if !matches!(what, TriggerObject::This {noun} if noun == "aura")
             || from != "battlefield"
             || *to != serde_json::json!({"zone":"graveyard","owner":"any"})
             || intervening.is_some()
-            || !matches!(effects, [Sentence {steps, ..}] if matches!(steps.as_slice(), [Step::ReturnToHand {what,to,optional:None}] if *what == serde_json::json!({"ref":"it"}) && to == "owner"))
+            || !matches!(effects, [Sentence {bindings, steps}] if bindings.is_empty() && matches!(steps.as_slice(), [Step::ReturnToHand {what,to,optional:None}] if *what == serde_json::json!({"ref":"it"}) && to == "owner"))
         {
             return Err(unsupported("trigger", "unsupported Aura return"));
         }
@@ -8419,3 +8421,6 @@ mod equipped_indestructible_tests;
 
 #[cfg(test)]
 mod temporary_indestructible_tests;
+
+#[cfg(test)]
+mod aura_return_binding_tests;
