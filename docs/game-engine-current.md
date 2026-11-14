@@ -33,7 +33,8 @@ card names, quantities and IDs never dispatch rules or strategy.
 
 The only active Card IR schema is **1** (`mtg_contracts::CURRENT_IR_VERSION`).
 The shared temporary-keyword family supports reviewed unique combinations of Flying,
-Deathtouch, Indestructible, Lifelink and Hexproof, optionally preceded by a fixed
+Deathtouch, Indestructible, Lifelink, Hexproof, Haste, Trample and First Strike,
+optionally preceded by a fixed
 signed stat modifier. Targets may be ordinary creatures or creatures controlled
 by the invocation controller; old unfiltered subset requirements and consumer/pool
 admission remain unchanged. The separate complete Aura-control family derives current creature control from
