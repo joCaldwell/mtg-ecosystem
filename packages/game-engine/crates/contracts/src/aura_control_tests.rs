@@ -1,7 +1,7 @@
 //! Synthetic typed IR controls; complete frozen source tests live in compiler.
 use super::*;
 
-fn aura() -> Definition {
+pub(super) fn aura() -> Definition {
     let mut d = Catalog::read(include_str!(
         "../../../tests/fixtures/expected-attachments-ir.json"
     ))

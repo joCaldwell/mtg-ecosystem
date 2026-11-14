@@ -4268,6 +4268,7 @@ mod tests {
             OtherCreatureEntersBattlefieldV1,
             CreatureDiesV1,
             CastEnchantmentV1,
+            AuraControlV1,
             TemporaryPowerToughnessV1,
             CombatDamagePreventionV1,
             DamageBudgetPreventionV1,
@@ -4383,6 +4384,9 @@ mod tests {
         definitions.push(tapped);
         // Complete typed untap witness; the compiler separately checks the
         // retained source and its complete unqualified target selection.
+        // Complete typed Aura-control witness; compiler tests independently
+        // qualify both exact frozen sources without a profile admission change.
+        definitions.push(aura_control_tests::aura());
         definitions.push(indestructible_tests::intrinsic());
         definitions.push(temporary_indestructible_tests::grant());
         definitions.push(temporary_flying_tests::grant());
