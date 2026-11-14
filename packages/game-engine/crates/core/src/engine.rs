@@ -55,6 +55,8 @@ mod attachments;
 #[cfg(test)]
 mod attachments_tests;
 #[cfg(test)]
+mod aura_control_tests;
+#[cfg(test)]
 mod blocking_target_tests;
 #[cfg(test)]
 mod four_colors_tests;
