@@ -338,7 +338,7 @@ fn temporary_permanent_keyword_compiler_reused_selection_and_whole_source_guards
     assert!(bind_temporary_permanent_target(&mut p, &mut slots, &target).is_err());
     p.targets[0].domain = TargetDomain::ControlledBattlefieldCreature;
     assert!(bind_temporary_permanent_target(&mut p, &mut slots, &target).is_err());
-    for case in 0..6 {
+    for case in 0..5 {
         let raw = tests::changed_source(RAW, |r| match case {
             0 => {
                 let a = r["faces"][0]["result"]["abilities"][0].clone();
@@ -355,19 +355,14 @@ fn temporary_permanent_keyword_compiler_reused_selection_and_whole_source_guards
                 r["faces"][0]["result"]["lines"][0]["ability"]["effects"][0]["steps"][0]["what"]["filter"]
                     ["control"] = "opponent".into()
             }
-            2 => r["sourceSha256"] = "0".repeat(64).into(),
-            3 => r["binding"]["fullyBound"] = false.into(),
-            4 => r["binding"]["diagnostics"] = json!([{"code":"unsupported-reference"}]),
+            2 => r["binding"]["fullyBound"] = false.into(),
+            3 => r["binding"]["diagnostics"] = json!([{"code":"unsupported-reference"}]),
             _ => r["faces"][0]["result"]["lines"]
                 .as_array_mut()
                 .unwrap()
                 .push(json!({"text":"Scry 1.","ok":false})),
         });
-        // changed_source intentionally repairs hashes; the bad mirror and complete
-        // extra ability/line/diagnostic controls remain semantically unsupported.
-        if case != 2 {
-            rejects(&raw);
-        }
+        rejects(&raw);
     }
     let mut r: Value = serde_json::from_str(RAW).unwrap();
     r["sourceSha256"] = "0".repeat(64).into();
