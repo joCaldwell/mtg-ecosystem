@@ -274,6 +274,7 @@ fn target_plans(
     players.sort_by_key(|p| ((*p == view.viewer) != own, p.0));
     let variants = match domain {
         TargetDomain::ControlledBattlefieldCreature
+        | TargetDomain::ControlledBattlefieldPermanent
         | TargetDomain::BlockingBattlefieldCreature
         | TargetDomain::OwnGraveyardCreatureCard => {
             return Err("staples target outside foundations search".into());
