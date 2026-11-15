@@ -52,12 +52,14 @@ rules or policies. Keep the standalone deck-builder independent.
   compiled-source rows, all-target compilation and formatting. The single review's
   empty-source-block and stale-format findings are fixed; actual RED/GREEN retained.
   Test producer `7bd4f7e4`, CLI `5aba2e46`; formats 24/19, IR1.
-- **M4a pending:** reviewed source `0e26ccd1` on `2b83a482` lowers complete Apex
-  through independent self-cascade entries and atomic whole-batch trigger preflight.
-  Three compiler/13 core tests passed; one source/test review found no concrete
-  defect. Private counter roots have off-color cards and establish no legal-pod
-  admission. Adjacent checks, own CLI/schema export and fresh-main combination
-  remain pending; Wanderer stays wholly Unsupported. No new format is claimed.
+- **M4a:** reviewed source `0e26ccd1`, final feature `27eb161a` on `2b83a482`,
+  qualifies complete Apex through independent self-cascade entries and atomic
+  whole-batch preflight. Passed 479 distinct Rust tests, 58 schema probes, 927
+  source rows, all-target compilation and formatting. The single review found no
+  concrete defect. The diagnostic-only driver failure is preserved; immutable
+  exports were verified offline. Private off-color counter roots establish no
+  legal-pod admission. Formats remain 24/19. Fresh-main combined qualification,
+  Wanderer and broader M4 remain pending.
 
 Authoritative coordinator receipts are ignored
 `generated/ramos/m3b-integrated/` and `generated/ramos/m3c-integrated/`;
