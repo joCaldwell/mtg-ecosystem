@@ -1332,29 +1332,61 @@ fn static_creature_modification_valid(
             .any(|(n, k)| restrictions[..n].contains(k)))
 }
 
-/// The complete admitted Aura-control executable shape, without recursive
-/// validation, capability calculation, source identity or mana-cost dispatch.
-/// CR 303.4a/303.4m, 109.5 and 611.3: one creature, artifact or land target
-/// and one battlefield control effect using the current Aura controller. Only
-/// creature control may compose with one enchanted-creature modifier. Other Auras retain
-/// their existing admission rules.
+/// Nonserialized target domain of a complete admitted Aura-control definition.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum AuraControlDomain {
+    Creature,
+    Artifact,
+    Land,
+    Permanent,
+}
+impl AuraControlDomain {
+    /// CR 110.4: only permanent kinds represented by this engine are admitted.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    pub fn accepts(self, characteristics: &Characteristics) -> bool {
+        match self {
+            Self::Creature => characteristics.has_type(CardKind::Creature),
+            Self::Artifact => characteristics.has_type(CardKind::Artifact),
+            Self::Land => characteristics.has_type(CardKind::Land),
+            Self::Permanent => [
+                CardKind::Creature,
+                CardKind::Artifact,
+                CardKind::Land,
+                CardKind::Enchantment,
+            ]
+            .into_iter()
+            .any(|kind| characteristics.has_type(kind)),
+        }
+    }
+}
+
+/// Complete Aura-control shape, without recursive validation, capabilities or
+/// source identity dispatch. Only creature control composes with a modifier.
+/// CR 303.4a/m, 109.5, 611.3; explicit filters preserve target validation.
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-pub fn aura_control_target_type(definition: &Definition) -> Option<CardKind> {
+pub fn aura_control_domain(definition: &Definition) -> Option<AuraControlDomain> {
     let c = &definition.characteristics;
     let p = definition.spell.as_ref()?;
     let [target] = p.targets.as_slice() else {
         return None;
     };
     let target_type = match (&target.domain, &target.filter) {
-        (TargetDomain::BattlefieldCreature, None) => CardKind::Creature,
+        (TargetDomain::BattlefieldCreature, None) => AuraControlDomain::Creature,
         (TargetDomain::BattlefieldPermanent, Some(f))
-            if matches!(f.types.as_slice(), [CardKind::Artifact] | [CardKind::Land])
-                && f.non_types.is_empty()
+            if matches!(
+                f.types.as_slice(),
+                [] | [CardKind::Artifact] | [CardKind::Land]
+            ) && f.non_types.is_empty()
                 && f.non_colors.is_empty()
                 && !f.opponent
                 && !f.tapped =>
         {
-            f.types[0]
+            match f.types.as_slice() {
+                [] => AuraControlDomain::Permanent,
+                [CardKind::Artifact] => AuraControlDomain::Artifact,
+                [CardKind::Land] => AuraControlDomain::Land,
+                _ => unreachable!(),
+            }
         }
         _ => return None,
     };
@@ -1383,7 +1415,7 @@ pub fn aura_control_target_type(definition: &Definition) -> Option<CardKind> {
         && definition.static_abilities.iter().all(|a| {
             a.functioning_zone == FunctioningZone::Battlefield
                 && (a.effect == StaticEffect::ControlEnchantedPermanent
-                    || (target_type == CardKind::Creature
+                    || (target_type == AuraControlDomain::Creature
                         && matches!(
                             a.effect,
                             StaticEffect::ModifyCreatures {
@@ -1407,7 +1439,7 @@ pub fn aura_control_target_type(definition: &Definition) -> Option<CardKind> {
 }
 /// Whether this definition has the complete narrow Aura-control shape.
 pub fn aura_control_source(definition: &Definition) -> bool {
-    aura_control_target_type(definition).is_some()
+    aura_control_domain(definition).is_some()
 }
 
 impl Definition {
