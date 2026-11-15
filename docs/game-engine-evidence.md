@@ -177,19 +177,20 @@ Formats24/19; no consumer or exact-deck qualification.
 
 ### Ramos multiple cascade and live modifier combined qualification
 
-Source `3813db057d66bd8d9ce3de7825a6758a2f82dd30`, combined with main `2ac47a82`,
-qualifies complete Apex/Wanderer and existing cost, counter and temporary-grant
-compositions: **542 distinct Rust tests, 2,748 schema probes, 944 source rows**.
-All-target compilation/formatting passed. Core producer `9913bc5c` and contract artifacts retain
-`57aeb5f1`; corrected compiler/CLI use `3813db05` through the explicit two-compiler-test
-bridge. CLI producer is `43281926`; both opt2/opt0 identities were independently
-recomputed from 336 Rust inputs/settings. Snapshot/public-context-work are 26/21, IR1.
+Source `3813db057d66bd8d9ce3de7825a6758a2f82dd30` combined main `2ac47a82`:
+542 distinct Rust,2,748 schema,944 rows;26/21,IR1. `generated/ramos/m4a-integrated/integration.json`
+retains separate runtime/contracts57aeb5f1 and compiler/CLI3813 producers, test-only
+bridges, reviews and failures. The original833-second Apex witness was not repeated.
+[Immutable detail](https://github.com/joCaldwell/mtg-ecosystem/blob/1db8a87170d540e0b955a58757c356fc2ce1add6/docs/game-engine-evidence.md#ramos-multiple-cascade-and-live-modifier-combined-qualification).
 
-`generated/ramos/m4a-integrated/integration.json` links actual copied binaries,
-reviews, schema, source/settings proofs, failures and timings. Wanderer's review
-found only cleanup setup; fixed test-only. Conditional sentence fences explicitly
-reject unconsumed clauses. Stale tests, empty selector and missing offline result
-directory are retained without false passes. The original 833-second seeded Apex
-witness was not repeated. Full runtime, fresh combined Clippy, release/profile,
-Node workspace, SDK/client/host/search and exact-target admission remain omitted;
-later permanent-set/Aura producers and historical client acceptance stay separate.
+### Ramos Imoti and fresh-main combined qualification
+
+Source `f6c9d7c76ca0837ec2c93fad5a78fb5c1a272b7f`, main `219c8caf` plus peer `881c57b7`:
+**582 distinct Rust/591 accepted executions, 3,325 schema, 964 rows**. Libraries (126/298)
+retain `2676d264` through one core-test-only bridge;158 distinct core tests use `f6c9d7c7`.
+Opt2 `397bb69d`, CLI opt0 `d10ba85d` were independently rederived. Source labels are the
+only change in five previously qualified catalog exports. Formats 27/22, IR1.
+`generated/ramos/m4c-integrated/integration.json` links exact binaries/settings,
+review repairs, failed attempts, historical-hash adapter and source/IR bridges.
+All-target/fmt/smoke/replay passed. Full runtime/release/Clippy/Node/consumer matrices
+and exact-target admission remain omitted; first-cast history stays open.

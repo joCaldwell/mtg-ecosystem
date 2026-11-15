@@ -522,6 +522,14 @@ successful payment; declared attacks use the real declaration batch. Ordinary
 step, death, ETB, draw/discard and combat/noncombat-damage families each retain
 strict source/program validation.
 
+Live battlefield static grants add independent cascade instances to completed spells
+of the source's current controller whose stack mana value meets the exact threshold.
+Intrinsic indexes and grant-source incarnation/static indexes are distinct identities.
+The cast spell remains rules source; caster and grant provenance freeze at collection,
+surviving later grantor departure/control changes. Whole batches preflight IDs,
+fanout and retained payloads atomically. This family supplies no first-cast ledger;
+Nexus/Wild-Magic Sorcerer/Yidris remain whole-source unsupported.
+
 Later finite extensions cover opponent-damage conditions, optional controller
 draws, event-player discard/sacrifice, filtered sources, controller discard,
 damage-quantity draws, attacking-creature keywords/Snow and event-time appearance.

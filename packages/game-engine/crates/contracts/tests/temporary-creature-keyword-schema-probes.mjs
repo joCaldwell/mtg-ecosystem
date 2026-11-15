@@ -52,6 +52,9 @@ function control(keywords, modifier = false, domain = 'battlefield_creature') {
 function priorSplitHash(rows) {
   const prior = rows.map(({ name, value }) => {
     const copy = clone(value);
+    // Presentation labels were added after these historical controls. Keep the
+    // old executable-IR hash pinned while current schema probes retain labels.
+    for (const definition of copy.definitions) delete definition.source_labels;
     const program = copy.definitions[0].spell;
     if (program?.instructions.length === 1 && program.instructions[0].op === 'grant_keywords' && program.instructions[0].modifier) split(program);
     return { name, value: copy, exact: JSON.stringify(copy) };

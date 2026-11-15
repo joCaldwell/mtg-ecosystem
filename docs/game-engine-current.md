@@ -33,13 +33,12 @@ A combined fixed stat/keyword grant is one instruction/effect with one recipient
 capture; later control or incarnation changes do not select new recipients.
 Permanent-wide grants reject stat modifiers. Profiles and consumers remain
 separately admitted.
-The Ramos basic/optional-cost cascade family has source-qualified evidence on
-`2b83a482` (M3 exit). Combined `3813db05` qualifies complete Apex and Wanderer,
-including independent self-cascades, live controller-creature haste, recovery and
-strict cost/grant boundaries. Private/public-context-work are 26/21; prior producers
-retain their own identities. No exact-target, profile, host, SDK or search admission
-follows. The permanent-set and typed Aura proofs remain separate; their current Ramos
-combination is unqualified.
+Ramos source `f6c9d7c7` combines Apex/Wanderer/Imoti, optional costs, counters and
+current typed Aura/permanent grants with main `219c8caf`. Independent intrinsic and
+granted cascades retain event-time identity/control and private recovery. Its
+582 distinct Rust/3,325 schema/964-row qualification uses private/public-context-work
+27/22, IR1. First-cast history and exact-target/profile/host/SDK/search admission
+remain open; historical client26/21 acceptance stays separate.
 
 Continuous Aura control shares one typed operation for creatures, artifacts and
 lands. Attachment legality, semantic timestamps and controller reconciliation are
@@ -61,7 +60,7 @@ The platform baseline was `c62777b`; acceptance never transfers to later source:
 | D2c-d `394301d` | Accepted declared-attack triggers at historical IR24, including reviewed demo/Bundle lifetimes |
 | Later D2c-e/IR25 and finite trigger/keyword/interaction additions | Candidate/focused source qualification; no renewed combined acceptance or P7 performance claim |
 | Schema-1 reset | Regenerated 29 active pools, 1,357 definitions unchanged; focused checks only |
-| Ramos combined M4a/M4b | Source `3813db057d66bd8d9ce3de7825a6758a2f82dd30`; 542 distinct Rust, 2,748 schema probes, 944 source rows; focused qualification only |
+| Ramos combined M4c | Source `f6c9d7c7`; exact producer/settings proof in the evidence guide; focused qualification only |
 | Typed Aura-control feature | Source `97afa6cdcdda88d76a86459b18ae53cda63c1546`; 837 compiled rows; 507 distinct Rust tests (398 precheck passes through a private-test-only bridge, 109 fresh), 3,021 schema probes; 26/21 unchanged; feature-only; no consumer transfer |
 | Client/hosting consumers | Retain their own exact producer/schema/catalog/build qualification, separate from current engine HEAD |
 

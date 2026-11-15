@@ -43,15 +43,11 @@ rules or policies. Keep the standalone deck-builder independent.
 - **M2 partial:** Cultivate/Reach support optional basic search, temporary public
   reveal, identity-bound battlefield/hand partition, tapped entry and shuffle.
   The other land/ramp sources below remain obligations.
-- **M3:** source `2b83a482` combined main `33dcbe9d`; published feature `1377fae8`.
-  Complete Agent/Bloodbraid cascade and separate non-target Dismantling Blow/Natural
-  Reclamation witnesses close the focused source/runtime exit: owned exile casting,
-  mode/target/payment routing, source-bound optional kicker, conditional mandatory
-  draw, private random bottom and genuine paid Aura/Kutzil prohibition pair.
-  Passed 528 distinct Rust tests (538 executions), 2,160 schema probes and 925
-  compiled-source rows, all-target compilation and formatting. The single review's
-  empty-source-block and stale-format findings are fixed; actual RED/GREEN retained.
-  Test producer `7bd4f7e4`, CLI `5aba2e46`; formats 24/19, IR1.
+- **M3:** `2b83a482` closes the focused source/runtime exit: complete Agent/Bloodbraid,
+  separate Dismantling Blow/Natural Reclamation, owned exile casting, optional kicker,
+  private bottoming and the paid Aura/Kutzil prohibition pair. Passed 528 distinct
+  Rust/538 executions, 2,160 schema probes and 925 rows; formats24/19. Its single
+  review fixes, actual producers and failures remain in the source-qualified receipt.
 - **M4a original:** reviewed `0e26ccd1`, final feature `27eb161a` on `2b83a482`:
   479 distinct Rust tests, 58 schema probes, 927 rows; formats24/19. Exact artifacts,
   review and diagnostic-only failure are preserved. Private off-color counter roots
@@ -65,21 +61,18 @@ rules or policies. Keep the standalone deck-builder independent.
   not repeated. Full runtime, fresh combined Clippy and consumer/target admission
   remain omitted.
 
-Authoritative coordinator receipts are ignored
-`generated/ramos/{m3b-integrated,m3c-integrated,m4a-integrated}/`;
-each `integration.json` links copied executables, source/settings, reviews, failures
-and timings. The current bridge preserves `57aeb5f1` runtime/contracts after two compiler-test-only
-corrections; core producer is `9913bc5c`. CLI `43281926` and corrected compiler
-retain `3813db05`. Both build identities were independently reproduced. Apex producer evidence is in its isolated checkout's
-`generated/ramos/m4a/focused-04/`; the single review manifest is retained separately.
-Old evidence keeps its original source and optimization identity. Full contract
-research and historical matrices remain in Git at `30ec86ee` and preserved ignored
-copies; they are not duplicated operating manuals.
+- **M4c:** source `f6c9d7c7` combines Imoti with typed Aura/permanent-set and main
+  `219c8caf`: 582 distinct Rust, 3,325 schema probes, 964 source rows; formats27/22,
+  IR1. Tagged intrinsic/granted identity, aggregate collection, control/departure,
+  genuine kicker keep/undo, replay and privacy pass. The single review's four findings
+  and later test/setup failures are repaired and retained. No first-cast history yet.
 
-Combined 26/21 headers and optional-cost/set exclusions are qualified on `3813db05`.
-The later permanent-set `97781060` and typed Aura cohorts are excluded. Native is
-released. Main remains held at `2ac47a82` for client PR34; this is feature-only
-publication, with historical consumer acceptance separate.
+Coordinator receipts: `generated/ramos/{m3b-integrated,m3c-integrated,m4a-integrated,m4c-integrated}/integration.json`.
+They retain exact copied producers, independent build proofs, test-only bridges,
+reviews, failures and timings; historical acceptance never transfers. Original Apex
+833-second seeded evidence is preserved, not repeated. Full contract research stays
+in Git `30ec86ee` and ignored copies. Consumer/exact-deck admission remains open;
+current publication is feature-only. The former client main hold has ended.
 
 ## Ordered remaining milestones
 
@@ -101,8 +94,8 @@ The focused exit above does not cover every possible casting source or cost.
 
 ### M4 Complete the cascade package and casting history
 
-Apex/Wanderer are qualified above. Next: complete Imoti's parameterized stack-spell
-grants, then first-cast history for Nexus/Sorcerer. Add Ethersworn affinity, Enigma
+Apex/Wanderer/Imoti are qualified above. Next: semantic first-cast history for
+Nexus/Wild-Magic Sorcerer, including casts before source entry. Add Ethersworn affinity, Enigma
 graveyard return, Yidris grants and turn/zone casting history, including
 casts before grant-source entry. Add Averna's action, Call Forth's other-spell mana
 values and Vega's non-hand-cast draw. Preflight effective trigger batches and checked
