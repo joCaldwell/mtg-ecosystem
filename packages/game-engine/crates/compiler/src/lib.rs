@@ -1632,7 +1632,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     if let Some(p) = definition.spell.as_ref()
         && temporary_permanent_keyword_program(p).is_some()
     {
-        validate_temporary_permanent_bindings(&binding, &definition.oracle_id, &abilities)?;
+        validate_temporary_permanent_bindings(
+            &binding,
+            &definition.oracle_id,
+            &abilities,
+            &canonical_abilities,
+        )?;
     }
     definition.capabilities = definition.requirements();
     definition
@@ -1671,6 +1676,7 @@ fn validate_temporary_permanent_bindings(
     binding: &serde_json::Value,
     identity: &str,
     abilities: &[Ability],
+    raw_abilities: &str,
 ) -> Result<(), Failure> {
     let fail = || {
         unsupported(
@@ -1718,11 +1724,15 @@ fn validate_temporary_permanent_bindings(
         ),
     ];
     if effects.len() == 2 {
-        expected.push((
-            format!("{base}/1/steps/0/who"),
-            serde_json::json!({"player":"you"}),
-            you.clone(),
-        ));
+        // PlayerSelector's optional fields erase explicit nulls. This complete
+        // source family requires the exact unqualified raw recipient as well
+        // as its matching binding expression; typed equality alone is weaker.
+        let raw: serde_json::Value = decode(raw_abilities, "abilities")?;
+        let who = &raw[0]["effects"][1]["steps"][0]["who"];
+        if *who != serde_json::json!({"player":"you"}) {
+            return Err(fail());
+        }
+        expected.push((format!("{base}/1/steps/0/who"), who.clone(), you.clone()));
     }
     let references = binding["references"].as_array().ok_or_else(fail)?;
     let nodes = binding["nodes"].as_array().ok_or_else(fail)?;
