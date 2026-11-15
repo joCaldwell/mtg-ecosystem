@@ -739,7 +739,7 @@ pub enum StaticEffect {
     /// CR 109.5/303.4m/611.3/613.1b: the current source controller controls
     /// its enchanted creature; this is not a frozen invocation recipient.
     /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    ControlEnchantedCreature,
+    ControlEnchantedPermanent,
     /// CR 101.2/109.5/601.3: opponents cannot cast during this controller's turn.
     OpponentsCantCastDuringControllerTurn,
     EntersTapped,
@@ -1268,14 +1268,31 @@ fn static_creature_modification_valid(
 
 /// The complete admitted Aura-control executable shape, without recursive
 /// validation, capability calculation, source identity or mana-cost dispatch.
-/// CR 303.4a/303.4m, 109.5 and 611.3: one creature target and one battlefield
-/// control effect using the current Aura controller, optionally composed with
-/// one already-supported enchanted-creature modifier. Other Aura families retain
+/// CR 303.4a/303.4m, 109.5 and 611.3: one creature, artifact or land target
+/// and one battlefield control effect using the current Aura controller. Only
+/// creature control may compose with one enchanted-creature modifier. Other Auras retain
 /// their existing admission rules.
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-pub fn aura_control_source(definition: &Definition) -> bool {
+pub fn aura_control_target_type(definition: &Definition) -> Option<CardKind> {
     let c = &definition.characteristics;
-    c.kind == CardKind::Enchantment
+    let p = definition.spell.as_ref()?;
+    let [target] = p.targets.as_slice() else {
+        return None;
+    };
+    let target_type = match (&target.domain, &target.filter) {
+        (TargetDomain::BattlefieldCreature, None) => CardKind::Creature,
+        (TargetDomain::BattlefieldPermanent, Some(f))
+            if matches!(f.types.as_slice(), [CardKind::Artifact] | [CardKind::Land])
+                && f.non_types.is_empty()
+                && f.non_colors.is_empty()
+                && !f.opponent
+                && !f.tapped =>
+        {
+            f.types[0]
+        }
+        _ => return None,
+    };
+    let valid = c.kind == CardKind::Enchantment
         && c.additional_types.is_empty()
         && c.subtypes == ["Aura"]
         && !c.basic
@@ -1294,19 +1311,21 @@ pub fn aura_control_source(definition: &Definition) -> bool {
         && definition
             .static_abilities
             .iter()
-            .filter(|a| a.effect == StaticEffect::ControlEnchantedCreature)
+            .filter(|a| a.effect == StaticEffect::ControlEnchantedPermanent)
             .count()
             == 1
         && definition.static_abilities.iter().all(|a| {
             a.functioning_zone == FunctioningZone::Battlefield
-                && (a.effect == StaticEffect::ControlEnchantedCreature
-                    || (matches!(
-                        a.effect,
-                        StaticEffect::ModifyCreatures {
-                            scope: CreatureScope::Enchanted,
-                            ..
-                        }
-                    ) && static_creature_modification_valid(c.kind, false, true, &a.effect)))
+                && (a.effect == StaticEffect::ControlEnchantedPermanent
+                    || (target_type == CardKind::Creature
+                        && matches!(
+                            a.effect,
+                            StaticEffect::ModifyCreatures {
+                                scope: CreatureScope::Enchanted,
+                                ..
+                            }
+                        )
+                        && static_creature_modification_valid(c.kind, false, true, &a.effect)))
         })
         && definition.spell.as_ref().is_some_and(|p| {
             p.timing == SpellTiming::MainPhase
@@ -1316,13 +1335,18 @@ pub fn aura_control_source(definition: &Definition) -> bool {
                 && p.instructions.is_empty()
                 && p.modes.is_empty()
                 && matches!(p.targets.as_slice(), [t]
-                    if t.slot == 0 && !t.selection_id.is_empty()
-                        && t.domain == TargetDomain::BattlefieldCreature
-                        && t.chooser == Chooser::Controller
-                        && t.stage == EvaluationStage::Announcement
-                        && t.filter.is_none())
-        })
+                if t.slot == 0 && !t.selection_id.is_empty()
+                    && t.chooser == Chooser::Controller
+                    && t.stage == EvaluationStage::Announcement
+                    )
+        });
+    valid.then_some(target_type)
 }
+/// Whether this definition has the complete narrow Aura-control shape.
+pub fn aura_control_source(definition: &Definition) -> bool {
+    aura_control_target_type(definition).is_some()
+}
+
 impl Definition {
     pub fn requirements(&self) -> BTreeSet<Capability> {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1]);
@@ -1504,7 +1528,7 @@ impl Definition {
                 set.insert(Capability::IndestructibleV1);
             }
             set.insert(match a.effect {
-                StaticEffect::ControlEnchantedCreature => Capability::AuraControlV1,
+                StaticEffect::ControlEnchantedPermanent => Capability::AuraControlV1,
                 StaticEffect::OpponentsCantCastDuringControllerTurn => {
                     Capability::OpponentCastProhibitionV1
                 }
@@ -1536,7 +1560,7 @@ impl Definition {
         if self
             .static_abilities
             .iter()
-            .any(|a| a.effect == StaticEffect::ControlEnchantedCreature)
+            .any(|a| a.effect == StaticEffect::ControlEnchantedPermanent)
             && !aura_control_source(self)
         {
             return Err("unsupported complete Aura control family".into());
@@ -2242,7 +2266,7 @@ impl Definition {
             return Err("static damage replacement must function on battlefield".into());
         }
         for a in &self.static_abilities {
-            if a.effect == StaticEffect::ControlEnchantedCreature {
+            if a.effect == StaticEffect::ControlEnchantedPermanent {
                 // The whole definition was checked by aura_control_source above.
                 continue;
             }
@@ -2298,10 +2322,12 @@ impl Definition {
                     || p.functioning_zone != FunctioningZone::Stack
                     || p.timing != cast_timing
                     || p.resolution != SpellResolution::Permanent
-                    || if aura {
+                    || if aura && !aura_control_source(self) {
                         !matches!(p.targets.as_slice(), [t] if t.domain == TargetDomain::BattlefieldCreature && t.slot == 0 && !t.selection_id.is_empty() && t.chooser == Chooser::Controller && t.stage == EvaluationStage::Announcement)
-                    } else {
+                    } else if !aura {
                         !p.targets.is_empty()
+                    } else {
+                        false
                     }
                     || !p.instructions.is_empty()
                     || !p.modes.is_empty()
@@ -4364,7 +4390,7 @@ pub fn catalog_schema() -> serde_json::Value {
         }
     });
     let aura_control_static = serde_json::json!({"const":{
-        "functioning_zone":"battlefield","effect":"control_enchanted_creature"
+        "functioning_zone":"battlefield","effect":"control_enchanted_permanent"
     }});
     schema["$defs"]["AuraControlDefinition"] = serde_json::json!({
         "required":["spell","static_abilities","capabilities"],"properties":{
@@ -4398,9 +4424,32 @@ pub fn catalog_schema() -> serde_json::Value {
             ]}}
         }
     });
+    let creature_control = schema["$defs"]["AuraControlDefinition"].clone();
+    let mut control_shapes = vec![creature_control.clone()];
+    for kind in [CardKind::Artifact, CardKind::Land] {
+        let mut shape = creature_control.clone();
+        shape["properties"]["static_abilities"] = serde_json::json!({
+            "minItems":1,"maxItems":1,"items":aura_control_static
+        });
+        let target = &mut shape["properties"]["spell"]["properties"]["targets"]["items"];
+        target["required"] = serde_json::json!(["filter"]);
+        target["properties"]["domain"] = serde_json::json!({"const":"battlefield_permanent"});
+        target["properties"]["filter"] = serde_json::json!({"type":"object",
+        "required":["types","non_types","non_colors","opponent"],"properties":{
+            "types":{"const":[kind]},"non_types":{"maxItems":0},
+            "non_colors":{"maxItems":0},"opponent":{"const":false},
+            "tapped":{"const":false}
+        }});
+        shape["properties"]["capabilities"]["items"] = serde_json::json!({"enum":[
+            Capability::NormalLayoutV1,Capability::CastEnchantmentV1,
+            Capability::PermanentRemovalV1,Capability::AttachmentsV1,Capability::AuraControlV1
+        ]});
+        control_shapes.push(shape);
+    }
+    schema["$defs"]["AuraControlDefinition"] = serde_json::json!({"oneOf":control_shapes});
     let aura_control = serde_json::json!({"required":["static_abilities"],"properties":{
         "static_abilities":{"contains":{"required":["effect"],"properties":{
-            "effect":{"const":StaticEffect::ControlEnchantedCreature}
+            "effect":{"const":StaticEffect::ControlEnchantedPermanent}
         }}}
     }});
     schema["$defs"]["Definition"]["allOf"]

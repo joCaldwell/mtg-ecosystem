@@ -12,7 +12,7 @@ pub(super) fn aura() -> Definition {
     .unwrap();
     d.static_abilities = vec![StaticAbility {
         functioning_zone: FunctioningZone::Battlefield,
-        effect: StaticEffect::ControlEnchantedCreature,
+        effect: StaticEffect::ControlEnchantedPermanent,
     }];
     d.capabilities = d.requirements();
     d
@@ -205,11 +205,11 @@ fn aura_control_rejects_every_outside_shape_even_with_recomputed_capabilities() 
 fn aura_control_schema_adds_narrow_shape_without_a_schema_bump() {
     assert_eq!(CURRENT_IR_VERSION, 1);
     let schema = catalog_schema();
-    let shape = &schema["$defs"]["AuraControlDefinition"]["properties"];
+    let shape = &schema["$defs"]["AuraControlDefinition"]["oneOf"][0]["properties"];
     assert_eq!(
         shape["static_abilities"]["contains"]["const"],
         serde_json::json!(
-            {"functioning_zone":"battlefield","effect":"control_enchanted_creature"}
+            {"functioning_zone":"battlefield","effect":"control_enchanted_permanent"}
         )
     );
     assert_eq!(shape["spell"]["properties"]["targets"]["minItems"], 1);
