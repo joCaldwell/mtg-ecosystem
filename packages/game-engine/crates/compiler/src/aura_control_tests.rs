@@ -635,7 +635,15 @@ fn aura_control_generalized_artifact_land_bind_exact_targets_costs_and_control_u
                 colored: colors
             }
         );
-        assert_eq!(aura_control_target_type(&d), Some(kind));
+        assert_eq!(
+            aura_control_domain(&d),
+            Some(match kind {
+                CardKind::Creature => AuraControlDomain::Creature,
+                CardKind::Artifact => AuraControlDomain::Artifact,
+                CardKind::Land => AuraControlDomain::Land,
+                _ => unreachable!(),
+            })
+        );
         assert_eq!(
             d.static_abilities,
             vec![StaticAbility {
@@ -684,8 +692,8 @@ fn aura_control_generalized_artifact_land_bind_exact_targets_costs_and_control_u
     }
     for raw in [MIND, MAGIC, SPIRIT, EMBRACE] {
         assert_eq!(
-            aura_control_target_type(&lowered(raw)),
-            Some(CardKind::Creature)
+            aura_control_domain(&lowered(raw)),
+            Some(AuraControlDomain::Creature)
         );
     }
 }
@@ -713,7 +721,7 @@ fn aura_control_supplemental_multitype_mana_sources_use_existing_complete_loweri
             }]
         );
         assert!(d.activated.is_empty() && d.triggered.is_empty() && d.static_abilities.is_empty());
-        assert_eq!(aura_control_target_type(&d), None);
+        assert_eq!(aura_control_domain(&d), None);
         if kind == CardKind::Creature {
             assert_eq!(d.characteristics.power, Some(1.into()));
             assert_eq!(d.characteristics.toughness, Some(1.into()));
@@ -744,10 +752,7 @@ fn aura_control_generalized_reidentified_sources_do_not_dispatch_by_card_identit
         });
         let d = lowered(&mutant);
         assert_eq!(d.name, "Synthetic Aura");
-        assert_eq!(
-            aura_control_target_type(&d),
-            aura_control_target_type(&lowered(raw))
-        );
+        assert_eq!(aura_control_domain(&d), aura_control_domain(&lowered(raw)));
     }
 }
 
