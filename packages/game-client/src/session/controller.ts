@@ -5,8 +5,11 @@ import { actionResponse, type LiveActionDraft } from './live-action.ts';
 import type { ExternalStore } from './contracts.ts';
 import { CommandLifecycle, disabledCommand, journalBinding, type CommandContext, type CommandEffects, type CommandSnapshot, type DecisionIntent } from './command.ts';
 import { checkManifest, immutable, resumeRead, streamRead, SessionFailure, type FailureKind, type ReadBinding } from './read-state.ts';
+import { MAX_READ_RETRY_MS } from './retry.ts';
 
 export interface ReadTransport {
+  /** Remaining server-requested read cooldown, confined to this authorization. */
+  retryAfter?(): number;
   manifest(signal: AbortSignal): Promise<PublicManifest>;
   resume(signal: AbortSignal): Promise<SeatResume>;
   poll(after: string, signal: AbortSignal): Promise<StreamPage>;
@@ -198,6 +201,7 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
       let consecutiveFailures = 0;
       // A successful empty poll does not reset a collision/rate-limit budget.
       let rateLimitFailures = 0;
+      let cooledDown = false;
       while (this.#current(run)) {
         if (run.refresh) initialized = false;
         const polling = initialized;
@@ -256,7 +260,12 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
           }
           // A successful recovery resume alone cannot renew the retry budget:
           // the next poll may still fail. Only a successful stream read does.
-          if (polling) consecutiveFailures = 0;
+          if (polling) {
+            consecutiveFailures = 0;
+            // Successful reads after an observed server cooldown establish real
+            // recovery. Hintless collision loops retain their bounded budget.
+            if (cooledDown) { rateLimitFailures = 0; cooledDown = false; }
+          }
           const read = this.#snapshot.read!;
           this.#update({ connection: read.outcome ? 'ended' : read.state.status === 'pending' ? 'pending' : 'ready', retry: 0, failure: null });
           await run.commands?.reconcile();
@@ -276,8 +285,11 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
           const attempt = Math.max(consecutiveFailures, kind === 'rate-limited' ? rateLimitFailures : 0);
           if (attempt > 4) throw new SessionFailure(kind);
           this.#update({ connection: 'retrying', retry: attempt, failure: kind });
-          await this.#effects.wait(500 * 2 ** (attempt - 1), signal);
+          const hint = kind === 'rate-limited' ? transport.retryAfter?.() ?? 0 : 0;
+          const cooldown = Number.isFinite(hint) ? Math.min(MAX_READ_RETRY_MS, Math.max(0, hint)) : 0;
+          await this.#effects.wait(Math.max(500 * 2 ** (attempt - 1), cooldown), signal);
           if (!this.#current(run)) return;
+          if (cooldown > 0) cooledDown = true;
           // Reconnect from one committed boundary after a read failure. Never
           // replay historical stream pages or infer command disposition here.
           initialized = false;

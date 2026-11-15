@@ -159,6 +159,53 @@ test('429, 503 and disconnected failures use four bounded retries then release o
   }
 });
 
+test('a server cooldown waits without I/O, then revalidates the full committed boundary', async () => {
+  const r = rig({ retryAfter: () => 35_000 }), running = r.controller.join('seat0'); await flush();
+  r.sleeps[0]!.done.resolve(); await flush();
+  r.pollResults[0]!.reject(new SessionFailure('rate-limited')); await flush();
+  assert.equal(r.controller.getSnapshot().connection, 'retrying');
+  assert.equal(r.sleeps[1]!.milliseconds, 35_000);
+  assert.deepEqual(r.calls, ['manifest', 'presentation', 'resume']);
+  await flush(); assert.equal(r.stats().polls, 1, 'no request before the cooldown completes');
+  r.sleeps[1]!.done.resolve(); await flush();
+  assert.deepEqual(r.calls, ['manifest', 'presentation', 'resume', 'manifest', 'presentation', 'resume']);
+  r.controller.stop(); r.sleeps[2]!.done.resolve(); await running;
+});
+
+test('only successful polling after an explicit cooldown renews the rate-limit recovery budget', async () => {
+  for (const hinted of [true, false]) {
+    const r = rig({ ...(hinted ? { retryAfter: () => 35_000 } : {}) });
+    const running = r.controller.join('seat0'); await flush();
+    let sleep = 0, poll = 0;
+    for (let cycle = 0; cycle < 5; cycle++) {
+      r.sleeps[sleep++]!.done.resolve(); await flush();
+      r.pollResults[poll++]!.reject(new SessionFailure('rate-limited')); await flush();
+      if (!hinted && cycle === 4) break;
+      assert.equal(r.controller.getSnapshot().connection, 'retrying');
+      assert.equal(r.sleeps[sleep]!.milliseconds, hinted ? 35_000 : 500 * 2 ** cycle);
+      r.sleeps[sleep++]!.done.resolve(); await flush();
+      r.sleeps[sleep++]!.done.resolve(); await flush();
+      r.pollResults[poll++]!.resolve({ protocol_version: 1, entries: [], next: original.next, has_more: false }); await flush();
+      assert.equal(r.controller.getSnapshot().connection, 'ready');
+    }
+    if (hinted) { r.controller.stop(); r.sleeps[sleep]!.done.resolve(); }
+    await running;
+    assert.equal(r.stats().releases, 1);
+    if (!hinted) assert.equal(r.controller.getSnapshot().connection, 'rate-limited');
+  }
+});
+
+test('stop aborts a cooldown and prevents late recovery reads', async () => {
+  const r = rig({ retryAfter: () => 35_000 }), running = r.controller.join('seat0'); await flush();
+  r.sleeps[0]!.done.resolve(); await flush();
+  r.pollResults[0]!.reject(new SessionFailure('rate-limited')); await flush();
+  r.controller.stop();
+  assert.equal(r.sleeps[1]!.signal.aborted, true);
+  r.sleeps[1]!.done.resolve(); await running;
+  assert.deepEqual(r.calls, ['manifest', 'presentation', 'resume']);
+  assert.equal(r.stats().releases, 1);
+});
+
 test('reconnect replaces one committed boundary, retaining observation on pending resume', async () => {
   const r = rig(); const running = r.controller.join('seat0'); await flush();
   const previous = r.controller.getSnapshot().read!.state;
