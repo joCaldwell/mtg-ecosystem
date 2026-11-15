@@ -92,7 +92,13 @@ fn private_dir_with_sync(
     // Sync even an existing path: a retry can follow a failed creation/fsync.
     // Syncing only files inside the child does not persist its parent link.
     sync_directory(path).map_err(err)?;
-    sync_directory(path.parent().ok_or("missing lifecycle parent")?).map_err(err)?;
+    let parent = path.parent().ok_or("missing lifecycle parent")?;
+    let parent = if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    };
+    sync_directory(parent).map_err(err)?;
     Ok(())
 }
 fn read<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
@@ -600,6 +606,47 @@ pub fn profile_info(name: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn lifecycle_relative_directory_parent_and_retry() {
+        const CHILD: &str = "MTG_LIFECYCLE_RELATIVE_DIRECTORY_TEST";
+        if std::env::var_os(CHILD).is_some() {
+            let path = Path::new("game");
+            let mut synced = Vec::new();
+            let result = private_dir_with_sync(path, |directory| {
+                synced.push(directory.to_path_buf());
+                if directory == Path::new(".") {
+                    Err(std::io::Error::other("parent sync failed"))
+                } else {
+                    File::open(directory).and_then(|file| file.sync_all())
+                }
+            });
+            assert_eq!(result.unwrap_err(), "parent sync failed");
+            assert_eq!(synced, vec![PathBuf::from("game"), PathBuf::from(".")]);
+            private_dir(path).unwrap();
+            stop(path).unwrap();
+            join(path).unwrap();
+            return;
+        }
+        // Isolate cwd in a child test process; changing the test runner's cwd
+        // would race unrelated native tests. Preserve the disposable root.
+        let mut bytes = [0; 16];
+        getrandom::fill(&mut bytes).unwrap();
+        let root = std::env::temp_dir().join(format!(
+            "mtg-lifecycle-relative-directory-{}",
+            bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
+        ));
+        private_dir(&root).unwrap();
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "lifecycle::tests::lifecycle_relative_directory_parent_and_retry",
+            ])
+            .env(CHILD, "1")
+            .current_dir(&root)
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
     #[test]
     fn lifecycle_directory_syncs_child_and_parent_and_propagates_failures() {
         for failure_at in [None, Some(0), Some(1)] {
