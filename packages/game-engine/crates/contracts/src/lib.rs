@@ -260,6 +260,7 @@ pub enum Capability {
     TemporaryDeathtouchSpellV1,
     CompoundIndestructibleSpellV1,
     TemporaryCreatureKeywordProgramV1,
+    TemporaryPermanentKeywordProgramV1,
     TemporaryCreatureSetKeywordProgramV1,
     TemporaryPermanentSetKeywordProgramV1,
     TrampleV1,
@@ -298,6 +299,7 @@ pub enum EvaluationStage {
 #[serde(rename_all = "snake_case")]
 pub enum TargetDomain {
     BattlefieldPermanent,
+    ControlledBattlefieldPermanent,
     ControlledBattlefieldCreature,
     BattlefieldCreature,
     /// CR 509.1g: a current blocking creature; ordinary spell pumps only.
@@ -2673,11 +2675,11 @@ fn has_keyword_grant(p: &SpellProgram) -> bool {
     }) || p.modes.iter().any(|m| has_keyword_grant(&m.program))
 }
 fn ordinary_keyword_grant(p: &SpellProgram) -> bool {
-    temporary_creature_keyword_program(p).is_some() || temporary_set_keyword_program(p).is_some()
+    temporary_targeted_keyword_program(p).is_some() || temporary_set_keyword_program(p).is_some()
 }
 /// Reviewed temporary-grant vocabulary. Order is retained, but repetitions and
 /// keywords outside this nonempty family are unsupported.
-pub fn supported_temporary_creature_keywords(keywords: &[KeywordAbility]) -> bool {
+pub fn supported_temporary_keywords(keywords: &[KeywordAbility]) -> bool {
     !keywords.is_empty()
         && keywords.iter().enumerate().all(|(index, keyword)| {
             matches!(
@@ -2695,9 +2697,10 @@ pub fn supported_temporary_creature_keywords(keywords: &[KeywordAbility]) -> boo
 }
 /// Borrowed parameters of one complete ordinary temporary creature program.
 #[derive(Clone, Copy, Debug)]
-pub struct TemporaryCreatureKeywordProgram<'a> {
+pub struct TemporaryTargetedKeywordProgram<'a> {
     pub modifier: Option<(&'a Quantity, &'a Quantity)>,
     pub keywords: &'a [KeywordAbility],
+    pub controller_life: Option<&'a Quantity>,
 }
 /// Recognize one complete grant on one captured creature target. The caller
 /// checks definition kind/context. Pure grants retain source-block provenance;
@@ -2706,7 +2709,7 @@ pub struct TemporaryCreatureKeywordProgram<'a> {
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 pub fn temporary_creature_keyword_program(
     p: &SpellProgram,
-) -> Option<TemporaryCreatureKeywordProgram<'_>> {
+) -> Option<TemporaryTargetedKeywordProgram<'_>> {
     if p.additional_sacrifice.is_some()
         || !p.modes.is_empty()
         || p.functioning_zone != FunctioningZone::Stack
@@ -2735,8 +2738,63 @@ pub fn temporary_creature_keyword_program(
         return None;
     }
     let modifier = modifier.as_ref().map(|m| (&m.power, &m.toughness));
-    supported_temporary_creature_keywords(keywords)
-        .then_some(TemporaryCreatureKeywordProgram { modifier, keywords })
+    supported_temporary_keywords(keywords).then_some(TemporaryTargetedKeywordProgram {
+        modifier,
+        keywords,
+        controller_life: None,
+    })
+}
+/// Complete scalar union; narrow wrappers preserve their own target policy.
+pub fn temporary_targeted_keyword_program(
+    p: &SpellProgram,
+) -> Option<TemporaryTargetedKeywordProgram<'_>> {
+    temporary_creature_keyword_program(p).or_else(|| temporary_permanent_keyword_program(p))
+}
+/// One controlled permanent, optionally followed by fixed controller life gain.
+/// CR 109.5, 608.2b/c, 611.2c:
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+pub fn temporary_permanent_keyword_program(
+    p: &SpellProgram,
+) -> Option<TemporaryTargetedKeywordProgram<'_>> {
+    if p.additional_sacrifice.is_some()
+        || !p.modes.is_empty()
+        || p.functioning_zone != FunctioningZone::Stack
+        || p.resolution != SpellResolution::Instructions
+        || !matches!(p.targets.as_slice(), [t] if t.slot == 0 && !t.selection_id.is_empty()
+            && t.chooser == Chooser::Controller && t.stage == EvaluationStage::Announcement
+            && t.domain == TargetDomain::ControlledBattlefieldPermanent
+            && t.filter.as_ref().is_some_and(|f| f.types.is_empty() && f.non_types.is_empty()
+                && f.non_colors.is_empty() && !f.opponent && !f.tapped))
+    {
+        return None;
+    }
+    let (grant, controller_life) = match p.instructions.as_slice() {
+        [grant] => (grant, None),
+        [
+            grant,
+            Instruction::GainLife {
+                recipient: LifeRecipient::Controller,
+                amount,
+                source_block: 0,
+            },
+        ] if !amount.is_negative() => (grant, Some(amount)),
+        _ => return None,
+    };
+    let Instruction::GrantKeywords {
+        target_slot: 0,
+        modifier: None,
+        keywords,
+        duration: Duration::UntilEndOfTurn,
+        source_block: 0,
+    } = grant
+    else {
+        return None;
+    };
+    supported_temporary_keywords(keywords).then_some(TemporaryTargetedKeywordProgram {
+        modifier: None,
+        keywords,
+        controller_life,
+    })
 }
 /// Borrowed parameters of the complete ordinary temporary set-keyword family.
 #[derive(Clone, Copy, Debug)]
@@ -2773,7 +2831,7 @@ pub fn temporary_set_keyword_program(p: &SpellProgram) -> Option<TemporarySetKey
         set,
         ObjectSet::ControllerCreatures | ObjectSet::AttackingCreatures
     ) || (*set == ObjectSet::ControllerPermanents && modifier.is_none()))
-        && supported_temporary_creature_keywords(keywords))
+        && supported_temporary_keywords(keywords))
     .then_some(TemporarySetKeywordProgram {
         set,
         modifier,
@@ -2816,18 +2874,20 @@ fn temporary_creature_keyword_capability(p: &SpellProgram) -> Capability {
         return Capability::TemporaryCreatureKeywordProgramV1;
     }
     match temporary_creature_keyword_program(p) {
-        Some(TemporaryCreatureKeywordProgram {
+        Some(TemporaryTargetedKeywordProgram {
             modifier: None,
             keywords,
+            ..
         }) => match keywords {
             [KeywordAbility::Flying] => Capability::TemporaryFlyingSpellV1,
             [KeywordAbility::Deathtouch] => Capability::TemporaryDeathtouchSpellV1,
             [KeywordAbility::Indestructible] => Capability::TemporaryIndestructibleSpellV1,
             _ => Capability::TemporaryCreatureKeywordProgramV1,
         },
-        Some(TemporaryCreatureKeywordProgram {
+        Some(TemporaryTargetedKeywordProgram {
             modifier: Some(_),
             keywords,
+            ..
         }) if keywords == [KeywordAbility::Indestructible] => {
             Capability::CompoundIndestructibleSpellV1
         }
@@ -2853,6 +2913,15 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             }),
             _ => false,
         }) || p.modes.iter().any(|m| controller_set(&m.program))
+    }
+    if p.targets
+        .iter()
+        .any(|t| t.domain == TargetDomain::ControlledBattlefieldPermanent)
+        && temporary_permanent_keyword_program(p).is_none()
+    {
+        return Err(
+            "controlled permanent targets require complete temporary keyword program".into(),
+        );
     }
     if controller_set(p) && temporary_set_keyword_program(p).is_none() {
         return Err("controller set requires complete temporary keyword family".into());
@@ -2967,7 +3036,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         if let Some(f) = &t.filter {
             if !matches!(
                 t.domain,
-                TargetDomain::BattlefieldPermanent | TargetDomain::StackSpell
+                TargetDomain::BattlefieldPermanent
+                    | TargetDomain::ControlledBattlefieldPermanent
+                    | TargetDomain::StackSpell
             ) || (t.domain == TargetDomain::StackSpell
                 && (f.types.is_empty()
                     || !f.non_types.is_empty()
@@ -2995,7 +3066,10 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             {
                 return Err("unsupported permanent/spell target filter".into());
             }
-        } else if t.domain == TargetDomain::BattlefieldPermanent {
+        } else if matches!(
+            t.domain,
+            TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent
+        ) {
             return Err("permanent target requires explicit filter".into());
         }
     }
@@ -3501,7 +3575,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             set.insert(Capability::TappedPermanentTargetV1);
         }
         set.insert(match target.domain {
-            TargetDomain::BattlefieldPermanent => Capability::PermanentRemovalV1,
+            TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent => {
+                Capability::PermanentRemovalV1
+            }
             TargetDomain::BattlefieldCreature => Capability::CreatureTargetV1,
             TargetDomain::BlockingBattlefieldCreature => Capability::BlockingCreatureTargetV1,
             TargetDomain::ControlledBattlefieldCreature => Capability::AttachmentsV1,
@@ -3587,7 +3663,13 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             } => Capability::TargetPlayerDrawV1,
             Instruction::CreateCreatureTokens { .. } => Capability::CreatureTokensV1,
             Instruction::PutPlusOneCounters { .. } => Capability::PlusOneCountersV1,
-            Instruction::GrantKeywords { .. } => temporary_creature_keyword_capability(program),
+            Instruction::GrantKeywords { .. } => {
+                if temporary_permanent_keyword_program(program).is_some() {
+                    Capability::TemporaryPermanentKeywordProgramV1
+                } else {
+                    temporary_creature_keyword_capability(program)
+                }
+            }
             Instruction::ModifyPowerToughness { .. } => Capability::TemporaryPowerToughnessV1,
             Instruction::PreventCombatDamage { .. } => Capability::CombatDamagePreventionV1,
             Instruction::PreventNextDamage { .. } => Capability::DamageBudgetPreventionV1,
@@ -4767,6 +4849,7 @@ mod tests {
             TemporaryDeathtouchSpellV1,
             CompoundIndestructibleSpellV1,
             TemporaryCreatureKeywordProgramV1,
+            TemporaryPermanentKeywordProgramV1,
             TemporaryCreatureSetKeywordProgramV1,
             TemporaryPermanentSetKeywordProgramV1,
             TrampleV1,
