@@ -216,6 +216,11 @@ pub(super) fn append(
     block: usize,
     slots: &mut BTreeMap<String, u32>,
 ) -> Result<(), Failure> {
+    // Preserve whole-block recognition for ordinary multi-sentence families.
+    // Only a declared kicker program needs the linked conditional split below.
+    if program.optional_additional_costs.is_empty() {
+        return append_spell_effects(program, effects, block, slots, PlayerBinding::Unbound);
+    }
     // Each condition was proven complete against its exact source keyword above.
     // Ordinary instructions still use the unchanged shared target binder.
     if effects.is_empty() {
