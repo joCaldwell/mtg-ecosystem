@@ -277,36 +277,39 @@ uses the source family below.
 
 ### Continuous permanent control from Auras
 
-`aura_control_v1` admits complete normal pure Enchantment — Aura sources with
-one battlefield `ControlEnchantedPermanent` operation using their current controller
-(CR 109.5, 110.2, 613.1b). Nonrecursive `aura_control_target_type` recognizes the
-whole shape and returns Creature, Artifact or Land; `aura_control_source` tests
-its presence. Creature control uses unfiltered `BattlefieldCreature` and may add
-one bounded enchanted-creature modifier. Artifact/land control is pure: one
-`BattlefieldPermanent` target with a singleton type filter and otherwise empty/false
-restrictions. All targets are controller-announced slot zero with nonempty selection
-IDs. Ordinary program/capability fences remain exact.
+`aura_control_v1` binds complete normal pure Enchantment — Aura sources to
+battlefield `ControlEnchantedPermanent`, using their current controller
+(CR 109.5, 110.2, 613.1b). Nonrecursive `aura_control_domain` returns Creature,
+Artifact, Land or Permanent; `aura_control_source` tests presence. Nonserialized
+`AuraControlDomain::accepts` uses `has_type` or supported permanent-kind membership.
+Creature control uses unfiltered `BattlefieldCreature`, optionally with one bounded
+modifier. Pure artifact/land/general control uses `BattlefieldPermanent` with
+explicit filter types `[artifact]`, `[land]` or `[]`; other restrictions stay
+empty/false. Missing/null/empty-object filters reject. Targets remain
+controller-announced slot zero with nonempty selection IDs.
 
-`has_type` preserves artifact-creature/land membership. Sources have no additional
-types, so none can be controlled by another admitted Aura. General permanent or
-enchantment selectors, unions, source-type changes, dependencies, extra abilities,
-and artifact/land modifiers reject. Existing modifier rules reject negative static
-P/T, Flash and Aura-granted Indestructible. Typed operands, complete normalized
-clauses and source mirrors remain strict; names, IDs, amounts and costs never
-dispatch. Creature targets require Creature Target; artifact/land targets require
-Permanent Removal; both retain Attachments, Aura Control and ordinary cast/layout
-closure. Old creature-opcode input rejects under exact build/catalog fencing;
-admitted catalog bodies are unchanged.
+General source requires exactly `{"cls":"permanent"}` and “You control enchanted
+permanent.” Source nouns/filters must agree; IR has no noun, so valid explicit
+empty artifact/land filters become General.
+Unions, qualifiers, source-type changes, extra instructions/abilities/costs and
+noncreature modifiers reject. Creature modifiers retain their bounded rules,
+including rejection of negative static P/T, Flash and Aura-granted Indestructible.
+Names, IDs, amounts, costs and descriptive source labels never dispatch. Creature
+targets require Creature Target; other domains require Permanent Removal. All
+retain Attachments, Aura Control and ordinary cast/layout closure. Serialization retains schema 1 and disjoint domain arms.
 
-Frozen witnesses include Mind Control/Control Magic, composed Spirit Away/Yavimaya's
-Embrace, and Steal Artifact/Annex/Conquer. Silver Myr/Seat of the Synod exercise the
-existing multitype mana path. [Evidence](game-engine-evidence.md#atomic-temporary-keyword-qualification)
-owns qualification and unchanged formats. The [schema harness](../packages/game-engine/crates/contracts/tests/aura-control-schema-probes.mjs)
-also prepares probes without validating. Source support grants no consumer admission.
+Confiscate witnesses General.
+[Evidence](game-engine-evidence.md#atomic-temporary-keyword-qualification) owns
+qualification. The [schema harness](../packages/game-engine/crates/contracts/tests/aura-control-schema-probes.mjs)
+prepares probes without schema execution. General source requires dependency-aware
+runtime and paid-recovery qualification before main publication; source admission
+grants no catalog or consumer admission.
 
 The current battlefield source, exact attached target incarnation and semantic
-attachment timestamp determine authority. The latest live Aura wins; removing it
-reveals the older Aura or default controller, independently of ownership. A
+attachment timestamp determine authority. Independent effects use timestamp order;
+control of another control Aura requires CR 613.8 dependency ordering and loop
+fallback, reevaluated after each effect. Removing authority reveals remaining
+effects or default control, independently of ownership. A
 source/target successor never inherits the predecessor's attachment. Existing
 synthetic control-effect ordering remains separate: an Aura and such a grant on
 the same permanent reject rather than invent a shared clock.
