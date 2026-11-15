@@ -28,6 +28,7 @@ export async function discoverWithRateRecovery<C, T>(effects: {
   allowed: boolean; end: number; now(): number;
   healthy(): Promise<void>; capture(): C | Promise<C>;
   discover(context: C, end: number): Promise<{ phase: string; value: T }>;
+  usable?(context: C, value: T): Promise<boolean>;
   rateCount(): number; recovered(end: number): Promise<number>;
 }, counts: { handled: number; started: number; ready: number; freshDiscoveries: number }) {
   let recoveries = 0;
@@ -47,9 +48,10 @@ export async function discoverWithRateRecovery<C, T>(effects: {
     if (recoveries) counts.freshDiscoveries++;
     const result = await within(() => effects.discover(context, effects.end));
     await within(effects.healthy);
-    if (result.phase === "complete") return { context, value: result.value, recovered: recoveries > 0 };
-    if (result.phase !== "stale" || !effects.allowed || effects.rateCount() <= counts.handled)
-      throw Error(`discovery_${result.phase || "deadline"}`);
+    const phase = result.phase === "complete" && effects.usable && !await within(() => effects.usable!(context, result.value)) ? "stale" : result.phase;
+    if (phase === "complete") return { context, value: result.value, recovered: recoveries > 0 };
+    if (phase !== "stale" || !effects.allowed || effects.rateCount() <= counts.handled)
+      throw Error(`discovery_${phase || "deadline"}`);
     if (recoveries === 2) throw Error("persistent_rate_recovery");
     recoveries++; counts.started++;
     // The UI callback requires a successful resume after the latest observed

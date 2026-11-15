@@ -103,6 +103,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   const queryOwners = new WeakMap<Request, Discovery>();
   let readRateLimits = 0, resumesAtRateLimit = 0, recoveredCommands = 0, naturalEnd = Infinity;
   let readCooldownWaits = 0, readCooldownReady = 0;
+  let invalidatedCompleteMenus = 0;
   let retryAfterPresent = 0, retryAfterMissing = 0, retryAfterUnbounded = 0;
   const retryAfterSeconds: Record<string, number> = {};
   const rateRecovery = { handled: 0, started: 0, ready: 0, freshDiscoveries: 0 };
@@ -318,6 +319,12 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
           await untilRead(async () => await connected() && await button.getAttribute("aria-disabled") === "false", "discover_enabled");
           return { revision, token: current().decision!.token };
         }, rateCount: () => readRateLimits,
+        usable: async original => {
+          const usable = await connected() && revision === original.revision && current().decision?.token === original.token
+            && (readRateLimits <= rateRecovery.handled || activeReads > resumesAtRateLimit);
+          if (!usable) invalidatedCompleteMenus++;
+          return usable;
+        },
         recovered: async end => {
           await until(async () => {
             await healthy();
@@ -349,7 +356,8 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
         },
       }, rateRecovery);
       const original = chosen.context; beginnings = chosen.value;
-      check(await connected() && revision === original.revision && current().decision?.token === original.token, "discovery_current_context");
+      check(await connected() && revision === original.revision && current().decision?.token === original.token
+        && (readRateLimits <= rateRecovery.handled || activeReads > resumesAtRateLimit), "discovery_current_context");
       const index = beginnings.findIndex(predicate); check(index >= 0, "permitted_beginning");
       const beginning = beginnings[index]!;
       check(beginning.initiation.action === "pass" || beginning.label !== "unavailable", "producer_action_label");
@@ -617,6 +625,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       read_rate_limits: readRateLimits, rate_recoveries_started: rateRecovery.started, rate_recoveries_ready: rateRecovery.ready,
       rate_recovery_fresh_discoveries: rateRecovery.freshDiscoveries, rate_recovery_consumed_commands: recoveredCommands,
       read_cooldown_waits: readCooldownWaits, read_cooldown_ready: readCooldownReady,
+      discovery_completed_menus_invalidated: invalidatedCompleteMenus,
       fixture_stress_raised_limits: stressRaisedLimits, default_ui_budget: !stressRaisedLimits && ready?.uiRateBudget === 240 && ready?.uiRateWindowMs === 60_000,
       ui_rate_budget: ready?.uiRateBudget ?? 0, ui_rate_window_ms: ready?.uiRateWindowMs ?? 0, query_outcome_counts: queryOutcomes, discovery_phase_counts: discoveryPhases,
       last_discovery_calls: lastDiscoveryCalls, last_discovery_beginnings: lastDiscoveryBeginnings, last_discovery_pass_offered: lastDiscoveryPassOffered,

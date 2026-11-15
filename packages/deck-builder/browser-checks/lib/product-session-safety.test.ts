@@ -39,6 +39,18 @@ test("checker discards a stale menu and captures a new context only after real-U
   assert.deepEqual(counts, { handled: 1, started: 1, ready: 1, freshDiscoveries: 1 });
 });
 
+test("complete discovery invalidated by concurrent read429 cannot escape as a usable menu", async () => {
+  let recovered = false, calls = 0;
+  const contexts: string[] = [];
+  const result = await discoverWithRateRecovery({ allowed: true, end: Date.now() + 1_000, now: Date.now,
+    healthy: async () => {}, capture: () => recovered ? "fresh-original" : "old-original", rateCount: () => 1,
+    discover: async context => { contexts.push(context); calls++; return { phase: "complete", value: calls === 1 ? "discard-this-menu" : "fresh-menu" }; },
+    usable: async () => recovered, recovered: async () => { recovered = true; return 1; },
+  }, { handled: 0, started: 0, ready: 0, freshDiscoveries: 0 });
+  assert.deepEqual(contexts, ["old-original", "fresh-original"]);
+  assert.deepEqual(result, { context: "fresh-original", value: "fresh-menu", recovered: true });
+});
+
 test("checker never retries a non-rate stale menu, other phase or unsafe journal/protocol state", async () => {
   for (const scenario of ["no429", "not-natural", "unavailable", "unknown_journal", "protocol_failure"]) {
     let recovery = 0, captures = 0;
