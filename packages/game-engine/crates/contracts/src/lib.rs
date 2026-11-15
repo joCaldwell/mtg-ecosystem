@@ -723,6 +723,10 @@ impl Instruction {
     /// Compiler-owned complete source block for this instruction.
     pub fn source_block(&self) -> u32 {
         match self {
+            Self::Cascade { source_block, .. }
+            | Self::SearchBasicLandsSplit { source_block, .. }
+            | Self::PutSourcePlusOneCountersForCastColors { source_block, .. }
+            | Self::DrawCardsIfAdditionalCost { source_block, .. } => *source_block,
             Self::MoveSet { source_block, .. } => *source_block,
             Self::PumpSet { source_block, .. } => *source_block,
             Self::DamageSet { source_block, .. } => *source_block,

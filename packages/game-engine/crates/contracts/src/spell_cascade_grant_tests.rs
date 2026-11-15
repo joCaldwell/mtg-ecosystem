@@ -24,7 +24,7 @@ fn static_spell_cascade_grant_generic_exact_quantities_vectors_and_no_intrinsic_
         2.into(),
         9.into(),
         "999999999999999999999999999999999999999999999999"
-            .parse()
+            .parse::<Quantity>()
             .unwrap(),
     ] {
         for count in [1, 2, 17, 257] {
