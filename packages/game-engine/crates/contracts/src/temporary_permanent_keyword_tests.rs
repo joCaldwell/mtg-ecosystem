@@ -231,11 +231,13 @@ fn temporary_permanent_keyword_contract_definition_contexts_reject() {
                     tap: true,
                     mana: None,
                     sacrifice: false,
+                    remove_source_plus_one_counters: None,
                 },
                 production: ManaProduction::Fixed {
                     symbols: vec![Color::U],
                 },
                 source_block: 0,
+                restriction: None,
             }),
             4 => d.intrinsic_zone = Some(FunctioningZone::Battlefield),
             5 => d.characteristics.additional_types.push(CardKind::Artifact),
