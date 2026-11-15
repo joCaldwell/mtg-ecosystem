@@ -58,23 +58,31 @@ rules or policies. Keep the standalone deck-builder independent.
   source rows, all-target compilation and formatting. The single review found no
   concrete defect. The diagnostic-only driver failure is preserved; immutable
   exports were verified offline. Private off-color counter roots establish no
-  legal-pod admission. Formats remain 24/19. Fresh-main combined qualification,
-  Wanderer and broader M4 remain pending.
+  legal-pod admission. That producer retains formats 24/19; broader M4 remains open.
+- **M4a/M4b combined:** `3813db05` integrates scalar main `2ac47a82` and complete
+  Wanderer: live controller-creature modifiers and two independently identified
+  cascades. Passed 542 distinct Rust tests (117 contracts, 281 compiler, 144 core),
+  2,748 schema probes and 944 source rows. Review's test cleanup defect is fixed;
+  production/schema had no additional findings. Snapshot/public-context-work are
+  26/21, IR1. The 833-second Apex seeded witness is retained on its original producer,
+  not repeated. Full runtime, fresh combined Clippy and consumer/target admission
+  remain omitted.
 
 Authoritative coordinator receipts are ignored
-`generated/ramos/m3b-integrated/` and `generated/ramos/m3c-integrated/`;
-M3c's `integration.json` links exact copied executables, source/settings, review,
-failures and timings. Apex producer evidence is in its isolated checkout's
+`generated/ramos/{m3b-integrated,m3c-integrated,m4a-integrated}/`;
+each `integration.json` links copied executables, source/settings, reviews, failures
+and timings. The current bridge preserves `57aeb5f1` runtime/contracts after two compiler-test-only
+corrections; core producer is `9913bc5c`. CLI `43281926` and corrected compiler
+retain `3813db05`. Both build identities were independently reproduced. Apex producer evidence is in its isolated checkout's
 `generated/ramos/m4a/focused-04/`; the single review manifest is retained separately.
 Old evidence keeps its original source and optimization identity. Full contract
 research and historical matrices remain in Git at `30ec86ee` and preserved ignored
 copies; they are not duplicated operating manuals.
 
-The current coordinator imports scalar main `2ac47a82` after its qualified
-`8462ce4c` producer and prior set-family 25/20. Combined 26/21 headers and
-optional-cost/set exclusion checks are **unqualified** until affected tests run.
-Neither earlier producer's acceptance transfers. Client qualification has the next
-native slot; no coordinator Cargo is queued.
+Combined 26/21 headers and optional-cost/set exclusions are qualified on `3813db05`.
+The later permanent-set `97781060` and typed Aura cohorts are excluded. Native is
+released. Main remains held at `2ac47a82` for client PR34; this is feature-only
+publication, with historical consumer acceptance separate.
 
 ## Ordered remaining milestones
 
@@ -96,10 +104,9 @@ The focused exit above does not cover every possible casting source or cost.
 
 ### M4 Complete the cascade package and casting history
 
-M4b drafts Wanderer's live controller-creature modifiers and two cascade entries
-on `fe9dd841`; SOURCE ONLY, review/native/combined qualification pending.
-Add Ethersworn affinity, Enigma graveyard return,
-Imoti/Nexus/Sorcerer/Yidris grants and actual turn/zone casting history, including
+Apex/Wanderer are qualified above. Next: complete Imoti's parameterized stack-spell
+grants, then first-cast history for Nexus/Sorcerer. Add Ethersworn affinity, Enigma
+graveyard return, Yidris grants and turn/zone casting history, including
 casts before grant-source entry. Add Averna's action, Call Forth's other-spell mana
 values and Vega's non-hand-cast draw. Preflight effective trigger batches and checked
 IDs from common physical bounds; no card/profile ceilings, truncation or partial

@@ -32,12 +32,12 @@ share bounded capture and characteristic derivation. A combined fixed stat/keywo
 grant is one instruction/effect with one recipient capture; later control or
 incarnation changes do not select new recipients. Profiles and consumers remain
 separately admitted.
-The Ramos basic/optional-cost cascade family has separate source-qualified evidence
-on `2b83a482` (M3 source/runtime exit). Apex multiple cascade is reviewed at
-`0e26ccd1`; the fresh-main combined checkpoint remains unqualified. Its pending
-formats are private 26 and public/context/work 21, incorporating the scalar repair;
-prior 24/19 and set-only 25/20 results retain their own exact identities. No
-exact-target, profile, host, SDK or search admission follows.
+The Ramos basic/optional-cost cascade family has source-qualified evidence on
+`2b83a482` (M3 exit). Combined `3813db05` qualifies complete Apex and Wanderer,
+including independent self-cascades, live controller-creature haste, recovery and
+strict cost/grant boundaries. Private/public-context-work are 26/21; prior producers
+retain their own identities. No exact-target, profile, host, SDK or search admission
+follows. The later permanent-set and typed Aura cohorts are separate.
 
 Product setup embeds a qualified sample; standalone client acceptance covers
 joining and opening choices. Full decisions, automated launch, account-to-seat
@@ -54,7 +54,8 @@ The platform baseline was `c62777b`; acceptance never transfers to later source:
 | D2c-d `394301d` | Accepted declared-attack triggers at historical IR24, including reviewed demo/Bundle lifetimes |
 | Later D2c-e/IR25 and finite trigger/keyword/interaction additions | Candidate/focused source qualification; no renewed combined acceptance or P7 performance claim |
 | Schema-1 reset | Regenerated 29 active pools, 1,357 definitions unchanged; focused checks only |
-| Latest atomic targeted-keyword repair | Source `8462ce4c362702da5062762e45be00f4693080d9`; 827 compiled rows; focused rules/policy/pod/recovery/schema qualification, snapshot 26 and public/context/work 21; consumers unqualified |
+| Ramos combined M4a/M4b | Source `3813db057d66bd8d9ce3de7825a6758a2f82dd30`; 542 distinct Rust, 2,748 schema probes, 944 source rows; focused qualification only |
+| Prior atomic targeted-keyword repair | Source `8462ce4c362702da5062762e45be00f4693080d9`; 827 compiled rows; focused rules/policy/pod/recovery/schema qualification, snapshot 26 and public/context/work 21; consumers unqualified |
 | Prior captured creature-set keyword family | Source `0eabb031831f041eed3ce1506be8bc516718038a`; 825 compiled rows; focused rules/recovery/schema qualification, snapshot 25 and public/context/work 20; consumers unqualified |
 | Prior temporary combat-keyword family | Source `b7d5f51f02b4cd523ab656bc979b04b4939a9643`; 814 compiled rows; focused compiler/contracts/rules/recovery/schema qualification only |
 | Latest compiler input rejection | Source `0eb054cfb50cc7b0d061392d53825017154c8d0e`; compiler-only malformed-filter qualification, separate from runtime producers |

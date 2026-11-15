@@ -210,19 +210,12 @@ all committed catalog IR remain unchanged; older proofs keep their own identitie
 
 ### Ramos basic-cascade combined qualification
 
-Feature source `6c2c295bed4a8575c8b78974d13618a9b9454ab4` combines complete basic
-cascade with M1 counters/mana/replacements, M2 land search and Aura/control
-composition main `ef8fc6da`. It passed 498 distinct selected Rust tests, 1,832
-exported-schema probes, workspace all-target compilation and formatting; all 908
-compiled-source rows match. The private paid Aura/cascade/departure witness
-restores and replays across all three trace modes. Its exact executables,
-optimization/build identities, merge resolutions, preserved failures and timing
-receipts are under the Ramos coordinator's `generated/ramos/m3b-integrated/`;
-`integration.json` is authoritative. Other producers keep their original scopes.
-IR remains 1, private snapshot 23 and public/context/query 18. Full M3's optional
-additional-cost and reachable paid prohibition exits remain open. No profile,
-pod, host/search, SDK or full target-deck admission follows; fresh combined
-Clippy and broader runtime/release/profile/consumer matrices were omitted.
+Source `6c2c295bed4a8575c8b78974d13618a9b9454ab4`, combined with main `ef8fc6da`,
+passed 498 distinct Rust tests, 1,832 schema probes and 908 source rows. Paid
+Aura/cascade/departure recovery passed in three trace modes. Exact executables,
+settings, merge resolutions, failures and timings remain in the coordinator's
+`generated/ramos/m3b-integrated/integration.json`. Snapshot/public were 23/18;
+no consumer or exact-deck acceptance transferred.
 
 ### Atomic temporary-keyword qualification
 
@@ -435,20 +428,29 @@ evidence, historical source fixtures, credentials or worktrees were cleanup targ
 
 ### Ramos optional-cost and paid-prohibition combined qualification
 
-Source `2b83a4824a8d6561402aaf560cbd4dbba5561389` combines the M3c kicker/instant
-cascade cohort with main `33dcbe9d`. The single fresh review's empty-source-block
-and stale-format findings are fixed; actual RED/GREEN compiler evidence and exact
-spool regression are retained. It passes 528 distinct selected Rust tests (538
-executions), 2,160 exported-schema probes, workspace all-target compilation and
-formatting; all 925 native source rows match. Source-bound kicker and the naturally
-paid Aura/Kutzil prohibition pair close M3's focused source/runtime exit.
+Source `2b83a4824a8d6561402aaf560cbd4dbba5561389` combined main `33dcbe9d` and
+closed M3's focused exit: source-bound kicker and the naturally paid Aura/Kutzil
+prohibition pair. Passed 528 distinct Rust tests (538 executions), 2,160 schema
+probes, all-target compilation/formatting and 925 native rows. The single review's
+empty-block/format findings were fixed. Exact producers, source bridges, preserved
+failures and timings remain in `generated/ramos/m3c-integrated/integration.json`.
+Formats were 24/19; consumer and exact-deck qualification stayed separate.
 
-Exact copied test/CLI executables, opt2/opt0 producer identities, source inventories,
-review continuity, schema and timing are in the Ramos coordinator's
-`generated/ramos/m3c-integrated/integration.json`, linking the retained RED and GREEN
-runs. A shared-cache CLI failure is preserved separately from the successful
-hash-preserving refresh; no old producer is relabeled. Snapshot/public-context-work
-are 24/19, IR remains 1. Later set-family 25/20 needs fresh combined qualification.
-Full runtime, fresh combined Clippy, release/profile, Node workspace and all
-consumer/exact-deck admission gates remain omitted; historical client acceptance
-is separate. See the [casting contract](game-engine-ramos-plan.md#qualified-checkpoints-and-limits).
+### Ramos multiple cascade and live modifier combined qualification
+
+Source `3813db057d66bd8d9ce3de7825a6758a2f82dd30`, combined with main `2ac47a82`,
+qualifies complete Apex/Wanderer and existing cost, counter and temporary-grant
+compositions: **542 distinct Rust tests, 2,748 schema probes, 944 source rows**.
+All-target compilation/formatting passed. Core producer `9913bc5c` and contract artifacts retain
+`57aeb5f1`; corrected compiler/CLI use `3813db05` through the explicit two-compiler-test
+bridge. CLI producer is `43281926`; both opt2/opt0 identities were independently
+recomputed from 336 Rust inputs/settings. Snapshot/public-context-work are 26/21, IR1.
+
+`generated/ramos/m4a-integrated/integration.json` links actual copied binaries,
+reviews, schema, source/settings proofs, failures and timings. Wanderer's review
+found only cleanup setup; fixed test-only. Conditional sentence fences explicitly
+reject unconsumed clauses. Stale tests, empty selector and missing offline result
+directory are retained without false passes. The original 833-second seeded Apex
+witness was not repeated. Full runtime, fresh combined Clippy, release/profile,
+Node workspace, SDK/client/host/search and exact-target admission remain omitted;
+later permanent-set/Aura producers and historical client acceptance stay separate.
