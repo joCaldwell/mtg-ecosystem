@@ -1091,3 +1091,7 @@ mod typed_aura_control_tests;
 #[cfg(test)]
 #[path = "general_aura_control_tests.rs"]
 mod general_aura_control_tests;
+
+#[cfg(test)]
+#[path = "targeted_permanent_keyword_tests.rs"]
+mod targeted_permanent_keyword_tests;
