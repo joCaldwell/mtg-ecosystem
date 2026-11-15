@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Opt-in actual built-product acceptance. No Cargo, SDK generation, fake native
 // responses, human SDK policy or second human reader. Every command is UI-owned.
-import { fork, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, openSync, closeSync, writeFileSync } from "node:fs";
+import { execFileSync, fork, spawnSync } from "node:child_process";
+import { existsSync, readdirSync, mkdirSync, mkdtempSync, openSync, closeSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, firefox, type Page, type BrowserContext } from "playwright-core";
@@ -61,6 +61,7 @@ interface Ready {
   deckId: number; identity: { engine_build_id: string; server_build_id: string; catalog_sha256: string; profile: string };
   cards: { oracle_id: string; name: string }[];
 }
+type RecordedOutcome = { kind: "win"; winner: number } | { kind: "draw" };
 
 async function run(name: "chromium" | "firefox", output: string, dist: string, inputs: Inputs, natural: boolean) {
   const pins = verifyInputs(inputs);
@@ -85,6 +86,8 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   let lazyLoaded = false, admission = false, launched = false, recovered = false, unmounted = false, regranted = false;
   let negatives = 0, conditionalReversal = false, commanderResolved = false, landPlayed = false;
   let naturalAttempted = false, naturalCompleted = false, naturalPaused = false, naturalBounded = false, naturalUnsupported = false;
+  let recordOutcome: RecordedOutcome | null = null;
+  let recordCompleted = false, recordPaused = false, uiOutcomeMatches = false, journalUnresolved = false, recordReads = 0;
   let beginnings: ActionBeginning[] = [], requests = 0, queries = 0;
   let pending: { response: PlayerResponse; revision: string; token: string } | undefined;
   const sent = new Map<string, string>(), accepted = new Set<string>(), consumed = new Set<string>();
@@ -93,6 +96,18 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   const jobs = new Set<Promise<void>>();
   let journalBeforeSend = 0, originalContexts = 0, completeResponses = 0, authenticatedPosts = 0;
   const add = (counts: Record<string, number>, name: string) => { counts[name] = (counts[name] ?? 0) + 1; };
+  const readRecord = async () => {
+    const response = await context!.request.get(`${ready!.origin}/api/games/${gameId}`, { timeout: 5_000 });
+    check(response.status() === 200, "owner_game_record");
+    const { game } = await response.json(); recordReads++;
+    check(game.id === gameId && game.identity.engine_build_id === ready!.identity.engine_build_id
+      && game.identity.server_build_id === ready!.identity.server_build_id, "outcome_record_identity");
+    recordCompleted = game.state === "completed";
+    recordPaused = ["paused", "interrupted"].includes(game.state);
+    check(game.outcome === null || game.outcome?.kind === "draw"
+      || (game.outcome?.kind === "win" && [0, 1, 2, 3].includes(game.outcome.winner)), "typed_record_outcome");
+    recordOutcome = game.outcome;
+  };
   try {
     ready = await readiness;
     const sdk = await import("@multiverse/game-server-sdk");
@@ -327,11 +342,19 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     const noBearer = await context.request.get(`${ready.origin}/api/games/${gameId}/native/v1/matches/${gameId}/resume`, { timeout: 5_000 });
     check(noBearer.status() === 401, "owner_cookie_without_bearer_denied"); negatives++;
     // Continue only through explicit DOM choices from permitted requests. This
-    // intentionally uses pass/draw rather than inventing unavailable strategy.
+    // uses only the resolved commander, offered defenders and pass/draw choices.
+    // There is no imported human policy or product-side automatic action.
     if (natural) {
-      naturalAttempted = true; const end = Date.now() + 240_000, count = sent.size;
-      while (Date.now() < end && sent.size - count < 1_200 && !protocolFailed) {
+      const milliseconds = Number(option("natural-ms") ?? 240_000);
+      check(Number.isSafeInteger(milliseconds) && milliseconds >= 1 && milliseconds <= 1_800_000, "natural_bound");
+      naturalAttempted = true; const end = Date.now() + milliseconds, count = sent.size;
+      let lastRecord = 0;
+      while (Date.now() < end && sent.size - count < 2_000 && !protocolFailed) {
         check(!shutdown.signal.aborted, "check_aborted");
+        // Account-owned status only; this does not add a native seat reader.
+        if (Date.now() - lastRecord >= 2_000) { await readRecord(); lastRecord = Date.now(); }
+        if (recordCompleted) { naturalCompleted = true; break; }
+        if (recordPaused) { naturalPaused = true; break; }
         if (outcome) { naturalCompleted = true; break; }
         if (["resource_paused", "faulted", "cancelled", "rejected"].includes(lifecycle)) { naturalPaused = true; break; }
         const request = current().decision;
@@ -342,8 +365,19 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
           const form = page.getByRole("group", { name: title, exact: true });
           const controls = form.getByRole("combobox");
           check(await controls.count() === request.candidates.length, "permitted_combat_candidates");
-          for (let i = 0; i < request.candidates.length; i++) await controls.nth(i).selectOption("unused");
-          await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), request.request === "attackers" ? { response: "attackers", attacks: [] } : { response: "blockers", blocks: [] });
+          const attacks: [string, number][] = [];
+          for (const [i, handle] of request.candidates.entries()) {
+            const isCommander = request.request === "attackers" && current().view.objects.some(object => object.handle === handle
+              && object.owner === 0 && object.oracle_id === commanderOracle);
+            const defender = request.request === "attackers" ? request.defenders[0] : undefined;
+            if (isCommander && defender !== undefined) {
+              await controls.nth(i).selectOption(JSON.stringify([defender])); attacks.push([handle, defender]);
+            } else await controls.nth(i).selectOption("unused");
+          }
+          await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), request.request === "attackers" ? { response: "attackers", attacks } : { response: "blockers", blocks: [] });
+        } else if (request.request === "damage" && request.recipients.length === 0 && request.player_recipient !== null && request.player_recipient !== undefined) {
+          await page.getByRole("textbox", { name: `Seat ${request.player_recipient + 1}`, exact: false }).fill(request.power);
+          await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), { response: "trample_damage", assignments: [], player: request.player_recipient, amount: request.power });
         } else if (request.request === "discard") {
           const boxes = page.getByRole("group", { name: "Choose cards to discard", exact: true }).getByRole("checkbox");
           check(await boxes.count() === request.candidates.length, "permitted_discard_candidates");
@@ -363,13 +397,54 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     // SDK exceptions can include authenticated DOM, headers or private bodies.
     failure = error instanceof Error && /^[a-z][a-z0-9_]{0,80}$/.test(error.message) ? error.message : "browser_operation_failed";
   } finally {
+    if (naturalAttempted && context && page && ready && gameId) {
+      try {
+        await readRecord();
+        const recorded = recordOutcome as RecordedOutcome | null;
+        if (recordCompleted && recorded) {
+          naturalCompleted = true; naturalBounded = false;
+          const expected = recorded.kind === "draw" ? "Draw" : `Seat ${recorded.winner + 1} wins`;
+          const end = Date.now() + 20_000;
+          while (Date.now() < end && !uiOutcomeMatches) {
+            const matches = page.getByText(expected, { exact: true });
+            for (let i = 0; i < await matches.count(); i++) if (await matches.nth(i).isVisible()) uiOutcomeMatches = true;
+            if (!uiOutcomeMatches) await delay(100);
+          }
+          if (outcome) check((outcome as RulesResult).outcome === recorded.kind
+            && (recorded.kind !== "win" || (outcome as Extract<RulesResult, { outcome: "win" }>).player === recorded.winner), "native_record_outcome_match");
+          if (!uiOutcomeMatches) failure ||= "terminal_outcome_not_visible";
+        }
+        journalUnresolved = !(await journal(page));
+      } catch { failure ||= "terminal_comparison_failed"; }
+    }
     // Abort/bound browser I/O before joining every owned native and bot lease.
     try { await bounded(Promise.allSettled([context?.close(), browser?.close(), ...jobs]), 5_000, "browser_cleanup"); }
     catch { failure ||= "browser_cleanup"; }
     if (child.connected) child.send({ stop: true });
     let exit: number | null = null;
     try { exit = await bounded(joined, 40_000, "host_join_deadline"); }
-    catch { failure ||= "host_join_deadline"; child.kill("SIGTERM"); try { exit = await bounded(joined, 20_000, "host_join_failed"); } catch { failure ||= "host_join_failed"; } }
+    catch {
+      failure ||= "host_join_deadline"; child.kill("SIGTERM");
+      try { exit = await bounded(joined, 20_000, "host_join_failed"); }
+      catch {
+        failure ||= "host_join_failed";
+        // Broken fixture cleanup must still close the native/bot lifetime
+        // pipes, then join only this run's exact private roots. Preserve failure.
+        child.kill("SIGKILL");
+        await bounded(joined, 5_000, "fixture_kill_deadline").catch(() => {});
+        const root = join(directory, "private");
+        for (const entry of existsSync(root) ? readdirSync(root, { withFileTypes: true }) : []) {
+          if (!entry.isDirectory() || !/^[a-f0-9]{32}$/.test(entry.name)) continue;
+          try {
+            const owned = join(root, entry.name);
+            execFileSync(join(inputs.nativeRoot, "mtg-server"), ["lifecycle-join", owned], { timeout: 15_000, stdio: "ignore" });
+            for (const seat of [1, 2, 3]) if (existsSync(join(owned, `bot-${seat}`, "lease"))) {
+              execFileSync("flock", ["--nonblock", join(owned, `bot-${seat}`, "lease"), "true"], { timeout: 2_000, stdio: "ignore" });
+            }
+          } catch { failure = "owned_leases_not_joined"; }
+        }
+      }
+    }
     const cleanup = stopped && exit === 0 && joinedLeases === (launched ? 3 : 0);
     if (!cleanup) failure ||= "owned_leases_not_joined";
     const receipt = { browser: name, version: browser?.version() ?? "unavailable", source: pins, checker_sources: checkerSources, product_manifest_sha256: fileHash(join(dist, ".vite/manifest.json")), observation_version: OBSERVATION_VERSION,
@@ -382,6 +457,9 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       land_played: landPlayed, commander_resolved: commanderResolved, conditional_reversal_wording: conditionalReversal,
       natural_attempted: naturalAttempted, natural_completed: naturalCompleted, natural_resource_paused: naturalPaused, natural_bounded: naturalBounded,
       natural_unsupported: naturalUnsupported, rules_win: (outcome as RulesResult | null)?.outcome === "win", rules_draw: (outcome as RulesResult | null)?.outcome === "draw", cleanup_complete: cleanup, joined_bot_leases: joinedLeases };
+    Object.assign(receipt, { game_record_reads: recordReads, game_record_completed: recordCompleted, game_record_paused: recordPaused,
+      game_record_win: (recordOutcome as RecordedOutcome | null)?.kind === "win", game_record_draw: (recordOutcome as RecordedOutcome | null)?.kind === "draw", visible_outcome_matches: uiOutcomeMatches,
+      native_outcome_observed: Boolean(outcome), journal_unresolved: journalUnresolved });
     writeFileSync(join(directory, "receipt.json"), JSON.stringify(receipt, null, 2) + "\n", { mode: 0o600, flag: "wx" });
     // Only fixed booleans/counts/public source identities, never raw diagnostics.
     console.log(JSON.stringify(receipt));
@@ -391,7 +469,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
 
 async function main() {
   if (process.argv.includes("--help")) {
-    console.log("node check-product-session.ts --native-root DIR --sdk-root DIR --qualification JSON --records ARCHIVE_JSON_OR_JSONL --records-sha256 SHA256 --out NEW_DIR [--browser chromium|firefox|both] [--natural]"); return;
+    console.log("node check-product-session.ts --native-root DIR --sdk-root DIR --qualification JSON --records ARCHIVE_JSON_OR_JSONL --records-sha256 SHA256 --out NEW_DIR [--browser chromium|firefox|both] [--natural] [--natural-ms 240000]"); return;
   }
   process.umask(0o077);
   const inputs: Inputs = { nativeRoot: required("native-root"), sdkRoot: required("sdk-root"), qualification: required("qualification"), records: required("records"), recordsHash: option("records-sha256") ?? "" };

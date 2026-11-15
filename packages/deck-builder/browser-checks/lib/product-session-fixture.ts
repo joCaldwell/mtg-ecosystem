@@ -28,12 +28,19 @@ interface Pins {
   native_source: string; sdk_source: string; engine_build_id: string; server_build_id: string;
   protocol_schema_sha256: string; bootstrap_schema_sha256: string;
   native_source_manifest_sha256: string;
+  sdk_build_manifest_sha256?: string; sdk_verification_sha256?: string;
 }
 function confined(root: string, path: string) {
   const result = resolve(root, path);
   check(result.startsWith(resolve(root) + sep), "artifact_path");
   check(lstatSync(result).isFile() && !lstatSync(result).isSymbolicLink(), "artifact_file");
   return result;
+}
+function sdkFile(root: string, path: string) {
+  // The separate public Node producer's build manifest deliberately includes
+  // these two original tools. No other parent traversal is an accepted input.
+  return path === "../tools/client-artifacts.ts" || path === "../tools/presentation.schema.json"
+    ? confined(resolve(root, ".."), path.slice(3)) : confined(root, path);
 }
 /** A caller must supply the parent's NEW qualification/pins. Historical 565/16
  * cannot be relabelled by a CLI switch. No native process runs before this gate. */
@@ -59,11 +66,15 @@ export function verifyInputs(inputs: Inputs): Pins {
   const generation = JSON.parse(readFileSync(confined(inputs.sdkRoot, "generated/generation.json"), "utf8"));
   check(generation.bootstrap_schema_sha256 === pins.bootstrap_schema_sha256, "sdk_bootstrap_pin");
   const verification = JSON.parse(readFileSync(confined(inputs.sdkRoot, "generated/verification.json"), "utf8"));
+  if (pins.sdk_source !== pins.native_source) {
+    check(fileHash(confined(inputs.sdkRoot, "dist/build.json")) === pins.sdk_build_manifest_sha256
+      && fileHash(confined(inputs.sdkRoot, "generated/verification.json")) === pins.sdk_verification_sha256, "followup_sdk_receipt_pin");
+  }
   check(verification.status === "preliminary-sdk-checks-passed" && verification.generation_manifest_sha256 === build.generation_sha256
     && verification.source_files.some((row: { path: string }) => row.path === "src/policies.ts"), "sdk_qualification_receipt");
   for (const row of [...build.sources, ...build.files.map((row: { path: string; sha256: string }) => ({ ...row, path: `dist/${row.path}` }))]) {
-    check(fileHash(confined(inputs.sdkRoot, row.path)) === row.sha256, "qualified_sdk_digest");
-    check(fileHash(confined(sdk, row.path)) === row.sha256, "installed_sdk_differs");
+    check(fileHash(sdkFile(inputs.sdkRoot, row.path)) === row.sha256, "qualified_sdk_digest");
+    check(fileHash(sdkFile(sdk, row.path)) === row.sha256, "installed_sdk_differs");
   }
   for (const row of verification.source_files) {
     check(fileHash(confined(inputs.sdkRoot, row.path)) === row.sha256 && fileHash(confined(sdk, row.path)) === row.sha256, "qualified_sdk_source");
@@ -72,7 +83,8 @@ export function verifyInputs(inputs: Inputs): Pins {
   check(fileHash(inputs.records) === inputs.recordsHash, "frozen_records_pin");
   return { native_source: pins.native_source, sdk_source: pins.sdk_source, engine_build_id: pins.engine_build_id,
     server_build_id: pins.server_build_id, protocol_schema_sha256: pins.protocol_schema_sha256, bootstrap_schema_sha256: pins.bootstrap_schema_sha256,
-    native_source_manifest_sha256: pins.native_source_manifest_sha256 };
+    native_source_manifest_sha256: pins.native_source_manifest_sha256, sdk_build_manifest_sha256: pins.sdk_build_manifest_sha256,
+    sdk_verification_sha256: pins.sdk_verification_sha256 };
 }
 export async function freePort() {
   const server = createServer();
