@@ -14,6 +14,8 @@ pub fn engine_build_input(path: &str) -> bool {
 use num_bigint::BigInt;
 use num_traits::Zero;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
+mod controller_scry;
+pub use controller_scry::controller_scry_program;
 use serde::{Deserialize, Serialize, de};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, fmt, str::FromStr};
@@ -227,6 +229,7 @@ pub enum Capability {
     ActivatedAbilityV1,
     SacrificeSourceCostV1,
     ControllerDrawV1,
+    ControllerScryV1,
     ControllerDiscardV1,
     OpponentTargetV1,
     TargetPlayerSacrificeCreatureV1,
@@ -472,6 +475,11 @@ pub struct CreatureStatModifier {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    /// CR 701.22: only the invocation controller looks and orders the prefix.
+    Scry {
+        amount: Quantity,
+        source_block: u32,
+    },
     MoveSet {
         set: ObjectSet,
         action: SetMove,
@@ -692,6 +700,7 @@ impl Instruction {
     /// Compiler-owned complete source block for this instruction.
     pub fn source_block(&self) -> u32 {
         match self {
+            Self::Scry { source_block, .. } => *source_block,
             Self::MoveSet { source_block, .. } => *source_block,
             Self::PumpSet { source_block, .. } => *source_block,
             Self::DamageSet { source_block, .. } => *source_block,
@@ -1654,6 +1663,7 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        controller_scry::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -2700,6 +2710,7 @@ pub struct TemporaryTargetedKeywordProgram<'a> {
     pub modifier: Option<(&'a Quantity, &'a Quantity)>,
     pub keywords: &'a [KeywordAbility],
     pub controller_life: Option<&'a Quantity>,
+    pub controller_scry: Option<&'a Quantity>,
 }
 /// Recognize one complete grant on one captured creature target. The caller
 /// checks definition kind/context. Pure grants retain source-block provenance;
@@ -2741,6 +2752,7 @@ pub fn temporary_creature_keyword_program(
         modifier,
         keywords,
         controller_life: None,
+        controller_scry: None,
     })
 }
 /// Complete scalar union; narrow wrappers preserve their own target policy.
@@ -2749,26 +2761,45 @@ pub fn temporary_targeted_keyword_program(
 ) -> Option<TemporaryTargetedKeywordProgram<'_>> {
     temporary_creature_keyword_program(p).or_else(|| temporary_permanent_keyword_program(p))
 }
-/// One controlled permanent, optionally followed by fixed controller life gain.
+/// One controlled permanent with optional fixed controller life gain, or one
+/// artifact-or-creature target with optional fixed controller scry.
 /// CR 109.5, 608.2b/c, 611.2c:
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 pub fn temporary_permanent_keyword_program(
     p: &SpellProgram,
 ) -> Option<TemporaryTargetedKeywordProgram<'_>> {
+    let controlled = p.targets.first().is_some_and(|t| {
+        t.domain == TargetDomain::ControlledBattlefieldPermanent
+            && t.filter.as_ref().is_some_and(|f| {
+                f.types.is_empty()
+                    && f.non_types.is_empty()
+                    && f.non_colors.is_empty()
+                    && !f.opponent
+                    && !f.tapped
+            })
+    });
+    let artifact_or_creature = p.targets.first().is_some_and(|t| {
+        t.domain == TargetDomain::BattlefieldPermanent
+            && t.filter.as_ref().is_some_and(|f| {
+                f.types == [CardKind::Creature, CardKind::Artifact]
+                    && f.non_types.is_empty()
+                    && f.non_colors.is_empty()
+                    && !f.opponent
+                    && !f.tapped
+            })
+    });
     if p.additional_sacrifice.is_some()
         || !p.modes.is_empty()
         || p.functioning_zone != FunctioningZone::Stack
         || p.resolution != SpellResolution::Instructions
         || !matches!(p.targets.as_slice(), [t] if t.slot == 0 && !t.selection_id.is_empty()
             && t.chooser == Chooser::Controller && t.stage == EvaluationStage::Announcement
-            && t.domain == TargetDomain::ControlledBattlefieldPermanent
-            && t.filter.as_ref().is_some_and(|f| f.types.is_empty() && f.non_types.is_empty()
-                && f.non_colors.is_empty() && !f.opponent && !f.tapped))
+            && (controlled || artifact_or_creature))
     {
         return None;
     }
-    let (grant, controller_life) = match p.instructions.as_slice() {
-        [grant] => (grant, None),
+    let (grant, controller_life, controller_scry) = match p.instructions.as_slice() {
+        [grant] => (grant, None, None),
         [
             grant,
             Instruction::GainLife {
@@ -2776,7 +2807,14 @@ pub fn temporary_permanent_keyword_program(
                 amount,
                 source_block: 0,
             },
-        ] if !amount.is_negative() => (grant, Some(amount)),
+        ] if controlled && !amount.is_negative() => (grant, Some(amount), None),
+        [
+            grant,
+            Instruction::Scry {
+                amount,
+                source_block: 0,
+            },
+        ] if artifact_or_creature && !amount.is_negative() => (grant, None, Some(amount)),
         _ => return None,
     };
     let Instruction::GrantKeywords {
@@ -2793,6 +2831,7 @@ pub fn temporary_permanent_keyword_program(
         modifier: None,
         keywords,
         controller_life,
+        controller_scry,
     })
 }
 /// Borrowed parameters of the complete ordinary temporary set-keyword family.
@@ -2926,6 +2965,12 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         return Err("controller set requires complete temporary keyword family".into());
     }
 
+    if controller_scry::has_scry(p)
+        && !controller_scry_program(p)
+        && !temporary_permanent_keyword_program(p).is_some_and(|d| d.controller_scry.is_some())
+    {
+        return Err("unsupported complete controller scry program".into());
+    }
     if has_keyword_grant(p) && !ordinary_keyword_grant(p) {
         return Err("unsupported temporary keyword grant program".into());
     }
@@ -3357,6 +3402,12 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     .ok_or("counter requires a stack target domain")?;
                 Some((*target_slot, domain))
             }
+            Instruction::Scry { amount, .. } => {
+                if amount.is_negative() {
+                    return Err("scry amount must be nonnegative".into());
+                }
+                None
+            }
             Instruction::DealDamage {
                 target_slot,
                 amount,
@@ -3700,6 +3751,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::DiscardCards { .. } => Capability::ControllerDiscardV1,
             Instruction::CounterStackObject { .. } => Capability::CounterStackObjectV1,
             Instruction::DealDamage { .. } => Capability::NoncombatDamageV1,
+            Instruction::Scry { .. } => Capability::ControllerScryV1,
             Instruction::GainLife { .. } => Capability::LifeGainV1,
             Instruction::LoseLife { .. } => Capability::LifeLossV1,
         });
