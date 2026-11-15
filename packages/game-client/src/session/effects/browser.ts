@@ -4,6 +4,7 @@ import { immutable, SessionFailure, type FailureKind } from '../read-state.ts';
 import { IndexedDBCommandJournal } from './command-journal.ts';
 import type { ActionQueryFailure } from '../action-query.ts';
 import { acquireSeat, wait } from './ownership.ts';
+import { retryAfterMilliseconds } from '../retry.ts';
 
 function classify(error: unknown): FailureKind {
   if (error instanceof SessionFailure) return error.kind;
@@ -52,12 +53,18 @@ function makeBrowserSession(protocolSchemaHash?: string, endpoint?: string): Rea
       if (endpoint && (bootstrap.match_id !== endpoint.split('/')[3] || bootstrap.viewer !== 0)) throw new SessionFailure('invalid-file');
       const origin = window.location.origin;
       const baseURL = `${origin}${endpoint ?? ''}`;
+      let retryNotBefore = 0;
       // Only the app-selected same-origin proxy needs account cookies as well as
       // native seat authorization. Keep the standalone SDK's omit policy intact.
-      const scopedFetch: typeof fetch = (input, init) => {
+      const sessionFetch: typeof fetch = async (input, init) => {
         const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
-        if (url.origin !== origin || !url.pathname.startsWith(`${endpoint}/`)) throw new SessionFailure('incompatible');
-        return fetch(input, { ...init, credentials: 'same-origin' });
+        if (endpoint && (url.origin !== origin || !url.pathname.startsWith(`${endpoint}/`))) throw new SessionFailure('incompatible');
+        const response = await fetch(input, endpoint ? { ...init, credentials: 'same-origin' } : init);
+        if (response.status === 429) {
+          const delay = retryAfterMilliseconds(response.headers.get('Retry-After'));
+          if (delay !== null) retryNotBefore = Math.max(retryNotBefore, performance.now() + delay);
+        }
+        return response;
       };
       // The public SDK still validates numeric-loopback client configuration and
       // bounds its body. Only the app-selected path changes its transport; no
@@ -72,7 +79,7 @@ function makeBrowserSession(protocolSchemaHash?: string, endpoint?: string): Rea
       if (bootstrap.server_origin !== config.server_origin) throw new SessionFailure('invalid-file');
       const { capability, bootstrap_version: _version, ...identity } = bootstrap;
       const binding = immutable(identity);
-      const sdk = new GameClient({ baseURL, matchId: binding.match_id, capability, ...(endpoint ? { fetch: scopedFetch } : {}) });
+      const sdk = new GameClient({ baseURL, matchId: binding.match_id, capability, fetch: sessionFetch });
       const codec = { prepare: prepareCommand, parse: parsePreparedCommand };
       return { binding, ...(protocolSchemaHash ? { actions: {
         protocolSchema: protocolSchemaHash,
@@ -102,6 +109,7 @@ function makeBrowserSession(protocolSchemaHash?: string, endpoint?: string): Rea
           cancelQueued: (id: string, commandSignal: AbortSignal) => bounded(commandSignal, deadline => sdk.cancel(id, { signal: deadline })),
         },
       } } : {}), transport: {
+        retryAfter: () => Math.max(0, retryNotBefore - performance.now()),
         manifest: readSignal => bounded(readSignal, deadline => sdk.manifest({ signal: deadline })),
         resume: readSignal => bounded(readSignal, deadline => sdk.resume({ signal: deadline })),
         poll: (after, readSignal) => bounded(readSignal, deadline => sdk.poll({ after, limit: 32, waitMs: 20_000, signal: deadline })),

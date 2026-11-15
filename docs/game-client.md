@@ -65,7 +65,10 @@ No forced takeover, secret broadcasting or fallback ownership. The single read
 owner controls processed cursor and recovery; no duplicate poller/clock. Keep the
 last Observation/token across lifecycle-only pages. A changed generation/seat/
 identity invalidates all asynchronous completions, drafts and effects before I/O.
-Reads use bounded backoff/retry; a failed/partial response body is uncertainty,
+Reads use bounded backoff/retry; 429 responses may extend the wait using an
+authorization-local `Retry-After` hint, capped at 60 seconds and aborted on stop.
+Only a successful stream read after that cooldown renews the rate-limit retry
+budget; hintless collision loops remain bounded. A failed/partial response body is uncertainty,
 not a successful response. Reauthorize/verify manifests before recovery.
 
 ## Durable command journal

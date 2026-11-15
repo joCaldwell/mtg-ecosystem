@@ -25,7 +25,7 @@
   "evidence": [
     {
       "path": "docs/game-client.md",
-      "sha256": "baad7566504feae1ca616917bf927ac8d2e92584343d1ee350d55105fe8e4388"
+      "sha256": "28445188dd9658d6b7d2faaecbc519074956f0f6c0555dbbcbb602f9c7cbb39c"
     },
     {
       "path": "docs/game-engine-current.md",
