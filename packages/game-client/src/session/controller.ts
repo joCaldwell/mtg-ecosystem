@@ -36,6 +36,7 @@ export interface ReadSnapshot {
 }
 const empty = (): ReadSnapshot => immutable({ actions: null, command: disabledCommand(), connection: 'idle', binding: null, read: null, metadata: null, metadataMissing: false, retry: 0, failure: null });
 let nextIncarnation = 0;
+interface VerifiedReads { readonly manifest: PublicManifest; readonly metadata: PresentationArtifact | null }
 interface Run {
   readonly cancel: ReturnType<SessionEffects<unknown>['cancellation']>;
   pollCancel: ReturnType<SessionEffects<unknown>['cancellation']> | null;
@@ -191,6 +192,9 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
         run.actions.subscribe(() => { if (this.#current(run)) this.#update({ actions: run.actions!.getSnapshot() }); });
       }
       let initialized = false;
+      // Only a command refresh in this original authorization may reuse these
+      // verified immutable reads. Reconnects invalidate them before retrying.
+      let verified: VerifiedReads | null = null;
       let consecutiveFailures = 0;
       // A successful empty poll does not reset a collision/rate-limit budget.
       let rateLimitFailures = 0;
@@ -200,15 +204,21 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
         try {
           if (!initialized) {
             this.#update({ connection: 'authenticating' });
-            const manifest = await transport.manifest(signal);
-            if (!this.#current(run)) return;
-            checkManifest(binding, manifest);
-            const metadata = await transport.presentation(signal);
-            if (!this.#current(run)) return;
-            if (metadata && metadata.catalog_sha256 !== binding.catalog_sha256) throw new SessionFailure('incompatible');
+            let assets: VerifiedReads | null = run.refresh ? verified : null;
+            if (!assets) {
+              const manifest = await transport.manifest(signal);
+              if (!this.#current(run)) return;
+              checkManifest(binding, manifest);
+              const metadata = await transport.presentation(signal);
+              if (!this.#current(run)) return;
+              if (metadata && metadata.catalog_sha256 !== binding.catalog_sha256) throw new SessionFailure('incompatible');
+              assets = immutable({ manifest, metadata });
+            }
             const refreshing = run.refresh;
             const read = resumeRead(binding, this.#snapshot.read, await transport.resume(signal));
             if (!this.#current(run)) return;
+            verified = assets;
+            const { metadata } = assets;
             this.#update({ read, metadata, metadataMissing: metadata === null });
             if (commands && !run.commands) {
               run.commandsBinding = journalBinding(binding, commands.protocol);
@@ -250,6 +260,7 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
         } catch (error) {
           if (!this.#current(run)) return;
           if (polling && run.refresh) { initialized = false; continue; }
+          verified = null;
           const kind = error instanceof SessionFailure ? error.kind : this.#effects.classify(error);
           if (!['rate-limited', 'unavailable', 'disconnected'].includes(kind)) throw new SessionFailure(kind);
           consecutiveFailures += 1;
