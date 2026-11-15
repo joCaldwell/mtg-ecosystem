@@ -1434,9 +1434,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             }
             for (block, ability) in abilities.iter().enumerate() {
                 match ability {
-                    Ability::Static { effect, .. } => {
-                        definition.static_abilities.push(lower_static(effect, source_block(block)?)?)
-                    }
+                    Ability::Static { effect, .. } => definition
+                        .static_abilities
+                        .push(lower_static(effect, source_block(block)?)?),
                     Ability::Keywords { keywords, .. } => {
                         if keywords.is_empty() {
                             return Err(unsupported("abilities.keywords", "empty keyword block"));

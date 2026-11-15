@@ -551,18 +551,25 @@ fn aura_control_typed_shapes_exclude_optional_cost_and_conditional_draw() {
             );
             let program = invalid.spell.as_mut().unwrap();
             if variant != 1 {
-                program.optional_additional_costs.push(OptionalAdditionalManaCost {
-                    identity: identity.clone(),
-                    source_block: 0,
-                    mana: ManaCost { generic: 2.into(), colored: vec![Color::U] },
-                });
+                program
+                    .optional_additional_costs
+                    .push(OptionalAdditionalManaCost {
+                        identity: identity.clone(),
+                        source_block: 0,
+                        mana: ManaCost {
+                            generic: 2.into(),
+                            colored: vec![Color::U],
+                        },
+                    });
             }
             if variant != 0 {
-                program.instructions.push(Instruction::DrawCardsIfAdditionalCost {
-                    cost_identity: identity,
-                    count: 2.into(),
-                    source_block: 1,
-                });
+                program
+                    .instructions
+                    .push(Instruction::DrawCardsIfAdditionalCost {
+                        cost_identity: identity,
+                        count: 2.into(),
+                        source_block: 1,
+                    });
             }
             assert_eq!(aura_control_target_type(&invalid), None);
             assert!(!aura_control_source(&invalid));

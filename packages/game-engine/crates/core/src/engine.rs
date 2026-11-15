@@ -300,11 +300,11 @@ mod grouped_damage_trigger_tests;
 mod opponent_damage_trigger_tests;
 #[cfg(test)]
 mod optional_draw_tests;
+mod spell_cascade_grants;
 #[cfg(test)]
 mod step_trigger_tests;
 #[cfg(test)]
 mod trigger_tests;
-mod spell_cascade_grants;
 pub use spell_cascade_grants::{CascadeGrantProvenance, EffectiveTriggerAbility};
 mod triggers;
 pub use triggers::{
@@ -2320,9 +2320,15 @@ impl Game {
                 .as_ref()
                 .ok_or_else(|| "missing spell program".to_string()),
             StackKind::Triggered { ability, .. } => match *ability {
-                EffectiveTriggerAbility::Intrinsic { index } => definition.triggered.get(index as usize)
-                    .map(|a| &a.program).ok_or_else(|| "missing triggered program".to_string()),
-                EffectiveTriggerAbility::Granted { grant_source, static_ability_index } => self.grant_program(grant_source, static_ability_index),
+                EffectiveTriggerAbility::Intrinsic { index } => definition
+                    .triggered
+                    .get(index as usize)
+                    .map(|a| &a.program)
+                    .ok_or_else(|| "missing triggered program".to_string()),
+                EffectiveTriggerAbility::Granted {
+                    grant_source,
+                    static_ability_index,
+                } => self.grant_program(grant_source, static_ability_index),
             },
             StackKind::Activated { ability, .. } => definition
                 .activated

@@ -162,7 +162,10 @@ fn m4a_explicit_pending_order_placement_replay_and_distinct_visible_handles() {
                             0 => {
                                 forged.state.rules.pending_triggers.remove(apex[0]);
                             }
-                            1 => forged.state.rules.pending_triggers[apex[0]].ability = EffectiveTriggerAbility::Intrinsic { index: 1 },
+                            1 => {
+                                forged.state.rules.pending_triggers[apex[0]].ability =
+                                    EffectiveTriggerAbility::Intrinsic { index: 1 }
+                            }
                             2 => forged.state.rules.pending_triggers.swap(apex[0], apex[1]),
                             _ => unreachable!(),
                         }
@@ -333,7 +336,12 @@ fn m4a_generic_validated_ir_vector_emits_every_instance_without_printed_ceiling(
             _ => None,
         })
         .collect::<BTreeSet<_>>();
-    assert_eq!(abilities, (0..count as u32).map(|index| EffectiveTriggerAbility::Intrinsic { index }).collect());
+    assert_eq!(
+        abilities,
+        (0..count as u32)
+            .map(|index| EffectiveTriggerAbility::Intrinsic { index })
+            .collect()
+    );
 }
 #[test]
 fn m4a_synthetic_shared_stack_overflow_rolls_back_whole_paid_cast_step() {
@@ -748,7 +756,12 @@ fn m4a_paid_apex_four_same_block_siblings_one_ramos_and_apnap_observer() {
                 }
             }
         }
-        assert_eq!(abilities, (0..4).map(|index| EffectiveTriggerAbility::Intrinsic { index }).collect());
+        assert_eq!(
+            abilities,
+            (0..4)
+                .map(|index| EffectiveTriggerAbility::Intrinsic { index })
+                .collect()
+        );
         assert_eq!(triggers.len(), 4);
         assert_eq!((ramos, hydra), (1, 1));
         assert!(witnesses.windows(2).all(|w| w[0] == w[1]));

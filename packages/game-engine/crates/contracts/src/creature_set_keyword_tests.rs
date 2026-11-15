@@ -370,9 +370,7 @@ fn creature_set_keyword_excludes_optional_cost_and_conditional_draw_families() {
             }
             let baseline = grant(set.clone(), &[KeywordAbility::Lifelink], modifier);
             baseline.validate().unwrap();
-            assert!(
-                temporary_set_keyword_program(baseline.spell.as_ref().unwrap()).is_some()
-            );
+            assert!(temporary_set_keyword_program(baseline.spell.as_ref().unwrap()).is_some());
             for variant in 0..3 {
                 let mut invalid = baseline.clone();
                 let identity = format!(

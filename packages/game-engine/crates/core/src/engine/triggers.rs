@@ -730,23 +730,50 @@ impl Game {
             }
         }
         if let TriggerEventWitness::SpellCast { cast } = &witness {
-            let spell = observers.state.rules.stack.iter().find(|s| s.id == cast.stack_id)
+            let spell = observers
+                .state
+                .rules
+                .stack
+                .iter()
+                .find(|s| s.id == cast.stack_id)
                 .ok_or("missing completed cast for grants")?;
             let mana_value = observers.stack_mana_value(spell)?;
-            for object in observers.state.rules.objects.values().filter(|o| o.zone == Zone::Battlefield) {
+            for object in observers
+                .state
+                .rules
+                .objects
+                .values()
+                .filter(|o| o.zone == Zone::Battlefield)
+            {
                 let fact = observers.object_before(object.id)?;
                 if fact.controller != cast.caster || !observers.is_live(cast.caster) {
                     continue;
                 }
-                for (index, descriptor) in observers.definition(object.id.card)?.static_abilities.iter().enumerate() {
-                    if let StaticEffect::GrantSpellCascade { mana_value_at_least, .. } = &descriptor.effect
+                for (index, descriptor) in observers
+                    .definition(object.id.card)?
+                    .static_abilities
+                    .iter()
+                    .enumerate()
+                {
+                    if let StaticEffect::GrantSpellCascade {
+                        mana_value_at_least,
+                        ..
+                    } = &descriptor.effect
                         && descriptor.functioning_zone == FunctioningZone::Battlefield
                         && mana_value >= *mana_value_at_least
                     {
-                        matched.push((None, cast.spell.clone(), EffectiveTriggerAbility::Granted {
-                            grant_source: object.id,
-                            static_ability_index: u32::try_from(index).map_err(|_| "static ability index limit")?,
-                        }, None, witness.clone(), Some(fact.clone())));
+                        matched.push((
+                            None,
+                            cast.spell.clone(),
+                            EffectiveTriggerAbility::Granted {
+                                grant_source: object.id,
+                                static_ability_index: u32::try_from(index)
+                                    .map_err(|_| "static ability index limit")?,
+                            },
+                            None,
+                            witness.clone(),
+                            Some(fact.clone()),
+                        ));
                     }
                 }
             }
@@ -759,7 +786,9 @@ impl Game {
             .filter(|(_, _, _, condition, _, _)| condition.as_ref().is_none_or(|c| c.passed()))
             .count();
         self.preflight_trigger_emission(emission)?;
-        for (death_controller, source_facts, ability, match_condition, witness, grant_fact) in matched {
+        for (death_controller, source_facts, ability, match_condition, witness, grant_fact) in
+            matched
+        {
             if let Some(check) = &match_condition {
                 self.record_event(Event::TriggerConditionChecked {
                     source: source_facts.object,
@@ -786,12 +815,14 @@ impl Game {
             let controller = source_facts.controller;
             let consumed = source_facts.clone();
             let source_handles = self.capture_trigger_source_handles(source)?;
-            let grant = grant_fact.map(|fact| {
-                Ok::<_, String>(CascadeGrantProvenance {
-                    source_handles: self.capture_trigger_source_handles(fact.object)?,
-                    source_facts: fact,
+            let grant = grant_fact
+                .map(|fact| {
+                    Ok::<_, String>(CascadeGrantProvenance {
+                        source_handles: self.capture_trigger_source_handles(fact.object)?,
+                        source_facts: fact,
+                    })
                 })
-            }).transpose()?;
+                .transpose()?;
             self.state.rules.pending_triggers.push(PendingTrigger {
                 death_controller,
                 match_condition,
@@ -821,17 +852,31 @@ impl Game {
     pub(super) fn preflight_trigger_emission(&mut self, additional: usize) -> Result<(), String> {
         self.check_stack_capacity(additional)?;
         let additional = u64::try_from(additional).map_err(|_| "trigger ID resource limit")?;
-        if self.state.rules.next_trigger_id.checked_add(additional).is_none() {
+        if self
+            .state
+            .rules
+            .next_trigger_id
+            .checked_add(additional)
+            .is_none()
+        {
             return Err(self.capacity_error(RuleFault::TriggerIdCapacityExceeded {
-                next: self.state.rules.next_trigger_id, additional,
+                next: self.state.rules.next_trigger_id,
+                additional,
             }));
         }
         // One stack ID per pending trigger, including all new siblings.
-        let pending = u64::try_from(self.state.rules.pending_triggers.len()).map_err(|_| "stack ID resource limit")?;
-        let requested = pending.checked_add(additional).ok_or("stack ID resource limit")?;
-        if u64::from(self.state.rules.next_stack_id).checked_add(requested).is_none_or(|end| end > u64::from(u32::MAX)) {
+        let pending = u64::try_from(self.state.rules.pending_triggers.len())
+            .map_err(|_| "stack ID resource limit")?;
+        let requested = pending
+            .checked_add(additional)
+            .ok_or("stack ID resource limit")?;
+        if u64::from(self.state.rules.next_stack_id)
+            .checked_add(requested)
+            .is_none_or(|end| end > u64::from(u32::MAX))
+        {
             return Err(self.capacity_error(RuleFault::StackIdCapacityExceeded {
-                next: self.state.rules.next_stack_id, additional: requested,
+                next: self.state.rules.next_stack_id,
+                additional: requested,
             }));
         }
         Ok(())
@@ -983,7 +1028,8 @@ impl Game {
                         .next_stack_id
                         .checked_add(1)
                         .ok_or("stack ID resource limit")?;
-                    let targeted = !self.effective_trigger(trigger.source, trigger.ability)?
+                    let targeted = !self
+                        .effective_trigger(trigger.source, trigger.ability)?
                         .program
                         .targets
                         .is_empty();
@@ -1584,7 +1630,12 @@ impl Game {
         }
         let mut ids = BTreeSet::new();
         for trigger in &self.state.rules.pending_triggers {
-            self.validate_cascade_grant(trigger.ability, trigger.controller, &trigger.witness, trigger.grant.as_ref())?;
+            self.validate_cascade_grant(
+                trigger.ability,
+                trigger.controller,
+                &trigger.witness,
+                trigger.grant.as_ref(),
+            )?;
             self.validate_trigger_source(
                 trigger.source,
                 trigger.ability,

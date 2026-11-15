@@ -14,8 +14,14 @@ pub(super) fn quantity_is_zero(n: &Quantity) -> bool {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "fault", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RuleFault {
-    TriggerIdCapacityExceeded { next: u64, additional: u64 },
-    StackIdCapacityExceeded { next: u32, additional: u64 },
+    TriggerIdCapacityExceeded {
+        next: u64,
+        additional: u64,
+    },
+    StackIdCapacityExceeded {
+        next: u32,
+        additional: u64,
+    },
     HistoryCapacityExceeded {
         capacity: usize,
         requested: usize,
@@ -476,10 +482,19 @@ impl Game {
         if let Some(fault) = self.typed_fault() {
             let expected = match fault {
                 RuleFault::TriggerIdCapacityExceeded { next, additional }
-                    if *next >= self.state.rules.next_trigger_id && next.checked_add(*additional).is_none() => "trigger ID resource limit",
+                    if *next >= self.state.rules.next_trigger_id
+                        && next.checked_add(*additional).is_none() =>
+                {
+                    "trigger ID resource limit"
+                }
                 RuleFault::StackIdCapacityExceeded { next, additional }
                     if *next >= self.state.rules.next_stack_id
-                        && u64::from(*next).checked_add(*additional).is_none_or(|end| end > u64::from(u32::MAX)) => "stack ID resource limit",
+                        && u64::from(*next)
+                            .checked_add(*additional)
+                            .is_none_or(|end| end > u64::from(u32::MAX)) =>
+                {
+                    "stack ID resource limit"
+                }
                 RuleFault::HistoryCapacityExceeded {
                     capacity,
                     requested,

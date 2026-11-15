@@ -249,12 +249,22 @@ fn main() {
                 .definitions
                 .iter()
                 .filter(|d| d.characteristics.basic)
-                .all(|d| d.triggered.is_empty() && !d.static_abilities.iter().any(|a| matches!(a.effect, mtg_contracts::StaticEffect::GrantSpellCascade { .. }))),
+                .all(|d| d.triggered.is_empty()
+                    && !d.static_abilities.iter().any(|a| matches!(
+                        a.effect,
+                        mtg_contracts::StaticEffect::GrantSpellCascade { .. }
+                    ))),
             "{}: basic triggered sources invalidate singleton sizing",
             path.display()
         );
-        let cast_wave = catalog.cast_trigger_fanout_bound(400).expect("cast trigger sizing overflow");
-        assert!(cast_wave < capacities::STACK_LIMIT / 2, "{}: cast trigger bound {cast_wave} exceeds shared stack policy", path.display());
+        let cast_wave = catalog
+            .cast_trigger_fanout_bound(400)
+            .expect("cast trigger sizing overflow");
+        assert!(
+            cast_wave < capacities::STACK_LIMIT / 2,
+            "{}: cast trigger bound {cast_wave} exceeds shared stack policy",
+            path.display()
+        );
         let sources = 4 * catalog
             .definitions
             .iter()

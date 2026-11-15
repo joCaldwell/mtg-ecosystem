@@ -353,7 +353,9 @@ impl Game {
         let StackKind::Triggered { ability, .. } = &stack.kind else {
             return Ok(None);
         };
-        let Some(condition) = self.effective_trigger(stack.source, *ability)?.intervening_if
+        let Some(condition) = self
+            .effective_trigger(stack.source, *ability)?
+            .intervening_if
         else {
             return Ok(None);
         };
@@ -433,7 +435,9 @@ impl Game {
     }
     pub(super) fn validate_condition_cache(&self, frame: &Resolving) -> Result<(), String> {
         let definition = match frame.spell.kind {
-            StackKind::Triggered { ability, .. } => Some(self.effective_trigger(frame.spell.source, ability)?),
+            StackKind::Triggered { ability, .. } => {
+                Some(self.effective_trigger(frame.spell.source, ability)?)
+            }
             _ => None,
         };
         let expected = match &definition {

@@ -2505,10 +2505,18 @@ impl Definition {
             return Err("static damage replacement must function on battlefield".into());
         }
         for a in &self.static_abilities {
-            if let StaticEffect::GrantSpellCascade { mana_value_at_least, program } = &a.effect {
+            if let StaticEffect::GrantSpellCascade {
+                mana_value_at_least,
+                program,
+            } = &a.effect
+            {
                 if mana_value_at_least.is_negative()
-                    || !matches!(c.kind, CardKind::Creature | CardKind::Artifact | CardKind::Enchantment)
-                    || equipment || aura
+                    || !matches!(
+                        c.kind,
+                        CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
+                    )
+                    || equipment
+                    || aura
                     || !is_canonical_cascade_program(program)
                 {
                     return Err("unsupported static spell cascade grant".into());
@@ -3853,10 +3861,20 @@ impl Catalog {
     /// static grant slots once per cast, never once per recipient permanent.
     /// Tokens/copies with abilities are outside this physical-source proof.
     pub fn cast_trigger_fanout_bound(&self, physical_sources: usize) -> Option<usize> {
-        self.definitions.iter().try_fold(0usize, |max, d| {
-            let grants = d.static_abilities.iter().filter(|a| matches!(a.effect, StaticEffect::GrantSpellCascade { .. })).count();
-            d.triggered.len().checked_add(grants).map(|slots| max.max(slots))
-        })?.checked_mul(physical_sources)
+        self.definitions
+            .iter()
+            .try_fold(0usize, |max, d| {
+                let grants = d
+                    .static_abilities
+                    .iter()
+                    .filter(|a| matches!(a.effect, StaticEffect::GrantSpellCascade { .. }))
+                    .count();
+                d.triggered
+                    .len()
+                    .checked_add(grants)
+                    .map(|slots| max.max(slots))
+            })?
+            .checked_mul(physical_sources)
     }
 
     /// Look up a definition in a validated, canonically ordered catalog.
@@ -3992,13 +4010,21 @@ fn cascade_schema(schema: &mut serde_json::Value) {
     }));
     let grant_effect = serde_json::json!({"type":"object","required":["grant_spell_cascade"]});
     let grant = serde_json::json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{"effect":grant_effect}}}}});
-    schema["$defs"]["Definition"]["properties"]["static_abilities"]["maxItems"] = serde_json::json!(u32::MAX);
-    schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
-        .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
-        .push(serde_json::json!({"properties":{"grant_spell_cascade":{"properties":{
-            "mana_value_at_least":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},
-            "program":ability["properties"]["program"]
-        }}}}));
+    schema["$defs"]["Definition"]["properties"]["static_abilities"]["maxItems"] =
+        serde_json::json!(u32::MAX);
+    schema["$defs"]["StaticEffect"]
+        .as_object_mut()
+        .unwrap()
+        .entry("allOf")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .unwrap()
+        .push(
+            serde_json::json!({"properties":{"grant_spell_cascade":{"properties":{
+                "mana_value_at_least":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},
+                "program":ability["properties"]["program"]
+            }}}}),
+        );
     schema["$defs"]["StaticAbility"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .push(serde_json::json!({"if":{"required":["effect"],"properties":{"effect":grant_effect}},"then":{"properties":{"functioning_zone":{"const":"battlefield"}}}}));
@@ -5199,7 +5225,11 @@ mod tests {
                 catalog.definitions
             })
             .collect::<Vec<_>>();
-        let mut static_grant = definitions.iter().find(|d| d.name == "Grizzly Bears").unwrap().clone();
+        let mut static_grant = definitions
+            .iter()
+            .find(|d| d.name == "Grizzly Bears")
+            .unwrap()
+            .clone();
         static_grant.static_abilities = vec![StaticAbility {
             functioning_zone: FunctioningZone::Battlefield,
             effect: StaticEffect::GrantSpellCascade {
