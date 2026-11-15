@@ -110,26 +110,22 @@ recovery in three traces. Exact artifacts, source/settings, failures and timings
 | Pure permanent-set `21d10aaa67ea67f009366cbce0d754b59d9b7daa` | 465 distinct/471 executions;2,805;831 | `generated/permanent-set-keywords/{integration.json,review.json,combined03/}` |
 | Typed Aura `97afa6cdcdda88d76a86459b18ae53cda63c1546` | 507 / 3,021 / 837 | `generated/typed-aura-control/{integration.json,review.json,preflight01/,combined05/}` |
 
-Permanent-set reuses 375 library passes through a two-test-only-file bridge, with 90 fresh core tests. Typed Aura bridges 398 precheck passes across three private test files and executes 109 fresh core tests. Both remain26/21/IR1. Scalar repair proves paid departure LKI/lifelink; only Mortal's Resolve encoding/digest changed among its 48 admitted definitions. Typed Aura proves paid multitype, Equipment, nested Signet and recovery; the stale spending failure was independently reproduced before its test-only correction. Original executable/settings identities, reviewed production continuity, failed attempts and unchanged-input bridges are in those receipts and the [immutable detailed ledger](https://github.com/joCaldwell/mtg-ecosystem/blob/c9f57aa09329d7dcc6bdd256b3f22639f67952da/docs/game-engine-evidence.md#atomic-temporary-keyword-qualification). Broader runtime/release/profile/performance/retention, consumer/host/search/SDK and missing-dependency Node matrices remain omitted; no admission transfers.
+Historical permanent-set and typed Aura bridges, scalar departure LKI/lifelink,
+multitype/Equipment/nested-Signet recovery, original failures and exact producer
+identities remain in the indexed receipts and [immutable detailed ledger](https://github.com/joCaldwell/mtg-ecosystem/blob/c9f57aa09329d7dcc6bdd256b3f22639f67952da/docs/game-engine-evidence.md#atomic-temporary-keyword-qualification).
+No broader runtime, release, profile, performance, retention, consumer, host,
+search, SDK or missing-dependency Node acceptance transfers.
 
-General Aura-control source `aa28e9b7a39d601a8a9a8bb4fbde9484fe20fc1f` passed
-**550 distinct Rust tests**: 416 prechecks at `1163d0fd` through a one-private-test
-bridge (390 libraries, 26 kernels), plus 134 fresh core passes; **3,190 probes**
-and 843 source rows. CLI
-`2f2c427810ee56b74aaf97312f278ceaec32520242a11530c59dac53af0088db`,
-current optimized core `bd47a51c072088661d98acf10184b985fa6b68660513eba3024ae3c6a1d13cff`,
-precheck core `2ce7d22d0cd876d41653ddf9b4060b3bce4a116189986d693820527c49822eae`,
-schema `5caa2ff0392cf173057faa20342ba7f816c367e01ef1d59d69c0b3333ac6eb95`.
-One review found no issues; production stayed unchanged through priority/decoy
-witness corrections. Paid chains, attempted-operation chronology, control/no-op
-consequences, departures, targeting and recovery pass. Synthetic structural cycles
-reject; no official same-controller worked-example or cyclic rules outcome is claimed.
-Formats/admission remain unchanged. Commands, failures, exact binaries, independent
-identities and bridges are indexed in `generated/control-dependencies/integration.json`,
-`review.json`, `review-continuity.json` and `combined01/`–`combined02/`.
-Workspace/lint prechecks retain their explicit bridge and inherited contracts
-exception. Full matrices, policy/pods, host/SDK/browser/consumer and absent-dependency
-Node suites remain omitted; client pins and earlier host qualification stay separate.
+Controlled-permanent scalar keywords retain rules `7315ffe2` and schema-only `44930622`: 626 distinct Rust/633 executions, 4,316 probes, 848 rows, IR1/29/23. Exact CLI `83be4c3b`, runtime `c29b9b70`, schema `4761f067` identities, null-recipient RED/GREEN, zero-tail schema repair and unchanged-rule bridges are retained in `generated/targeted-permanent-keywords/integration.json` in the engine coordinator checkout and [immutable evidence](https://github.com/joCaldwell/mtg-ecosystem/blob/a39dc880fa1f447b78af64c061f15cf1fca8b87c/docs/game-engine-evidence.md). Consumer acceptance remains separate.
+
+Formatting, all-target, catalog freshness and strict compiler/core/sim production
+lint retain their explicit bridges; contracts/server use proven inherited
+`collapsible_if` exceptions where stated. Fresh-main server schema changed only
+manifest vocabulary; bootstrap matched the pinned client. Historical probe hashes
+strip only later labels; current probes retain them. PR43 changed no native input.
+No admission or consumer acceptance transfers. Full runtime/release/profile/
+performance/retention, policy/pod, SDK/browser/consumer and missing-dependency Node
+matrices remain omitted; selected host tests do not renew host acceptance.
 
 ### Complete-source compiler input rejection
 

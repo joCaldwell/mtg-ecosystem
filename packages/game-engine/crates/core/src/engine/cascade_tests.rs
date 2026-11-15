@@ -1064,12 +1064,12 @@ fn cascade_prohibition_synthetic_guard_does_not_claim_reachable_paid_context() {
     assert!(g.decision_for(PlayerId(0)).unwrap().is_none());
 }
 #[test]
-fn cascade_synthetic_locked_mana_increase_nested_signet_ramos_failure_keep_undo() {
-    // No admitted basic source adds mana to the free alternative. This is an
-    // INTERNAL composition probe for the shared owned return, not a paid
-    // additional-cost source, legal opening or accepted recovery authority.
+fn cascade_complete_kicker_private_root_nested_signet_ramos_failure_keep_undo() {
+    // Complete kicker supplies the extra mana requirement. Initial counters/mana
+    // remain synthetic: this private composition is not a legal opening or
+    // accepted recovery authority. Genuine paid roots are in m3c_tests.
     for undo in [false, true] {
-        let mut p = prepared("Shardless Agent", &["Forest", "Grizzly Bears"]);
+        let mut p = prepared_with_records("Bloodbraid Elf", &["Dismantling Blow"], &[include_str!("../../../../tests/fixtures/dismantling-blow.json")]);
         let signet = p
             .catalog
             .definitions
@@ -1096,6 +1096,9 @@ fn cascade_synthetic_locked_mana_increase_nested_signet_ramos_failure_keep_undo(
                     && c.zone == (Zone::Hand { owner: PlayerId(0) })
             })
             .unwrap();
+        row.oracle_id = signet.clone();
+        row.zone = Zone::Battlefield;
+        let row = p.config.cards.iter_mut().find(|c| c.owner == PlayerId(0) && c.oracle_id == forest && c.zone == (Zone::Hand { owner: PlayerId(0) })).unwrap();
         row.oracle_id = signet;
         row.zone = Zone::Battlefield;
         let ramos = p.config.commanders[0];
@@ -1113,9 +1116,9 @@ fn cascade_synthetic_locked_mana_increase_nested_signet_ramos_failure_keep_undo(
             .get_mut(&ramos)
             .unwrap()
             .plus_one_counters = 5.into();
-        g.state.rules.players[0].mana.insert(Color::U, 3.into());
-        paid(&mut g, "Shardless Agent");
+        paid(&mut g, "Bloodbraid Elf");
         offer(&mut g);
+        g.state.rules.players[0].mana.insert(Color::R, 1.into());
         let before = g.state.rules.frame.clone();
         let unrelated = g.state.rules.players[0].mana.clone();
         let hit = if let Frame::Cascade { progress } = &g.state.rules.frame {
@@ -1124,22 +1127,12 @@ fn cascade_synthetic_locked_mana_increase_nested_signet_ramos_failure_keep_undo(
             panic!()
         };
         answer(&mut g, Response::OptionalEffect { perform: true });
-        g.advance(Budget::new(1));
-        let Frame::Payment { mut cast } = g.state.rules.frame.clone() else {
-            panic!("free child payment")
-        };
-        g.state.rules.stack.last_mut().unwrap().total_cost.generic = 40.into();
-        cast.spending = None;
-        g.state.rules.frame = Frame::Mana { cast };
-        g.refresh_visibility().unwrap();
-        let signet = g
-            .state
-            .rules
-            .objects
-            .values()
-            .find(|o| g.definition(o.id.card).unwrap().name == "Golgari Signet")
-            .unwrap()
-            .id;
+        let Request::AdditionalCosts { candidates, .. } = request(&mut g) else { panic!("kicker choice") };
+        answer(&mut g, Response::AdditionalCosts { selected: vec![candidates[0].identity.clone()] });
+        let signets = g.state.rules.objects.values().filter(|o| o.zone == Zone::Battlefield && g.definition(o.id.card).unwrap().name == "Golgari Signet").map(|o| o.id).collect::<Vec<_>>();
+        answer(&mut g, Response::Targets { objects: vec![signets[0]] });
+        assert!(matches!(request(&mut g), Request::Mana { .. }));
+        let signet = signets[0];
         let ramos_object = g.state.rules.objects[&ramos].id;
         answer(&mut g, Response::ActivateMana { object: signet });
         answer(
@@ -1152,10 +1145,14 @@ fn cascade_synthetic_locked_mana_increase_nested_signet_ramos_failure_keep_undo(
         answer(
             &mut g,
             Response::SpendMana {
-                spending: BTreeMap::from([(Color::R, 1.into())]),
+                spending: BTreeMap::from([(Color::U, 1.into())]),
             },
         );
+        answer(&mut g, Response::ActivateMana { object: signets[1] });
+        answer(&mut g, Response::FinishMana { undo_mana: false });
+        answer(&mut g, Response::SpendMana { spending: BTreeMap::from([(Color::U, 1.into())]) });
         assert!(matches!(request(&mut g), Request::Mana { .. }));
+        assert!(!g.can_pay(PlayerId(0), &g.top().unwrap().total_cost).unwrap());
         answer(&mut g, Response::FinishMana { undo_mana: undo });
         request(&mut g);
         assert!(matches!(g.state.rules.frame, Frame::Cascade { .. }));
@@ -1179,9 +1176,11 @@ fn cascade_synthetic_locked_mana_increase_nested_signet_ramos_failure_keep_undo(
             "synthetic prefix must not acquire recovery authority"
         );
         answer(&mut g, Response::OptionalEffect { perform: true });
+        answer(&mut g, Response::AdditionalCosts { selected: vec![] });
+        answer(&mut g, Response::Targets { objects: vec![signets[0]] });
         request(&mut g);
         assert!(g.state.rules.stack.iter().any(|s| s.kind.is_spell()
-            && g.definition(s.source.card).unwrap().name == "Grizzly Bears"
+            && g.definition(s.source.card).unwrap().name == "Dismantling Blow"
             && s.paid.as_ref() == Some(&zero_mana_cost())));
         assert!(
             matches!(g.top().unwrap().kind, StackKind::Triggered { .. }),

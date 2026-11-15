@@ -221,6 +221,7 @@ impl Game {
                 }
                 Some(
                     TargetDomain::ControlledBattlefieldCreature
+                    | TargetDomain::ControlledBattlefieldPermanent
                     | TargetDomain::BattlefieldPermanent
                     | TargetDomain::BattlefieldCreature
                     | TargetDomain::BlockingBattlefieldCreature

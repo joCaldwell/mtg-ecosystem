@@ -92,7 +92,7 @@ fn temporary_creature_keyword_family_all_ordered_vectors_have_exact_requirements
     vectors(&mut vec![], &mut combinations);
     assert_eq!(combinations.len(), 325);
     for keywords in combinations {
-        assert!(supported_temporary_creature_keywords(&keywords));
+        assert!(supported_temporary_keywords(&keywords));
         for (modifier, domain) in [false, true].into_iter().flat_map(|modifier| {
             [
                 TargetDomain::BattlefieldCreature,
@@ -251,7 +251,7 @@ fn temporary_creature_keyword_family_preserves_exact_parameters_and_pure_provena
 
 #[test]
 fn temporary_creature_keyword_family_rejects_empty_duplicate_and_unreviewed_vocabulary() {
-    assert!(!supported_temporary_creature_keywords(&[]));
+    assert!(!supported_temporary_keywords(&[]));
     for keywords in [
         vec![],
         vec![KeywordAbility::Flying, KeywordAbility::Flying],
@@ -268,7 +268,7 @@ fn temporary_creature_keyword_family_rejects_empty_duplicate_and_unreviewed_voca
         vec![KeywordAbility::Flash],
         vec![KeywordAbility::Shroud],
     ] {
-        assert!(!supported_temporary_creature_keywords(&keywords));
+        assert!(!supported_temporary_keywords(&keywords));
         for modifier in [false, true] {
             let d = grant(&keywords, modifier);
             assert!(temporary_creature_keyword_program(d.spell.as_ref().unwrap()).is_none());

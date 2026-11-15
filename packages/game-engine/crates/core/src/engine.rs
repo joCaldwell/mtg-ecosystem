@@ -2605,6 +2605,7 @@ impl Game {
                     !matches!(
                         t.domain,
                         TargetDomain::ControlledBattlefieldCreature
+                            | TargetDomain::ControlledBattlefieldPermanent
                             | TargetDomain::BattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
                             | TargetDomain::BlockingBattlefieldCreature
@@ -3854,3 +3855,6 @@ mod creature_set_keyword_tests;
 
 #[cfg(test)]
 mod permanent_set_keyword_kernel_tests;
+
+#[cfg(test)]
+mod permanent_target_keyword_kernel_tests;

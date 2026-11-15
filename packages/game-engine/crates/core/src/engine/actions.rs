@@ -111,7 +111,9 @@ impl Game {
                     .eligible_stack_targets_for(&program.targets[0], None)
                     .is_empty()
             }
-            Some(TargetDomain::BattlefieldPermanent) => self
+            Some(
+                TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent,
+            ) => self
                 .state
                 .rules
                 .objects

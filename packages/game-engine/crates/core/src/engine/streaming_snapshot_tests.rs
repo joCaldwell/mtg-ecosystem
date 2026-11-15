@@ -242,6 +242,10 @@ fn streamed_snapshot_failed_io_changed_input_and_late_forgery_cannot_poison_veri
             .replace("\"snapshot_version\":30", "\"snapshot_version\":17")
             .into_bytes(),
     );
+    assert_ne!(
+        changed.replace_on_rewind.as_deref(),
+        Some(initial.as_bytes())
+    );
     let error = match verifier.verify_reader(&mut changed) {
         Ok(_) => panic!("changed source accepted"),
         Err(e) => e,

@@ -34,7 +34,7 @@ for(const [name,change] of [
  ['null selector',a=>a.effect.reduce_self_generic_cost.count=null],
  ['missing controller',a=>delete a.effect.reduce_self_generic_cost.count.controller],
  ]){const x=structuredClone(catalog);change(x.definitions[0].static_abilities[0]);check(name,x,false);}
-for(const cap of ['counted_self_generic_cost_reduction_v1','cascade_v1','resolution_cast_v1','random_bottom_v1']){const x=structuredClone(catalog);x.definitions[0].capabilities=d.capabilities.filter(c=>c!==cap);check(`missing ${cap}`,x,false);}
+for(const cap of ['flying_v1','counted_self_generic_cost_reduction_v1','cascade_v1','resolution_cast_v1','random_bottom_v1']){const x=structuredClone(catalog);x.definitions[0].capabilities=d.capabilities.filter(c=>c!==cap);check(`missing ${cap}`,x,false);}
 const orphan=structuredClone(catalog);orphan.definitions[0].static_abilities=[];check('orphan capability',orphan,false);
 // Existing optional/conditional guards apply even with the new descriptor.
 for(const field of ['spell','triggered']){

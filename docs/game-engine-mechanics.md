@@ -415,21 +415,23 @@ can, and a previously announced opposing target is checked again at resolution.
 Resolved grants retain their captured incarnation until cleanup; later control
 changes do not end the grant (CR 611.2c).
 
-Contracts' borrowed `TemporaryCreatureKeywordProgram` descriptor and
-`temporary_creature_keyword_program` / `supported_temporary_creature_keywords`
-recognizers share the complete structural predicate; the definition validator or
-caller additionally checks ordinary spell kind/context. The existing compound
-helper remains a narrow singleton wrapper. Additional costs, modes, activated/
-triggered contexts, filters, multiple/nonzero-slot targets, other durations,
-split/reordered/extra operations, duplicate/unreviewed keywords and compound
-source block 1 reject. The compiler consumes the whole sole typed sentence
-`[Pump, GainAbilities]` only in an empty ordinary program with no bindings, costs
-or modes, at source block 0. Both complete source target expressions pass through
-the existing exact plain/controlled binder and must share selection ID, domain,
-count 1 and slot 0; both durations must be end of turn. It never joins distinct
-sentences or scans arbitrary instruction pairs. Pure-grant and set-grant lowering
-retain their own paths; decoding independently rejects unconsumed clauses.
-Complete frozen sources witness the family; card identities never dispatch it.
+Contracts' borrowed `TemporaryTargetedKeywordProgram` and
+`temporary_targeted_keyword_program` union expose modifier, keywords and optional
+controller life. `supported_temporary_keywords` retains the same eight-keyword
+vocabulary. The creature wrapper remains single-grant; the compound helper keeps
+its singleton policy. The permanent wrapper requires one
+`ControlledBattlefieldPermanent` slot-zero controller/announcement target with an
+explicit empty permanent filter. Its complete ordinary instant/sorcery program is
+one block-zero EOT grant without stats, optionally followed by block-zero fixed
+nonnegative controller GainLife. Tamiyo's Safekeeping supplies exact archived
+source/provenance; separate synthetic controls are not admissions.
+Creature+life and set+life programs reject. Additional costs, X, modes, abilities,
+unknown qualifiers, changed provenance, split grants and extra operations reject.
+Compiler lowering consumes the whole permanent sentence and optional life sentence;
+ordinary creature compounds still require sole `[Pump, GainAbilities]`, identical
+plain/controlled target expressions, count one, slot zero and EOT durations.
+Pure creature grants retain prior source-block provenance and subset capabilities.
+No card identity dispatches mechanics.
 
 Synthetic typed controls preserve the original five-keyword ordered-vector coverage
 and add bounded representative Haste/Trample/First Strike vectors in both forms and
@@ -470,7 +472,7 @@ reviewed vector. `temporary_creature_set_keyword_program` and
 `temporary_permanent_set_keyword_program` are disjoint narrow wrappers. Identities
 and quantities never select mechanics.
 
-The family reuses `supported_temporary_creature_keywords`: Flying, Deathtouch,
+The family reuses `supported_temporary_keywords`: Flying, Deathtouch,
 Indestructible, Lifelink, Hexproof, Haste, Trample and First Strike, nonempty and
 without duplicates. Every keyword requires its existing primitive capability;
 Hexproof uses `attachments_v1`, and First Strike serializes as `first strike`

@@ -117,6 +117,10 @@ impl Game {
         spec: &TargetSpec,
     ) -> bool {
         self.targetable_by(object, controller)
+            && (spec.domain != TargetDomain::ControlledBattlefieldPermanent
+                || self
+                    .current(object)
+                    .is_ok_and(|o| o.controller == controller))
             && spec
                 .filter
                 .as_ref()

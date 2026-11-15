@@ -229,6 +229,17 @@ fn snapshot_codec_short_writes_interrupted_write_zero_write_and_late_flush_fail_
 fn snapshot_codec_unchanged_reader_rejects_full_rehashed_shape_and_state_forgeries() {
     let game = Game::new(historical());
     let value: serde_json::Value = serde_json::from_str(&exact(&game)).unwrap();
+    let mut previous_format = value.clone();
+    previous_format["snapshot_version"] = 26.into();
+    let previous_format = canonical(&previous_format).unwrap();
+    assert!(Game::restore(historical(), &previous_format).is_err());
+    assert!(
+        Game::restore_from_reader(
+            historical(),
+            &mut std::io::Cursor::new(previous_format.as_bytes())
+        )
+        .is_err()
+    );
     for key in [
         "snapshot_version",
         "build_id",
