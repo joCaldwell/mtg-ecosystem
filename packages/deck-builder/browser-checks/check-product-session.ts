@@ -5,11 +5,11 @@ import { execFile, fork, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, mkdirSync, mkdtempSync, openSync, closeSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium, firefox, type Page, type BrowserContext } from "playwright-core";
+import { chromium, firefox, type Page, type BrowserContext, type Request } from "playwright-core";
 import type { GameRecord } from "../src/contracts.ts";
 import type { ActionBeginning, ActionInitiation, Observation, PlayerResponse, SeatBootstrap, RulesResult } from "@multiverse/game-server-sdk";
 import { check, completeResponse, fileHash, repository, verifyInputs, OBSERVATION_VERSION, type Inputs } from "./lib/product-session-fixture.ts";
-import { ObserverAudit, finishOwnedChild } from "./lib/product-session-safety.ts";
+import { ObserverAudit, finishOwnedChild, discoverWithRateRecovery, boundedRetryAfter } from "./lib/product-session-safety.ts";
 
 const option = (name: string) => { const i = process.argv.indexOf(`--${name}`); return i < 0 ? undefined : process.argv[i + 1]; };
 const required = (name: string) => { const value = option(name); check(value && !value.startsWith("--"), `argument_${name}`); return resolve(value); };
@@ -98,6 +98,14 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   const recordPauseCounts: Record<string, number> = {};
   const recordStateCounts: Record<string, number> = {};
   let beginnings: ActionBeginning[] = [], requests = 0, queries = 0;
+  type Discovery = { context: { revision: string; token: string }; beginnings: ActionBeginning[]; calls: number };
+  let discovery: Discovery | null = null;
+  const queryOwners = new WeakMap<Request, Discovery>();
+  let readRateLimits = 0, resumesAtRateLimit = 0, recoveredCommands = 0, naturalEnd = Infinity;
+  let readCooldownWaits = 0, readCooldownReady = 0;
+  let retryAfterPresent = 0, retryAfterMissing = 0, retryAfterUnbounded = 0;
+  const retryAfterSeconds: Record<string, number> = {};
+  const rateRecovery = { handled: 0, started: 0, ready: 0, freshDiscoveries: 0 };
   let pending: { response: PlayerResponse; revision: string; token: string } | undefined;
   const sent = new Map<string, string>(), accepted = new Set<string>(), consumed = new Set<string>();
   const requestKinds: Record<string, number> = {}, responseKinds: Record<string, number> = {};
@@ -108,6 +116,20 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   let lastDiscoveryCalls = 0, lastDiscoveryBeginnings = 0, lastDiscoveryPassOffered = false;
   let journalBeforeSend = 0, originalContexts = 0, completeResponses = 0, authenticatedPosts = 0;
   const add = (counts: Record<string, number>, name: string) => { counts[name] = (counts[name] ?? 0) + 1; };
+  const untilRead = async (predicate: () => Promise<boolean>, code: string) => {
+    const started = Date.now(); let extended = false;
+    for (;;) {
+      check(!shutdown.signal.aborted, "check_aborted");
+      check(!audit.protocolFailed && audit.pageErrors === 0, "rate_recovery_protocol_or_page_error");
+      if (!extended && naturalAttempted && readRateLimits > rateRecovery.handled) { extended = true; readCooldownWaits++; }
+      check(Date.now() < Math.min(naturalEnd, started + (extended ? 90_000 : 20_000)), code);
+      if (await predicate()) {
+        if (extended && activeReads > resumesAtRateLimit && await connected()) readCooldownReady++;
+        return;
+      }
+      await delay(30);
+    }
+  };
   const installRecord = (game: GameRecord) => {
     recordReads++;
     check(game.id === gameId && game.identity.engine_build_id === ready!.identity.engine_build_id
@@ -141,6 +163,18 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       audit.track(async () => {
         const path = new URL(response.url()).pathname;
         add(httpStatuses, String(response.status()));
+        if (response.status() === 429) {
+          if (path.includes("/native/v1/") && response.request().method() === "GET") {
+            readRateLimits++; resumesAtRateLimit = activeReads;
+          }
+          const header = await response.headerValue("retry-after");
+          if (header === null) retryAfterMissing++;
+          else {
+            retryAfterPresent++;
+            const seconds = boundedRetryAfter(header, Date.now());
+            if (seconds === null) retryAfterUnbounded++; else add(retryAfterSeconds, String(seconds));
+          }
+        }
         if (path === `/api/games/${gameId}` && response.request().method() === "GET") {
           add(recordHttpStatuses, String(response.status()));
           if (response.status() === 200) installRecord((await audit.json(response)).game);
@@ -184,6 +218,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
           if (response.request().method() === "GET" && [429, 503].includes(response.status())) return;
           if (operation === "execution" && response.status() === 404) return;
           check(response.status() === 200, "native_browser_http");
+          const queryOwner = queryOwners.get(response.request());
           const value = await audit.json(response);
           if (path.endsWith("/resume")) {
             check(value.viewer === 0 && value.match_id === gameId && value.engine_build_id === ready!.identity.engine_build_id
@@ -201,7 +236,13 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
             queries++;
             check(["complete", "incomplete", "stale", "unavailable", "cancelled"].includes(value.outcome.status), "query_outcome_kind");
             add(queryOutcomes, value.outcome.status);
-            if (["complete", "incomplete"].includes(value.outcome.status)) beginnings.push(...value.outcome.page.beginnings);
+            if (queryOwner && queryOwner === discovery) {
+              queryOwner.calls++;
+              if (["complete", "incomplete"].includes(value.outcome.status)) {
+                check(value.outcome.page.token === queryOwner.context.token, "discovery_original_token");
+                queryOwner.beginnings.push(...value.outcome.page.beginnings);
+              }
+            }
           } else if (path.endsWith("/commands")) {
             check(value.status === "accepted", "human_command_rejected"); accepted.add(value.command_id);
           } else if (/\/commands\/[^/]+$/.test(path) && value.status.status === "consumed_by_rules") consumed.add(value.command_id);
@@ -222,6 +263,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
           if (/\/presentation\/[a-f0-9]{64}\.json$/.test(url.pathname)) check(request.method() === "GET" && !headers.authorization, "artifact_cookie_without_bearer");
           else if (!url.pathname.endsWith("/client-config.json")) check(bootstrap && headers.authorization === `Bearer ${bootstrap.capability}`, "native_human_bearer");
           if (request.method() === "POST") authenticatedPosts++;
+          if (url.pathname.endsWith("/actions/query") && discovery) queryOwners.set(request, discovery);
           if (/\/commands$/.test(url.pathname) && request.method() === "POST") {
             const body = request.postData(); check(body && pending && !audit.protocolFailed, "unsolicited_human_post");
             const envelope = sdk.parsePreparedCommand(body).envelope;
@@ -253,17 +295,13 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
         const id = [...sent.keys()].at(-1)!;
         await until(() => !audit.protocolFailed && accepted.has(id) && consumed.has(id), "native_consumed_by_rules");
         await until(() => journal(page!), "journal_resolved");
-        await until(() => page!.getByRole("region", { name: "Choice status" }).filter({ hasText: "The table used your choice." }).isVisible(), "choice_status");
+        // Acceptance, consumption and exact journal resolution were already
+        // proved above. A real read cooldown may delay only the refreshed UI.
+        await untilRead(() => page!.getByRole("region", { name: "Choice status" }).filter({ hasText: "The table used your choice." }).isVisible(), "choice_status");
       } finally { pending = undefined; }
     };
     const choose = async (predicate: (beginning: ActionBeginning) => boolean) => {
-      beginnings = [];
-      const queryBefore = queries;
       const button = page!.getByRole("button", { name: "Discover actions", exact: true });
-      await until(async () => await button.getAttribute("aria-disabled") === "false", "discover_enabled");
-      const original = { revision, token: current().decision!.token };
-      await page!.getByLabel("Discovery scope", { exact: true }).selectOption("");
-      await button.click();
       const phases = {
         complete: "Discovery complete. Each submitted action is validated again by the host.",
         limited: "Discovery reached a local limit. Results are not a complete menu.",
@@ -271,19 +309,50 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
         stale: "The decision changed. Discover actions again.", unavailable: "Discovery is unavailable for this decision.",
         cancelled: "Discovery stopped. No game command was cancelled.",
       };
-      let phase = "";
-      try {
-        await until(async () => {
-          if (queries === queryBefore) return false;
-          for (const [name, text] of Object.entries(phases)) if (await page!.getByText(text, { exact: true }).isVisible()) { phase = name; return true; }
-          return false;
-        }, "discovery_complete");
-      } finally {
-        lastDiscoveryCalls = queries - queryBefore; lastDiscoveryBeginnings = beginnings.length;
-        lastDiscoveryPassOffered = beginnings.some(value => value.initiation.action === "pass");
-        add(discoveryPhases, phase || "deadline");
-      }
-      check(phase === "complete", `discovery_${phase || "deadline"}`);
+      const healthy = async () => {
+        check(!shutdown.signal.aborted, "check_aborted");
+        check(!audit.protocolFailed && audit.pageErrors === 0, "rate_recovery_protocol_or_page_error");
+        check(!pending && await journal(page!), "rate_recovery_unknown_journal");
+        check(!recordPaused && !recordCompleted && !outcome, "rate_recovery_terminal_record");
+      };
+      const chosen = await discoverWithRateRecovery({
+        allowed: naturalAttempted, now: Date.now, end: Math.min(naturalEnd, Date.now() + 90_000), healthy,
+        capture: async () => {
+          await untilRead(async () => await connected() && await button.getAttribute("aria-disabled") === "false", "discover_enabled");
+          return { revision, token: current().decision!.token };
+        }, rateCount: () => readRateLimits,
+        recovered: async end => {
+          await until(async () => {
+            await healthy();
+            check(await page!.getByRole("heading", { name: /^(Rate limit or possible contention|Host temporarily unavailable|Connection lost|Seat authorization rejected|Incompatible table or presentation)$/ }).count() === 0, "rate_recovery_persistent_failure");
+            return activeReads > resumesAtRateLimit && await connected()
+              && await button.getAttribute("aria-disabled") === "false";
+          }, "rate_recovery_deadline", Math.max(1, end - Date.now()));
+          return readRateLimits;
+        },
+        discover: async (original, end) => {
+          // The returned command context belongs to this fresh discovery,
+          // never to the discarded stale menu.
+          const attempt: Discovery = { context: original, beginnings: [], calls: 0 }; discovery = attempt;
+          await page!.getByLabel("Discovery scope", { exact: true }).selectOption("");
+          await button.click(); let phase = "";
+          try {
+            await until(async () => {
+              if (!attempt.calls) return false;
+              for (const [name, text] of Object.entries(phases)) if (await page!.getByText(text, { exact: true }).isVisible()) { phase = name; return true; }
+              return false;
+            }, "discovery_complete", Math.min(20_000, Math.max(1, end - Date.now())));
+          } finally {
+            if (discovery === attempt) discovery = null;
+            lastDiscoveryCalls = attempt.calls; lastDiscoveryBeginnings = attempt.beginnings.length;
+            lastDiscoveryPassOffered = attempt.beginnings.some(value => value.initiation.action === "pass");
+            add(discoveryPhases, phase || "deadline");
+          }
+          return { phase, value: attempt.beginnings };
+        },
+      }, rateRecovery);
+      const original = chosen.context; beginnings = chosen.value;
+      check(await connected() && revision === original.revision && current().decision?.token === original.token, "discovery_current_context");
       const index = beginnings.findIndex(predicate); check(index >= 0, "permitted_beginning");
       const beginning = beginnings[index]!;
       check(beginning.initiation.action === "pass" || beginning.label !== "unavailable", "producer_action_label");
@@ -292,7 +361,10 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
         conditionalReversal = true;
       }
       const menu = page!.getByRole("region", { name: "Available actions", exact: true });
+      check(await menu.locator("ol > li > button").count() === beginnings.length
+        && await menu.locator("ol > li > button").nth(index).getAttribute("aria-disabled") === "false", "discovery_current_menu");
       await settle(() => menu.locator("ol > li > button").nth(index).click(), initiationResponse(beginning.initiation), original);
+      if (chosen.recovered) recoveredCommands++;
     };
     const connected = () => page!.getByRole("heading", { name: "Connected · Seat 1", exact: true }).isVisible();
     await page.goto(`${ready.origin}/play?deck=${ready.deckId}`);
@@ -433,7 +505,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     if (natural) {
       const milliseconds = Number(option("natural-ms") ?? 240_000);
       check(Number.isSafeInteger(milliseconds) && milliseconds >= 1 && milliseconds <= 1_800_000, "natural_bound");
-      naturalAttempted = true; const end = Date.now() + milliseconds;
+      naturalAttempted = true; const end = Date.now() + milliseconds; naturalEnd = end;
       while (Date.now() < end && sent.size < 2_000 && !audit.protocolFailed) {
         check(!shutdown.signal.aborted, "check_aborted");
         // Observe the product route's own serial Actor-record polling. No test
@@ -545,6 +617,10 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       human_commands: sent.size, journal_before_send: journalBeforeSend, original_contexts: originalContexts, complete_responses: completeResponses,
       accepted: accepted.size, consumed: consumed.size, action_queries: queries, request_counts: requestKinds, response_counts: responseKinds,
       native_status_counts: nativeStatuses, http_status_counts: httpStatuses, record_http_status_counts: recordHttpStatuses,
+      retry_after_present: retryAfterPresent, retry_after_missing: retryAfterMissing, retry_after_unbounded: retryAfterUnbounded, retry_after_seconds_counts: retryAfterSeconds,
+      read_rate_limits: readRateLimits, rate_recoveries_started: rateRecovery.started, rate_recoveries_ready: rateRecovery.ready,
+      rate_recovery_fresh_discoveries: rateRecovery.freshDiscoveries, rate_recovery_consumed_commands: recoveredCommands,
+      read_cooldown_waits: readCooldownWaits, read_cooldown_ready: readCooldownReady,
       fixture_stress_raised_limits: stressRaisedLimits, default_ui_budget: !stressRaisedLimits && ready?.uiRateBudget === 240 && ready?.uiRateWindowMs === 60_000,
       ui_rate_budget: ready?.uiRateBudget ?? 0, ui_rate_window_ms: ready?.uiRateWindowMs ?? 0, query_outcome_counts: queryOutcomes, discovery_phase_counts: discoveryPhases,
       last_discovery_calls: lastDiscoveryCalls, last_discovery_beginnings: lastDiscoveryBeginnings, last_discovery_pass_offered: lastDiscoveryPassOffered,

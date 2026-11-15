@@ -5,6 +5,50 @@ export async function deadline<T>(work: Promise<T>, milliseconds: number): Promi
   try { return await Promise.race([work, new Promise<never>((_, fail) => { timer = setTimeout(() => fail(Error("deadline")), milliseconds); })]); }
   finally { clearTimeout(timer); }
 }
+
+/** Test-driver recovery only: never returns a stale menu or submits a command.
+ * A new discovery is permitted only after an observed read 429 and UI recovery. */
+export async function discoverWithRateRecovery<C, T>(effects: {
+  allowed: boolean; end: number; now(): number;
+  healthy(): Promise<void>; capture(): C | Promise<C>;
+  discover(context: C, end: number): Promise<{ phase: string; value: T }>;
+  rateCount(): number; recovered(end: number): Promise<number>;
+}, counts: { handled: number; started: number; ready: number; freshDiscoveries: number }) {
+  let recoveries = 0;
+  const within = async <V>(work: () => Promise<V>) => {
+    const remaining = effects.end - effects.now();
+    if (remaining <= 0) throw Error("rate_recovery_deadline");
+    const value = await deadline(work(), remaining).catch(error => {
+      if (error instanceof Error && error.message === "deadline") throw Error("rate_recovery_deadline");
+      throw error;
+    });
+    if (effects.now() >= effects.end) throw Error("rate_recovery_deadline");
+    return value;
+  };
+  for (;;) {
+    await within(effects.healthy);
+    const context = await within(async () => effects.capture());
+    if (recoveries) counts.freshDiscoveries++;
+    const result = await within(() => effects.discover(context, effects.end));
+    await within(effects.healthy);
+    if (result.phase === "complete") return { context, value: result.value, recovered: recoveries > 0 };
+    if (result.phase !== "stale" || !effects.allowed || effects.rateCount() <= counts.handled)
+      throw Error(`discovery_${result.phase || "deadline"}`);
+    if (recoveries === 2) throw Error("persistent_rate_recovery");
+    recoveries++; counts.started++;
+    // The UI callback requires a successful resume after the latest observed
+    // 429, a ready connection, enabled discovery and an empty journal.
+    counts.handled = await within(() => effects.recovered(effects.end));
+    counts.ready++;
+  }
+}
+
+/** Receipt-only parsing; this never schedules or changes product I/O. */
+export function boundedRetryAfter(value: string | null, now: number): number | null {
+  if (value === null) return null;
+  const seconds = /^\d+$/.test(value) ? Number(value) : Math.ceil((Date.parse(value) - now) / 1_000);
+  return Number.isSafeInteger(seconds) && seconds >= 0 && seconds <= 60 ? seconds : null;
+}
 class ShutdownCancellation extends Error {}
 /** Cancellation is classified only at the response-body transport boundary.
  * Syntax/schema/context errors and page errors never become shutdown noise. */

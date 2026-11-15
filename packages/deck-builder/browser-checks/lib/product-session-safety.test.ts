@@ -3,7 +3,67 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { chromium } from "playwright-core";
-import { ObserverAudit, finishOwnedChild, deadline } from "./product-session-safety.ts";
+import { ObserverAudit, finishOwnedChild, deadline, discoverWithRateRecovery, boundedRetryAfter } from "./product-session-safety.ts";
+
+test("checker discards a stale menu and captures a new context only after real-UI recovery", async () => {
+  const counts = { handled: 0, started: 0, ready: 0, freshDiscoveries: 0 };
+  let context = "original", calls = 0, returned = false, release!: () => void;
+  const gate = new Promise<void>(done => { release = done; });
+  const running = discoverWithRateRecovery({ allowed: true, end: Date.now() + 2_000, now: Date.now,
+    healthy: async () => {}, capture: () => context, rateCount: () => 1,
+    discover: async captured => { calls++; return calls === 1 ? { phase: "stale", value: `unsafe:${captured}` } : { phase: "complete", value: `fresh:${captured}` }; },
+    recovered: async () => { await gate; context = "new-original"; return 1; },
+  }, counts).then(value => { returned = true; return value; });
+  await new Promise<void>(done => setImmediate(done));
+  assert.equal(calls, 1); assert.equal(returned, false); assert.equal(counts.started, 1);
+  release(); const result = await running;
+  assert.deepEqual(result, { context: "new-original", value: "fresh:new-original", recovered: true });
+  assert.deepEqual(counts, { handled: 1, started: 1, ready: 1, freshDiscoveries: 1 });
+});
+
+test("checker never retries a non-rate stale menu, other phase or unsafe journal/protocol state", async () => {
+  for (const scenario of ["no429", "not-natural", "unavailable", "unknown_journal", "protocol_failure"]) {
+    let recovery = 0, captures = 0;
+    await assert.rejects(discoverWithRateRecovery({ allowed: scenario !== "not-natural", end: Date.now() + 1_000, now: Date.now,
+      healthy: async () => { if (["unknown_journal", "protocol_failure"].includes(scenario)) throw Error(scenario); },
+      capture: () => ++captures, rateCount: () => scenario === "no429" ? 0 : 1,
+      discover: async () => ({ phase: scenario === "unavailable" ? "unavailable" : "stale", value: "unsafe" }),
+      recovered: async () => { recovery++; return 1; },
+    }, { handled: 0, started: 0, ready: 0, freshDiscoveries: 0 }));
+    assert.equal(recovery, 0); assert.equal(captures, ["unknown_journal", "protocol_failure"].includes(scenario) ? 0 : 1);
+  }
+  for (const failure of ["late_unknown_journal", "late_protocol_failure"]) {
+    let unsafe = false, captures = 0;
+    await assert.rejects(discoverWithRateRecovery({ allowed: true, end: Date.now() + 1_000, now: Date.now,
+      healthy: async () => { if (unsafe) throw Error(failure); }, capture: () => ++captures, rateCount: () => 1,
+      discover: async () => ({ phase: "stale", value: "unsafe" }), recovered: async () => { unsafe = true; return 1; },
+    }, { handled: 0, started: 0, ready: 0, freshDiscoveries: 0 }), new RegExp(failure));
+    assert.equal(captures, 1);
+  }
+});
+
+test("checker recovery has a deadline and finite rediscoveries even under repeated real rate evidence", async () => {
+  let rates = 0, calls = 0;
+  const counts = { handled: 0, started: 0, ready: 0, freshDiscoveries: 0 };
+  await assert.rejects(discoverWithRateRecovery({ allowed: true, end: Date.now() + 1_000, now: Date.now,
+    healthy: async () => {}, capture: () => "context", rateCount: () => rates,
+    discover: async () => { rates++; calls++; return { phase: "stale", value: "unsafe" }; }, recovered: async () => rates,
+  }, counts), /persistent_rate_recovery/);
+  assert.equal(calls, 3); assert.equal(counts.started, 2);
+  const stalled = { handled: 0, started: 0, ready: 0, freshDiscoveries: 0 };
+  await assert.rejects(discoverWithRateRecovery({ allowed: true, end: Date.now() + 20, now: Date.now,
+    healthy: async () => {}, capture: () => "context", rateCount: () => 1,
+    discover: async () => ({ phase: "stale", value: "unsafe" }), recovered: async () => new Promise<number>(() => {}),
+  }, stalled), /rate_recovery_deadline/);
+  assert.equal(stalled.started, 1); assert.equal(stalled.ready, 0); assert.equal(stalled.freshDiscoveries, 0);
+});
+
+test("Retry-After receipts retain only bounded seconds, never raw header contents", () => {
+  const now = Date.parse("2026-11-15T00:00:00Z");
+  assert.equal(boundedRetryAfter("35", now), 35);
+  assert.equal(boundedRetryAfter("Sun, 15 Nov 2026 00:00:35 GMT", now), 35);
+  for (const value of [null, "private header contents", "61", "-1", "999999999999999999999", "Sun, 15 Nov 2026 00:02:00 GMT"]) assert.equal(boundedRetryAfter(value, now), null);
+});
 
 test("stalled owned host ignores stop/TERM but KILL exits, IPC disconnects and known leases are verified", async () => {
   const child = spawn(process.execPath, ["--input-type=module", "-e", "process.on('SIGTERM',()=>{});process.on('message',()=>{});process.send({ready:true});setInterval(()=>{},1000)"], { stdio: ["ignore", "ignore", "ignore", "ipc"] });
