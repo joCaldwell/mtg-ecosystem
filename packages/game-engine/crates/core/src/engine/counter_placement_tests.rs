@@ -759,3 +759,125 @@ fn counter_placement_real_source_activation_and_unavailable_producer_boundaries(
     );
     assert_eq!(g.state, before);
 }
+
+#[test]
+fn m4d_retained_cast_history_counter_choice_and_wrapper_accounting() {
+    for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+        let mut g = Game::with_trace(prepared(), mode);
+        let ramos = paid(&mut g);
+        announce(&mut g, 3, vec![TargetEntity::Object { object: ramos }; 3]);
+        let mut resolving_charge = None;
+        for _ in 0..500 {
+            if let Frame::Resolve { frame } = &g.state.rules.frame {
+                if matches!(
+                    &frame.spell.kind,
+                    StackKind::Triggered {
+                        witness: TriggerEventWitness::SpellCast { .. },
+                        ..
+                    }
+                ) {
+                    resolving_charge = Some(g.grant_payload_charge());
+                }
+            }
+            if matches!(g.state.rules.frame, Frame::CounterPlacement { .. }) {
+                break;
+            }
+            match g.advance(Budget::new(1)) {
+                Advance::Suspended { .. } => (),
+                Advance::AwaitingDecision(request) => {
+                    if matches!(request, Request::CounterPlacementEffect { .. }) {
+                        break;
+                    }
+                    let response = automatic(&request, &[]);
+                    g.respond(request.player(), request.decision_id(), response)
+                        .unwrap();
+                }
+                other => panic!("counter continuation {other:?}"),
+            }
+        }
+        let expected = resolving_charge.expect("real Ramos resolving observer");
+        assert_eq!(
+            g.grant_payload_charge(),
+            expected,
+            "retained copy survives counter choice"
+        );
+        let Frame::CounterPlacement { transaction } = &g.state.rules.frame else {
+            panic!()
+        };
+        let resolving = transaction.frame.as_ref().clone();
+        let StackKind::Triggered {
+            witness: TriggerEventWitness::SpellCast { cast },
+            ..
+        } = &resolving.spell.kind
+        else {
+            panic!()
+        };
+        let fact_charge = stored_history::payload_charge(&cast.history);
+        assert!(fact_charge > 0 && expected >= fact_charge * 2);
+        check(&g);
+        // Structural wrapper controls are not source-admission claims.
+        for frame in [
+            Frame::OptionalDamage {
+                frame: resolving.clone(),
+            },
+            Frame::ForcedSacrifice {
+                frame: resolving.clone(),
+                remaining: vec![],
+                choices: vec![],
+                source_block: 0,
+            },
+            Frame::CommanderReturn {
+                object: ramos,
+                destination: Zone::Graveyard { owner: PlayerId(0) },
+                continuation: Box::new(CommanderContinuation::ResolutionDraw {
+                    frame: resolving.clone(),
+                    player: PlayerId(0),
+                    source_block: 0,
+                }),
+            },
+            Frame::Stabilize {
+                resume: Box::new(g.state.rules.frame.clone()),
+                cleanup: false,
+                changed: false,
+            },
+        ] {
+            let mut structural = g.fork();
+            structural.state.rules.frame = frame;
+            assert_eq!(structural.grant_payload_charge(), expected);
+        }
+        // Synthetic one-over boundary, based on the independently retained Resolve charge.
+        let other = g
+            .history_charge()
+            .checked_sub(g.grant_payload_charge())
+            .unwrap();
+        g.state.rules.retained_auxiliary_charge += capacities::HISTORY_LIMIT
+            .checked_sub(other + expected)
+            .unwrap()
+            + 1;
+        assert!(g.history_charge() > capacities::HISTORY_LIMIT);
+        let request = g.counter_placement_request().unwrap().unwrap();
+        let Request::CounterPlacementEffect { candidates, .. } = &request else {
+            panic!()
+        };
+        g.respond(
+            request.player(),
+            request.decision_id(),
+            Response::CounterPlacementEffect {
+                effect: candidates[0].clone(),
+            },
+        )
+        .unwrap();
+        let before = g.state.clone();
+        let trace = g.trace.clone();
+        assert!(matches!(g.advance(Budget::new(1)), Advance::Fault(_)));
+        assert!(matches!(
+            g.typed_fault(),
+            Some(RuleFault::HistoryCapacityExceeded { .. })
+        ));
+        let mut after = g.state.clone();
+        after.rules.frame = before.rules.frame.clone();
+        after.rules.typed_fault = before.rules.typed_fault.clone();
+        assert_eq!(after, before);
+        assert_eq!(g.trace, trace);
+    }
+}

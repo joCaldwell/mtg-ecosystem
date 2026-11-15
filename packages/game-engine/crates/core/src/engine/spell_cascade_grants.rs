@@ -36,13 +36,6 @@ impl Game {
         let mut charge = pending.chain(placed).fold(0usize, |n, g| {
             n.saturating_add(stored_history::payload_charge(g))
         });
-        if let Frame::Resolve { frame } = self.underlying_mana_frame(&self.state.rules.frame)
-            && let StackKind::Triggered {
-                grant: Some(grant), ..
-            } = &frame.spell.kind
-        {
-            charge = charge.saturating_add(stored_history::payload_charge(grant));
-        }
         // Cascade/owned-child frames already charge their complete payload.
         let facts = |w: &TriggerEventWitness| match w {
             TriggerEventWitness::SpellCast { cast } => {
@@ -58,10 +51,13 @@ impl Game {
                 charge = charge.saturating_add(facts(witness));
             }
         }
-        if let Frame::Resolve { frame } = self.underlying_mana_frame(&self.state.rules.frame)
-            && let StackKind::Triggered { witness, .. } = &frame.spell.kind
+        if let Some(entry) = retained_resolving_entry(&self.state.rules.frame)
+            && let StackKind::Triggered { witness, grant, .. } = &entry.kind
         {
             charge = charge.saturating_add(facts(witness));
+            if let Some(grant) = grant {
+                charge = charge.saturating_add(stored_history::payload_charge(grant));
+            }
         }
         charge
     }
@@ -188,5 +184,45 @@ pub(super) fn eligible(
         mtg_contracts::SpellCascadeEligibility::FirstCastFromExileEachTurn {} => {
             cast.history.first_from_exile
         }
+    }
+}
+
+/// Unwrap owning continuations without copying or mutating them.
+pub(super) fn retained_effect_frame(mut frame: &Frame) -> &Frame {
+    loop {
+        frame = match frame {
+            Frame::ManaAbility { activation } => &activation.resume,
+            Frame::Stabilize { resume, .. } | Frame::LegendRule { resume, .. } => resume,
+            Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
+                CommanderContinuation::StateBased { resume }
+                | CommanderContinuation::StateBasedBatch { resume, .. } => resume,
+                _ => return frame,
+            },
+            _ => return frame,
+        };
+    }
+}
+fn retained_resolving_entry(frame: &Frame) -> Option<&StackInstance> {
+    match retained_effect_frame(frame) {
+        Frame::Resolve { frame }
+        | Frame::ResolutionChoice { frame, .. }
+        | Frame::ForcedSacrifice { frame, .. }
+        | Frame::OptionalDamage { frame } => Some(&frame.spell),
+        Frame::CounterPlacement { transaction } => Some(&transaction.frame.spell),
+        Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
+            match transaction.continuation.as_ref() {
+                DamageContinuation::Instruction { frame } => Some(&frame.spell),
+                DamageContinuation::Combat => None,
+            }
+        }
+        Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
+            CommanderContinuation::BoardReturn { frame, .. }
+            | CommanderContinuation::SpellMove { frame, .. }
+            | CommanderContinuation::ResolutionDraw { frame, .. } => Some(&frame.spell),
+            // CascadeBottom is charged in full by cascade_charge.
+            _ => None,
+        },
+        // Cascade and owned child announcements are charged in full, once.
+        _ => None,
     }
 }

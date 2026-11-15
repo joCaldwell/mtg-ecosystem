@@ -556,7 +556,12 @@ fn aura_control_new_unit_serialization_rejects_old_internal_ir() {
 
 #[test]
 fn aura_control_typed_shapes_exclude_optional_cost_and_conditional_draw() {
-    for baseline in [typed_aura(CardKind::Creature), typed_aura(CardKind::Artifact), typed_aura(CardKind::Land), general_aura()] {
+    for baseline in [
+        typed_aura(CardKind::Creature),
+        typed_aura(CardKind::Artifact),
+        typed_aura(CardKind::Land),
+        general_aura(),
+    ] {
         baseline.validate().unwrap();
         for variant in 0..3 {
             let mut invalid = baseline.clone();

@@ -483,7 +483,7 @@ impl Game {
         Ok(())
     }
     pub(super) fn cascade_charge(&self) -> usize {
-        let frame = self.underlying_mana_frame(&self.state.rules.frame);
+        let frame = spell_cascade_grants::retained_effect_frame(&self.state.rules.frame);
         match frame {
             Frame::Cascade { .. } => stored_history::payload_charge(frame),
             Frame::CommanderReturn { continuation, .. }

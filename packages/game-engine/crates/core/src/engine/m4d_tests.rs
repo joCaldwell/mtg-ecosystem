@@ -6,7 +6,7 @@ const NEXUS: &str =
     include_str!("../../../../tests/fixtures/ramos/b1c346a4-fc9b-474a-9d51-cac168e363fa.json");
 const SORCERER: &str =
     include_str!("../../../../tests/fixtures/ramos/a450ef56-8511-43e0-bdca-0c25f54ba338.json");
-fn root(original: &str, library: &[&str], board: &[&str]) -> Prepared {
+pub(super) fn root(original: &str, library: &[&str], board: &[&str]) -> Prepared {
     let mut p = m4c_tests::root("Bloodbraid Elf", &vec!["Forest"; library.len()], false);
     let c = Arc::make_mut(&mut p.catalog);
     c.definitions.extend([lowered(NEXUS), lowered(SORCERER)]);
@@ -62,11 +62,11 @@ fn root(original: &str, library: &[&str], board: &[&str]) -> Prepared {
     p.profile_digest = digest(&p.config).unwrap();
     p
 }
-fn flags(g: &Game, seat: usize) -> (bool, bool) {
+pub(super) fn flags(g: &Game, seat: usize) -> (bool, bool) {
     let h = g.state.rules.cast_history[seat];
     (h.any_cast, h.exile_cast)
 }
-fn witness(g: &Game, original: StackId) -> &triggers::CastOccurrence {
+pub(super) fn witness(g: &Game, original: StackId) -> &triggers::CastOccurrence {
     g.state
         .rules
         .stack
@@ -308,11 +308,12 @@ fn m4d_paid_completion_faults_roll_back_history_payment_siblings_and_trace() {
         match fault {
             0 => g.state.rules.next_trigger_id = u64::MAX,
             1 => g.state.rules.next_stack_id = u32::MAX,
-            2 => g.state.rules.retained_auxiliary_charge = capacities::HISTORY_LIMIT - 1,
+            2 => m4c_tests::set_post_paid_history_fault(&mut g),
             _ => unreachable!(),
         }
         let state = g.state.clone();
         let trace = g.trace.clone();
+        assert!(g.history_charge() <= capacities::HISTORY_LIMIT);
         assert!(matches!(g.advance(Budget::new(1)), Advance::Fault(_)));
         assert_eq!(flags(&g, 0), (false, false));
         // The public step keeps only its typed fault/frame, never payment or collector state.

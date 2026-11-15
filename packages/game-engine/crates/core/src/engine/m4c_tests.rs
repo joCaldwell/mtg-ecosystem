@@ -513,99 +513,7 @@ fn m4c_whole_paid_completion_history_and_id_faults_restore_payment_and_trace() {
         match fault {
             0 => g.state.rules.next_trigger_id = u64::MAX - 4, // four intrinsic + observer + grant
             1 => g.state.rules.next_stack_id = u32::MAX - 4,
-            2 => {
-                // Calibrate from the real accepted payment step, not an already
-                // over-limit starting state. Coalescing matches advance().
-                let original = g.top().unwrap().id;
-                let mut completed = g.fork();
-                completed.in_rule_step = true;
-                completed.step().unwrap();
-                assert!(
-                    completed
-                        .state
-                        .rules
-                        .stack
-                        .iter()
-                        .find(|s| s.id == original)
-                        .unwrap()
-                        .paid
-                        .is_some()
-                );
-                let grant_growth = completed
-                    .grant_payload_charge()
-                    .checked_sub(g.grant_payload_charge())
-                    .unwrap();
-                assert!(grant_growth > 0);
-                // Find the narrow headroom that reaches paid completion in the
-                // actual staged step. Payment events have their own retained
-                // history, so grant bytes alone are not the pre-payment margin.
-                let maximum = capacities::HISTORY_LIMIT
-                    .checked_sub(g.history_charge())
-                    .unwrap();
-                let mut low = 0;
-                let mut high = maximum;
-                while low < high {
-                    let middle = low + (high - low) / 2;
-                    let mut probe = g.fork();
-                    probe.state.rules.retained_auxiliary_charge += maximum - middle;
-                    probe.in_rule_step = true;
-                    let result = probe.step();
-                    if let Err(error) = result {
-                        assert!(
-                            matches!(
-                                probe.typed_fault(),
-                                Some(RuleFault::HistoryCapacityExceeded { .. })
-                            ),
-                            "unexpected calibration fault: {error}"
-                        );
-                    }
-                    if probe
-                        .state
-                        .rules
-                        .stack
-                        .iter()
-                        .find(|s| s.id == original)
-                        .unwrap()
-                        .paid
-                        .is_some()
-                    {
-                        high = middle;
-                    } else {
-                        low = middle + 1;
-                    }
-                }
-                let headroom = low;
-                g.state.rules.retained_auxiliary_charge += maximum - headroom;
-                assert_eq!(g.history_charge(), capacities::HISTORY_LIMIT - headroom);
-                println!("M4C_HISTORY_PROBE headroom={headroom} grant_growth={grant_growth}");
-                let mut reached = g.fork();
-                reached.in_rule_step = true;
-                let step = reached.step();
-                assert!(
-                    reached
-                        .state
-                        .rules
-                        .stack
-                        .iter()
-                        .find(|s| s.id == original)
-                        .unwrap()
-                        .paid
-                        .is_some()
-                );
-                assert!(
-                    reached.history_charge() > capacities::HISTORY_LIMIT
-                        || matches!(
-                            reached.typed_fault(),
-                            Some(RuleFault::HistoryCapacityExceeded { .. })
-                        )
-                );
-                if step.is_err() {
-                    assert!(matches!(
-                        reached.typed_fault(),
-                        Some(RuleFault::HistoryCapacityExceeded { .. })
-                    ));
-                }
-            }
+            2 => set_post_paid_history_fault(&mut g),
             _ => unreachable!(),
         }
         let state = g.state.clone();
@@ -1085,5 +993,99 @@ fn m4c_genuine_granted_parent_child_kicker_nested_mana_failure_keep_and_undo() {
         );
         assert!(!g.state.rules.stack.iter().any(|s| s.id == granted));
         public_proof(&g);
+    }
+}
+
+pub(super) fn set_post_paid_history_fault(g: &mut Game) {
+    // Calibrate from the real accepted payment step, not an already
+    // over-limit starting state. Coalescing matches advance().
+    let original = g.top().unwrap().id;
+    let mut completed = g.fork();
+    completed.in_rule_step = true;
+    completed.step().unwrap();
+    assert!(
+        completed
+            .state
+            .rules
+            .stack
+            .iter()
+            .find(|s| s.id == original)
+            .unwrap()
+            .paid
+            .is_some()
+    );
+    let grant_growth = completed
+        .grant_payload_charge()
+        .checked_sub(g.grant_payload_charge())
+        .unwrap();
+    assert!(grant_growth > 0);
+    // Find the narrow headroom that reaches paid completion in the
+    // actual staged step. Payment events have their own retained
+    // history, so grant bytes alone are not the pre-payment margin.
+    let maximum = capacities::HISTORY_LIMIT
+        .checked_sub(g.history_charge())
+        .unwrap();
+    let mut low = 0;
+    let mut high = maximum;
+    while low < high {
+        let middle = low + (high - low) / 2;
+        let mut probe = g.fork();
+        probe.state.rules.retained_auxiliary_charge += maximum - middle;
+        probe.in_rule_step = true;
+        let result = probe.step();
+        if let Err(error) = result {
+            assert!(
+                matches!(
+                    probe.typed_fault(),
+                    Some(RuleFault::HistoryCapacityExceeded { .. })
+                ),
+                "unexpected calibration fault: {error}"
+            );
+        }
+        if probe
+            .state
+            .rules
+            .stack
+            .iter()
+            .find(|s| s.id == original)
+            .unwrap()
+            .paid
+            .is_some()
+        {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    let headroom = low;
+    g.state.rules.retained_auxiliary_charge += maximum - headroom;
+    assert_eq!(g.history_charge(), capacities::HISTORY_LIMIT - headroom);
+    println!("M4C_HISTORY_PROBE headroom={headroom} grant_growth={grant_growth}");
+    let mut reached = g.fork();
+    reached.in_rule_step = true;
+    let step = reached.step();
+    assert!(
+        reached
+            .state
+            .rules
+            .stack
+            .iter()
+            .find(|s| s.id == original)
+            .unwrap()
+            .paid
+            .is_some()
+    );
+    assert!(
+        reached.history_charge() > capacities::HISTORY_LIMIT
+            || matches!(
+                reached.typed_fault(),
+                Some(RuleFault::HistoryCapacityExceeded { .. })
+            )
+    );
+    if step.is_err() {
+        assert!(matches!(
+            reached.typed_fault(),
+            Some(RuleFault::HistoryCapacityExceeded { .. })
+        ));
     }
 }

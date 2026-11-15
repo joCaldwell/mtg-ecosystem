@@ -156,31 +156,11 @@ and capacity requalification retain their own source in the original search repo
 [host](game-engine-server.md) and [attachments](game-engine-server.md#hosted-profiles)
 retain consumer scope. Neither compiler coverage nor a local preview renews P7/P8.
 
-The later diagnostic build
-`f3b9f1512a4aacd28b610df875c3181405345a3727ec289275ef82b56aa5e5b2` has 647 debug/
-647 release Rust passes, 45 Node and 40 SDK checks, strict TypeScript and fresh
-offline reconstruction, separate from quiet primary acceptance. Archive manifest
-`72693199f3faaa4d3bc43984b8224a1b6e0c6a70864a565b995831dd38cf21e9`;
-independent archive audit run3
-`4e9b268268d7cfdd8d15803fd4e417a2f3f22d5ddeab76cae32ac4eb2ded74e3`.
-Thirty diagnostic commands: twenty successful, ten deadline failures; all 43 planned
-native processes attempted/terminal (33 complete results). Full-program audit
-`generated/diagnostic-proof-fixes-verification-v1/measurement-audit-full-program-run-1/receipt.json`,
-SHA `fd28aa5c699a9f109d11b1a0d9b71574d904933310324a5fe9da05282c26d45a`,
-retains `full_program_passed=false`. Six dense cases reached natural roots then
-charged 2 GiB pressure and deadlines without full ROOT_PROOF/sweeps; no OOM kill.
-Shrinking export/cold restore returned but full State equality timed out before a
-matrix cell. Neither proves 2 GiB fit. Two primary attempts failed quiescence;
-children reaped. No new quiet latency acceptance, causal speedup or dense fit.
-
-Measurement copy `performance-diagnostic-proof-fixes-measurements-f3b9-pass1-v1`
-under the external engine evidence root has manifest
-`a87a1b2e290849b555fd160460997dfd7c8ad779413ca32eb83959c6b0a5a8d0`,
-copy audit `4725aecaf65938549201898dcad0c7996686c7cf41adf50f7e4751cdd15666c8`.
-It preserves failed primary/audit attempts, source/vendor joins and cleanup records.
-Follow [performance tooling](../scripts/engine-performance/README.md) and its
-[frozen host contract](../scripts/engine-performance/final-host-contract-v1.md)
-for explicit diagnostic operations; do not run them as routine onboarding.
+Later diagnostics and hosting measurements retain separate producers; neither quiet
+P7 nor P8 transfers to later mechanics. The [immutable measurement ledger](https://github.com/joCaldwell/mtg-ecosystem/blob/2173ae3814fb8777e24e376b4ebf48fc7dccc7ea/docs/game-engine-evidence.md#search-hosting-and-performance)
+retains exact archive/build hashes, counts, failed readers, source closures and
+performance omissions. Original external evidence/worktrees remain preserved;
+see the search/server contracts for current consumer boundaries.
 
 ## Historical provenance lookup
 
