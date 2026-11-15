@@ -468,7 +468,7 @@ reviewed vector. `temporary_creature_set_keyword_program` and
 `temporary_permanent_set_keyword_program` are disjoint narrow wrappers. Identities
 and quantities never select mechanics.
 
-The family reuses `supported_temporary_creature_keywords`: Flying, Deathtouch,
+The family reuses `supported_temporary_keywords`: Flying, Deathtouch,
 Indestructible, Lifelink, Hexproof, Haste, Trample and First Strike, nonempty and
 without duplicates. Every keyword requires its existing primitive capability;
 Hexproof uses `attachments_v1`, and First Strike serializes as `first strike`

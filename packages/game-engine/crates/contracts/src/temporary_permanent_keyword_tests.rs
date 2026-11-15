@@ -226,18 +226,17 @@ fn temporary_permanent_keyword_contract_definition_contexts_reject() {
             0 => d.characteristics.kind = CardKind::Creature,
             1 => d.x_mana_cost = true,
             2 => d.keywords.push(KeywordAbility::Flash),
-            3 => {
-                d.mana_abilities = Catalog::read(include_str!(
-                    "../../../tests/fixtures/expected-effects-ir.json"
-                ))
-                .unwrap()
-                .definitions
-                .iter()
-                .find(|d| !d.mana_abilities.is_empty())
-                .unwrap()
-                .mana_abilities
-                .clone()
-            }
+            3 => d.mana_abilities.push(ManaAbility {
+                costs: PermanentActivationCosts {
+                    tap: true,
+                    mana: None,
+                    sacrifice: false,
+                },
+                production: ManaProduction::Fixed {
+                    symbols: vec![Color::U],
+                },
+                source_block: 0,
+            }),
             4 => d.intrinsic_zone = Some(FunctioningZone::Battlefield),
             5 => d.characteristics.additional_types.push(CardKind::Artifact),
             6 => d.characteristics.power = Some(Quantity::from(1)),

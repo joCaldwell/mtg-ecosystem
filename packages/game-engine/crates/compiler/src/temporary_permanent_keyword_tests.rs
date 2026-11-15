@@ -284,6 +284,25 @@ fn temporary_permanent_keyword_compiler_rejects_complete_selector_and_keyword_ne
     }
 }
 #[test]
+fn temporary_permanent_keyword_compiler_rejects_explicit_null_life_recipient_qualifiers() {
+    // Keep the canonical binding unchanged while rehashing the changed AST.
+    // Explicit qualifiers are not an unqualified invocation-controller source.
+    lowered(RAW);
+    let accepted: Vec<_> = ["selectionId", "of"]
+        .into_iter()
+        .filter(|field| {
+            let raw = changed(|a| {
+                a["effects"][1]["steps"][0]["who"][*field] = Value::Null;
+            });
+            matches!(compile(HEADER, &raw), CompileResult::Lowered { .. })
+        })
+        .collect();
+    assert!(
+        accepted.is_empty(),
+        "null qualifiers accepted: {accepted:?}"
+    );
+}
+#[test]
 fn temporary_permanent_keyword_compiler_rejects_life_and_context_near_misses() {
     for case in 0..23 {
         let raw = changed(|a| {
