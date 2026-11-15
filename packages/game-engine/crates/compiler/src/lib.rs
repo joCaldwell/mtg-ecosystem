@@ -926,7 +926,35 @@ struct SourceControlPlayer {
 struct SourceControlObject {
     #[serde(rename = "ref")]
     reference: String,
-    noun: String,
+    noun: AuraControlTarget,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum AuraControlTarget {
+    Creature,
+    Artifact,
+    Land,
+}
+impl AuraControlTarget {
+    fn noun(self) -> &'static str {
+        match self {
+            Self::Creature => "creature",
+            Self::Artifact => "artifact",
+            Self::Land => "land",
+        }
+    }
+    fn kind(self) -> CardKind {
+        match self {
+            Self::Creature => CardKind::Creature,
+            Self::Artifact => CardKind::Artifact,
+            Self::Land => CardKind::Land,
+        }
+    }
+    fn from_filter(filter: &Option<serde_json::Value>) -> Option<Self> {
+        [Self::Creature, Self::Artifact, Self::Land]
+            .into_iter()
+            .find(|t| *filter == Some(serde_json::json!({"types":[t.noun()]})))
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1173,23 +1201,22 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
     }
-    if abilities.iter().any(|a| {
-        matches!(
-            a,
-            Ability::Static {
-                effect: SourceStaticEffect::Control { .. },
-                ..
-            }
-        )
-    }) {
+    let control_target = abilities.iter().find_map(|a| match a {
+        Ability::Static {
+            effect: SourceStaticEffect::Control { what, .. },
+            ..
+        } => Some(what.noun),
+        _ => None,
+    });
+    if let Some(target) = control_target {
         // This family binds the complete source, never an approximated control
         // fragment. CR 303.4a/303.4m, 109.5, 611.3 and 613.1b (2026-09-25).
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
         let enchant = matches!(abilities.first(), Some(Ability::Keywords { keywords, .. })
             if matches!(keywords.as_slice(), [k] if k.keyword == "enchant" && k.cost.is_none()
-                && k.filter == Some(serde_json::json!({"types":["creature"]}))))
+                && AuraControlTarget::from_filter(&k.filter) == Some(target)))
             && result.lines.first().is_some_and(|line| {
-                normalization::literal_spelling(&line.text) == "Enchant creature"
+                normalization::literal_spelling(&line.text) == format!("Enchant {}", target.noun())
             });
         let controls = abilities
             .iter()
@@ -1213,18 +1240,24 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             .all(|(ability, line)| {
                 match ability {
                     Ability::Static {
-                        effect: SourceStaticEffect::Control { .. },
+                        effect: SourceStaticEffect::Control { who, what },
                         ..
                     } => {
                         // Preserve the reviewed control sentence boundary: a parser
                         // control fragment must not swallow an extra source clause.
-                        normalization::literal_spelling(&line.text)
-                            == "You control enchanted creature."
+                        who.player == "you"
+                            && what.reference == "enchanted"
+                            && what.noun == target
+                            && normalization::literal_spelling(&line.text)
+                                == format!("You control enchanted {}.", target.noun())
                     }
                     Ability::Static {
                         effect: SourceStaticEffect::Modify { what, .. },
                         ..
-                    } => *what == serde_json::json!({"ref":"enchanted","noun":"creature"}),
+                    } => {
+                        target == AuraControlTarget::Creature
+                            && *what == serde_json::json!({"ref":"enchanted","noun":"creature"})
+                    }
                     _ => false,
                 }
             });
@@ -1390,19 +1423,38 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                 && kind == CardKind::Enchantment
                                 && definition.characteristics.subtypes == ["Aura"]
                                 && keyword.cost.is_none()
-                                && keyword.filter == Some(serde_json::json!({"types":["creature"]}))
+                                && AuraControlTarget::from_filter(&keyword.filter).is_some_and(
+                                    |t| {
+                                        t == AuraControlTarget::Creature
+                                            || control_target == Some(t)
+                                    },
+                                )
                             {
+                                let target =
+                                    AuraControlTarget::from_filter(&keyword.filter).unwrap();
                                 let spell = definition.spell.as_mut().unwrap();
                                 if !spell.targets.is_empty() {
                                     return Err(unsupported("enchant", "duplicate enchant"));
                                 }
                                 spell.targets.push(TargetSpec {
                                     slot: 0,
-                                    selection_id: "enchanted-creature".into(),
+                                    selection_id: format!("enchanted-{}", target.noun()),
                                     chooser: Chooser::Controller,
                                     stage: EvaluationStage::Announcement,
-                                    filter: None,
-                                    domain: TargetDomain::BattlefieldCreature,
+                                    filter: (target != AuraControlTarget::Creature).then(|| {
+                                        PermanentFilter {
+                                            types: vec![target.kind()],
+                                            non_types: vec![],
+                                            non_colors: vec![],
+                                            opponent: false,
+                                            tapped: false,
+                                        }
+                                    }),
+                                    domain: if target == AuraControlTarget::Creature {
+                                        TargetDomain::BattlefieldCreature
+                                    } else {
+                                        TargetDomain::BattlefieldPermanent
+                                    },
                                 });
                                 continue;
                             }
@@ -2977,7 +3029,7 @@ fn lower_prevention(
 }
 fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
     if let SourceStaticEffect::Control { who, what } = effect {
-        if who.player != "you" || what.reference != "enchanted" || what.noun != "creature" {
+        if who.player != "you" || what.reference != "enchanted" {
             return Err(unsupported(
                 "static.control",
                 "unsupported Aura control operands",
