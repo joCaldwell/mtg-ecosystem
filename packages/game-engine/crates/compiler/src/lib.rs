@@ -1873,9 +1873,10 @@ fn append_spell_effects(
         && program.functioning_zone == FunctioningZone::Stack
         && program.resolution == SpellResolution::Instructions
         && program.additional_sacrifice.is_none()
+        && program.optional_additional_costs.is_empty()
         && program.targets.is_empty()
         && program.instructions.is_empty()
-        && let [Sentence { bindings, steps }] = effects
+        && let [Sentence { bindings, steps, condition: None, condition_kind: None }] = effects
         && bindings.is_empty()
         && let [
             Step::GainAbilities {
@@ -5177,7 +5178,7 @@ mod tests {
                 ],
             };
             assert!(
-                matches!(lower_static(&source).unwrap().effect, StaticEffect::ModifyCreatures {keywords,..} if keywords == [k])
+                matches!(lower_static(&source, 0).unwrap().effect, StaticEffect::ModifyCreatures {keywords,..} if keywords == [k])
             );
             let mut intrinsic = get("Storm Crow").clone();
             intrinsic.keywords = vec![k];

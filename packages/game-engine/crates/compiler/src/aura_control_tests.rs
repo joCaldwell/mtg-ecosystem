@@ -705,12 +705,14 @@ fn aura_control_supplemental_multitype_mana_sources_use_existing_complete_loweri
                 costs: PermanentActivationCosts {
                     tap: true,
                     mana: None,
-                    sacrifice: false
+                    sacrifice: false,
+                    remove_source_plus_one_counters: None
                 },
                 production: ManaProduction::Fixed {
                     symbols: vec![Color::U]
                 },
                 source_block: 0,
+                restriction: None,
             }]
         );
         assert!(d.activated.is_empty() && d.triggered.is_empty() && d.static_abilities.is_empty());
