@@ -52,13 +52,10 @@ rules or policies. Keep the standalone deck-builder independent.
   compiled-source rows, all-target compilation and formatting. The single review's
   empty-source-block and stale-format findings are fixed; actual RED/GREEN retained.
   Test producer `7bd4f7e4`, CLI `5aba2e46`; formats 24/19, IR1.
-- **M4a:** reviewed source `0e26ccd1`, final feature `27eb161a` on `2b83a482`,
-  qualifies complete Apex through independent self-cascade entries and atomic
-  whole-batch preflight. Passed 479 distinct Rust tests, 58 schema probes, 927
-  source rows, all-target compilation and formatting. The single review found no
-  concrete defect. The diagnostic-only driver failure is preserved; immutable
-  exports were verified offline. Private off-color counter roots establish no
-  legal-pod admission. That producer retains formats 24/19; broader M4 remains open.
+- **M4a original:** reviewed `0e26ccd1`, final feature `27eb161a` on `2b83a482`:
+  479 distinct Rust tests, 58 schema probes, 927 rows; formats24/19. Exact artifacts,
+  review and diagnostic-only failure are preserved. Private off-color counter roots
+  establish no legal-pod admission.
 - **M4a/M4b combined:** `3813db05` integrates scalar main `2ac47a82` and complete
   Wanderer: live controller-creature modifiers and two independently identified
   cascades. Passed 542 distinct Rust tests (117 contracts, 281 compiler, 144 core),
