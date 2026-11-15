@@ -13,6 +13,7 @@ mod diagnostics;
 mod normalization;
 mod optional_costs;
 mod self_reference;
+mod spell_cascade_grants;
 use optional_costs::KickedCondition;
 mod type_line;
 pub use catalog::*;
@@ -1224,6 +1225,11 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     if result.lines.len() != abilities.len() {
         return Err(invalid("lines", "unaccounted ability block"));
     }
+    for (block, ability) in abilities.iter().enumerate() {
+        if let Ability::Static { effect, .. } = ability {
+            spell_cascade_grants::bind(effect, &binding, &r.oracle_identity, source_block(block)?)?;
+        }
+    }
     let original: Vec<Box<RawValue>> = decode(result.abilities.get(), "abilities")?;
     for (line, ability) in result.lines.iter().zip(&original) {
         let a: serde_json::Value = decode(line.ability.get(), "lines.ability")?;
@@ -1396,7 +1402,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             for (block, ability) in abilities.iter().enumerate() {
                 match ability {
                     Ability::Static { effect, .. } => {
-                        definition.static_abilities.push(lower_static(effect)?)
+                        definition.static_abilities.push(lower_static(effect, source_block(block)?)?)
                     }
                     Ability::Keywords { keywords, .. } => {
                         if keywords.is_empty() {
@@ -1482,12 +1488,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                         condition: TriggerCondition::SelfSpellCast,
                                         intervening_if: None,
                                         death_filter: None,
-                                        program: SpellProgram { optional_additional_costs: vec![], additional_sacrifice: None, timing: SpellTiming::Instant,
-                                            resolution: SpellResolution::Instructions, functioning_zone: FunctioningZone::Stack,
-                                            targets: vec![], modes: vec![], instructions: vec![Instruction::Cascade {
-                                                threshold: mtg_contracts::CascadeThreshold::SourceSpellManaValue,
-                                                source_block: u32::try_from(block).map_err(|_| invalid("abilities", "source block limit"))?,
-                                            }] },
+                                        program: canonical_cascade_program(source_block(block)?),
                                     });
                                 }
                                 "flash" => definition.keywords.push(KeywordAbility::Flash),
@@ -1610,7 +1611,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     continue;
                 }
                 if let Ability::Static { effect, .. } = ability {
-                    let a = lower_static(effect)?;
+                    let a = lower_static(effect, source_block(block)?)?;
                     if a.functioning_zone != FunctioningZone::Stack {
                         return Err(unsupported("static", "spell static must function on stack"));
                     }
@@ -3118,7 +3119,10 @@ fn lower_prevention(
         )),
     }
 }
-fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
+fn lower_static(effect: &SourceStaticEffect, source_block: u32) -> Result<StaticAbility, Failure> {
+    if let Some(grant) = spell_cascade_grants::lower(effect, source_block)? {
+        return Ok(grant);
+    }
     if let SourceStaticEffect::Control { who, what } = effect {
         if who.player != "you" || what.reference != "enchanted" || what.noun != "creature" {
             return Err(unsupported(
@@ -9176,3 +9180,6 @@ mod creature_set_keyword_tests;
 
 #[cfg(test)]
 mod ramos_m4b_tests;
+
+#[cfg(test)]
+mod ramos_m4c_tests;

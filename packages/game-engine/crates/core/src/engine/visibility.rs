@@ -31,13 +31,24 @@ pub struct VisibleAbility {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct TriggerHandle(pub String);
+/// Public origin uses only already captured public/historical handles.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "origin", rename_all = "snake_case", deny_unknown_fields)]
+pub enum VisibleTriggerAbility {
+    Intrinsic { index: u32 },
+    Granted {
+        source: VisibleTarget,
+        oracle_id: String,
+        static_ability_index: u32,
+    },
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleTriggered {
     pub handle: StackHandle,
     pub source: VisibleTarget,
     pub oracle_id: String,
-    pub ability: u32,
+    pub ability: VisibleTriggerAbility,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -45,7 +56,7 @@ pub struct VisiblePendingTrigger {
     pub handle: TriggerHandle,
     pub source: VisibleTarget,
     pub oracle_id: String,
-    pub ability: u32,
+    pub ability: VisibleTriggerAbility,
 }
 fn is_zero(value: &u64) -> bool {
     *value == 0
@@ -747,10 +758,27 @@ impl Game {
                 .ok_or("missing trigger physical source")?
                 .oracle_id
                 .clone(),
-            ability: trigger.ability,
+            ability: self.visible_trigger_ability(viewer, trigger.ability, trigger.grant.as_ref())?,
         })
     }
 
+    fn visible_trigger_ability(&self, viewer: PlayerId, ability: EffectiveTriggerAbility,
+        grant: Option<&CascadeGrantProvenance>) -> Result<VisibleTriggerAbility, String> {
+        match ability {
+            EffectiveTriggerAbility::Intrinsic { index } => Ok(VisibleTriggerAbility::Intrinsic { index }),
+            EffectiveTriggerAbility::Granted { grant_source, static_ability_index } => {
+                let grant = grant.ok_or("missing public grant provenance")?;
+                Ok(VisibleTriggerAbility::Granted {
+                    source: VisibleTarget {
+                        announced: grant.source_handles.get(viewer.0 as usize).ok_or("missing grant source handle")?.clone(),
+                        current: self.handle_for(viewer, grant_source).ok(),
+                    },
+                    oracle_id: self.state.rules.cards.get(&grant_source.card).ok_or("missing grant physical source")?.oracle_id.clone(),
+                    static_ability_index,
+                })
+            }
+        }
+    }
     pub(super) fn player_entity(
         &self,
         viewer: PlayerId,
@@ -986,6 +1014,7 @@ impl Game {
             StackKind::Spell => (Some(self.handle_for(viewer, instance.source)?), None, None),
             StackKind::Triggered {
                 ability,
+                grant,
                 source_handles,
                 ..
             } => (
@@ -1008,7 +1037,7 @@ impl Game {
                         .ok_or("missing triggered physical source")?
                         .oracle_id
                         .clone(),
-                    ability: *ability,
+                    ability: self.visible_trigger_ability(viewer, *ability, grant.as_ref())?,
                 }),
             ),
             StackKind::Activated {
@@ -1767,7 +1796,7 @@ impl Game {
                 .counter_placement_request()?
                 .is_some_and(|r| r.player() == viewer)
             {
-                Some((self.state.rules.revision, 21))
+                Some((self.state.rules.revision, 22))
             } else if self
                 .damage_effect_request()?
                 .is_some_and(|r| r.player() == viewer)

@@ -235,6 +235,8 @@ fn rejected_ordered_batch_and_trigger_resource_overflow_roll_back_collection() {
     g.state.rules.next_trigger_id = u64::MAX;
     let before = g.fork();
     assert!(g.commit_batch(BatchCause::Fixture, leaf(enter)).is_err());
+    assert!(matches!(g.typed_fault(), Some(RuleFault::TriggerIdCapacityExceeded { .. })));
+    g.state.rules.typed_fault = before.state.rules.typed_fault.clone();
     assert_eq!(g.state, before.state);
     assert_eq!(g.trace, before.trace);
 }

@@ -11,10 +11,13 @@ fn selected_program<'a>(
 ) -> Option<&'a SpellProgram> {
     let entry = observation.view.stack.last()?;
     let program = if let Some(trigger) = &entry.triggered {
+        let mtg_core::VisibleTriggerAbility::Intrinsic { index } = &trigger.ability else {
+            return None; // Static spell grants have no search admission.
+        };
         &search_candidates::definition(catalog, &trigger.oracle_id)
             .ok()?
             .triggered
-            .get(usize::try_from(trigger.ability).ok()?)?
+            .get(usize::try_from(*index).ok()?)?
             .program
     } else if let Some(ability) = &entry.ability {
         &search_candidates::definition(catalog, &ability.oracle_id)

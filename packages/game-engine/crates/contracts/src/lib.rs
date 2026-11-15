@@ -182,6 +182,7 @@ pub enum Capability {
     OptionalAdditionalManaCostV1,
     ResolutionCastV1,
     CascadeV1,
+    StaticSpellCascadeGrantV1,
     RandomBottomV1,
     CastTriggerV1,
     CastSpellColorCountersV1,
@@ -793,6 +794,14 @@ impl CounterPlacementModification {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
+    /// CR 109.5/113.10/601.2i/611.3/613.1f/702.85: each vector slot
+    /// grants one independent cascade to this controller's qualifying cast.
+    /// The program is exactly canonical_cascade_program, never arbitrary code.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    GrantSpellCascade {
+        mana_value_at_least: Quantity,
+        program: SpellProgram,
+    },
     /// CR 109.5/303.4m/611.3/613.1b: the current source controller controls
     /// its enchanted creature; this is not a frozen invocation recipient.
     /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -1415,6 +1424,26 @@ pub fn aura_control_source(definition: &Definition) -> bool {
                         && t.filter.is_none())
         })
 }
+/// The sole narrow cascade program shared by intrinsic and granted instances.
+pub fn canonical_cascade_program(source_block: u32) -> SpellProgram {
+    SpellProgram {
+        optional_additional_costs: vec![],
+        additional_sacrifice: None,
+        timing: SpellTiming::Instant,
+        resolution: SpellResolution::Instructions,
+        functioning_zone: FunctioningZone::Stack,
+        targets: vec![],
+        instructions: vec![Instruction::Cascade {
+            threshold: CascadeThreshold::SourceSpellManaValue,
+            source_block,
+        }],
+        modes: vec![],
+    }
+}
+pub fn is_canonical_cascade_program(program: &SpellProgram) -> bool {
+    matches!(program.instructions.as_slice(), [Instruction::Cascade { source_block, .. }]
+        if *program == canonical_cascade_program(*source_block))
+}
 impl Definition {
     pub fn requirements(&self) -> BTreeSet<Capability> {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1]);
@@ -1598,12 +1627,16 @@ impl Definition {
             });
         }
         for a in &self.static_abilities {
+            if let StaticEffect::GrantSpellCascade { program, .. } = &a.effect {
+                add_program_requirements(&mut set, program);
+            }
             if matches!(&a.effect, StaticEffect::ModifyCreatures { keywords, .. }
                 if keywords.contains(&KeywordAbility::Indestructible))
             {
                 set.insert(Capability::IndestructibleV1);
             }
             set.insert(match a.effect {
+                StaticEffect::GrantSpellCascade { .. } => Capability::StaticSpellCascadeGrantV1,
                 StaticEffect::ControlEnchantedCreature => Capability::AuraControlV1,
                 StaticEffect::OpponentsCantCastDuringControllerTurn => {
                     Capability::OpponentCastProhibitionV1
@@ -1640,6 +1673,7 @@ impl Definition {
         // Every occurrence retains its own u32 ability index, including repeated
         // keywords in one source block (CR 702.85c). No per-card instance cap.
         u32::try_from(self.triggered.len()).map_err(|_| "trigger ability index limit")?;
+        u32::try_from(self.static_abilities.len()).map_err(|_| "static ability index limit")?;
         if self
             .static_abilities
             .iter()
@@ -2289,13 +2323,7 @@ impl Definition {
                     || p.resolution != SpellResolution::Instructions
                     || !p.targets.is_empty()
                     || !p.modes.is_empty()
-                    || !matches!(
-                        p.instructions.as_slice(),
-                        [Instruction::Cascade {
-                            threshold: CascadeThreshold::SourceSpellManaValue,
-                            ..
-                        }]
-                    )
+                    || !is_canonical_cascade_program(p)
                 {
                     return Err("unsupported self-cast cascade shape".into());
                 }
@@ -2417,7 +2445,8 @@ impl Definition {
             validate_instruction_program(p)?;
         }
         if self.static_abilities.iter().any(|a| {
-            a.effect != StaticEffect::EntersTapped
+            !matches!(a.effect, StaticEffect::GrantSpellCascade { .. })
+                && a.effect != StaticEffect::EntersTapped
                 && a.effect != StaticEffect::OpponentsCantCastDuringControllerTurn
                 && !matches!(
                     a.effect,
@@ -2452,6 +2481,17 @@ impl Definition {
             return Err("static damage replacement must function on battlefield".into());
         }
         for a in &self.static_abilities {
+            if let StaticEffect::GrantSpellCascade { mana_value_at_least, program } = &a.effect {
+                if mana_value_at_least.is_negative()
+                    || !matches!(c.kind, CardKind::Creature | CardKind::Artifact | CardKind::Enchantment)
+                    || equipment || aura
+                    || !is_canonical_cascade_program(program)
+                {
+                    return Err("unsupported static spell cascade grant".into());
+                }
+                validate_instruction_program(program)?;
+                continue;
+            }
             if let StaticEffect::ControllerCreaturePlusOneCounterReplacement { modification } =
                 &a.effect
             {
@@ -3753,6 +3793,16 @@ pub struct Catalog {
     pub definitions: Vec<Definition>,
 }
 impl Catalog {
+    /// Each physical source contributes its native observer/self slots and its
+    /// static grant slots once per cast, never once per recipient permanent.
+    /// Tokens/copies with abilities are outside this physical-source proof.
+    pub fn cast_trigger_fanout_bound(&self, physical_sources: usize) -> Option<usize> {
+        self.definitions.iter().try_fold(0usize, |max, d| {
+            let grants = d.static_abilities.iter().filter(|a| matches!(a.effect, StaticEffect::GrantSpellCascade { .. })).count();
+            d.triggered.len().checked_add(grants).map(|slots| max.max(slots))
+        })?.checked_mul(physical_sources)
+    }
+
     /// Look up a definition in a validated, canonically ordered catalog.
     ///
     /// `read` and `validate` establish unique, increasing Oracle identities.
@@ -3884,7 +3934,25 @@ fn cascade_schema(schema: &mut serde_json::Value) {
         "if":self_condition,"then":ability,
         "else":{"properties":{"functioning_zone":{"const":"battlefield"},"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}
     }));
-    let present = serde_json::json!({"required":["triggered"],"properties":{"triggered":{"contains":self_condition}}});
+    let grant_effect = serde_json::json!({"type":"object","required":["grant_spell_cascade"]});
+    let grant = serde_json::json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{"effect":grant_effect}}}}});
+    schema["$defs"]["Definition"]["properties"]["static_abilities"]["maxItems"] = serde_json::json!(u32::MAX);
+    schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
+        .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
+        .push(serde_json::json!({"properties":{"grant_spell_cascade":{"properties":{
+            "mana_value_at_least":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},
+            "program":ability["properties"]["program"]
+        }}}}));
+    schema["$defs"]["StaticAbility"].as_object_mut().unwrap()
+        .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
+        .push(serde_json::json!({"if":{"required":["effect"],"properties":{"effect":grant_effect}},"then":{"properties":{"functioning_zone":{"const":"battlefield"}}}}));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":grant,"then":{"properties":{
+            "capabilities":{"contains":{"const":"static_spell_cascade_grant_v1"}},
+            "characteristics":{"properties":{"kind":{"enum":["creature","artifact","enchantment"]},"subtypes":{"not":{"contains":{"enum":["Equipment","Aura"]}}}}}
+        }},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"static_spell_cascade_grant_v1"}}}}}
+    }));
+    let present = serde_json::json!({"anyOf":[grant,{"required":["triggered"],"properties":{"triggered":{"contains":self_condition}}}]});
     let requirements = [
         Capability::CascadeV1,
         Capability::ResolutionCastV1,
@@ -3900,7 +3968,7 @@ fn cascade_schema(schema: &mut serde_json::Value) {
         .collect();
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().extend([
         serde_json::json!({"properties":{"spell":{"anyOf":[{"type":"null"},{"$ref":"#/$defs/CascadeFreeProgram"}]},"activated":{"items":{"properties":{"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}}}}),
-        serde_json::json!({"if":present,"then":{"properties":{"capabilities":{"allOf":yes},"triggered":{"contains":self_condition,"minContains":1}}},"else":{"properties":{"capabilities":{"allOf":no}}}})
+        serde_json::json!({"if":present,"then":{"properties":{"capabilities":{"allOf":yes}}},"else":{"properties":{"capabilities":{"allOf":no}}}})
     ]);
 }
 pub fn catalog_schema() -> serde_json::Value {
@@ -4897,6 +4965,7 @@ mod tests {
             OptionalAdditionalManaCostV1,
             ResolutionCastV1,
             CascadeV1,
+            StaticSpellCascadeGrantV1,
             RandomBottomV1,
             NormalLayoutV1,
             BasicLandManaV1,
@@ -5036,6 +5105,16 @@ mod tests {
                 catalog.definitions
             })
             .collect::<Vec<_>>();
+        let mut static_grant = definitions.iter().find(|d| d.name == "Grizzly Bears").unwrap().clone();
+        static_grant.static_abilities = vec![StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::GrantSpellCascade {
+                mana_value_at_least: 6.into(),
+                program: canonical_cascade_program(0),
+            },
+        }];
+        static_grant.capabilities = static_grant.requirements();
+        definitions.push(static_grant);
         let mut optional = definitions
             .iter()
             .find(|d| d.name == "Naturalize")
@@ -6784,3 +6863,6 @@ mod creature_set_keyword_tests;
 
 #[cfg(test)]
 mod static_controller_tests;
+
+#[cfg(test)]
+mod spell_cascade_grant_tests;

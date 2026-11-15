@@ -1083,3 +1083,6 @@ mod atomic_targeted_keyword_tests;
 #[cfg(test)]
 #[path = "m4b_tests.rs"]
 mod m4b_tests;
+
+#[path = "m4c_control_tests.rs"]
+mod m4c_control_tests;

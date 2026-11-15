@@ -16,7 +16,7 @@ fn m4a_producer_identity() {
     assert_eq!(crate::BUILD_OPT_LEVEL, "2");
     assert!(cfg!(debug_assertions));
 }
-fn replace(p: &mut Prepared, owner: PlayerId, name: &str, zone: Zone) -> CardId {
+pub(super) fn replace(p: &mut Prepared, owner: PlayerId, name: &str, zone: Zone) -> CardId {
     let id = |name: &str| {
         p.catalog
             .definitions
@@ -43,7 +43,7 @@ fn replace(p: &mut Prepared, owner: PlayerId, name: &str, zone: Zone) -> CardId 
     c.zone = zone;
     c.id
 }
-fn source_prepared(library: &[&str], observer: bool) -> Prepared {
+pub(super) fn source_prepared(library: &[&str], observer: bool) -> Prepared {
     let mut p = prepared_with_records("Apex Devastator", library, &[APEX, HYDRA, BLOW]);
     for name in [
         "Forest", "Forest", "Forest", "Forest", "Forest", "Forest", "Forest", "Forest", "Forest",
@@ -63,7 +63,7 @@ fn source_prepared(library: &[&str], observer: bool) -> Prepared {
     p.profile_digest = digest(&p.config).unwrap();
     p
 }
-fn resolve_entry(g: &mut Game, id: StackId) {
+pub(super) fn resolve_entry(g: &mut Game, id: StackId) {
     for _ in 0..100 {
         if !g.state.rules.stack.iter().any(|s| s.id == id) {
             return;
@@ -102,7 +102,7 @@ fn assert_bad_restore(g: &Game) {
 }
 // Leave the real completed payment response accepted but unexecuted. Synthetic
 // ID/capacity injections below then exercise the actual atomic rules root step.
-fn before_payment(g: &mut Game) {
+pub(super) fn before_payment(g: &mut Game) {
     let card = g
         .state
         .rules
@@ -162,7 +162,7 @@ fn m4a_explicit_pending_order_placement_replay_and_distinct_visible_handles() {
                             0 => {
                                 forged.state.rules.pending_triggers.remove(apex[0]);
                             }
-                            1 => forged.state.rules.pending_triggers[apex[0]].ability = 1,
+                            1 => forged.state.rules.pending_triggers[apex[0]].ability = EffectiveTriggerAbility::Intrinsic { index: 1 },
                             2 => forged.state.rules.pending_triggers.swap(apex[0], apex[1]),
                             _ => unreachable!(),
                         }
@@ -261,6 +261,7 @@ fn m4a_complete_batch_capacity_and_id_arithmetic_precede_publication() {
         ));
         let mut after = injected.state.clone();
         after.rules.frame = before.rules.frame.clone();
+        after.rules.typed_fault = before.rules.typed_fault.clone();
         assert_eq!(after, before);
         assert_eq!(injected.trace, trace);
         assert!(injected.state.rules.pending_triggers.is_empty());
@@ -288,6 +289,8 @@ fn m4a_direct_collector_checks_whole_batch_before_any_id_or_trigger_publication(
         let before = injected.state.clone();
         let trace = injected.trace.clone();
         assert!(injected.collect_cast_triggers(&entry).is_err());
+        assert!(injected.typed_fault().is_some());
+        injected.state.rules.typed_fault = before.rules.typed_fault.clone();
         assert_eq!(injected.state, before);
         assert_eq!(injected.trace, trace);
     }
@@ -330,7 +333,7 @@ fn m4a_generic_validated_ir_vector_emits_every_instance_without_printed_ceiling(
             _ => None,
         })
         .collect::<BTreeSet<_>>();
-    assert_eq!(abilities, (0..count as u32).collect());
+    assert_eq!(abilities, (0..count as u32).map(|index| EffectiveTriggerAbility::Intrinsic { index }).collect());
 }
 #[test]
 fn m4a_synthetic_shared_stack_overflow_rolls_back_whole_paid_cast_step() {
@@ -745,7 +748,7 @@ fn m4a_paid_apex_four_same_block_siblings_one_ramos_and_apnap_observer() {
                 }
             }
         }
-        assert_eq!(abilities, BTreeSet::from([0, 1, 2, 3]));
+        assert_eq!(abilities, (0..4).map(|index| EffectiveTriggerAbility::Intrinsic { index }).collect());
         assert_eq!(triggers.len(), 4);
         assert_eq!((ramos, hydra), (1, 1));
         assert!(witnesses.windows(2).all(|w| w[0] == w[1]));
@@ -893,7 +896,7 @@ fn m4a_sibling_offer_tokens_and_rehashed_multiplicity_witnesses_do_not_cross() {
                 else {
                     panic!()
                 };
-                *ability = 1;
+                *ability = EffectiveTriggerAbility::Intrinsic { index: 1 };
             }
             2 => {
                 let a = forged.state.rules.stack[indices[0]].kind.clone();
