@@ -346,10 +346,18 @@ pub(super) fn typed_aura(kind: CardKind) -> Definition {
 }
 
 #[test]
-fn aura_control_target_type_is_exact_nonrecursive_and_capability_closed() {
+fn aura_control_domain_is_exact_nonrecursive_and_capability_closed() {
     for kind in [CardKind::Creature, CardKind::Artifact, CardKind::Land] {
         let mut d = typed_aura(kind);
-        assert_eq!(aura_control_target_type(&d), Some(kind));
+        assert_eq!(
+            aura_control_domain(&d),
+            Some(match kind {
+                CardKind::Creature => AuraControlDomain::Creature,
+                CardKind::Artifact => AuraControlDomain::Artifact,
+                CardKind::Land => AuraControlDomain::Land,
+                _ => unreachable!(),
+            })
+        );
         assert!(aura_control_source(&d));
         d.validate().unwrap();
         let target_cap = if kind == CardKind::Creature {
@@ -370,7 +378,15 @@ fn aura_control_target_type_is_exact_nonrecursive_and_capability_closed() {
         for cap in d.requirements() {
             let mut missing = d.clone();
             missing.capabilities.remove(&cap);
-            assert_eq!(aura_control_target_type(&missing), Some(kind));
+            assert_eq!(
+                aura_control_domain(&missing),
+                Some(match kind {
+                    CardKind::Creature => AuraControlDomain::Creature,
+                    CardKind::Artifact => AuraControlDomain::Artifact,
+                    CardKind::Land => AuraControlDomain::Land,
+                    _ => unreachable!(),
+                })
+            );
             assert!(missing.validate().is_err(), "missing {cap:?} on {kind:?}");
         }
         d.capabilities.insert(if kind == CardKind::Creature {
@@ -391,14 +407,6 @@ fn aura_control_artifact_land_reject_all_filter_and_composition_extensions() {
         }),
         ("creature domain with permanent filter", |d| {
             d.spell.as_mut().unwrap().targets[0].domain = TargetDomain::BattlefieldCreature
-        }),
-        ("empty type", |d| {
-            d.spell.as_mut().unwrap().targets[0]
-                .filter
-                .as_mut()
-                .unwrap()
-                .types
-                .clear()
         }),
         ("union type", |d| {
             d.spell.as_mut().unwrap().targets[0]
@@ -491,7 +499,7 @@ fn aura_control_artifact_land_reject_all_filter_and_composition_extensions() {
             let mut d = typed_aura(kind);
             mutate(&mut d);
             d.capabilities = d.requirements();
-            assert_eq!(aura_control_target_type(&d), None, "{kind:?}: {name}");
+            assert_eq!(aura_control_domain(&d), None, "{kind:?}: {name}");
             assert!(!aura_control_source(&d));
             assert!(d.validate().is_err(), "{kind:?}: {name}");
         }
@@ -533,5 +541,55 @@ fn aura_control_new_unit_serialization_rejects_old_internal_ir() {
                 .unwrap()
                 .contains(&serde_json::json!(Capability::CreatureTargetV1))
         );
+    }
+}
+
+pub(super) fn general_aura() -> Definition {
+    let mut d = typed_aura(CardKind::Artifact);
+    d.spell.as_mut().unwrap().targets[0]
+        .filter
+        .as_mut()
+        .unwrap()
+        .types
+        .clear();
+    d
+}
+
+#[test]
+fn aura_control_general_explicit_empty_filter_and_domain_membership() {
+    let d = general_aura();
+    assert_eq!(aura_control_domain(&d), Some(AuraControlDomain::Permanent));
+    assert!(aura_control_source(&d));
+    d.validate().unwrap();
+    assert_eq!(d.capabilities, typed_aura(CardKind::Artifact).capabilities);
+    for kind in [
+        CardKind::Creature,
+        CardKind::Artifact,
+        CardKind::Land,
+        CardKind::Enchantment,
+        CardKind::Instant,
+        CardKind::Sorcery,
+    ] {
+        let mut c = d.characteristics.clone();
+        c.kind = kind;
+        c.additional_types.clear();
+        assert_eq!(
+            AuraControlDomain::Permanent.accepts(&c),
+            !matches!(kind, CardKind::Instant | CardKind::Sorcery)
+        );
+        for (domain, expected) in [
+            (AuraControlDomain::Creature, CardKind::Creature),
+            (AuraControlDomain::Artifact, CardKind::Artifact),
+            (AuraControlDomain::Land, CardKind::Land),
+        ] {
+            assert_eq!(domain.accepts(&c), kind == expected);
+        }
+    }
+    for kind in [CardKind::Creature, CardKind::Land] {
+        let mut c = d.characteristics.clone();
+        c.kind = kind;
+        c.additional_types = vec![CardKind::Artifact];
+        assert!(AuraControlDomain::Artifact.accepts(&c));
+        assert!(AuraControlDomain::Permanent.accepts(&c));
     }
 }
