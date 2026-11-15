@@ -122,7 +122,7 @@ fn aura_control_complete_frozen_witnesses_have_pinned_source_and_same_reusable_s
             d.static_abilities,
             vec![StaticAbility {
                 functioning_zone: FunctioningZone::Battlefield,
-                effect: StaticEffect::ControlEnchantedCreature,
+                effect: StaticEffect::ControlEnchantedPermanent,
             }]
         );
         assert_eq!(
@@ -160,7 +160,7 @@ fn aura_control_complete_frozen_witnesses_have_pinned_source_and_same_reusable_s
                 "targets":[{"slot":0,"selection_id":"enchanted-creature","chooser":"controller",
                     "stage":"announcement","domain":"battlefield_creature"}],"instructions":[]
             },
-            "static_abilities":[{"functioning_zone":"battlefield","effect":"control_enchanted_creature"}],
+            "static_abilities":[{"functioning_zone":"battlefield","effect":"control_enchanted_permanent"}],
             "capabilities":["cast_enchantment_v1","aura_control_v1","normal_layout_v1","creature_target_v1","attachments_v1"]
         });
         assert_eq!(

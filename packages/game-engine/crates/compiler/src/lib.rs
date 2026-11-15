@@ -2985,7 +2985,7 @@ fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
         }
         return Ok(StaticAbility {
             functioning_zone: FunctioningZone::Battlefield,
-            effect: StaticEffect::ControlEnchantedCreature,
+            effect: StaticEffect::ControlEnchantedPermanent,
         });
     }
     if let SourceStaticEffect::Prohibit { prohibition } = effect {
