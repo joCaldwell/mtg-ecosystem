@@ -99,7 +99,14 @@ fn prefund(g: &mut Game, q: u64, id: u32) {
     for color in &cost.colored {
         fund(g, q, basic(*color), 1);
     }
-    while g.payment_pool(caster, &cost).is_err() {
+    loop {
+        // Apply the last accepted mana activation before inspecting the pool
+        // or choosing another untapped source. Responses enqueue an action.
+        let r = request(g, q);
+        assert_eq!(r.player(), caster);
+        if g.payment_pool(caster, &cost).is_ok() {
+            break;
+        }
         let sources = || {
             g.state.rules.objects.values().filter(|o| {
                 o.controller == caster
@@ -120,7 +127,12 @@ fn prefund(g: &mut Game, q: u64, id: u32) {
             .or_else(|| sources().next())
             .unwrap()
             .id;
-        answer(g, q, Response::ActivateMana { object: source });
+        g.respond(
+            r.player(),
+            r.decision_id(),
+            Response::ActivateMana { object: source },
+        )
+        .unwrap();
     }
 }
 
