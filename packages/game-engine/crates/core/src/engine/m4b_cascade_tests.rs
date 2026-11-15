@@ -75,7 +75,10 @@ fn m4b_paid_wanderer_two_identified_siblings_one_ramos_event_and_replay() {
         assert_ne!(siblings[0].0, siblings[1].0);
         assert_eq!(
             siblings.iter().map(|s| s.1).collect::<BTreeSet<_>>(),
-            BTreeSet::from([0, 1])
+            BTreeSet::from([
+                EffectiveTriggerAbility::Intrinsic { index: 0 },
+                EffectiveTriggerAbility::Intrinsic { index: 1 },
+            ])
         );
         let observers = g
             .state

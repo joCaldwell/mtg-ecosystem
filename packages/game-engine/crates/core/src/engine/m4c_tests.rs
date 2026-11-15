@@ -238,11 +238,35 @@ fn m4c_whole_paid_completion_history_and_id_faults_restore_payment_and_trace() {
         match fault {
             0=>g.state.rules.next_trigger_id=u64::MAX-4, // four intrinsic + observer + grant
             1=>g.state.rules.next_stack_id=u32::MAX-4,
-            2=>g.state.rules.retained_auxiliary_charge=capacities::HISTORY_LIMIT-1,
+            2=>{
+                // Calibrate from the real accepted payment step, not an already
+                // over-limit starting state. Coalescing matches advance().
+                let original = g.top().unwrap().id;
+                let mut completed = g.fork();
+                completed.in_rule_step = true;
+                completed.step().unwrap();
+                assert!(completed.state.rules.stack.iter().find(|s| s.id == original).unwrap().paid.is_some());
+                let grant_growth = completed.grant_payload_charge().checked_sub(g.grant_payload_charge()).unwrap();
+                assert!(grant_growth > 0);
+                let headroom = grant_growth / 2;
+                let extra = capacities::HISTORY_LIMIT.checked_sub(g.history_charge()).unwrap().checked_sub(headroom).unwrap();
+                g.state.rules.retained_auxiliary_charge = g.state.rules.retained_auxiliary_charge.checked_add(extra).unwrap();
+                assert_eq!(g.history_charge(), capacities::HISTORY_LIMIT - headroom);
+                let mut reached = g.fork();
+                reached.in_rule_step = true;
+                let step = reached.step();
+                assert!(reached.state.rules.stack.iter().find(|s| s.id == original).unwrap().paid.is_some());
+                assert!(reached.history_charge() > capacities::HISTORY_LIMIT || matches!(reached.typed_fault(), Some(RuleFault::HistoryCapacityExceeded { .. })));
+                if step.is_err() {
+                    assert!(matches!(reached.typed_fault(), Some(RuleFault::HistoryCapacityExceeded { .. })));
+                }
+            },
             _=>unreachable!(),
         }
         let state=g.state.clone(); let trace=g.trace.clone();
+        assert!(g.history_charge() <= capacities::HISTORY_LIMIT, "pre-step history must fit");
         assert!(matches!(g.advance(Budget::new(1)),Advance::Fault(_))); assert!(g.typed_fault().is_some());
+        if fault == 2 { assert!(matches!(g.typed_fault(), Some(RuleFault::HistoryCapacityExceeded { .. }))); }
         let mut after=g.state.clone(); after.rules.frame=state.rules.frame.clone(); after.rules.typed_fault=state.rules.typed_fault.clone();
         assert_eq!(after,state); assert_eq!(g.trace,trace);
     }
