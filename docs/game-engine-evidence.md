@@ -194,6 +194,26 @@ completion/performance/retention, server/SDK/host/search/consumer matrices and N
 suites requiring absent dependencies remain omitted. Consumer acceptance retains
 its earlier exact producer; neither pass expands admission or qualifies later source.
 
+The controlled-permanent extension is qualified separately at source
+`21d10aaa67ea67f009366cbce0d754b59d9b7daa`: **465 distinct Rust tests / 471
+executions**, including 90 fresh distinct core tests and 375 compiler/contracts
+passes reused through a byte-equal source bridge across two test-only corrections.
+All-target compilation and production lint use that explicit bridge; affected
+core tests and CLI were rebuilt. All **2,805 exported-schema probes** passed;
+831 compiled source rows match Git. CLI producer
+`dbf3eea9f9fb7d468031c6364fc683710f864cfde77e800f7100fce1ce4de14d`,
+optimized runtime producer
+`beb0d485d8c289785046de3c83420cea28f748a258d24ed40fbe5472d49580a8`,
+schema `e37053a3e7e1f12f6963b04a303794f67b36226d0e64c003f9ca3dd51700682c`.
+Snapshot/public-context-work remain 26/21. Paid mixed-permanent protection and
+current/departed enchantment damage/LKI pass; broader noncreature keyword vectors
+remain labelled synthetic kernel probes. Exact executed copies, unchanged-input
+bridges, review, retained publication/outcome test failures and settings proofs
+are in `generated/permanent-set-keywords/{integration.json,review.json,combined03/}`.
+Full matrices, policy/pod runtime, hosting/search/SDK/consumer qualification and
+missing-dependency Node suites are omitted. This feature expands no admission and
+remains separate from the client-held main/consumer producer.
+
 ### Complete-source compiler input rejection
 
 Compiler source `6dc5e91c` rejects empty printed mana costs on nonlands rather
