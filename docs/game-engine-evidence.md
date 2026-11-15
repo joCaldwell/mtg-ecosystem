@@ -163,10 +163,10 @@ The captured-set foundation at source
 `935cf02ab063686040396b02d02871a71ed69a434845d1456179bd039365d367`, optimized
 test producer `1d67b54914a0b7fefd0b7415b7cf11e6485fdfab5826fe55a03fa9a1e0ea2f54`,
 schema `9a80424e2d41b4baeb48b578bd15e467282a97e746ed41656099012a0ff89eb3`.
-Its snapshot/public boundaries are 25/20. Exact binaries, settings, interrupted
-split-effect attempt, rules review and corrected publication probe remain in
+Snapshot/public boundaries are 25/20. Binaries, settings, interrupted split-effect
+attempt, review and corrected publication probe remain in
 `generated/set-keyword-grants/{integration.json,review.json,combined04/}` in the
-original engine lane. Those failures retain their original outcomes.
+original engine lane; failures retain their outcomes.
 
 The targeted atomic repair is qualified at source
 `8462ce4c362702da5062762e45be00f4693080d9`: **547 distinct Rust tests** (259 compiler,
@@ -180,16 +180,15 @@ schema `30e93fedbb77779d8a83cebc39206620b213659384ecde9346c37bd4f8cf0c3c`.
 Snapshot/public-context-work are 26/21. Compiler/core/simulator production Clippy
 passed strictly; contracts retains inherited `collapsible_if`.
 
-Paid owner-departure LKI reproduced the split-effect defect; the unchanged
-regression and actual borrowed Prodigal damage/lifelink witness now pass.
-One complete sentence creates one effect with its stat and keyword components.
+Paid owner-departure LKI exposed the split-effect defect; the unchanged regression
+and borrowed Prodigal damage/lifelink witness pass.
 Only Mortal's Resolve's instruction encoding/digest changed in the admitted pool;
-the other 47 definitions, decks and policy behavior are preserved. Raw receipts,
-review, actual binaries, source/settings proof and schema outcomes are under
+the other 47 definitions, decks and policy behavior are preserved. Receipts,
+review, binaries, source/settings proof and schema outcomes remain in
 `generated/atomic-targeted-keywords/{integration.json,review.json,combined02/}`.
-The stale split-sentence positive and an overbroad build-ID verifier assertion
-are retained separately. Profile-only admission tests have exact executable/hash
-proof but do not reference the core build-ID constant. Full runtime/release/profile/
+Retained failures include a stale split-sentence test and verifier-scope assertion.
+Profile-only admission binaries are hash-verified without core build-ID references.
+Full runtime/release/profile/
 completion/performance/retention, server/SDK/host/search/consumer matrices and Node
 suites requiring absent dependencies remain omitted. Consumer acceptance retains
 its earlier exact producer; neither pass expands admission or qualifies later source.
@@ -213,6 +212,29 @@ are in `generated/permanent-set-keywords/{integration.json,review.json,combined0
 Full matrices, policy/pod runtime, hosting/search/SDK/consumer qualification and
 missing-dependency Node suites are omitted. This feature expands no admission and
 remains separate from the client-held main/consumer producer.
+
+The typed Aura-control extension is qualified at source
+`97afa6cdcdda88d76a86459b18ae53cda63c1546`: **507 distinct Rust tests**, including
+398 precheck passes at `99097789` through a three-private-test-file bridge and
+109 fresh core passes, **3,021 schema probes**, and 837 verified compiled rows.
+CLI producer `df8d293944268b10c2900f0628ef01e8872d0472febb845237a634145b5fb3ec`,
+optimized runtime producer
+`14bb7aa2b7cbe2c07672c439172cb13ca4743564ae9c80c479add9387ee80567`,
+schema `bf73e4bb9c58aa3661ee75e25d10590214d6aa466464908c4ce53745f34b99a0`.
+Formats remain 26/21 and Card IR 1. One review found no concrete issues;
+production remained unchanged through paid-test protocol/setup corrections.
+
+Paid multitype, Equipment, nested Signet, departure, targeting and authenticated
+recovery witnesses pass. Immutable-baseline multitype positives and three Aura
+rejections are retained. The stale spending failure was reproduced there before
+the published test-only correction. Binaries, independent identities, bridges,
+failures, review and schema results remain in
+`generated/typed-aura-control/{integration.json,review.json,preflight01/,combined05/}`.
+All-target compilation and production lint carry their explicit unchanged-input
+bridge; contracts uses inherited `collapsible_if`. Full matrices, simulator policy/
+pod runtime, consumer/host/search/SDK qualification and missing-dependency Node
+suites remain omitted. Catalog/profile bodies and admission are unchanged;
+client and Ramos producer qualifications remain separate.
 
 ### Complete-source compiler input rejection
 

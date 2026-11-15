@@ -268,51 +268,39 @@ never comes from object IDs, map iteration or trace retention. Simultaneous
 competing attachments require the unimplemented APNAP/player-selected timestamp
 ordering of CR 613.7m and reject explicitly.
 
-Private snapshot format 22 includes attachment timestamps and their allocator in
-canonical state and replay verification. Card IR remains 1; public/query formats
-and catalog/hosting/search admission are unchanged. Continuous control uses the
-separate source family below.
+Attachment timestamps and their allocator are canonical state and replay inputs.
+Current formats belong to the [current map](game-engine-current.md); attachment
+support does not broaden catalog/hosting/search admission. Continuous control
+uses the source family below.
 
 ### Continuous permanent control from Auras
 
-`aura_control_v1` admits one complete normal pure Enchantment — Aura source,
-with no additional card types, and one battlefield `ControlEnchantedPermanent`
-operation using the current source controller (CR 109.5, 110.2, 613.1b).
-`aura_control_target_type` validates the complete narrow family without recursive
-validation or capability calculation and returns only Creature, Artifact or Land;
-`aura_control_source` is its `is_some` predicate. Creature control retains one
-unfiltered `BattlefieldCreature` target and may compose with one existing bounded
-`ModifyCreatures { scope: Enchanted, .. }`. Artifact and land control require pure
-control with one `BattlefieldPermanent` target, an exact singleton type filter and
-all other filter vectors/flags empty or false. Every target uses controller choice,
-announcement, slot zero and a nonempty selection ID. Target membership uses
-`Characteristics::has_type`, so artifact creatures and artifact lands retain all
-their types. General-permanent/enchantment selectors, unions, extra source types,
-modifiers on artifact/land control, type changing and dependent control reject;
-no admitted control Aura can itself be enchanted by another admitted control Aura.
+`aura_control_v1` admits complete normal pure Enchantment — Aura sources with
+one battlefield `ControlEnchantedPermanent` operation using their current controller
+(CR 109.5, 110.2, 613.1b). Nonrecursive `aura_control_target_type` recognizes the
+whole shape and returns Creature, Artifact or Land; `aura_control_source` tests
+its presence. Creature control uses unfiltered `BattlefieldCreature` and may add
+one bounded enchanted-creature modifier. Artifact/land control is pure: one
+`BattlefieldPermanent` target with a singleton type filter and otherwise empty/false
+restrictions. All targets are controller-announced slot zero with nonempty selection
+IDs. Ordinary program/capability fences remain exact.
 
-Frozen Mind Control and Control Magic witness plain creature control; Spirit Away
-and Yavimaya's Embrace compose +2/+2 with Flying or Trample. Steal Artifact,
-Annex (including its normalized reminder) and Conquer witness pure artifact/land
-control; complete Silver Myr and Seat of the Synod records use the existing
-multitype/tap-mana lowering path. Names, IDs, amounts and costs never dispatch.
-Typed operands, normalized literal clauses, sentence/block mirrors and bindings
-remain strict. The shared modifier validator retains rejection of negative static
-P/T, Flash and Aura-granted Indestructible. Unsupported extra abilities, filters,
-durations and animation reject. Artifact/land targets require existing
-`permanent_removal_v1`; creature targets retain `creature_target_v1`. All require
-Attachments and Aura Control with exact ordinary cast/layout capability closure.
-There is no new capability or format: Card IR 1, snapshot 26 and public/context/work
-21 remain unchanged. The renamed unit is an intentional internal IR serialization
-change; the old creature unit rejects, exact build/catalog identity fences it,
-and admitted catalog bodies contain no old control Auras.
+`has_type` preserves artifact-creature/land membership. Sources have no additional
+types, so none can be controlled by another admitted Aura. General permanent or
+enchantment selectors, unions, source-type changes, dependencies, extra abilities,
+and artifact/land modifiers reject. Existing modifier rules reject negative static
+P/T, Flash and Aura-granted Indestructible. Typed operands, complete normalized
+clauses and source mirrors remain strict; names, IDs, amounts and costs never
+dispatch. Creature targets require Creature Target; artifact/land targets require
+Permanent Removal; both retain Attachments, Aura Control and ordinary cast/layout
+closure. Old creature-opcode input rejects under exact build/catalog fencing;
+admitted catalog bodies are unchanged.
 
-Generalized Rust source/contracts tests and the extended
-[Aura schema harness](../packages/game-engine/crates/contracts/tests/aura-control-schema-probes.mjs)
-are prepared source controls. All new native tests, schema export and Ajv execution
-are **UNRUN** pending the parent combined qualification; `--prepare-only` constructs
-probes without executing schema validation. No catalog, profile or consumer
-admission follows from this source slice.
+Frozen witnesses include Mind Control/Control Magic, composed Spirit Away/Yavimaya's
+Embrace, and Steal Artifact/Annex/Conquer. Silver Myr/Seat of the Synod exercise the
+existing multitype mana path. [Evidence](game-engine-evidence.md#atomic-temporary-keyword-qualification)
+owns qualification and unchanged formats. The [schema harness](../packages/game-engine/crates/contracts/tests/aura-control-schema-probes.mjs)
+also prepares probes without validating. Source support grants no consumer admission.
 
 The current battlefield source, exact attached target incarnation and semantic
 attachment timestamp determine authority. The latest live Aura wins; removing it
