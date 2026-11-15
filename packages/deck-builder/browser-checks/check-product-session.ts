@@ -1,0 +1,367 @@
+#!/usr/bin/env node
+// Opt-in actual built-product acceptance. No Cargo, SDK generation, fake native
+// responses, human SDK policy or second human reader. Every command is UI-owned.
+import { fork, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, openSync, closeSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { chromium, firefox, type Page, type BrowserContext } from "playwright-core";
+import type { ActionBeginning, ActionInitiation, Observation, PlayerResponse, SeatBootstrap, RulesResult } from "@multiverse/game-server-sdk";
+import { check, completeResponse, fileHash, repository, verifyInputs, OBSERVATION_VERSION, type Inputs } from "./lib/product-session-fixture.ts";
+
+const option = (name: string) => { const i = process.argv.indexOf(`--${name}`); return i < 0 ? undefined : process.argv[i + 1]; };
+const required = (name: string) => { const value = option(name); check(value && !value.startsWith("--"), `argument_${name}`); return resolve(value); };
+const delay = (ms: number) => new Promise<void>(done => setTimeout(done, ms));
+async function until(predicate: () => unknown | Promise<unknown>, code: string, ms = 20_000) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) { if (await predicate()) return; await delay(30); }
+  throw Error(code);
+}
+async function bounded<T>(work: Promise<T>, ms: number, code: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try { return await Promise.race([work, new Promise<never>((_, fail) => { timer = setTimeout(() => fail(Error(code)), ms); })]); }
+  finally { clearTimeout(timer); }
+}
+function initiationResponse(action: ActionInitiation): PlayerResponse {
+  switch (action.action) {
+    case "pass": return { response: "pass" };
+    case "play_land": return { response: "play_land", object: action.object };
+    case "cast": return { response: "cast", card: action.card };
+    case "activate_mana": return { response: "activate_mana", object: action.object };
+    case "activate_ability": return { response: "activate_ability", object: action.object, ability: action.ability };
+    case "finish_mana": return { response: "finish_mana", undo_mana: action.undo_mana };
+  }
+}
+async function journal(page: Page, exactBody?: string) {
+  return page.evaluate(async body => {
+    const db = await new Promise<IDBDatabase>((done, fail) => {
+      const open = indexedDB.open("multiverse-command-journal", 1);
+      open.onsuccess = () => done(open.result); open.onerror = () => fail(Error("journal_open"));
+    });
+    try {
+      return await new Promise<boolean>((done, fail) => {
+        const tx = db.transaction("commands", "readonly"), read = tx.objectStore("commands").getAll();
+        // Returning after transaction complete also proves the preceding strict
+        // write committed; no actual private record leaves the browser.
+        tx.oncomplete = () => done(body === undefined ? read.result.length === 0 : read.result.length === 1
+          && read.result[0].exactBody === body && Object.keys(read.result[0]).sort().join() === "binding,exactBody,version");
+        tx.onerror = tx.onabort = () => fail(Error("journal_read"));
+      });
+    } finally { db.close(); }
+  }, exactBody);
+}
+interface Ready {
+  ready: true; origin: string; owner: { user_id: number; cookie: string }; foreign: { user_id: number; cookie: string };
+  deckId: number; identity: { engine_build_id: string; server_build_id: string; catalog_sha256: string; profile: string };
+}
+
+async function run(name: "chromium" | "firefox", output: string, dist: string, inputs: Inputs, natural: boolean) {
+  const directory = mkdtempSync(join(output, `${name}-`));
+  const log = openSync(join(directory, "host.log"), "wx", 0o600);
+  const child = fork(fileURLToPath(new URL("./lib/product-session-host.ts", import.meta.url)), [], { stdio: ["ignore", log, log, "ipc"] });
+  closeSync(log);
+  const joined = new Promise<number | null>(done => child.once("exit", done));
+  let stopped = false, joinedLeases = 0;
+  child.on("message", (value: any) => { if (value.stopped) { stopped = true; joinedLeases = value.leases; } });
+  const readiness = bounded(new Promise<Ready>((done, fail) => {
+    child.once("error", () => fail(Error("fixture_process")));
+    child.once("exit", () => fail(Error("fixture_early_exit")));
+    child.once("message", (value: any) => value.ready ? done(value) : fail(Error("fixture_start")));
+  }), 170_000, "fixture_start_deadline");
+  child.send({ directory: join(directory, "private"), dist, inputs });
+  let browser, context: BrowserContext | undefined, page: Page | undefined, ready: Ready | undefined;
+  let failure = "", protocolFailed = false, pageErrors = 0, presentationMissing = 0;
+  let observation: Observation | null = null, revision = "", outcome: RulesResult | null = null, lifecycle = "";
+  let gameId = "", bootstrap: SeatBootstrap | undefined, grants = 0, nativeReads = 0, activeReads = 0;
+  let lazyLoaded = false, admission = false, launched = false, recovered = false, unmounted = false, regranted = false;
+  let negatives = 0, conditionalReversal = false, commanderResolved = false, landPlayed = false;
+  let naturalAttempted = false, naturalCompleted = false, naturalPaused = false, naturalBounded = false, naturalUnsupported = false;
+  let beginnings: ActionBeginning[] = [], requests = 0, queries = 0;
+  let pending: { response: PlayerResponse; revision: string; token: string } | undefined;
+  const sent = new Map<string, string>(), accepted = new Set<string>(), consumed = new Set<string>();
+  const requestKinds: Record<string, number> = {}, responseKinds: Record<string, number> = {};
+  const jobs = new Set<Promise<void>>();
+  let journalBeforeSend = 0, originalContexts = 0, completeResponses = 0, authenticatedPosts = 0;
+  const add = (counts: Record<string, number>, name: string) => { counts[name] = (counts[name] ?? 0) + 1; };
+  try {
+    ready = await readiness;
+    const sdk = await import("@multiverse/game-server-sdk");
+    browser = await ({ chromium, firefox }[name]).launch({ headless: true });
+    context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: "block", reducedMotion: "reduce" });
+    const cookie = (value: string) => ({ name: "better-auth.session_token", value, url: ready!.origin, httpOnly: true, sameSite: "Lax" as const });
+    await context.addCookies([cookie(ready.owner.cookie)]);
+    page = await context.newPage(); page.setDefaultTimeout(20_000);
+    page.on("pageerror", () => { pageErrors++; });
+    // No traces, HAR, video, screenshots, console text, DOM snapshots or failing
+    // locator diagnostics are captured. Plain playwright-core avoids test-runner
+    // automatic authenticated failure artifacts.
+    page.on("response", response => {
+      const job = (async () => {
+        const path = new URL(response.url()).pathname;
+        if (/\/assets\/live-game-[^/]+\.js$/.test(path)) lazyLoaded = true;
+        if (path === "/api/games/admission") {
+          check(response.status() === 200, "admission_http");
+          const value = await response.json(); admission = value.admission.state === "supported" && value.admission.launch_ready === true;
+        } else if (path === "/api/games" && response.request().method() === "POST") {
+          check(response.status() === 200, "launch_http");
+          const value = await response.json(); check(value.game.state === "active", "launch_active");
+          gameId = value.game.id; launched = true;
+        } else if (/\/api\/games\/[^/]+\/seat$/.test(path)) {
+          if (response.status() !== 200) return;
+          const value = await response.json(), next = sdk.parseSeatBootstrap(value.bootstrap_file);
+          check(next.viewer === 0 && next.match_id === gameId && next.server_origin === ready!.origin
+            && next.engine_build_id === ready!.identity.engine_build_id && next.server_build_id === ready!.identity.server_build_id
+            && next.catalog_sha256 === ready!.identity.catalog_sha256, "grant_identity");
+          if (bootstrap) check(next.capability === bootstrap.capability, "regrant_credentials");
+          bootstrap = next; grants++;
+        } else if (path.includes("/native/v1/")) {
+          if (path.endsWith("/presentation") && response.status() === 404) { presentationMissing++; return; }
+          check(response.status() === 200, "native_browser_http");
+          const value = await response.json();
+          if (path.endsWith("/resume")) {
+            check(value.viewer === 0 && value.match_id === gameId && value.engine_build_id === ready!.identity.engine_build_id
+              && value.server_build_id === ready!.identity.server_build_id && value.catalog_sha256 === ready!.identity.catalog_sha256, "resume_identity");
+            activeReads++; revision = value.next; outcome = value.outcome; lifecycle = value.lifecycle?.status ?? "";
+            if (value.state.status === "available") observation = value.state.observation;
+          } else if (path.endsWith("/events")) {
+            revision = value.next;
+            for (const entry of value.entries) {
+              if (entry.publication.kind === "view_replaced") observation = entry.publication.observation;
+              if (entry.publication.kind === "outcome") outcome = entry.publication.result;
+              if (entry.publication.kind === "lifecycle") lifecycle = entry.publication.status.status;
+            }
+          } else if (path.endsWith("/actions/query")) {
+            queries++;
+            if (["complete", "incomplete"].includes(value.outcome.status)) beginnings.push(...value.outcome.page.beginnings);
+          } else if (path.endsWith("/commands")) {
+            check(value.status === "accepted", "human_command_rejected"); accepted.add(value.command_id);
+          } else if (/\/commands\/[^/]+$/.test(path) && value.status.status === "consumed_by_rules") consumed.add(value.command_id);
+          if (observation) check(observation.observation_version === OBSERVATION_VERSION && observation.view.viewer === 0, "actual_observation_21");
+        }
+      })().catch(() => { protocolFailed = true; });
+      jobs.add(job); void job.finally(() => jobs.delete(job));
+    });
+    await context.route("**/*", async route => {
+      const request = route.request(), url = new URL(request.url()); requests++;
+      try {
+        check(!url.href.includes(ready!.owner.cookie) && !url.href.includes(ready!.foreign.cookie)
+          && (!bootstrap || !url.href.includes(bootstrap.capability)), "secret_url");
+        if (url.origin !== ready!.origin) { await route.abort(); return; }
+        if (url.pathname.includes("/native/")) {
+          nativeReads++;
+          const headers = await request.allHeaders();
+          check(headers.cookie?.includes(`better-auth.session_token=${ready!.owner.cookie}`), "native_account_cookie");
+          if (!url.pathname.endsWith("/client-config.json")) check(bootstrap && headers.authorization === `Bearer ${bootstrap.capability}`, "native_human_bearer");
+          if (request.method() === "POST") authenticatedPosts++;
+          if (/\/commands$/.test(url.pathname) && request.method() === "POST") {
+            const body = request.postData(); check(body && pending && !protocolFailed, "unsolicited_human_post");
+            const envelope = sdk.parsePreparedCommand(body).envelope;
+            check(!sent.has(envelope.command_id), "duplicate_human_post");
+            check(envelope.expected_revision === pending.revision && envelope.command.kind === "decision"
+              && envelope.command.token === pending.token, "original_command_context"); originalContexts++;
+            check(envelope.command.kind === "decision", "decision_command");
+            completeResponse(envelope.command.response, pending.response); completeResponses++;
+            check(await journal(page!, body), "durable_exact_bytes"); journalBeforeSend++;
+            add(responseKinds, envelope.command.response.response); sent.set(envelope.command_id, body);
+          }
+        }
+        await route.continue();
+      } catch { protocolFailed = true; await route.abort().catch(() => {}); }
+    });
+    const current = (): Observation => { check(observation, "browser_observation"); return observation; };
+    const settle = async (action: () => Promise<unknown>, response: PlayerResponse, original = { revision, token: current().decision!.token }) => {
+      check(!pending && !protocolFailed, "command_gate");
+      add(requestKinds, current().decision!.request);
+      pending = { ...original, response }; const before = sent.size;
+      try {
+        await action();
+        await until(() => !protocolFailed && sent.size === before + 1, "human_post_observed");
+        const id = [...sent.keys()].at(-1)!;
+        await until(() => !protocolFailed && accepted.has(id) && consumed.has(id), "native_consumed_by_rules");
+        await until(() => journal(page!), "journal_resolved");
+        await until(() => page!.getByRole("region", { name: "Choice status" }).filter({ hasText: "The table used your choice." }).isVisible(), "choice_status");
+      } finally { pending = undefined; }
+    };
+    const choose = async (predicate: (beginning: ActionBeginning) => boolean) => {
+      beginnings = [];
+      const button = page!.getByRole("button", { name: "Discover actions", exact: true });
+      await until(async () => await button.getAttribute("aria-disabled") === "false", "discover_enabled");
+      const original = { revision, token: current().decision!.token };
+      await page!.getByLabel("Discovery scope", { exact: true }).selectOption("");
+      await button.click();
+      await until(() => page!.getByText("Discovery complete. Each submitted action is validated again by the host.", { exact: true }).isVisible(), "discovery_complete");
+      const index = beginnings.findIndex(predicate); check(index >= 0, "permitted_beginning");
+      const beginning = beginnings[index]!;
+      check(beginning.initiation.action === "pass" || beginning.label !== "unavailable", "producer_action_label");
+      if (beginning.initiation.action === "finish_mana" && beginning.initiation.undo_mana) {
+        check(beginning.label !== "unavailable" && beginning.label.available.text === "Finish adding mana; reverse reversible mana if payment fails", "conditional_reversal_wording");
+        conditionalReversal = true;
+      }
+      const menu = page!.getByRole("region", { name: "Available actions", exact: true });
+      await settle(() => menu.locator("ol > li > button").nth(index).click(), initiationResponse(beginning.initiation), original);
+    };
+    const connected = () => page!.getByRole("heading", { name: "Connected · Seat 1", exact: true }).isVisible();
+    await page.goto(`${ready.origin}/play?deck=${ready.deckId}`);
+    // Use the actual custom product selector, not URL-derived deck authority.
+    if (!(await page.getByRole("heading", { name: "Native foundations default", exact: true }).count())) {
+      await page.getByRole("combobox", { name: "Your deck" }).click();
+      await page.getByRole("option", { name: "Native foundations default", exact: true }).click();
+    }
+    await page.getByRole("button", { name: "Check compatibility", exact: true }).click();
+    await until(() => admission && !protocolFailed, "supported_admission");
+    check(!lazyLoaded, "session_not_loaded_during_setup");
+    await page.getByRole("button", { name: "Start game", exact: true }).click();
+    await until(() => launched && gameId && new URL(page!.url()).pathname === `/play/games/${gameId}`, "active_route", 170_000);
+    await until(connected, "lazy_session_connected");
+    check(lazyLoaded, "lazy_session_chunk");
+    await until(() => Boolean(observation), "opening_observation");
+    check(grants === 1, "single_initial_grant");
+    const commander = current().view.objects.find(object => object.owner === 0 && object.zone.zone === "command");
+    check(commander, "native_default_commander"); const commanderOracle = commander.oracle_id;
+    await page.getByRole("radio", { name: "Keep hand", exact: true }).check();
+    await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), { response: "mulligan", take: false });
+    for (let i = 0; i < 12; i++) {
+      await until(() => current().decision?.request === "priority", "priority_window");
+      if (current().view.turn.step === "precombat_main") break;
+      await choose(value => value.initiation.action === "pass");
+    }
+    check(current().view.turn.step === "precombat_main" && current().view.turn.number === 1, "first_main");
+    await choose(value => value.initiation.action === "play_land");
+    landPlayed = current().view.turn.lands_played === 1;
+    check(landPlayed, "land_played");
+    await choose(value => value.initiation.action === "cast" && value.initiation.card === commander.handle
+      && value.label !== "unavailable" && value.label.available.source?.kind === "spell"
+      && value.label.available.source.oracle_id === commanderOracle && value.label.available.source.object === commander.handle);
+    await until(() => current().decision?.request === "mana", "mana_window");
+    await choose(value => value.initiation.action === "activate_mana" && value.label !== "unavailable"
+      && value.label.available.source?.kind === "mana_ability" && value.label.available.source.object === value.initiation.object
+      && Boolean(value.label.available.source.text));
+    await choose(value => value.initiation.action === "finish_mana" && value.initiation.undo_mana);
+    await until(() => current().decision?.request === "spend_mana", "payment_window");
+    const payment = current().decision; check(payment?.request === "spend_mana" && payment.cost.generic === "0" && current().decision_context?.source, "permitted_payment");
+    const colors = { W: "White", U: "Blue", B: "Black", R: "Red", G: "Green", C: "Colorless" };
+    const spending: Record<string, string> = {};
+    for (const color of Object.keys(payment.available) as (keyof typeof colors)[]) {
+      const amount = payment.cost.colored.filter(required => required === color).length.toString();
+      if (amount !== "0") spending[color] = amount;
+      await page.getByRole("textbox", { name: new RegExp(`^${colors[color]}`) }).fill(amount);
+    }
+    await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), { response: "spend_mana", spending });
+    const resolved = () => current().view.objects.some(object => object.owner === 0 && object.oracle_id === commanderOracle && object.zone.zone === "battlefield");
+    for (let i = 0; i < 8 && !resolved(); i++) {
+      await until(() => current().decision?.request === "priority" || resolved(), "resolution_priority");
+      if (!resolved()) await choose(value => value.initiation.action === "pass");
+    }
+    await until(resolved, "commander_resolved"); commanderResolved = true;
+    const readsBefore = activeReads, grantBefore = grants;
+    observation = null; await page.reload();
+    await until(() => grants === grantBefore + 1 && activeReads > readsBefore && observation && resolved(), "fresh_grant_recovery");
+    await until(connected, "recovered_connection"); check(await journal(page), "recovery_journal_empty"); recovered = true;
+    // Unmount the lazy session, then let any already in-flight read settle. No
+    // later native I/O or UI command may retain the discarded route's File.
+    await page.getByRole("link", { name: "Back to saved games", exact: true }).click();
+    await bounded(Promise.allSettled([...jobs]), 5_000, "unmount_reads"); await delay(250);
+    const readsAfterUnmount = nativeReads; await delay(300);
+    check(nativeReads === readsAfterUnmount && !(await connected()), "old_file_route_unmounted"); unmounted = true;
+    const priorGrant = grants;
+    await page.goto(`${ready.origin}/play/games/${gameId}`);
+    await until(() => grants === priorGrant + 1, "remount_fresh_file"); await until(connected, "remount_connection"); regranted = true;
+    // Real cookie/tenant negatives use separate browser contexts; their requests
+    // never touch the owning human session or its read controller.
+    for (const foreign of [true, false]) {
+      const other = await browser.newContext({ serviceWorkers: "block" });
+      try {
+        if (foreign) await other.addCookies([cookie(ready.foreign.cookie)]);
+        const denied = await other.request.post(`${ready.origin}/api/games/${gameId}/seat`, { data: {}, headers: { Origin: ready.origin }, timeout: 5_000 });
+        check(denied.status() === (foreign ? 404 : 401), "foreign_seat_denied");
+        const bytes = await denied.text(); check(!bytes.includes(bootstrap!.capability) && !bytes.includes("bootstrap_file"), "no_foreign_human_file"); negatives++;
+        const access = await other.request.get(`${ready.origin}/api/games/${gameId}/native/v1/matches/${gameId}/resume`, { headers: { Authorization: `Bearer ${bootstrap!.capability}` }, timeout: 5_000 });
+        check(access.status() === (foreign ? 404 : 401), "cookie_and_bearer_required"); negatives++;
+        const otherPage = await other.newPage(); await otherPage.goto(`${ready.origin}/play/games/${gameId}`);
+        await until(() => foreign ? otherPage.getByText(/This game session is unavailable/).isVisible() : otherPage.getByRole("main", { name: "Sign in", exact: true }).isVisible(), "foreign_route_denied");
+        check(await otherPage.getByRole("heading", { name: "Connected · Seat 1", exact: true }).count() === 0, "no_foreign_session"); negatives++;
+      } finally { await other.close(); }
+    }
+    const noBearer = await context.request.get(`${ready.origin}/api/games/${gameId}/native/v1/matches/${gameId}/resume`, { timeout: 5_000 });
+    check(noBearer.status() === 401, "owner_cookie_without_bearer_denied"); negatives++;
+    // Continue only through explicit DOM choices from permitted requests. This
+    // intentionally uses pass/draw rather than inventing unavailable strategy.
+    if (natural) {
+      naturalAttempted = true; const end = Date.now() + 240_000, count = sent.size;
+      while (Date.now() < end && sent.size - count < 1_200 && !protocolFailed) {
+        if (outcome) { naturalCompleted = true; break; }
+        if (["resource_paused", "faulted", "cancelled", "rejected"].includes(lifecycle)) { naturalPaused = true; break; }
+        const request = current().decision;
+        if (!request) { await delay(50); continue; }
+        if (request.request === "priority") await choose(value => value.initiation.action === "pass");
+        else if (request.request === "attackers" || request.request === "blockers") {
+          const title = request.request === "attackers" ? "Declare attackers" : "Declare blockers";
+          const form = page.getByRole("group", { name: title, exact: true });
+          const controls = form.getByRole("combobox");
+          check(await controls.count() === request.candidates.length, "permitted_combat_candidates");
+          for (let i = 0; i < request.candidates.length; i++) await controls.nth(i).selectOption("unused");
+          await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), request.request === "attackers" ? { response: "attackers", attacks: [] } : { response: "blockers", blocks: [] });
+        } else if (request.request === "discard") {
+          const boxes = page.getByRole("group", { name: "Choose cards to discard", exact: true }).getByRole("checkbox");
+          check(await boxes.count() === request.candidates.length, "permitted_discard_candidates");
+          for (let i = 0; i < request.count; i++) await boxes.nth(i).check();
+          await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), { response: "discard", objects: request.candidates.slice(0, request.count) });
+        } else { add(requestKinds, request.request); naturalUnsupported = true; break; }
+      }
+      naturalCompleted ||= Boolean(outcome); naturalBounded = !naturalCompleted && !naturalPaused && !naturalUnsupported;
+    }
+    check(await page.evaluate(() => localStorage.length === 0 && sessionStorage.length === 0 && location.search === "" && location.hash === ""), "no_secret_storage_or_url");
+    check(!protocolFailed && pageErrors === 0 && sent.size === journalBeforeSend && sent.size === originalContexts
+      && sent.size === completeResponses && sent.size === accepted.size && sent.size === consumed.size, "all_command_proofs");
+    check(["mulligan", "pass", "play_land", "cast", "activate_mana", "finish_mana", "spend_mana"].every(kind => responseKinds[kind]), "first_turn_responses");
+    await page.getByRole("button", { name: "Release seat and clear view", exact: true }).click();
+  } catch (error) {
+    // Only our short fixed assertion codes may become evidence; Playwright and
+    // SDK exceptions can include authenticated DOM, headers or private bodies.
+    failure = error instanceof Error && /^[a-z][a-z0-9_]{0,80}$/.test(error.message) ? error.message : "browser_operation_failed";
+  } finally {
+    // Abort/bound browser I/O before joining every owned native and bot lease.
+    try { await bounded(Promise.allSettled([context?.close(), browser?.close(), ...jobs]), 5_000, "browser_cleanup"); }
+    catch { failure ||= "browser_cleanup"; }
+    if (child.connected) child.send({ stop: true });
+    let exit: number | null = null;
+    try { exit = await bounded(joined, 40_000, "host_join_deadline"); }
+    catch { failure ||= "host_join_deadline"; child.kill("SIGTERM"); try { exit = await bounded(joined, 20_000, "host_join_failed"); } catch { failure ||= "host_join_failed"; } }
+    const cleanup = stopped && exit === 0 && joinedLeases === (launched ? 3 : 0);
+    if (!cleanup) failure ||= "owned_leases_not_joined";
+    const receipt = { browser: name, version: browser?.version() ?? "unavailable", source: verifyInputs(inputs), observation_version: OBSERVATION_VERSION,
+      passed: !failure, failure, page_errors: pageErrors, protocol_failed: protocolFailed, lazy_loaded: lazyLoaded, admission, launched,
+      grants, recovered, unmounted, regranted, negative_checks: negatives, requests, native_requests: nativeReads, authenticated_posts: authenticatedPosts,
+      human_commands: sent.size, journal_before_send: journalBeforeSend, original_contexts: originalContexts, complete_responses: completeResponses,
+      accepted: accepted.size, consumed: consumed.size, action_queries: queries, request_counts: requestKinds, response_counts: responseKinds,
+      presentation_404: presentationMissing, land_played: landPlayed, commander_resolved: commanderResolved, conditional_reversal_wording: conditionalReversal,
+      natural_attempted: naturalAttempted, natural_completed: naturalCompleted, natural_resource_paused: naturalPaused, natural_bounded: naturalBounded,
+      natural_unsupported: naturalUnsupported, rules_win: (outcome as RulesResult | null)?.outcome === "win", rules_draw: (outcome as RulesResult | null)?.outcome === "draw", cleanup_complete: cleanup, joined_bot_leases: joinedLeases };
+    writeFileSync(join(directory, "receipt.json"), JSON.stringify(receipt, null, 2) + "\n", { mode: 0o600, flag: "wx" });
+    // Only fixed booleans/counts/public source identities, never raw diagnostics.
+    console.log(JSON.stringify(receipt));
+  }
+  return !failure;
+}
+
+async function main() {
+  if (process.argv.includes("--help")) {
+    console.log("node check-product-session.ts --native-root DIR --sdk-root DIR --qualification JSON --records ARCHIVE_JSON_OR_JSONL --records-sha256 SHA256 --out NEW_DIR [--browser chromium|firefox|both] [--natural]"); return;
+  }
+  process.umask(0o077);
+  const inputs: Inputs = { nativeRoot: required("native-root"), sdkRoot: required("sdk-root"), qualification: required("qualification"), records: required("records"), recordsHash: option("records-sha256") ?? "" };
+  verifyInputs(inputs); // Before building, fixture startup or opening a browser.
+  const output = required("out"); mkdirSync(output, { mode: 0o700 });
+  const dist = join(output, "build");
+  const log = openSync(join(output, "build.log"), "wx", 0o600);
+  try {
+    const build = spawnSync(join(repository, "packages/multiverse/node_modules/.bin/vite"), ["build", "--outDir", dist, "--emptyOutDir", "--logLevel", "warn"], { cwd: join(repository, "packages/multiverse"), stdio: ["ignore", log, log] });
+    check(build.status === 0, "production_build");
+  } finally { closeSync(log); }
+  const selected = option("browser") ?? "both"; check(["chromium", "firefox", "both"].includes(selected), "browser_argument");
+  let passed = true;
+  for (const name of selected === "both" ? ["chromium", "firefox"] as const : [selected as "chromium" | "firefox"])
+    passed = await run(name, output, dist, inputs, process.argv.includes("--natural") && name === "chromium") && passed;
+  check(passed, "product_acceptance_failed");
+}
+void main().catch(error => { console.error(error instanceof Error && /^[a-z][a-z0-9_]{0,80}$/.test(error.message) ? error.message : "product_check_failed"); process.exitCode = 1; });
