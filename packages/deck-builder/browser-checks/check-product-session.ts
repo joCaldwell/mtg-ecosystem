@@ -2,7 +2,7 @@
 // Opt-in actual built-product acceptance. No Cargo, SDK generation, fake native
 // responses, human SDK policy or second human reader. Every command is UI-owned.
 import { fork, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, openSync, closeSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, openSync, closeSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, firefox, type Page, type BrowserContext } from "playwright-core";
@@ -12,9 +12,12 @@ import { check, completeResponse, fileHash, repository, verifyInputs, OBSERVATIO
 const option = (name: string) => { const i = process.argv.indexOf(`--${name}`); return i < 0 ? undefined : process.argv[i + 1]; };
 const required = (name: string) => { const value = option(name); check(value && !value.startsWith("--"), `argument_${name}`); return resolve(value); };
 const delay = (ms: number) => new Promise<void>(done => setTimeout(done, ms));
+const shutdown = new AbortController();
+process.once("SIGINT", () => shutdown.abort());
+process.once("SIGTERM", () => shutdown.abort());
 async function until(predicate: () => unknown | Promise<unknown>, code: string, ms = 20_000) {
   const end = Date.now() + ms;
-  while (Date.now() < end) { if (await predicate()) return; await delay(30); }
+  while (Date.now() < end) { check(!shutdown.signal.aborted, "check_aborted"); if (await predicate()) return; await delay(30); }
   throw Error(code);
 }
 async function bounded<T>(work: Promise<T>, ms: number, code: string): Promise<T> {
@@ -32,8 +35,8 @@ function initiationResponse(action: ActionInitiation): PlayerResponse {
     case "finish_mana": return { response: "finish_mana", undo_mana: action.undo_mana };
   }
 }
-async function journal(page: Page, exactBody?: string) {
-  return page.evaluate(async body => {
+async function journal(page: Page, exactBody?: string, binding?: Record<string, string>) {
+  return page.evaluate(async ({ body, binding }) => {
     const db = await new Promise<IDBDatabase>((done, fail) => {
       const open = indexedDB.open("multiverse-command-journal", 1);
       open.onsuccess = () => done(open.result); open.onerror = () => fail(Error("journal_open"));
@@ -44,18 +47,24 @@ async function journal(page: Page, exactBody?: string) {
         // Returning after transaction complete also proves the preceding strict
         // write committed; no actual private record leaves the browser.
         tx.oncomplete = () => done(body === undefined ? read.result.length === 0 : read.result.length === 1
-          && read.result[0].exactBody === body && Object.keys(read.result[0]).sort().join() === "binding,exactBody,version");
+          && read.result[0].version === 1 && read.result[0].exactBody === body
+          && Object.keys(read.result[0]).sort().join() === "binding,exactBody,version"
+          && binding !== undefined && Object.keys(read.result[0].binding).length === Object.keys(binding).length
+          && Object.entries(binding).every(([key, value]) => read.result[0].binding[key] === value));
         tx.onerror = tx.onabort = () => fail(Error("journal_read"));
       });
     } finally { db.close(); }
-  }, exactBody);
+  }, { body: exactBody, binding });
 }
 interface Ready {
   ready: true; origin: string; owner: { user_id: number; cookie: string }; foreign: { user_id: number; cookie: string };
   deckId: number; identity: { engine_build_id: string; server_build_id: string; catalog_sha256: string; profile: string };
+  cards: { oracle_id: string; name: string }[];
 }
 
 async function run(name: "chromium" | "firefox", output: string, dist: string, inputs: Inputs, natural: boolean) {
+  const pins = verifyInputs(inputs);
+  const checkerSources = ["check-product-session.ts", "lib/product-session-fixture.ts", "lib/product-session-host.ts"].map(path => ({ path, sha256: fileHash(fileURLToPath(new URL(path, import.meta.url))) }));
   const directory = mkdtempSync(join(output, `${name}-`));
   const log = openSync(join(directory, "host.log"), "wx", 0o600);
   const child = fork(fileURLToPath(new URL("./lib/product-session-host.ts", import.meta.url)), [], { stdio: ["ignore", log, log, "ipc"] });
@@ -70,9 +79,9 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   }), 170_000, "fixture_start_deadline");
   child.send({ directory: join(directory, "private"), dist, inputs });
   let browser, context: BrowserContext | undefined, page: Page | undefined, ready: Ready | undefined;
-  let failure = "", protocolFailed = false, pageErrors = 0, presentationMissing = 0;
+  let failure = "", protocolFailed = false, pageErrors = 0, presentationMissing = 0, presentationVerified = false, namedCards = 0;
   let observation: Observation | null = null, revision = "", outcome: RulesResult | null = null, lifecycle = "";
-  let gameId = "", bootstrap: SeatBootstrap | undefined, grants = 0, nativeReads = 0, activeReads = 0;
+  let gameId = "", artifactPath = "", bootstrap: SeatBootstrap | undefined, grants = 0, nativeReads = 0, activeReads = 0;
   let lazyLoaded = false, admission = false, launched = false, recovered = false, unmounted = false, regranted = false;
   let negatives = 0, conditionalReversal = false, commanderResolved = false, landPlayed = false;
   let naturalAttempted = false, naturalCompleted = false, naturalPaused = false, naturalBounded = false, naturalUnsupported = false;
@@ -80,6 +89,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   let pending: { response: PlayerResponse; revision: string; token: string } | undefined;
   const sent = new Map<string, string>(), accepted = new Set<string>(), consumed = new Set<string>();
   const requestKinds: Record<string, number> = {}, responseKinds: Record<string, number> = {};
+  const nativeStatuses: Record<string, number> = {};
   const jobs = new Set<Promise<void>>();
   let journalBeforeSend = 0, originalContexts = 0, completeResponses = 0, authenticatedPosts = 0;
   const add = (counts: Record<string, number>, name: string) => { counts[name] = (counts[name] ?? 0) + 1; };
@@ -98,6 +108,16 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     page.on("response", response => {
       const job = (async () => {
         const path = new URL(response.url()).pathname;
+        if (/\/presentation\/[a-f0-9]{64}\.json$/.test(path) && response.status() === 200) {
+          const artifact = await response.json();
+          check(artifact.catalog_sha256 === ready!.identity.catalog_sha256, "presentation_catalog");
+          for (const card of ready!.cards) {
+            const found = artifact.cards.find((row: { oracle_id: string }) => row.oracle_id === card.oracle_id);
+            check(found?.faces.length === 1 && found.faces[0].name === card.name, "presentation_frozen_names");
+          }
+          artifactPath = path;
+          presentationVerified = true;
+        }
         if (/\/assets\/live-game-[^/]+\.js$/.test(path)) lazyLoaded = true;
         if (path === "/api/games/admission") {
           check(response.status() === 200, "admission_http");
@@ -115,7 +135,15 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
           if (bootstrap) check(next.capability === bootstrap.capability, "regrant_credentials");
           bootstrap = next; grants++;
         } else if (path.includes("/native/v1/")) {
+          const operation = path.endsWith("/events") ? "events" : path.endsWith("/resume") ? "resume"
+            : path.endsWith("/presentation") ? "presentation" : path.endsWith("/manifest") ? "manifest"
+              : path.endsWith("/actions/query") ? "query" : path.endsWith("/commands") ? "submit" : "execution";
+          add(nativeStatuses, `${operation}_${response.status()}`);
           if (path.endsWith("/presentation") && response.status() === 404) { presentationMissing++; return; }
+          // Reads may exercise the real controller's bounded retry path. Only a
+          // later successful command/consumption qualifies recovered operation.
+          if (response.request().method() === "GET" && [429, 503].includes(response.status())) return;
+          if (operation === "execution" && response.status() === 404) return;
           check(response.status() === 200, "native_browser_http");
           const value = await response.json();
           if (path.endsWith("/resume")) {
@@ -151,7 +179,8 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
           nativeReads++;
           const headers = await request.allHeaders();
           check(headers.cookie?.includes(`better-auth.session_token=${ready!.owner.cookie}`), "native_account_cookie");
-          if (!url.pathname.endsWith("/client-config.json")) check(bootstrap && headers.authorization === `Bearer ${bootstrap.capability}`, "native_human_bearer");
+          if (/\/presentation\/[a-f0-9]{64}\.json$/.test(url.pathname)) check(request.method() === "GET" && !headers.authorization, "artifact_cookie_without_bearer");
+          else if (!url.pathname.endsWith("/client-config.json")) check(bootstrap && headers.authorization === `Bearer ${bootstrap.capability}`, "native_human_bearer");
           if (request.method() === "POST") authenticatedPosts++;
           if (/\/commands$/.test(url.pathname) && request.method() === "POST") {
             const body = request.postData(); check(body && pending && !protocolFailed, "unsolicited_human_post");
@@ -161,7 +190,8 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
               && envelope.command.token === pending.token, "original_command_context"); originalContexts++;
             check(envelope.command.kind === "decision", "decision_command");
             completeResponse(envelope.command.response, pending.response); completeResponses++;
-            check(await journal(page!, body), "durable_exact_bytes"); journalBeforeSend++;
+            check(await journal(page!, body, { origin: ready!.origin, match: gameId, seat: "0", engineBuild: ready!.identity.engine_build_id,
+              serverBuild: ready!.identity.server_build_id, catalog: ready!.identity.catalog_sha256, protocol: pins.protocol_schema_sha256 }), "durable_exact_bytes"); journalBeforeSend++;
             add(responseKinds, envelope.command.response.response); sent.set(envelope.command_id, body);
           }
         }
@@ -218,6 +248,14 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     check(grants === 1, "single_initial_grant");
     const commander = current().view.objects.find(object => object.owner === 0 && object.zone.zone === "command");
     check(commander, "native_default_commander"); const commanderOracle = commander.oracle_id;
+    await until(() => presentationVerified, "production_presentation_required");
+    const commanderName = ready.cards.find(card => card.oracle_id === commanderOracle)?.name;
+    check(commanderName, "frozen_commander_name");
+    check(await page.getByRole("region", { name: "Command zone", exact: true }).getByRole("button", { name: `Inspect ${commanderName}`, exact: true }).count() === 1, "named_commander_ui"); namedCards++;
+    for (const object of current().view.objects.filter(object => object.owner === 0 && object.zone.zone === "hand")) {
+      const name = ready.cards.find(card => card.oracle_id === object.oracle_id)?.name;
+      check(name && await page.getByRole("region", { name: /^Your hand/ }).getByRole("button", { name: `Inspect ${name}`, exact: true }).count() > 0, "named_hand_ui"); namedCards++;
+    }
     await page.getByRole("radio", { name: "Keep hand", exact: true }).check();
     await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), { response: "mulligan", take: false });
     for (let i = 0; i < 12; i++) {
@@ -257,6 +295,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     observation = null; await page.reload();
     await until(() => grants === grantBefore + 1 && activeReads > readsBefore && observation && resolved(), "fresh_grant_recovery");
     await until(connected, "recovered_connection"); check(await journal(page), "recovery_journal_empty"); recovered = true;
+    await choose(value => value.initiation.action === "pass");
     // Unmount the lazy session, then let any already in-flight read settle. No
     // later native I/O or UI command may retain the discarded route's File.
     await page.getByRole("link", { name: "Back to saved games", exact: true }).click();
@@ -266,6 +305,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     const priorGrant = grants;
     await page.goto(`${ready.origin}/play/games/${gameId}`);
     await until(() => grants === priorGrant + 1, "remount_fresh_file"); await until(connected, "remount_connection"); regranted = true;
+    await choose(value => value.initiation.action === "pass");
     // Real cookie/tenant negatives use separate browser contexts; their requests
     // never touch the owning human session or its read controller.
     for (const foreign of [true, false]) {
@@ -277,6 +317,8 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
         const bytes = await denied.text(); check(!bytes.includes(bootstrap!.capability) && !bytes.includes("bootstrap_file"), "no_foreign_human_file"); negatives++;
         const access = await other.request.get(`${ready.origin}/api/games/${gameId}/native/v1/matches/${gameId}/resume`, { headers: { Authorization: `Bearer ${bootstrap!.capability}` }, timeout: 5_000 });
         check(access.status() === (foreign ? 404 : 401), "cookie_and_bearer_required"); negatives++;
+        const artifact = await other.request.get(`${ready.origin}${artifactPath}`, { timeout: 5_000 });
+        check(artifact.status() === (foreign ? 404 : 401), "artifact_actor_required"); negatives++;
         const otherPage = await other.newPage(); await otherPage.goto(`${ready.origin}/play/games/${gameId}`);
         await until(() => foreign ? otherPage.getByText(/This game session is unavailable/).isVisible() : otherPage.getByRole("main", { name: "Sign in", exact: true }).isVisible(), "foreign_route_denied");
         check(await otherPage.getByRole("heading", { name: "Connected · Seat 1", exact: true }).count() === 0, "no_foreign_session"); negatives++;
@@ -289,6 +331,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     if (natural) {
       naturalAttempted = true; const end = Date.now() + 240_000, count = sent.size;
       while (Date.now() < end && sent.size - count < 1_200 && !protocolFailed) {
+        check(!shutdown.signal.aborted, "check_aborted");
         if (outcome) { naturalCompleted = true; break; }
         if (["resource_paused", "faulted", "cancelled", "rejected"].includes(lifecycle)) { naturalPaused = true; break; }
         const request = current().decision;
@@ -329,12 +372,14 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     catch { failure ||= "host_join_deadline"; child.kill("SIGTERM"); try { exit = await bounded(joined, 20_000, "host_join_failed"); } catch { failure ||= "host_join_failed"; } }
     const cleanup = stopped && exit === 0 && joinedLeases === (launched ? 3 : 0);
     if (!cleanup) failure ||= "owned_leases_not_joined";
-    const receipt = { browser: name, version: browser?.version() ?? "unavailable", source: verifyInputs(inputs), observation_version: OBSERVATION_VERSION,
+    const receipt = { browser: name, version: browser?.version() ?? "unavailable", source: pins, checker_sources: checkerSources, product_manifest_sha256: fileHash(join(dist, ".vite/manifest.json")), observation_version: OBSERVATION_VERSION,
       passed: !failure, failure, page_errors: pageErrors, protocol_failed: protocolFailed, lazy_loaded: lazyLoaded, admission, launched,
       grants, recovered, unmounted, regranted, negative_checks: negatives, requests, native_requests: nativeReads, authenticated_posts: authenticatedPosts,
       human_commands: sent.size, journal_before_send: journalBeforeSend, original_contexts: originalContexts, complete_responses: completeResponses,
       accepted: accepted.size, consumed: consumed.size, action_queries: queries, request_counts: requestKinds, response_counts: responseKinds,
-      presentation_404: presentationMissing, land_played: landPlayed, commander_resolved: commanderResolved, conditional_reversal_wording: conditionalReversal,
+      native_status_counts: nativeStatuses,
+      presentation_404: presentationMissing, production_presentation_verified: presentationVerified, named_cards_verified: namedCards,
+      land_played: landPlayed, commander_resolved: commanderResolved, conditional_reversal_wording: conditionalReversal,
       natural_attempted: naturalAttempted, natural_completed: naturalCompleted, natural_resource_paused: naturalPaused, natural_bounded: naturalBounded,
       natural_unsupported: naturalUnsupported, rules_win: (outcome as RulesResult | null)?.outcome === "win", rules_draw: (outcome as RulesResult | null)?.outcome === "draw", cleanup_complete: cleanup, joined_bot_leases: joinedLeases };
     writeFileSync(join(directory, "receipt.json"), JSON.stringify(receipt, null, 2) + "\n", { mode: 0o600, flag: "wx" });

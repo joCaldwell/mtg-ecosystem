@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { completeResponse, verifyInputs, startHostedFixture } from "./product-session-fixture.ts";
@@ -9,7 +9,10 @@ test("acceptance compares complete responses including FinishMana reversal and r
   completeResponse({ response: "finish_mana", undo_mana: true }, { response: "finish_mana", undo_mana: true });
   assert.throws(() => completeResponse({ response: "finish_mana", undo_mana: false }, { response: "finish_mana", undo_mana: true }), /complete_response/);
   assert.throws(() => completeResponse({ response: "activate_ability", object: "fixture", ability: 3 }, { response: "activate_ability", object: "fixture", ability: 2 }), /complete_response/);
-  assert.throws(() => verifyInputs({ qualification: new URL("../../../game-client/fixtures/foundations-opening/provenance.json", import.meta.url).pathname,
+  const directory = mkdtempSync(join(tmpdir(), "product-frozen-qualification-"));
+  const qualification = join(directory, "pins.json");
+  writeFileSync(qualification, JSON.stringify({ native_source: "565a1204d6e4b14443b9f49dda2ecbc6b46ee85a", sdk_source: "565a1204d6e4b14443b9f49dda2ecbc6b46ee85a" }), { mode: 0o600 });
+  assert.throws(() => verifyInputs({ qualification,
     nativeRoot: "/must-not-run-native", sdkRoot: "/unused", records: "/unused", recordsHash: "" }), /new_qualified_source_required/);
 });
 

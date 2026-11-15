@@ -27,6 +27,7 @@ export interface Inputs {
 interface Pins {
   native_source: string; sdk_source: string; engine_build_id: string; server_build_id: string;
   protocol_schema_sha256: string; bootstrap_schema_sha256: string;
+  native_source_manifest_sha256: string;
 }
 function confined(root: string, path: string) {
   const result = resolve(root, path);
@@ -39,10 +40,11 @@ function confined(root: string, path: string) {
 export function verifyInputs(inputs: Inputs): Pins {
   const pins: Pins = JSON.parse(readFileSync(inputs.qualification, "utf8"));
   check(/^[a-f0-9]{40}$/.test(pins.native_source) && pins.native_source !== frozen16
-    && pins.sdk_source === pins.native_source, "new_qualified_source_required");
+    && /^[a-f0-9]{40}$/.test(pins.sdk_source) && pins.sdk_source !== frozen16, "new_qualified_source_required");
   const native = (name: string) => confined(inputs.nativeRoot, name);
   check(fileHash(native("protocol.schema.json")) === pins.protocol_schema_sha256, "protocol_pin");
   check(fileHash(native("bootstrap.schema.json")) === pins.bootstrap_schema_sha256, "bootstrap_pin");
+  check(fileHash(native("source-files.json")) === pins.native_source_manifest_sha256, "native_source_manifest_pin");
   const schema = JSON.parse(readFileSync(native("protocol.schema.json"), "utf8"));
   check(schema.resume.definitions.Observation.properties.observation_version
     && pins.protocol_schema_sha256 !== "2eb874b2fa9e306b57d7da05d2e9a26b6965f2a639711d6705981e790d906ba5", "new_observation_schema_required");
@@ -56,14 +58,21 @@ export function verifyInputs(inputs: Inputs): Pins {
     && fileHash(confined(inputs.sdkRoot, "generated/generation.json")) === build.generation_sha256, "sdk_generation_pin");
   const generation = JSON.parse(readFileSync(confined(inputs.sdkRoot, "generated/generation.json"), "utf8"));
   check(generation.bootstrap_schema_sha256 === pins.bootstrap_schema_sha256, "sdk_bootstrap_pin");
+  const verification = JSON.parse(readFileSync(confined(inputs.sdkRoot, "generated/verification.json"), "utf8"));
+  check(verification.status === "preliminary-sdk-checks-passed" && verification.generation_manifest_sha256 === build.generation_sha256
+    && verification.source_files.some((row: { path: string }) => row.path === "src/policies.ts"), "sdk_qualification_receipt");
   for (const row of [...build.sources, ...build.files.map((row: { path: string; sha256: string }) => ({ ...row, path: `dist/${row.path}` }))]) {
     check(fileHash(confined(inputs.sdkRoot, row.path)) === row.sha256, "qualified_sdk_digest");
     check(fileHash(confined(sdk, row.path)) === row.sha256, "installed_sdk_differs");
   }
+  for (const row of verification.source_files) {
+    check(fileHash(confined(inputs.sdkRoot, row.path)) === row.sha256 && fileHash(confined(sdk, row.path)) === row.sha256, "qualified_sdk_source");
+  }
   check(fileHash(confined(sdk, "dist/build.json")) === fileHash(confined(inputs.sdkRoot, "dist/build.json")), "installed_sdk_build");
   check(fileHash(inputs.records) === inputs.recordsHash, "frozen_records_pin");
   return { native_source: pins.native_source, sdk_source: pins.sdk_source, engine_build_id: pins.engine_build_id,
-    server_build_id: pins.server_build_id, protocol_schema_sha256: pins.protocol_schema_sha256, bootstrap_schema_sha256: pins.bootstrap_schema_sha256 };
+    server_build_id: pins.server_build_id, protocol_schema_sha256: pins.protocol_schema_sha256, bootstrap_schema_sha256: pins.bootstrap_schema_sha256,
+    native_source_manifest_sha256: pins.native_source_manifest_sha256 };
 }
 export async function freePort() {
   const server = createServer();
@@ -116,6 +125,7 @@ export async function startHostedFixture(options: { directory: string; dist?: st
     }
     const owner = await enroll(), foreign = await enroll();
     let native, identity: GameIdentity | undefined, deckId: number | undefined;
+    let cards: { oracle_id: string; name: string }[] = [];
     if (options.inputs) {
       const pins = verifyInputs(options.inputs);
       const profile = JSON.parse(execFileSync(join(options.inputs.nativeRoot, "mtg-server"), ["lifecycle-profile", "commander-foundations-v1"], { encoding: "utf8", timeout: 10_000, stdio: ["ignore", "pipe", "ignore"] }));
@@ -135,6 +145,7 @@ export async function startHostedFixture(options: { directory: string; dist?: st
         return matches[0].source;
       });
       const { ingestCards } = await import("../../src/ingest.ts");
+      cards = sources.map(card => ({ oracle_id: card.oracle_id, name: card.name }));
       const { createDeck } = await import("../../src/deck/service.ts");
       const { applyChanges } = await import("../../src/deck/membership.ts");
       check(ingestCards(db, sources).inserted === sources.length, "fixture_ingestion");
@@ -147,9 +158,9 @@ export async function startHostedFixture(options: { directory: string; dist?: st
     host = await createHost({ mode: "hosted", port, databasePath: process.env.DECKBUILDER_DB, dataDirectory: options.directory, backgroundJobs: false,
       webDist: options.dist, isApplicationPath: (await import("../../../multiverse/src/page-paths.ts")).isApplicationPath,
       // The sole explicit test-only browser qualification. Default server stays false.
-      games: native ? { native, browser_session_qualified: true, operation_timeout_ms: 150_000, supervision_interval_ms: 60_000 } : undefined });
+      games: native ? { native, browser_session_qualified: true } : undefined });
     await host.start();
-    return { origin, owner, foreign, deckId, identity,
+    return { origin, owner, foreign, deckId, identity, cards,
       capture: () => {
         const rows = db.prepare("SELECT record_json FROM game_launches WHERE user_id=?").all(owner.user_id) as { record_json: string }[];
         return rows.map(row => JSON.parse(row.record_json) as GameRecord);
