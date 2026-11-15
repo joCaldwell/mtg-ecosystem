@@ -6,6 +6,6 @@
   "sdk_source": "2305e2f81d433c86717eb1f35fa0fe7e5c6b22d4",
   "engine_build_id": "5d922d685619c979173c56e50285b2eea79b506cb24d718195339b2126b47b4d",
   "server_build_id": "c1be893414c34a3869f059a872b053d4c69e77da21e98242ffb654a980372d15",
-  "native_source_manifest_sha256": "c19f36a3f8f9c87f298d88d31fb4aa72c7920073ec4832bfe619cd2304843bd8",
-  "evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/authoritative-decision-context-565a1204-20261114"
+  "native_source_manifest_sha256": "1eddba690527db4a1654f7556cf97c35d90225b2f7652141f640bc9b8842273a",
+  "evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/native-game-client-observation21-combined-20261115"
 }
