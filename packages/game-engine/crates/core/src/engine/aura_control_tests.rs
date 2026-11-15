@@ -1083,3 +1083,7 @@ mod atomic_targeted_keyword_tests;
 #[cfg(test)]
 #[path = "permanent_set_keyword_tests.rs"]
 mod permanent_set_keyword_tests;
+
+#[cfg(test)]
+#[path = "typed_aura_control_tests.rs"]
+mod typed_aura_control_tests;
