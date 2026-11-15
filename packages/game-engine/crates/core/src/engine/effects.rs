@@ -321,7 +321,7 @@ impl Game {
                     .get(target_slot as usize)
                     .ok_or("missing keyword target")?;
                 if frame.legal_targets.get(target_slot as usize) != Some(&true)
-                    || !self.is_battlefield_creature(target)
+                    || !self.scalar_keyword_target_legal(&frame.spell, target)
                 {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
@@ -450,6 +450,39 @@ impl Game {
             },
         )
     }
+    // CR 608.2b / 611.2c: creation rechecks current control; the captured
+    // effect subsequently follows only the exact incarnation, never control.
+    fn scalar_keyword_target_legal(&self, entry: &StackInstance, target: ObjectId) -> bool {
+        self.program_for(entry).is_ok_and(|program| {
+            temporary_targeted_keyword_program(program).is_some()
+                && if temporary_permanent_keyword_program(program).is_some() {
+                    entry.kind.is_spell() && self.object_target_legal(entry, target)
+                } else {
+                    self.is_battlefield_creature(target)
+                }
+        })
+    }
+
+    pub(super) fn scalar_keyword_effect_applies(
+        &self,
+        effect: &ResolvedEffect,
+        object: ObjectId,
+    ) -> bool {
+        self.current(object).is_ok_and(|o| o.zone == Zone::Battlefield)
+            && (self.is_battlefield_creature(object)
+                || self.origin_programs(&effect.origin).is_ok_and(|programs| {
+                    programs.into_iter().any(|program| {
+                        temporary_permanent_keyword_program(program).is_some()
+                            && effect.origin.cursor == 0
+                            && effect.origin.source_block == 0
+                            && matches!((&effect.kind, program.instructions.first()),
+                                (ResolvedEffectKind::GrantKeywords { modifier: None, keywords, .. },
+                                 Some(Instruction::GrantKeywords { modifier: None, keywords: grants, .. }))
+                                    if keywords == grants)
+                    })
+                }))
+    }
+
     pub(super) fn validate_combat_player_members<'a>(
         members: impl Iterator<Item = (ObjectId, &'a DamageRecipient)>,
     ) -> Result<(), String> {
@@ -1021,7 +1054,7 @@ impl Game {
                             && *targets == self.objects_in_set(set, frame.spell.controller)
                             && modifier == applied_modifier
                             && keywords == grants
-                            && supported_temporary_creature_keywords(grants)
+                            && supported_temporary_keywords(grants)
                             && *source_block == effect.origin.source_block
                     }
                     (
@@ -1066,10 +1099,10 @@ impl Game {
                     ) => {
                         frame.spell.targets.get(*target_slot as usize) == Some(target)
                             && frame.legal_targets.get(*target_slot as usize) == Some(&true)
-                            && self.is_battlefield_creature(*target)
+                            && self.scalar_keyword_target_legal(&frame.spell, *target)
                             && modifier == applied_modifier
                             && keywords == grants
-                            && supported_temporary_creature_keywords(grants)
+                            && supported_temporary_keywords(grants)
                             && *source_block == effect.origin.source_block
                     }
                     (
@@ -1434,7 +1467,7 @@ impl Game {
                         temporary_set_keyword_program(program).is_some()
                             && modifier == applied_modifier
                             && keywords == grants
-                            && supported_temporary_creature_keywords(grants)
+                            && supported_temporary_keywords(grants)
                             && *source_block == e.origin.source_block
                             && self.valid_set_effect_targets(e, targets, Some(set))
                     }
@@ -1465,10 +1498,11 @@ impl Game {
                     }
                     (
                         Instruction::GrantKeywords {
+                            target_slot: 0,
                             modifier,
                             keywords,
+                            duration: Duration::UntilEndOfTurn,
                             source_block,
-                            ..
                         },
                         ResolvedEffectKind::GrantKeywords {
                             target,
@@ -1479,14 +1513,20 @@ impl Game {
                         // CR 611.2c: authenticate source properties here without
                         // reselecting the captured target from current state.
                         // Normalized input replay proves the historical capture.
-                        modifier == applied_modifier
+                        temporary_targeted_keyword_program(program).is_some()
+                            && modifier == applied_modifier
                             && keywords == grants
-                            && supported_temporary_creature_keywords(grants)
+                            && supported_temporary_keywords(grants)
                             && *source_block == e.origin.source_block
                             && e.target_handles.len() == 4
                             && self.state.rules.cards.contains_key(&target.card)
-                            && self.definition(target.card)?.characteristics.kind
+                            && (self.definition(target.card)?.characteristics.kind
                                 == CardKind::Creature
+                                || temporary_permanent_keyword_program(program).is_some()
+                                    && !matches!(
+                                        self.definition(target.card)?.characteristics.kind,
+                                        CardKind::Instant | CardKind::Sorcery
+                                    ))
                     }
                     (
                         Instruction::ModifyPowerToughness {
@@ -2223,9 +2263,8 @@ impl Game {
                         !d.source.keywords[..n].contains(k)
                             && (expected_keywords.contains(k)
                                 || (battlefield && self.prepared.catalog.definitions.iter().any(|definition| {
-                                    // Noncreatures get no authority from creature static/scalar
-                                    // grants. Only the complete validated permanent-set family
-                                    // contributes their possible extra LKI vocabulary.
+                                    // Noncreatures require a complete permanent grant program;
+                                    // arbitrary scalar instructions and life tails prove nothing.
                                     (creature && (definition.static_abilities.iter().any(|a| matches!(&a.effect,
                                         StaticEffect::ModifyCreatures { keywords, .. } if keywords.contains(k)))
                                         || definition.spell.as_ref().is_some_and(|program|
@@ -2234,6 +2273,9 @@ impl Game {
                                                 | Instruction::GrantKeywordsSet { keywords, .. } if keywords.contains(k))))))
                                         || definition.spell.as_ref()
                                             .and_then(temporary_permanent_set_keyword_program)
+                                            .is_some_and(|program| program.keywords.contains(k))
+                                        || definition.spell.as_ref()
+                                            .and_then(temporary_permanent_keyword_program)
                                             .is_some_and(|program| program.keywords.contains(k))
                                 })))
                     })

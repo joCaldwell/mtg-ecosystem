@@ -414,6 +414,24 @@ impl Game {
         frame: Resolving,
         instruction: Instruction,
     ) -> Result<(), String> {
+        // CR 119.9: the complete permanent-grant family permits a fixed zero
+        // tail, which advances without a life event or trigger. Keep ordinary
+        // GainLife/LoseLife's strictly positive event boundary unchanged.
+        if let Instruction::GainLife {
+            recipient: LifeRecipient::Controller,
+            amount,
+            source_block: 0,
+        } = &instruction
+            && *amount == Quantity::zero()
+            && frame.cursor == 1
+            && frame.spell.kind.is_spell()
+            && self.program_for(&frame.spell).is_ok_and(|program| {
+                temporary_permanent_keyword_program(program)
+                    .is_some_and(|descriptor| descriptor.controller_life == Some(amount))
+            })
+        {
+            return self.finish_instruction(frame, InstructionOutcome::Life { actual: None });
+        }
         let gain = matches!(instruction, Instruction::GainLife { .. });
         let (block, proposed, damage) = match instruction {
             Instruction::DealDamage {
