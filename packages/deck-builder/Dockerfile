@@ -17,10 +17,15 @@ COPY packages/multiverse/src packages/multiverse/src
 COPY packages/multiverse/web packages/multiverse/web
 COPY packages/multiverse/tsconfig.json packages/multiverse/vite.config.ts packages/multiverse/
 COPY packages/game-ui/src packages/game-ui/src
-COPY packages/game-client/src/preview packages/game-client/src/preview
-COPY packages/game-client/src/features/decisions packages/game-client/src/features/decisions
-COPY packages/game-client/src/decisions packages/game-client/src/decisions
-COPY packages/game-client/src/presentation/opening-fixture.ts packages/game-client/src/presentation/opening-fixture.ts
+COPY packages/game-client/src packages/game-client/src
+COPY packages/game-client/generated/sdk-identity.ts packages/game-client/generated/sdk-identity.ts
+# Explicitly prepared/qualified SDK bytes: no native build or SDK generation in
+# this image. Source policies retain their standalone validator runtime closure.
+COPY packages/game-server/sdk/dist packages/game-server/sdk/dist
+COPY packages/game-server/sdk/src packages/game-server/sdk/src
+COPY packages/game-server/sdk/generated packages/game-server/sdk/generated
+COPY packages/multiverse/scripts/check-sdk-runtime.mjs packages/multiverse/scripts/check-sdk-runtime.mjs
+RUN node packages/multiverse/scripts/check-sdk-runtime.mjs
 COPY packages/game-client/fixtures/foundations-opening packages/game-client/fixtures/foundations-opening
 COPY packages/game-client/scripts/verify-preview.mjs packages/game-client/scripts/verify-preview.mjs
 COPY packages/deck-builder/scripts/check-runtime.mjs packages/deck-builder/scripts/check-runtime.mjs
@@ -48,10 +53,16 @@ COPY --from=build /app/packages/multiverse/package.json ./packages/multiverse/pa
 COPY --from=build /app/packages/multiverse/src ./packages/multiverse/src
 COPY --from=build /app/packages/multiverse/web/dist ./packages/multiverse/web/dist
 COPY --from=build /app/packages/multiverse/runtime-imports.json ./packages/multiverse/runtime-imports.json
+COPY --from=build /app/packages/game-server/sdk/package.json ./packages/game-server/sdk/package.json
+COPY --from=build /app/packages/game-server/sdk/dist ./packages/game-server/sdk/dist
+COPY --from=build /app/packages/game-server/sdk/src ./packages/game-server/sdk/src
+COPY --from=build /app/packages/game-server/sdk/generated ./packages/game-server/sdk/generated
+COPY packages/multiverse/scripts/check-sdk-runtime.mjs ./packages/multiverse/scripts/check-sdk-runtime.mjs
 COPY packages/deck-builder/scripts/container-entrypoint.sh /usr/local/bin/deck-builder-entrypoint
 COPY packages/deck-builder/scripts/check-runtime.mjs ./packages/deck-builder/scripts/check-runtime.mjs
 RUN node packages/deck-builder/scripts/check-runtime.mjs \
-    && node packages/deck-builder/scripts/check-runtime.mjs --package packages/multiverse
+    && node packages/deck-builder/scripts/check-runtime.mjs --package packages/multiverse \
+    && node packages/multiverse/scripts/check-sdk-runtime.mjs
 # Preserve the existing mounted data path and UID behavior. No database migration
 # or production promotion is performed by this source ownership refactor.
 RUN mkdir /data && chown node:node /data
