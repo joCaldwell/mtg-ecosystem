@@ -308,11 +308,14 @@ fn ramos_m3c_compound_grants_reject_unconsumed_sentence_conditions() {
                 if variant != 0 {
                     sentence["condition"] = condition.clone();
                 }
+                r["faces"][0]["result"]["lines"][0]["ability"] =
+                    r["faces"][0]["result"]["abilities"][0].clone();
             });
-            assert!(matches!(
-                compile(MANIFEST, &changed),
-                CompileResult::Unsupported { .. }
-            ));
+            let result = compile(MANIFEST, &changed);
+            assert!(
+                matches!(result, CompileResult::Unsupported { .. }),
+                "condition variant {variant}: {result:?}"
+            );
         }
     }
 }
