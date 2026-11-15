@@ -227,48 +227,50 @@ completion/performance/retention, server/SDK/host/search/consumer matrices and N
 suites requiring absent dependencies remain omitted. Consumer acceptance retains
 its earlier exact producer; neither pass expands admission or qualifies later source.
 
-The controlled-permanent extension is qualified separately at source
-`21d10aaa67ea67f009366cbce0d754b59d9b7daa`: **465 distinct Rust tests / 471
-executions**, including 90 fresh distinct core tests and 375 compiler/contracts
-passes reused through a byte-equal source bridge across two test-only corrections.
-All-target compilation and production lint use that explicit bridge; affected
-core tests and CLI were rebuilt. All **2,805 exported-schema probes** passed;
-831 compiled source rows match Git. CLI producer
+The controlled-permanent extension retains source
+`21d10aaa67ea67f009366cbce0d754b59d9b7daa`: 465 distinct Rust tests/471 executions,
+2,805 probes, 831 rows. CLI
 `dbf3eea9f9fb7d468031c6364fc683710f864cfde77e800f7100fce1ce4de14d`,
-optimized runtime producer
-`beb0d485d8c289785046de3c83420cea28f748a258d24ed40fbe5472d49580a8`,
+optimized runtime `beb0d485d8c289785046de3c83420cea28f748a258d24ed40fbe5472d49580a8`,
 schema `e37053a3e7e1f12f6963b04a303794f67b36226d0e64c003f9ca3dd51700682c`.
-Snapshot/public-context-work remain 26/21. Paid mixed-permanent protection and
-current/departed enchantment damage/LKI pass; broader noncreature keyword vectors
-remain labelled synthetic kernel probes. Exact executed copies, unchanged-input
-bridges, review, retained publication/outcome test failures and settings proofs
-are in `generated/permanent-set-keywords/{integration.json,review.json,combined03/}`.
-Full matrices, policy/pod runtime, hosting/search/SDK/consumer qualification and
-missing-dependency Node suites are omitted. This feature expands no admission and
-remains separate from the client-held main/consumer producer.
+Its 90 fresh core tests and 375 byte-bridged library passes, review, synthetic
+noncreature kernels and paid protection/LKI evidence remain in
+`generated/permanent-set-keywords/{integration.json,review.json,combined03/}`.
 
-The typed Aura-control extension is qualified at source
-`97afa6cdcdda88d76a86459b18ae53cda63c1546`: **507 distinct Rust tests**, including
-398 precheck passes at `99097789` through a three-private-test-file bridge and
-109 fresh core passes, **3,021 schema probes**, and 837 verified compiled rows.
-CLI producer `df8d293944268b10c2900f0628ef01e8872d0472febb845237a634145b5fb3ec`,
-optimized runtime producer
-`14bb7aa2b7cbe2c07672c439172cb13ca4743564ae9c80c479add9387ee80567`,
+Typed Aura source `97afa6cdcdda88d76a86459b18ae53cda63c1546` retains 507 distinct
+Rust tests: 398 prechecks at `99097789` through a three-private-test-file bridge,
+109 fresh core; 3,021 probes; 837 rows. CLI
+`df8d293944268b10c2900f0628ef01e8872d0472febb845237a634145b5fb3ec`,
+optimized runtime `14bb7aa2b7cbe2c07672c439172cb13ca4743564ae9c80c479add9387ee80567`,
 schema `bf73e4bb9c58aa3661ee75e25d10590214d6aa466464908c4ce53745f34b99a0`.
-Formats remain 26/21 and Card IR 1. One review found no concrete issues;
-production remained unchanged through paid-test protocol/setup corrections.
-
-Paid multitype, Equipment, nested Signet, departure, targeting and authenticated
-recovery witnesses pass. Immutable-baseline multitype positives and three Aura
-rejections are retained. The stale spending failure was reproduced there before
-the published test-only correction. Binaries, independent identities, bridges,
-failures, review and schema results remain in
+One review found no issues. Paid multitype, Equipment, nested Signet, departure,
+targeting and recovery tests, immutable baseline controls, spending RED and
+protocol/setup corrections remain in
 `generated/typed-aura-control/{integration.json,review.json,preflight01/,combined05/}`.
-All-target compilation and production lint carry their explicit unchanged-input
-bridge; contracts uses inherited `collapsible_if`. Full matrices, simulator policy/
-pod runtime, consumer/host/search/SDK qualification and missing-dependency Node
-suites remain omitted. Catalog/profile bodies and admission are unchanged;
-client and Ramos producer qualifications remain separate.
+
+Fresh-main integration is qualified at `f3326dcd6fab0e6dc8ebbbbef33c622ceb3e3db3`:
+605 distinct Rust tests/606 executions (one lifecycle child repeat), 3,021 probes,
+841 compiled rows, workspace/all-target compilation, formatting, catalog freshness
+and smoke/replay. Library/core prefixes bridge only identical source bytes across
+driver corrections. CLI
+`f59345c978e736e5d4d7800b5039c948c6c507a1c9ee159bf37ba7c75be9aa96`,
+optimized core `c21715382ad199ba57b1ff18f7dfa01b90458d4bf5eb738f9b3f76cb1fbb4361`,
+server `2f23d56fb85785bcb55d3246e9a742e2b3dd0fb8980a1e6b4925949cb5b86a98`,
+schema `80a6d58052322bb440f67a4cd65f3fe454260bda11d7b328e37970a837f61073`.
+Independent engine/server identities, exact binaries, source/client bridges and
+retained lint/zero-selector/historical-control failures are indexed by
+`generated/typed-aura-control/main-integration/integration.json` and
+`main-integrated01/` through `main-integrated03/`. Historical control hashes omit
+only later presentation labels; current probes retain them. Later PR43 changes
+only client code/tests/docs, outside native inputs.
+
+Formats remain IR1/26/21. Strict production compiler/core/sim lint passed;
+contracts/server use proven inherited `collapsible_if` exceptions. Server schema
+changes only manifest vocabulary; bootstrap matches the separately pinned client.
+Catalog gameplay bodies/profile admission are unchanged. Client/SDK/product and
+Ramos qualifications remain distinct. Full runtime/release/profile/performance/
+retention, policy/pod, SDK/browser/consumer matrices and missing-dependency Node
+suites remain omitted; selected admission/lifecycle tests do not renew host acceptance.
 
 ### Complete-source compiler input rejection
 
