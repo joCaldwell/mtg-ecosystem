@@ -1079,3 +1079,7 @@ mod composed_tests;
 #[cfg(test)]
 #[path = "atomic_targeted_keyword_tests.rs"]
 mod atomic_targeted_keyword_tests;
+
+#[cfg(test)]
+#[path = "m4b_tests.rs"]
+mod m4b_tests;

@@ -1,4 +1,4 @@
-//! Complete frozen Apex only; Wanderer's independent static source stays rejected.
+//! Complete frozen Apex; Wanderer is covered by the dependent M4b tests.
 use super::*;
 const MANIFEST: &str = include_str!("../../../tests/fixtures/ramos/archive-manifest-current.json");
 const APEX: &str =
@@ -138,7 +138,7 @@ fn ramos_m4a_each_instance_retains_exact_shape_and_orphan_cascade_rejects() {
     assert!(orphan.validate().is_err());
 }
 #[test]
-fn ramos_m4a_keyword_parameters_mixed_programs_and_complete_wanderer_reject() {
+fn ramos_m4a_keyword_parameters_and_mixed_programs_reject() {
     for field in ["cost", "filter", "params"] {
         let raw = tests::changed_source(APEX, |r| {
             for section in ["abilities", "lines"] {
@@ -163,12 +163,4 @@ fn ramos_m4a_keyword_parameters_mixed_programs_and_complete_wanderer_reject() {
         compile(MANIFEST, &raw),
         CompileResult::Lowered { .. }
     ));
-    let wanderer = compile(
-        MANIFEST,
-        include_str!("../../../tests/fixtures/ramos/ad9b7fbc-61c8-43ee-a65c-99206fd1e4df.json"),
-    );
-    assert!(
-        matches!(wanderer, CompileResult::Unsupported { .. }),
-        "{wanderer:?}"
-    );
 }

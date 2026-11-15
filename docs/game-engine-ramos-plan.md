@@ -96,8 +96,9 @@ The focused exit above does not cover every possible casting source or cost.
 
 ### M4 Complete the cascade package and casting history
 
-Finish Apex qualification, then complete Wanderer's live controller-creature haste
-and independent cascade entries. Add Ethersworn affinity, Enigma graveyard return,
+M4b drafts Wanderer's live controller-creature modifiers and two cascade entries
+on `fe9dd841`; SOURCE ONLY, review/native/combined qualification pending.
+Add Ethersworn affinity, Enigma graveyard return,
 Imoti/Nexus/Sorcerer/Yidris grants and actual turn/zone casting history, including
 casts before grant-source entry. Add Averna's action, Call Forth's other-spell mana
 values and Vega's non-hand-cast draw. Preflight effective trigger batches and checked

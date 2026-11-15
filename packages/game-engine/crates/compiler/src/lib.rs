@@ -9159,3 +9159,6 @@ mod temporary_combat_keyword_tests;
 
 #[cfg(test)]
 mod creature_set_keyword_tests;
+
+#[cfg(test)]
+mod ramos_m4b_tests;

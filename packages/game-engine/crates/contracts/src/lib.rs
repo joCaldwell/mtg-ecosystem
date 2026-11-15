@@ -20,6 +20,7 @@ use std::{collections::BTreeSet, fmt, str::FromStr};
 
 mod archives;
 mod optional_costs;
+mod static_controller;
 pub use archives::*;
 mod strict_io;
 pub use strict_io::strict_read_seekable;
@@ -1294,8 +1295,11 @@ pub struct Definition {
     pub capabilities: BTreeSet<Capability>,
     pub provenance: SourceProvenance,
 }
-// Shared static-layer boundary for every attachment family. Keep family
+// Shared live creature-modifier boundary, including attachments. Keep family
 // recognition and Definition validation on the same keyword/restriction rules.
+// CR 611.3a-c: Controller modifiers use live source presence/current control
+// for both supported creature and non-Aura enchantment sources.
+// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 fn static_creature_modification_valid(
     kind: CardKind,
     equipment: bool,
@@ -1334,7 +1338,8 @@ fn static_creature_modification_valid(
                 || !restrictions.is_empty()))
         || (*scope == CreatureScope::Equipped && !equipment)
         || (*scope == CreatureScope::Enchanted && !aura)
-        || (*scope == CreatureScope::Controller && (kind != CardKind::Enchantment || aura))
+        || (*scope == CreatureScope::Controller
+            && (!matches!(kind, CardKind::Creature | CardKind::Enchantment) || aura))
         || keywords.contains(&KeywordAbility::Flash)
         || (keywords.contains(&KeywordAbility::Indestructible)
             && (!equipment
@@ -2422,7 +2427,7 @@ impl Definition {
                 && !matches!(
                     a.effect,
                     StaticEffect::ModifyCreatures {
-                        scope: CreatureScope::AttackingController,
+                        scope: CreatureScope::AttackingController | CreatureScope::Controller,
                         ..
                     }
                 )
@@ -4749,6 +4754,7 @@ pub fn catalog_schema() -> serde_json::Value {
             "capabilities":{"contains":{"const":Capability::AuraControlV1}}
         }},"then":{"$ref":"#/$defs/AuraControlDefinition"}}),
         ]);
+    static_controller::schema(&mut schema);
     optional_costs::schema(&mut schema);
     schema
 }
@@ -6191,15 +6197,14 @@ mod tests {
         unbound.static_abilities[0].functioning_zone = FunctioningZone::Stack;
         unbound.capabilities = unbound.requirements();
         assert!(unbound.validate().is_err());
-        // Unqualified Controller scope requires an enchantment context; the
-        // attacking scope does not widen it on creatures.
+        // Controller scope uses the same live modifier family on creatures.
         unbound.static_abilities = vec![grant];
         if let StaticEffect::ModifyCreatures { scope, .. } = &mut unbound.static_abilities[0].effect
         {
             *scope = CreatureScope::Controller;
         }
         unbound.capabilities = unbound.requirements();
-        assert!(unbound.validate().is_err());
+        unbound.validate().unwrap();
     }
     #[test]
     fn grouped_damage_and_cast_prohibition_have_independent_capabilities_and_strict_shapes() {
@@ -6774,3 +6779,6 @@ mod aura_control_tests;
 
 #[cfg(test)]
 mod creature_set_keyword_tests;
+
+#[cfg(test)]
+mod static_controller_tests;
