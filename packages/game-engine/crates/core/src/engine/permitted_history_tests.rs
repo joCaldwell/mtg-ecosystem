@@ -77,7 +77,7 @@ fn rich_fixture() -> PermittedView {
             handle: StackHandle("trigger".into()),
             source: target.clone(),
             oracle_id: "trigger-source".into(),
-            ability: 2,
+            ability: VisibleTriggerAbility::Intrinsic { index: 2 },
         }),
         entity_targets: vec![
             VisibleEntityTarget::Player {

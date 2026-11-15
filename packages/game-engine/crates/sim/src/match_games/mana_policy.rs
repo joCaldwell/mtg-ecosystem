@@ -188,7 +188,7 @@ mod tests {
             keywords: vec![],
         });
         let mut observation = Observation {
-            observation_version: 17,
+            observation_version: 22,
             decision: None,
             view: mtg_core::PermittedView {
                 sacrifice_choices: vec![],

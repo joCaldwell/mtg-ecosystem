@@ -8,7 +8,9 @@ pub(super) enum StackKind {
     Triggered {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         match_condition: Option<InterveningCheck>,
-        ability: u32,
+        ability: EffectiveTriggerAbility,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        grant: Option<CascadeGrantProvenance>,
         source_handles: Vec<ObjectHandle>,
         trigger_id: TriggerId,
         event: TriggerOccurrenceId,

@@ -353,12 +353,7 @@ impl Game {
         let StackKind::Triggered { ability, .. } = &stack.kind else {
             return Ok(None);
         };
-        let Some(condition) = self
-            .definition(stack.source.card)?
-            .triggered
-            .get(*ability as usize)
-            .ok_or("missing conditional trigger")?
-            .intervening_if
+        let Some(condition) = self.effective_trigger(stack.source, *ability)?.intervening_if
         else {
             return Ok(None);
         };
@@ -437,14 +432,12 @@ impl Game {
         Ok(())
     }
     pub(super) fn validate_condition_cache(&self, frame: &Resolving) -> Result<(), String> {
-        let expected = match frame.spell.kind {
-            StackKind::Triggered { ability, .. } => self
-                .definition(frame.spell.source.card)?
-                .triggered
-                .get(ability as usize)
-                .ok_or("missing conditional program")?
-                .intervening_if
-                .as_ref(),
+        let definition = match frame.spell.kind {
+            StackKind::Triggered { ability, .. } => Some(self.effective_trigger(frame.spell.source, ability)?),
+            _ => None,
+        };
+        let expected = match &definition {
+            Some(definition) => definition.intervening_if.as_ref(),
             _ => None,
         };
         match (expected, &frame.condition_check) {
@@ -467,17 +460,12 @@ impl Game {
     pub(super) fn validate_match_condition(
         &self,
         source: ObjectId,
-        ability: u32,
+        ability: EffectiveTriggerAbility,
         controller: PlayerId,
         check: Option<&InterveningCheck>,
     ) -> Result<(), String> {
-        let expected = self
-            .definition(source.card)?
-            .triggered
-            .get(ability as usize)
-            .ok_or("missing match condition definition")?
-            .intervening_if
-            .as_ref();
+        let definition = self.effective_trigger(source, ability)?;
+        let expected = definition.intervening_if.as_ref();
         match (expected, check) {
             (None, None) => Ok(()),
             (Some(condition), Some(check))

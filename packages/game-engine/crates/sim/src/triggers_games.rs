@@ -926,12 +926,13 @@ fn assert_outcome(run: &Run, policy: Policy) -> Result<(), String> {
                 occurrence,
                 witness: subject,
                 source_facts,
+                ..
             } = event
             {
                 if source_facts.object != *source
                     || source_facts.controller != *player
                     || source_facts.zone != Zone::Battlefield
-                    || *ability != 0
+                    || *ability != (mtg_core::EffectiveTriggerAbility::Intrinsic { index: 0 })
                     || !pairs.insert((source.card, subject.subject().unwrap().card))
                 {
                     return Err("trigger source facts or unique source/subject pair differs".into());

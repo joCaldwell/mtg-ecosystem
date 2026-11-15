@@ -304,6 +304,8 @@ mod optional_draw_tests;
 mod step_trigger_tests;
 #[cfg(test)]
 mod trigger_tests;
+mod spell_cascade_grants;
+pub use spell_cascade_grants::{CascadeGrantProvenance, EffectiveTriggerAbility};
 mod triggers;
 pub use triggers::{
     CastOccurrence, CastOccurrenceId, GroupedDamageMember, TriggerEventWitness, TriggerId,
@@ -1896,7 +1898,7 @@ pub enum Event {
     TriggerConditionChecked {
         source: ObjectId,
         controller: PlayerId,
-        ability: u32,
+        ability: EffectiveTriggerAbility,
         stage: InterveningStage,
         check: InterveningCheck,
     },
@@ -1909,7 +1911,9 @@ pub enum Event {
         trigger_id: TriggerId,
         source: ObjectId,
         player: PlayerId,
-        ability: u32,
+        ability: EffectiveTriggerAbility,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        grant: Option<CascadeGrantProvenance>,
         occurrence: TriggerOccurrenceId,
         witness: TriggerEventWitness,
         source_facts: Box<ObjectBefore>,
@@ -2193,7 +2197,8 @@ impl Game {
             self.state
                 .rules
                 .retained_auxiliary_charge
-                .saturating_add(self.cascade_charge()),
+                .saturating_add(self.cascade_charge())
+                .saturating_add(self.grant_payload_charge()),
             |n, k| n.saturating_add(k.history.retention_charge()),
         )
     }
@@ -2314,11 +2319,11 @@ impl Game {
                 .spell
                 .as_ref()
                 .ok_or_else(|| "missing spell program".to_string()),
-            StackKind::Triggered { ability, .. } => definition
-                .triggered
-                .get(*ability as usize)
-                .map(|a| &a.program)
-                .ok_or_else(|| "missing triggered program".to_string()),
+            StackKind::Triggered { ability, .. } => match *ability {
+                EffectiveTriggerAbility::Intrinsic { index } => definition.triggered.get(index as usize)
+                    .map(|a| &a.program).ok_or_else(|| "missing triggered program".to_string()),
+                EffectiveTriggerAbility::Granted { grant_source, static_ability_index } => self.grant_program(grant_source, static_ability_index),
+            },
             StackKind::Activated { ability, .. } => definition
                 .activated
                 .get(*ability as usize)
@@ -3075,7 +3080,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 26,
+            snapshot_version: 27,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3117,7 +3122,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 26
+        if s.snapshot_version != 27
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

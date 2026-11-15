@@ -247,7 +247,10 @@ impl Strategy<'_> {
     ) -> Option<(&'a Definition, &'a SpellProgram)> {
         let (d, p) = if let Some(t) = &s.triggered {
             let d = definition(self.catalog, &t.oracle_id).ok()?;
-            (d, &d.triggered.get(t.ability as usize)?.program)
+            let mtg_core::VisibleTriggerAbility::Intrinsic { index } = &t.ability else {
+                return None; // Static spell grants have no policy admission.
+            };
+            (d, &d.triggered.get(*index as usize)?.program)
         } else if let Some(a) = &s.ability {
             let d = definition(self.catalog, &a.oracle_id).ok()?;
             (d, &d.activated.get(a.ability as usize)?.program)

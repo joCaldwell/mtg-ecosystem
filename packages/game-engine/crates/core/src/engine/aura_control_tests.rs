@@ -1091,3 +1091,7 @@ mod permanent_set_keyword_tests;
 #[cfg(test)]
 #[path = "typed_aura_control_tests.rs"]
 mod typed_aura_control_tests;
+
+#[cfg(test)]
+#[path = "m4c_control_tests.rs"]
+mod m4c_control_tests;

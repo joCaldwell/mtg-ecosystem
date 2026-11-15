@@ -16,7 +16,9 @@ pub(super) struct PendingTrigger {
     pub(super) id: TriggerId,
     pub(super) source: ObjectId,
     pub(super) controller: PlayerId,
-    pub(super) ability: u32,
+    pub(super) ability: EffectiveTriggerAbility,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) grant: Option<CascadeGrantProvenance>,
     pub(super) source_facts: ObjectBefore,
     pub(super) source_handles: Vec<ObjectHandle>,
     event: TriggerOccurrenceId,
@@ -523,6 +525,28 @@ impl Game {
         event: TriggerOccurrenceId,
         witness: TriggerEventWitness,
     ) -> Result<(), String> {
+        // Prepare the complete payload/history transaction off-state as well.
+        // Even a direct collector failure publishes no sibling, handle or trace.
+        let mut staged = self.fork();
+        staged.in_rule_step = self.in_rule_step;
+        match staged.collect_trigger_witness_staged(before, event, witness) {
+            Ok(()) => {
+                self.state = staged.state;
+                self.trace = staged.trace;
+                Ok(())
+            }
+            Err(reason) => {
+                self.state.rules.typed_fault = staged.state.rules.typed_fault;
+                Err(reason)
+            }
+        }
+    }
+    fn collect_trigger_witness_staged(
+        &mut self,
+        before: Option<&Game>,
+        event: TriggerOccurrenceId,
+        witness: TriggerEventWitness,
+    ) -> Result<(), String> {
         let dies = witness.dies();
         let enters = witness.enters();
 
@@ -686,7 +710,7 @@ impl Game {
                             None
                         },
                         observers.object_before(object.id)?,
-                        u32::try_from(ability).map_err(|_| "trigger ability index limit")?,
+                        EffectiveTriggerAbility::Intrinsic { index: u32::try_from(ability).map_err(|_| "trigger ability index limit")? },
                         definition
                             .intervening_if
                             .as_ref()
@@ -700,7 +724,30 @@ impl Game {
                             })
                             .transpose()?,
                         matched_witness,
+                        None,
                     ));
+                }
+            }
+        }
+        if let TriggerEventWitness::SpellCast { cast } = &witness {
+            let spell = observers.state.rules.stack.iter().find(|s| s.id == cast.stack_id)
+                .ok_or("missing completed cast for grants")?;
+            let mana_value = observers.stack_mana_value(spell)?;
+            for object in observers.state.rules.objects.values().filter(|o| o.zone == Zone::Battlefield) {
+                let fact = observers.object_before(object.id)?;
+                if fact.controller != cast.caster || !observers.is_live(cast.caster) {
+                    continue;
+                }
+                for (index, descriptor) in observers.definition(object.id.card)?.static_abilities.iter().enumerate() {
+                    if let StaticEffect::GrantSpellCascade { mana_value_at_least, .. } = &descriptor.effect
+                        && descriptor.functioning_zone == FunctioningZone::Battlefield
+                        && mana_value >= *mana_value_at_least
+                    {
+                        matched.push((None, cast.spell.clone(), EffectiveTriggerAbility::Granted {
+                            grant_source: object.id,
+                            static_ability_index: u32::try_from(index).map_err(|_| "static ability index limit")?,
+                        }, None, witness.clone(), Some(fact.clone())));
+                    }
                 }
             }
         }
@@ -709,10 +756,10 @@ impl Game {
         // their ordinary diagnostic below, but consume no trigger capacity.
         let emission = matched
             .iter()
-            .filter(|(_, _, _, condition, _)| condition.as_ref().is_none_or(|c| c.passed()))
+            .filter(|(_, _, _, condition, _, _)| condition.as_ref().is_none_or(|c| c.passed()))
             .count();
         self.preflight_trigger_emission(emission)?;
-        for (death_controller, source_facts, ability, match_condition, witness) in matched {
+        for (death_controller, source_facts, ability, match_condition, witness, grant_fact) in matched {
             if let Some(check) = &match_condition {
                 self.record_event(Event::TriggerConditionChecked {
                     source: source_facts.object,
@@ -739,6 +786,12 @@ impl Game {
             let controller = source_facts.controller;
             let consumed = source_facts.clone();
             let source_handles = self.capture_trigger_source_handles(source)?;
+            let grant = grant_fact.map(|fact| {
+                Ok::<_, String>(CascadeGrantProvenance {
+                    source_handles: self.capture_trigger_source_handles(fact.object)?,
+                    source_facts: fact,
+                })
+            }).transpose()?;
             self.state.rules.pending_triggers.push(PendingTrigger {
                 death_controller,
                 match_condition,
@@ -746,6 +799,7 @@ impl Game {
                 source,
                 controller,
                 ability,
+                grant: grant.clone(),
                 source_facts,
                 source_handles,
                 event: event.clone(),
@@ -756,6 +810,7 @@ impl Game {
                 source,
                 player: controller,
                 ability,
+                grant,
                 occurrence: event.clone(),
                 witness: witness.clone(),
                 source_facts: Box::new(consumed),
@@ -766,22 +821,19 @@ impl Game {
     pub(super) fn preflight_trigger_emission(&mut self, additional: usize) -> Result<(), String> {
         self.check_stack_capacity(additional)?;
         let additional = u64::try_from(additional).map_err(|_| "trigger ID resource limit")?;
-        self.state
-            .rules
-            .next_trigger_id
-            .checked_add(additional)
-            .ok_or("trigger ID resource limit")?;
-        // Pending triggers will each need a fresh StackId. Reserve arithmetic
-        // headroom for all of them as well as this batch before publication.
-        let pending = u32::try_from(self.state.rules.pending_triggers.len())
-            .map_err(|_| "stack ID resource limit")?;
-        let additional = u32::try_from(additional).map_err(|_| "stack ID resource limit")?;
-        self.state
-            .rules
-            .next_stack_id
-            .checked_add(pending)
-            .and_then(|id| id.checked_add(additional))
-            .ok_or("stack ID resource limit")?;
+        if self.state.rules.next_trigger_id.checked_add(additional).is_none() {
+            return Err(self.capacity_error(RuleFault::TriggerIdCapacityExceeded {
+                next: self.state.rules.next_trigger_id, additional,
+            }));
+        }
+        // One stack ID per pending trigger, including all new siblings.
+        let pending = u64::try_from(self.state.rules.pending_triggers.len()).map_err(|_| "stack ID resource limit")?;
+        let requested = pending.checked_add(additional).ok_or("stack ID resource limit")?;
+        if u64::from(self.state.rules.next_stack_id).checked_add(requested).is_none_or(|end| end > u64::from(u32::MAX)) {
+            return Err(self.capacity_error(RuleFault::StackIdCapacityExceeded {
+                next: self.state.rules.next_stack_id, additional: requested,
+            }));
+        }
         Ok(())
     }
     fn apnap_players(&self) -> Vec<PlayerId> {
@@ -931,11 +983,7 @@ impl Game {
                         .next_stack_id
                         .checked_add(1)
                         .ok_or("stack ID resource limit")?;
-                    let targeted = !self
-                        .definition(trigger.source.card)?
-                        .triggered
-                        .get(trigger.ability as usize)
-                        .ok_or("missing trigger definition")?
+                    let targeted = !self.effective_trigger(trigger.source, trigger.ability)?
                         .program
                         .targets
                         .is_empty();
@@ -959,6 +1007,7 @@ impl Game {
                         kind: StackKind::Triggered {
                             match_condition: trigger.match_condition,
                             ability: trigger.ability,
+                            grant: trigger.grant,
                             source_handles: trigger.source_handles,
                             trigger_id: id,
                             event: trigger.event,
@@ -1165,16 +1214,12 @@ impl Game {
     fn validate_trigger_source(
         &self,
         source: ObjectId,
-        ability: u32,
+        ability: EffectiveTriggerAbility,
         controller: PlayerId,
         fact: &ObjectBefore,
         handles: &[ObjectHandle],
     ) -> Result<(), String> {
-        let definition = self
-            .definition(source.card)?
-            .triggered
-            .get(ability as usize)
-            .ok_or("snapshot missing triggered definition")?;
+        let definition = self.effective_trigger(source, ability)?;
         if controller.0 >= 4
             || fact.object != source
             || fact.owner
@@ -1212,12 +1257,13 @@ impl Game {
     fn validate_trigger_witness(
         &self,
         source: ObjectId,
-        ability: u32,
+        ability: EffectiveTriggerAbility,
         controller: PlayerId,
         death_controller: Option<PlayerId>,
         witness: &TriggerEventWitness,
     ) -> Result<(), String> {
-        let condition = &self.definition(source.card)?.triggered[ability as usize].condition;
+        let definition = self.effective_trigger(source, ability)?;
+        let condition = &definition.condition;
         let valid = match witness {
             TriggerEventWitness::GroupedDamageDealt {
                 kind,
@@ -1466,6 +1512,7 @@ impl Game {
     ) -> Result<Option<TriggerId>, String> {
         let StackKind::Triggered {
             ability,
+            grant,
             source_handles,
             trigger_id,
             event,
@@ -1475,6 +1522,7 @@ impl Game {
         else {
             return Ok(None);
         };
+        self.validate_cascade_grant(*ability, entry.controller, witness, grant.as_ref())?;
         self.validate_trigger_source(
             entry.source,
             *ability,
@@ -1501,7 +1549,7 @@ impl Game {
         if trigger_id.0 >= self.state.rules.next_trigger_id
             || !self.valid_trigger_occurrence(event, witness)
             || entry.cast_from
-                != if self.definition(entry.source.card)?.triggered[*ability as usize].condition
+                != if self.effective_trigger(entry.source, *ability)?.condition
                     == TriggerCondition::SelfSpellCast
                 {
                     Zone::Stack
@@ -1536,6 +1584,7 @@ impl Game {
         }
         let mut ids = BTreeSet::new();
         for trigger in &self.state.rules.pending_triggers {
+            self.validate_cascade_grant(trigger.ability, trigger.controller, &trigger.witness, trigger.grant.as_ref())?;
             self.validate_trigger_source(
                 trigger.source,
                 trigger.ability,

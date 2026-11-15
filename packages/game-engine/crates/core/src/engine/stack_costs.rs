@@ -295,7 +295,7 @@ impl Game {
             || (announcing && (!x_spell || entry.x.is_some()))
             || entry.death_controller.is_some_and(|p| p.0 >= 4)
             || entry.death_controller.is_some()
-                != matches!(&entry.kind,StackKind::Triggered {ability,..} if self.definition(entry.source.card)?.triggered[*ability as usize].condition==TriggerCondition::OpponentCreatureDies)
+                != matches!(&entry.kind,StackKind::Triggered {ability,..} if self.effective_trigger(entry.source, *ability)?.condition==TriggerCondition::OpponentCreatureDies)
         {
             return Err("snapshot X/death LKI binding invariant".into());
         }
