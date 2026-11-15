@@ -308,10 +308,14 @@ The current Dockerfile uses `node:26-slim`, the root npm lockfile selecting
 `packages/multiverse`, a product Vite build stage, and production dependencies
 only in the runtime. From the retained backend working directory its PID 1 is
 `node ../multiverse/src/server.ts`; no server TypeScript compilation is needed.
-The allowlist `.dockerignore` includes the product, backend and only the shared
-game/preview inputs needed to build it. It excludes `.env`, database/token/cache
-files, tests, `.git`, native/generated artifacts and unrelated packages. Docker's `HEALTHCHECK`
-uses `/api/health`; Railway separately checks that path on target port 8787.
+The allowlist `.dockerignore` includes product/backend/shared game inputs,
+explicitly qualified SDK `dist`, public source/standalone generated runtime and
+verification manifests, plus prepared client SDK identity. Prepare SDK/client
+outputs through their owning procedures before Docker; the image never generates
+SDK/native artifacts. Final-image checks verify SDK hashes and import all public
+entries, including source `./policies`. Context excludes `.env`, databases/tokens,
+caches, tests, `.git`, native binaries and unrelated generated artifacts. Docker's
+`HEALTHCHECK` uses `/api/health`; Railway checks that path on port 8787.
 Verify the actual image before promotion; build/runtime/context checks alone do
 not establish a working container. Watch paths must include product, backend,
 shared preview/display inputs and root lock/config. Deployment is explicit, never

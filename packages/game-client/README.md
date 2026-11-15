@@ -27,6 +27,8 @@ It owns a memory-only imported File/session lifetime and uses the app-selected
 same-origin `/api/games/:id/native` endpoint with account cookies plus human seat
 authorization. Match/seat binding is checked before requests; numeric-loopback
 origin and source qualification still apply. Reload requires a fresh grant.
+Public `/session-qualification` supplies the host's pure exact-profile/catalog/build
+qualification fence independently of React and SDK runtime.
 
 ## Explicit setup
 
