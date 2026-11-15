@@ -705,19 +705,29 @@ fn permanent_set_keyword_paid_bombardment_current_and_own_disperse_departed_sour
             assert_eq!(g.state.rules.players[0].life, 40.into());
             assert_eq!(g.state.rules.players[1].life, 40.into());
             if g.trace.mode == TraceMode::Detailed {
-                let actual = batches(g)
+                // Ordinary paid damage goes through the shared transaction,
+                // not the legacy direct NoncombatDamageDealt kernel outcome.
+                let actual: Vec<_> = batches(g)
                     .into_iter()
                     .flat_map(|b| &b.occurrences)
-                    .find_map(|o| match &o.actual {
-                        EventOutcome::NoncombatDamageDealt {
-                            damage, life_gains, ..
-                        } if damage.source.object == source => {
+                    .filter_map(|o| match &o.actual {
+                        EventOutcome::DamageCommitted {
+                            actual,
+                            life_gains,
+                            cancelled,
+                            ..
+                        } => {
                             assert!(life_gains.is_empty());
-                            Some(damage.as_ref())
+                            assert!(cancelled.is_empty());
+                            Some(actual.as_slice())
                         }
                         _ => None,
                     })
-                    .unwrap();
+                    .flatten()
+                    .collect();
+                assert_eq!(actual.len(), 1, "one actual paid damage transaction entry");
+                let actual = actual[0];
+                assert_eq!(actual.source.object, source);
                 assert_eq!(actual.source.characteristics.kind, CardKind::Enchantment);
                 assert_eq!(actual.source.zone, Zone::Battlefield);
                 assert_eq!(actual.controller, PlayerId(0));
