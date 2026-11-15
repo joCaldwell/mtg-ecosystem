@@ -18,7 +18,7 @@ export { HttpError, TransportError } from './transport.ts';
 import { ROUTES } from '../generated/routes.ts';
 export { ProtocolError, counter, PROTOCOL_VERSION } from './validation.ts';
 export type { CommandEnvelope, PlayerResponse, ExactQuantity } from '../generated/command.js';
-export type { StreamPage, StreamEntry, Observation, PlayerRequest, Publication, ExecutionStatus, RulesResult, DecimalU64Counter } from '../generated/stream.js';
+export type { StreamPage, StreamEntry, Observation, DecisionContext, DecisionSource, PlayerRequest, Publication, ExecutionStatus, RulesResult, DecimalU64Counter } from '../generated/stream.js';
 export type { SubmissionResult, RejectionReason } from '../generated/submission.js';
 export type { CommandExecution, CommandExecutionStatus } from '../generated/execution.js';
 export type { PublicManifest, Catalog, Decklist, DeckEntry } from '../generated/manifest.js';

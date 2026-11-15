@@ -76,7 +76,7 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
   const contact = last?.last_used_at
     ? `Last request: ${last.label} · ${ago(last.last_used_at, now)}`
     : connections.data === null ? (connections.error ? "Agent status unavailable" : "Agent status") : connections.data.length ? "No agent requests yet" : "Connect an agent";
-  const section = route.page === "game-preview" ? "play" : route.page;
+  const section = (route.page === "game-preview" || route.page === "live-game") ? "play" : route.page;
 
   const context = focus
     ? `${focus.stale ? "Last-viewed agent context (stale)" : "Current agent context"}, reported ${focus.ageMinutes} min ago: ${focus.deckName}${focus.selectedCount > 0 ? ` · ${focus.selectedCount} selected` : ""}`

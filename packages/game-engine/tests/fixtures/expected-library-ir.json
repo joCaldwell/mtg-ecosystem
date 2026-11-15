@@ -4,6 +4,15 @@
   "rules_sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca",
   "definitions": [
     {
+      "source_labels": {
+        "text": "",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "14c8f55d-d177-4c25-a931-ebeb9e6062a0",
       "name": "Grizzly Bears",
       "characteristics": {
@@ -54,6 +63,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Put target creature on top of its owner's library.",
+        "blocks": [
+          "Put target creature on top of its owner's library."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "30cc8f7b-3c28-40f5-8f8f-157e8212280b",
       "name": "Time Ebb",
       "characteristics": {
@@ -117,6 +137,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Return target creature to its owner's hand.",
+        "blocks": [
+          "Return target creature to its owner's hand."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "837182db-1bf3-4a2c-bd01-1af9d9873561",
       "name": "Unsummon",
       "characteristics": {
@@ -180,6 +211,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "({T}: Add {U}.)",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "b2c6aa39-2d2a-459c-a555-fb48ba993373",
       "name": "Island",
       "characteristics": {
@@ -220,6 +260,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "({T}: Add {G}.)",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6",
       "name": "Forest",
       "characteristics": {
@@ -260,6 +309,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "({T}: Add {W}.)",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99",
       "name": "Plains",
       "characteristics": {
@@ -300,6 +358,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "cfb756dd-6fe1-430a-8f04-8b10cac62a86",
       "name": "Isamaru, Hound of Konda",
       "characteristics": {

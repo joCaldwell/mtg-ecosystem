@@ -169,6 +169,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     match args.first().and_then(|a|a.to_str()) {
         Some("schema") if args.len()==1=>schema(),
+        Some("lifecycle-profile") if args.len()==2=>mtg_server::lifecycle::profile_info(args[1].to_str().ok_or("invalid profile")?).map_err(Into::into),
+        Some("lifecycle") if args.len()==2=>{
+            tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?.block_on(mtg_server::lifecycle::run(Path::new(&args[1]))).map_err(Into::into)
+        }
+        Some("lifecycle-join") if args.len()==2=>mtg_server::lifecycle::join(Path::new(&args[1])).map_err(Into::into),
+        Some("lifecycle-stop") if args.len()==2=>mtg_server::lifecycle::stop(Path::new(&args[1])).map_err(Into::into),
+        Some("admit-client") if args.len()==1=>mtg_server::admission::run(),
         Some("client-config-schema") if args.len()==1=>{println!("{}",serde_json::to_string(&mtg_server::protocol::client_config_schema())?);Ok(())},
         Some("native-info") if args.len()==1=>native_info(),
         Some("bootstrap-schema") if args.len()==1=>{println!("{}",serde_json::to_string(&mtg_server::protocol::bootstrap_schema())?);Ok(())},

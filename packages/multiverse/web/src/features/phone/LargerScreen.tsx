@@ -6,6 +6,7 @@ import { Button, Stack, Text } from "../../ui/index.ts";
 import styles from "./LargerScreen.module.css";
 
 const PAGES: Partial<Record<Route["page"], { title: string; task: string }>> = {
+  "live-game": { title: "Game", task: "play your saved game" },
   "game-preview": { title: "Table preview", task: "inspect the Commander table" },
   playtest: { title: "Playtest", task: "use the playtester" },
   memories: { title: "Memories", task: "read and edit memories" },
@@ -22,8 +23,8 @@ export function LargerScreen({ route }: { route: Route }) {
       <Stack gap={5}>
         <Text as="h1" size="xl" weight="bold">{page?.title ?? "Open on a larger screen"}</Text>
         <Text as="p" tone="muted">Open on a larger screen{page ? ` to ${page.task}` : " to use this page"}.</Text>
-        <div>{route.page === "game-preview"
-          ? <Button size="touch" onClick={() => navigate({ page: "play", deckId: route.deckId })}>Back to setup</Button>
+        <div>{route.page === "game-preview" || route.page === "live-game"
+          ? <Button size="touch" onClick={() => navigate({ page: "play", deckId: route.page === "game-preview" ? route.deckId : undefined })}>Back to setup</Button>
           : <Button size="touch" onClick={() => navigate({ page: "decks" })}>Back to decks</Button>}</div>
       </Stack>
     </div>

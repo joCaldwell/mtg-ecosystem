@@ -28,11 +28,20 @@
     "./browser": {
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js"
+    },
+    "./policies": "./src/policies.ts",
+    "./presentation-producer": {
+      "node": {
+        "types": "./dist/presentation-producer.d.ts",
+        "import": "./dist/presentation-producer.js"
+      }
     }
   },
   "types": "./dist/browser.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "src",
+    "generated"
   ],
   "sideEffects": false
 }

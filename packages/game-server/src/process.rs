@@ -287,6 +287,15 @@ impl WorkerProcess {
         config: SpawnConfig,
         startup_timeout: Duration,
     ) -> Result<Self, BridgeError> {
+        Self::spawn_with_unit(config, startup_timeout, |_| Ok(())).await
+    }
+    /// Host-private durable ownership seam. Persist the exact generated unit
+    /// before systemd can launch any worker, including uncertain startup.
+    pub async fn spawn_with_unit(
+        config: SpawnConfig,
+        startup_timeout: Duration,
+        persist_unit: impl FnOnce(&str) -> Result<(), BridgeError>,
+    ) -> Result<Self, BridgeError> {
         duration(startup_timeout)?;
         verify_identity(&config.expected_identity, &config.expected_identity)?;
         if !config.binary.is_absolute()
@@ -297,6 +306,7 @@ impl WorkerProcess {
             return Err(BridgeError::InvalidRequest);
         }
         let unit = unit_name()?;
+        persist_unit(&unit)?;
         let mut command = Command::new("systemd-run");
         // Official systemd-run/resource-control/kill man sources (checked2026-10-15):
         // https://github.com/systemd/systemd/blob/main/man/systemd-run.xml

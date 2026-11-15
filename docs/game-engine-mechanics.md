@@ -138,7 +138,9 @@ an unsupported simultaneous group.
 
 Target legality is checked at proposal and resolution start. Loss of target
 legality after completed proposal during payment does not reverse casting
-(CR 601.6); a paid spell can then fail to resolve. If all targets are illegal,
+(CR 601.6), including departure before an accepted spending input is consumed;
+casting continues through payment without undoing legal mana activations. A paid spell can then fail
+to resolve. If all targets are illegal,
 skip the entire program, including compensation/draw. Target incarnation cannot
 rebind after bounce/reentry. Once resolution begins, use its frozen legal set and
 refresh current/LKI facts only at their defined boundaries.

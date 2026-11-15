@@ -10,20 +10,28 @@ Read [application launch gates](../packages/multiverse/web/ARCHITECTURE.md#game-
 
 ## Delivered scope and remaining gates
 
-The production App joins through an operator-issued single-seat file and enables
-explicit `mulligan`, `bottom_opening` and discovered priority `pass` commands.
-It journals and reconciles unknown outcomes. Other decisions explain missing live controls/context. Local
-draft adapters do not establish live or whole-profile coverage.
+The production App joins through an operator-issued single-seat file. Public
+`@multiverse/game-client/session` composes the same router-free table from an
+Actor-authorized human File. Every non-query request has a local draft adapter;
+source-dependent choices require complete producer context. Explicit confirmation
+retains the original command context, journals exact bytes and reconciles unknown
+outcomes. Local controls do not establish whole-profile coverage.
 `fixtures/decision-controls/coverage.json` owns request/response coverage with
 separate reachability, control, context and test evidence.
 Review new variants explicitly; schema presence is never admission.
 
 The production App composes session-owned action discovery in priority/mana
 windows, with window/object scope, bounded pagination, status and explicit stop.
-Pass priority is self-explanatory; all object/ability/payment beginnings remain
-blocked because qualified labels/context are unavailable.
-Complete games, all reachable decisions, human usability, arbitrary builder-deck
-admission, automated launch and account-to-seat provisioning remain unfinished.
+Pass priority is self-explanatory. Named land/cast, ability/mana and FinishMana
+beginnings require their exact permitted labels/source and scope. Missing meaning
+stays blocked. FinishMana's flag controls reversal only if payment fails.
+Complete games, whole-profile usability and integrated product launch remain
+qualification gates. Exact deck admission, private provisioning/recovery and
+three separately owned automated seats are implemented; default browser launch
+stays disabled pending integrated proof. Unsupported automation pauses explicitly.
+The owner-scoped durable record supplies confirmed pauses/results after native
+shutdown. Command controls can become read-only while the last permitted table
+remains visible; command dispositions retain their separate native-status authority.
 The product preview is a captured sample, never the selected deck or a real game.
 Do not use legacy solo playtester briefs/components as guidance.
 
@@ -154,11 +162,32 @@ candidate/validator, object cursor and context, never accumulated emitted entrie
 Logical work is not a CPU-instruction or constant-time guarantee. Unlimited budget
 is trusted native-only use; transport ceilings are independently stricter below.
 
-Context is `priority` or `mana { cost, source }` copied from the permitted request.
-Source is available only when that request supplies `mana_ability_source`; ordinary
-spell/ability payment source remains unavailable. All labels are unavailable:
-compiler source-label mappings do not exist in this qualified build. Never infer
-source blocks, mode/X meaning, instructions or legality from text/IR/card identity.
+Context is `priority` or `mana { cost, source }`. Mana source uses the nested
+mana-ability source or the ordinary current stack source's existing permitted handle.
+`ActionLabel` retains `unavailable` and adds `available { text, source? }`: core owns
+action wording, and optional source descriptions use offline compiler bindings.
+Cast and nonintrinsic activations without a bound source label remain unavailable.
+Intrinsic land mana uses the runtime's CR 305.6 production query and an explicit
+core-authored source description naming the produced color.
+Labels grant no affordability, target, payment or submission permission.
+
+`Observation.decision_context` is optional for historical projections. Its optional
+`source` supplies kind (`spell`, `activated`, `triggered`, `mana_ability`, `effect`),
+Oracle identity, optional existing object handle/ability index and complete source
+text. Compiler `SourceLabels` retains exact Oracle text, verified normalized source
+blocks (self references may be `~`) and lowerer-owned activated/triggered/mana/static
+indices. Standalone choose-one modes retain exact ordered option text. Schema 1,
+mechanical capabilities and reviewed hosted/search sets stay unchanged; catalog
+and build identities change. Metadata never admits new mechanics.
+
+Current announcement/payment/target and resolution choices receive source context.
+A resolving instruction supplies its exact source block or selected mode option; prevention
+allocation and damage replacement candidate labels use the actual effect origin.
+Trigger-order candidates carry optional ability labels. Missing fields remain
+unavailable: do not infer mode/X meaning, optional instructions, numeric bounds or
+legality from text/IR/card identity. Setup/combat/rule choices use their supplied
+candidates and quantities; a different viewer receives no decision context.
+Native source-backed metadata does not qualify live controls or complete games.
 
 Discovery traverses only the viewer's existing published handle map and rechecks
 visibility/incarnation; it never scans private IDs for order, mints handles,
@@ -178,7 +207,7 @@ and forwards to the exclusive match worker; it never computes rules.
 unknown/duplicate fields. `complete`, `incomplete`, `stale`, nested `unavailable`
 and `cancelled` retain exact meanings. Partial/limited is never a complete empty menu.
 An emitted beginning passes the native initiation validator; submission must still
-validate and later targets/payment can fail. Every current ActionLabel is unavailable.
+validate and later targets/payment can fail. Action labels and decision descriptions follow the producer contract above.
 
 | Transport resource | Bound |
 | --- | --- |
@@ -231,7 +260,9 @@ attempt per retired intent, four seconds, no work/budget replenishment.
 ReadSession captures original CommandContext/query context/scope before discovery,
 associates only that returned query generation, and requires its issued draft,
 complete snapshot, current generation and exact scope before normal journaling.
-Pass requires a priority window and window scope. Other beginnings remain gated.
+Pass requires a priority window and window scope. Other beginnings require
+producer-owned available labels and matching source kind/object/ability; FinishMana
+requires the supplied payment source and preserves its conditional reversal flag.
 Never fetch a fresh command context at callback time. The pure query controller
 constructs or submits no PlayerResponse. Stop invalidates synchronously and awaits
 captured-SDK cancellation/in-flight deadlines before releasing the Web Lock; late
@@ -245,7 +276,12 @@ public `/presentation/<sha256>.json` serves immutable prevalidated allowlisted b
 SDK verifies bounded strict JSON, digest, catalog and face identity. A 404 is
 missing metadata; corruption stops. Producer schema lives in
 `packages/game-server/tools/presentation.schema.json`; request handlers only serve
-startup-verified bytes. Operator pins `artifacts.json`, not arbitrary remote JSON.
+startup-verified bytes. Operator pins `artifacts.json`, not arbitrary remote JSON. Product lifecycle instead obtains one authenticated
+public manifest per native session and uses the SDK's public Node-only
+`./presentation-producer` bridge to that same producer. It caches validated bytes
+in memory. Its exact scoped artifact GET omits native bearer only behind existing
+Actor ownership/active-identity checks before and after I/O; other v1 operations
+retain exact human-seat authorization. No browser source parsing follows.
 
 Native `serve-client` requires numeric loopback, exact Host, absent or matching
 Origin and non-cross-site Fetch Metadata; no CORS. Vite enforces the local boundary

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { PublicManifest, SeatResume, StreamPage } from '@multiverse/game-server-sdk';
 import type { PresentationArtifact } from '../generated/presentation.d.ts';
-import opening from '../fixtures/foundations-opening/opening-seat0-http.json' with { type: 'json' };
+import opening from './current-opening.ts';
 import metadata from '../fixtures/foundations-opening/presentation.json' with { type: 'json' };
 import { ReadSession, type Authorization, type SessionEffects, type ReadTransport } from '../src/session/controller.ts';
 import { checkManifest, resumeRead, streamRead, SessionFailure, type ReadBinding } from '../src/session/read-state.ts';

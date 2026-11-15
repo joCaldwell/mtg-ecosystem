@@ -152,3 +152,44 @@ test('fixture route refresh makes no API request and stores no secrets or intent
   expect(requests.every(url => new URL(url).origin === new URL(page.url()).origin && !/\/(v1|presentation)\/|client-config/.test(url))).toBe(true);
   expect(await page.evaluate(async () => ({ local: localStorage.length, session: sessionStorage.length, databases: (await indexedDB.databases()).length, workers: (await navigator.serviceWorker.getRegistrations()).length, cache: (await caches.keys()).length, cookies: document.cookie }))).toEqual({ local: 0, session: 0, databases: 0, workers: 0, cache: 0, cookies: '' });
 });
+
+test('combat choices use keyboard selects, require explicit unused choices and retain exact targets', async ({ page }) => {
+  await page.goto('/fixtures/decisions');
+  const form = page.getByRole('group', { name: 'Declare attackers', exact: true }).locator('..');
+  const first = form.getByRole('combobox', { name: 'Same label Handle lab-a', exact: true });
+  const second = form.getByRole('combobox', { name: 'Same label Handle lab-b', exact: true });
+  const confirm = form.getByRole('button', { name: 'Confirm local draft' });
+  await confirm.click();
+  await expect(form.locator('p[tabindex="-1"]')).toBeFocused();
+  await first.focus();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await expect(first).toHaveValue('[1]');
+  await second.selectOption('unused');
+  await confirm.click();
+  const receipt = page.getByRole('region', { name: 'Last local completion' });
+  await expect(receipt).toContainText('"response": "attackers"');
+  await expect(receipt).toContainText('"lab-a",\n        1');
+  await expect(receipt).not.toContainText('"lab-b"');
+});
+
+test('payment and combat amounts require explicit exact quantities and supplied allocation totals', async ({ page }) => {
+  await page.goto('/fixtures/decisions');
+  const payment = page.getByRole('group', { name: 'Choose mana to spend', exact: true }).locator('..');
+  await payment.getByRole('textbox', { name: 'Blue Available: 1', exact: true }).fill('1');
+  await payment.getByRole('textbox', { name: 'Colorless Available: 9007199254740993', exact: true }).fill('9007199254740993');
+  await payment.getByRole('button', { name: 'Confirm local draft' }).click();
+  const receipt = page.getByRole('region', { name: 'Last local completion' });
+  await expect(receipt).toContainText('"C": "9007199254740993"');
+  const damage = page.getByRole('group', { name: 'Assign combat damage', exact: true }).locator('..');
+  const creature = damage.getByRole('textbox', { name: /Same label.*lab-b/ });
+  const player = damage.getByRole('textbox', { name: 'Seat 3 Supplied player recipient', exact: true });
+  await creature.fill('2'); await player.fill('2');
+  await damage.getByRole('button', { name: 'Confirm local draft' }).click();
+  await expect(damage.locator('p[tabindex="-1"]')).toHaveText('Assign exactly the supplied total of 5.');
+  await expect(receipt).toContainText('"spend_mana"');
+  await player.fill('3');
+  await damage.getByRole('button', { name: 'Confirm local draft' }).click();
+  await expect(receipt).toContainText('"response": "trample_damage"');
+  await expect(receipt).toContainText('"amount": "3"');
+});

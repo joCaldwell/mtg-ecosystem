@@ -1,17 +1,18 @@
 import { useState } from 'react';
-import { bindingKey, completeDecision, decisionSurface, emptyDraft, reconcileDraft, type DecisionBinding, type DecisionCompletion, type DecisionRequest, type LocalDraft, type ObjectLabel } from '../../decisions/controls.ts';
+import { bindingKey, completeDecision, decisionSurface, emptyDraft, reconcileDraft, type DecisionBinding, type DecisionCompletion, type DecisionContext, type DecisionRequest, type LocalDraft, type ObjectLabel } from '../../decisions/controls.ts';
 import { LocalControls } from './LocalControls.tsx';
 import styles from './decisions.module.css';
 
 /** onComplete is explicit local human intent only. Future app composition must
  * preserve its original session context and pass through durable-send gates. */
-export function DecisionPanel({ binding, request, labels, onComplete, live = false, embedded = false }: {
+export function DecisionPanel({ binding, request, labels, context, onComplete, live = false, embedded = false }: {
   readonly binding: DecisionBinding; readonly request: DecisionRequest;
   readonly labels: readonly ObjectLabel[]; readonly onComplete: (completion: DecisionCompletion) => void;
   readonly live?: boolean;
   readonly embedded?: boolean;
+  readonly context?: DecisionContext | null;
 }) {
-  const surface = decisionSurface(request, labels);
+  const surface = decisionSurface(request, labels, context);
   const identity = bindingKey(binding);
   const fingerprint = JSON.stringify(surface);
   const [state, setState] = useState({ identity, fingerprint, draft: emptyDraft, announcement: '' });
@@ -29,9 +30,9 @@ export function DecisionPanel({ binding, request, labels, onComplete, live = fal
     {!bound ? <><h2>Decision binding unavailable</h2><p>No draft can be completed for this seat or token.</p></>
       : surface.status === 'supported' ? <LocalControls validationKey={`${identity}:${fingerprint}`} control={live && request.request === 'bottom_opening'
           ? { ...surface.control, description: `Choose exactly ${request.count} cards, then review their order from first to last.` } : surface.control} draft={draft} onChange={next => setState({ ...state, draft: next })}
-        confirmLabel={live ? 'Confirm opening choice' : 'Confirm local draft'}
+        confirmLabel={live ? 'Confirm choice' : 'Confirm local draft'}
         readyText={live ? 'Ready to confirm. The table will check your choice.' : 'Draft shape complete. Core validation is still required.'}
-        onComplete={() => { const response = completeDecision(request, labels, draft); if (response) onComplete({ binding: { ...binding }, response }); }} />
+        onComplete={() => { const response = completeDecision(request, labels, draft, context); if (response) onComplete({ binding: { ...binding }, response }); }} />
         : <><h2>{surface.title}</h2><p>{surface.reason}</p></>}
     <p className={styles.boundary}>{live ? 'Confirmation saves this choice before sending it to the table.' : 'Local draft only. No game action is sent.'}</p>
   </section>;
