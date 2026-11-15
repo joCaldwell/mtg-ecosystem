@@ -179,6 +179,19 @@ mod tests {
     // Exact complete-source definitions, private board setup. These tests prove
     // reconciliation laws, not paid casting history or restore reachability.
     fn game(second_controller: u8, mode: TraceMode) -> Game {
+        kernel_game(
+            &[
+                ("Control Magic", 1, 1),
+                ("Mind Control", 2, second_controller),
+                ("Grizzly Bears", 0, 0),
+                ("Forest", 0, 0),
+            ],
+            &[],
+            mode,
+        )
+    }
+
+    fn kernel_game(rows: &[(&str, u8, u8)], extras: &[&str], mode: TraceMode) -> Game {
         let mut catalog = Catalog::read(include_str!(
             "../../../../tests/fixtures/expected-attachments-ir.json"
         ))
@@ -186,9 +199,12 @@ mod tests {
         for raw in [
             include_str!("../../../../tests/fixtures/cd0d7141-46d2-4aa3-bc77-6b3b4513803e.json"),
             include_str!("../../../../tests/fixtures/5912546a-acc2-448c-b042-64bdac5ec129.json"),
-        ] {
+        ]
+        .into_iter()
+        .chain(extras.iter().copied())
+        {
             let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
-                include_str!("../../../../tests/fixtures/archive-manifest.json"),
+                include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
                 raw,
             ) else {
                 panic!("complete frozen Aura control source must lower")
@@ -199,12 +215,6 @@ mod tests {
             .definitions
             .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
         catalog.validate().unwrap();
-        let rows = [
-            ("Control Magic", 1, 1),
-            ("Mind Control", 2, second_controller),
-            ("Grizzly Bears", 0, 0),
-            ("Forest", 0, 0),
-        ];
         let config = ScenarioConfig {
             initial: ScenarioInitial::default(),
             mode: Mode::CommanderMatch,
@@ -239,6 +249,51 @@ mod tests {
             },
             mode,
         )
+    }
+
+    // New typed-domain kernel tests below are UNRUN pending the parent's
+    // combined native pass. Exact complete frozen definitions, private setup;
+    // no paid replay, snapshot reachability, catalog or consumer admission claim.
+    fn typed_game(mode: TraceMode) -> Game {
+        kernel_game(
+            &[
+                ("Steal Artifact", 1, 1),    // 0
+                ("Annex", 2, 2),             // 1
+                ("Conquer", 3, 3),           // 2
+                ("Silver Myr", 0, 0),        // 3: artifact creature
+                ("Seat of the Synod", 0, 0), // 4: artifact land
+                ("Grizzly Bears", 0, 0),     // 5: creature only
+                ("Forest", 0, 0),            // 6: land only
+                ("Bonesplitter", 0, 0),      // 7: artifact, Equipment
+                ("Rancor", 0, 0),            // 8: old noncontrol Aura
+                ("Control Magic", 1, 1),     // 9
+            ],
+            &[
+                include_str!(
+                    "../../../../tests/fixtures/cd8ae9f2-edac-473a-8846-c08219e617c3.json"
+                ),
+                include_str!(
+                    "../../../../tests/fixtures/5f1f49dd-b7ce-494a-9b4b-ac702d3664c5.json"
+                ),
+                include_str!(
+                    "../../../../tests/fixtures/be15e131-0753-4ceb-a36b-4f9172241080.json"
+                ),
+                include_str!(
+                    "../../../../tests/fixtures/66e8f7f8-3a6d-46ba-837c-b9713ddf7f40.json"
+                ),
+                include_str!(
+                    "../../../../tests/fixtures/39451b4d-cd7a-40da-b457-cb51b609173f.json"
+                ),
+            ],
+            mode,
+        )
+    }
+
+    fn rejected_unchanged(game: &mut Game, group: EventGroup) {
+        let before = game.fork();
+        assert!(game.commit_batch(BatchCause::Fixture, group).is_err());
+        assert_eq!(game.state, before.state);
+        assert_eq!(game.trace, before.trace);
     }
 
     fn object(game: &Game, card: u32) -> ObjectId {
@@ -598,5 +653,361 @@ mod tests {
         assert!(!game.state.rules.players[1].mana.contains_key(&Color::U));
         assert_eq!(game.state.rules.frame, frame);
         game.validate_control_state().unwrap();
+    }
+
+    #[test]
+    fn typed_aura_control_kernel_domains_use_all_types_and_preserve_legacy_boundaries() {
+        for (source, target) in [
+            (0, 3),
+            (0, 4),
+            (0, 7),
+            (1, 4),
+            (1, 6),
+            (2, 4),
+            (2, 6),
+            (9, 3),
+            (7, 3),
+            (8, 3),
+        ] {
+            let mut game = typed_game(TraceMode::Detailed);
+            let target = object(&game, target);
+            attach(&mut game, source, Some(target));
+            let source = game.current(object(&game, source)).unwrap();
+            assert_eq!(source.attached_to, Some(target));
+            assert_eq!(source.attachment_timestamp, Some(1));
+            if mtg_contracts::aura_control_source(game.definition(source.id.card).unwrap()) {
+                assert_eq!(game.current(target).unwrap().controller, source.controller);
+            }
+            game.validate_attachment_state().unwrap();
+            game.validate_control_state().unwrap();
+        }
+        for (source, target) in [
+            (0, 5),
+            (0, 6),
+            (0, 1),
+            (1, 3),
+            (1, 7),
+            (2, 5),
+            (9, 4),
+            (7, 4),
+            (8, 4),
+        ] {
+            let mut game = typed_game(TraceMode::Detailed);
+            let proposed = ProposedEvent::Attach {
+                object: object(&game, source),
+                target: Some(object(&game, target)),
+            };
+            rejected_unchanged(&mut game, EventGroup::Occurrence { proposed });
+        }
+    }
+
+    #[test]
+    fn typed_aura_control_kernel_artifact_land_competes_on_one_attachment_clock() {
+        let mut expected = None;
+        for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+            let mut game = typed_game(mode);
+            let target = object(&game, 4);
+            for (source, controller) in [(2, 3), (0, 1), (1, 2)] {
+                attach(&mut game, source, Some(target));
+                assert_eq!(
+                    game.current(target).unwrap().controller,
+                    PlayerId(controller)
+                );
+            }
+            let source = object(&game, 1);
+            let clock = game.state.rules.next_attachment_timestamp;
+            attach(&mut game, 1, Some(target));
+            assert_eq!(game.state.rules.next_attachment_timestamp, clock);
+            assert_eq!(game.current(source).unwrap().attachment_timestamp, Some(3));
+            let mut duplicate_timestamp = game.fork();
+            duplicate_timestamp
+                .state
+                .rules
+                .objects
+                .get_mut(&CardId(0))
+                .unwrap()
+                .attachment_timestamp = Some(3);
+            assert!(duplicate_timestamp.validate_attachment_state().is_err());
+            assert!(duplicate_timestamp.validate_control_state().is_err());
+            let authority = game.control_before().unwrap().unwrap();
+            assert_eq!(authority.next_attachment_timestamp, clock);
+            assert_eq!(authority.attachments.len(), 3);
+            attach(&mut game, 1, None);
+            assert_eq!(game.current(target).unwrap().controller, PlayerId(1));
+            game.move_object(object(&game, 0), Zone::Graveyard { owner: PlayerId(1) })
+                .unwrap();
+            assert_eq!(game.current(target).unwrap().controller, PlayerId(3));
+            attach(&mut game, 2, None);
+            let target = game.current(target).unwrap();
+            assert_eq!(target.controller, PlayerId(0));
+            assert_eq!(target.default_controller, PlayerId(0));
+            game.validate_control_state().unwrap();
+            if let Some(state) = &expected {
+                assert_eq!(&game.state, state);
+            } else {
+                expected = Some(game.state.clone());
+            }
+        }
+    }
+
+    #[test]
+    fn typed_aura_control_kernel_same_controller_artifact_creature_keeps_combat_readiness() {
+        let mut game = typed_game(TraceMode::Detailed);
+        let target = object(&game, 3);
+        attach(&mut game, 9, Some(target));
+        game.state
+            .rules
+            .objects
+            .get_mut(&target.card)
+            .unwrap()
+            .attack_ready = true;
+        game.state.rules.combat.push(Attacker {
+            attacker: target,
+            defender: PlayerId(3),
+            blocked: false,
+            blockers: vec![],
+        });
+        let changes = control_changes(&game);
+        attach(&mut game, 0, Some(target));
+        attach(&mut game, 9, None);
+        assert_eq!(game.current(target).unwrap().controller, PlayerId(1));
+        assert!(game.current(target).unwrap().attack_ready);
+        assert_eq!(game.state.rules.combat.len(), 1);
+        assert_eq!(control_changes(&game), changes);
+        attach(&mut game, 0, None);
+        assert_eq!(game.current(target).unwrap().controller, PlayerId(0));
+        assert!(!game.current(target).unwrap().attack_ready);
+        assert!(game.state.rules.combat.is_empty());
+    }
+
+    #[test]
+    fn typed_aura_control_kernel_stale_snapshot_shape_then_sba_never_follows_successor() {
+        for (source, target) in [(0, 3), (0, 4), (1, 6)] {
+            let mut game = typed_game(TraceMode::Detailed);
+            let old = object(&game, target);
+            attach(&mut game, source, Some(old));
+            for forged in [
+                ObjectId {
+                    incarnation: old.incarnation + 1,
+                    ..old
+                },
+                ObjectId {
+                    card: CardId(9999),
+                    ..old
+                },
+                object(&game, 5),
+            ] {
+                let mut invalid = game.fork();
+                invalid
+                    .state
+                    .rules
+                    .objects
+                    .get_mut(&CardId(source))
+                    .unwrap()
+                    .attached_to = Some(forged);
+                assert!(invalid.validate_attachment_state().is_err());
+            }
+            game.move_object(old, Zone::Hand { owner: PlayerId(0) })
+                .unwrap();
+            game.validate_attachment_state().unwrap();
+            game.validate_control_state().unwrap();
+            let hand = object(&game, target);
+            game.move_object(hand, Zone::Battlefield).unwrap();
+            let successor = object(&game, target);
+            assert_ne!(old, successor);
+            assert_eq!(game.current(successor).unwrap().controller, PlayerId(0));
+            game.validate_attachment_state().unwrap();
+            let mut sbas = vec![];
+            game.attachment_sbas(&mut sbas).unwrap();
+            assert!(sbas.contains(&ProposedEvent::Move {
+                object: object(&game, source),
+                destination: Zone::Graveyard {
+                    owner: PlayerId(if source == 0 { 1 } else { 2 })
+                }
+            }));
+        }
+    }
+
+    #[test]
+    fn typed_aura_control_kernel_atomic_allocation_and_mixed_simultaneous_rejection() {
+        let mut game = typed_game(TraceMode::Detailed);
+        let target = object(&game, 4);
+        let source = object(&game, 0);
+        let wrong_type = object(&game, 5);
+        rejected_unchanged(
+            &mut game,
+            EventGroup::Ordered {
+                children: vec![
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::Attach {
+                            object: source,
+                            target: Some(target),
+                        },
+                    },
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::Attach {
+                            object: source,
+                            target: Some(wrong_type),
+                        },
+                    },
+                ],
+            },
+        );
+        let tap = object(&game, 6);
+        rejected_unchanged(
+            &mut game,
+            EventGroup::Simultaneous {
+                occurrences: vec![
+                    ProposedEvent::Attach {
+                        object: source,
+                        target: Some(target),
+                    },
+                    ProposedEvent::Tap { object: tap },
+                ],
+            },
+        );
+        game.state.rules.control_effects.push(ControlEffect {
+            id: 1,
+            object: target,
+            controller: PlayerId(0),
+            source: ControlSource::Persistent,
+        });
+        rejected_unchanged(
+            &mut game,
+            EventGroup::Occurrence {
+                proposed: ProposedEvent::Attach {
+                    object: source,
+                    target: Some(target),
+                },
+            },
+        );
+        game.state.rules.control_effects.clear();
+        game.state.rules.next_attachment_timestamp = u64::MAX;
+        rejected_unchanged(
+            &mut game,
+            EventGroup::Occurrence {
+                proposed: ProposedEvent::Attach {
+                    object: source,
+                    target: Some(target),
+                },
+            },
+        );
+        game.move_object(source, Zone::Stack).unwrap();
+        let source = object(&game, 0);
+        rejected_unchanged(
+            &mut game,
+            EventGroup::Occurrence {
+                proposed: ProposedEvent::EnterAttached {
+                    object: source,
+                    target,
+                },
+            },
+        );
+        game.state.rules.next_attachment_timestamp = 1;
+        rejected_unchanged(
+            &mut game,
+            EventGroup::Occurrence {
+                proposed: ProposedEvent::EnterAttached {
+                    object: source,
+                    target: wrong_type,
+                },
+            },
+        );
+    }
+
+    #[test]
+    fn typed_aura_control_kernel_entry_checks_targetability_but_ongoing_attachment_does_not() {
+        // Synthetic resolved keyword grants isolate targeting from attachment
+        // legality; this is not a complete-source casting/replay witness.
+        for (source_id, target_id) in [(0, 4), (1, 6)] {
+            for keyword in [KeywordAbility::Hexproof, KeywordAbility::Shroud] {
+                let mut game = typed_game(TraceMode::Detailed);
+                let source = object(&game, source_id);
+                let target = object(&game, target_id);
+                game.move_object(source, Zone::Stack).unwrap();
+                let source = object(&game, source_id);
+                game.state.rules.effects.push(ResolvedEffect {
+                    target_handles: vec![],
+                    id: EffectId(1),
+                    origin: EffectOrigin {
+                        mode: None,
+                        stack_id: StackId(0),
+                        source: target,
+                        controller: PlayerId(0),
+                        source_handles: vec![],
+                        cursor: 0,
+                        source_block: 0,
+                    },
+                    expires_in_cleanup_of_turn: game.turn().number,
+                    kind: ResolvedEffectKind::GrantKeywordsSet {
+                        targets: vec![target],
+                        modifier: None,
+                        keywords: vec![keyword],
+                    },
+                });
+                assert!(!game.targetable_by(target, game.current(source).unwrap().controller));
+                rejected_unchanged(
+                    &mut game,
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::EnterAttached {
+                            object: source,
+                            target,
+                        },
+                    },
+                );
+                game.state.rules.effects.clear();
+                let outcome = game
+                    .commit(
+                        ProposedEvent::EnterAttached {
+                            object: source,
+                            target,
+                        },
+                        BatchCause::Fixture,
+                    )
+                    .unwrap();
+                let EventOutcome::EnteredAttached {
+                    movement,
+                    attachment_timestamp,
+                    ..
+                } = outcome
+                else {
+                    panic!("attached entry outcome")
+                };
+                assert_eq!(attachment_timestamp, 1);
+                assert_eq!(
+                    game.current(movement.successor).unwrap().attached_to,
+                    Some(target)
+                );
+                game.state.rules.effects.push(ResolvedEffect {
+                    target_handles: vec![],
+                    id: EffectId(2),
+                    origin: EffectOrigin {
+                        mode: None,
+                        stack_id: StackId(0),
+                        source: target,
+                        controller: PlayerId(0),
+                        source_handles: vec![],
+                        cursor: 0,
+                        source_block: 0,
+                    },
+                    expires_in_cleanup_of_turn: game.turn().number,
+                    kind: ResolvedEffectKind::GrantKeywordsSet {
+                        targets: vec![target],
+                        modifier: None,
+                        keywords: vec![keyword],
+                    },
+                });
+                assert!(!game.targetable_by(target, PlayerId(0)));
+                game.validate_attachment_state().unwrap();
+                game.validate_control_state().unwrap();
+                let mut sbas = vec![];
+                game.attachment_sbas(&mut sbas).unwrap();
+                assert!(!sbas.iter().any(|event| matches!(event, ProposedEvent::Move {object, ..} if *object == movement.successor)));
+                assert_eq!(
+                    game.current(target).unwrap().controller,
+                    game.current(movement.successor).unwrap().controller
+                );
+            }
+        }
     }
 }
