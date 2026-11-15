@@ -677,7 +677,7 @@ pub enum Instruction {
     },
     GainLife {
         recipient: LifeRecipient,
-        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
         amount: Quantity,
         source_block: u32,
     },
