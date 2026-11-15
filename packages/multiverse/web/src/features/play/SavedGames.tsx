@@ -27,7 +27,7 @@ export function SavedGames() {
     <h2 id="saved-games-title">Saved games</h2>
     {query.error ? <><ErrorNote>{query.error}</ErrorNote><Button onClick={query.reload}>Try again</Button></> : query.loading ? <Loading /> : !query.data?.games.length ? <Text as="p" tone="muted">No games have been started from your account.</Text> : <ul className={styles.list} role="list">
       {query.data.games.map(game => <li key={game.id}>
-        <div><Text mono>Deck {game.deck.deck_id} · r{game.deck.revision}</Text><Text as="p" tone="muted">{game.outcome?.kind === "draw" ? "Draw" : game.outcome?.kind === "win" ? game.outcome.winner === 0 ? "You won" : `Automated seat ${game.outcome.winner + 1} won` : game.pause === "human_timeout" ? "Paused after the human decision time limit" : game.pause === "lifetime_exceeded" ? "Paused after the game time limit" : game.state === "active" ? "In progress" : "Paused"}</Text></div>
+        <div><Text mono>Deck {game.deck.deck_id} · r{game.deck.revision}</Text><Text as="p" tone="muted">{game.outcome?.kind === "draw" ? "Draw" : game.outcome?.kind === "win" ? game.outcome.winner === 0 ? "You won" : `Automated seat ${game.outcome.winner + 1} won` : game.pause === "human_timeout" ? "Interrupted after the human decision time limit" : game.pause === "lifetime_exceeded" ? "Interrupted after the game time limit" : game.state === "interrupted" ? "Interrupted" : game.state === "active" ? "In progress" : "Paused"}</Text></div>
         {game.state !== "completed" && game.state !== "interrupted" && <Button disabled={pending !== null} onClick={() => void resume(game.id)}>Resume game</Button>}
       </li>)}
     </ul>}
