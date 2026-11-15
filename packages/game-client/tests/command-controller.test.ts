@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { prepareCommand, parsePreparedCommand } from '@multiverse/game-server-sdk/browser';
 import type { CommandEnvelope, CommandExecution, PublicManifest, SeatResume } from '@multiverse/game-server-sdk';
+import type { PresentationArtifact } from '../generated/presentation.d.ts';
+import metadata from '../fixtures/foundations-opening/presentation.json' with { type: 'json' };
 import opening from './current-opening.ts';
-import { ReadSession, type SessionEffects } from '../src/session/controller.ts';
+import { ReadSession, type ReadTransport, type SessionEffects } from '../src/session/controller.ts';
 import { type CommandEffects, type DecisionIntent } from '../src/session/command.ts';
 import type { JournalRecord } from '../src/session/contracts.ts';
 import { SessionFailure, type ReadBinding } from '../src/session/read-state.ts';
@@ -12,8 +14,8 @@ const original = opening.resume as SeatResume;
 const binding: ReadBinding = { protocol_version: 1, server_origin: 'http://127.0.0.1:18741', match_id: original.match_id, viewer: 0, engine_build_id: original.engine_build_id, server_build_id: original.server_build_id, catalog_sha256: original.catalog_sha256 };
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { resolve, promise }; }
 async function flush() { for (let i = 0; i < 50; i++) await Promise.resolve(); }
-function rig() {
-  let record: JournalRecord<CommandEnvelope> | null = null, owns = false, resumes = 0, polls = 0, sends = 0, ids = 0;
+function rig(presentation: PresentationArtifact | null = null) {
+  let record: JournalRecord<CommandEnvelope> | null = null, owns = false, manifests = 0, presentations = 0, resumes = 0, polls = 0, sends = 0, ids = 0;
   const events: string[] = [], waits: ReturnType<typeof deferred<void>>[] = [];
   const commands: CommandEffects = {
     protocol: '4'.repeat(64), protocolVersion: 1, codec: { prepare: prepareCommand, parse: parsePreparedCommand }, newId: () => (++ids).toString(16).padStart(32, '0'),
@@ -28,22 +30,59 @@ function rig() {
       async cancelQueued(id) { return { status: 'accepted', command_id: id }; },
     },
   };
+  const transport: ReadTransport = {
+    async manifest() { manifests++; events.push('manifest'); return { ...binding, profile: opening.profile } as unknown as PublicManifest; },
+    async presentation() { presentations++; return presentation; },
+    async resume() { resumes++; events.push('resume'); return structuredClone(original); },
+    async poll(after) { polls++; return { protocol_version: 1, entries: [], next: after, has_more: false }; },
+  };
   const effects: SessionEffects<string> = {
     cancellation() { const c = new AbortController(); return { signal: c.signal, abort: () => c.abort() }; },
     async acquire() { events.push('lock'); owns = true; return () => { owns = false; events.push('release'); }; },
-    async authorize() { return { binding, commands, transport: {
-      async manifest() { events.push('manifest'); return { ...binding, profile: opening.profile } as unknown as PublicManifest; },
-      async presentation() { return null; },
-      async resume() { resumes++; events.push('resume'); return structuredClone(original); },
-      async poll(after) { polls++; return { protocol_version: 1, entries: [], next: after, has_more: false }; },
-    } }; },
+    async authorize() { return { binding, commands, transport }; },
     wait() { const wait = deferred<void>(); waits.push(wait); return wait.promise; },
     classify(error) { return error instanceof SessionFailure ? error.kind : 'disconnected'; },
   };
   const session = new ReadSession(effects);
   const intent = (): DecisionIntent => ({ kind: 'decision', source: 'human', context: session.commandContext()!, response: { response: 'mulligan', take: false } });
-  return { session, commands, effects, events, waits, intent, record: () => record, stats: () => ({ sends, resumes, polls }) };
+  return { session, commands, transport, effects, events, waits, intent, record: () => record, stats: () => ({ sends, resumes, polls, manifests, presentations }) };
 }
+
+test('multiple consumed commands reuse verified presentation only within the run and require each fresh resume', async () => {
+  for (const presentation of [metadata as PresentationArtifact, null]) {
+    const r = rig(presentation), resume = r.transport.resume;
+    let fresh: ReturnType<typeof deferred<SeatResume>>;
+    r.commands.transport.execution = async id => ({ command_id: id, status: { status: 'consumed_by_rules' } });
+    const running = r.session.join('seat'); await flush();
+    r.transport.resume = async signal => { await resume(signal); return fresh.promise; };
+    for (let command = 0; command < 3; command++) {
+      const intent = r.intent(), persists = r.events.filter(event => event === 'persist').length;
+      const previous = r.session.getSnapshot().read;
+      await r.session.submitIntent(intent); await r.session.retryCommand();
+      assert.equal(r.record(), null); assert.equal(r.session.getSnapshot().command.phase, 'awaiting-refresh');
+      fresh = deferred<SeatResume>(); r.waits[command]!.resolve(); await flush();
+      assert.equal(r.session.getSnapshot().connection, 'authenticating');
+      assert.equal(r.session.commandContext(), null, 'cached assets cannot unlock intent before a fresh resume');
+      assert.equal(r.session.getSnapshot().read, previous);
+      assert.equal(r.stats().manifests, 1); assert.equal(r.stats().presentations, 1);
+      assert.equal(r.stats().resumes, command + 2);
+      const next = structuredClone(original); next.next = String(command + 2);
+      if (next.state.status !== 'available' || !next.state.observation.decision) assert.fail();
+      next.state.observation.decision.token = `fresh-${command}`;
+      fresh.resolve(next); await flush();
+      const context = r.session.commandContext()!;
+      assert.equal(r.session.getSnapshot().command.phase, 'ready');
+      assert.notEqual(context.incarnation, intent.context.incarnation);
+      assert.equal(context.revision, next.next); assert.equal(context.token, `fresh-${command}`);
+      assert.equal(r.session.getSnapshot().metadata, presentation);
+      assert.equal(r.session.getSnapshot().metadataMissing, presentation === null);
+      await r.session.submitIntent(intent);
+      assert.equal(r.events.filter(event => event === 'persist').length, persists + 1, 'original context remains retired');
+    }
+    assert.equal(r.stats().sends, 3); assert.equal(r.stats().polls, 0);
+    r.session.stop(); r.waits[3]!.resolve(); await running;
+  }
+});
 
 test('authorization, Web Lock, manifest and actual viewer precede scan; one cursor/read owner', async () => {
   const r = rig(), running = r.session.join('seat'); await flush();
@@ -124,10 +163,35 @@ test('failed refresh resume keeps the post-rejection gate until a later successf
   r.commands.transport.submitExact = async body => ({ command_id: parsePreparedCommand(body).envelope.command_id, status: 'rejected', reason: 'stale_revision' });
   await r.session.submitIntent(stale); r.waits[0]!.resolve(); await flush();
   assert.equal(r.session.getSnapshot().command.phase, 'awaiting-refresh'); assert.equal(r.session.commandContext(), null);
+  assert.equal(r.stats().manifests, 1); assert.equal(r.stats().presentations, 1);
   r.waits[1]!.resolve(); await flush();
   assert.equal(attempts, 3); assert.equal(r.session.getSnapshot().command.phase, 'ready');
+  assert.equal(r.stats().manifests, 2); assert.equal(r.stats().presentations, 2, 'failed command refresh requires full reconnect validation');
   await r.session.submitIntent(stale); assert.equal(r.events.filter(event => event === 'persist').length, 1);
   r.session.stop(); r.waits[2]!.resolve(); await running;
+});
+
+test('failed consumed-command refresh rejects auth or identity drift without reopening the intent gate', async () => {
+  for (const kind of ['unauthorized', 'incompatible'] as const) {
+    const r = rig(metadata as PresentationArtifact), running = r.session.join('seat'); await flush();
+    const stale = r.intent();
+    await r.session.submitIntent(stale);
+    r.commands.transport.execution = async id => ({ command_id: id, status: { status: 'consumed_by_rules' } });
+    await r.session.retryCommand();
+    const resume = r.transport.resume;
+    r.transport.resume = async signal => {
+      const read = await resume(signal);
+      if (kind === 'unauthorized') throw new SessionFailure(kind);
+      return { ...read, viewer: 1 };
+    };
+    r.waits[0]!.resolve(); await running;
+    assert.equal(r.session.getSnapshot().connection, kind);
+    assert.equal(r.session.getSnapshot().read, null); assert.equal(r.session.getSnapshot().metadata, null);
+    assert.equal(r.session.commandContext(), null); assert.equal(r.session.getSnapshot().command.phase, 'awaiting-refresh');
+    assert.equal(r.stats().resumes, 2); assert.equal(r.stats().manifests, 1); assert.equal(r.stats().presentations, 1);
+    await r.session.submitIntent(stale); assert.equal(r.stats().sends, 1);
+    assert.equal(r.events.filter(event => event === 'release').length, 1);
+  }
 });
 
 test('lost command ack recovers from authoritative status through the existing read loop', async () => {
