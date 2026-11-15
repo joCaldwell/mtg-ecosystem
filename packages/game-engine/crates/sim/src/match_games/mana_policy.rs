@@ -189,6 +189,7 @@ mod tests {
         });
         let mut observation = Observation {
             observation_version: 22,
+            decision_context: None,
             decision: None,
             view: mtg_core::PermittedView {
                 sacrifice_choices: vec![],

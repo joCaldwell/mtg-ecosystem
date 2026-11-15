@@ -117,7 +117,13 @@ JSON without authorization, returning `{descriptor, artifact}`. Descriptor limit
 is 4096 bytes; artifact 4 MiB or the caller's smaller bound. Producer/schema/hash,
 catalog, face ordering and identity failures are `ProtocolError`; missing data
 stays `HttpError(404)` for session display fallback. No retry or local inference.
-Producer contract is [`presentation.schema.json`](../tools/presentation.schema.json).
+Producer contract is [`presentation.schema.json`](../tools/presentation.schema.json). The Node-only public
+`./presentation-producer` export provides `producePresentation(manifest, expected)`.
+It validates generated public manifest shape, exact match/build/profile/catalog
+identity and canonical catalog digest, then bundles the unchanged
+`tools/client-artifacts.ts` authority to check pinned source/printing identities.
+It returns a bounded descriptor and UTF-8 artifact bytes; `dist/build.json` pins
+the separate Node dependency closure. Browser exports remain unchanged.
 
 `queryActions(request, {signal})` performs one bounded start/continue/cancel POST
 using generated request/response types. Caller owns token/viewer/scope/cursor

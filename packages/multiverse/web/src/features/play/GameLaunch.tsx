@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { navigate } from "../../app/routes.ts";
 import { api } from "../../api/client.ts";
 import type { GameAdmission, GameRecord } from "../../api/client.ts";
 import { Button, ErrorNote } from "../../ui/index.ts";
@@ -24,7 +25,10 @@ export function GameLaunch({ deckId, revision }: { deckId: number; revision: num
       const result: { admission: GameAdmission; game?: GameRecord } = launch ? await api.launchGame(deckId, revision, requestId.current!) : await api.gameAdmission(deckId, revision);
       if (!mounted.current) return;
       setAdmission(result.admission);
-      if ("game" in result && result.game) setGame(result.game);
+      if ("game" in result && result.game) {
+        setGame(result.game);
+        if (result.admission.state === "supported" && result.admission.launch_ready && result.game.state === "active") navigate({ page: "live-game", gameId: result.game.id });
+      }
     } catch { if (mounted.current) { setError(launch ? "The launch outcome is unknown. Retry uses the same game request." : "Could not check compatibility. Try again."); if (!launch) setAdmission({ state: "unavailable", reason: "native_unavailable" }); } }
     finally { if (mounted.current) setBusy(false); }
   }

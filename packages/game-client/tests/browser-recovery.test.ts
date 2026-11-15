@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { readFileSync } from 'node:fs';
-import opening from '../fixtures/foundations-opening/opening-seat0-http.json' with { type: 'json' };
+import opening from './current-opening.ts';
 import { browserReadSession } from '../src/session/effects/browser.ts';
 import type { ReadSnapshot } from '../src/session/controller.ts';
 

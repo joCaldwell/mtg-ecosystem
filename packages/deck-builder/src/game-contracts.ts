@@ -48,9 +48,19 @@ export interface NativeGameStatus {
   human_waiting_since: number | null;
   outcome: GameOutcome | null;
 }
+/** Only reviewed human-seat HTTP. Authorization stays in memory. Body retains
+ * exact original UTF-8 bytes through the proxy; never parse/re-serialize it. */
+export interface NativeGameProxyRequest {
+  method: "GET" | "POST";
+  path: string;
+  body: string;
+  authorization: string;
+}
+export interface NativeGameProxyResponse { status: number; body: string }
 export interface NativeGameAdapter {
   /** Exact identities are mandatory on admission AND recovery. */
   identity: GameIdentity;
+  proxy?(game: GameRecord, request: NativeGameProxyRequest, signal: AbortSignal): Promise<NativeGameProxyResponse>;
   /** True only after real durable create/recover + isolated bots + stop proof. */
   lifecycle_qualified: boolean;
   admit(deck: GameDeck, signal: AbortSignal): Promise<GameAdmission>;

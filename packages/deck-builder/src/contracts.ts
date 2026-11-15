@@ -29,4 +29,4 @@ export type { SearchResult } from "./search/index.ts";
 export type { PlayerStats } from "./stats.ts";
 export type { Change, Resource } from "./changes.ts";
 
-export type { GameDeck, GameIdentity, GameAdmission, GameRecord, GameStopTarget, GameOutcome, GamePause, GameLaunchResult, NativeGameAdapter, NativeGameStatus, GameCoordinatorOptions } from "./game-contracts.ts";
+export type { GameDeck, GameIdentity, GameAdmission, GameRecord, GameStopTarget, GameOutcome, GamePause, GameLaunchResult, NativeGameAdapter, NativeGameStatus, GameCoordinatorOptions, NativeGameProxyRequest, NativeGameProxyResponse } from "./game-contracts.ts";

@@ -168,7 +168,49 @@ impl MatchStore {
         owner_lock
             .try_lock()
             .map_err(|_| "match store already owned")?;
-        let mut connection = Connection::open(directory.join("match.sqlite3")).map_err(error)?;
+        // Precreate the main database privately before SQLite can create WAL/
+        // SHM sidecars. Unix VFS robust_open/findCreateFileMode inherit the main
+        // database mode; changing process-wide umask would race other threads.
+        // https://sqlite.org/src/doc/trunk/src/os_unix.c
+        let database_path = directory.join("match.sqlite3");
+        let mut database_options = options.clone();
+        database_options.create_new(true);
+        match database_options.open(&database_path) {
+            Ok(file) => {
+                file.sync_all().map_err(error)?;
+                File::open(directory)
+                    .and_then(|file| file.sync_all())
+                    .map_err(error)?;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(error(e)),
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{MetadataExt, PermissionsExt};
+            let owner = fs::metadata(directory).map_err(error)?.uid();
+            for name in [
+                "match.sqlite3",
+                "match.sqlite3-wal",
+                "match.sqlite3-shm",
+                "match.sqlite3-journal",
+            ] {
+                match fs::symlink_metadata(directory.join(name)) {
+                    Ok(metadata)
+                        if metadata.is_file()
+                            && metadata.uid() == owner
+                            && metadata.nlink() == 1
+                            && metadata.permissions().mode() & 0o777 == 0o600 => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    _ => {
+                        return Err(
+                            "durable database files must be private, regular and host-owned".into(),
+                        );
+                    }
+                }
+            }
+        }
+        let mut connection = Connection::open(database_path).map_err(error)?;
         connection
             .busy_timeout(Duration::from_millis(100))
             .map_err(error)?;

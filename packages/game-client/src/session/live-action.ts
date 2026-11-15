@@ -11,13 +11,28 @@ export interface LiveActionDraft {
   readonly scope: ActionScope;
   readonly generation: number;
 }
-/** Pass is self-explanatory in an authoritative priority window. Every object,
- * ability and payment beginning still needs qualified human source/label context.
- * Presence in discovery is initiation validation, never inferred source meaning. */
+/** Source-dependent beginnings require the producer's qualified explanation.
+ * These checks never derive affordability or later target/payment legality. */
 export function actionResponse(beginning: Readonly<ActionBeginning>, context: ActionPage['context'], scope: ActionScope | null): PlayerResponse | null {
-  return scope?.scope === 'window' && context?.['window'] === 'priority' && beginning.initiation.action === 'pass' ? { response: 'pass' } : null;
+  const action = beginning.initiation;
+  if (action.action === 'pass') return scope?.scope === 'window' && context?.['window'] === 'priority' ? { response: 'pass' } : null;
+  if (!scope || !context || beginning.label === 'unavailable' || !beginning.label.available.text) return null;
+  const source = beginning.label.available.source;
+  const boundObject = (handle: string) => scope.scope === 'window' || scope.object === handle;
+  switch (action.action) {
+    case 'play_land': return context['window'] === 'priority' && boundObject(action.object) ? { response: 'play_land', object: action.object } : null;
+    case 'cast': return context['window'] === 'priority' && boundObject(action.card) && source?.kind === 'spell' && source.object === action.card ? { response: 'cast', card: action.card } : null;
+    case 'activate_ability': return context['window'] === 'priority' && boundObject(action.object) && source?.kind === 'activated' && source.object === action.object && source.ability === action.ability && source.text ? { response: 'activate_ability', object: action.object, ability: action.ability } : null;
+    case 'activate_mana': return boundObject(action.object) && source?.kind === 'mana_ability' && source.object === action.object && source.text ? { response: 'activate_mana', object: action.object } : null;
+    case 'finish_mana': return context['window'] === 'mana' && scope.scope === 'window' && context.source.status === 'available' ? { response: 'finish_mana', undo_mana: action.undo_mana } : null;
+  }
 }
-export function actionDescription(beginning: Readonly<ActionBeginning>): string {
+export function actionDescription(beginning: Readonly<ActionBeginning>, objects: readonly { readonly handle: string; readonly name: string | null }[] = []): string {
+  if (beginning.label !== 'unavailable') {
+    const action = beginning.initiation;
+    const handle = 'object' in action ? action.object : 'card' in action ? action.card : null;
+    return `${beginning.label.available.text}${handle ? ` · ${objects.find(object => object.handle === handle)?.name ?? 'Unidentified object'} (${handle})` : ''}`;
+  }
   switch (beginning.initiation.action) {
     case 'pass': return 'Pass priority';
     case 'play_land': return 'Play land — card context unavailable';

@@ -719,6 +719,56 @@ pub enum Instruction {
         source_block: u32,
     },
 }
+impl Instruction {
+    /// Compiler-owned complete source block for this instruction.
+    pub fn source_block(&self) -> u32 {
+        match self {
+            Self::MoveSet { source_block, .. } => *source_block,
+            Self::PumpSet { source_block, .. } => *source_block,
+            Self::DamageSet { source_block, .. } => *source_block,
+            Self::GainLifeDestroyed { source_block, .. } => *source_block,
+            Self::ExileDamagedThisTurn { source_block, .. } => *source_block,
+            Self::EachPlayerSacrifice { source_block, .. } => *source_block,
+            Self::LoseLifeDeathController { source_block, .. } => *source_block,
+            Self::SacrificeDamage { source_block, .. } => *source_block,
+            Self::EachOpponentSacrifice { source_block, .. } => *source_block,
+            Self::ModifySourcePowerToughness { source_block, .. } => *source_block,
+            Self::DestroyPermanent { source_block, .. } => *source_block,
+            Self::ExilePermanent { source_block, .. } => *source_block,
+            Self::UntapPermanent { source_block, .. } => *source_block,
+            Self::TapPermanent { source_block, .. } => *source_block,
+            Self::ChangeLifeFromTarget { source_block, .. } => *source_block,
+            Self::CreateTokensFor { source_block, .. } => *source_block,
+            Self::DamageTargetController { source_block, .. } => *source_block,
+            Self::AttachEquipment { source_block, .. } => *source_block,
+            Self::ReturnAuraFromGraveyard { source_block, .. } => *source_block,
+            Self::DestroyTargetCreature { source_block, .. } => *source_block,
+            Self::DestroyAllCreatures { source_block, .. } => *source_block,
+            Self::ReturnOwnGraveyardCreatureToHand { source_block, .. } => *source_block,
+            Self::SearchBasicLands { source_block, .. } => *source_block,
+            Self::CreateCreatureTokens { source_block, .. } => *source_block,
+            Self::PutPlusOneCounters { source_block, .. } => *source_block,
+            Self::GrantKeywords { source_block, .. } => *source_block,
+            Self::GrantKeywordsSet { source_block, .. } => *source_block,
+            Self::ModifyPowerToughness { source_block, .. } => *source_block,
+            Self::PreventCombatDamage { source_block, .. } => *source_block,
+            Self::PreventNextDamage { source_block, .. } => *source_block,
+            Self::ReturnToOwnerHand { source_block, .. } => *source_block,
+            Self::PutOnTopOwnerLibrary { source_block, .. } => *source_block,
+            Self::TargetPlayerSacrificeCreature { source_block, .. } => *source_block,
+            Self::SacrificeCreature { source_block, .. } => *source_block,
+            Self::DrawCards { source_block, .. } => *source_block,
+            Self::OptionalDrawCards { source_block, .. } => *source_block,
+            Self::DrawDamageAmount { source_block, .. } => *source_block,
+            Self::DiscardCards { source_block, .. } => *source_block,
+            Self::CounterStackObject { source_block, .. } => *source_block,
+            Self::DealDamage { source_block, .. } => *source_block,
+            Self::GainLife { source_block, .. } => *source_block,
+            Self::LoseLife { source_block, .. } => *source_block,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SacrificeDamageAmount {
@@ -1218,6 +1268,19 @@ pub struct SourceProvenance {
 }
 /// CR702.3: defender is a static prohibition on declaring this creature as
 /// an attacker. Power and continuous-control eligibility do not override it.
+/// Exact normalized source blocks and compiler index bindings, never executable text.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SourceLabels {
+    pub text: String,
+    pub blocks: Vec<String>,
+    pub activated: Vec<u32>,
+    pub triggered: Vec<u32>,
+    pub mana: Vec<u32>,
+    #[serde(default)]
+    pub statics: Vec<u32>,
+    pub spell_modes: Vec<String>,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum KeywordAbility {
@@ -1286,6 +1349,9 @@ impl<'de> Deserialize<'de> for KeywordAbility {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Definition {
+    /// Offline compiler-owned labels; absent on historical IR and synthetic definitions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_labels: Option<SourceLabels>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub x_mana_cost: bool,
     pub oracle_id: String,
@@ -2047,6 +2113,21 @@ impl Definition {
                 != self.provenance.ast_sha256
         {
             return Err("invalid source/AST provenance".into());
+        }
+        if let Some(labels) = &self.source_labels {
+            let source: serde_json::Value = strict_read(&self.provenance.source_json)?;
+            if source["oracle_text"].as_str() != Some(labels.text.as_str())
+                || labels.blocks.iter().any(|s| s.is_empty())
+                || labels
+                    .activated
+                    .iter()
+                    .chain(&labels.triggered)
+                    .chain(&labels.mana)
+                    .chain(&labels.statics)
+                    .any(|b| *b as usize >= labels.blocks.len())
+            {
+                return Err("invalid source label provenance".into());
+            }
         }
         if self.mana_abilities.len() > 1 {
             return Err("finite profile supports one mana ability per source".into());

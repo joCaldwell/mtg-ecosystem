@@ -6,6 +6,42 @@ their exact producer/source/schema qualification; they are not current-engine-HE
 acceptance or a requirement to repeat the entire matrix for documentation edits.
 Original source/proof identities are preserved in their named evidence locations
 or the explicit retirement archive below; no raw evidence was discarded.
+The metadata-delivery SDK followup retains its separate source bridge and checks at
+`~/.local/share/mtg-ecosystem/engine-evidence/product-presentation-sdk-20261115/`.
+Its 69 SDK tests extend the prior 66; native observation21 builds/schema remain
+unchanged. The original 898-row proof and SDK archive remain historical, without
+claiming all rows match after these non-native SDK changes. Product browser and
+full-game qualification remain separate.
+
+## Producer context and admission qualification
+
+Frozen source `565a1204d6e4b14443b9f49dda2ecbc6b46ee85a`, observation **16**,
+qualified compiler-bound descriptions/context and exact native admission. Its
+permanent root is
+`~/.local/share/mtg-ecosystem/engine-evidence/authoritative-decision-context-565a1204-20261114/`.
+`qualification.json` SHA-256 is
+`a2d9a7fb607e584a6dc27750104d7f9062b48549a58df58e7eac9625202a0053`;
+`native/`, `source/` and `sdk/` retain binaries, schemas, complete sources,
+SDK artifacts and passing/failing receipts. The
+[immutable full record](https://github.com/joCaldwell/mtg-ecosystem/blob/301b4f10ad19dedba5c417fa6716e934a310b891/docs/game-client-evidence.md#producer-context-and-admission-qualification)
+retains individual build/browser hashes and the detailed test matrix.
+
+Passed: compiler 255, contexts 32 (including paid commander turns in both profiles),
+query 34, separate search-admission 1, host 8 and SDK 66. All 30 catalogs/1,412 rows
+reproduce prior mechanics after removing source labels; admission did not expand.
+Workspace all-target checks passed. Both actual native IDs independently rederive
+from 882 unchanged source rows; manifest SHA-256:
+`c19f36a3f8f9c87f298d88d31fb4aa72c7920073ec4832bfe619cd2304843bd8`.
+Protocol SHA-256 was `2eb874b2fa9e306b57d7da05d2e9a26b6965f2a639711d6705981e790d906ba5`.
+
+Spending retained **6 pass/1 stale-expectation failure**: target departure during
+payment preserved the legal cast. Pinned CR 601.6 and deliberate `66aef199` support
+that behavior; later test-only repairs do not rewrite this failed receipt.
+Grouped-damage Clippy, empty-selector, cache-freshness and injected-board snapshot
+failures remain preserved. Injected prevention proves source/privacy/query context,
+not an admitted host path. Browser/full-game/performance/retention were omitted.
+Later combined-source and current consumer pins qualify their own producers;
+historical captures and this frozen proof remain unchanged.
 
 ## Opening and recovery evidence
 
@@ -14,36 +50,47 @@ all earlier producer evidence. Historical 2aaf/e86 captures retain their origina
 coverage change only current native/SDK source references and explanatory scope;
 historical capture provenance and UI evidence hashes remain untouched.
 
-| Fresh combined-source check | Result |
-| --- | --- |
-| Native delivery / HTTP delivery / protocol adversarial | 4 + 1 + 10 passed; fresh debug server and provisioner built under shared Cargo lock. |
-| Native source closure | 677 exact Git-source rows; before/after identical; engine and server build IDs independently rederived from actual source/toolchain/configuration. |
-| SDK from fresh exports | Generation, strict types, browser packaging and 66 tests passed; schema/bootstrap and SDK generation/build/browser bytes unchanged. |
-| Client after current qualification | 114 tests, strict types, boundaries, inventory and production build passed; final copied production files match checked output. |
-| Actual production App and new native | Ten opening/recovery case groups across Chromium and Firefox passed, including four isolated seats, explicit keeps/mulligans/bottom order, durable response loss, exact retry, stale rejection, and storage failures. |
-| Restricted production proxy and new native | 17 route/security, four authenticated schema/body and five execution/cancellation restriction checks passed; genuine commands/execution reads passed in both browsers. |
+The exact 677-row source closure and independently rederived engine/server IDs,
+copied executables and receipts remain under `native/` and `qualification.json`.
+Engine: `f9422adcd77e57bdc075646f25cc21cf923438d327794bc6944efb4166899343`;
+server: `ca2eda503a3e7a72472c149ba096cf1f6dee4864b9dd4b317aa67b2ecfb90292`;
+source manifest: `b7e30b5e01dfba5a0ab9d3e76996840803b35745dae878009c512ae60e5c8191`.
+Native delivery/HTTP/protocol checks passed 4/1/10, SDK 66 and client 114 tests.
+Ten Chromium/Firefox opening/recovery groups covered four seats, explicit choices,
+response loss/exact retry, stale rejection and storage failure. Proxy checks
+covered 17 routes, four authenticated body cases and five execution restrictions.
+`accept/report.json` SHA-256 is
+`3689e9c5c675a081fa013255a608a170d6d8d655d2aeb30946f0d70a40fae245`;
+`proxy/report.json` is
+`b84bd34de35189397676bd00d8da605bb733fac1ff95e3bb54c4d01cdbf1721f`.
+Private registries/files remain 0700/0600; authenticated captures were disabled.
+Failures and original bytes remain preserved. The
+[immutable opening record](https://github.com/joCaldwell/mtg-ecosystem/blob/33dcbe9df5c0cc7fef5f8d67f97adb85a3af4cdb/docs/game-client-evidence.md#opening-and-recovery-evidence)
+retains the full matrix. This proves bounded opening/recovery only, without
+full games, query menus, expanded admission, Safari or human-usability acceptance.
 
-Fresh engine build: `f9422adcd77e57bdc075646f25cc21cf923438d327794bc6944efb4166899343`. Fresh server build:
-`ca2eda503a3e7a72472c149ba096cf1f6dee4864b9dd4b317aa67b2ecfb90292`. Native source manifest SHA-256:
-`b7e30b5e01dfba5a0ab9d3e76996840803b35745dae878009c512ae60e5c8191`. Source-validation, build/test logs and copied
-binaries are under `native/`; `verify-source.py` records the independent build
-identity calculation. App receipt: `accept/report.json` (SHA-256
-`3689e9c5c675a081fa013255a608a170d6d8d655d2aeb30946f0d70a40fae245`); proxy receipt: `proxy/report.json` (SHA-256
-`b84bd34de35189397676bd00d8da605bb733fac1ff95e3bb54c4d01cdbf1721f`). `qualification.json` hashes sources, public
-artifacts, review receipts, checks and proof scripts; private registry/seat files
-are excluded from that public fingerprint list and remain under the private
-0700 evidence root. No authenticated traces/HAR/video were recorded.
+## Product native lifecycle (observation 16)
 
-All copied native/artifact bytes retain their qualified source. Earlier meaningful
-failures remain preserved; no raw proof was discarded. The historical opening
-matrix and operational details are frozen in the
-[original record](https://github.com/joCaldwell/mtg-ecosystem/blob/33dcbe9df5c0cc7fef5f8d67f97adb85a3af4cdb/docs/game-client-evidence.md#opening-and-recovery-evidence).
+Checkpoint `981f585a` combined frozen metadata565 with the private lifecycle,
+three consumers, Actor proxy and lazy route. Permanent proof:
+`~/.local/share/mtg-ecosystem/engine-evidence/native-game-lifecycle-observation16-981f585a-20261114/qualification.json`.
+Its `native/`, `source/` and `sdk/` retain exact reconstruction inputs, schemas,
+independently rederived build IDs, registries, Actor databases and receipts. The
+[immutable original record](https://github.com/joCaldwell/mtg-ecosystem/blob/29f257976bd2cf7a05b9dc9bddcdb29d0410d2e7/docs/game-client-evidence.md#product-native-lifecycle-observation-16)
+retains full identities and per-case counts.
 
-No new full game, human usability, full M2, query-menu composition, expanded
-hosting/search, natural match, Safari, performance or full retention claim follows.
-Separate fixture/gallery, IndexedDB and CSP suites were already independently
-verified and were not repeated in this parent pass; actual App recovery and proxy
-qualification above used fresh current-source native binaries and new seats.
+Lifecycle/process/store passed 2/3/10; SDK 66. Five Node cases included three actual
+native cases: immutable/uncertain recovery, distinct private consumers/leases,
+stable human waits, Actor-owned exact human replay and parent SIGKILL recovery.
+A further real proxy check rejected raw path aliases. Children used 0022 to prove
+0700/0600 independently of the 0077 driver. Original 0644 SQLite producer/source
+and failure remain under `before-store-permissions/` and `integration-1.log`;
+original spending exit 101 remains `spending-baseline.log`.
+
+This proves finite foundations lifecycle, with explicit unsupported-decision pause,
+not browser usability, attachments automation or complete-profile play. New
+source/durability changes, schemas and consumers require separate qualification;
+production Clippy, full matrix, remote hosting and release retention were omitted.
 
 ## Product/shared display evidence (PR24)
 
@@ -93,35 +140,25 @@ No native matrix was repeated and qualification pins were unchanged.
 
 ## Core action discovery evidence
 
-Native-only implementation `d1d039539d63aa17cd411c654e22086ccf3c9322` was qualified
-on the integrated schema-1 baseline, separately from later serving/session/browser
-work. Original-lane `generated/core-queries/attempt02/` retains exact before/after
-source manifest, schema, copied schema exporter/test executable and bounded admitted
-foundations/attachments prefixes. These were initiation witnesses, not completed
-games, all requests or universal byte/work maxima. The full artifact hashes,
-commands and source closure are in the
-[immutable core report](https://github.com/joCaldwell/mtg-ecosystem/blob/33dcbe9df5c0cc7fef5f8d67f97adb85a3af4cdb/docs/game-client-core-queries.md#executed-checks-and-retained-evidence).
-
-Standalone native schema SHA-256:
-`5eb6c30f6939eadb3192eb86b3f7e2f63f6ca769aea7abefe7ddd49a5e2125e5`.
-Test build (opt-level 2):
+Native source `d1d039539d63aa17cd411c654e22086ccf3c9322` retains
+`generated/core-queries/attempt02/`: source manifests, standalone schema, exact
+exporter/test binaries and bounded foundations/attachments initiation prefixes.
+The [immutable core record](https://github.com/joCaldwell/mtg-ecosystem/blob/33dcbe9df5c0cc7fef5f8d67f97adb85a3af4cdb/docs/game-client-core-queries.md#executed-checks-and-retained-evidence)
+owns full commands and source closure. Standalone schema SHA-256:
+`5eb6c30f6939eadb3192eb86b3f7e2f63f6ca769aea7abefe7ddd49a5e2125e5`;
+opt-level-2 test build:
 `3358a490195c117cea0a0f94371ebb4661563cfad558b25c076afdbac55dfea9`;
-schema-export build (opt-level 0):
+opt-level-0 export build:
 `76f5c0b792ff7488605ba811d76a2e7203c92413c6b9fe7bbbb18b59c09e1e02`.
-Both used pinned Rust 1.99.0, x86_64 and assertions with IR schema 1; differing settings
-intentionally yield different identities. The standalone schema is not the SDK's
-server protocol input. Focused proof ran 21 runtime cases, one compile-fail doc
-case and production library/schema-example Clippy; it proved progress partitions,
-privacy, scope, validation and stale/restore isolation only.
-
-`generated/core-queries/action-tests-01.log` retains the first build-constant setup
-failure. `attempt02/core-clippy.log` retains inherited all-target failures in
-architecture_exploration (`filter_map_bool_then`), engine/events
-(`items_after_test_module`) and shared_history_work_tests (`large_enum_variant`).
-Strict production/example Clippy later passed without suppressions; all-target
-Clippy was not passing. Missing Node dependencies/doctor failure remain retained;
-no implicit bootstrap occurred. Full runtime/compiler/server/SDK/browser, release,
-dense performance and retention were omitted. Host clock/quota proof is separate.
+Pinned Rust 1.99.0/x86_64/assertions/IR1 settings intentionally differ; this schema
+is not SDK input. Twenty-one runtime cases, one compile-fail case and production
+library/example Clippy passed, proving bounded progress/privacy/scope/restore.
+The build-constant setup failure remains `action-tests-01.log`; inherited
+all-target Clippy failures remain `attempt02/core-clippy.log` (architecture
+`filter_map_bool_then`, events `items_after_test_module`, history
+`large_enum_variant`). Doctor/dependency failures remain retained. Whole runtime,
+compiler/server/SDK/browser, dense performance and retention were omitted; host
+clock/quota and complete games were not qualified.
 
 ## Live discovery composition
 
@@ -162,14 +199,10 @@ original action transport/controls lanes; `generated/core-queries/attempt02` bel
 to the native discovery proof above.
 No raw ignored evidence or source fixture was deleted.
 
-- [Original game-client-action-transport](https://github.com/joCaldwell/mtg-ecosystem/blob/1c3eca4c37b90de02decca316fefab5c8035140e/docs/game-client-action-transport.md) — frozen source, artifact identities, failures and omissions.
-- [Original game-client-local-serving](https://github.com/joCaldwell/mtg-ecosystem/blob/1c3eca4c37b90de02decca316fefab5c8035140e/docs/game-client-local-serving.md) — frozen source, artifact identities, failures and omissions.
-- [Original game-client-native-integration](https://github.com/joCaldwell/mtg-ecosystem/blob/1c3eca4c37b90de02decca316fefab5c8035140e/docs/game-client-native-integration.md) — frozen source, artifact identities, failures and omissions.
-- [Original game-client-browser-sdk](https://github.com/joCaldwell/mtg-ecosystem/blob/1c3eca4c37b90de02decca316fefab5c8035140e/docs/game-client-browser-sdk.md) — frozen source, artifact identities, failures and omissions.
-- [Original foundation evidence](https://github.com/joCaldwell/mtg-ecosystem/blob/1c3eca4c37b90de02decca316fefab5c8035140e/packages/game-client/FOUNDATION-REPORT.md).
-- [Original live-session evidence](https://github.com/joCaldwell/mtg-ecosystem/blob/1c3eca4c37b90de02decca316fefab5c8035140e/packages/game-client/LIVE-SESSION-REPORT.md).
-- [Original decision-controls evidence](https://github.com/joCaldwell/mtg-ecosystem/blob/1c3eca4c37b90de02decca316fefab5c8035140e/packages/game-client/DECISION-CONTROLS-REPORT.md).
-- [Original command-journal evidence](https://github.com/joCaldwell/mtg-ecosystem/blob/1c3eca4c37b90de02decca316fefab5c8035140e/packages/game-client/COMMAND-JOURNAL-REPORT.md).
-- [Original action-session evidence](https://github.com/joCaldwell/mtg-ecosystem/blob/1c3eca4c37b90de02decca316fefab5c8035140e/packages/game-client/ACTION-SESSION-REPORT.md).
-- [Original live-opening evidence](https://github.com/joCaldwell/mtg-ecosystem/blob/1c3eca4c37b90de02decca316fefab5c8035140e/packages/game-client/LIVE-OPENING-REPORT.md).
-- [Original workspace-ux evidence](https://github.com/joCaldwell/mtg-ecosystem/blob/1c3eca4c37b90de02decca316fefab5c8035140e/packages/game-client/WORKSPACE-UX-REPORT.md).
+The [immutable transport/delivery reports](https://github.com/joCaldwell/mtg-ecosystem/tree/1c3eca4c37b90de02decca316fefab5c8035140e/docs)
+retain `game-client-{action-transport,local-serving,native-integration,browser-sdk}.md`.
+The [immutable package reports](https://github.com/joCaldwell/mtg-ecosystem/tree/1c3eca4c37b90de02decca316fefab5c8035140e/packages/game-client)
+retain foundation, live-session, decision-controls, command-journal,
+action-session, live-opening and workspace-UX reports. Each owns its original
+source/artifact identities, failures and omissions; these links consolidate only
+onboarding, without deleting raw evidence.

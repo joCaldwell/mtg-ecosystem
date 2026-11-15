@@ -26,7 +26,8 @@
     "@multiverse/game-client": "file:../game-client",
     "@multiverse/game-ui": "file:../game-ui",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "@multiverse/game-server-sdk": "file:../game-server/sdk"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

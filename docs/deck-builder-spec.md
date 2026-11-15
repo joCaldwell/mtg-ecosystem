@@ -1031,6 +1031,7 @@ engine, browser-play acceptance or approved game-client design reference. New
 games follow native admission and separate account-to-seat authorization. The
 additive Actor-scoped coordinator captures immutable revision-bound game decks,
 retains owner-scoped launch/outcome/recovery records and requires explicit native
-admission. Its concrete CLI adapter provides admission only; real one-human/three-
-automated provisioning and full browser decisions remain gated by the
+admission. Multiverse owns the opt-in actual native lifecycle bridge and three private
+consumers; complete supported-profile automation and full browser decisions retain
+the separate gates in the
 [product launch contract](../packages/multiverse/web/ARCHITECTURE.md#game-launch).

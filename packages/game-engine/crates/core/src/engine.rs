@@ -365,6 +365,8 @@ pub use multiplayer::*;
 mod permitted_history;
 mod stored_history;
 pub use permitted_history::PermittedHistory;
+mod decision_context;
+pub use decision_context::*;
 mod visibility;
 mod work;
 pub use visibility::*;

@@ -53,11 +53,21 @@ try {
     const file = path.join(directory, entry.name);
     return entry.isDirectory() ? inventory(file) : [{ path: path.relative(pending, file), sha256: sha(fs.readFileSync(file)), bytes: fs.statSync(file).size }];
   });
-  const sourcePaths = [...Object.keys(result.metafile.inputs), 'scripts/build-browser.mjs', 'package.json', 'package-lock.json', 'tsconfig.json'];
+  // Explicit separate Node bundle; retain the original producer and schema in
+  // the input closure, never copy its algorithm into a product package.
+  const producer = await build({ absWorkingDir: sdk, entryPoints: ['src/presentation-producer.mjs'],
+    outfile: path.join(pending, 'presentation-producer.js'), bundle: true, platform: 'node',
+    format: 'esm', target: 'node26', metafile: true, legalComments: 'inline' });
+  const producerInputs = Object.keys(producer.metafile.inputs);
+  if (!producerInputs.includes('../tools/client-artifacts.ts')) throw new Error('Original producer missing from Node bundle');
+  fs.copyFileSync(path.join(generated, 'presentation.schema.json'), path.join(pending, 'presentation.schema.json'));
+  fs.writeFileSync(path.join(pending, 'presentation-producer.d.ts'), fs.readFileSync(path.join(sdk, 'src/presentation-producer.d.ts'), 'utf8').replaceAll("'../generated/", "'./types/generated/"));
+  const sourcePaths = [...new Set([...Object.keys(result.metafile.inputs), ...producerInputs, '../tools/presentation.schema.json', 'src/presentation-producer.d.ts']), 'scripts/build-browser.mjs', 'package.json', 'package-lock.json', 'tsconfig.json'];
   const manifest = { format_version: 1, schema_sha256: generation.schema_sha256,
     generation_sha256: sha(fs.readFileSync(path.join(generated, 'generation.json'))),
     node: process.version, esbuild: '0.28.2', typescript: ts.version,
     sources: sourcePaths.sort().map(file => ({ path: file, sha256: sha(fs.readFileSync(path.join(sdk, file))) })),
+    node_runtime_inputs: producerInputs.sort(), node_runtime_exports: Object.values(producer.metafile.outputs)[0].exports.sort(),
     runtime_inputs: Object.keys(result.metafile.inputs).sort(), runtime_exports: outputs[0].exports.sort(),
     files: inventory(pending),
   };

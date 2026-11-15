@@ -55,6 +55,8 @@ pub struct VisibleTriggered {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisiblePendingTrigger {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     pub handle: TriggerHandle,
     pub source: VisibleTarget,
     pub oracle_id: String,
@@ -443,6 +445,8 @@ impl PlayerRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Observation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_context: Option<DecisionContext>,
     pub observation_version: u32,
     pub view: PermittedView,
     pub decision: Option<PlayerRequest>,
@@ -736,6 +740,16 @@ impl Game {
             .find(|t| t.id == id)
             .ok_or("missing pending trigger")?;
         Ok(VisiblePendingTrigger {
+            label: self
+                .definition(trigger.source.card)?
+                .source_labels
+                .as_ref()
+                .and_then(|l| {
+                    l.triggered
+                        .get(trigger.ability as usize)
+                        .and_then(|b| l.blocks.get(*b as usize))
+                })
+                .cloned(),
             handle: self
                 .state
                 .knowledge

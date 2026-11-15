@@ -1,7 +1,13 @@
 {
-  "native_source": "ebfa6dde266139c45220959c4179ddedf6a38433",
-  "protocol_schema_sha256": "a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3",
+  "native_source": "2305e2f81d433c86717eb1f35fa0fe7e5c6b22d4",
+  "protocol_schema_sha256": "b191d97401a2ff548ff8acfc4ff9c588e3fcf6bde2f2cec42238f47e42af0dfd",
   "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
-  "scope": "Combined current-source producer preserving the dc12222 compiler fix and reviewed PR22/PR23. Passed 15 focused native delivery/HTTP/protocol tests; built server/provisioner; verified 677 source rows and independently rederived build identities. Source fingerprint b7e30b5e01dfba5a0ab9d3e76996840803b35745dae878009c512ae60e5c8191. SDK and production App opening/proxy qualification are recorded in docs/game-client-evidence.md#opening-and-recovery-evidence; historical 2aaf/e86 and fixture provenance remain unchanged.",
-  "sdk_source": "ebfa6dde266139c45220959c4179ddedf6a38433"
+  "scope": "Observation-21 native Rust/data checkpoint 2305e2f8 passed 543 distinct Rust tests; the original 898-row proof remains frozen. Additive Node presentation SDK followup b9991c9c separately passed 69 tests and records its three changed SDK inputs plus new files. Native IDs, schemas and browser ESM bytes are unchanged. Product/full-game browser acceptance remains a separate gate; historical captures stay unchanged.",
+  "sdk_source": "b9991c9cd5f709fd0d4d0f8da58f6a063b139699",
+  "engine_build_id": "5d922d685619c979173c56e50285b2eea79b506cb24d718195339b2126b47b4d",
+  "server_build_id": "c1be893414c34a3869f059a872b053d4c69e77da21e98242ffb654a980372d15",
+  "native_source_manifest_sha256": "1eddba690527db4a1654f7556cf97c35d90225b2f7652141f640bc9b8842273a",
+  "evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/native-game-client-observation21-combined-20261115",
+  "sdk_evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/product-presentation-sdk-20261115",
+  "sdk_source_bridge_sha256": "3d22acbb8bf32b67909471929f868559e2a326963f6fa6abd08c699ed289c657"
 }

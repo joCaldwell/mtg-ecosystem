@@ -149,6 +149,9 @@ fn aura_control_complete_frozen_witnesses_have_pinned_source_and_same_reusable_s
         // order and omitted defaults. Provenance remains exact source bytes.
         let mut executable = serde_json::to_value(&d).unwrap();
         executable.as_object_mut().unwrap().remove("provenance");
+        // Source descriptions are separately compiler-qualified metadata, not mechanics.
+        assert_eq!(executable["source_labels"]["statics"], json!([1]));
+        executable.as_object_mut().unwrap().remove("source_labels");
         let expected = json!({
             "oracle_id":oracle,"name":name,"intrinsic_zone":null,
             "characteristics":{

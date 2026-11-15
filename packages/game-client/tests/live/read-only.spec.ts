@@ -64,7 +64,7 @@ test('four authenticated seats: native identity, permitted hands, CSP, empty com
         const card = page.getByRole('region', { name: 'Your hand', exact: true }).getByRole('button').last();
         await card.focus(); await page.keyboard.press('Enter');
         await expect(keep).toBeChecked();
-        await expect(decision.getByRole('button', { name: 'Confirm opening choice' })).toBeEnabled();
+        await expect(decision.getByRole('button', { name: 'Confirm choice' })).toBeEnabled();
         await expect(decision.getByRole('region', { name: 'Choice status' })).toContainText('Nothing is sent until you confirm.');
         await page.keyboard.press('Escape'); await expect(card).toBeFocused();
         await expect(keep).toBeChecked();
