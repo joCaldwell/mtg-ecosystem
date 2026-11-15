@@ -737,7 +737,7 @@ pub enum Duration {
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
     /// CR 109.5/303.4m/611.3/613.1b: the current source controller controls
-    /// its enchanted creature; this is not a frozen invocation recipient.
+    /// its enchanted permanent; this is not a frozen invocation recipient.
     /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     ControlEnchantedPermanent,
     /// CR 101.2/109.5/601.3: opponents cannot cast during this controller's turn.
@@ -1327,19 +1327,16 @@ pub fn aura_control_target_type(definition: &Definition) -> Option<CardKind> {
                         )
                         && static_creature_modification_valid(c.kind, false, true, &a.effect)))
         })
-        && definition.spell.as_ref().is_some_and(|p| {
-            p.timing == SpellTiming::MainPhase
-                && p.resolution == SpellResolution::Permanent
-                && p.functioning_zone == FunctioningZone::Stack
-                && p.additional_sacrifice.is_none()
-                && p.instructions.is_empty()
-                && p.modes.is_empty()
-                && matches!(p.targets.as_slice(), [t]
-                if t.slot == 0 && !t.selection_id.is_empty()
-                    && t.chooser == Chooser::Controller
-                    && t.stage == EvaluationStage::Announcement
-                    )
-        });
+        && p.timing == SpellTiming::MainPhase
+        && p.resolution == SpellResolution::Permanent
+        && p.functioning_zone == FunctioningZone::Stack
+        && p.additional_sacrifice.is_none()
+        && p.instructions.is_empty()
+        && p.modes.is_empty()
+        && target.slot == 0
+        && !target.selection_id.is_empty()
+        && target.chooser == Chooser::Controller
+        && target.stage == EvaluationStage::Announcement;
     valid.then_some(target_type)
 }
 /// Whether this definition has the complete narrow Aura-control shape.
@@ -4765,8 +4762,10 @@ mod tests {
         // Complete typed untap witness; the compiler separately checks the
         // retained source and its complete unqualified target selection.
         // Complete typed Aura-control witness; compiler tests independently
-        // qualify both exact frozen sources without a profile admission change.
+        // qualify exact frozen sources without a profile admission change.
         definitions.push(aura_control_tests::aura());
+        definitions.push(aura_control_tests::typed_aura(CardKind::Artifact));
+        definitions.push(aura_control_tests::typed_aura(CardKind::Land));
         definitions.push(indestructible_tests::intrinsic());
         definitions.push(temporary_indestructible_tests::grant());
         definitions.push(temporary_flying_tests::grant());

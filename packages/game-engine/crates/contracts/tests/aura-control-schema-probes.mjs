@@ -17,7 +17,7 @@ function control(generic) {
   d.characteristics.mana_cost = { generic: String(generic), colored: ['U', 'U'] };
   d.characteristics.colors = ['U'];
   d.characteristics.color_identity = ['U'];
-  d.static_abilities = [{ functioning_zone: 'battlefield', effect: 'control_enchanted_creature' }];
+  d.static_abilities = [{ functioning_zone: 'battlefield', effect: 'control_enchanted_permanent' }];
   d.capabilities = clone(capabilities);
   return { ...clone(legacy), definitions: [d] };
 }
@@ -115,7 +115,7 @@ for (const [name, mutate] of [
   ['absent control operation', d => { delete d.static_abilities; }],
   ['no control operation', d => { d.static_abilities = []; }],
   ['legacy operation with control capability', d => { d.static_abilities = clone(legacy.definitions.find(d => d.name === 'Pacifism').static_abilities); }],
-  ['effect payload', d => { d.static_abilities[0].effect = { control_enchanted_creature: { duration: 'until_end_of_turn' } }; }],
+  ['effect payload', d => { d.static_abilities[0].effect = { control_enchanted_permanent: { duration: 'until_end_of_turn' } }; }],
   ['stack static', d => { d.static_abilities[0].functioning_zone = 'stack'; }],
   ['extra static', d => d.static_abilities.push({ functioning_zone: 'battlefield', effect: 'enters_tapped' })],
   ['wrong kind', d => { d.characteristics.kind = 'artifact'; }],
@@ -151,6 +151,88 @@ for (const [name, mutate] of [
   ['effect qualifier', d => { d.static_abilities[0].duration = 'until_end_of_turn'; }],
 ]) negative(name, mutate);
 negative('schema version remains one', (_d, catalog) => { catalog.schema_version = 2; });
+
+// Exact disjoint permanent-domain controls; no schema execution in prepare mode.
+function permanentControl(kind) {
+  const value = control(2);
+  const d = value.definitions[0];
+  d.spell.targets[0].domain = 'battlefield_permanent';
+  d.spell.targets[0].selection_id = `enchanted-${kind}`;
+  d.spell.targets[0].filter = { types: [kind], non_types: [], non_colors: [], opponent: false };
+  d.capabilities = d.capabilities.map(c => c === 'creature_target_v1' ? 'permanent_removal_v1' : c);
+  return value;
+}
+for (const kind of ['artifact', 'land']) {
+  positive(`pure ${kind} control`, permanentControl(kind));
+  const defaults = permanentControl(kind);
+  const d = defaults.definitions[0];
+  d.spell.targets[0].filter.tapped = false;
+  Object.assign(d, { x_mana_cost: false, activated: [], triggered: [], keywords: [], mana_abilities: [] });
+  Object.assign(d.characteristics, { additional_types: [], snow: false });
+  Object.assign(d.spell, { additional_sacrifice: null, modes: [] });
+  d.capabilities.reverse();
+  positive(`explicit defaults ${kind} control`, defaults);
+  const wrong = (name, mutate) => {
+    const value = permanentControl(kind);
+    mutate(value.definitions[0], value.definitions[0].spell.targets[0].filter);
+    probes.push({ name: `${kind}: ${name}`, value, expected: false });
+  };
+  for (const cap of permanentControl(kind).definitions[0].capabilities) {
+    wrong(`missing ${cap}`, d => { d.capabilities = d.capabilities.filter(c => c !== cap); });
+  }
+  for (const [name, mutate] of [
+    ['creature capability', d => { d.capabilities = d.capabilities.map(c => c === 'permanent_removal_v1' ? 'creature_target_v1' : c); }],
+    ['spare creature capability', d => { d.capabilities.push('creature_target_v1'); }],
+    ['spare capability', d => { d.capabilities.push('flash_v1'); }],
+    ['duplicate capability', d => { d.capabilities[0] = 'aura_control_v1'; }],
+    ['missing filter', d => { delete d.spell.targets[0].filter; }],
+    ['null filter', d => { d.spell.targets[0].filter = null; }],
+    ['empty filter', d => { d.spell.targets[0].filter = {}; }],
+    ['empty type', (_d, f) => { f.types = []; }],
+    ['union types', (_d, f) => { f.types = ['artifact', 'land']; }],
+    ['duplicate types', (_d, f) => { f.types.push(kind); }],
+    ['creature type', (_d, f) => { f.types = ['creature']; }],
+    ['enchantment type', (_d, f) => { f.types = ['enchantment']; }],
+    ['spell type', (_d, f) => { f.types = ['instant']; }],
+    ['unknown type', (_d, f) => { f.types = ['battle']; }],
+    ['non type', (_d, f) => { f.non_types = ['creature']; }],
+    ['non color', (_d, f) => { f.non_colors = ['B']; }],
+    ['opponent', (_d, f) => { f.opponent = true; }],
+    ['tapped', (_d, f) => { f.tapped = true; }],
+    ['null tapped', (_d, f) => { f.tapped = null; }],
+    ['unknown filter field', (_d, f) => { f.prohibition = true; }],
+    ['creature domain', d => { d.spell.targets[0].domain = 'battlefield_creature'; }],
+    ['controlled domain', d => { d.spell.targets[0].domain = 'controlled_battlefield_creature'; }],
+    ['missing target', d => { d.spell.targets = []; }],
+    ['extra target', d => { d.spell.targets.push(clone(d.spell.targets[0])); }],
+    ['slot', d => { d.spell.targets[0].slot = 1; }],
+    ['empty selection', d => { d.spell.targets[0].selection_id = ''; }],
+    ['mixed source type', d => { d.characteristics.additional_types = ['artifact']; }],
+    ['creature source type', d => { d.characteristics.kind = 'creature'; }],
+    ['wrong subtype', d => { d.characteristics.subtypes = ['Equipment']; }],
+    ['modifier', d => { d.static_abilities.push(clone(composed().definitions[0].static_abilities[1])); }],
+    ['prohibition', d => { d.static_abilities.push({ functioning_zone: 'battlefield', effect: 'opponents_cant_cast_during_controller_turn' }); }],
+    ['type changing effect', d => { d.static_abilities.push({ functioning_zone: 'battlefield', effect: { change_types: ['creature'] } }); }],
+    ['duplicate control', d => { d.static_abilities.push(clone(d.static_abilities[0])); }],
+    ['old unit', d => { d.static_abilities[0].effect = 'control_enchanted_creature'; }],
+    ['null unit', d => { d.static_abilities[0].effect = null; }],
+    ['unknown unit', d => { d.static_abilities[0].effect = 'control_enchanted_enchantment'; }],
+    ['control payload', d => { d.static_abilities[0].effect = { control_enchanted_permanent: null }; }],
+    ['stack operation', d => { d.static_abilities[0].functioning_zone = 'stack'; }],
+    ['extra static operand', d => { d.static_abilities[0].target_type = kind; }],
+    ['keyword', d => { d.keywords = ['flash']; }],
+    ['additional cost', d => { d.spell.additional_sacrifice = { types: ['artifact'], subtypes: [] }; }],
+    ['instruction', d => { d.spell.instructions.push({ op: 'draw_cards', count: '1', source_block: 2 }); }],
+    ['mode', d => { d.spell.modes = [{ program: clone(d.spell) }]; }],
+    ['trigger', d => { d.triggered = clone(legacy.definitions.find(d => d.name === 'Rancor').triggered); }],
+  ]) wrong(name, mutate);
+  for (const field of ['types', 'non_types', 'non_colors', 'opponent']) {
+    wrong(`missing filter ${field}`, (_d, f) => { delete f[field]; });
+    wrong(`null filter ${field}`, (_d, f) => { f[field] = null; });
+  }
+}
+negative('old creature unit rejected', d => { d.static_abilities[0].effect = 'control_enchanted_creature'; });
+negative('creature domain cannot borrow permanent capability', d => { d.capabilities = d.capabilities.map(c => c === 'creature_target_v1' ? 'permanent_removal_v1' : c); });
 for (const row of positives) assert.equal(JSON.stringify(row.value), row.exact, `mutated positive ${row.name}`);
 const summary = {
   status: 'prepared_only', probes: probes.length,
