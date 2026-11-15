@@ -1554,3 +1554,6 @@ mod m4b_cascade_tests;
 
 #[path = "m4c_tests.rs"]
 mod m4c_tests;
+
+#[path = "m4d_tests.rs"]
+mod m4d_tests;

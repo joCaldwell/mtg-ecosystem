@@ -7,7 +7,7 @@ const IMOTI: &str =
 const RECLAMATION: &str = include_str!("../../../../tests/fixtures/natural-reclamation.json");
 const MAGIC: &str =
     include_str!("../../../../tests/fixtures/cd0d7141-46d2-4aa3-bc77-6b3b4513803e.json");
-fn root(original: &str, library: &[&str], board: bool) -> Prepared {
+pub(super) fn root(original: &str, library: &[&str], board: bool) -> Prepared {
     let mut p = m4a_tests::source_prepared(library, true);
     let c = Arc::make_mut(&mut p.catalog);
     for raw in [
@@ -70,14 +70,10 @@ fn synthetic_grants(p: &mut Prepared, minimum: Quantity, count: usize, native: b
         .find(|d| d.name == "Imoti, Celebrant of Bounty")
         .unwrap();
     let mut a = d.static_abilities[0].clone();
-    let StaticEffect::GrantSpellCascade {
-        mana_value_at_least,
-        ..
-    } = &mut a.effect
-    else {
+    let StaticEffect::GrantSpellCascade { eligibility, .. } = &mut a.effect else {
         panic!()
     };
-    *mana_value_at_least = minimum;
+    *eligibility = mtg_contracts::SpellCascadeEligibility::ManaValueAtLeast { minimum };
     d.static_abilities = vec![a; count];
     if !native {
         d.triggered.clear();
@@ -86,7 +82,7 @@ fn synthetic_grants(p: &mut Prepared, minimum: Quantity, count: usize, native: b
     c.validate().unwrap();
     p.catalog_digest = digest(c).unwrap();
 }
-fn settle(g: &mut Game) {
+pub(super) fn settle(g: &mut Game) {
     for _ in 0..400 {
         let r = request(g);
         if g.state.rules.stack.is_empty() && g.state.rules.pending_triggers.is_empty() {
@@ -104,11 +100,11 @@ fn settle(g: &mut Game) {
     }
     panic!("settle bound");
 }
-fn grants(g: &Game, original: StackId) -> Vec<&StackInstance> {
+pub(super) fn grants(g: &Game, original: StackId) -> Vec<&StackInstance> {
     g.state.rules.stack.iter().filter(|s| matches!(&s.kind,
         StackKind::Triggered { ability: EffectiveTriggerAbility::Granted { .. }, witness: TriggerEventWitness::SpellCast { cast }, .. } if cast.stack_id == original)).collect()
 }
-fn public_proof(g: &Game) {
+pub(super) fn public_proof(g: &Game) {
     let state = g.state.clone();
     let trace = g.trace.clone();
     for seat in 0..4 {
@@ -138,6 +134,9 @@ fn public_proof(g: &Game) {
         }
         let public = canonical(&expected).unwrap();
         assert!(!public.contains("grant_source"));
+        assert!(!public.contains("cast_history"));
+        assert!(!public.contains("first_overall"));
+        assert!(!public.contains("first_from_exile"));
         assert!(!public.contains("incarnation"));
         for s in &expected.view.stack {
             if let Some(t) = &s.triggered {

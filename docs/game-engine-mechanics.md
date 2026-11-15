@@ -523,12 +523,15 @@ step, death, ETB, draw/discard and combat/noncombat-damage families each retain
 strict source/program validation.
 
 Live battlefield static grants add independent cascade instances to completed spells
-of the source's current controller whose stack mana value meets the exact threshold.
+of the source's current controller using disjoint mana-value, first-cast or
+first-from-exile predicates. A constant four-seat ledger counts every successful
+cast, including observer-free and resolution casts, and resets only on a new turn.
 Intrinsic indexes and grant-source incarnation/static indexes are distinct identities.
 The cast spell remains rules source; caster and grant provenance freeze at collection,
 surviving later grantor departure/control changes. Whole batches preflight IDs,
-fanout and retained payloads atomically. This family supplies no first-cast ledger;
-Nexus/Wild-Magic Sorcerer/Yidris remain whole-source unsupported.
+fanout, ledger and retained payloads atomically. Cast witnesses freeze pre-completion
+firstness; failed proposals/payments never consume it. Complete frozen Nexus and
+Wild-Magic Sorcerer reuse canonical cascade; Yidris remains unsupported.
 
 Later finite extensions cover opponent-damage conditions, optional controller
 draws, event-player discard/sacrifice, filtered sources, controller discard,

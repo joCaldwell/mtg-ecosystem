@@ -44,6 +44,25 @@ impl Game {
             charge = charge.saturating_add(stored_history::payload_charge(grant));
         }
         // Cascade/owned-child frames already charge their complete payload.
+        let facts = |w: &TriggerEventWitness| match w {
+            TriggerEventWitness::SpellCast { cast } => {
+                stored_history::payload_charge(&cast.history)
+            }
+            _ => 0,
+        };
+        for t in &self.state.rules.pending_triggers {
+            charge = charge.saturating_add(facts(&t.witness));
+        }
+        for s in &self.state.rules.stack {
+            if let StackKind::Triggered { witness, .. } = &s.kind {
+                charge = charge.saturating_add(facts(witness));
+            }
+        }
+        if let Frame::Resolve { frame } = self.underlying_mana_frame(&self.state.rules.frame)
+            && let StackKind::Triggered { witness, .. } = &frame.spell.kind
+        {
+            charge = charge.saturating_add(facts(witness));
+        }
         charge
     }
 
@@ -121,11 +140,7 @@ impl Game {
             .static_abilities
             .get(static_ability_index as usize)
             .ok_or("missing cascade grant descriptor")?;
-        let StaticEffect::GrantSpellCascade {
-            mana_value_at_least,
-            ..
-        } = &descriptor.effect
-        else {
+        let StaticEffect::GrantSpellCascade { eligibility, .. } = &descriptor.effect else {
             return Err("wrong cascade grant descriptor".into());
         };
         self.grant_program(grant_source, static_ability_index)?;
@@ -143,7 +158,7 @@ impl Game {
             || fact.default_controller.0 >= 4
             || fact.owner.0 >= 4
             || grant.source_handles.len() != 4
-            || mana_value < *mana_value_at_least
+            || !eligible(eligibility, &mana_value, cast)
             || self
                 .state
                 .rules
@@ -156,5 +171,22 @@ impl Game {
         // Deliberately no current grantor existence/controller test. Accepted
         // input replay proves the complete event-time grant set and its facts.
         Ok(())
+    }
+}
+
+/// Shared live/historical predicate; historical validation never consults today's ledger.
+pub(super) fn eligible(
+    eligibility: &mtg_contracts::SpellCascadeEligibility,
+    mana_value: &Quantity,
+    cast: &triggers::CastOccurrence,
+) -> bool {
+    match eligibility {
+        mtg_contracts::SpellCascadeEligibility::ManaValueAtLeast { minimum } => {
+            mana_value >= minimum
+        }
+        mtg_contracts::SpellCascadeEligibility::FirstCastEachTurn {} => cast.history.first_overall,
+        mtg_contracts::SpellCascadeEligibility::FirstCastFromExileEachTurn {} => {
+            cast.history.first_from_exile
+        }
     }
 }

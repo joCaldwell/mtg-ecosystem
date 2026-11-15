@@ -12,7 +12,7 @@ fn grant(minimum: Quantity) -> StaticAbility {
     StaticAbility {
         functioning_zone: FunctioningZone::Battlefield,
         effect: StaticEffect::GrantSpellCascade {
-            mana_value_at_least: minimum,
+            eligibility: SpellCascadeEligibility::ManaValueAtLeast { minimum },
             program: canonical_cascade_program(7),
         },
     }
@@ -60,14 +60,18 @@ fn static_spell_cascade_grant_canonical_program_zone_and_quantity_fences() {
         d.static_abilities = vec![grant(6.into())];
         let a = &mut d.static_abilities[0];
         let StaticEffect::GrantSpellCascade {
-            mana_value_at_least,
+            eligibility,
             program,
         } = &mut a.effect
         else {
             unreachable!()
         };
         match mutation {
-            0 => *mana_value_at_least = (-1).into(),
+            0 => {
+                *eligibility = SpellCascadeEligibility::ManaValueAtLeast {
+                    minimum: (-1).into(),
+                }
+            }
             1 => a.functioning_zone = FunctioningZone::Stack,
             2 => program.timing = SpellTiming::MainPhase,
             3 => program.functioning_zone = FunctioningZone::Battlefield,
@@ -97,4 +101,42 @@ fn static_spell_cascade_grant_canonical_program_zone_and_quantity_fences() {
         d.capabilities = d.requirements();
         assert!(d.validate().is_err(), "shape {mutation}");
     }
+}
+
+#[test]
+fn static_spell_cascade_grant_history_disjoint_capability_closure() {
+    for eligibility in [
+        SpellCascadeEligibility::FirstCastEachTurn {},
+        SpellCascadeEligibility::FirstCastFromExileEachTurn {},
+    ] {
+        let mut d = base();
+        d.triggered.clear();
+        d.static_abilities = vec![StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::GrantSpellCascade {
+                eligibility,
+                program: canonical_cascade_program(0),
+            },
+        }];
+        d.capabilities = d.requirements();
+        d.validate().unwrap();
+        for cap in [
+            Capability::CastHistoryV1,
+            Capability::StaticSpellCascadeGrantV1,
+            Capability::CascadeV1,
+            Capability::ResolutionCastV1,
+            Capability::RandomBottomV1,
+        ] {
+            let mut bad = d.clone();
+            assert!(bad.capabilities.remove(&cap));
+            assert!(bad.validate().is_err());
+        }
+        let mut wire = serde_json::to_value(&d).unwrap();
+        wire["static_abilities"][0]["effect"]["grant_spell_cascade"]["eligibility"]["minimum"] =
+            serde_json::json!("1");
+        assert!(serde_json::from_value::<Definition>(wire).is_err());
+    }
+    let mut d = base();
+    d.capabilities.insert(Capability::CastHistoryV1);
+    assert!(d.validate().is_err());
 }

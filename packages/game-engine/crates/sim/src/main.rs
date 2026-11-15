@@ -2235,7 +2235,7 @@ mod tests {
         assert_eq!(report["matches"]["games"].as_array().unwrap().len(), 18);
         let final_snapshot: serde_json::Value =
             serde_json::from_str(&bundle.final_snapshot).unwrap();
-        assert_eq!(final_snapshot["snapshot_version"], 27);
+        assert_eq!(final_snapshot["snapshot_version"], 28);
         let json = canonical(&bundle).unwrap();
         assert_eq!(
             verify_bundle(&json).unwrap(),

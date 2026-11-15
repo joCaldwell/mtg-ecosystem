@@ -38,7 +38,7 @@ fn ramos_m4c_complete_frozen_imoti_preserves_both_clauses_and_characteristics() 
         [StaticAbility {
             functioning_zone: FunctioningZone::Battlefield,
             effect: StaticEffect::GrantSpellCascade {
-                mana_value_at_least: 6.into(),
+                eligibility: SpellCascadeEligibility::ManaValueAtLeast { minimum: 6.into() },
                 program: canonical_cascade_program(1)
             },
         }]
@@ -65,7 +65,9 @@ fn ramos_m4c_synthetic_ast_thresholds_are_exact_parameters() {
         assert_eq!(
             a.effect,
             StaticEffect::GrantSpellCascade {
-                mana_value_at_least: value.to_string().parse().unwrap(),
+                eligibility: SpellCascadeEligibility::ManaValueAtLeast {
+                    minimum: value.to_string().parse().unwrap()
+                },
                 program: canonical_cascade_program(17),
             }
         );
@@ -163,11 +165,9 @@ fn ramos_m4c_rehashed_nested_binding_lies_do_not_follow_fully_bound_flag() {
 }
 #[test]
 fn ramos_m4c_history_and_unparsed_whole_sources_remain_unsupported() {
-    for raw in [
-        include_str!("../../../tests/fixtures/ramos/b1c346a4-fc9b-474a-9d51-cac168e363fa.json"),
-        include_str!("../../../tests/fixtures/ramos/a450ef56-8511-43e0-bdca-0c25f54ba338.json"),
-        include_str!("../../../tests/fixtures/ramos/9efe8aff-9a7d-4397-b5fd-c1a0fad7c15f.json"),
-    ] {
+    for raw in [include_str!(
+        "../../../tests/fixtures/ramos/9efe8aff-9a7d-4397-b5fd-c1a0fad7c15f.json"
+    )] {
         assert!(matches!(
             compile(MANIFEST, raw),
             CompileResult::Unsupported { .. }

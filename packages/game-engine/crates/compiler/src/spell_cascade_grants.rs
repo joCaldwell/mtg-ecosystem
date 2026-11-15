@@ -8,6 +8,35 @@ pub(super) fn lower(
     effect: &SourceStaticEffect,
     block: u32,
 ) -> Result<Option<StaticAbility>, Failure> {
+    if let SourceStaticEffect::CastSpellAbilities { scope, abilities } = effect {
+        let ordinary = json!({"action":"cast","spells":{"ref":"each","filter":{"cls":"spell"}},
+            "caster":{"player":"you"},"occurrence":{"ordinal":1,"period":"turn"}});
+        let mut exile = ordinary.clone();
+        exile["from"] = json!({"zone":"exile"});
+        let eligibility = if *scope == ordinary {
+            SpellCascadeEligibility::FirstCastEachTurn {}
+        } else if *scope == exile {
+            SpellCascadeEligibility::FirstCastFromExileEachTurn {}
+        } else {
+            return Err(unsupported(
+                "static.spell-grant",
+                "unsupported complete cast scope",
+            ));
+        };
+        if *abilities != vec![json!({"gained":"keyword","keyword":{"keyword":"cascade"}})] {
+            return Err(unsupported(
+                "static.spell-grant",
+                "unsupported complete gained ability",
+            ));
+        }
+        return Ok(Some(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::GrantSpellCascade {
+                eligibility,
+                program: canonical_cascade_program(block),
+            },
+        }));
+    }
     let SourceStaticEffect::Modify { what, modifiers } = effect else {
         return Ok(None);
     };
@@ -44,7 +73,7 @@ pub(super) fn lower(
     Ok(Some(StaticAbility {
         functioning_zone: FunctioningZone::Battlefield,
         effect: StaticEffect::GrantSpellCascade {
-            mana_value_at_least: minimum,
+            eligibility: SpellCascadeEligibility::ManaValueAtLeast { minimum },
             program: canonical_cascade_program(block),
         },
     }))
@@ -55,9 +84,13 @@ pub(super) fn bind(
     binding: &Value,
     identity: &str,
     block: u32,
+    source: &Source,
 ) -> Result<(), Failure> {
     if lower(effect, block)?.is_none() {
         return Ok(());
+    }
+    if let SourceStaticEffect::CastSpellAbilities { scope, .. } = effect {
+        return bind_history(scope, binding, identity, block, source);
     }
     let SourceStaticEffect::Modify { what, .. } = effect else {
         unreachable!()
@@ -116,6 +149,69 @@ pub(super) fn bind(
             || refs[0]["target"] != target
         {
             return Err(unsupported(&path, "unbound static grant selector"));
+        }
+    }
+    Ok(())
+}
+
+// The frozen history-grant binding has no nested recipient or keyword nodes.
+// Validate its real source/face/controller/query and both bound references.
+fn bind_history(
+    scope: &Value,
+    binding: &Value,
+    identity: &str,
+    block: u32,
+    card: &Source,
+) -> Result<(), Failure> {
+    let path = format!("/faces/0/abilities/{block}");
+    let root = format!("card:{identity}");
+    let source = format!("{root}/source#object");
+    let face = format!("{root}/faces/0#face");
+    let ability = format!("{root}{path}#ability");
+    let you = format!("{root}{path}#you");
+    let query = format!("{root}{path}/effect/scope/spells#query");
+    let required = [
+        json!({"id":source,"path":"/source","node":"source","identity":identity}),
+        json!({"id":face,"path":"/faces/0","node":"face","source":source,"sourceFaceIndex":0,"name":card.name,"layout":card.layout,"typeLine":card.type_line,"manaCost":card.mana_cost}),
+        json!({"id":ability,"path":path,"node":"ability","source":source,"face":face,"abilityKind":"static","you":you}),
+        json!({"id":you,"path":path,"node":"runtime-player","scope":ability,"role":"static-source-controller"}),
+        json!({"id":query,"path":format!("{path}/effect/scope/spells"),"node":"selection","scope":ability,"expression":scope["spells"],"cardinality":"many","timing":"continuous","selection":"evaluate-reference"}),
+    ];
+    let nodes = binding["nodes"]
+        .as_array()
+        .ok_or_else(|| unsupported(&path, "missing binding nodes"))?;
+    if binding["identity"] != identity
+        || required.iter().any(|expected| {
+            let found: Vec<_> = nodes.iter().filter(|n| n["id"] == expected["id"]).collect();
+            found.len() != 1
+                || expected
+                    .as_object()
+                    .unwrap()
+                    .iter()
+                    .any(|(k, v)| found[0][k] != *v)
+        })
+    {
+        return Err(unsupported(
+            &path,
+            "unbound history grant source/controller",
+        ));
+    }
+    for (suffix, expression, target) in [
+        ("spells", &scope["spells"], query),
+        ("caster", &scope["caster"], you),
+    ] {
+        let refs: Vec<_> = binding["references"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|r| r["path"] == format!("{path}/effect/scope/{suffix}"))
+            .collect();
+        if refs.len() != 1
+            || refs[0]["expression"] != *expression
+            || refs[0]["binding"] != "bound"
+            || refs[0]["target"] != target
+        {
+            return Err(unsupported(&path, "unbound history grant selector"));
         }
     }
     Ok(())

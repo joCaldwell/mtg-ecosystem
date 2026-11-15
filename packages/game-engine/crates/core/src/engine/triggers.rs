@@ -22,7 +22,7 @@ pub(super) struct PendingTrigger {
     pub(super) source_facts: ObjectBefore,
     pub(super) source_handles: Vec<ObjectHandle>,
     event: TriggerOccurrenceId,
-    witness: TriggerEventWitness,
+    pub(super) witness: TriggerEventWitness,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -47,10 +47,26 @@ pub enum TriggerOccurrenceId {
 pub struct CastOccurrenceId {
     pub cast: StackId,
 }
+/// Semantic successful-cast ledger, independent of observers and tracing.
+/// Original physical seats never compact on departure (CR 601.2i/800.4).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct TurnCastHistory {
+    pub(super) any_cast: bool,
+    pub(super) exile_cast: bool,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CastHistoryFacts {
+    pub turn_number: u64,
+    pub first_overall: bool,
+    pub first_from_exile: bool,
+}
 /// Frozen CR 601.2i event facts. The caster is not the active player.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CastOccurrence {
+    pub history: CastHistoryFacts,
     pub x: Option<Quantity>,
     pub stack_id: StackId,
     pub caster: PlayerId,
@@ -504,8 +520,19 @@ impl Game {
         if completed.id != entry.id || !completed.kind.is_spell() || completed.paid.is_none() {
             return Err("cast occurrence requires a completed paid spell".into());
         }
+        let prior = self
+            .state
+            .rules
+            .cast_history
+            .get(entry.controller.0 as usize)
+            .ok_or("invalid cast history seat")?;
         let witness = TriggerEventWitness::SpellCast {
             cast: Box::new(CastOccurrence {
+                history: CastHistoryFacts {
+                    turn_number: self.state.rules.turn.number,
+                    first_overall: !prior.any_cast,
+                    first_from_exile: entry.cast_from == Zone::Exile && !prior.exile_cast,
+                },
                 x: entry.x.clone(),
                 stack_id: entry.id,
                 caster: entry.controller,
@@ -547,6 +574,18 @@ impl Game {
         event: TriggerOccurrenceId,
         witness: TriggerEventWitness,
     ) -> Result<(), String> {
+        // Inside the full collector transaction, including the zero-match case.
+        // Never consume on proposal, failed payment or a failed sibling batch.
+        if let TriggerEventWitness::SpellCast { cast } = &witness {
+            let row = self
+                .state
+                .rules
+                .cast_history
+                .get_mut(cast.caster.0 as usize)
+                .ok_or("invalid cast history seat")?;
+            row.any_cast = true;
+            row.exile_cast |= cast.cast_from == Zone::Exile;
+        }
         let dies = witness.dies();
         let enters = witness.enters();
 
@@ -755,12 +794,9 @@ impl Game {
                     .iter()
                     .enumerate()
                 {
-                    if let StaticEffect::GrantSpellCascade {
-                        mana_value_at_least,
-                        ..
-                    } = &descriptor.effect
+                    if let StaticEffect::GrantSpellCascade { eligibility, .. } = &descriptor.effect
                         && descriptor.functioning_zone == FunctioningZone::Battlefield
-                        && mana_value >= *mana_value_at_least
+                        && spell_cascade_grants::eligible(eligibility, &mana_value, cast)
                     {
                         matched.push((
                             None,
@@ -847,6 +883,7 @@ impl Game {
                 source_facts: Box::new(consumed),
             })?;
         }
+        self.check_history_capacity()?;
         Ok(())
     }
     pub(super) fn preflight_trigger_emission(&mut self, additional: usize) -> Result<(), String> {
@@ -1457,7 +1494,13 @@ impl Game {
                     cast.spell.object,
                     &cast.spell.characteristics,
                 )?;
-                cast.stack_id.0 < self.state.rules.next_stack_id
+                cast.history.turn_number > 0
+                    && cast.history.turn_number <= self.state.rules.turn.number
+                    && (!cast.history.first_from_exile || cast.cast_from == Zone::Exile)
+                    && (!cast.history.first_overall
+                        || cast.cast_from != Zone::Exile
+                        || cast.history.first_from_exile)
+                    && cast.stack_id.0 < self.state.rules.next_stack_id
                     && cast.caster.0 < 4
                     && cast.spell.controller == cast.caster
                     && cast.spell.default_controller.0 < 4

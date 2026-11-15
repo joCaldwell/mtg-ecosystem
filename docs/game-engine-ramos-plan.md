@@ -81,8 +81,10 @@ The focused exit above does not cover every possible casting source or cost.
 
 ### M4 Complete the cascade package and casting history
 
-Apex/Wanderer/Imoti are qualified above. Next: semantic first-cast history for
-Nexus/Wild-Magic Sorcerer, including casts before source entry. Add Ethersworn affinity, Enigma
+Apex/Wanderer/Imoti are qualified above. M4d adds private per-seat successful-cast
+history and complete frozen Nexus/Sorcerer grants; source-bound checks and remaining
+gates are in `generated/ramos/m4d/handoff.json` (private28/public22, IR1).
+Add Ethersworn affinity, Enigma
 graveyard return, Yidris grants and turn/zone casting history, including
 casts before grant-source entry. Add Averna's action, Call Forth's other-spell mana
 values and Vega's non-hand-cast draw. Preflight effective trigger batches and checked

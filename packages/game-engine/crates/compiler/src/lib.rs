@@ -917,6 +917,10 @@ enum AnyTargetReference {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "static", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceStaticEffect {
+    CastSpellAbilities {
+        scope: serde_json::Value,
+        abilities: Vec<serde_json::Value>,
+    },
     Control {
         who: SourceControlPlayer,
         what: SourceControlObject,
@@ -1255,7 +1259,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     for (block, ability) in abilities.iter().enumerate() {
         if let Ability::Static { effect, .. } = ability {
-            spell_cascade_grants::bind(effect, &binding, &r.oracle_identity, source_block(block)?)?;
+            spell_cascade_grants::bind(
+                effect,
+                &binding,
+                &r.oracle_identity,
+                source_block(block)?,
+                &source,
+            )?;
         }
     }
     let original: Vec<Box<RawValue>> = decode(result.abilities.get(), "abilities")?;
@@ -9338,3 +9348,6 @@ mod permanent_set_keyword_tests;
 
 #[cfg(test)]
 mod ramos_m4c_tests;
+
+#[cfg(test)]
+mod ramos_m4d_tests;

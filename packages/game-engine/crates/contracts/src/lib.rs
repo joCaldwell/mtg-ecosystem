@@ -183,6 +183,7 @@ pub enum Capability {
     ResolutionCastV1,
     CascadeV1,
     StaticSpellCascadeGrantV1,
+    CastHistoryV1,
     RandomBottomV1,
     CastTriggerV1,
     CastSpellColorCountersV1,
@@ -847,6 +848,19 @@ impl CounterPlacementModification {
         result
     }
 }
+/// Disjoint predicates on a completed spell; history is global to its caster.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "eligibility", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SpellCascadeEligibility {
+    ManaValueAtLeast { minimum: Quantity },
+    FirstCastEachTurn {},
+    FirstCastFromExileEachTurn {},
+}
+impl SpellCascadeEligibility {
+    pub fn requires_history(&self) -> bool {
+        !matches!(self, Self::ManaValueAtLeast { .. })
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
@@ -855,7 +869,7 @@ pub enum StaticEffect {
     /// The program is exactly canonical_cascade_program, never arbitrary code.
     /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     GrantSpellCascade {
-        mana_value_at_least: Quantity,
+        eligibility: SpellCascadeEligibility,
         program: SpellProgram,
     },
     /// CR 109.5/303.4m/611.3/613.1b: the current source controller controls
@@ -1721,8 +1735,15 @@ impl Definition {
             });
         }
         for a in &self.static_abilities {
-            if let StaticEffect::GrantSpellCascade { program, .. } = &a.effect {
+            if let StaticEffect::GrantSpellCascade {
+                eligibility,
+                program,
+            } = &a.effect
+            {
                 add_program_requirements(&mut set, program);
+                if eligibility.requires_history() {
+                    set.insert(Capability::CastHistoryV1);
+                }
             }
             if matches!(&a.effect, StaticEffect::ModifyCreatures { keywords, .. }
                 if keywords.contains(&KeywordAbility::Indestructible))
@@ -2591,11 +2612,11 @@ impl Definition {
         }
         for a in &self.static_abilities {
             if let StaticEffect::GrantSpellCascade {
-                mana_value_at_least,
+                eligibility,
                 program,
             } = &a.effect
             {
-                if mana_value_at_least.is_negative()
+                if matches!(eligibility, SpellCascadeEligibility::ManaValueAtLeast { minimum } if minimum.is_negative())
                     || !matches!(
                         c.kind,
                         CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
@@ -4106,7 +4127,7 @@ fn cascade_schema(schema: &mut serde_json::Value) {
         .unwrap()
         .push(
             serde_json::json!({"properties":{"grant_spell_cascade":{"properties":{
-                "mana_value_at_least":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},
+                "eligibility":{"properties":{"minimum":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"}}},
                 "program":ability["properties"]["program"]
             }}}}),
         );
@@ -4118,6 +4139,15 @@ fn cascade_schema(schema: &mut serde_json::Value) {
             "capabilities":{"contains":{"const":"static_spell_cascade_grant_v1"}},
             "characteristics":{"properties":{"kind":{"enum":["creature","artifact","enchantment"]},"subtypes":{"not":{"contains":{"enum":["Equipment","Aura"]}}}}}
         }},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"static_spell_cascade_grant_v1"}}}}}
+    }));
+    let history = serde_json::json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{
+        "required":["effect"],"properties":{"effect":{"required":["grant_spell_cascade"],"properties":{"grant_spell_cascade":{
+            "required":["eligibility"],"properties":{"eligibility":{"required":["eligibility"],"properties":{"eligibility":{"enum":["first_cast_each_turn","first_cast_from_exile_each_turn"]}}}}
+        }}}}
+    }}}});
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":history,"then":{"properties":{"capabilities":{"contains":{"const":"cast_history_v1"}}}},
+        "else":{"properties":{"capabilities":{"not":{"contains":{"const":"cast_history_v1"}}}}}
     }));
     let present = serde_json::json!({"anyOf":[grant,{"required":["triggered"],"properties":{"triggered":{"contains":self_condition}}}]});
     let requirements = [
@@ -5170,6 +5200,7 @@ mod tests {
             ResolutionCastV1,
             CascadeV1,
             StaticSpellCascadeGrantV1,
+            CastHistoryV1,
             RandomBottomV1,
             NormalLayoutV1,
             BasicLandManaV1,
@@ -5318,7 +5349,7 @@ mod tests {
         static_grant.static_abilities = vec![StaticAbility {
             functioning_zone: FunctioningZone::Battlefield,
             effect: StaticEffect::GrantSpellCascade {
-                mana_value_at_least: 6.into(),
+                eligibility: SpellCascadeEligibility::FirstCastEachTurn {},
                 program: canonical_cascade_program(0),
             },
         }];

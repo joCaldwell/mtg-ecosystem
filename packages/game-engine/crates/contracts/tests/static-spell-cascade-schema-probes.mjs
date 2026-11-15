@@ -31,16 +31,16 @@ for (const minimum of ['0', '2', '9', '99999999999999999999999999999999999999999
     const x = structuredClone(catalog), card = x.definitions[0];
     card.triggered = []; card.capabilities = card.capabilities.filter(c => c !== 'triggered_ability_v1');
     card.static_abilities = Array.from({ length: count }, () => structuredClone(d.static_abilities[0]));
-    for (const a of card.static_abilities) a.effect.grant_spell_cascade.mana_value_at_least = minimum;
+    for (const a of card.static_abilities) a.effect.grant_spell_cascade.eligibility.minimum = minimum;
     check(`synthetic grantor with no intrinsic, min ${minimum}, count ${count}`, x, true);
   }
 }
 for (const [name, change] of [
-  ['negative', a => { a.effect.grant_spell_cascade.mana_value_at_least = '-1'; }],
-  ['noncanonical', a => { a.effect.grant_spell_cascade.mana_value_at_least = '06'; }],
-  ['numeric', a => { a.effect.grant_spell_cascade.mana_value_at_least = 6; }],
-  ['null', a => { a.effect.grant_spell_cascade.mana_value_at_least = null; }],
-  ['missing', a => { delete a.effect.grant_spell_cascade.mana_value_at_least; }],
+  ['negative', a => { a.effect.grant_spell_cascade.eligibility.minimum = '-1'; }],
+  ['noncanonical', a => { a.effect.grant_spell_cascade.eligibility.minimum = '06'; }],
+  ['numeric', a => { a.effect.grant_spell_cascade.eligibility.minimum = 6; }],
+  ['null', a => { a.effect.grant_spell_cascade.eligibility.minimum = null; }],
+  ['missing', a => { delete a.effect.grant_spell_cascade.eligibility.minimum; }],
   ['extra property', a => { a.effect.grant_spell_cascade.first = true; }],
   ['zone', a => { a.functioning_zone = 'stack'; }],
   ['missing program', a => { delete a.effect.grant_spell_cascade.program; }],
@@ -60,6 +60,21 @@ for (const [name, change] of [
 for (const cap of ['static_spell_cascade_grant_v1', 'cascade_v1', 'resolution_cast_v1', 'random_bottom_v1']) {
   const x = structuredClone(catalog); x.definitions[0].capabilities = d.capabilities.filter(c => c !== cap); check(`missing ${cap}`, x, false);
 }
+for (const predicate of ['first_cast_each_turn','first_cast_from_exile_each_turn']) {
+  const x = structuredClone(catalog), card = x.definitions[0];
+  card.static_abilities[0].effect.grant_spell_cascade.eligibility = { eligibility: predicate };
+  card.capabilities.push('cast_history_v1');
+  check(predicate, x, true);
+  for (const cap of ['cast_history_v1','static_spell_cascade_grant_v1','cascade_v1','resolution_cast_v1','random_bottom_v1']) {
+    const bad = structuredClone(x); bad.definitions[0].capabilities = card.capabilities.filter(c => c !== cap);
+    check(`${predicate} missing ${cap}`,bad,false);
+  }
+  for (const descriptor of [null,{}, {eligibility:predicate,minimum:'1'}, {eligibility:predicate,from:'exile'}, {eligibility:'first_cast'}, {eligibility:'mana_value_at_least'}, {eligibility:'mana_value_at_least',minimum:'-1'}]) {
+    const bad = structuredClone(x); bad.definitions[0].static_abilities[0].effect.grant_spell_cascade.eligibility = descriptor;
+    check(`${predicate} malformed ${JSON.stringify(descriptor)}`,bad,false);
+  }
+}
+const spare = structuredClone(catalog); spare.definitions[0].capabilities.push('cast_history_v1'); check('spare history capability',spare,false);
 const orphan = structuredClone(catalog); orphan.definitions[0].static_abilities = [];
 check('orphan static grant capability', orphan, false);
 report.probes = report.positives + report.negatives + report.failures.length;
