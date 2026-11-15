@@ -155,7 +155,7 @@ fn temporary_combat_keyword_vectors_reject_duplicates_and_unreviewed_members() {
         ]);
     }
     for keywords in invalid {
-        assert!(!supported_temporary_creature_keywords(&keywords));
+        assert!(!supported_temporary_keywords(&keywords));
         for domain in DOMAINS {
             for modifier in [false, true] {
                 let d = grant(&keywords, modifier, domain);
@@ -166,7 +166,7 @@ fn temporary_combat_keyword_vectors_reject_duplicates_and_unreviewed_members() {
     }
     for mut keywords in representatives() {
         keywords.push(keywords[0]);
-        assert!(!supported_temporary_creature_keywords(&keywords));
+        assert!(!supported_temporary_keywords(&keywords));
     }
 }
 
