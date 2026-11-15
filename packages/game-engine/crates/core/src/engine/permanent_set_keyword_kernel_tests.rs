@@ -254,8 +254,12 @@ fn permanent_set_kernel_historical_control_owner_departure_and_incarnation_do_no
     assert!(!g.has_keyword(captured, KeywordAbility::Hexproof));
     assert!(!g.has_keyword(successor, KeywordAbility::Hexproof));
     g.validate_effect_state().unwrap();
-    g.refresh_effect_handles().unwrap();
+    // Direct structural mutation bypasses advance's publication boundary.
+    // Refresh that boundary before reading views; queries never repair handles.
+    g.refresh_visibility().unwrap();
     for viewer in 0..4 {
+        assert!(g.handle_for(PlayerId(viewer), captured).is_err());
+        assert!(g.handle_for(PlayerId(viewer), successor).is_ok());
         let visible = g.visible_effects(PlayerId(viewer)).unwrap();
         let VisibleEffect::GrantKeywordsSet {
             targets,
