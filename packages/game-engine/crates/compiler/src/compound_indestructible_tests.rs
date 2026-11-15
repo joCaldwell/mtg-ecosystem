@@ -52,13 +52,12 @@ fn compound_indestructible_complete_mortals_resolve() {
     assert_eq!(p.targets.len(), 1);
     assert_eq!(p.targets[0].selection_id, "line:0:0");
     assert!(matches!(p.instructions.as_slice(),[
-        Instruction::ModifyPowerToughness{target_slot:0,power,toughness,duration:Duration::UntilEndOfTurn,source_block:0},
-        Instruction::GrantKeywords{target_slot:0,keywords,duration:Duration::UntilEndOfTurn,source_block:0}
+        Instruction::GrantKeywords{target_slot:0,modifier:Some(CreatureStatModifier{power,toughness}),keywords,duration:Duration::UntilEndOfTurn,source_block:0}
     ] if *power==1.into() && *toughness==1.into() && keywords==&[KeywordAbility::Indestructible]));
 }
 #[test]
 fn compound_indestructible_rejects_mutated_steps_occurrences_bindings_and_contexts() {
-    for variant in 0..19 {
+    for variant in 0..25 {
         let raw = tests::changed_source(RAW, |r| {
             let a = &mut r["faces"][0]["result"]["abilities"][0];
             let steps = &mut a["effects"][0]["steps"];
@@ -82,7 +81,13 @@ fn compound_indestructible_rejects_mutated_steps_occurrences_bindings_and_contex
                 15=>steps[1]["abilities"][0]["keyword"]["extra"]=true.into(),
                 16=>steps[1]["what"]["selectionId"]="".into(),
                 17=>steps[1]["abilities"][0]["keyword"]["keyword"]="reach".into(),
-                _=>a["effects"][0]["steps"][0]["extra"]=true.into(),
+                18=>a["effects"][0]["steps"][0]["extra"]=true.into(),
+                19=>{let pump=steps[0].clone(); let gain=steps[1].clone(); a["effects"]=json!([{"steps":[pump]},{"steps":[gain]}]);},
+                20=>{let sentence=a["effects"][0].clone(); a["effects"]=json!([{"steps":[]},sentence]);},
+                21=>{let sentence=a["effects"][0].clone(); a["effects"]=json!([sentence,{"steps":[]}]);},
+                22=>steps[1]["what"]["count"]["value"]=2.into(),
+                23=>steps[0]["what"]["selectionId"]="".into(),
+                _=>steps[0]["what"]["filter"]["control"]="you".into(),
             }
             r["faces"][0]["result"]["lines"][0]["ability"] = a.clone();
         });

@@ -3032,16 +3032,12 @@
         ],
         "instructions": [
           {
-            "op": "modify_power_toughness",
-            "target_slot": 0,
-            "power": "1",
-            "toughness": "1",
-            "duration": "until_end_of_turn",
-            "source_block": 0
-          },
-          {
             "op": "grant_keywords",
             "target_slot": 0,
+            "modifier": {
+              "power": "1",
+              "toughness": "1"
+            },
             "keywords": [
               "indestructible"
             ],

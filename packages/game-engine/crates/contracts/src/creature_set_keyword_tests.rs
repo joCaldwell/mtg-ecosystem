@@ -7,7 +7,7 @@ pub(super) fn grant(set: ObjectSet, keywords: &[KeywordAbility], modifier: bool)
     p.targets.clear();
     p.instructions = vec![Instruction::GrantKeywordsSet {
         set,
-        modifier: modifier.then(|| CreatureSetModifier {
+        modifier: modifier.then(|| CreatureStatModifier {
             power: Quantity::from(-2),
             toughness: Quantity::zero(),
         }),
@@ -394,4 +394,22 @@ fn creature_set_keyword_excludes_optional_cost_and_conditional_draw_families() {
             }
         }
     }
+}
+
+#[test]
+fn creature_set_keyword_shared_stat_type_preserves_wire_bytes() {
+    let instruction = Instruction::GrantKeywordsSet {
+        set: ObjectSet::ControllerCreatures,
+        modifier: Some(CreatureStatModifier {
+            power: "-2".parse().unwrap(),
+            toughness: 3.into(),
+        }),
+        keywords: vec![KeywordAbility::Lifelink],
+        duration: Duration::UntilEndOfTurn,
+        source_block: 0,
+    };
+    assert_eq!(
+        serde_json::to_string(&instruction).unwrap(),
+        r#"{"op":"grant_keywords_set","set":"controller_creatures","modifier":{"power":"-2","toughness":"3"},"keywords":["lifelink"],"duration":"until_end_of_turn","source_block":0}"#
+    );
 }

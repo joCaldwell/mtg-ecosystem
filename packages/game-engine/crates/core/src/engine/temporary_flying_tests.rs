@@ -139,6 +139,10 @@ fn temporary_flying_paid_grant_source_departure_expiry_and_replay() {
             ));
             assert!(flying(g, 1));
             assert_eq!(g.state.rules.effects.len(), 1);
+            assert!(matches!(
+                &g.state.rules.effects[0].kind,
+                ResolvedEffectKind::GrantKeywords { modifier: None, .. }
+            ));
             recover(g);
             let before = g.state.clone();
             let trace = g.trace.clone();
@@ -359,7 +363,10 @@ fn temporary_flying_opponent_target_invalid_response_atomic_and_restore_guard() 
         for variant in 0..5 {
             let mut snapshot: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
             let effect = &mut snapshot.state.rules.effects[0];
-            if let ResolvedEffectKind::GrantKeywords { keywords, target } = &mut effect.kind {
+            if let ResolvedEffectKind::GrantKeywords {
+                keywords, target, ..
+            } = &mut effect.kind
+            {
                 match variant {
                     0 => *keywords = vec![KeywordAbility::Reach],
                     1 => *keywords = vec![KeywordAbility::Indestructible],

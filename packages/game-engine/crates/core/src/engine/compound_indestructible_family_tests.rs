@@ -66,13 +66,30 @@ fn stats(g: &Game, id: u32, power: i64, toughness: i64, protected: bool) {
     );
 }
 fn effects(g: &Game, id: u32) {
-    assert_eq!(g.state.rules.effects.len(), 2);
-    assert!(
-        matches!(&g.state.rules.effects[0].kind, ResolvedEffectKind::ModifyPowerToughness { target, .. } if *target == object(g, id))
-    );
-    assert!(
-        matches!(&g.state.rules.effects[1].kind, ResolvedEffectKind::GrantKeywords { target, .. } if *target == object(g, id))
-    );
+    assert_eq!(g.state.rules.effects.len(), 1);
+    let effect = &g.state.rules.effects[0];
+    let [
+        Instruction::GrantKeywords {
+            modifier: Some(expected),
+            keywords: expected_keywords,
+            ..
+        },
+    ] = g
+        .definition(effect.origin.source.card)
+        .unwrap()
+        .spell
+        .as_ref()
+        .unwrap()
+        .instructions
+        .as_slice()
+    else {
+        panic!("one complete compound source instruction")
+    };
+    assert!(matches!(&effect.kind,
+        ResolvedEffectKind::GrantKeywords { target, modifier: Some(modifier), keywords }
+        if *target == object(g, id) && modifier == expected && keywords == expected_keywords));
+    assert_eq!(effect.origin.source_block, 0);
+    assert_eq!(effect.origin.cursor, 0);
     assert_eq!(
         g.current_keywords(object(g, id))
             .iter()
@@ -187,9 +204,9 @@ fn compound_indestructible_family_incarnation_and_resolution_target_recheck() {
             let trace = g.trace.clone();
             for viewer in 0..4 {
                 let visible = g.visible_effects(PlayerId(viewer)).unwrap();
-                assert_eq!(visible.len(), 2);
+                assert_eq!(visible.len(), 1);
                 assert!(
-                    matches!(&visible[1], VisibleEffect::GrantKeywords { target, .. } if target.current.is_none())
+                    matches!(&visible[0], VisibleEffect::GrantKeywords { target, .. } if target.current.is_none())
                 );
             }
             assert_eq!(g.state, before);
@@ -306,7 +323,7 @@ fn compound_indestructible_family_queries_and_invalid_responses_are_atomic() {
 }
 
 #[test]
-fn compound_indestructible_family_suspended_prefix_preserves_actual_modifier() {
+fn compound_indestructible_family_suspended_atomic_grant_preserves_all_characteristics() {
     for &(name, land, raw, power, toughness) in SOURCES {
         both(
             prepared(
@@ -325,11 +342,12 @@ fn compound_indestructible_family_suspended_prefix_preserves_actual_modifier() {
                 for _ in 0..2000 {
                     match g.advance(Budget::new(q)) {
                         Advance::Suspended { .. } => {
-                            if g.state.rules.effects.len() == 1 {
+                            if g.state.rules.effects.is_empty() {
+                                stats(g, 1, 2, 2, false);
+                            } else {
                                 prefixes += 1;
-                                stats(g, 1, power, toughness, false);
-                                assert!(g.state.rules.pending.is_none());
-                                assert!(matches!(g.state.rules.frame, Frame::Resolve { .. }));
+                                stats(g, 1, power, toughness, true);
+                                effects(g, 1);
                                 recover(g);
                             }
                         }
@@ -348,7 +366,7 @@ fn compound_indestructible_family_suspended_prefix_preserves_actual_modifier() {
                     }
                 }
                 if q == 1 {
-                    assert!(prefixes > 0, "actual suspended prefix");
+                    assert!(prefixes > 0, "actual suspended complete atomic grant");
                 }
                 stats(g, 1, power, toughness, true);
                 effects(g, 1);

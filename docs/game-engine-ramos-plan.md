@@ -68,10 +68,10 @@ Old evidence keeps its original source and optimization identity. Full contract
 research and historical matrices remain in Git at `30ec86ee` and preserved ignored
 copies; they are not duplicated operating manuals.
 
-The current coordinator imports set-family main `93afb8fa` after its published
-`7a3d4b6e` producer. Combined 25/20 headers and optional-cost/set exclusion checks
-are **unqualified** until affected tests run. The separate scalar family reserves
-26/21; neither producer's acceptance transfers. Client qualification has the next
+The current coordinator imports scalar main `2ac47a82` after its qualified
+`8462ce4c` producer and prior set-family 25/20. Combined 26/21 headers and
+optional-cost/set exclusion checks are **unqualified** until affected tests run.
+Neither earlier producer's acceptance transfers. Client qualification has the next
 native slot; no coordinator Cargo is queued.
 
 ## Ordered remaining milestones

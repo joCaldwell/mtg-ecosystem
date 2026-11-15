@@ -206,9 +206,12 @@ fn temporary_combat_keyword_parameters_and_pure_provenance_stay_exact() {
                 true,
                 domain,
             );
-            let Instruction::ModifyPowerToughness {
-                power: p,
-                toughness: t,
+            let Instruction::GrantKeywords {
+                modifier:
+                    Some(CreatureStatModifier {
+                        power: p,
+                        toughness: t,
+                    }),
                 ..
             } = &mut d.spell.as_mut().unwrap().instructions[0]
             else {
@@ -239,7 +242,7 @@ fn temporary_combat_keyword_json_near_misses_stay_rejected() {
                 domain,
             ))
             .unwrap();
-            let grant_index = if modifier { 1 } else { 0 };
+            let grant_index = 0;
             let grant_path = format!("/spell/instructions/{grant_index}");
             let mut cases = vec![
                 (format!("{grant_path}/keywords"), serde_json::json!([])),
@@ -321,13 +324,16 @@ fn temporary_combat_keyword_json_near_misses_stay_rejected() {
                         "/spell/instructions/0/duration".into(),
                         serde_json::json!("permanent"),
                     ),
-                    ("/spell/instructions/0/power".into(), serde_json::json!(2)),
                     (
-                        "/spell/instructions/0/power".into(),
+                        "/spell/instructions/0/modifier/power".into(),
+                        serde_json::json!(2),
+                    ),
+                    (
+                        "/spell/instructions/0/modifier/power".into(),
                         serde_json::json!({"amount":"source-power"}),
                     ),
                     (
-                        "/spell/instructions/0/toughness".into(),
+                        "/spell/instructions/0/modifier/toughness".into(),
                         serde_json::json!("-0"),
                     ),
                 ]);
@@ -372,7 +378,7 @@ fn temporary_combat_keyword_json_near_misses_stay_rejected() {
                     }
                     _ => {
                         if modifier {
-                            p.instructions.reverse();
+                            compound_indestructible_tests::split(p, true);
                         } else {
                             p.instructions.push(p.instructions[0].clone());
                         }
@@ -461,8 +467,7 @@ fn temporary_combat_keyword_schema_preserves_legacy_subset_vocabulary() {
         serde_json::json!([["indestructible"], ["flying"], ["deathtouch"]])
     );
     assert_eq!(
-        schema["$defs"]["CompoundIndestructibleInstructions"]["prefixItems"][1]["properties"]["keywords"]
-            ["const"],
+        schema["$defs"]["CompoundIndestructibleInstructions"]["items"]["properties"]["keywords"]["const"],
         serde_json::json!(["indestructible"])
     );
 }

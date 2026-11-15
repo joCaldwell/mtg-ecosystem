@@ -148,22 +148,16 @@ fn assert_program(d: &Definition, modifier: Option<(i64, i64)>, keywords: &[Keyw
             filter: None,
         }]
     );
-    let mut instructions = vec![];
-    if let Some((power, toughness)) = modifier {
-        instructions.push(Instruction::ModifyPowerToughness {
-            target_slot: 0,
+    let instructions = vec![Instruction::GrantKeywords {
+        modifier: modifier.map(|(power, toughness)| CreatureStatModifier {
             power: power.into(),
             toughness: toughness.into(),
-            duration: Duration::UntilEndOfTurn,
-            source_block: 0,
-        });
-    }
-    instructions.push(Instruction::GrantKeywords {
+        }),
         target_slot: 0,
         keywords: keywords.to_vec(),
         duration: Duration::UntilEndOfTurn,
         source_block: 0,
-    });
+    }];
     assert_eq!(p.instructions, instructions);
     let descriptor = temporary_creature_keyword_program(p).unwrap();
     let quantities = modifier.map(|(p, t)| (Quantity::from(p), Quantity::from(t)));
@@ -421,7 +415,7 @@ fn temporary_combat_keyword_complete_sources_reject_unconsumed_shapes() {
     }
 }
 #[test]
-fn temporary_combat_keyword_compound_preserves_sentence_partition_and_rejects_semantic_changes() {
+fn temporary_combat_keyword_compound_rejects_sentence_partition_and_semantic_changes() {
     for w in WITNESSES.iter().filter(|w| w.modifier.is_some()) {
         for variant in 0..10 {
             let raw = changed_ability(w.raw, |a| {
@@ -455,13 +449,9 @@ fn temporary_combat_keyword_compound_preserves_sentence_partition_and_rejects_se
                     }
                 }
             });
-            if variant == 8 {
-                // Source blocks index abilities, not sentences (CR 608.2c).
-                // Repartitioning the same ordered operations within one ability
-                // preserves both instruction provenance and complete semantics.
-                assert_program(&lowered(&raw), w.modifier, w.keywords);
-                continue;
-            }
+            // CR 611.2c/613.5–6: this family consumes one complete sentence
+            // into one effect. A split representation cannot recover its atomic
+            // membership and characteristic application; it remains unsupported.
             assert!(
                 matches!(compile(HEADER, &raw), CompileResult::Unsupported { .. }),
                 "{} variant {variant}",

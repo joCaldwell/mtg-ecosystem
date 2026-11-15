@@ -875,7 +875,8 @@ impl Game {
                         ResolvedEffectKind::PumpSet { targets, .. }
                         | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
                         | ResolvedEffectKind::ExileDamaged { targets } => objects.extend(targets),
-                        ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
+                        ResolvedEffectKind::GrantKeywords { target, .. }
+                        | ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
                             objects.insert(*target);
                         }
                         ResolvedEffectKind::PreventNextDamage {
