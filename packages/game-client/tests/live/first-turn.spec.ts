@@ -11,6 +11,9 @@ import {
   type ActionBeginning, type ActionInitiation, type ActionQueryResponse, type Observation, type PlayerResponse,
   type SeatResume, type StreamPage,
 } from '@multiverse/game-server-sdk/browser';
+import { OBSERVATION_VERSION } from '../../src/session/read-state.ts';
+
+const qualification = JSON.parse(readFileSync(new URL('../../sdk-qualification.json', import.meta.url), 'utf8'));
 
 // Opt in separately from the read-only smoke suite. Preparation supplies a checked
 // production bundle and offline presentation; this suite never builds Cargo/SDK.
@@ -125,9 +128,9 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
   const port = await freePort(), origin = `http://127.0.0.1:${port}`;
   const bundle = resolve(root!, 'bundle'), presentation = resolve(root!, 'presentation');
   const identity = JSON.parse(readFileSync(resolve(native!, 'native-info.json'), 'utf8'));
-  expect(identity.engine_build_id === '719552cf7e12c01bdd608f8ccdf0ce65f25b968a6c8c36eb2322d657888f38dc').toBe(true);
-  expect(identity.server_build_id === '8fb3296863d538d39b51e0cb76da8c86557c6a79cff32cfd4b52d7940919fb15').toBe(true);
-  expect(hash(resolve(native!, 'protocol.schema.json')) === '2eb874b2fa9e306b57d7da05d2e9a26b6965f2a639711d6705981e790d906ba5').toBe(true);
+  expect(identity.engine_build_id === qualification.engine_build_id).toBe(true);
+  expect(identity.server_build_id === qualification.server_build_id).toBe(true);
+  expect(hash(resolve(native!, 'protocol.schema.json')) === qualification.protocol_schema_sha256).toBe(true);
   const binaryHashes = JSON.parse(readFileSync(resolve(native!, 'final-binaries.json'), 'utf8')) as Record<string, string>;
   for (const file of ['mtg-server', 'provision_client', 'native-info.json']) expect(hash(resolve(native!, file)) === binaryHashes[file]).toBe(true);
   execFileSync(resolve(native!, 'provision_client'), [resolve(parent, 'registry'), resolve(parent, 'seats'), origin], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -149,6 +152,7 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
   const stopDriver = () => { stop = true; driverAbort.abort(); };
   let driver: Promise<void> = Promise.resolve();
   let observation: Observation | null = null, revision = '';
+  let observationVersion: number | null = null;
   let beginnings: ActionBeginning[] = [];
   let errors = 0, journalBeforeSend = 0, originalContexts = 0, completeResponses = 0, resumes = 0;
   let cleanupComplete = false;
@@ -252,7 +256,8 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
       await settle(() => button.click(), expectedResponse, original);
     };
     await join();
-    expect(current().observation_version).toBe(16);
+    observationVersion = current().observation_version;
+    expect(observationVersion).toBe(OBSERVATION_VERSION);
     const commander = current().view.objects.find(object => object.owner === 0 && object.zone.zone === 'command');
     expect(Boolean(commander)).toBe(true);
     const commanderOracle = commander!.oracle_id;
@@ -368,7 +373,7 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
         const listener = createServer(); listener.once('error', () => resolve(false));
         listener.listen(port, '127.0.0.1', () => listener.close(() => resolve(true)));
       });
-      record('browser-receipt.json', { browser: info.project.name, version: browser.version(), origin, engine_build_id: identity.engine_build_id, server_build_id: identity.server_build_id, observation_version: 16,
+      record('browser-receipt.json', { browser: info.project.name, version: browser.version(), origin, engine_build_id: identity.engine_build_id, server_build_id: identity.server_build_id, observation_version: observationVersion,
         human_commands: sent.size, journal_before_send: journalBeforeSend, original_contexts: originalContexts, complete_responses: completeResponses, accepted: accepted.size, consumed: consumed.size, command_kinds: kinds, driver_commands: driverCommands, driver_failed: driverFailure, cleanup_complete: cleanupComplete,
         land_played: landPlayed, commander_resolved: commanderResolved, conditional_reversal_wording: conditionalReversal, recovered, page_errors: errors, protocol_failed: protocolFailure, sigint_exit: termination, port_released: released, owned_units_released: ownedUnitsReleased,
         scope: 'Disposable foundations first turn; seats 1–3 test-only keep/pass; no full game, strategy, generic permissions, newer native or Safari acceptance.' });
