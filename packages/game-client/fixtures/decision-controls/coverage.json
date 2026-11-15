@@ -11,7 +11,7 @@
     "server_build_id": "c1be893414c34a3869f059a872b053d4c69e77da21e98242ffb654a980372d15",
     "native_source_manifest_sha256": "1eddba690527db4a1654f7556cf97c35d90225b2f7652141f640bc9b8842273a",
     "evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/native-game-client-observation21-combined-20261115",
-    "sdk_build_manifest_sha256": "a9831b7d98a45cb153889a71dc7e7645902d5de2c873476f6faff81f540e472b",
+    "sdk_build_manifest_sha256": "b3b98e7a6393e04512fb0402f07e1d8dc7e17b80027b1f4b737ee1786fc09caf",
     "sdk_generation_sha256": "0051592eaabcdbfe1e74b2cf33aaeb37e16cb4b4086d2631f54bbfdc78c46eab"
   },
   "capture_qualification": {
@@ -23,7 +23,7 @@
   "evidence": [
     {
       "path": "docs/game-client.md",
-      "sha256": "799ea4774eb4f4db0ca07cc62ebd76e7fe3db1cb8ecf8511cace4238e6a890ee"
+      "sha256": "b38cecb5f62db0d3254fa32add16138689886b52f2d7aba4641b5bc9b5e718d1"
     },
     {
       "path": "docs/game-engine-current.md",
