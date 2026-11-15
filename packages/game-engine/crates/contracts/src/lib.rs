@@ -4173,7 +4173,7 @@ fn cascade_schema(schema: &mut serde_json::Value) {
         }},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"static_spell_cascade_grant_v1"}}}}}
     }));
     let history = serde_json::json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{
-        "required":["effect"],"properties":{"effect":{"required":["grant_spell_cascade"],"properties":{"grant_spell_cascade":{
+        "required":["effect"],"properties":{"effect":{"type":"object","required":["grant_spell_cascade"],"properties":{"grant_spell_cascade":{
             "required":["eligibility"],"properties":{"eligibility":{"required":["eligibility"],"properties":{"eligibility":{"enum":["first_cast_each_turn","first_cast_from_exile_each_turn"]}}}}
         }}}}
     }}}});

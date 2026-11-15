@@ -77,6 +77,15 @@ for (const predicate of ['first_cast_each_turn','first_cast_from_exile_each_turn
 const spare = structuredClone(catalog); spare.definitions[0].capabilities.push('cast_history_v1'); check('spare history capability',spare,false);
 const orphan = structuredClone(catalog); orphan.definitions[0].static_abilities = [];
 check('orphan static grant capability', orphan, false);
+// Legacy unit-valued statics must not satisfy the history-object predicate.
+const ordinary = JSON.parse(readFileSync(new URL('../../../tests/fixtures/expected-mana-ir.json', import.meta.url), 'utf8'));
+check('ordinary complete mana catalog', ordinary, true);
+for (const card of ordinary.definitions.filter(d => d.static_abilities.some(a => typeof a.effect === 'string'))) {
+  const value = structuredClone(ordinary); value.definitions = [structuredClone(card)];
+  check('legacy unit static ' + card.name, value, true);
+  value.definitions[0].capabilities.push('cast_history_v1');
+  check('unearned history capability on ' + card.name, value, false);
+}
 report.probes = report.positives + report.negatives + report.failures.length;
 report.status = report.failures.length ? 'failed' : 'passed';
 console.log(JSON.stringify(report, null, 2));
