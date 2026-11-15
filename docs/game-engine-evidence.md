@@ -208,41 +208,44 @@ release/profile/completion/performance, server/SDK/host/search/consumer matrices
 Node suites requiring absent dependencies remain unrun. Plain control source and
 all committed catalog IR remain unchanged; older proofs keep their own identities.
 
-### Captured creature-set keyword qualification
+### Atomic temporary-keyword qualification
 
-Source `0eabb031831f041eed3ce1506be8bc516718038a` passed 458 distinct selected
-Rust tests (259 compiler, 107 contracts, 92 core), 2,364 exported-schema probes,
-workspace all-target compilation, formatting and CLI smoke/replay. All 825
-compiled source rows match Git. CLI producer:
-`935cf02ab063686040396b02d02871a71ed69a434845d1456179bd039365d367`;
-optimized test producer:
-`1d67b54914a0b7fefd0b7415b7cf11e6485fdfab5826fe55a03fa9a1e0ea2f54`.
-Schema 1 SHA-256:
-`9a80424e2d41b4baeb48b578bd15e467282a97e746ed41656099012a0ff89eb3`.
-Private snapshot 25 and public/context/query-work 20 require separate downstream
-qualification; historical client/SDK acceptance retains its own producer.
+The captured-set foundation at source
+`0eabb031831f041eed3ce1506be8bc516718038a` passed 458 distinct Rust tests,
+2,364 schema probes and verified 825 compiled rows. CLI producer
+`935cf02ab063686040396b02d02871a71ed69a434845d1456179bd039365d367`, optimized
+test producer `1d67b54914a0b7fefd0b7415b7cf11e6485fdfab5826fe55a03fa9a1e0ea2f54`,
+schema `9a80424e2d41b4baeb48b578bd15e467282a97e746ed41656099012a0ff89eb3`.
+Its snapshot/public boundaries are 25/20. Exact binaries, settings, interrupted
+split-effect attempt, rules review and corrected publication probe remain in
+`generated/set-keyword-grants/{integration.json,review.json,combined04/}` in the
+original engine lane. Those failures retain their original outcomes.
 
-Five complete frozen sources exercise controller-creature or attacking-creature
-sets; Heroic Intervention remains wholly unsupported. One shared instruction and
-effect capture recipients once and apply optional signed stat changes together
-with keywords. Ten paid and five kernel tests cover combat, cleanup, incarnation
-and control changes, owner departure, common-prior LKI, queries, atomic rollback
-and normalized recovery forgeries. Existing targeted-family controls and all
-committed catalog IR remain unchanged. No profile, policy or host/search admission
-expands. Compiler/core/simulator production Clippy passed strictly; contracts
-retains its inherited `collapsible_if` exception.
+The targeted atomic repair is qualified at source
+`8462ce4c362702da5062762e45be00f4693080d9`: **547 distinct Rust tests** (259 compiler,
+109 contracts, 99 core including admission/pod, 80 public policy), **2,408 schema
+probes**, 827 verified compiled rows, all-target compilation, formatting and CLI
+smoke/replay passed. CLI producer
+`d8d0e9e5cb88f595ca948f3580556963f8514e8cc508d8ea96d2c35046ed74bc`;
+optimized runtime test producer
+`dab0fdc8527d76af6162bb3aa805687962cd8e442247737503c7e8d328298428`;
+schema `30e93fedbb77779d8a83cebc39206620b213659384ecde9346c37bd4f8cf0c3c`.
+Snapshot/public-context-work are 26/21. Compiler/core/simulator production Clippy
+passed strictly; contracts retains inherited `collapsible_if`.
 
-The original split stat/grant implementation was rejected after rules review
-(CR 611.2c/613.5–6): it could expose different recipient sets and incomplete
-characteristics during departure. Its diagnostic passes, interrupted broad wipe
-group and incorrect expectation remain preserved, without acceptance claims.
-The atomic repair received a focused source review. A later kernel-publication
-failure was corrected at the normal handle-publication seam. Final exact binaries,
-schema results, review continuity, source/settings proof and command receipts are
-under `generated/set-keyword-grants/combined04/` and `integration.json` in the
-original engine lane. Full runtime/release/profile/completion/performance/retention,
-server/SDK/host/search/consumer matrices and Node suites requiring missing local
-dependencies remain omitted.
+Paid owner-departure LKI reproduced the split-effect defect; the unchanged
+regression and actual borrowed Prodigal damage/lifelink witness now pass.
+One complete sentence creates one effect with its stat and keyword components.
+Only Mortal's Resolve's instruction encoding/digest changed in the admitted pool;
+the other 47 definitions, decks and policy behavior are preserved. Raw receipts,
+review, actual binaries, source/settings proof and schema outcomes are under
+`generated/atomic-targeted-keywords/{integration.json,review.json,combined02/}`.
+The stale split-sentence positive and an overbroad build-ID verifier assertion
+are retained separately. Profile-only admission tests have exact executable/hash
+proof but do not reference the core build-ID constant. Full runtime/release/profile/
+completion/performance/retention, server/SDK/host/search/consumer matrices and Node
+suites requiring absent dependencies remain omitted. Consumer acceptance retains
+its earlier exact producer; neither pass expands admission or qualifies later source.
 
 ### Complete-source compiler input rejection
 

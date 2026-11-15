@@ -255,15 +255,16 @@ fn run(index: u32, q: u64) -> Game {
             let chars = target.characteristics.as_ref().unwrap();
             assert_eq!(chars.power, Some(19.into()));
             assert_eq!(chars.toughness, Some(7.into()));
-            assert_eq!(view.effects.len(), 2);
-            assert!(view.effects.iter().any(|e| matches!(e,VisibleEffect::ModifyPowerToughness {target:t,power,toughness,..}
-                if t.current.as_ref()==Some(&target.handle)&&*power==Quantity::from(1)&&*toughness==Quantity::from(1))));
+            assert_eq!(view.effects.len(), 1, "one complete continuous effect");
+            assert!(matches!(view.effects.as_slice(),
+                [VisibleEffect::GrantKeywords {target:t, modifier:Some(modifier),keywords,..}]
+                if t.current.as_ref()==Some(&target.handle)
+                    && modifier.power==Quantity::from(1) && modifier.toughness==Quantity::from(1)
+                    && keywords==&[KeywordAbility::Indestructible]));
             assert!(
                 view.objects.iter().any(|o| o.oracle_id == protection
                     && o.zone == (Zone::Graveyard { owner: PlayerId(0) }))
             );
-            assert!(view.effects.iter().any(|e|matches!(e,VisibleEffect::GrantKeywords {target:t,keywords,..}
-                if t.current.as_ref()==Some(&target.handle)&&keywords==&[KeywordAbility::Indestructible])));
             assert_eq!(g.events().iter().filter(|e|matches!(e,Event::Committed {actual:EventOutcome::DestructionPrevented {object},..} if object.card==target_card)).count(),1);
             assert_eq!(payments.get(&protection), Some(&1));
             assert_eq!(mana_activations.get(&protection), Some(&2));

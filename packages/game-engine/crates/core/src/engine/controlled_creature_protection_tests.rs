@@ -123,17 +123,16 @@ fn stats(g: &Game, id: u32, p: i64, t: i64) {
 fn assert_grant(g: &Game, witness: &Witness, id: u32) {
     let (p, t) = witness.modifier.unwrap_or((0, 0));
     stats(g, id, 2 + p, 2 + t);
-    assert_eq!(
-        g.state.rules.effects.len(),
-        1 + usize::from(witness.modifier.is_some())
-    );
+    assert_eq!(g.state.rules.effects.len(), 1);
     let grant = g.state.rules.effects.last().unwrap();
     assert!(
-        matches!(&grant.kind, ResolvedEffectKind::GrantKeywords { target, keywords }
-        if *target == object(g, id) && keywords == witness.keywords)
+        matches!(&grant.kind, ResolvedEffectKind::GrantKeywords { target, modifier, keywords }
+        if *target == object(g, id) && keywords == witness.keywords
+        && modifier.as_ref().map(|m| (m.power.clone(), m.toughness.clone()))
+            == witness.modifier.map(|(p, t)| (p.into(), t.into())))
     );
     assert_eq!(grant.origin.source_block, 0);
-    assert_eq!(grant.origin.cursor, u32::from(witness.modifier.is_some()));
+    assert_eq!(grant.origin.cursor, 0);
     for keyword in witness.keywords {
         assert_eq!(
             g.current_keywords(object(g, id))
@@ -203,7 +202,10 @@ fn controlled_creature_protection_paid_five_sources_cleanup_and_normalized_forge
                 for variant in 0..8 {
                     let mut bad: Snapshot = strict_read(&wire).unwrap();
                     let e = bad.state.rules.effects.last_mut().unwrap();
-                    let ResolvedEffectKind::GrantKeywords { target, keywords } = &mut e.kind else {
+                    let ResolvedEffectKind::GrantKeywords {
+                        target, keywords, ..
+                    } = &mut e.kind
+                    else {
                         unreachable!()
                     };
                     match variant {
@@ -764,12 +766,17 @@ fn controlled_creature_protection_paused_compound_resolution_query_restore_repla
                 for _ in 0..2000 {
                     match g.advance(Budget::new(q)) {
                         Advance::Suspended { .. } => {
-                            if !captured && g.state.rules.effects.len() == 1 {
-                                assert!(matches!(g.state.rules.frame, Frame::Resolve { .. }));
-                                assert!(g.state.rules.pending.is_none());
-                                let (p, t) = witness.modifier.unwrap();
-                                stats(g, 1, 2 + p, 2 + t);
+                            if g.state.rules.effects.is_empty() {
+                                stats(g, 1, 2, 2);
                                 assert!(g.current_keywords(object(g, 1)).is_empty());
+                            } else {
+                                assert_grant(g, witness, 1);
+                            }
+                            if !captured
+                                && !g.state.rules.effects.is_empty()
+                                && matches!(g.state.rules.frame, Frame::Resolve { .. })
+                            {
+                                assert!(g.state.rules.pending.is_none());
                                 let before = g.state.clone();
                                 let trace = g.trace.clone();
                                 for seat in 0..4 {
@@ -816,7 +823,7 @@ fn controlled_creature_protection_paused_compound_resolution_query_restore_repla
                     }
                 }
                 if q == 1 {
-                    assert!(captured, "actual suspended modifier-before-grant prefix");
+                    assert!(captured, "actual suspended complete atomic grant");
                 }
                 assert_grant(g, witness, 1);
             },

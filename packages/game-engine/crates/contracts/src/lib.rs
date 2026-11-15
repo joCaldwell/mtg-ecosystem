@@ -456,10 +456,10 @@ pub enum CounterRecipient {
     Source,
     Target { target_slot: u32 },
 }
-/// Fixed signed power/toughness changes belonging to one creature-set effect.
+/// Fixed signed power/toughness changes belonging to one complete creature effect.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct CreatureSetModifier {
+pub struct CreatureStatModifier {
     pub power: Quantity,
     pub toughness: Quantity,
 }
@@ -590,13 +590,16 @@ pub enum Instruction {
     GrantKeywordsSet {
         set: ObjectSet,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        modifier: Option<CreatureSetModifier>,
+        modifier: Option<CreatureStatModifier>,
         keywords: Vec<KeywordAbility>,
         duration: Duration,
         source_block: u32,
     },
+    /// CR 611.2c, 613.5–6: all properties belong to one captured effect.
     GrantKeywords {
         target_slot: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        modifier: Option<CreatureStatModifier>,
         keywords: Vec<KeywordAbility>,
         duration: Duration,
         source_block: u32,
@@ -2640,11 +2643,10 @@ pub struct TemporaryCreatureKeywordProgram<'a> {
     pub modifier: Option<(&'a Quantity, &'a Quantity)>,
     pub keywords: &'a [KeywordAbility],
 }
-/// Recognize a pure grant or ordered fixed signed stat modification then grant
-/// on one captured creature target. The caller checks definition kind/context.
-/// Pure grants retain their existing source-block provenance; the two-operation
-/// form belongs entirely to source block 0.
-/// CR 608.2c/611.2c:
+/// Recognize one complete grant on one captured creature target. The caller
+/// checks definition kind/context. Pure grants retain source-block provenance;
+/// a grant with a fixed signed stat modifier belongs entirely to source block 0.
+/// CR 611.2c, 613.5–6:
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 pub fn temporary_creature_keyword_program(
     p: &SpellProgram,
@@ -2661,32 +2663,22 @@ pub fn temporary_creature_keyword_program(
     {
         return None;
     }
-    let (modifier, keywords) = match p.instructions.as_slice() {
-        [
-            Instruction::GrantKeywords {
-                target_slot: 0,
-                keywords,
-                duration: Duration::UntilEndOfTurn,
-                ..
-            },
-        ] => (None, keywords),
-        [
-            Instruction::ModifyPowerToughness {
-                target_slot: 0,
-                power,
-                toughness,
-                duration: Duration::UntilEndOfTurn,
-                source_block: 0,
-            },
-            Instruction::GrantKeywords {
-                target_slot: 0,
-                keywords,
-                duration: Duration::UntilEndOfTurn,
-                source_block: 0,
-            },
-        ] => (Some((power, toughness)), keywords),
-        _ => return None,
+    let [
+        Instruction::GrantKeywords {
+            target_slot: 0,
+            modifier,
+            keywords,
+            duration: Duration::UntilEndOfTurn,
+            source_block,
+        },
+    ] = p.instructions.as_slice()
+    else {
+        return None;
     };
+    if modifier.is_some() && *source_block != 0 {
+        return None;
+    }
+    let modifier = modifier.as_ref().map(|m| (&m.power, &m.toughness));
     supported_temporary_creature_keywords(keywords)
         .then_some(TemporaryCreatureKeywordProgram { modifier, keywords })
 }
@@ -3462,6 +3454,15 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             }
         }
 
+        if matches!(
+            instruction,
+            Instruction::GrantKeywords {
+                modifier: Some(_),
+                ..
+            }
+        ) {
+            set.insert(Capability::TemporaryPowerToughnessV1);
+        }
         if matches!(instruction, Instruction::GrantKeywordsSet { .. }) {
             set.insert(Capability::BoardWipesV1);
         }
@@ -4106,28 +4107,27 @@ pub fn catalog_schema() -> serde_json::Value {
         }}}
     }));
     schema["$defs"]["PureKeywordGrantInstructions"] = serde_json::json!({
-        "minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"grant_keywords"},"target_slot":{"const":0},"keywords":{"enum":[["indestructible"],["flying"],["deathtouch"]]},"duration":{"const":"until_end_of_turn"}}}
+        "minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"grant_keywords"},"target_slot":{"const":0},"modifier":{"type":"null"},"keywords":{"enum":[["indestructible"],["flying"],["deathtouch"]]},"duration":{"const":"until_end_of_turn"}}}
     });
     schema["$defs"]["CompoundIndestructibleInstructions"] = serde_json::json!({
-        "minItems":2,"maxItems":2,"prefixItems":[
-            {"properties":{"op":{"const":"modify_power_toughness"},"target_slot":{"const":0},"power":{"$ref":"#/$defs/ExactQuantity"},"toughness":{"$ref":"#/$defs/ExactQuantity"},"duration":{"const":"until_end_of_turn"},"source_block":{"const":0}}},
-            {"properties":{"op":{"const":"grant_keywords"},"target_slot":{"const":0},"keywords":{"const":["indestructible"]},"duration":{"const":"until_end_of_turn"},"source_block":{"const":0}}}
-        ]
+        "minItems":1,"maxItems":1,"items":{"required":["modifier"],"properties":{
+            "op":{"const":"grant_keywords"},"target_slot":{"const":0},
+            "modifier":{"$ref":"#/$defs/CreatureStatModifier"},
+            "keywords":{"const":["indestructible"]},"duration":{"const":"until_end_of_turn"},"source_block":{"const":0}
+        }}
     });
     schema["$defs"]["TemporaryCreatureKeywords"] = serde_json::json!({
         "type":"array","minItems":1,"uniqueItems":true,
         "items":{"enum":[KeywordAbility::Flying,KeywordAbility::Deathtouch,KeywordAbility::Indestructible,KeywordAbility::Lifelink,KeywordAbility::Hexproof,KeywordAbility::Haste,KeywordAbility::Trample,KeywordAbility::FirstStrike]}
     });
-    schema["$defs"]["TemporaryCreatureKeywordInstructions"] = serde_json::json!({"anyOf":[
-        {"minItems":1,"maxItems":1,"items":{"properties":{
+    schema["$defs"]["TemporaryCreatureKeywordInstructions"] = serde_json::json!({
+        "minItems":1,"maxItems":1,"items":{"properties":{
             "op":{"const":"grant_keywords"},"target_slot":{"const":0},
+            "modifier":{"anyOf":[{"type":"null"},{"$ref":"#/$defs/CreatureStatModifier"}]},
             "keywords":{"$ref":"#/$defs/TemporaryCreatureKeywords"},"duration":{"const":"until_end_of_turn"}
-        }}},
-        {"minItems":2,"maxItems":2,"prefixItems":[
-            {"properties":{"op":{"const":"modify_power_toughness"},"target_slot":{"const":0},"power":{"$ref":"#/$defs/ExactQuantity"},"toughness":{"$ref":"#/$defs/ExactQuantity"},"duration":{"const":"until_end_of_turn"},"source_block":{"const":0}}},
-            {"properties":{"op":{"const":"grant_keywords"},"target_slot":{"const":0},"keywords":{"$ref":"#/$defs/TemporaryCreatureKeywords"},"duration":{"const":"until_end_of_turn"},"source_block":{"const":0}}}
-        ]}
-    ]});
+        },"if":{"required":["modifier"],"properties":{"modifier":{"type":"object"}}},
+        "then":{"properties":{"source_block":{"const":0}}}}
+    });
     // Fence this opcode recursively; it never becomes an activation, trigger,
     // mode, mixed program or general keyword-grant facility.
     schema["$defs"]["KeywordGrantFreeProgram"] = serde_json::json!({"properties":{
@@ -4244,7 +4244,7 @@ pub fn catalog_schema() -> serde_json::Value {
             ]}}}}}
         }));
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":any_grant,"then":{"if":{"properties":{"spell":{"properties":{"instructions":{"minItems":2}}}}},
+        "if":any_grant,"then":{"if":{"properties":{"spell":{"properties":{"instructions":{"contains":{"required":["modifier"],"properties":{"modifier":{"type":"object"}}}}}}}},
         "then":{"properties":{"capabilities":{"contains":{"const":Capability::TemporaryPowerToughnessV1}}}},
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::TemporaryPowerToughnessV1}}}}}}
     }));
@@ -4268,7 +4268,7 @@ pub fn catalog_schema() -> serde_json::Value {
     let set_grant_op =
         serde_json::json!({"required":["op"],"properties":{"op":{"const":"grant_keywords_set"}}});
     let set_grant_program = serde_json::json!({"required":["instructions"],"properties":{"instructions":{"contains":set_grant_op}}});
-    schema["$defs"]["CreatureSetModifier"] = serde_json::json!({
+    schema["$defs"]["CreatureStatModifier"] = serde_json::json!({
         "type":"object","additionalProperties":false,"required":["power","toughness"],
         "properties":{"power":{"$ref":"#/$defs/ExactQuantity"},"toughness":{"$ref":"#/$defs/ExactQuantity"}}
     });
@@ -4279,7 +4279,7 @@ pub fn catalog_schema() -> serde_json::Value {
     ] {
         let grant = serde_json::json!({"properties":{
             "op":{"const":"grant_keywords_set"},"set":{"const":set},
-            "modifier":{"anyOf":[{"type":"null"},{"$ref":"#/$defs/CreatureSetModifier"}]},
+            "modifier":{"anyOf":[{"type":"null"},{"$ref":"#/$defs/CreatureStatModifier"}]},
             "keywords":{"$ref":"#/$defs/TemporaryCreatureKeywords"},
             "duration":{"const":"until_end_of_turn"},"source_block":{"const":0}
         }});
