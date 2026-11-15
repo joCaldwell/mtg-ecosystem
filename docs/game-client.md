@@ -10,20 +10,25 @@ Read [application launch gates](../packages/multiverse/web/ARCHITECTURE.md#game-
 
 ## Delivered scope and remaining gates
 
-The production App joins through an operator-issued single-seat file and enables
-explicit `mulligan`, `bottom_opening` and discovered priority `pass` commands.
-It journals and reconciles unknown outcomes. Other decisions explain missing live controls/context. Local
-draft adapters do not establish live or whole-profile coverage.
+The production App joins through an operator-issued single-seat file. Public
+`@multiverse/game-client/session` composes the same router-free table from an
+Actor-authorized human File. Every non-query request has a local draft adapter;
+source-dependent choices require complete producer context. Explicit confirmation
+retains the original command context, journals exact bytes and reconciles unknown
+outcomes. Local controls do not establish whole-profile coverage.
 `fixtures/decision-controls/coverage.json` owns request/response coverage with
 separate reachability, control, context and test evidence.
 Review new variants explicitly; schema presence is never admission.
 
 The production App composes session-owned action discovery in priority/mana
 windows, with window/object scope, bounded pagination, status and explicit stop.
-Pass priority is self-explanatory; all object/ability/payment beginnings remain
-blocked because qualified labels/context are unavailable.
-Complete games, all reachable decisions, human usability, arbitrary builder-deck
-admission, automated launch and account-to-seat provisioning remain unfinished.
+Pass priority is self-explanatory. Named land/cast, ability/mana and FinishMana
+beginnings require their exact permitted labels/source and scope. Missing meaning
+stays blocked. FinishMana's flag controls reversal only if payment fails.
+Complete games, whole-profile usability and integrated product launch remain
+qualification gates. Exact deck admission, private provisioning/recovery and
+three separately owned automated seats are implemented; default browser launch
+stays disabled pending integrated proof. Unsupported automation pauses explicitly.
 The product preview is a captured sample, never the selected deck or a real game.
 Do not use legacy solo playtester briefs/components as guidance.
 
@@ -252,7 +257,9 @@ attempt per retired intent, four seconds, no work/budget replenishment.
 ReadSession captures original CommandContext/query context/scope before discovery,
 associates only that returned query generation, and requires its issued draft,
 complete snapshot, current generation and exact scope before normal journaling.
-Pass requires a priority window and window scope. Other beginnings remain gated.
+Pass requires a priority window and window scope. Other beginnings require
+producer-owned available labels and matching source kind/object/ability; FinishMana
+requires the supplied payment source and preserves its conditional reversal flag.
 Never fetch a fresh command context at callback time. The pure query controller
 constructs or submits no PlayerResponse. Stop invalidates synchronously and awaits
 captured-SDK cancellation/in-flight deadlines before releasing the Web Lock; late

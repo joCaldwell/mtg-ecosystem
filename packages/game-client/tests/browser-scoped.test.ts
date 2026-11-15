@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
-import opening from '../fixtures/foundations-opening/opening-seat0-http.json' with { type: 'json' };
+import opening from './current-opening.ts';
 import { browserCommandSession } from '../src/session/effects/browser.ts';
 
 // Synthetic transport over the retained permitted fixture; no native acceptance

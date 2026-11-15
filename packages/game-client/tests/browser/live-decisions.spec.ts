@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import opening from '../../fixtures/foundations-opening/opening-seat0-http.json' with { type: 'json' };
+import opening from '../current-opening.ts';
 import type { PlayerRequest, SeatResume } from '@multiverse/game-server-sdk';
 
 // Synthetic host requests over an unchanged permitted capture. Tests establish

@@ -2,12 +2,16 @@
   "inventory_version": 1,
   "implementation_base": "144fe059ab2707877109d7e9dbe8751f204681dd",
   "qualification": {
-    "native_source": "6632c1add5daa41b9993fb684979af15b1ba0213",
+    "native_source": "565a1204d6e4b14443b9f49dda2ecbc6b46ee85a",
     "protocol_schema_sha256": "2eb874b2fa9e306b57d7da05d2e9a26b6965f2a639711d6705981e790d906ba5",
     "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
-    "scope": "Source-bound decision context and action-label protocol consumer. Candidate producer checkpoint passed 255 compiler tests, 11 native action tests and 66 SDK tests; intrinsic mana follow-up and final source-qualified host/browser evidence remain pending. Historical fixture capture provenance remains unchanged. No full-game or product-launch acceptance follows.",
-    "sdk_source": "6632c1add5daa41b9993fb684979af15b1ba0213",
-    "sdk_build_manifest_sha256": "7c917836490a43b2547e654359ea1fe141c2d623fd333c624b50ec4e011da541",
+    "scope": "Frozen source 565a1204 producer/SDK consumer qualification at observation_version 16, separate from later integrated observation_version 20 and lifecycle source. Compiler-bound labels/context, both hosted paid first-turn core witnesses and source/private/query/snapshot recovery checks passed; exact server/provisioner and both builds independently verified against 882 source rows. SDK regenerated from these exact exports: strict generation/types/browser build and 66 tests passed. Frozen spending target-departure receipt stays 6 pass/1 fail; parent CR601.6/source review identifies stale expectation for separate test-only repair. Unchanged grouped-damage Clippy warning remains explicit; full-play, current-HEAD, complete-game, browser, performance and offline-retention qualification omitted. Historical captures remain unchanged; see docs/game-client-evidence.md#producer-context-and-admission-qualification.",
+    "sdk_source": "565a1204d6e4b14443b9f49dda2ecbc6b46ee85a",
+    "engine_build_id": "719552cf7e12c01bdd608f8ccdf0ce65f25b968a6c8c36eb2322d657888f38dc",
+    "server_build_id": "8fb3296863d538d39b51e0cb76da8c86557c6a79cff32cfd4b52d7940919fb15",
+    "native_source_manifest_sha256": "c19f36a3f8f9c87f298d88d31fb4aa72c7920073ec4832bfe619cd2304843bd8",
+    "evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/authoritative-decision-context-565a1204-20261114",
+    "sdk_build_manifest_sha256": "28fa0fadbf4afb17ff941b7c35b439999c800fd443f3c6399787940f77db68ef",
     "sdk_generation_sha256": "9511c48b4aa086cb81d7fcf908930668dbe80652944afbf920a8b9dcd3f86929"
   },
   "capture_qualification": {
@@ -19,15 +23,15 @@
   "evidence": [
     {
       "path": "docs/game-client.md",
-      "sha256": "30791be0b20b84e2b145c462efa5c22debdb46d681913bd5996ad49dbc721e74"
+      "sha256": "799ea4774eb4f4db0ca07cc62ebd76e7fe3db1cb8ecf8511cace4238e6a890ee"
     },
     {
       "path": "docs/game-engine-current.md",
-      "sha256": "d2148be8b7e7d219070435d145cfb2039ae4bbe90385b30439430a8f00030b43"
+      "sha256": "8901c15d6dfff96dc711688a532801420252230fc895ba3d97129215e8956788"
     },
     {
       "path": "docs/game-engine-server.md",
-      "sha256": "3584156f7e1ee11fd561475e55cb913988faf09dfadec61ed237da7e7067eaaa"
+      "sha256": "1c0096aeca177a43c709567780a570225d888c24b5b189f0d666cb2ead46fa3f"
     },
     {
       "path": "packages/game-engine/crates/core/src/engine/visibility.rs",
@@ -63,7 +67,7 @@
     },
     {
       "path": "packages/game-client/scripts/decision-inventory.mjs",
-      "sha256": "225804b893cf4191903a19be605286cd7ad989d63462a8bcebf6300ae4f99a6d"
+      "sha256": "ab127b6a270ffd66c78d08ba3d3d130c9ec0f9ba2e984845deb8af4c6a462d3e"
     },
     {
       "path": "packages/game-client/tests/decision-controls.test.ts",
@@ -721,8 +725,8 @@
         "docs/game-client.md",
         "packages/game-client/fixtures/decision-controls/prefix-provenance.json"
       ],
-      "implemented_control_draft": "context-missing",
-      "required_core_context_and_source_mapping": "Bound authenticated core action query, completeness/continuation handling and source labels. ActionLabel is Unavailable; missing mana source remains explicit.",
+      "implemented_control_draft": "session-action-query",
+      "required_core_context_and_source_mapping": "Bound authenticated query, complete original generation/scope and producer available labels/source. Pass needs priority/window; unexplained actions remain blocked. FinishMana preserves conditional payment-failure reversal.",
       "permitted_fixture": "Fresh isolated admitted prefix observations/queries in prefix-provenance.json (evidence only; no runtime query integration)",
       "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
       "gallery_locator": null
@@ -771,8 +775,8 @@
         "docs/game-client.md",
         "packages/game-client/fixtures/decision-controls/prefix-provenance.json"
       ],
-      "implemented_control_draft": "context-missing",
-      "required_core_context_and_source_mapping": "Bound authenticated core action query, completeness/continuation handling and source labels. ActionLabel is Unavailable; missing mana source remains explicit.",
+      "implemented_control_draft": "session-action-query",
+      "required_core_context_and_source_mapping": "Bound authenticated query, complete original generation/scope and producer available labels/source. Pass needs priority/window; unexplained actions remain blocked. FinishMana preserves conditional payment-failure reversal.",
       "permitted_fixture": "Fresh isolated admitted prefix observations/queries in prefix-provenance.json (evidence only; no runtime query integration)",
       "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
       "gallery_locator": null

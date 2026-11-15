@@ -1,8 +1,8 @@
 # Multiverse desktop client
 
 The standalone React/Vite harness owns operator-issued joining, session recovery
-and explicit opening mulligan/bottom choices plus bounded live action discovery.
-Shared permitted table/inspection comes from game-ui. Later decisions, natural complete games and automated launch
+and explicit source-bound decisions plus bounded live action discovery.
+Shared permitted table/inspection comes from game-ui. Natural complete games and automated launch
 retain separate [client gates](../../docs/game-client.md#delivered-scope-and-remaining-gates).
 
 ## Public integration boundary
@@ -21,6 +21,12 @@ unchanged and establishes no fresh native acceptance.
 
 Fixture routes remain `/`, `/fixtures/opening`, `/fixtures/missing-metadata` and
 `/fixtures/decisions`; its `#table` opens the local interactive preview.
+
+Public `/session` exports `GameSession({gameId, bootstrapFile, headingLevel})`.
+It owns a memory-only imported File/session lifetime and uses the app-selected
+same-origin `/api/games/:id/native` endpoint with account cookies plus human seat
+authorization. Match/seat binding is checked before requests; numeric-loopback
+origin and source qualification still apply. Reload requires a fresh grant.
 
 ## Explicit setup
 
