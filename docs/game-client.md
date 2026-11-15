@@ -228,6 +228,9 @@ exempt. Unknown/foreign/expired/replayed/recovered cursors are stale without pri
 reason. Replacement executor clears scratch even if public token stays equal;
 quotas survive normal commits. Abort controls one fetch/body, not confirmed server
 cancellation; inaccessible scratch expires. No durable query continuation exists.
+A successful clock-only Tick while still Waiting preserves the exact executor and
+scratch only when rules boundary and full digest are unchanged. Pause, expiry and
+rules changes still invalidate them; durable clock debit continues.
 Discovery changes no Game/head/publications/ready flags or remaining seat budget;
 worker processing excludes busy time, but independent clock ticks continue.
 No universal completion, constant-time or timing-side-channel guarantee follows.

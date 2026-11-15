@@ -2,18 +2,20 @@
   "inventory_version": 1,
   "implementation_base": "144fe059ab2707877109d7e9dbe8751f204681dd",
   "qualification": {
-    "native_source": "2305e2f81d433c86717eb1f35fa0fe7e5c6b22d4",
+    "native_source": "c48ceff0bb0ea760471b3a393f15897f0de90fbd",
     "protocol_schema_sha256": "b191d97401a2ff548ff8acfc4ff9c588e3fcf6bde2f2cec42238f47e42af0dfd",
     "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
-    "scope": "Observation-21 native Rust/data checkpoint 2305e2f8 passed 543 distinct Rust tests; the original 898-row proof remains frozen. Additive Node presentation SDK followup b9991c9c separately passed 69 tests and records its three changed SDK inputs plus new files. Native IDs, schemas and browser ESM bytes are unchanged. Product/full-game browser acceptance remains a separate gate; historical captures stay unchanged.",
-    "sdk_source": "b9991c9cd5f709fd0d4d0f8da58f6a063b139699",
+    "scope": "Frozen Native21 host-only ClockTick query-continuation repair c48ceff0 passed 38 distinct focused Rust tests and SDK69. The engine and all three schemas remain unchanged; the server build is new. All 901 compiled rows match that Git source. The 50 SDK source inputs remain byte-equal to b9991c9c and were reverified at c48ceff0; generated schemas/browser ESM remain unchanged. Original Native21 and product-presentation archives are preserved separately. Fresh browser/full-game and product-launch qualification remain separate gates; approved identities stay empty.",
+    "sdk_source": "c48ceff0bb0ea760471b3a393f15897f0de90fbd",
     "engine_build_id": "5d922d685619c979173c56e50285b2eea79b506cb24d718195339b2126b47b4d",
-    "server_build_id": "c1be893414c34a3869f059a872b053d4c69e77da21e98242ffb654a980372d15",
-    "native_source_manifest_sha256": "1eddba690527db4a1654f7556cf97c35d90225b2f7652141f640bc9b8842273a",
-    "evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/native-game-client-observation21-combined-20261115",
-    "sdk_evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/product-presentation-sdk-20261115",
-    "sdk_source_bridge_sha256": "3d22acbb8bf32b67909471929f868559e2a326963f6fa6abd08c699ed289c657",
+    "server_build_id": "0d29823bcbe03b17bd4d6aeab2765c2b7b8ea9d93abb7833e0b96fcfe4c61d82",
+    "native_source_manifest_sha256": "1915ae68e93ec55dbf4a1f6aa976d7d147bd662f0890a98ec32608609b9c8963",
+    "evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/native21-clock-query-continuation-20261115",
+    "sdk_evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/native21-clock-client-integration-20261115",
+    "sdk_source_bridge_sha256": "fc9cc1b6d47a8e6d39cfead97ace841a31bef7a0f45813e73344f5f66c4b8dfd",
+    "native_source_verification_sha256": "9ba89234811e7391f084ed830c1455772ffedcd885951b79acec87e71ccdbf21",
     "sdk_build_manifest_sha256": "b3b98e7a6393e04512fb0402f07e1d8dc7e17b80027b1f4b737ee1786fc09caf",
+    "sdk_verification_sha256": "c0ea983fa64820d4b47f0c009ec8351fb832cc6ea9e8b8ce15535af1450872ac",
     "sdk_generation_sha256": "0051592eaabcdbfe1e74b2cf33aaeb37e16cb4b4086d2631f54bbfdc78c46eab"
   },
   "capture_qualification": {
@@ -25,11 +27,11 @@
   "evidence": [
     {
       "path": "docs/game-client.md",
-      "sha256": "28445188dd9658d6b7d2faaecbc519074956f0f6c0555dbbcbb602f9c7cbb39c"
+      "sha256": "bbc19769c5e87705d034b3b7d50dfc6fafaef04cf5c94ead5eb13bd7a386f70a"
     },
     {
       "path": "docs/game-engine-current.md",
-      "sha256": "8901c15d6dfff96dc711688a532801420252230fc895ba3d97129215e8956788"
+      "sha256": "5cb9d124388a03313ec6676758362c1c16f1e2bd74c946fd522a2df6ac5ccad3"
     },
     {
       "path": "docs/game-engine-server.md",
