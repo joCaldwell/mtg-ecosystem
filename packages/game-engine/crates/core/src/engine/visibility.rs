@@ -741,15 +741,8 @@ impl Game {
             .ok_or("missing pending trigger")?;
         Ok(VisiblePendingTrigger {
             label: self
-                .definition(trigger.source.card)?
-                .source_labels
-                .as_ref()
-                .and_then(|l| {
-                    l.triggered
-                        .get(trigger.ability as usize)
-                        .and_then(|b| l.blocks.get(*b as usize))
-                })
-                .cloned(),
+                .trigger_source_label(trigger.source, trigger.ability)
+                .map(str::to_owned),
             handle: self
                 .state
                 .knowledge

@@ -45,6 +45,29 @@ pub struct DecisionContext {
     pub modes: Vec<DecisionMode>,
 }
 impl Game {
+    pub(super) fn trigger_source_label(
+        &self,
+        source: ObjectId,
+        ability: EffectiveTriggerAbility,
+    ) -> Option<&str> {
+        let (source, index, is_static) = match ability {
+            EffectiveTriggerAbility::Intrinsic { index } => (source, index, false),
+            EffectiveTriggerAbility::Granted {
+                grant_source,
+                static_ability_index,
+            } => (grant_source, static_ability_index, true),
+        };
+        let labels = self.definition(source.card).ok()?.source_labels.as_ref()?;
+        let blocks = if is_static {
+            &labels.statics
+        } else {
+            &labels.triggered
+        };
+        labels
+            .blocks
+            .get(*blocks.get(index as usize)? as usize)
+            .map(String::as_str)
+    }
     pub(super) fn described_source(
         &self,
         viewer: PlayerId,
