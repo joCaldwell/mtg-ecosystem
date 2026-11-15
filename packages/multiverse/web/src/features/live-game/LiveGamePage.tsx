@@ -53,7 +53,11 @@ export function LiveGamePage({ gameId }: { gameId: string }) {
     }
     void refreshStatus();
     void api.humanGameSeat(gameId, controller.signal).then(result => {
-      if (!current || controller.signal.aborted || !grantAllowed || revoked) return;
+      if (!current || controller.signal.aborted || revoked) return;
+      if (!grantAllowed) {
+        setGrant({ gameId, attempt, error: "The game changed while its session was opening. Try again to reconnect." });
+        return;
+      }
       if (typeof result.bootstrap_file !== "string" || new TextEncoder().encode(result.bootstrap_file).length > 4096 || !result.bootstrap_file.length) throw new Error("Invalid human grant");
       // No blob URL, storage, broadcast or download: the public session performs
       // generated-schema and logical-origin/match/build checks on this File.
