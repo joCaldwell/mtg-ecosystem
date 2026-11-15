@@ -1876,7 +1876,14 @@ fn append_spell_effects(
         && program.optional_additional_costs.is_empty()
         && program.targets.is_empty()
         && program.instructions.is_empty()
-        && let [Sentence { bindings, steps, condition: None, condition_kind: None }] = effects
+        && let [
+            Sentence {
+                bindings,
+                steps,
+                condition: None,
+                condition_kind: None,
+            },
+        ] = effects
         && bindings.is_empty()
         && let [
             Step::GainAbilities {
