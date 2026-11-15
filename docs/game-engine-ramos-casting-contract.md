@@ -752,18 +752,53 @@ real trusted-RNG setup and source-admitted pods are separate claims. Synthetic
 generic-vector, capacity and ID-boundary injections are labelled separately;
 actual paid-root rollback and direct collector preflight are both checked.
 
-Receipts, failed attempts, executed binaries and the verified opt-2 producer
-source/settings manifest are retained under this worktree's
-`generated/ramos/m4a/`. The complete focused core pass took 833.18 seconds,
-dominated by cold replay of real-setup forgery controls; avoid repeating that
-case through overlapping selectors. External own-CLI/schema export and adjacent
-regressions remain pending the coordinated native handoff at this checkpoint.
-The missing local Node installation is not repaired or retried.
+The reviewed production/tests remain exactly `0e26ccd12539333e4cbb3f4b2cb7be2d52f7fa68`.
+Final focused qualification passed **479 distinct Rust tests**: 108 contracts,
+272 compiler and 99 core (13 M4a plus 86 adjacent). The separate final adjacent
+pass executed 466 tests; its compiler library repeats the three new compiler
+tests, so the combined green passes have 482 executions. Workspace all-target
+compilation, formatting and the structural guard pass. The complete M4a core
+pass took 833.18 seconds, dominated by cold replay of real-setup forgery controls;
+it was not rerun through overlapping adjacent selectors.
+
+The own opt-2/debug-asserting producer is
+`a674b4634dca2bb632b386bcb41a761bfa972777cda877d7dd0dc26a60b361ca`.
+The separate own opt-0 CLI is
+`497a212fd85438f05e61523789fc91b6b4f5410ae4a4c179468799664bcd5add`;
+its source manifest verifies all **927** rows. Both identities reproduce from
+the exact 325 Rust build inputs and their distinct recorded/reproduced settings.
+The CLI schema SHA-256 is
+`a428eea2cb4d46c261c06da70d74a3a1397881283e55bd927fbe05f38428d476`;
+**58** external Ajv 8.20.0 probes pass, including generic repeated vectors and
+per-instance malformed shapes. The complete Apex singleton IR file SHA-256 is
+`862f64da9f1e16093e2fe5400544bba07d698cf5c27d3c2f92f96e08012ff5d3`.
+
+Receipts, actual copied binaries, source/settings manifests, exported schema/IR,
+review continuity and all failures remain under this worktree's
+`generated/ramos/m4a/`. Every compile pass refreshes only owned entrypoint mtimes
+under the shared lock, preserving their bytes and old hashes/mtimes. The final
+driver preserved a diagnostic-assertion failure after successful CLI exports:
+Wanderer is rejected by the earlier source-kind guard, with actual reason
+`static damage replacement requires a supported enchantment`. Saved own exports
+were then verified offline without native reacquisition. Shared CLI build output
+had already been replaced after unlock; exact opt-0 settings are independently
+verified by reproducing the saved own CLI's exported identity, not by accepting
+another lane's build output. No cache or evidence was deleted. No Node install
+or retry occurred; schema probes use only the existing external Ajv dependency.
 
 Complete Maelstrom Wanderer remains Unsupported because its independent static
 controller-creature haste grant exceeds the existing source-kind contract.
 Neither intrinsic haste nor omission of that block completes its source.
 Wanderer, grants/history, affinity, graveyard return, as-you-cascade actions,
 parser intake, copies and the full M4 package remain open. No profile, pool,
-host/search/SDK or exact-deck admission follows. One fresh consolidated M4a
-source/test review remains parent-assigned; no delegate was started here.
+host/search/SDK or exact-deck admission follows. The one parent-assigned
+consolidated read-only review found no concrete correctness issue; its manifest
+is `/home/josh/.t3/worktrees/mtg-ecosystem/t3-a1f4ec90-7d3f047657dfc802/generated/reviews/m4a-0e26/review.json`.
+All 24 reviewed production/test rows retain their exact reviewed hashes.
+Private prepared counter scenarios have P1 blue cards with a B/G commander;
+they do not prove legal pods. Real trusted-RNG setup remaps those cards before
+setup and is a separate witness. New M4a tests do not directly qualify
+multi-sibling owner/controller departures or retained-history exhaustion;
+common implementation/adjacent evidence and these review limits remain explicit.
+Full runtime/release/profile, full Node/parser, consumer and fresh-main combined
+qualification are omitted; parent owns the separate fresh-main integration.

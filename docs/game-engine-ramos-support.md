@@ -148,7 +148,7 @@ target catalog is claimed. The owner milestone remains the completion/witness ow
 | [Leyline of the Guildpact](../packages/game-engine/tests/fixtures/ramos/6b2e6a51-b9e6-4848-b7d7-98f02f2b897f.json) ×1 | V | P | F | U | — | NR | — | —/— | M5 | `static:opening-hand-action` |
 | [Maelstrom Archangel](../packages/game-engine/tests/fixtures/ramos/ac50ef98-1791-4dd4-9c1f-8cea7db7ade5.json) ×1 | V | P | F | U | — | NR | — | —/— | M10 | `effect:play-card` |
 | [Maelstrom Nexus](../packages/game-engine/tests/fixtures/ramos/b1c346a4-fc9b-474a-9d51-cac168e363fa.json) ×1 | V | P | F | U | — | NR | — | —/— | M4 | `static:cast-spell-abilities` |
-| [Maelstrom Wanderer](../packages/game-engine/tests/fixtures/ramos/ad9b7fbc-61c8-43ee-a65c-99206fd1e4df.json) ×1 | V | P | F | U | — | NR | — | —/— | M4 | `invalid static creature modification` |
+| [Maelstrom Wanderer](../packages/game-engine/tests/fixtures/ramos/ad9b7fbc-61c8-43ee-a65c-99206fd1e4df.json) ×1 | V | P | F | U | — | NR | — | —/— | M4 | `static damage replacement requires a supported enchantment` |
 | [Mosswort Bridge](../packages/game-engine/tests/fixtures/ramos/7cb9e29f-835f-4155-a2a5-4b778866c773.json) ×1 | V | P | I | U | — | NR | — | —/— | M9 | `keyword:hideaway` |
 | [Mountain](../packages/game-engine/tests/fixtures/ramos/a3fb7228-e76b-4e96-a40e-20b5fed75685.json) ×4 | V | P | F | L | V | NR | — | —/— | M2 | `—` |
 | [Nature's Lore](../packages/game-engine/tests/fixtures/ramos/78826359-fe63-44ad-adc4-a17ffcd710e4.json) ×1 | V | P | F | U | — | NR | — | —/— | M2 | `unsupported complete spell operator, destination, chooser or cardinality` |
