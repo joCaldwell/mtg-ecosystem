@@ -116,6 +116,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   let lastDiscoveryCalls = 0, lastDiscoveryBeginnings = 0, lastDiscoveryPassOffered = false;
   let journalBeforeSend = 0, originalContexts = 0, completeResponses = 0, authenticatedPosts = 0;
   const add = (counts: Record<string, number>, name: string) => { counts[name] = (counts[name] ?? 0) + 1; };
+  const connected = () => page!.getByRole("heading", { name: "Connected · Seat 1", exact: true }).isVisible();
   const untilRead = async (predicate: () => Promise<boolean>, code: string) => {
     const started = Date.now(); let extended = false;
     for (;;) {
@@ -366,7 +367,6 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       await settle(() => menu.locator("ol > li > button").nth(index).click(), initiationResponse(beginning.initiation), original);
       if (chosen.recovered) recoveredCommands++;
     };
-    const connected = () => page!.getByRole("heading", { name: "Connected · Seat 1", exact: true }).isVisible();
     await page.goto(`${ready.origin}/play?deck=${ready.deckId}`);
     // Use the actual custom product selector, not URL-derived deck authority.
     if (!(await page.getByRole("heading", { name: "Native foundations default", exact: true }).count())) {
