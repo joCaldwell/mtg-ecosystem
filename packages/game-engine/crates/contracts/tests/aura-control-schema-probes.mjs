@@ -158,11 +158,11 @@ function permanentControl(kind) {
   const d = value.definitions[0];
   d.spell.targets[0].domain = 'battlefield_permanent';
   d.spell.targets[0].selection_id = `enchanted-${kind}`;
-  d.spell.targets[0].filter = { types: [kind], non_types: [], non_colors: [], opponent: false };
+  d.spell.targets[0].filter = { types: kind === 'permanent' ? [] : [kind], non_types: [], non_colors: [], opponent: false };
   d.capabilities = d.capabilities.map(c => c === 'creature_target_v1' ? 'permanent_removal_v1' : c);
   return value;
 }
-for (const kind of ['artifact', 'land']) {
+for (const kind of ['artifact', 'land', 'permanent']) {
   positive(`pure ${kind} control`, permanentControl(kind));
   const defaults = permanentControl(kind);
   const d = defaults.definitions[0];
@@ -188,9 +188,8 @@ for (const kind of ['artifact', 'land']) {
     ['missing filter', d => { delete d.spell.targets[0].filter; }],
     ['null filter', d => { d.spell.targets[0].filter = null; }],
     ['empty filter', d => { d.spell.targets[0].filter = {}; }],
-    ['empty type', (_d, f) => { f.types = []; }],
     ['union types', (_d, f) => { f.types = ['artifact', 'land']; }],
-    ['duplicate types', (_d, f) => { f.types.push(kind); }],
+    ['duplicate types', (_d, f) => { f.types = ['artifact', 'artifact']; }],
     ['creature type', (_d, f) => { f.types = ['creature']; }],
     ['enchantment type', (_d, f) => { f.types = ['enchantment']; }],
     ['spell type', (_d, f) => { f.types = ['instant']; }],
@@ -206,6 +205,8 @@ for (const kind of ['artifact', 'land']) {
     ['missing target', d => { d.spell.targets = []; }],
     ['extra target', d => { d.spell.targets.push(clone(d.spell.targets[0])); }],
     ['slot', d => { d.spell.targets[0].slot = 1; }],
+    ['chooser', d => { d.spell.targets[0].chooser = 'opponent'; }],
+    ['stage', d => { d.spell.targets[0].stage = 'resolution'; }],
     ['empty selection', d => { d.spell.targets[0].selection_id = ''; }],
     ['mixed source type', d => { d.characteristics.additional_types = ['artifact']; }],
     ['creature source type', d => { d.characteristics.kind = 'creature'; }],
@@ -225,17 +226,52 @@ for (const kind of ['artifact', 'land']) {
     ['instruction', d => { d.spell.instructions.push({ op: 'draw_cards', count: '1', source_block: 2 }); }],
     ['mode', d => { d.spell.modes = [{ program: clone(d.spell) }]; }],
     ['trigger', d => { d.triggered = clone(legacy.definitions.find(d => d.name === 'Rancor').triggered); }],
+    ['activation', d => { d.activated = [{ functioning_zone: 'battlefield', cost: 'tap_source', program: clone(d.spell) }]; }],
+    ['mana ability', d => { d.mana_abilities = [{ costs: { tap: true, sacrifice: false }, production: { mana: 'fixed', symbols: ['U'] }, source_block: 2 }]; }],
+    ['instant timing', d => { d.spell.timing = 'instant'; }],
+    ['instructions resolution', d => { d.spell.resolution = 'instructions'; }],
+    ['battlefield spell', d => { d.spell.functioning_zone = 'battlefield'; }],
+    ['variable cost', d => { d.x_mana_cost = true; }],
+    ['intrinsic zone', d => { d.intrinsic_zone = 'battlefield'; }],
   ]) wrong(name, mutate);
+  for (const field of ['spell', 'static_abilities', 'capabilities', 'characteristics']) {
+    wrong(`missing ${field}`, d => { delete d[field]; });
+    wrong(`null ${field}`, d => { d[field] = null; });
+  }
+  for (const field of ['timing', 'resolution', 'functioning_zone', 'targets', 'instructions']) {
+    wrong(`missing program ${field}`, d => { delete d.spell[field]; });
+    wrong(`null program ${field}`, d => { d.spell[field] = null; });
+  }
+  for (const field of ['slot', 'selection_id', 'chooser', 'stage', 'domain']) {
+    wrong(`missing target ${field}`, d => { delete d.spell.targets[0][field]; });
+    wrong(`null target ${field}`, d => { d.spell.targets[0][field] = null; });
+  }
   for (const field of ['types', 'non_types', 'non_colors', 'opponent']) {
     wrong(`missing filter ${field}`, (_d, f) => { delete f[field]; });
     wrong(`null filter ${field}`, (_d, f) => { f[field] = null; });
   }
 }
+// Empty typed IR filters are General: serialized IR carries no source noun.
+for (const kind of ['artifact', 'land']) {
+  const general = permanentControl(kind);
+  general.definitions[0].spell.targets[0].filter.types = [];
+  positive(`${kind} IR with explicit empty types is General`, general);
+}
+// Retain the historical typed controls, stripping ONLY descriptive labels in
+// this reconstruction; current controls keep their complete source metadata.
+const historicalTyped = positives.slice(0, 21).map(({ name, value }) => {
+  const copy = clone(value);
+  for (const definition of copy.definitions) delete definition.source_labels;
+  return { name, value: copy, exact: JSON.stringify(copy) };
+});
+const historicalTypedHash = createHash('sha256').update(JSON.stringify(historicalTyped)).digest('hex');
+assert.equal(historicalTypedHash, '7685009a7d65f48d623f431b7ad1ce4cbd5896ae1ad083d6129401ed63ccb5e9');
 negative('old creature unit rejected', d => { d.static_abilities[0].effect = 'control_enchanted_creature'; });
 negative('creature domain cannot borrow permanent capability', d => { d.capabilities = d.capabilities.map(c => c === 'creature_target_v1' ? 'permanent_removal_v1' : c); });
 for (const row of positives) assert.equal(JSON.stringify(row.value), row.exact, `mutated positive ${row.name}`);
 const summary = {
   status: 'prepared_only', probes: probes.length,
+  historical_typed_controls_sha256: historicalTypedHash,
   positive: probes.filter(p => p.expected).length,
   negative: probes.filter(p => !p.expected).length,
   controls_sha256: createHash('sha256').update(JSON.stringify(positives)).digest('hex'),
