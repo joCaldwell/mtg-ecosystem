@@ -1662,16 +1662,15 @@ impl Definition {
         {
             return Err("unsupported complete Aura control family".into());
         }
-        if self
-            .spell
-            .as_ref()
-            .is_some_and(|p| temporary_set_keyword_program(p).is_some())
-            && (!self.keywords.is_empty()
-                || !self.static_abilities.is_empty()
-                || !self.activated.is_empty()
-                || !self.triggered.is_empty()
-                || !self.mana_abilities.is_empty()
-                || self.x_mana_cost)
+        if self.spell.as_ref().is_some_and(|p| {
+            temporary_set_keyword_program(p).is_some()
+                || temporary_permanent_keyword_program(p).is_some()
+        }) && (!self.keywords.is_empty()
+            || !self.static_abilities.is_empty()
+            || !self.activated.is_empty()
+            || !self.triggered.is_empty()
+            || !self.mana_abilities.is_empty()
+            || self.x_mana_cost)
         {
             return Err("set keyword grant requires a complete ordinary spell definition".into());
         }
@@ -2695,7 +2694,7 @@ pub fn supported_temporary_keywords(keywords: &[KeywordAbility]) -> bool {
             ) && !keywords[..index].contains(keyword)
         })
 }
-/// Borrowed parameters of one complete ordinary temporary creature program.
+/// Borrowed parameters of one complete ordinary targeted temporary keyword program.
 #[derive(Clone, Copy, Debug)]
 pub struct TemporaryTargetedKeywordProgram<'a> {
     pub modifier: Option<(&'a Quantity, &'a Quantity)>,
@@ -3374,7 +3373,17 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             | Instruction::LoseLife {
                 recipient, amount, ..
             } => {
-                if *amount <= Quantity::zero() {
+                if *amount <= Quantity::zero()
+                    && !(amount == &Quantity::zero()
+                        && matches!(
+                            instruction,
+                            Instruction::GainLife {
+                                recipient: LifeRecipient::Controller,
+                                ..
+                            }
+                        )
+                        && temporary_permanent_keyword_program(p).is_some())
+                {
                     return Err("life quantity must be positive".into());
                 }
                 match recipient {
@@ -4303,14 +4312,33 @@ pub fn catalog_schema() -> serde_json::Value {
         "instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"const":"grant_keywords"}}}}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}}
     }});
+    schema["$defs"]["TemporaryPermanentKeywordProgram"] = serde_json::json!({
+        "required":["targets","instructions"],"properties":{
+            "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
+            "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
+            "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
+                "slot":{"const":0},"selection_id":{"minLength":1},"chooser":{"const":"controller"},
+                "stage":{"const":"announcement"},"domain":{"const":"controlled_battlefield_permanent"},
+                "filter":{"type":"object","required":["types","non_types","non_colors","opponent"],"properties":{
+                    "types":{"const":[]},"non_types":{"const":[]},"non_colors":{"const":[]},"opponent":{"const":false},"tapped":{"const":false}
+                }}
+            }}},
+            "instructions":{"minItems":1,"maxItems":2,"prefixItems":[
+                {"properties":{"op":{"const":"grant_keywords"},"target_slot":{"const":0},"modifier":{"type":"null"},
+                    "keywords":{"$ref":"#/$defs/TemporaryCreatureKeywords"},"duration":{"const":"until_end_of_turn"},"source_block":{"const":0}}},
+                {"properties":{"op":{"const":"gain_life"},"recipient":{"const":"controller"},
+                    "amount":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}}
+            ]}
+        }
+    });
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["instructions"],"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"grant_keywords"}}}}}},
-        "then":{"properties":{
+        "then":{"anyOf":[{"$ref":"#/$defs/TemporaryPermanentKeywordProgram"},{"properties":{
             "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
             "targets":{"minItems":1,"maxItems":1,"items":{"properties":{"slot":{"const":0},"selection_id":{"minLength":1},"chooser":{"const":"controller"},"stage":{"const":"announcement"},"domain":{"enum":["battlefield_creature","controlled_battlefield_creature"]},"filter":{"type":"null"}}}},
             "instructions":{"$ref":"#/$defs/TemporaryCreatureKeywordInstructions"}
-        }}
+        }}]}
     }));
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["instructions","targets"],"properties":{
@@ -4356,7 +4384,8 @@ pub fn catalog_schema() -> serde_json::Value {
     }));
     let family_grant = serde_json::json!({"required":["spell"],"properties":{"spell":{
         "type":"object","required":["instructions","targets"],"properties":{
-            "instructions":{"$ref":"#/$defs/TemporaryCreatureKeywordInstructions"}
+            "instructions":{"$ref":"#/$defs/TemporaryCreatureKeywordInstructions"},
+            "targets":{"items":{"properties":{"domain":{"enum":["battlefield_creature","controlled_battlefield_creature"]}}}}
         },"not":{"properties":{
             "targets":{"minItems":1,"maxItems":1,"items":{"properties":{"domain":{"const":"battlefield_creature"}}}},
             "instructions":{"anyOf":[{"$ref":"#/$defs/PureKeywordGrantInstructions"},{"$ref":"#/$defs/CompoundIndestructibleInstructions"}]}
@@ -4422,7 +4451,7 @@ pub fn catalog_schema() -> serde_json::Value {
             {"if":plain_grant_target,
              "then":{"properties":{"capabilities":{"contains":{"const":Capability::CreatureTargetV1}}}},
              "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::CreatureTargetV1}}}}}},
-            {"if":{"anyOf":[{"not":plain_grant_target},temporary_keyword("hexproof")]},
+            {"if":{"anyOf":[{"properties":{"spell":{"properties":{"targets":{"contains":{"properties":{"domain":{"const":"controlled_battlefield_creature"}}}}}}}},temporary_keyword("hexproof")]},
              "then":{"properties":{"capabilities":{"contains":{"const":Capability::AttachmentsV1}}}},
              "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::AttachmentsV1}}}}}}
         ]}
@@ -4432,6 +4461,74 @@ pub fn catalog_schema() -> serde_json::Value {
         "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}},
         "spell":{"properties":{"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}}}}
     }}));
+    let permanent_target = serde_json::json!({"required":["targets"],"properties":{"targets":{"contains":{
+        "required":["domain"],"properties":{"domain":{"const":"controlled_battlefield_permanent"}}
+    }}}});
+    schema["$defs"]["SpellProgram"]["allOf"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "if":permanent_target,"then":{"$ref":"#/$defs/TemporaryPermanentKeywordProgram"}
+        }));
+    let permanent_grant = serde_json::json!({"required":["spell"],"properties":{"spell":{
+        "type":"object","allOf":[permanent_target,{"$ref":"#/$defs/TemporaryPermanentKeywordProgram"}]
+    }}});
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":permanent_grant,"then":{"properties":{
+            "keywords":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},
+            "static_abilities":{"maxItems":0},"mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},
+            "intrinsic_zone":{"type":"null"},
+            "characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},
+                "legendary":{"const":false},"basic":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"},"additional_types":{"maxItems":0}}},
+            "capabilities":{"allOf":[{"contains":{"const":Capability::TemporaryPermanentKeywordProgramV1}},
+                {"contains":{"const":Capability::PermanentRemovalV1}}]}
+        }},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::TemporaryPermanentKeywordProgramV1}}}}}
+    }));
+    // For this ordinary family, capability closure is exactly derived from the
+    // kind, target primitive, ordered keyword vector and presence of the tail.
+    let mut permanent_caps = vec![
+        Capability::NormalLayoutV1,
+        Capability::CastInstantV1,
+        Capability::CastSorceryV1,
+        Capability::TemporaryPermanentKeywordProgramV1,
+        Capability::PermanentRemovalV1,
+        Capability::LifeGainV1,
+    ];
+    for keyword in [
+        KeywordAbility::Flying,
+        KeywordAbility::Deathtouch,
+        KeywordAbility::Indestructible,
+        KeywordAbility::Lifelink,
+        KeywordAbility::Hexproof,
+        KeywordAbility::Haste,
+        KeywordAbility::Trample,
+        KeywordAbility::FirstStrike,
+    ] {
+        permanent_caps.push(temporary_keyword_primitive_capability(keyword).unwrap());
+    }
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":permanent_grant,"then":{"allOf":[
+            {"properties":{"capabilities":{"items":{"enum":permanent_caps},"contains":{"const":Capability::NormalLayoutV1}}}},
+            {"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
+             "then":{"properties":{"spell":{"properties":{"timing":{"const":"instant"}}},"capabilities":{"contains":{"const":Capability::CastInstantV1},"not":{"contains":{"const":Capability::CastSorceryV1}}}}},
+             "else":{"properties":{"spell":{"properties":{"timing":{"const":"main_phase"}}},"capabilities":{"contains":{"const":Capability::CastSorceryV1},"not":{"contains":{"const":Capability::CastInstantV1}}}}}},
+            {"if":{"properties":{"spell":{"properties":{"instructions":{"minItems":2}}}}},
+             "then":{"properties":{"capabilities":{"contains":{"const":Capability::LifeGainV1}}}},
+             "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::LifeGainV1}}}}}}
+        ]}
+    }));
+    // CR 119.9: only the exact new complete grant family admits a zero tail.
+    // Generic gain/loss programs retain their strictly positive amount contract.
+    schema["$defs"]["SpellProgram"]["allOf"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "if":{"not":{"$ref":"#/$defs/TemporaryPermanentKeywordProgram"}},
+            "then":{"properties":{"instructions":{"items":{
+                "if":{"required":["op"],"properties":{"op":{"enum":["gain_life","lose_life"]}}},
+                "then":{"properties":{"amount":{"type":"string","pattern":"^[1-9][0-9]*$"}}}
+            }}}}
+        }));
     // The set family has its own non-targeted shape; targeted any_grant above
     // deliberately continues to match only GrantKeywords.
     let set_grant_op =
@@ -4972,6 +5069,7 @@ mod tests {
             &[KeywordAbility::Lifelink],
             false,
         ));
+        definitions.push(temporary_permanent_keyword_tests::grant(true));
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());
@@ -6617,3 +6715,6 @@ mod creature_set_keyword_tests;
 
 #[cfg(test)]
 mod permanent_set_keyword_tests;
+
+#[cfg(test)]
+mod temporary_permanent_keyword_tests;
