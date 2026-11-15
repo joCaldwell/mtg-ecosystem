@@ -94,6 +94,9 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   const sent = new Map<string, string>(), accepted = new Set<string>(), consumed = new Set<string>();
   const requestKinds: Record<string, number> = {}, responseKinds: Record<string, number> = {};
   const nativeStatuses: Record<string, number> = {};
+  const queryOutcomes: Record<string, number> = {};
+  const discoveryPhases: Record<string, number> = {};
+  let lastDiscoveryCalls = 0, lastDiscoveryBeginnings = 0, lastDiscoveryPassOffered = false;
   let journalBeforeSend = 0, originalContexts = 0, completeResponses = 0, authenticatedPosts = 0;
   const add = (counts: Record<string, number>, name: string) => { counts[name] = (counts[name] ?? 0) + 1; };
   const readRecord = async () => {
@@ -175,6 +178,8 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
             }
           } else if (path.endsWith("/actions/query")) {
             queries++;
+            check(["complete", "incomplete", "stale", "unavailable", "cancelled"].includes(value.outcome.status), "query_outcome_kind");
+            add(queryOutcomes, value.outcome.status);
             if (["complete", "incomplete"].includes(value.outcome.status)) beginnings.push(...value.outcome.page.beginnings);
           } else if (path.endsWith("/commands")) {
             check(value.status === "accepted", "human_command_rejected"); accepted.add(value.command_id);
@@ -232,12 +237,32 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     };
     const choose = async (predicate: (beginning: ActionBeginning) => boolean) => {
       beginnings = [];
+      const queryBefore = queries;
       const button = page!.getByRole("button", { name: "Discover actions", exact: true });
       await until(async () => await button.getAttribute("aria-disabled") === "false", "discover_enabled");
       const original = { revision, token: current().decision!.token };
       await page!.getByLabel("Discovery scope", { exact: true }).selectOption("");
       await button.click();
-      await until(() => page!.getByText("Discovery complete. Each submitted action is validated again by the host.", { exact: true }).isVisible(), "discovery_complete");
+      const phases = {
+        complete: "Discovery complete. Each submitted action is validated again by the host.",
+        limited: "Discovery reached a local limit. Results are not a complete menu.",
+        uncertain: "Discovery could not finish. Results cannot be submitted.",
+        stale: "The decision changed. Discover actions again.", unavailable: "Discovery is unavailable for this decision.",
+        cancelled: "Discovery stopped. No game command was cancelled.",
+      };
+      let phase = "";
+      try {
+        await until(async () => {
+          if (queries === queryBefore) return false;
+          for (const [name, text] of Object.entries(phases)) if (await page!.getByText(text, { exact: true }).isVisible()) { phase = name; return true; }
+          return false;
+        }, "discovery_complete");
+      } finally {
+        lastDiscoveryCalls = queries - queryBefore; lastDiscoveryBeginnings = beginnings.length;
+        lastDiscoveryPassOffered = beginnings.some(value => value.initiation.action === "pass");
+        add(discoveryPhases, phase || "deadline");
+      }
+      check(phase === "complete", `discovery_${phase || "deadline"}`);
       const index = beginnings.findIndex(predicate); check(index >= 0, "permitted_beginning");
       const beginning = beginnings[index]!;
       check(beginning.initiation.action === "pass" || beginning.label !== "unavailable", "producer_action_label");
@@ -460,7 +485,8 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       grants, recovered, unmounted, regranted, negative_checks: negatives, requests, native_requests: nativeReads, authenticated_posts: authenticatedPosts,
       human_commands: sent.size, journal_before_send: journalBeforeSend, original_contexts: originalContexts, complete_responses: completeResponses,
       accepted: accepted.size, consumed: consumed.size, action_queries: queries, request_counts: requestKinds, response_counts: responseKinds,
-      native_status_counts: nativeStatuses,
+      native_status_counts: nativeStatuses, query_outcome_counts: queryOutcomes, discovery_phase_counts: discoveryPhases,
+      last_discovery_calls: lastDiscoveryCalls, last_discovery_beginnings: lastDiscoveryBeginnings, last_discovery_pass_offered: lastDiscoveryPassOffered,
       presentation_404: presentationMissing, production_presentation_verified: presentationVerified, named_cards_verified: namedCards,
       land_played: landPlayed, commander_resolved: commanderResolved, conditional_reversal_wording: conditionalReversal,
       natural_attempted: naturalAttempted, natural_completed: naturalCompleted, natural_resource_paused: naturalPaused, natural_bounded: naturalBounded,
