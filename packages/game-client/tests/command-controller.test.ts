@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { prepareCommand, parsePreparedCommand } from '@multiverse/game-server-sdk/browser';
+import { prepareCommand, parsePreparedCommand, HttpError, ProtocolError, TransportError } from '@multiverse/game-server-sdk/browser';
 import type { CommandEnvelope, CommandExecution, PublicManifest, SeatResume } from '@multiverse/game-server-sdk';
 import type { PresentationArtifact } from '../generated/presentation.d.ts';
 import metadata from '../fixtures/foundations-opening/presentation.json' with { type: 'json' };
@@ -210,7 +210,7 @@ test('terminal rejection interrupts an idle poll and resumes without a reconnect
   r.effects.authorize = async (input, signal) => {
     const value = await authorize(input, signal);
     return { ...value, transport: { ...value.transport, poll: (_after, pollSignal) => new Promise((_resolve, reject) => {
-      pollSignal.addEventListener('abort', () => { aborted = true; reject(new Error('read interrupted')); }, { once: true });
+      pollSignal.addEventListener('abort', () => { aborted = true; reject(Object.assign(new Error('read interrupted'), { name: 'AbortError' })); }, { once: true });
     }) } };
   };
   const running = r.session.join('seat'); await flush(); const stale = r.intent();
@@ -218,6 +218,7 @@ test('terminal rejection interrupts an idle poll and resumes without a reconnect
   r.commands.transport.submitExact = async body => ({ command_id: parsePreparedCommand(body).envelope.command_id, status: 'rejected', reason: 'stale_revision' });
   await r.session.submitIntent(stale); await flush();
   assert.equal(aborted, true); assert.equal(r.stats().resumes, 2);
+  assert.equal(r.stats().manifests, 1); assert.equal(r.stats().presentations, 1);
   assert.equal(r.session.getSnapshot().command.phase, 'ready'); assert.equal(r.session.getSnapshot().retry, 0);
   assert.equal(r.waits.length, 2, 'refresh adds no reconnect backoff wait');
   assert.notEqual(r.session.commandContext()!.incarnation, stale.context.incarnation);
@@ -225,3 +226,50 @@ test('terminal rejection interrupts an idle poll and resumes without a reconnect
   assert.equal(r.events.filter(event => event === 'persist').length, 1);
   r.session.stop(); r.waits[1]!.resolve(); await running;
 });
+
+for (const error of [new HttpError(401), new HttpError(403), new HttpError(503), new ProtocolError('Bad response'), new TransportError()]) {
+  test(`genuine ${error.name}${error instanceof HttpError ? error.status : ''} racing consumed-command refresh cannot reuse verification`, async () => {
+    const r = rig(metadata as PresentationArtifact), bodyCancellation = deferred<void>();
+    const kind = error instanceof HttpError ? error.status === 503 ? 'unavailable' : 'unauthorized' : error instanceof ProtocolError ? 'incompatible' : 'disconnected';
+    r.effects.classify = () => kind;
+    let pollAborted = false;
+    r.transport.poll = async (_after, signal) => {
+      signal.addEventListener('abort', () => { pollAborted = true; }, { once: true });
+      // Mirrors SDK HTTP rejection waiting for response-body cancellation:
+      // command consumption may abort the signal before this failure returns.
+      await bodyCancellation.promise;
+      throw error;
+    };
+    r.commands.transport.execution = async id => ({ command_id: id, status: { status: 'consumed_by_rules' } });
+    const running = r.session.join('seat'); await flush();
+    try {
+      const stale = r.intent();
+      r.waits[0]!.resolve(); await flush();
+      await r.session.submitIntent(stale); await r.session.retryCommand();
+      assert.equal(pollAborted, true);
+      bodyCancellation.resolve(); await flush();
+      assert.equal(r.session.commandContext(), null);
+      if (kind === 'unavailable' || kind === 'disconnected') {
+        assert.equal(r.session.getSnapshot().connection, 'retrying');
+        assert.equal(r.stats().resumes, 1, 'a genuine failure cannot immediately resume with cached verification');
+        const manifest = r.transport.manifest;
+        r.transport.manifest = async signal => ({ ...await manifest(signal), server_build_id: 'f'.repeat(64) });
+        r.waits[1]!.resolve(); await running;
+        assert.equal(r.stats().manifests, 2);
+        assert.equal(r.session.getSnapshot().connection, 'incompatible');
+      } else {
+        await running;
+        assert.equal(r.session.getSnapshot().connection, kind);
+      }
+      assert.equal(r.session.getSnapshot().read, null);
+      assert.equal(r.session.getSnapshot().metadata, null);
+      assert.equal(r.session.commandContext(), null);
+      assert.equal(r.stats().resumes, 1);
+      assert.equal(r.record(), null, 'authoritative consumption already settled only the original command');
+    } finally {
+      bodyCancellation.resolve(); r.session.stop();
+      for (const wait of r.waits) wait.resolve();
+      await running;
+    }
+  });
+}

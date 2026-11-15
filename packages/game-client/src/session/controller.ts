@@ -201,6 +201,7 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
       while (this.#current(run)) {
         if (run.refresh) initialized = false;
         const polling = initialized;
+        let commandWakeup = false;
         try {
           if (!initialized) {
             this.#update({ connection: 'authenticating' });
@@ -242,6 +243,13 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
             run.pollCancel = pollCancel;
             let page: StreamPage;
             try { page = await transport.poll(current.next, pollCancel.signal); }
+            catch (error) {
+              // An HTTP/protocol failure may finish after command refresh has
+              // aborted this signal. Only an explicit abort result is a wakeup;
+              // preserve genuine failures for classification and revalidation.
+              commandWakeup = pollCancel.signal.aborted && error instanceof Error && error.name === 'AbortError';
+              throw error;
+            }
             finally { if (run.pollCancel === pollCancel) run.pollCancel = null; }
             if (!this.#current(run)) return;
             this.#update({ read: streamRead(binding, current, page) });
@@ -259,7 +267,7 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
           await this.#effects.wait(100, signal);
         } catch (error) {
           if (!this.#current(run)) return;
-          if (polling && run.refresh) { initialized = false; continue; }
+          if (polling && run.refresh && commandWakeup) { initialized = false; continue; }
           verified = null;
           const kind = error instanceof SessionFailure ? error.kind : this.#effects.classify(error);
           if (!['rate-limited', 'unavailable', 'disconnected'].includes(kind)) throw new SessionFailure(kind);
