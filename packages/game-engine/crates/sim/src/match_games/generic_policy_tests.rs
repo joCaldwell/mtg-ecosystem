@@ -1908,7 +1908,7 @@ mod defensive_untap_policy_tests {
                         .clone();
                     v.stack[0].triggered = Some(mtg_core::VisibleTriggered {
                         oracle_id: id,
-                        ability: 0,
+                        ability: mtg_core::VisibleTriggerAbility::Intrinsic { index: 0 },
                         handle: StackHandle("trigger".into()),
                         source: mtg_core::VisibleTarget {
                             announced: ObjectHandle("source".into()),

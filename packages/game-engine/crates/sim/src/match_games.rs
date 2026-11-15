@@ -1439,7 +1439,7 @@ mod admission_and_host_tests {
                 handle: mtg_core::StackHandle(name.into()),
                 source: target.clone(),
                 oracle_id: id(name),
-                ability: 0,
+                ability: mtg_core::VisibleTriggerAbility::Intrinsic { index: 0 },
             }),
             entity_targets: vec![],
             handle: Some(mtg_core::StackHandle(name.into())),
