@@ -3667,7 +3667,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         }
         set.insert(match instruction {
             Instruction::Cascade { .. } => Capability::CascadeV1,
-            Instruction::GrantKeywordsSet { .. } => Capability::TemporaryCreatureSetKeywordProgramV1,
+            Instruction::GrantKeywordsSet { .. } => {
+                Capability::TemporaryCreatureSetKeywordProgramV1
+            }
             Instruction::MoveSet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::DamageSet { .. }

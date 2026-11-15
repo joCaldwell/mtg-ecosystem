@@ -26,10 +26,17 @@ pub(super) fn schema(schema: &mut serde_json::Value) {
                 ]
             }
         }}}));
-    schema["$defs"]["StaticAbility"].as_object_mut().unwrap()
-        .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
-        .push(serde_json::json!({"if":{"required":["effect"],"properties":{"effect":modifier}},
-            "then":{"properties":{"functioning_zone":{"const":"battlefield"}}}}));
+    schema["$defs"]["StaticAbility"]
+        .as_object_mut()
+        .unwrap()
+        .entry("allOf")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .unwrap()
+        .push(
+            serde_json::json!({"if":{"required":["effect"],"properties":{"effect":modifier}},
+            "then":{"properties":{"functioning_zone":{"const":"battlefield"}}}}),
+        );
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap()
         .push(serde_json::json!({"if":{"required":["static_abilities"],"properties":{
             "static_abilities":{"contains":{"required":["effect"],"properties":{"effect":modifier}}}
@@ -57,7 +64,9 @@ pub(super) fn schema(schema: &mut serde_json::Value) {
                 "kind":{"const":kind},"subtypes":{"contains":{"const":subtype}}
             }}}}}));
     }
-    schema["$defs"]["StaticEffect"]["allOf"].as_array_mut().unwrap()
+    schema["$defs"]["StaticEffect"]["allOf"]
+        .as_array_mut()
+        .unwrap()
         .push(serde_json::json!({"properties":{"modify_creatures":{
             "if":{"required":["scope"],"properties":{"scope":{"const":"source"}}},
             "then":{"properties":{"power":{"const":"0"},"toughness":{"const":"0"},
