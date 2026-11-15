@@ -57,12 +57,17 @@ COPY --from=build /app/packages/game-server/sdk/package.json ./packages/game-ser
 COPY --from=build /app/packages/game-server/sdk/dist ./packages/game-server/sdk/dist
 COPY --from=build /app/packages/game-server/sdk/src ./packages/game-server/sdk/src
 COPY --from=build /app/packages/game-server/sdk/generated ./packages/game-server/sdk/generated
+# Pure public qualification boundary used by the product even with native off.
+COPY --from=build /app/packages/game-client/package.json ./packages/game-client/package.json
+COPY --from=build /app/packages/game-client/src/session/qualification.ts ./packages/game-client/src/session/qualification.ts
+COPY --from=build /app/packages/game-client/src/session/qualification-public.d.ts ./packages/game-client/src/session/qualification-public.d.ts
 COPY packages/multiverse/scripts/check-sdk-runtime.mjs ./packages/multiverse/scripts/check-sdk-runtime.mjs
 COPY packages/deck-builder/scripts/container-entrypoint.sh /usr/local/bin/deck-builder-entrypoint
 COPY packages/deck-builder/scripts/check-runtime.mjs ./packages/deck-builder/scripts/check-runtime.mjs
 RUN node packages/deck-builder/scripts/check-runtime.mjs \
     && node packages/deck-builder/scripts/check-runtime.mjs --package packages/multiverse \
-    && node packages/multiverse/scripts/check-sdk-runtime.mjs
+    && node packages/multiverse/scripts/check-sdk-runtime.mjs \
+    && node --input-type=module -e "import assert from 'node:assert/strict'; import { isQualifiedProductSession } from '@multiverse/game-client/session-qualification'; assert.equal(isQualifiedProductSession(undefined), false)"
 # Preserve the existing mounted data path and UID behavior. No database migration
 # or production promotion is performed by this source ownership refactor.
 RUN mkdir /data && chown node:node /data
