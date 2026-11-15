@@ -4536,7 +4536,7 @@ pub fn catalog_schema() -> serde_json::Value {
     });
     let creature_control = schema["$defs"]["AuraControlDefinition"].clone();
     let mut control_shapes = vec![creature_control.clone()];
-    for kind in [CardKind::Artifact, CardKind::Land] {
+    for types in [vec![CardKind::Artifact], vec![CardKind::Land], vec![]] {
         let mut shape = creature_control.clone();
         shape["properties"]["static_abilities"] = serde_json::json!({
             "minItems":1,"maxItems":1,"items":aura_control_static
@@ -4546,7 +4546,7 @@ pub fn catalog_schema() -> serde_json::Value {
         target["properties"]["domain"] = serde_json::json!({"const":"battlefield_permanent"});
         target["properties"]["filter"] = serde_json::json!({"type":"object",
         "required":["types","non_types","non_colors","opponent"],"properties":{
-            "types":{"const":[kind]},"non_types":{"maxItems":0},
+            "types":{"const":types},"non_types":{"maxItems":0},
             "non_colors":{"maxItems":0},"opponent":{"const":false},
             "tapped":{"const":false}
         }});
@@ -4879,6 +4879,7 @@ mod tests {
         definitions.push(aura_control_tests::aura());
         definitions.push(aura_control_tests::typed_aura(CardKind::Artifact));
         definitions.push(aura_control_tests::typed_aura(CardKind::Land));
+        definitions.push(aura_control_tests::general_aura());
         definitions.push(indestructible_tests::intrinsic());
         definitions.push(temporary_indestructible_tests::grant());
         definitions.push(temporary_flying_tests::grant());
