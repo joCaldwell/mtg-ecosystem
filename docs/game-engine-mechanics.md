@@ -289,27 +289,28 @@ empty/false. Missing/null/empty-object filters reject. Targets remain
 controller-announced slot zero with nonempty selection IDs.
 
 General source requires exactly `{"cls":"permanent"}` and “You control enchanted
-permanent.” Source nouns/filters must agree; IR has no noun, so valid explicit
-empty artifact/land filters become General.
+permanent.” Source nouns/filters must agree; explicit empty IR types select General.
 Unions, qualifiers, source-type changes, extra instructions/abilities/costs and
-noncreature modifiers reject. Creature modifiers retain their bounded rules,
-including rejection of negative static P/T, Flash and Aura-granted Indestructible.
+noncreature modifiers reject. Creature modifiers reject negative static P/T, Flash and Aura-granted
+Indestructible.
 Names, IDs, amounts, costs and descriptive source labels never dispatch. Creature
-targets require Creature Target; other domains require Permanent Removal. All
-retain Attachments, Aura Control and ordinary cast/layout closure. Serialization retains schema 1 and disjoint domain arms.
+targets require Creature Target; other domains require Permanent Removal. All retain Attachments, Aura Control and
+cast/layout closure. Serialization retains schema 1 and disjoint arms.
 
 Confiscate witnesses General.
 [Evidence](game-engine-evidence.md#atomic-temporary-keyword-qualification) owns
 qualification. The [schema harness](../packages/game-engine/crates/contracts/tests/aura-control-schema-probes.mjs)
 prepares probes without schema execution. General source requires dependency-aware
-runtime and paid-recovery qualification before main publication; source admission
+runtime and paid-recovery qualification before publication; source admission
 grants no catalog or consumer admission.
 
 The current battlefield source, exact attached target incarnation and semantic
-attachment timestamp determine authority. Independent effects use timestamp order;
-control of another control Aura requires CR 613.8 dependency ordering and loop
-fallback, reevaluated after each effect. Removing authority reveals remaining
-effects or default control, independently of ownership. A
+attachment timestamp determine authority. Reachable acyclic attachment graphs
+reevaluate CR 613.8 dependencies after each attempted operation; independent effects
+use timestamps. Same-controller dependencies are a CR-derived inference, without a
+located official worked example. Structural attachment cycles reject atomically;
+admitted sources lack reattachment/animation producers. Removing authority reveals
+remaining effects or default control, independently of ownership. A
 source/target successor never inherits the predecessor's attachment. Existing
 synthetic control-effect ordering remains separate: an Aura and such a grant on
 the same permanent reject rather than invent a shared clock.
