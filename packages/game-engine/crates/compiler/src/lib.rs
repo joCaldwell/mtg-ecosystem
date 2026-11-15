@@ -543,7 +543,7 @@ fn lower_temporary_creature_keywords(
             Ok(keyword.keyword)
         })
         .collect::<Result<Vec<_>, Failure>>()?;
-    if !supported_temporary_creature_keywords(&keywords) {
+    if !supported_temporary_keywords(&keywords) {
         return Err(unsupported(
             "effects.gain-abilities",
             "expected nonempty unique reviewed temporary creature keywords",
