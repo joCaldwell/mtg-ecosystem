@@ -161,7 +161,7 @@ fn creature_set_keyword_five_exact_sources_costs_order_and_closure() {
             p.instructions,
             vec![Instruction::GrantKeywordsSet {
                 set: w.set.clone(),
-                modifier: w.modifier.map(|(power, toughness)| CreatureSetModifier {
+                modifier: w.modifier.map(|(power, toughness)| CreatureStatModifier {
                     power: power.into(),
                     toughness: toughness.into(),
                 }),

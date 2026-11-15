@@ -324,7 +324,7 @@ fn assert_grant(g: &Game, w: &Witness, ids: &[u32]) {
     assert_eq!(e.origin.source_block, 0);
     assert_eq!(e.origin.cursor, 0);
     assert_eq!(g.state.rules.effects.len(), 1);
-    let expected_modifier = w.modifier.map(|(power, toughness)| CreatureSetModifier {
+    let expected_modifier = w.modifier.map(|(power, toughness)| CreatureStatModifier {
         power: power.into(),
         toughness: toughness.into(),
     });
@@ -868,7 +868,7 @@ fn creature_set_keyword_queries_atomic_target_rejection_forgery_and_complete_cre
                 assert_eq!(keywords, w.keywords);
                 assert_eq!(
                     *modifier,
-                    w.modifier.map(|(power, toughness)| CreatureSetModifier {
+                    w.modifier.map(|(power, toughness)| CreatureStatModifier {
                         power: power.into(),
                         toughness: toughness.into(),
                     })
@@ -949,7 +949,7 @@ fn creature_set_keyword_queries_atomic_target_rejection_forgery_and_complete_cre
                         if let Some(m) = modifier {
                             m.power.add(&1.into());
                         } else {
-                            *modifier = Some(CreatureSetModifier {
+                            *modifier = Some(CreatureStatModifier {
                                 power: 1.into(),
                                 toughness: 0.into(),
                             });
@@ -959,7 +959,7 @@ fn creature_set_keyword_queries_atomic_target_rejection_forgery_and_complete_cre
                         *modifier = if modifier.is_some() {
                             None
                         } else {
-                            Some(CreatureSetModifier {
+                            Some(CreatureStatModifier {
                                 power: 0.into(),
                                 toughness: 0.into(),
                             })

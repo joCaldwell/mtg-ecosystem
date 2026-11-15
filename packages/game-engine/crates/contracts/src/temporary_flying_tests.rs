@@ -10,6 +10,7 @@ pub(super) fn grant() -> Definition {
     .find(|d| d.name == "Giant Growth")
     .unwrap();
     d.spell.as_mut().unwrap().instructions = vec![Instruction::GrantKeywords {
+        modifier: None,
         target_slot: 0,
         keywords: vec![KeywordAbility::Flying],
         duration: Duration::UntilEndOfTurn,

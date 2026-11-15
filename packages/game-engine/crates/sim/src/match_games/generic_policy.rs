@@ -170,7 +170,7 @@ fn temporary_keyword_spell(d: &Definition, p: &SpellProgram, keyword: KeywordAbi
             && t.stage == EvaluationStage::Announcement
             && t.domain == TargetDomain::BattlefieldCreature && t.filter.is_none())
         && matches!(p.instructions.as_slice(), [I::GrantKeywords {
-            target_slot: 0, keywords, duration: Duration::UntilEndOfTurn, ..
+            target_slot: 0, modifier: None, keywords, duration: Duration::UntilEndOfTurn, ..
         }] if keywords == &[keyword])
 }
 fn temporary_indestructible_spell(d: &Definition, p: &SpellProgram) -> bool {

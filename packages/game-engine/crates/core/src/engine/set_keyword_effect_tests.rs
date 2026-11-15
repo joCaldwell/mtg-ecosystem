@@ -86,7 +86,7 @@ fn resolving_set_grant(compound: bool) -> (Game, ResolvedEffect, BatchCause) {
         expires_in_cleanup_of_turn: g.state.rules.turn.number,
         kind: ResolvedEffectKind::GrantKeywordsSet {
             targets,
-            modifier: compound.then(|| CreatureSetModifier {
+            modifier: compound.then(|| CreatureStatModifier {
                 power: Quantity::from(1),
                 toughness: Quantity::zero(),
             }),
@@ -264,19 +264,19 @@ fn set_keyword_kernel_modifier_forgery_rejects_creation_and_historical_state() {
         };
         let replacements = [
             None,
-            Some(CreatureSetModifier {
+            Some(CreatureStatModifier {
                 power: Quantity::zero(),
                 toughness: Quantity::zero(),
             }),
-            Some(CreatureSetModifier {
+            Some(CreatureStatModifier {
                 power: Quantity::from(-1),
                 toughness: Quantity::zero(),
             }),
-            Some(CreatureSetModifier {
+            Some(CreatureStatModifier {
                 power: Quantity::from(1),
                 toughness: Quantity::from(1),
             }),
-            Some(CreatureSetModifier {
+            Some(CreatureStatModifier {
                 power: "900719925474099312345678901234567890".parse().unwrap(),
                 toughness: Quantity::zero(),
             }),
@@ -374,7 +374,7 @@ fn set_keyword_kernel_compound_execution_creates_all_layers_once_and_rolls_back(
         frame.outcomes[0],
         InstructionOutcome::Effect { actual: Some(_) }
     ));
-    let expected_modifier = Some(CreatureSetModifier {
+    let expected_modifier = Some(CreatureStatModifier {
         power: Quantity::from(1),
         toughness: Quantity::zero(),
     });

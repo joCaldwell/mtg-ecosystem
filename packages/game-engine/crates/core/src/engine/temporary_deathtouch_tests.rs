@@ -202,6 +202,11 @@ fn temporary_deathtouch_paid_current_and_departed_sources_deal_one_lethal_damage
                 );
                 assert!(grave(g, 0));
                 assert!(deathtouch(g, 1));
+                assert_eq!(g.state.rules.effects.len(), 1);
+                assert!(matches!(
+                    &g.state.rules.effects[0].kind,
+                    ResolvedEffectKind::GrantKeywords { modifier: None, .. }
+                ));
                 activate(g, q, 1, 2);
                 let departed = name == "Mogg Fanatic";
                 assert_eq!(grave(g, 1), departed);
@@ -447,7 +452,10 @@ fn temporary_deathtouch_opponent_targets_atomic_invalid_and_normalized_forgery()
         for variant in 0..6 {
             let mut bad: Snapshot = strict_read(&good).unwrap();
             let e = &mut bad.state.rules.effects[0];
-            if let ResolvedEffectKind::GrantKeywords { target, keywords } = &mut e.kind {
+            if let ResolvedEffectKind::GrantKeywords {
+                target, keywords, ..
+            } = &mut e.kind
+            {
                 match variant {
                     0 => keywords.clear(),
                     1 => *keywords = vec![KeywordAbility::Flying],

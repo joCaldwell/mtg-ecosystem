@@ -57,7 +57,7 @@ pub enum ResolvedEffectKind {
     GrantKeywordsSet {
         targets: Vec<ObjectId>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        modifier: Option<CreatureSetModifier>,
+        modifier: Option<CreatureStatModifier>,
         keywords: Vec<KeywordAbility>,
     },
     PumpSet {
@@ -70,6 +70,8 @@ pub enum ResolvedEffectKind {
     },
     GrantKeywords {
         target: ObjectId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        modifier: Option<CreatureStatModifier>,
         keywords: Vec<KeywordAbility>,
     },
     ModifyPowerToughness {
@@ -221,7 +223,7 @@ impl Game {
             }
             | ResolvedEffectKind::GrantKeywordsSet {
                 targets,
-                modifier: Some(CreatureSetModifier { power, toughness }),
+                modifier: Some(CreatureStatModifier { power, toughness }),
                 ..
             } = &e.kind
                 && targets.contains(&object)
@@ -233,6 +235,11 @@ impl Game {
                 target,
                 power,
                 toughness,
+            }
+            | ResolvedEffectKind::GrantKeywords {
+                target,
+                modifier: Some(CreatureStatModifier { power, toughness }),
+                ..
             } = &e.kind
                 && *target == object
             {
@@ -303,6 +310,7 @@ impl Game {
             }
             Instruction::GrantKeywords {
                 target_slot,
+                modifier,
                 keywords,
                 source_block,
                 ..
@@ -319,7 +327,11 @@ impl Game {
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
                 (
-                    ResolvedEffectKind::GrantKeywords { target, keywords },
+                    ResolvedEffectKind::GrantKeywords {
+                        target,
+                        modifier,
+                        keywords,
+                    },
                     source_block,
                 )
             }
@@ -1040,18 +1052,21 @@ impl Game {
                     (
                         Instruction::GrantKeywords {
                             target_slot,
+                            modifier,
                             keywords,
                             source_block,
                             ..
                         },
                         ResolvedEffectKind::GrantKeywords {
                             target,
+                            modifier: applied_modifier,
                             keywords: grants,
                         },
                     ) => {
                         frame.spell.targets.get(*target_slot as usize) == Some(target)
                             && frame.legal_targets.get(*target_slot as usize) == Some(&true)
                             && self.is_battlefield_creature(*target)
+                            && modifier == applied_modifier
                             && keywords == grants
                             && supported_temporary_creature_keywords(grants)
                             && *source_block == effect.origin.source_block
@@ -1445,16 +1460,22 @@ impl Game {
                     }
                     (
                         Instruction::GrantKeywords {
+                            modifier,
                             keywords,
                             source_block,
                             ..
                         },
                         ResolvedEffectKind::GrantKeywords {
                             target,
+                            modifier: applied_modifier,
                             keywords: grants,
                         },
                     ) => {
-                        keywords == grants
+                        // CR 611.2c: authenticate source properties here without
+                        // reselecting the captured target from current state.
+                        // Normalized input replay proves the historical capture.
+                        modifier == applied_modifier
+                            && keywords == grants
                             && supported_temporary_creature_keywords(grants)
                             && *source_block == e.origin.source_block
                             && e.target_handles.len() == 4
@@ -1644,7 +1665,7 @@ pub enum VisibleEffect {
         origin: VisibleEffectSource,
         targets: Vec<VisibleTarget>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        modifier: Option<CreatureSetModifier>,
+        modifier: Option<CreatureStatModifier>,
         keywords: Vec<KeywordAbility>,
         expires_in_cleanup_of_turn: u64,
     },
@@ -1666,6 +1687,8 @@ pub enum VisibleEffect {
         handle: EffectHandle,
         origin: VisibleEffectSource,
         target: VisibleTarget,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        modifier: Option<CreatureStatModifier>,
         keywords: Vec<KeywordAbility>,
         expires_in_cleanup_of_turn: u64,
     },
@@ -1890,15 +1913,18 @@ impl Game {
                 targets: set_views(targets)?,
                 expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
             },
-            ResolvedEffectKind::GrantKeywords { target, keywords } => {
-                VisibleEffect::GrantKeywords {
-                    handle,
-                    origin,
-                    target: target_view(*target)?,
-                    keywords: keywords.clone(),
-                    expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
-                }
-            }
+            ResolvedEffectKind::GrantKeywords {
+                target,
+                modifier,
+                keywords,
+            } => VisibleEffect::GrantKeywords {
+                handle,
+                origin,
+                target: target_view(*target)?,
+                modifier: modifier.clone(),
+                keywords: keywords.clone(),
+                expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+            },
             ResolvedEffectKind::ModifyPowerToughness {
                 target,
                 power,
