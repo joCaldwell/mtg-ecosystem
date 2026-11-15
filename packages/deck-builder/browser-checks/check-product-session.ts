@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // Opt-in actual built-product acceptance. No Cargo, SDK generation, fake native
 // responses, human SDK policy or second human reader. Every command is UI-owned.
-import { execFileSync, fork, spawnSync } from "node:child_process";
+import { execFile, fork, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, mkdirSync, mkdtempSync, openSync, closeSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, firefox, type Page, type BrowserContext } from "playwright-core";
 import type { ActionBeginning, ActionInitiation, Observation, PlayerResponse, SeatBootstrap, RulesResult } from "@multiverse/game-server-sdk";
 import { check, completeResponse, fileHash, repository, verifyInputs, OBSERVATION_VERSION, type Inputs } from "./lib/product-session-fixture.ts";
+import { ObserverAudit, finishOwnedChild } from "./lib/product-session-safety.ts";
 
 const option = (name: string) => { const i = process.argv.indexOf(`--${name}`); return i < 0 ? undefined : process.argv[i + 1]; };
 const required = (name: string) => { const value = option(name); check(value && !value.startsWith("--"), `argument_${name}`); return resolve(value); };
@@ -65,12 +66,11 @@ type RecordedOutcome = { kind: "win"; winner: number } | { kind: "draw" };
 
 async function run(name: "chromium" | "firefox", output: string, dist: string, inputs: Inputs, natural: boolean) {
   const pins = verifyInputs(inputs);
-  const checkerSources = ["check-product-session.ts", "lib/product-session-fixture.ts", "lib/product-session-host.ts"].map(path => ({ path, sha256: fileHash(fileURLToPath(new URL(path, import.meta.url))) }));
+  const checkerSources = ["check-product-session.ts", "lib/product-session-fixture.ts", "lib/product-session-host.ts", "lib/product-session-safety.ts"].map(path => ({ path, sha256: fileHash(fileURLToPath(new URL(path, import.meta.url))) }));
   const directory = mkdtempSync(join(output, `${name}-`));
   const log = openSync(join(directory, "host.log"), "wx", 0o600);
   const child = fork(fileURLToPath(new URL("./lib/product-session-host.ts", import.meta.url)), [], { stdio: ["ignore", log, log, "ipc"] });
   closeSync(log);
-  const joined = new Promise<number | null>(done => child.once("exit", done));
   let stopped = false, joinedLeases = 0;
   child.on("message", (value: any) => { if (value.stopped) { stopped = true; joinedLeases = value.leases; } });
   const readiness = bounded(new Promise<Ready>((done, fail) => {
@@ -80,7 +80,8 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   }), 170_000, "fixture_start_deadline");
   child.send({ directory: join(directory, "private"), dist, inputs });
   let browser, context: BrowserContext | undefined, page: Page | undefined, ready: Ready | undefined;
-  let failure = "", protocolFailed = false, pageErrors = 0, presentationMissing = 0, presentationVerified = false, namedCards = 0;
+  const audit = new ObserverAudit();
+  let failure = "", presentationMissing = 0, presentationVerified = false, namedCards = 0;
   let observation: Observation | null = null, revision = "", outcome: RulesResult | null = null, lifecycle = "";
   let gameId = "", artifactPath = "", bootstrap: SeatBootstrap | undefined, grants = 0, nativeReads = 0, activeReads = 0;
   let lazyLoaded = false, admission = false, launched = false, recovered = false, unmounted = false, regranted = false;
@@ -93,7 +94,6 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   const sent = new Map<string, string>(), accepted = new Set<string>(), consumed = new Set<string>();
   const requestKinds: Record<string, number> = {}, responseKinds: Record<string, number> = {};
   const nativeStatuses: Record<string, number> = {};
-  const jobs = new Set<Promise<void>>();
   let journalBeforeSend = 0, originalContexts = 0, completeResponses = 0, authenticatedPosts = 0;
   const add = (counts: Record<string, number>, name: string) => { counts[name] = (counts[name] ?? 0) + 1; };
   const readRecord = async () => {
@@ -116,15 +116,15 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     const cookie = (value: string) => ({ name: "better-auth.session_token", value, url: ready!.origin, httpOnly: true, sameSite: "Lax" as const });
     await context.addCookies([cookie(ready.owner.cookie)]);
     page = await context.newPage(); page.setDefaultTimeout(20_000);
-    page.on("pageerror", () => { pageErrors++; });
+    page.on("pageerror", () => { audit.pageErrors++; });
     // No traces, HAR, video, screenshots, console text, DOM snapshots or failing
     // locator diagnostics are captured. Plain playwright-core avoids test-runner
     // automatic authenticated failure artifacts.
     page.on("response", response => {
-      const job = (async () => {
+      audit.track(async () => {
         const path = new URL(response.url()).pathname;
         if (/\/presentation\/[a-f0-9]{64}\.json$/.test(path) && response.status() === 200) {
-          const artifact = await response.json();
+          const artifact = await audit.json(response);
           check(artifact.catalog_sha256 === ready!.identity.catalog_sha256, "presentation_catalog");
           for (const card of ready!.cards) {
             const found = artifact.cards.find((row: { oracle_id: string }) => row.oracle_id === card.oracle_id);
@@ -136,14 +136,14 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
         if (/\/assets\/live-game-[^/]+\.js$/.test(path)) lazyLoaded = true;
         if (path === "/api/games/admission") {
           check(response.status() === 200, "admission_http");
-          const value = await response.json(); admission = value.admission.state === "supported" && value.admission.launch_ready === true;
+          const value = await audit.json(response); admission = value.admission.state === "supported" && value.admission.launch_ready === true;
         } else if (path === "/api/games" && response.request().method() === "POST") {
           check(response.status() === 200, "launch_http");
-          const value = await response.json(); check(value.game.state === "active", "launch_active");
+          const value = await audit.json(response); check(value.game.state === "active", "launch_active");
           gameId = value.game.id; launched = true;
         } else if (/\/api\/games\/[^/]+\/seat$/.test(path)) {
           if (response.status() !== 200) return;
-          const value = await response.json(), next = sdk.parseSeatBootstrap(value.bootstrap_file);
+          const value = await audit.json(response), next = sdk.parseSeatBootstrap(value.bootstrap_file);
           check(next.viewer === 0 && next.match_id === gameId && next.server_origin === ready!.origin
             && next.engine_build_id === ready!.identity.engine_build_id && next.server_build_id === ready!.identity.server_build_id
             && next.catalog_sha256 === ready!.identity.catalog_sha256, "grant_identity");
@@ -160,7 +160,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
           if (response.request().method() === "GET" && [429, 503].includes(response.status())) return;
           if (operation === "execution" && response.status() === 404) return;
           check(response.status() === 200, "native_browser_http");
-          const value = await response.json();
+          const value = await audit.json(response);
           if (path.endsWith("/resume")) {
             check(value.viewer === 0 && value.match_id === gameId && value.engine_build_id === ready!.identity.engine_build_id
               && value.server_build_id === ready!.identity.server_build_id && value.catalog_sha256 === ready!.identity.catalog_sha256, "resume_identity");
@@ -181,10 +181,9 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
           } else if (/\/commands\/[^/]+$/.test(path) && value.status.status === "consumed_by_rules") consumed.add(value.command_id);
           if (observation) check(observation.observation_version === OBSERVATION_VERSION && observation.view.viewer === 0, "actual_observation_21");
         }
-      })().catch(() => { protocolFailed = true; });
-      jobs.add(job); void job.finally(() => jobs.delete(job));
+      });
     });
-    await context.route("**/*", async route => {
+    await context.route("**/*", route => audit.track(async () => {
       const request = route.request(), url = new URL(request.url()); requests++;
       try {
         check(!url.href.includes(ready!.owner.cookie) && !url.href.includes(ready!.foreign.cookie)
@@ -198,7 +197,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
           else if (!url.pathname.endsWith("/client-config.json")) check(bootstrap && headers.authorization === `Bearer ${bootstrap.capability}`, "native_human_bearer");
           if (request.method() === "POST") authenticatedPosts++;
           if (/\/commands$/.test(url.pathname) && request.method() === "POST") {
-            const body = request.postData(); check(body && pending && !protocolFailed, "unsolicited_human_post");
+            const body = request.postData(); check(body && pending && !audit.protocolFailed, "unsolicited_human_post");
             const envelope = sdk.parsePreparedCommand(body).envelope;
             check(!sent.has(envelope.command_id), "duplicate_human_post");
             check(envelope.expected_revision === pending.revision && envelope.command.kind === "decision"
@@ -210,19 +209,23 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
             add(responseKinds, envelope.command.response.response); sent.set(envelope.command_id, body);
           }
         }
-        await route.continue();
-      } catch { protocolFailed = true; await route.abort().catch(() => {}); }
-    });
+        try { await route.continue(); }
+        catch (error) {
+          if (audit.expectedAbort(request.failure()?.errorText)) audit.expectedCancellations++;
+          else throw error;
+        }
+      } catch { audit.protocolFailed = true; await route.abort().catch(() => {}); }
+    }));
     const current = (): Observation => { check(observation, "browser_observation"); return observation; };
     const settle = async (action: () => Promise<unknown>, response: PlayerResponse, original = { revision, token: current().decision!.token }) => {
-      check(!pending && !protocolFailed, "command_gate");
+      check(!pending && !audit.protocolFailed, "command_gate");
       add(requestKinds, current().decision!.request);
       pending = { ...original, response }; const before = sent.size;
       try {
         await action();
-        await until(() => !protocolFailed && sent.size === before + 1, "human_post_observed");
+        await until(() => !audit.protocolFailed && sent.size === before + 1, "human_post_observed");
         const id = [...sent.keys()].at(-1)!;
-        await until(() => !protocolFailed && accepted.has(id) && consumed.has(id), "native_consumed_by_rules");
+        await until(() => !audit.protocolFailed && accepted.has(id) && consumed.has(id), "native_consumed_by_rules");
         await until(() => journal(page!), "journal_resolved");
         await until(() => page!.getByRole("region", { name: "Choice status" }).filter({ hasText: "The table used your choice." }).isVisible(), "choice_status");
       } finally { pending = undefined; }
@@ -253,7 +256,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       await page.getByRole("option", { name: "Native foundations default", exact: true }).click();
     }
     await page.getByRole("button", { name: "Check compatibility", exact: true }).click();
-    await until(() => admission && !protocolFailed, "supported_admission");
+    await until(() => admission && !audit.protocolFailed, "supported_admission");
     check(!lazyLoaded, "session_not_loaded_during_setup");
     await page.getByRole("button", { name: "Start game", exact: true }).click();
     await until(() => launched && gameId && new URL(page!.url()).pathname === `/play/games/${gameId}`, "active_route", 170_000);
@@ -271,8 +274,9 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       const name = ready.cards.find(card => card.oracle_id === object.oracle_id)?.name;
       check(name && await page.getByRole("region", { name: /^Your hand/ }).getByRole("button", { name: `Inspect ${name}`, exact: true }).count() > 0, "named_hand_ui"); namedCards++;
     }
+    const openingContext = { revision, token: current().decision!.token };
     await page.getByRole("radio", { name: "Keep hand", exact: true }).check();
-    await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), { response: "mulligan", take: false });
+    await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), { response: "mulligan", take: false }, openingContext);
     for (let i = 0; i < 12; i++) {
       await until(() => current().decision?.request === "priority", "priority_window");
       if (current().view.turn.step === "precombat_main") break;
@@ -292,6 +296,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     await choose(value => value.initiation.action === "finish_mana" && value.initiation.undo_mana);
     await until(() => current().decision?.request === "spend_mana", "payment_window");
     const payment = current().decision; check(payment?.request === "spend_mana" && payment.cost.generic === "0" && current().decision_context?.source, "permitted_payment");
+    const paymentContext = { revision, token: payment.token };
     const colors = { W: "White", U: "Blue", B: "Black", R: "Red", G: "Green", C: "Colorless" };
     const spending: Record<string, string> = {};
     for (const color of Object.keys(payment.available) as (keyof typeof colors)[]) {
@@ -299,7 +304,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       if (amount !== "0") spending[color] = amount;
       await page.getByRole("textbox", { name: new RegExp(`^${colors[color]}`) }).fill(amount);
     }
-    await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), { response: "spend_mana", spending });
+    await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), { response: "spend_mana", spending }, paymentContext);
     const resolved = () => current().view.objects.some(object => object.owner === 0 && object.oracle_id === commanderOracle && object.zone.zone === "battlefield");
     for (let i = 0; i < 8 && !resolved(); i++) {
       await until(() => current().decision?.request === "priority" || resolved(), "resolution_priority");
@@ -314,7 +319,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     // Unmount the lazy session, then let any already in-flight read settle. No
     // later native I/O or UI command may retain the discarded route's File.
     await page.getByRole("link", { name: "Back to saved games", exact: true }).click();
-    await bounded(Promise.allSettled([...jobs]), 5_000, "unmount_reads"); await delay(250);
+    await audit.drain(5_000); await delay(250);
     const readsAfterUnmount = nativeReads; await delay(300);
     check(nativeReads === readsAfterUnmount && !(await connected()), "old_file_route_unmounted"); unmounted = true;
     const priorGrant = grants;
@@ -347,18 +352,19 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     if (natural) {
       const milliseconds = Number(option("natural-ms") ?? 240_000);
       check(Number.isSafeInteger(milliseconds) && milliseconds >= 1 && milliseconds <= 1_800_000, "natural_bound");
-      naturalAttempted = true; const end = Date.now() + milliseconds, count = sent.size;
+      naturalAttempted = true; const end = Date.now() + milliseconds;
       let lastRecord = 0;
-      while (Date.now() < end && sent.size - count < 2_000 && !protocolFailed) {
+      while (Date.now() < end && sent.size < 2_000 && !audit.protocolFailed) {
         check(!shutdown.signal.aborted, "check_aborted");
         // Account-owned status only; this does not add a native seat reader.
         if (Date.now() - lastRecord >= 2_000) { await readRecord(); lastRecord = Date.now(); }
         if (recordCompleted) { naturalCompleted = true; break; }
-        if (recordPaused) { naturalPaused = true; break; }
+        if (recordPaused) { naturalPaused = lifecycle === "resource_paused"; break; }
         if (outcome) { naturalCompleted = true; break; }
-        if (["resource_paused", "faulted", "cancelled", "rejected"].includes(lifecycle)) { naturalPaused = true; break; }
+        if (["resource_paused", "faulted", "cancelled", "rejected"].includes(lifecycle)) { naturalPaused = lifecycle === "resource_paused"; break; }
         const request = current().decision;
         if (!request) { await delay(50); continue; }
+        const original = { revision, token: request.token };
         if (request.request === "priority") await choose(value => value.initiation.action === "pass");
         else if (request.request === "attackers" || request.request === "blockers") {
           const title = request.request === "attackers" ? "Declare attackers" : "Declare blockers";
@@ -374,23 +380,24 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
               await controls.nth(i).selectOption(JSON.stringify([defender])); attacks.push([handle, defender]);
             } else await controls.nth(i).selectOption("unused");
           }
-          await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), request.request === "attackers" ? { response: "attackers", attacks } : { response: "blockers", blocks: [] });
+          await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), request.request === "attackers" ? { response: "attackers", attacks } : { response: "blockers", blocks: [] }, original);
         } else if (request.request === "damage" && request.recipients.length === 0 && request.player_recipient !== null && request.player_recipient !== undefined) {
           await page.getByRole("textbox", { name: `Seat ${request.player_recipient + 1}`, exact: false }).fill(request.power);
-          await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), { response: "trample_damage", assignments: [], player: request.player_recipient, amount: request.power });
+          await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), { response: "trample_damage", assignments: [], player: request.player_recipient, amount: request.power }, original);
         } else if (request.request === "discard") {
           const boxes = page.getByRole("group", { name: "Choose cards to discard", exact: true }).getByRole("checkbox");
           check(await boxes.count() === request.candidates.length, "permitted_discard_candidates");
           for (let i = 0; i < request.count; i++) await boxes.nth(i).check();
-          await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), { response: "discard", objects: request.candidates.slice(0, request.count) });
+          await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), { response: "discard", objects: request.candidates.slice(0, request.count) }, original);
         } else { add(requestKinds, request.request); naturalUnsupported = true; break; }
       }
-      naturalCompleted ||= Boolean(outcome); naturalBounded = !naturalCompleted && !naturalPaused && !naturalUnsupported;
+      naturalCompleted ||= Boolean(outcome); naturalBounded = !naturalCompleted && !naturalPaused && !naturalUnsupported && !recordPaused && !["faulted", "cancelled", "rejected"].includes(lifecycle);
     }
     check(await page.evaluate(() => localStorage.length === 0 && sessionStorage.length === 0 && location.search === "" && location.hash === ""), "no_secret_storage_or_url");
-    check(!protocolFailed && pageErrors === 0 && sent.size === journalBeforeSend && sent.size === originalContexts
+    check(!audit.protocolFailed && audit.pageErrors === 0 && sent.size === journalBeforeSend && sent.size === originalContexts
       && sent.size === completeResponses && sent.size === accepted.size && sent.size === consumed.size, "all_command_proofs");
     check(["mulligan", "pass", "play_land", "cast", "activate_mana", "finish_mana", "spend_mana"].every(kind => responseKinds[kind]), "first_turn_responses");
+    audit.closing = true;
     await page.getByRole("button", { name: "Release seat and clear view", exact: true }).click();
   } catch (error) {
     // Only our short fixed assertion codes may become evidence; Playwright and
@@ -417,38 +424,39 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
         journalUnresolved = !(await journal(page));
       } catch { failure ||= "terminal_comparison_failed"; }
     }
-    // Abort/bound browser I/O before joining every owned native and bot lease.
-    try { await bounded(Promise.allSettled([context?.close(), browser?.close(), ...jobs]), 5_000, "browser_cleanup"); }
-    catch { failure ||= "browser_cleanup"; }
-    if (child.connected) child.send({ stop: true });
-    let exit: number | null = null;
-    try { exit = await bounded(joined, 40_000, "host_join_deadline"); }
-    catch {
-      failure ||= "host_join_deadline"; child.kill("SIGTERM");
-      try { exit = await bounded(joined, 20_000, "host_join_failed"); }
-      catch {
-        failure ||= "host_join_failed";
-        // Broken fixture cleanup must still close the native/bot lifetime
-        // pipes, then join only this run's exact private roots. Preserve failure.
-        child.kill("SIGKILL");
-        await bounded(joined, 5_000, "fixture_kill_deadline").catch(() => {});
-        const root = join(directory, "private");
-        for (const entry of existsSync(root) ? readdirSync(root, { withFileTypes: true }) : []) {
-          if (!entry.isDirectory() || !/^[a-f0-9]{32}$/.test(entry.name)) continue;
-          try {
-            const owned = join(root, entry.name);
-            execFileSync(join(inputs.nativeRoot, "mtg-server"), ["lifecycle-join", owned], { timeout: 15_000, stdio: "ignore" });
-            for (const seat of [1, 2, 3]) if (existsSync(join(owned, `bot-${seat}`, "lease"))) {
-              execFileSync("flock", ["--nonblock", join(owned, `bot-${seat}`, "lease"), "true"], { timeout: 2_000, stdio: "ignore" });
-            }
-          } catch { failure = "owned_leases_not_joined"; }
+    // Final acceptance follows closure and observer drain. Only evidenced body
+    // transport cancellation is expected; late schema/context/page errors fail.
+    audit.closing = true;
+    try {
+      await bounded(Promise.allSettled([context?.close(), browser?.close()]), 5_000, "browser_cleanup");
+      check(!browser?.isConnected(), "browser_cleanup");
+      await audit.drain(5_000);
+    } catch { failure ||= "browser_cleanup"; }
+    const command = (file: string, args: string[], signal: AbortSignal, timeout: number) => new Promise<void>((done, fail) => {
+      execFile(file, args, { signal, timeout, killSignal: "SIGKILL" }, error => error ? fail(Error("owned_join")) : done());
+    });
+    const ending = await finishOwnedChild(child, async signal => {
+      let leases = 0;
+      const root = join(directory, "private");
+      for (const entry of existsSync(root) ? readdirSync(root, { withFileTypes: true }) : []) {
+        if (!entry.isDirectory() || !/^[a-f0-9]{32}$/.test(entry.name)) continue;
+        const owned = join(root, entry.name);
+        await command(join(inputs.nativeRoot, "mtg-server"), ["lifecycle-join", owned], signal, 15_000);
+        for (const seat of [1, 2, 3]) if (existsSync(join(owned, `bot-${seat}`, "lease"))) {
+          await command("flock", ["--nonblock", join(owned, `bot-${seat}`, "lease"), "true"], signal, 2_000); leases++;
         }
       }
-    }
-    const cleanup = stopped && exit === 0 && joinedLeases === (launched ? 3 : 0);
+      return leases;
+    });
+    const cleanup = stopped && ending.complete && ending.leases === (launched ? 3 : 0);
+    joinedLeases = ending.leases;
     if (!cleanup) failure ||= "owned_leases_not_joined";
+    try { await audit.drain(5_000); } catch { failure ||= "observer_drain_deadline"; }
+    const final = audit.verdict(failure, sent.size === journalBeforeSend && sent.size === originalContexts
+      && sent.size === completeResponses && sent.size === accepted.size && sent.size === consumed.size);
+    failure = final.failure;
     const receipt = { browser: name, version: browser?.version() ?? "unavailable", source: pins, checker_sources: checkerSources, product_manifest_sha256: fileHash(join(dist, ".vite/manifest.json")), observation_version: OBSERVATION_VERSION,
-      passed: !failure, failure, page_errors: pageErrors, protocol_failed: protocolFailed, lazy_loaded: lazyLoaded, admission, launched,
+      passed: final.passed, failure, page_errors: audit.pageErrors, protocol_failed: audit.protocolFailed, lazy_loaded: lazyLoaded, admission, launched,
       grants, recovered, unmounted, regranted, negative_checks: negatives, requests, native_requests: nativeReads, authenticated_posts: authenticatedPosts,
       human_commands: sent.size, journal_before_send: journalBeforeSend, original_contexts: originalContexts, complete_responses: completeResponses,
       accepted: accepted.size, consumed: consumed.size, action_queries: queries, request_counts: requestKinds, response_counts: responseKinds,
@@ -456,7 +464,8 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       presentation_404: presentationMissing, production_presentation_verified: presentationVerified, named_cards_verified: namedCards,
       land_played: landPlayed, commander_resolved: commanderResolved, conditional_reversal_wording: conditionalReversal,
       natural_attempted: naturalAttempted, natural_completed: naturalCompleted, natural_resource_paused: naturalPaused, natural_bounded: naturalBounded,
-      natural_unsupported: naturalUnsupported, rules_win: (outcome as RulesResult | null)?.outcome === "win", rules_draw: (outcome as RulesResult | null)?.outcome === "draw", cleanup_complete: cleanup, joined_bot_leases: joinedLeases };
+      natural_unsupported: naturalUnsupported, rules_win: (outcome as RulesResult | null)?.outcome === "win", rules_draw: (outcome as RulesResult | null)?.outcome === "draw", cleanup_complete: cleanup, joined_bot_leases: joinedLeases, observer_shutdown_cancellations: audit.expectedCancellations,
+      owned_child_exited: ending.exited, owned_child_escalated: ending.escalated, owned_ipc_disconnected: ending.ipcDisconnected };
     Object.assign(receipt, { game_record_reads: recordReads, game_record_completed: recordCompleted, game_record_paused: recordPaused,
       game_record_win: (recordOutcome as RecordedOutcome | null)?.kind === "win", game_record_draw: (recordOutcome as RecordedOutcome | null)?.kind === "draw", visible_outcome_matches: uiOutcomeMatches,
       native_outcome_observed: Boolean(outcome), journal_unresolved: journalUnresolved });
