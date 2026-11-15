@@ -9,7 +9,7 @@ import { chromium, firefox, type Page, type BrowserContext, type Request } from 
 import type { GameRecord } from "../src/contracts.ts";
 import type { ActionBeginning, ActionInitiation, Observation, PlayerResponse, SeatBootstrap, RulesResult } from "@multiverse/game-server-sdk";
 import { check, completeResponse, fileHash, repository, verifyInputs, OBSERVATION_VERSION, type Inputs } from "./lib/product-session-fixture.ts";
-import { ObserverAudit, SubmissionAudit, finishOwnedChild, discoverWithRateRecovery, waitForUiRead, readCooldownPending, boundedRetryAfter } from "./lib/product-session-safety.ts";
+import { ObserverAudit, SubmissionAudit, finishOwnedChild, discoverWithRateRecovery, waitForUiRead, readCooldownPending, boundedRetryAfter, queryRateInvalidated } from "./lib/product-session-safety.ts";
 
 const option = (name: string) => { const i = process.argv.indexOf(`--${name}`); return i < 0 ? undefined : process.argv[i + 1]; };
 const required = (name: string) => { const value = option(name); check(value && !value.startsWith("--"), `argument_${name}`); return resolve(value); };
@@ -100,9 +100,12 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   const recordPauseCounts: Record<string, number> = {};
   const recordStateCounts: Record<string, number> = {};
   let beginnings: ActionBeginning[] = [], requests = 0, queries = 0;
-  type Discovery = { context: { revision: string; token: string }; beginnings: ActionBeginning[]; calls: number; nativeStale: boolean };
+  type Discovery = { context: { revision: string; token: string }; beginnings: ActionBeginning[]; calls: number; nativeStale: boolean; lastHttp: number; rateHint: boolean };
   let discovery: Discovery | null = null;
   const queryOwners = new WeakMap<Request, Discovery>();
+  const readOrdinals = new WeakMap<Request, number>();
+  let readOrdinal = 0, successfulReadOrdinal = 0, queryRateReadFloor = -1, queryRateLimits = 0, queryRateInvalidations = 0;
+  const queryCooldownPending = () => readCooldownPending(queryRateLimits, queryRateReadFloor, successfulReadOrdinal);
   let readRateLimits = 0, resumesAtRateLimit = 0, recoveredCommands = 0, naturalEnd = Infinity;
   let readCooldownWaits = 0, readCooldownReady = 0;
   let invalidatedCompleteMenus = 0, lateNoSendInvalidations = 0, actionClickTimeouts = 0;
@@ -131,7 +134,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   const connected = () => page!.getByRole("heading", { name: "Connected · Seat 1", exact: true }).isVisible();
   const untilRead = async (predicate: () => Promise<boolean>, code: string) => {
     const extended = await waitForUiRead({ end: naturalEnd, code, now: Date.now, predicate, wait: () => delay(30),
-      ratePending: () => naturalAttempted && (readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads) || submissions.pendingRateLimited), onCooldown: () => { readCooldownWaits++; },
+      ratePending: () => naturalAttempted && (readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads) || queryCooldownPending() || submissions.pendingRateLimited), onCooldown: () => { readCooldownWaits++; },
       healthy: () => {
         check(!shutdown.signal.aborted, "check_aborted");
         check(!audit.protocolFailed && audit.pageErrors === 0, "rate_recovery_protocol_or_page_error");
@@ -224,6 +227,16 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
             : path.endsWith("/presentation") ? "presentation" : path.endsWith("/manifest") ? "manifest"
               : path.endsWith("/actions/query") ? "query" : path.endsWith("/commands") ? "submit" : "execution";
           add(nativeStatuses, `${operation}_${response.status()}`);
+          const queryOwner = queryOwners.get(response.request());
+          if (operation === "query" && queryOwner && queryOwner === discovery) queryOwner.lastHttp = response.status();
+          if (operation === "query" && response.status() === 429) {
+            if (rateHint === null) submissionFailure ||= "query429_without_bounded_hint";
+            else {
+              queryRateLimits++; queryRateReadFloor = readOrdinal;
+              if (queryOwner && queryOwner === discovery) { queryOwner.calls++; queryOwner.rateHint = true; }
+            }
+            return;
+          }
           if (operation === "submit" && response.status() === 429) {
             const id = sdk.parsePreparedCommand(response.request().postData()!).envelope.command_id;
             if (rateHint === null) submissionFailure ||= "submission429_without_bounded_hint";
@@ -238,7 +251,6 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
             submissions.missing(decodeURIComponent(path.split("/").at(-1)!)); return;
           }
           check(response.status() === 200, "native_browser_http");
-          const queryOwner = queryOwners.get(response.request());
           const value = await audit.json(response);
           if (path.endsWith("/resume")) {
             check(value.viewer === 0 && value.match_id === gameId && value.engine_build_id === ready!.identity.engine_build_id
@@ -274,6 +286,8 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
             if (value.status.status === "consumed_by_rules") { submissions.consumed(id); consumed.add(id); }
           }
           if (observation) check(observation.observation_version === OBSERVATION_VERSION && observation.view.viewer === 0, "actual_observation_21");
+          const ordinal = readOrdinals.get(response.request());
+          if (ordinal !== undefined) successfulReadOrdinal = Math.max(successfulReadOrdinal, ordinal);
         }
       });
       const id = submissionRequestIds.get(response.request());
@@ -295,6 +309,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
           if (/\/presentation\/[a-f0-9]{64}\.json$/.test(url.pathname)) check(request.method() === "GET" && !headers.authorization, "artifact_cookie_without_bearer");
           else if (!url.pathname.endsWith("/client-config.json")) check(bootstrap && headers.authorization === `Bearer ${bootstrap.capability}`, "native_human_bearer");
           if (request.method() === "POST") authenticatedPosts++;
+          if (request.method() === "GET" && /\/(resume|events)$/.test(url.pathname)) readOrdinals.set(request, ++readOrdinal);
           if (url.pathname.endsWith("/actions/query") && discovery) queryOwners.set(request, discovery);
           if (/\/commands$/.test(url.pathname) && request.method() === "POST") {
             const body = request.postData(); check(body && !audit.protocolFailed && !submissionFailure, "unsolicited_human_post");
@@ -381,7 +396,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       let selectedCommand: string | undefined;
       const currentContext = async (original: { revision: string; token: string }) => await connected()
         && revision === original.revision && current().decision?.token === original.token
-        && !readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads);
+        && !readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads) && !queryCooldownPending();
       const chosen = await discoverWithRateRecovery<{ revision: string; token: string }, ActionBeginning[]>({
         allowed: naturalAttempted, now: Date.now, end: Math.min(naturalEnd, Date.now() + 90_000), healthy,
         capture: async () => {
@@ -398,14 +413,14 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
             await until(async () => {
               await healthy();
               check(await page!.getByRole("heading", { name: /^(Rate limit or possible contention|Host temporarily unavailable|Connection lost|Seat authorization rejected|Incompatible table or presentation)$/ }).count() === 0, "stale_rediscovery_persistent_failure");
-              return await connected() && !readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads)
+              return await connected() && !readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads) && !queryCooldownPending()
                 && await button.getAttribute("aria-disabled") === "false";
             }, "stale_rediscovery_deadline", Math.max(1, end - Date.now()));
           },
         } } : {}),
         usable: async original => {
           const usable = await connected() && revision === original.revision && current().decision?.token === original.token
-            && !readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads);
+            && !readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads) && !queryCooldownPending();
           if (!usable) invalidatedCompleteMenus++;
           return usable;
         },
@@ -413,7 +428,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
           await until(async () => {
             await healthy();
             check(await page!.getByRole("heading", { name: /^(Rate limit or possible contention|Host temporarily unavailable|Connection lost|Seat authorization rejected|Incompatible table or presentation)$/ }).count() === 0, "rate_recovery_persistent_failure");
-            return activeReads > resumesAtRateLimit && await connected()
+            return activeReads > resumesAtRateLimit && !queryCooldownPending() && await connected()
               && await button.getAttribute("aria-disabled") === "false";
           }, "rate_recovery_deadline", Math.max(1, end - Date.now()));
           return readRateLimits;
@@ -448,7 +463,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
         discover: async (original, end) => {
           // The returned command context belongs to this fresh discovery,
           // never to the discarded stale menu.
-          const attempt: Discovery = { context: original, beginnings: [], calls: 0, nativeStale: false }; discovery = attempt;
+          const attempt: Discovery = { context: original, beginnings: [], calls: 0, nativeStale: false, lastHttp: 0, rateHint: false }; discovery = attempt;
           await page!.getByLabel("Discovery scope", { exact: true }).selectOption("");
           await button.click(); discoveryGenerations++; let phase = "";
           try {
@@ -463,7 +478,9 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
             lastDiscoveryPassOffered = attempt.beginnings.some(value => value.initiation.action === "pass");
             add(discoveryPhases, phase || "deadline");
           }
-          return { phase, value: attempt.beginnings, nativeStale: attempt.nativeStale };
+          const rateInvalidated = queryRateInvalidated(phase, attempt.lastHttp, attempt.rateHint);
+          if (rateInvalidated) queryRateInvalidations++;
+          return { phase: rateInvalidated ? "stale" : phase, value: attempt.beginnings, nativeStale: attempt.nativeStale };
         },
       }, rateRecovery);
       beginnings = chosen.value;
@@ -723,6 +740,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       submission_execution404: submissions.missingExecutions, submission_resolutions: submissions.resolutions, submission_recovered_commands: submissions.recovered,
       submission_retry_ui_clicks: submissionRetryClicks, submission_retry_ui_timeouts: submissionRetryTimeouts, submission_transport_failure: submissionFailure,
       submission_attempt_bound_per_command: 5, submission_retry_ui_click_bound_per_command: 1,
+      query_transport429: queryRateLimits, query_rate_invalidations: queryRateInvalidations, query_rate_read_pending: queryCooldownPending(),
       response_attempt_counts: responseAttemptKinds,
       accepted: accepted.size, consumed: consumed.size, action_queries: queries, request_counts: requestKinds, response_counts: responseKinds,
       native_status_counts: nativeStatuses, http_status_counts: httpStatuses, record_http_status_counts: recordHttpStatuses,

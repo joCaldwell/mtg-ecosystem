@@ -10,6 +10,12 @@ export function readCooldownPending(rateCount: number, resumesAtLastRate: number
   return rateCount > 0 && successfulResumes <= resumesAtLastRate;
 }
 
+/** ActionQueryController retires exhausted HTTP429 retries as unavailable.
+ * Other unavailable/uncertain/native outcomes never acquire this exception. */
+export function queryRateInvalidated(phase: string, lastHttp: number, boundedHint: boolean) {
+  return phase === "unavailable" && lastHttp === 429 && boundedHint;
+}
+
 /** Browser-observation ledger, never a command sender or journal writer. A
  * missing execution only permits byte-identical delivery of an existing intent. */
 export class SubmissionAudit<T> {

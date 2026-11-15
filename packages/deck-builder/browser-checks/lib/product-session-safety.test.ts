@@ -4,7 +4,33 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { chromium } from "playwright-core";
 import { prepareCommand, parsePreparedCommand } from "@multiverse/game-server-sdk";
-import { ObserverAudit, SubmissionAudit, finishOwnedChild, deadline, discoverWithRateRecovery, waitForUiRead, readCooldownPending, boundedRetryAfter } from "./product-session-safety.ts";
+import { ObserverAudit, SubmissionAudit, finishOwnedChild, deadline, discoverWithRateRecovery, waitForUiRead, readCooldownPending, boundedRetryAfter, queryRateInvalidated } from "./product-session-safety.ts";
+
+test("captured query429 invalidation waits for a genuinely later product read before a fresh query", async () => {
+  let calls = 0, finished = false, successfulRead = 5, release!: () => void;
+  const readAtRate = 5, gate = new Promise<void>(done => { release = done; });
+  const work = discoverWithRateRecovery({ allowed: true, end: Date.now() + 2_000, now: Date.now,
+    healthy: async () => {}, capture: () => successfulRead, rateCount: () => 0, recovered: async () => 0,
+    normalStale: { counts: freshStaleCounts(), ready: async () => {
+      assert.equal(readCooldownPending(1, readAtRate, successfulRead), true); await gate;
+      assert.equal(readCooldownPending(1, readAtRate, successfulRead), false);
+    }, changed: (a, b) => ({ token: false, cursor: a !== b }) },
+    discover: async () => { calls++; const raw = calls === 1 ? "unavailable" : "complete";
+      return { phase: queryRateInvalidated(raw, calls === 1 ? 429 : 200, true) ? "stale" : raw, value: calls }; },
+  }, { handled: 0, started: 0, ready: 0, freshDiscoveries: 0 }).then(value => { finished = true; return value; });
+  await new Promise<void>(done => setImmediate(done)); assert.equal(calls, 1); assert.equal(finished, false);
+  // Completion of the old in-flight request does not establish fresh admission.
+  successfulRead = 5; await new Promise<void>(done => setImmediate(done)); assert.equal(calls, 1);
+  successfulRead = 6; release(); const result = await work;
+  assert.equal(result.value, 2); assert.equal(result.context, 6); assert.equal(result.rediscovered, true);
+});
+
+test("query429 exception cannot swallow native unsupported, auth, other HTTP failures or uncertainty", () => {
+  assert.equal(queryRateInvalidated("unavailable", 429, true), true);
+  for (const [phase, status, hint] of [["unavailable", 200, true], ["unavailable", 401, true], ["unavailable", 403, true],
+    ["unavailable", 503, true], ["uncertain", 429, true], ["limited", 429, true], ["unavailable", 429, false]] as const)
+    assert.equal(queryRateInvalidated(phase, status, hint), false);
+});
 
 test("observed submit429/execution404 permits only the saved SDK bytes and resolves once after consumed", () => {
   const command = prepareCommand({ protocol_version: 1, command_id: "a".repeat(32), expected_revision: "7",
