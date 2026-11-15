@@ -236,16 +236,22 @@ optimized core and schema SHA-256, in that order; raw roots are under `generated
 | Typed Aura control `97afa6cdcdda88d76a86459b18ae53cda63c1546` | 507 distinct Rust: 398 prechecks at `99097789` through three-private-test-file bridge, 109 fresh core; 3,021 probes; 837 rows | `df8d293944268b10c2900f0628ef01e8872d0472febb845237a634145b5fb3ec` / `14bb7aa2b7cbe2c07672c439172cb13ca4743564ae9c80c479add9387ee80567` / `bf73e4bb9c58aa3661ee75e25d10590214d6aa466464908c4ce53745f34b99a0` | `typed-aura-control/{integration.json,review.json,preflight01/,combined05/}` |
 | Fresh-main integration `f3326dcd6fab0e6dc8ebbbbef33c622ceb3e3db3` | 605 distinct Rust/606 executions (lifecycle child repeat); 3,021 probes; 841 rows | `f59345c978e736e5d4d7800b5039c948c6c507a1c9ee159bf37ba7c75be9aa96` / `c21715382ad199ba57b1ff18f7dfa01b90458d4bf5eb738f9b3f76cb1fbb4361` / `80a6d58052322bb440f67a4cd65f3fe454260bda11d7b328e37970a837f61073` | `typed-aura-control/main-integration/integration.json`, `main-integrated01/`–`03/` |
 | General Aura dependencies `aa28e9b7a39d601a8a9a8bb4fbde9484fe20fc1f` | 550 distinct Rust: 416 prechecks at `1163d0fd` through one-private-test bridge, 134 fresh core; 3,190 probes; 843 rows | `2f2c427810ee56b74aaf97312f278ceaec32520242a11530c59dac53af0088db` / `bd47a51c072088661d98acf10184b985fa6b68660513eba3024ae3c6a1d13cff` / `5caa2ff0392cf173057faa20342ba7f816c367e01ef1d59d69c0b3333ac6eb95` | `control-dependencies/{integration.json,review.json,review-continuity.json,combined01/,combined02/}` |
+| Controlled-permanent scalar keywords `449306226a532a6a14efdb9d4aa5959bf493f46f` | 626 distinct Rust/633 executions; 4,316 probes; 848 rows; IR1/29/23 | `83be4c3bca58b1ee16573c3a812d33c95a2f92bb6271217e619cd2e789dd758c` / `c29b9b7010e601f97034d70bd9e09c9e9657ff8365cba6891e87f7c2e8518045` / `4761f067a6bbe294f181b23c85f0092cdde9edc7fb4583639aa1e40a9bc0cd1e` | `targeted-permanent-keywords/integration.json` |
 
-These sources retain IR1/26/21. General-control precheck core remains
+The first four sources retain IR1/26/21. General-control precheck core remains
 `2ce7d22d0cd876d41653ddf9b4060b3bce4a116189986d693820527c49822eae`;
 fresh-main server remains `2f23d56fb85785bcb55d3246e9a742e2b3dd0fb8980a1e6b4925949cb5b86a98`.
 Exact binaries, independent identities, source bridges and original failures remain
-at the indexed roots. Reviews found no issues; production stayed unchanged through
+at the indexed roots. Earlier reviews found no issues; production stayed unchanged through
 paid-test setup/protocol repairs. General control covers reachable acyclic graphs;
 structural cycles reject. Same-controller behavior is documented CR-derived inference,
 not an official worked example. Paid multitype/control/LKI/recovery checks are
 separate from labelled synthetic broader vectors.
+
+Scalar libraries retain source `5567b910`, runtime `7315ffe2`; final source changes
+one schema annotation. Single-review null-recipient strictness has actual RED/GREEN;
+setup, empty-selector and zero-tail schema failures and both source bridges remain
+indexed. Consumer pins and admission remain unchanged.
 
 Formatting, all-target, catalog freshness and strict compiler/core/sim production
 lint retain their explicit bridges; contracts/server use proven inherited
