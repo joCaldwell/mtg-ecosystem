@@ -507,8 +507,8 @@ retain their original 409 controls and payloads. The
 [separate permanent controls](../packages/game-engine/crates/contracts/tests/permanent-set-keyword-schema-probes.mjs)
 cover the new selector, disjoint family/primitive closure, signed/zero modifier
 negatives and all other opcode/context fences. These are bounded synthetic IR
-controls; `--prepare-only` constructs them without schema execution. New Rust tests
-and schema validation remain UNRUN pending parent source-bound qualification.
+controls; `--prepare-only` constructs them without schema execution. Source-qualified tests/schema evidence is indexed in the evidence guide; acceptance
+never transfers to later source.
 The targeted atomic-grant probes remain separate; their prior split-format 1,955-probe inventory has its own historical identity. This family
 changes no catalog bodies, pool/profile/policy,
 hosting/search or consumer admission; Card IR remains schema 1.

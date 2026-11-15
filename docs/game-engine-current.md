@@ -33,12 +33,11 @@ A combined fixed stat/keyword grant is one instruction/effect with one recipient
 capture; later control or incarnation changes do not select new recipients.
 Permanent-wide grants reject stat modifiers. Profiles and consumers remain
 separately admitted.
-Ramos source `f6c9d7c7` combines Apex/Wanderer/Imoti, optional costs, counters and
-current typed Aura/permanent grants with main `219c8caf`. Independent intrinsic and
-granted cascades retain event-time identity/control and private recovery. Its
-582 distinct Rust/3,325 schema/964-row qualification uses private/public-context-work
-27/22, IR1. First-cast history and exact-target/profile/host/SDK/search admission
-remain open; historical client26/21 acceptance stays separate.
+Ramos rules `836a63a9` and schema `dbc644a5` combine main `d842ef59`, direct/granted
+cascade, semantic first-cast history, optional costs, counters and General Aura
+control. Qualified586 distinct Rust/3,531 schema/969 rows use private/public-context-work
+28/22,IR1. Affinity, ordered graveyard successors, remaining grants and exact-target/
+profile/host/SDK/search admission remain open; historical client26/21 stays separate.
 
 Continuous Aura control shares one operation for creatures, artifacts, lands and
 general permanents. Control-source dependencies use scratch, apply-once ordering;
@@ -60,7 +59,7 @@ The platform baseline was `c62777b`; acceptance never transfers to later source:
 | D2c-d `394301d` | Accepted declared-attack triggers at historical IR24, including reviewed demo/Bundle lifetimes |
 | Later D2c-e/IR25 and finite trigger/keyword/interaction additions | Candidate/focused source qualification; no renewed combined acceptance or P7 performance claim |
 | Schema-1 reset | Regenerated 29 active pools, 1,357 definitions unchanged; focused checks only |
-| Ramos combined M4c | Source `f6c9d7c7`; exact producer/settings proof in the evidence guide; focused qualification only |
+| Ramos combined M4d | Rules `836a63a9`/schema `dbc644a5`; producer/settings and explicit bridges in the evidence guide; focused qualification only |
 | Independent typed Aura main | Source `f3326dcd`; 605 distinct Rust, 3,021 schema, 841 rows; 26/21; separate from Imoti and consumer acceptance |
 | General Aura-control dependencies | Source `aa28e9b7a39d601a8a9a8bb4fbde9484fe20fc1f`; 843 rows; 550 distinct Rust tests, 3,190 probes; explicit private-test source bridge, IR1/26/21; consumers unqualified |
 | Client/hosting consumers | Retain their own exact producer/schema/catalog/build qualification, separate from current engine HEAD |

@@ -184,19 +184,20 @@ bridges, reviews and failures. The original833-second Apex witness was not repea
 
 ### Ramos Imoti and fresh-main combined qualification
 
-Source `f6c9d7c76ca0837ec2c93fad5a78fb5c1a272b7f`, main `219c8caf` plus peer `881c57b7`:
-**582 distinct Rust/591 accepted executions, 3,325 schema, 964 rows**. Libraries (126/298)
-retain `2676d264` through one core-test-only bridge;158 distinct core tests use `f6c9d7c7`.
-Opt2 `397bb69d`, CLI opt0 `d10ba85d` were independently rederived. Source labels are the
-only change in five previously qualified catalog exports. Formats 27/22, IR1.
-`generated/ramos/m4c-integrated/integration.json` links exact binaries/settings,
-review repairs, failed attempts, historical-hash adapter and source/IR bridges.
-All-target/fmt/smoke/replay passed. Full runtime/release/Clippy/Node/consumer matrices
-and exact-target admission remain omitted; first-cast history stays open.
+Source `f6c9d7c76ca0837ec2c93fad5a78fb5c1a272b7f`:582 Rust,3,325 schema,964
+rows;27/22. Exact producers, source bridges and unchanged-native-input a83 merge:
+`generated/ramos/m4c-integrated/integration.json` and the [immutable ledger](https://github.com/joCaldwell/mtg-ecosystem/blob/2173ae3814fb8777e24e376b4ebf48fc7dccc7ea/docs/game-engine-evidence.md#ramos-imoti-and-fresh-main-combined-qualification).
+No consumer acceptance transfers.
 
-Fresh-main publication `a83f3b57` was merged after qualification. All964 native
-rows and Rust build inputs remain byte-identical; only client/docs differ.
-`generated/ramos/m4c-integrated/fresh-main-source-bridge.json` records the proof.
-Independent peer source `f3326dcd` retains605 Rust/3,021 schema/841 rows at26/21:
-original-lane `generated/typed-aura-control/main-integration/integration.json`.
-Neither producer transfers client acceptance.
+### Ramos first-cast history combined qualification
+
+Rules source `836a63a9`, schema source `dbc644a5`, combined main `d842ef59`:
+**586 distinct Rust,3,531 schema probes,969 source rows**. Opt2 `d89d3290` and CLIopt0
+`8d39663f` identities were independently reproduced. Private28/public-context-work22,IR1.
+The single review's retained-continuation charge defect is fixed; paid source-control,
+reentry, departure, countered-cast, real reset/opponent-turn and recovery witnesses pass.
+A separate schema-only object-type guard repairs legacy-unit static rejection;
+unchanged-rules and test-only bridges retain original producers. All-target/fmt/smoke/
+replay passed. `generated/ramos/m4d-integrated/integration.json` indexes binaries,
+reviews, failures, schema, manifests and timings. Full runtime/release/Clippy/Node/
+consumer matrices and exact-target admission remain omitted.

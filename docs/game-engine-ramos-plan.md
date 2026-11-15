@@ -48,13 +48,14 @@ rules or policies. Keep the standalone deck-builder independent.
   and live controller-creature haste. Original source/format identities, reviews,
   private-root limits and the unrepeated 833-second Apex witness remain in their
   receipts and the [immutable prior plan](https://github.com/joCaldwell/mtg-ecosystem/blob/516fa1648f3f5ca3d4f040f7c1daf776bb5f3ceb/docs/game-engine-ramos-plan.md).
-- **M4c:** source `f6c9d7c7` combines Imoti with typed Aura/permanent-set and main
-  `219c8caf`: 582 distinct Rust, 3,325 schema probes, 964 source rows; formats27/22,
-  IR1. Tagged intrinsic/granted identity, aggregate collection, control/departure,
-  genuine kicker keep/undo, replay and privacy pass. The single review's four findings
-  and later test/setup failures are repaired and retained. No first-cast history yet.
+- **M4c:** `f6c9d7c7` qualifies complete Imoti and tagged grants; its582 Rust/3,325
+  schema/964-row proof remains separate at27/22.
+- **M4d:** rules `836a63a9`, schema `dbc644a5`, main `d842ef59`:586 distinct Rust,
+  3,531 schema,969 rows;28/22,IR1. Complete Nexus/Wild-Magic Sorcerer use semantic
+  per-seat successful-cast history. Review's continuation-accounting defect and
+  schema's legacy-unit predicate are fixed; paid lifecycle/recovery witnesses pass.
 
-Coordinator receipts: `generated/ramos/{m3b-integrated,m3c-integrated,m4a-integrated,m4c-integrated}/integration.json`.
+Coordinator receipts: `generated/ramos/{m3b-integrated,m3c-integrated,m4a-integrated,m4c-integrated,m4d-integrated}/integration.json`.
 They retain exact copied producers, independent build proofs, test-only bridges,
 reviews, failures and timings; historical acceptance never transfers. Original Apex
 833-second seeded evidence is preserved, not repeated. Full contract research stays
@@ -81,12 +82,9 @@ The focused exit above does not cover every possible casting source or cost.
 
 ### M4 Complete the cascade package and casting history
 
-Apex/Wanderer/Imoti are qualified above. M4d adds private per-seat successful-cast
-history and complete frozen Nexus/Sorcerer grants; source-bound checks and remaining
-gates are in `generated/ramos/m4d/handoff.json` (private28/public22, IR1).
-Add Ethersworn affinity, Enigma
-graveyard return, Yidris grants and turn/zone casting history, including
-casts before grant-source entry. Add Averna's action, Call Forth's other-spell mana
+Apex/Wanderer/Imoti/Nexus/Sorcerer are qualified above. Next: Ethersworn affinity;
+Enigma's exact battlefield-to-own-graveyard successor and third-from-top library
+movement/knowledge; Yidris grants and remaining turn/zone scopes. Add Averna's action, Call Forth's other-spell mana
 values and Vega's non-hand-cast draw. Preflight effective trigger batches and checked
 IDs from common physical bounds; no card/profile ceilings, truncation or partial
 publication. Copies require a revised capacity proof.
