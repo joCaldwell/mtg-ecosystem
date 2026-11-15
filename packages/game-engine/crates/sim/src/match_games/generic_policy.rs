@@ -1200,6 +1200,7 @@ impl Strategy<'_> {
                 ObjectSet::ControllerCreatures => {
                     c.kind == CardKind::Creature && o.controller == v.viewer
                 }
+                ObjectSet::ControllerPermanents => o.controller == v.viewer,
                 ObjectSet::NonlandPermanents => c.kind != CardKind::Land,
                 ObjectSet::Enchantments => c.has_type(CardKind::Enchantment),
                 ObjectSet::AttackingCreatures => v.combat.iter().any(|a| a.attacker == o.handle),
