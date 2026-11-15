@@ -106,7 +106,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   let invalidatedCompleteMenus = 0;
   let retryAfterPresent = 0, retryAfterMissing = 0, retryAfterUnbounded = 0;
   const retryAfterSeconds: Record<string, number> = {};
-  const rateRecovery = { handled: 0, started: 0, ready: 0, freshDiscoveries: 0 };
+  const rateRecovery = { handled: 0, started: 0, ready: 0, freshDiscoveries: 0, retired: 0 };
   let pending: { response: PlayerResponse; revision: string; token: string } | undefined;
   const sent = new Map<string, string>(), accepted = new Set<string>(), consumed = new Set<string>();
   const requestKinds: Record<string, number> = {}, responseKinds: Record<string, number> = {};
@@ -623,7 +623,8 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       native_status_counts: nativeStatuses, http_status_counts: httpStatuses, record_http_status_counts: recordHttpStatuses,
       retry_after_present: retryAfterPresent, retry_after_missing: retryAfterMissing, retry_after_unbounded: retryAfterUnbounded, retry_after_seconds_counts: retryAfterSeconds,
       read_rate_limits: readRateLimits, rate_recoveries_started: rateRecovery.started, rate_recoveries_ready: rateRecovery.ready,
-      rate_recovery_handled_limits: rateRecovery.handled, read_cooldown_pending: readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads),
+      rate_recovery_handled_limits: rateRecovery.handled, rate_evidence_retired_limits: rateRecovery.retired,
+      read_cooldown_pending: readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads),
       rate_recovery_fresh_discoveries: rateRecovery.freshDiscoveries, rate_recovery_consumed_commands: recoveredCommands,
       read_cooldown_waits: readCooldownWaits, read_cooldown_ready: readCooldownReady,
       discovery_completed_menus_invalidated: invalidatedCompleteMenus,

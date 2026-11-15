@@ -54,6 +54,24 @@ test("checker discards a stale menu and captures a new context only after real-U
   assert.deepEqual(counts, { handled: 1, started: 1, ready: 1, freshDiscoveries: 1 });
 });
 
+test("coherent discoveries retire unused 429 attribution before an unrelated later stale menu", async () => {
+  const counts = { handled: 0, started: 0, ready: 0, freshDiscoveries: 0, retired: 0 };
+  let now = 0, phase = "complete", rediscoveries = 0;
+  const effects = { allowed: true, end: 1_000_000, now: () => now,
+    healthy: async () => {}, capture: () => "current-original", rateCount: () => 1,
+    discover: async () => ({ phase, value: "current-menu" }),
+    recovered: async () => { rediscoveries++; return 1; },
+  };
+  for (let menu = 0; menu < 3; menu++) {
+    assert.equal((await discoverWithRateRecovery(effects, counts)).recovered, false);
+  }
+  assert.equal(counts.handled, 1); assert.equal(counts.retired, 1);
+  now = 565_000; phase = "stale";
+  await assert.rejects(discoverWithRateRecovery(effects, counts), /discovery_stale/);
+  assert.equal(rediscoveries, 0);
+  assert.equal(counts.started, 0); assert.equal(counts.ready, 0);
+});
+
 test("complete discovery invalidated by concurrent read429 cannot escape as a usable menu", async () => {
   let recovered = false, calls = 0;
   const contexts: string[] = [];

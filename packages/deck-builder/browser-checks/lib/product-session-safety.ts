@@ -34,7 +34,7 @@ export async function discoverWithRateRecovery<C, T>(effects: {
   discover(context: C, end: number): Promise<{ phase: string; value: T }>;
   usable?(context: C, value: T): Promise<boolean>;
   rateCount(): number; recovered(end: number): Promise<number>;
-}, counts: { handled: number; started: number; ready: number; freshDiscoveries: number }) {
+}, counts: { handled: number; started: number; ready: number; freshDiscoveries: number; retired?: number }) {
   let recoveries = 0;
   const within = async <V>(work: () => Promise<V>) => {
     const remaining = effects.end - effects.now();
@@ -53,7 +53,14 @@ export async function discoverWithRateRecovery<C, T>(effects: {
     const result = await within(() => effects.discover(context, effects.end));
     await within(effects.healthy);
     const phase = result.phase === "complete" && effects.usable && !await within(() => effects.usable!(context, result.value)) ? "stale" : result.phase;
-    if (phase === "complete") return { context, value: result.value, recovered: recoveries > 0 };
+    if (phase === "complete") {
+      // A coherent usable menu closes the prior rate episode, even if it did
+      // not require rediscovery. Never spend old unused 429 evidence on an
+      // unrelated stale menu later. Retirement is not a recovery claim.
+      const retired = Math.max(0, effects.rateCount() - counts.handled);
+      if (retired) { counts.handled += retired; counts.retired = (counts.retired ?? 0) + retired; }
+      return { context, value: result.value, recovered: recoveries > 0 };
+    }
     if (phase !== "stale" || !effects.allowed || effects.rateCount() <= counts.handled)
       throw Error(`discovery_${phase || "deadline"}`);
     if (recoveries === 2) throw Error("persistent_rate_recovery");
