@@ -1,4 +1,4 @@
-//! Private paid typed Aura witnesses; native/schema-export/Ajv tests UNRUN here.
+//! Private paid typed Aura witnesses; no pool or consumer admission.
 //! Archive d705222b280a71cb: Steal Artifact 30992, Annex 14277, Conquer 28632,
 //! Silver Myr 15462, Seat of the Synod 8573 (complete records, not card stubs).
 //! CR20260925 205.2b, 301.5d, 302.6, 400.7, 601.6, 608.2b/3c,
@@ -226,6 +226,7 @@ fn typed_aura_control_noncreature_mana_and_attached_equipment_authority() {
                     object: object(g, 2),
                 },
             );
+            request(g, q);
             assert_eq!(
                 g.state.rules.players[1].mana.get(&Color::U),
                 Some(&1.into())
