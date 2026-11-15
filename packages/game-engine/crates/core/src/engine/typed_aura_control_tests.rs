@@ -217,6 +217,7 @@ fn typed_aura_control_noncreature_mana_and_attached_equipment_authority() {
         lands(&mut rows, "Mountain", 0, 5);
         both(prepared(&rows), |g, q| {
             let permanent = object(g, 1);
+            assert!(g.validate_mana_activation(PlayerId(1), permanent).is_ok());
             announce_paid(g, q, 0, target(g, 1));
             until_player(g, q, PlayerId(1));
             answer(
@@ -234,14 +235,8 @@ fn typed_aura_control_noncreature_mana_and_attached_equipment_authority() {
             resolve(g, q, |_| {});
             control(g, 1, 0, 2, 1);
             assert!(!g.current(permanent).unwrap().tapped);
-            assert!(
-                g.validate_permanent_mana_activation(PlayerId(1), permanent)
-                    .is_err()
-            );
-            assert!(
-                g.validate_permanent_mana_activation(PlayerId(0), permanent)
-                    .is_ok()
-            );
+            assert!(g.validate_mana_activation(PlayerId(1), permanent).is_err());
+            assert!(g.validate_mana_activation(PlayerId(0), permanent).is_ok());
             let mut expected = g.state.rules.players[0]
                 .mana
                 .get(&color)
