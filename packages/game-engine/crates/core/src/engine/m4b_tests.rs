@@ -50,11 +50,13 @@ fn m4b_paid_live_haste_control_departure_reentry_and_recovery() {
     lands(&mut rows, "Island", 1, 4);
     let mut p = prepared_with_sources(&rows, &[WANDERER]);
     // Keep one land in the seedless library: each no-hit cascade bottoms one
-    // object and needs no random permutation. Preserve every physical card.
+    // object and needs no random permutation. Surplus basics start in the
+    // graveyard so cleanup cannot discard the later return spells. Preserve
+    // every physical card in this private midgame root.
     let mut kept = false;
     for c in &mut p.config.cards {
         if c.owner == PlayerId(0) && matches!(c.zone, Zone::Library { .. }) {
-            if kept { c.zone = Zone::Hand { owner: c.owner }; }
+            if kept { c.zone = Zone::Graveyard { owner: c.owner }; }
             kept = true;
         }
     }
