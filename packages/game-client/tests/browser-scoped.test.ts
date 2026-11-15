@@ -76,3 +76,41 @@ test('scoped bootstrap must bind the app-selected match and human seat before an
     assert.equal(requests, 0);
   } finally { restore(); }
 });
+
+test('actual SDK read 429 supplies an authorization-local Retry-After cooldown without changing credentials', async () => {
+  for (const scoped of [true, false]) {
+    const prefix = scoped ? `/api/games/${identity.match_id}/native` : '';
+    const delays: number[] = [], seen: string[] = [];
+    const originalTimeout = globalThis.setTimeout;
+    let polls = 0, session: ReturnType<typeof browserCommandSession>;
+    // Record the real adapter/controller delay, accelerating only this isolated
+    // unit-test timer. Controller tests separately hold the wait unresolved.
+    globalThis.setTimeout = ((callback: (...args: any[]) => void, ms?: number, ...args: any[]) => {
+      if (ms && ms > 30_000) delays.push(ms);
+      return originalTimeout(callback, ms && ms > 30_000 ? 0 : ms, ...args);
+    }) as typeof setTimeout;
+    const restore = install(async (input, init) => {
+      const url = new URL(String(input)); seen.push(url.pathname);
+      assert.equal(init?.credentials, scoped ? 'same-origin' : 'omit');
+      const json = (value: unknown, status = 200, headers = {}) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json', ...headers } });
+      if (url.pathname.endsWith('/client-config.json')) return json({ client_config_version: 1, server_origin: origin });
+      if (url.pathname.endsWith('/manifest')) return json({ ...identity, profile: opening.profile, decks: [deck, deck, deck, deck], starting_player: 0, catalog });
+      if (url.pathname.endsWith('/presentation')) return json({}, 404);
+      if (url.pathname.endsWith('/resume')) return json(opening.resume);
+      if (url.pathname.endsWith('/events')) {
+        if (++polls === 1) return json({}, 429, { 'Retry-After': '35' });
+        queueMicrotask(() => session.stop());
+        return json({ protocol_version: 1, next: opening.resume.next, entries: [], has_more: false });
+      }
+      throw new Error('Unexpected SDK route');
+    });
+    session = browserCommandSession('4'.repeat(64), scoped ? { endpoint: prefix } : undefined);
+    try {
+      await session.join(file());
+      assert.equal(delays.length, 1);
+      assert.ok(delays[0]! > 34_000 && delays[0]! <= 35_000);
+      assert.equal(seen.filter(path => path.endsWith('/manifest')).length, 2);
+      assert.equal(seen.filter(path => path.endsWith('/resume')).length, 2);
+    } finally { session.stop(); restore(); globalThis.setTimeout = originalTimeout; }
+  }
+});

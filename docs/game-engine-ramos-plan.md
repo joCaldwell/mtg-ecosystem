@@ -43,24 +43,11 @@ rules or policies. Keep the standalone deck-builder independent.
 - **M2 partial:** Cultivate/Reach support optional basic search, temporary public
   reveal, identity-bound battlefield/hand partition, tapped entry and shuffle.
   The other land/ramp sources below remain obligations.
-- **M3:** `2b83a482` closes the focused source/runtime exit: complete Agent/Bloodbraid,
-  separate Dismantling Blow/Natural Reclamation, owned exile casting, optional kicker,
-  private bottoming and the paid Aura/Kutzil prohibition pair. Passed 528 distinct
-  Rust/538 executions, 2,160 schema probes and 925 rows; formats24/19. Its single
-  review fixes, actual producers and failures remain in the source-qualified receipt.
-- **M4a original:** reviewed `0e26ccd1`, final feature `27eb161a` on `2b83a482`:
-  479 distinct Rust tests, 58 schema probes, 927 rows; formats24/19. Exact artifacts,
-  review and diagnostic-only failure are preserved. Private off-color counter roots
-  establish no legal-pod admission.
-- **M4a/M4b combined:** `3813db05` integrates scalar main `2ac47a82` and complete
-  Wanderer: live controller-creature modifiers and two independently identified
-  cascades. Passed 542 distinct Rust tests (117 contracts, 281 compiler, 144 core),
-  2,748 schema probes and 944 source rows. Review's test cleanup defect is fixed;
-  production/schema had no additional findings. Snapshot/public-context-work are
-  26/21, IR1. The 833-second Apex seeded witness is retained on its original producer,
-  not repeated. Full runtime, fresh combined Clippy and consumer/target admission
-  remain omitted.
-
+- **M3/M4a/M4b:** source `2b83a482` closes basic/instant cascade, optional kicker
+  and paid prohibition; `3813db05` qualifies Apex/Wanderer independent self-cascades
+  and live controller-creature haste. Original source/format identities, reviews,
+  private-root limits and the unrepeated 833-second Apex witness remain in their
+  receipts and the [immutable prior plan](https://github.com/joCaldwell/mtg-ecosystem/blob/516fa1648f3f5ca3d4f040f7c1daf776bb5f3ceb/docs/game-engine-ramos-plan.md).
 - **M4c:** source `f6c9d7c7` combines Imoti with typed Aura/permanent-set and main
   `219c8caf`: 582 distinct Rust, 3,325 schema probes, 964 source rows; formats27/22,
   IR1. Tagged intrinsic/granted identity, aggregate collection, control/departure,

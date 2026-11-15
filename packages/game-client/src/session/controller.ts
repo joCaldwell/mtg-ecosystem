@@ -5,8 +5,11 @@ import { actionResponse, type LiveActionDraft } from './live-action.ts';
 import type { ExternalStore } from './contracts.ts';
 import { CommandLifecycle, disabledCommand, journalBinding, type CommandContext, type CommandEffects, type CommandSnapshot, type DecisionIntent } from './command.ts';
 import { checkManifest, immutable, resumeRead, streamRead, SessionFailure, type FailureKind, type ReadBinding } from './read-state.ts';
+import { MAX_READ_RETRY_MS } from './retry.ts';
 
 export interface ReadTransport {
+  /** Remaining server-requested read cooldown, confined to this authorization. */
+  retryAfter?(): number;
   manifest(signal: AbortSignal): Promise<PublicManifest>;
   resume(signal: AbortSignal): Promise<SeatResume>;
   poll(after: string, signal: AbortSignal): Promise<StreamPage>;
@@ -36,6 +39,7 @@ export interface ReadSnapshot {
 }
 const empty = (): ReadSnapshot => immutable({ actions: null, command: disabledCommand(), connection: 'idle', binding: null, read: null, metadata: null, metadataMissing: false, retry: 0, failure: null });
 let nextIncarnation = 0;
+interface VerifiedReads { readonly manifest: PublicManifest; readonly metadata: PresentationArtifact | null }
 interface Run {
   readonly cancel: ReturnType<SessionEffects<unknown>['cancellation']>;
   pollCancel: ReturnType<SessionEffects<unknown>['cancellation']> | null;
@@ -191,24 +195,35 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
         run.actions.subscribe(() => { if (this.#current(run)) this.#update({ actions: run.actions!.getSnapshot() }); });
       }
       let initialized = false;
+      // Only a command refresh in this original authorization may reuse these
+      // verified immutable reads. Reconnects invalidate them before retrying.
+      let verified: VerifiedReads | null = null;
       let consecutiveFailures = 0;
       // A successful empty poll does not reset a collision/rate-limit budget.
       let rateLimitFailures = 0;
+      let cooledDown = false;
       while (this.#current(run)) {
         if (run.refresh) initialized = false;
         const polling = initialized;
+        let commandWakeup = false;
         try {
           if (!initialized) {
             this.#update({ connection: 'authenticating' });
-            const manifest = await transport.manifest(signal);
-            if (!this.#current(run)) return;
-            checkManifest(binding, manifest);
-            const metadata = await transport.presentation(signal);
-            if (!this.#current(run)) return;
-            if (metadata && metadata.catalog_sha256 !== binding.catalog_sha256) throw new SessionFailure('incompatible');
+            let assets: VerifiedReads | null = run.refresh ? verified : null;
+            if (!assets) {
+              const manifest = await transport.manifest(signal);
+              if (!this.#current(run)) return;
+              checkManifest(binding, manifest);
+              const metadata = await transport.presentation(signal);
+              if (!this.#current(run)) return;
+              if (metadata && metadata.catalog_sha256 !== binding.catalog_sha256) throw new SessionFailure('incompatible');
+              assets = immutable({ manifest, metadata });
+            }
             const refreshing = run.refresh;
             const read = resumeRead(binding, this.#snapshot.read, await transport.resume(signal));
             if (!this.#current(run)) return;
+            verified = assets;
+            const { metadata } = assets;
             this.#update({ read, metadata, metadataMissing: metadata === null });
             if (commands && !run.commands) {
               run.commandsBinding = journalBinding(binding, commands.protocol);
@@ -232,13 +247,25 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
             run.pollCancel = pollCancel;
             let page: StreamPage;
             try { page = await transport.poll(current.next, pollCancel.signal); }
+            catch (error) {
+              // An HTTP/protocol failure may finish after command refresh has
+              // aborted this signal. Only an explicit abort result is a wakeup;
+              // preserve genuine failures for classification and revalidation.
+              commandWakeup = pollCancel.signal.aborted && error instanceof Error && error.name === 'AbortError';
+              throw error;
+            }
             finally { if (run.pollCancel === pollCancel) run.pollCancel = null; }
             if (!this.#current(run)) return;
             this.#update({ read: streamRead(binding, current, page) });
           }
           // A successful recovery resume alone cannot renew the retry budget:
           // the next poll may still fail. Only a successful stream read does.
-          if (polling) consecutiveFailures = 0;
+          if (polling) {
+            consecutiveFailures = 0;
+            // Successful reads after an observed server cooldown establish real
+            // recovery. Hintless collision loops retain their bounded budget.
+            if (cooledDown) { rateLimitFailures = 0; cooledDown = false; }
+          }
           const read = this.#snapshot.read!;
           this.#update({ connection: read.outcome ? 'ended' : read.state.status === 'pending' ? 'pending' : 'ready', retry: 0, failure: null });
           await run.commands?.reconcile();
@@ -249,7 +276,8 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
           await this.#effects.wait(100, signal);
         } catch (error) {
           if (!this.#current(run)) return;
-          if (polling && run.refresh) { initialized = false; continue; }
+          if (polling && run.refresh && commandWakeup) { initialized = false; continue; }
+          verified = null;
           const kind = error instanceof SessionFailure ? error.kind : this.#effects.classify(error);
           if (!['rate-limited', 'unavailable', 'disconnected'].includes(kind)) throw new SessionFailure(kind);
           consecutiveFailures += 1;
@@ -257,8 +285,11 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
           const attempt = Math.max(consecutiveFailures, kind === 'rate-limited' ? rateLimitFailures : 0);
           if (attempt > 4) throw new SessionFailure(kind);
           this.#update({ connection: 'retrying', retry: attempt, failure: kind });
-          await this.#effects.wait(500 * 2 ** (attempt - 1), signal);
+          const hint = kind === 'rate-limited' ? transport.retryAfter?.() ?? 0 : 0;
+          const cooldown = Number.isFinite(hint) ? Math.min(MAX_READ_RETRY_MS, Math.max(0, hint)) : 0;
+          await this.#effects.wait(Math.max(500 * 2 ** (attempt - 1), cooldown), signal);
           if (!this.#current(run)) return;
+          if (cooldown > 0) cooledDown = true;
           // Reconnect from one committed boundary after a read failure. Never
           // replay historical stream pages or infer command disposition here.
           initialized = false;

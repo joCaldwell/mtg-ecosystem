@@ -194,3 +194,10 @@ only change in five previously qualified catalog exports. Formats 27/22, IR1.
 review repairs, failed attempts, historical-hash adapter and source/IR bridges.
 All-target/fmt/smoke/replay passed. Full runtime/release/Clippy/Node/consumer matrices
 and exact-target admission remain omitted; first-cast history stays open.
+
+Fresh-main publication `a83f3b57` was merged after qualification. All964 native
+rows and Rust build inputs remain byte-identical; only client/docs differ.
+`generated/ramos/m4c-integrated/fresh-main-source-bridge.json` records the proof.
+Independent peer source `f3326dcd` retains605 Rust/3,021 schema/841 rows at26/21:
+original-lane `generated/typed-aura-control/main-integration/integration.json`.
+Neither producer transfers client acceptance.

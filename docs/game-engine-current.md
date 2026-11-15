@@ -61,7 +61,7 @@ The platform baseline was `c62777b`; acceptance never transfers to later source:
 | Later D2c-e/IR25 and finite trigger/keyword/interaction additions | Candidate/focused source qualification; no renewed combined acceptance or P7 performance claim |
 | Schema-1 reset | Regenerated 29 active pools, 1,357 definitions unchanged; focused checks only |
 | Ramos combined M4c | Source `f6c9d7c7`; exact producer/settings proof in the evidence guide; focused qualification only |
-| Typed Aura-control feature | Source `97afa6cdcdda88d76a86459b18ae53cda63c1546`; 837 compiled rows; 507 distinct Rust tests (398 precheck passes through a private-test-only bridge, 109 fresh), 3,021 schema probes; 26/21 unchanged; feature-only; no consumer transfer |
+| Independent typed Aura main | Source `f3326dcd`; 605 distinct Rust, 3,021 schema, 841 rows; 26/21; separate from Imoti and consumer acceptance |
 | Client/hosting consumers | Retain their own exact producer/schema/catalog/build qualification, separate from current engine HEAD |
 
 [The evidence guide](game-engine-evidence.md) retains exact source/digest and proof
