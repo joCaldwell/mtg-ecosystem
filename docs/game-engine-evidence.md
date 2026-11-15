@@ -227,69 +227,34 @@ completion/performance/retention, server/SDK/host/search/consumer matrices and N
 suites requiring absent dependencies remain omitted. Consumer acceptance retains
 its earlier exact producer; neither pass expands admission or qualifies later source.
 
-The controlled-permanent extension retains source
-`21d10aaa67ea67f009366cbce0d754b59d9b7daa`: 465 distinct Rust tests/471 executions,
-2,805 probes, 831 rows. CLI
-`dbf3eea9f9fb7d468031c6364fc683710f864cfde77e800f7100fce1ce4de14d`,
-optimized runtime `beb0d485d8c289785046de3c83420cea28f748a258d24ed40fbe5472d49580a8`,
-schema `e37053a3e7e1f12f6963b04a303794f67b36226d0e64c003f9ca3dd51700682c`.
-Its 90 fresh core tests and 375 byte-bridged library passes, review, synthetic
-noncreature kernels and paid protection/LKI evidence remain in
-`generated/permanent-set-keywords/{integration.json,review.json,combined03/}`.
+The following qualifications remain distinct. Producer columns list CLI,
+optimized core and schema SHA-256, in that order; raw roots are under `generated/`.
 
-Typed Aura source `97afa6cdcdda88d76a86459b18ae53cda63c1546` retains 507 distinct
-Rust tests: 398 prechecks at `99097789` through a three-private-test-file bridge,
-109 fresh core; 3,021 probes; 837 rows. CLI
-`df8d293944268b10c2900f0628ef01e8872d0472febb845237a634145b5fb3ec`,
-optimized runtime `14bb7aa2b7cbe2c07672c439172cb13ca4743564ae9c80c479add9387ee80567`,
-schema `bf73e4bb9c58aa3661ee75e25d10590214d6aa466464908c4ce53745f34b99a0`.
-One review found no issues. Paid multitype, Equipment, nested Signet, departure,
-targeting and recovery tests, immutable baseline controls, spending RED and
-protocol/setup corrections remain in
-`generated/typed-aura-control/{integration.json,review.json,preflight01/,combined05/}`.
+| Family / measured source | Focused checks | Exact producers | Raw proof root |
+| --- | --- | --- | --- |
+| Controlled-permanent keywords `21d10aaa67ea67f009366cbce0d754b59d9b7daa` | 465 distinct Rust/471 executions: 90 fresh core, 375 byte-bridged libraries; 2,805 probes; 831 rows | `dbf3eea9f9fb7d468031c6364fc683710f864cfde77e800f7100fce1ce4de14d` / `beb0d485d8c289785046de3c83420cea28f748a258d24ed40fbe5472d49580a8` / `e37053a3e7e1f12f6963b04a303794f67b36226d0e64c003f9ca3dd51700682c` | `permanent-set-keywords/{integration.json,review.json,combined03/}` |
+| Typed Aura control `97afa6cdcdda88d76a86459b18ae53cda63c1546` | 507 distinct Rust: 398 prechecks at `99097789` through three-private-test-file bridge, 109 fresh core; 3,021 probes; 837 rows | `df8d293944268b10c2900f0628ef01e8872d0472febb845237a634145b5fb3ec` / `14bb7aa2b7cbe2c07672c439172cb13ca4743564ae9c80c479add9387ee80567` / `bf73e4bb9c58aa3661ee75e25d10590214d6aa466464908c4ce53745f34b99a0` | `typed-aura-control/{integration.json,review.json,preflight01/,combined05/}` |
+| Fresh-main integration `f3326dcd6fab0e6dc8ebbbbef33c622ceb3e3db3` | 605 distinct Rust/606 executions (lifecycle child repeat); 3,021 probes; 841 rows | `f59345c978e736e5d4d7800b5039c948c6c507a1c9ee159bf37ba7c75be9aa96` / `c21715382ad199ba57b1ff18f7dfa01b90458d4bf5eb738f9b3f76cb1fbb4361` / `80a6d58052322bb440f67a4cd65f3fe454260bda11d7b328e37970a837f61073` | `typed-aura-control/main-integration/integration.json`, `main-integrated01/`–`03/` |
+| General Aura dependencies `aa28e9b7a39d601a8a9a8bb4fbde9484fe20fc1f` | 550 distinct Rust: 416 prechecks at `1163d0fd` through one-private-test bridge, 134 fresh core; 3,190 probes; 843 rows | `2f2c427810ee56b74aaf97312f278ceaec32520242a11530c59dac53af0088db` / `bd47a51c072088661d98acf10184b985fa6b68660513eba3024ae3c6a1d13cff` / `5caa2ff0392cf173057faa20342ba7f816c367e01ef1d59d69c0b3333ac6eb95` | `control-dependencies/{integration.json,review.json,review-continuity.json,combined01/,combined02/}` |
 
-Fresh-main integration is qualified at `f3326dcd6fab0e6dc8ebbbbef33c622ceb3e3db3`:
-605 distinct Rust tests/606 executions (one lifecycle child repeat), 3,021 probes,
-841 compiled rows, workspace/all-target compilation, formatting, catalog freshness
-and smoke/replay. Library/core prefixes bridge only identical source bytes across
-driver corrections. CLI
-`f59345c978e736e5d4d7800b5039c948c6c507a1c9ee159bf37ba7c75be9aa96`,
-optimized core `c21715382ad199ba57b1ff18f7dfa01b90458d4bf5eb738f9b3f76cb1fbb4361`,
-server `2f23d56fb85785bcb55d3246e9a742e2b3dd0fb8980a1e6b4925949cb5b86a98`,
-schema `80a6d58052322bb440f67a4cd65f3fe454260bda11d7b328e37970a837f61073`.
-Independent engine/server identities, exact binaries, source/client bridges and
-retained lint/zero-selector/historical-control failures are indexed by
-`generated/typed-aura-control/main-integration/integration.json` and
-`main-integrated01/` through `main-integrated03/`. Historical control hashes omit
-only later presentation labels; current probes retain them. Later PR43 changes
-only client code/tests/docs, outside native inputs.
+These sources retain IR1/26/21. General-control precheck core remains
+`2ce7d22d0cd876d41653ddf9b4060b3bce4a116189986d693820527c49822eae`;
+fresh-main server remains `2f23d56fb85785bcb55d3246e9a742e2b3dd0fb8980a1e6b4925949cb5b86a98`.
+Exact binaries, independent identities, source bridges and original failures remain
+at the indexed roots. Reviews found no issues; production stayed unchanged through
+paid-test setup/protocol repairs. General control covers reachable acyclic graphs;
+structural cycles reject. Same-controller behavior is documented CR-derived inference,
+not an official worked example. Paid multitype/control/LKI/recovery checks are
+separate from labelled synthetic broader vectors.
 
-Formats remain IR1/26/21. Strict production compiler/core/sim lint passed;
-contracts/server use proven inherited `collapsible_if` exceptions. Server schema
-changes only manifest vocabulary; bootstrap matches the separately pinned client.
-Catalog gameplay bodies/profile admission are unchanged. Client/SDK/product and
-Ramos qualifications remain distinct. Full runtime/release/profile/performance/
-retention, policy/pod, SDK/browser/consumer matrices and missing-dependency Node
-suites remain omitted; selected admission/lifecycle tests do not renew host acceptance.
-
-General Aura-control source `aa28e9b7a39d601a8a9a8bb4fbde9484fe20fc1f` passed
-**550 distinct Rust tests**: 416 prechecks at `1163d0fd` through a one-private-test
-bridge (390 libraries, 26 kernels), plus 134 fresh core passes; **3,190 probes**
-and 843 source rows. CLI
-`2f2c427810ee56b74aaf97312f278ceaec32520242a11530c59dac53af0088db`,
-current optimized core `bd47a51c072088661d98acf10184b985fa6b68660513eba3024ae3c6a1d13cff`,
-precheck core `2ce7d22d0cd876d41653ddf9b4060b3bce4a116189986d693820527c49822eae`,
-schema `5caa2ff0392cf173057faa20342ba7f816c367e01ef1d59d69c0b3333ac6eb95`.
-One review found no issues; production stayed unchanged through priority/decoy
-witness corrections. Paid chains, attempted-operation chronology, control/no-op
-consequences, departures, targeting and recovery pass. Synthetic structural cycles
-reject; no official same-controller worked-example or cyclic rules outcome is claimed.
-Formats/admission remain unchanged. Commands, failures, exact binaries, independent
-identities and bridges are indexed in `generated/control-dependencies/integration.json`,
-`review.json`, `review-continuity.json` and `combined01/`–`combined02/`.
-Workspace/lint prechecks retain their explicit bridge and inherited contracts
-exception. Full matrices, policy/pods, host/SDK/browser/consumer and absent-dependency
-Node suites remain omitted; client pins and earlier host qualification stay separate.
+Formatting, all-target, catalog freshness and strict compiler/core/sim production
+lint retain their explicit bridges; contracts/server use proven inherited
+`collapsible_if` exceptions where stated. Fresh-main server schema changed only
+manifest vocabulary; bootstrap matched the pinned client. Historical probe hashes
+strip only later labels; current probes retain them. PR43 changed no native input.
+No admission or consumer acceptance transfers. Full runtime/release/profile/
+performance/retention, policy/pod, SDK/browser/consumer and missing-dependency Node
+matrices remain omitted; selected host tests do not renew host acceptance.
 
 ### Complete-source compiler input rejection
 
