@@ -2,17 +2,17 @@
   "inventory_version": 1,
   "implementation_base": "144fe059ab2707877109d7e9dbe8751f204681dd",
   "qualification": {
-    "native_source": "565a1204d6e4b14443b9f49dda2ecbc6b46ee85a",
-    "protocol_schema_sha256": "2eb874b2fa9e306b57d7da05d2e9a26b6965f2a639711d6705981e790d906ba5",
+    "native_source": "2305e2f81d433c86717eb1f35fa0fe7e5c6b22d4",
+    "protocol_schema_sha256": "b191d97401a2ff548ff8acfc4ff9c588e3fcf6bde2f2cec42238f47e42af0dfd",
     "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
-    "scope": "Frozen source 565a1204 producer/SDK consumer qualification at observation_version 16, separate from later integrated observation_version 20 and lifecycle source. Compiler-bound labels/context, both hosted paid first-turn core witnesses and source/private/query/snapshot recovery checks passed; exact server/provisioner and both builds independently verified against 882 source rows. SDK regenerated from these exact exports: strict generation/types/browser build and 66 tests passed. Frozen spending target-departure receipt stays 6 pass/1 fail; parent CR601.6/source review identifies stale expectation for separate test-only repair. Unchanged grouped-damage Clippy warning remains explicit; full-play, current-HEAD, complete-game, browser, performance and offline-retention qualification omitted. Historical captures remain unchanged; see docs/game-client-evidence.md#producer-context-and-admission-qualification.",
-    "sdk_source": "565a1204d6e4b14443b9f49dda2ecbc6b46ee85a",
-    "engine_build_id": "719552cf7e12c01bdd608f8ccdf0ce65f25b968a6c8c36eb2322d657888f38dc",
-    "server_build_id": "8fb3296863d538d39b51e0cb76da8c86557c6a79cff32cfd4b52d7940919fb15",
+    "scope": "Combined observation-21 metadata/lifecycle producer: 543 distinct focused Rust tests and 66 SDK tests passed; exact native source/build evidence retained separately. Historical capture bytes remain unchanged. Current integrated product/browser and full-game acceptance are separate gates.",
+    "sdk_source": "2305e2f81d433c86717eb1f35fa0fe7e5c6b22d4",
+    "engine_build_id": "5d922d685619c979173c56e50285b2eea79b506cb24d718195339b2126b47b4d",
+    "server_build_id": "c1be893414c34a3869f059a872b053d4c69e77da21e98242ffb654a980372d15",
     "native_source_manifest_sha256": "c19f36a3f8f9c87f298d88d31fb4aa72c7920073ec4832bfe619cd2304843bd8",
     "evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/authoritative-decision-context-565a1204-20261114",
-    "sdk_build_manifest_sha256": "28fa0fadbf4afb17ff941b7c35b439999c800fd443f3c6399787940f77db68ef",
-    "sdk_generation_sha256": "9511c48b4aa086cb81d7fcf908930668dbe80652944afbf920a8b9dcd3f86929"
+    "sdk_build_manifest_sha256": "a9831b7d98a45cb153889a71dc7e7645902d5de2c873476f6faff81f540e472b",
+    "sdk_generation_sha256": "0051592eaabcdbfe1e74b2cf33aaeb37e16cb4b4086d2631f54bbfdc78c46eab"
   },
   "capture_qualification": {
     "native_source": "5ff4fd94b6dace1cdee0f0223305e054c42af8f3",
