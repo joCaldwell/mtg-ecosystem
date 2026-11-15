@@ -406,3 +406,29 @@ test("native proxy preserves exact human request bytes, omits adapter extras and
     await assert.rejects(f.coordinator.nativeProxy(OWNER, game.id, request), { status: 404 });
   } finally { await f.coordinator.close(); f.db.close(); }
 });
+
+
+test("public presentation artifact still requires owner UI, active identity and post-I/O authority", async () => {
+  for (const change of ["identity", "state", "owner"]) {
+    const f = fixture();
+    try {
+      const game = (await f.coordinator.launch(OWNER, f.id, f.revision(), key)).game!;
+      const request = { method: "GET" as const, path: `/presentation/${"a".repeat(64)}.json`, body: "", authorization: "" };
+      let calls = 0;
+      f.adapter.proxy = async () => { calls++; return { status: 200, body: '{"public":"catalog-facts"}' }; };
+      await assert.rejects(f.coordinator.nativeProxy({ ...OWNER, user_id: 999 }, game.id, request), { status: 404 });
+      await assert.rejects(f.coordinator.nativeProxy(agent("artifact-agent"), game.id, request), { status: 403 });
+      assert.equal(calls, 0);
+      assert.equal((await f.coordinator.nativeProxy(OWNER, game.id, request)).status, 200);
+      f.adapter.proxy = async () => {
+        const current = structuredClone(game);
+        if (change === "identity") current.identity.catalog_sha256 = "c".repeat(64);
+        if (change === "state") current.state = "paused";
+        if (change === "owner") f.db.prepare("DELETE FROM game_launches WHERE id=?").run(game.id);
+        else f.db.prepare("UPDATE game_launches SET record_json=? WHERE id=?").run(JSON.stringify(current), game.id);
+        return { status: 200, body: "must-not-release" };
+      };
+      await assert.rejects(f.coordinator.nativeProxy(OWNER, game.id, request), { status: change === "owner" ? 404 : 503 });
+    } finally { await f.coordinator.close(); f.db.close(); }
+  }
+});

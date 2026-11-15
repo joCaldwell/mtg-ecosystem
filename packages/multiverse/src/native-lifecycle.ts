@@ -3,6 +3,7 @@ import { isAbsolute, join } from "node:path";
 import { existsSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
+import { producePresentation } from "@multiverse/game-server-sdk/presentation-producer";
 import { GameClient, parseSeatBootstrap } from "@multiverse/game-server-sdk";
 import type { GameIdentity, GameRecord, GameStopTarget, NativeGameAdapter, NativeGameStatus } from "@mtg-ecosystem/deck-builder/contracts";
 import { createNativeAdmission } from "./native-admission.ts";
@@ -16,6 +17,7 @@ interface Running {
   origin?: string;
   session?: string;
   bots?: BotGroup;
+  presentation?: { descriptor: Awaited<ReturnType<typeof producePresentation>>["descriptor"]; body: string };
   stopping: boolean;
   binding: string;
 }
@@ -116,6 +118,12 @@ export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGa
           if (signal.aborted || state.stopping || generation(directory) !== epoch) throw unavailable();
           state.origin = ready.origin; state.session = ready.session;
           if (!validate(bootstrap(game), game)) throw unavailable();
+          const human = parseSeatBootstrap(bootstrap(game));
+          const sdk = new GameClient({ baseURL: state.origin, matchId: game.id, capability: human.capability });
+          const manifest = await sdk.manifest({ signal });
+          const produced = await producePresentation(manifest, { match_id: game.id, ...game.identity });
+          if (signal.aborted || state.stopping || generation(directory) !== epoch || !same(game.identity, options.identity)) throw unavailable();
+          state.presentation = { descriptor: produced.descriptor, body: new TextDecoder("utf-8", { fatal: true }).decode(produced.bytes) };
           state.bots = await startBots(directory, ready.session, game.identity.profile, options.humanOrigin, signal);
           if (signal.aborted || state.stopping || generation(directory) !== epoch) throw unavailable();
         } catch { await stopRunning(state); throw unavailable(); }
@@ -179,12 +187,20 @@ export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGa
     },
     async proxy(game, request, signal) {
       const state = running.get(game.id);
-      if (!state?.origin || state.stopping || !state.bots || state.bots.status().some(s => s !== "running")) throw unavailable();
+      signal.throwIfAborted();
+      if (!same(game.identity, options.identity)) throw unavailable();
+      if (!state?.origin || state.stopping || state.child.exitCode !== null || state.child.signalCode !== null || !state.bots || state.bots.status().some(s => s !== "running")) throw unavailable();
+      if (Buffer.byteLength(request.body) > 65_536 || (request.method === "GET" && request.body)) throw unavailable();
+      if (request.method === "GET" && state.presentation && request.path === state.presentation.descriptor.path) return { status: 200, body: state.presentation.body };
       if (request.method === "GET" && request.path === "/client-config.json") return { status: 200, body: JSON.stringify({ client_config_version: 1, server_origin: options.humanOrigin }) };
       const human = parseSeatBootstrap(bootstrap(game));
       const expected = Buffer.from(`Bearer ${human.capability}`);
       const received = Buffer.from(request.authorization);
       if (expected.length !== received.length || !timingSafeEqual(expected, received)) throw unavailable();
+      if (request.method === "GET" && request.path === `/v1/matches/${game.id}/presentation`) {
+        if (!state.presentation) throw unavailable();
+        return { status: 200, body: JSON.stringify(state.presentation.descriptor) };
+      }
       const url = new URL(request.path, state.origin);
       if (url.origin !== state.origin || url.pathname !== request.path.split("?")[0] || request.path.includes("%") || request.path.includes("\\")) throw unavailable();
       const prefix = `/v1/matches/${game.id}/`;
@@ -198,13 +214,18 @@ export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGa
         const keys = [...url.searchParams.keys()];
         if (new Set(keys).size !== keys.length || keys.some(k => !["after", "limit", "wait_ms"].includes(k))) throw unavailable();
       }
-      if (Buffer.byteLength(request.body) > 65_536 || (request.method === "GET" && request.body)) throw unavailable();
       const response = await fetch(url, { method: request.method, headers: { Authorization: request.authorization, Host: new URL(state.origin).host, Origin: state.origin, Accept: "application/json", "Content-Type": "application/json" }, ...(request.method === "POST" ? { body: request.body } : {}), redirect: "error", signal });
+      const declared = Number(response.headers.get("content-length"));
+      if (response.redirected || !/^application\/json(?:\s*;|$)/i.test(response.headers.get("content-type") ?? "") || Number.isFinite(declared) && declared > 8 * 1024 * 1024) {
+        await response.body?.cancel().catch(() => {}); throw unavailable();
+      }
       const reader = response.body?.getReader();
       if (!reader) throw unavailable();
       const chunks: Uint8Array[] = []; let size = 0;
       try {
         for (;;) { const chunk = await reader.read(); if (chunk.done) break; size += chunk.value.length; if (size > 8 * 1024 * 1024) throw unavailable(); chunks.push(chunk.value); }
+        signal.throwIfAborted();
+        if (state.stopping || running.get(game.id) !== state || !same(game.identity, options.identity)) throw unavailable();
         return { status: response.status, body: new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)) };
       } finally { await reader.cancel().catch(() => {}); }
     },

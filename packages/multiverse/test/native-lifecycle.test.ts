@@ -136,6 +136,22 @@ test("real public host delivers only human bootstrap and proxies exact bytes und
     const config = await fetch(`${endpoint}/client-config.json`);
     assert.equal(parseClientConfig(await config.text()).server_origin, f.options.humanOrigin);
     const client = new GameClient({ baseURL: endpoint, matchId: f.game.id, capability: seat.capability });
+    const metadata = await client.presentation();
+    assert.equal(metadata.descriptor.catalog_sha256, f.game.identity.catalog_sha256);
+    const manifest = await client.manifest();
+    const { producePresentation } = await import("@multiverse/game-server-sdk/presentation-producer");
+    const expected = await producePresentation(manifest, { match_id: f.game.id, ...f.game.identity });
+    const artifactURL = endpoint + metadata.descriptor.path;
+    const artifactResponse = await fetch(artifactURL); // Actor gate, no native bearer.
+    assert.equal(artifactResponse.status, 200);
+    assert.equal(artifactResponse.headers.get("cache-control"), "no-store");
+    assert.equal(await artifactResponse.text(), new TextDecoder().decode(expected.bytes));
+    assert.ok(metadata.artifact.cards.every(card => card.faces.every(face => face.name.length > 0)));
+    assert.equal((await fetch(`${endpoint}/v1/matches/${f.game.id}/presentation`)).status, 401);
+    assert.equal((await fetch(`${endpoint}/v1/matches/${f.game.id}/presentation`, { headers: { Authorization: `Bearer ${"f".repeat(64)}` } })).status, 503);
+    for (const tail of [metadata.descriptor.path + "?query=1", "/presentation/" + "0".repeat(64) + ".json"]) assert.equal((await fetch(endpoint + tail)).status, 503);
+    for (const tail of [metadata.descriptor.path + "/other", "/presentation/not-a-digest.json"]) assert.equal((await fetch(endpoint + tail)).status, 404);
+    assert.equal((await fetch(artifactURL, { method: "POST", headers: { Authorization: `Bearer ${seat.capability}` } })).status, 503);
     const resume = await client.resume(); assert.equal(resume.viewer, 0);
     assert.equal((await fetch(`${endpoint}/v1/matches/${f.game.id}/resume`)).status, 401);
     assert.equal((await fetch(`${endpoint}/v1/matches/${"f".repeat(32)}/resume`, { headers: { Authorization: `Bearer ${seat.capability}` } })).status, 503);
@@ -147,6 +163,13 @@ test("real public host delivers only human bootstrap and proxies exact bytes und
         request.once("error", reject); request.end();
       });
       assert.equal(status, 400);
+    }
+    for (const tail of [metadata.descriptor.path.replace("/presentation/", "/presentation/../presentation/"), metadata.descriptor.path.replace("presentation", "%70resentation")]) {
+      const status = await new Promise<number | undefined>((resolve, reject) => {
+        const request = httpRequest({ hostname: "127.0.0.1", port, path: `/api/games/${f.game.id}/native${tail}` }, response => { response.resume(); response.once("end", () => resolve(response.statusCode)); });
+        request.once("error", reject); request.end();
+      });
+      assert.ok(status === 400 || status === 404);
     }
     if (resume.state.status !== "available" || !resume.state.observation.decision) throw new Error("Expected human opening decision");
     const prepared = prepareCommand({ protocol_version: PROTOCOL_VERSION, command_id: randomBytes(16).toString("hex"), expected_revision: resume.next, command: { kind: "decision", token: resume.state.observation.decision.token, response: { response: "mulligan", take: false } } });
