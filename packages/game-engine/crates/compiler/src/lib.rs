@@ -1442,7 +1442,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 match ability {
                     Ability::Static { effect, .. } => {
                         labels.statics.push(source_block(block)?);
-                        definition.static_abilities.push(lower_static(effect, source_block(block)?)?)
+                        definition
+                            .static_abilities
+                            .push(lower_static(effect, source_block(block)?)?)
                     }
                     Ability::Keywords { keywords, .. } => {
                         if keywords.is_empty() {
@@ -1660,7 +1662,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     }
                     let previous = definition.triggered.len();
                     optional_costs::instant_keywords(&mut definition, keywords, block)?;
-                    labels.triggered.extend(std::iter::repeat_n(source_block(block)?, definition.triggered.len() - previous));
+                    labels.triggered.extend(std::iter::repeat_n(
+                        source_block(block)?,
+                        definition.triggered.len() - previous,
+                    ));
                     continue;
                 }
                 if let Ability::AdditionalCost { costs, .. } = ability {

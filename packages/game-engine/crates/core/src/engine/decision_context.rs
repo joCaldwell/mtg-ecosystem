@@ -96,21 +96,38 @@ impl Game {
             StackKind::Spell => (DecisionSourceKind::Spell, None),
             StackKind::Activated { ability, .. } => (DecisionSourceKind::Activated, Some(ability)),
             StackKind::Triggered {
-                ability: EffectiveTriggerAbility::Intrinsic { index }, ..
+                ability: EffectiveTriggerAbility::Intrinsic { index },
+                ..
             } => (DecisionSourceKind::Triggered, Some(index)),
             StackKind::Triggered {
-                ability: EffectiveTriggerAbility::Granted { grant_source, static_ability_index },
-                ref grant, ..
+                ability:
+                    EffectiveTriggerAbility::Granted {
+                        grant_source,
+                        static_ability_index,
+                    },
+                ref grant,
+                ..
             } => {
                 // The grantor describes this ability; the cast spell remains its
                 // rules source. Preserve the viewer's captured public handle after departure.
-                let labels = self.definition(grant_source.card).ok()?.source_labels.as_ref()?;
+                let labels = self
+                    .definition(grant_source.card)
+                    .ok()?
+                    .source_labels
+                    .as_ref()?;
                 return Some(DecisionSource {
                     kind: DecisionSourceKind::Triggered,
                     oracle_id: self.definition(grant_source.card).ok()?.oracle_id.clone(),
-                    object: grant.as_ref()?.source_handles.get(viewer.0 as usize).cloned(),
+                    object: grant
+                        .as_ref()?
+                        .source_handles
+                        .get(viewer.0 as usize)
+                        .cloned(),
                     ability: Some(static_ability_index),
-                    text: labels.blocks.get(*labels.statics.get(static_ability_index as usize)? as usize)?.clone(),
+                    text: labels
+                        .blocks
+                        .get(*labels.statics.get(static_ability_index as usize)? as usize)?
+                        .clone(),
                 });
             }
         };
