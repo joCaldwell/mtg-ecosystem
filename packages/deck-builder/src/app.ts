@@ -702,7 +702,7 @@ export function createApp(db: Database, opts: AppOptions = {}) {
           if (!["GET", "HEAD"].includes(req.method ?? "") && req.headers.origin !== publicOrigin()) return json(403, { error: "Origin is required" });
         }
         res.setHeader("Cache-Control", "no-store");
-        const nativePath = url.pathname.match(/^\/api\/games\/([a-f0-9]{32})\/native\/(client-config\.json|v1\/.*)$/);
+        const nativePath = url.pathname.match(/^\/api\/games\/([a-f0-9]{32})\/native\/(client-config\.json|presentation\/[a-f0-9]{64}\.json|v1\/.*)$/);
         if (nativePath) {
           if (req.method !== "GET" && req.method !== "POST") return json(405, { error: "Native operation unavailable" });
           // Preserve exact validated UTF-8 bytes. Never JSON.parse/re-serialize a
@@ -716,7 +716,8 @@ export function createApp(db: Database, opts: AppOptions = {}) {
           catch { return json(400, { error: "Invalid native body encoding" }); }
           if (req.method === "GET" && body) return json(400, { error: "Unexpected native body" });
           const authorization = req.headers.authorization;
-          if (nativePath[2] !== "client-config.json" && (typeof authorization !== "string" || !/^Bearer [a-f0-9]{64}$/.test(authorization))) return json(401, { error: "Human seat authorization is required" });
+          const publicGet = req.method === "GET" && (nativePath[2] === "client-config.json" || /^presentation\/[a-f0-9]{64}\.json$/.test(nativePath[2]));
+          if (!publicGet && (typeof authorization !== "string" || !/^Bearer [a-f0-9]{64}$/.test(authorization))) return json(401, { error: "Human seat authorization is required" });
           // Reject URL normalization/encoded aliases before passing the reviewed
           // path. The bootstrap cannot choose this app-owned endpoint.
           const path = `/${nativePath[2]}${url.search}`;

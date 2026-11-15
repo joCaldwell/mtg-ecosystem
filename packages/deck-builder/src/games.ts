@@ -245,7 +245,7 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
         if (!Number.isInteger(response.status) || response.status < 200 || response.status > 599 || typeof response.body !== "string" || Buffer.byteLength(response.body) > 8 * 1024 * 1024) throw Error("Invalid native reply");
       } catch { throw new ServiceError("Game session is unavailable", 503); }
       const current = await sql(() => read(actor, id));
-      if (current.state !== "active" || !sameIdentity(current.identity, game.identity)) throw new ServiceError("Game session is unavailable", 503);
+      if (closed || current.state !== "active" || !sameIdentity(current.identity, game.identity) || !sameIdentity(current.identity, native.identity)) throw new ServiceError("Game session is unavailable", 503);
       return { status: response.status, body: response.body };
     },
     async humanSeat(actor: Actor, id: string): Promise<{ bootstrap_file: string }> {

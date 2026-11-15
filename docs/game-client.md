@@ -273,7 +273,12 @@ public `/presentation/<sha256>.json` serves immutable prevalidated allowlisted b
 SDK verifies bounded strict JSON, digest, catalog and face identity. A 404 is
 missing metadata; corruption stops. Producer schema lives in
 `packages/game-server/tools/presentation.schema.json`; request handlers only serve
-startup-verified bytes. Operator pins `artifacts.json`, not arbitrary remote JSON.
+startup-verified bytes. Operator pins `artifacts.json`, not arbitrary remote JSON. Product lifecycle instead obtains one authenticated
+public manifest per native session and uses the SDK's public Node-only
+`./presentation-producer` bridge to that same producer. It caches validated bytes
+in memory. Its exact scoped artifact GET omits native bearer only behind existing
+Actor ownership/active-identity checks before and after I/O; other v1 operations
+retain exact human-seat authorization. No browser source parsing follows.
 
 Native `serve-client` requires numeric loopback, exact Host, absent or matching
 Origin and non-cross-site Fetch Metadata; no CORS. Vite enforces the local boundary

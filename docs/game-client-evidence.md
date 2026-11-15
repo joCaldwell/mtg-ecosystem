@@ -6,6 +6,12 @@ their exact producer/source/schema qualification; they are not current-engine-HE
 acceptance or a requirement to repeat the entire matrix for documentation edits.
 Original source/proof identities are preserved in their named evidence locations
 or the explicit retirement archive below; no raw evidence was discarded.
+The metadata-delivery SDK followup retains its separate source bridge and checks at
+`~/.local/share/mtg-ecosystem/engine-evidence/product-presentation-sdk-20261115/`.
+Its 69 SDK tests extend the prior 66; native observation21 builds/schema remain
+unchanged. The original 898-row proof and SDK archive remain historical, without
+claiming all rows match after these non-native SDK changes. Product browser and
+full-game qualification remain separate.
 
 ## Producer context and admission qualification
 
