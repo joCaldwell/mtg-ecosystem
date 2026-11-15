@@ -477,6 +477,7 @@ pub struct CreatureStatModifier {
 pub enum Instruction {
     /// CR 701.22: only the invocation controller looks and orders the prefix.
     Scry {
+        #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
         amount: Quantity,
         source_block: u32,
     },
@@ -4523,7 +4524,7 @@ pub fn catalog_schema() -> serde_json::Value {
             "if":permanent_target,"then":{"$ref":"#/$defs/TemporaryPermanentKeywordProgram"}
         }));
     let permanent_grant = serde_json::json!({"required":["spell"],"properties":{"spell":{
-        "type":"object","allOf":[permanent_target,{"$ref":"#/$defs/TemporaryPermanentKeywordProgram"}]
+        "type":"object","$ref":"#/$defs/TemporaryPermanentKeywordProgram"
     }}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":permanent_grant,"then":{"properties":{
@@ -4545,6 +4546,7 @@ pub fn catalog_schema() -> serde_json::Value {
         Capability::TemporaryPermanentKeywordProgramV1,
         Capability::PermanentRemovalV1,
         Capability::LifeGainV1,
+        Capability::ControllerScryV1,
     ];
     for keyword in [
         KeywordAbility::Flying,
@@ -4564,7 +4566,7 @@ pub fn catalog_schema() -> serde_json::Value {
             {"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
              "then":{"properties":{"spell":{"properties":{"timing":{"const":"instant"}}},"capabilities":{"contains":{"const":Capability::CastInstantV1},"not":{"contains":{"const":Capability::CastSorceryV1}}}}},
              "else":{"properties":{"spell":{"properties":{"timing":{"const":"main_phase"}}},"capabilities":{"contains":{"const":Capability::CastSorceryV1},"not":{"contains":{"const":Capability::CastInstantV1}}}}}},
-            {"if":{"properties":{"spell":{"properties":{"instructions":{"minItems":2}}}}},
+            {"if":{"properties":{"spell":{"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"gain_life"}}}}}}}},
              "then":{"properties":{"capabilities":{"contains":{"const":Capability::LifeGainV1}}}},
              "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::LifeGainV1}}}}}}
         ]}
@@ -4802,6 +4804,7 @@ pub fn catalog_schema() -> serde_json::Value {
             "capabilities":{"contains":{"const":Capability::AuraControlV1}}
         }},"then":{"$ref":"#/$defs/AuraControlDefinition"}}),
         ]);
+    controller_scry::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -4959,6 +4962,7 @@ mod tests {
             ActivatedAbilityV1,
             SacrificeSourceCostV1,
             ControllerDrawV1,
+            ControllerScryV1,
             ControllerDiscardV1,
             OpponentTargetV1,
             TargetPlayerSacrificeCreatureV1,
@@ -5122,6 +5126,7 @@ mod tests {
             false,
         ));
         definitions.push(temporary_permanent_keyword_tests::grant(true));
+        definitions.push(controller_scry::witness());
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());

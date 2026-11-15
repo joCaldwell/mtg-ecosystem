@@ -455,6 +455,17 @@ impl Game {
         {
             candidates.push(*id);
         }
+        if let Some(PlayerRequest::Scry { candidates, .. }) = &mut b.decision
+            && cursor >= base + effect_count
+            && let Some(object) = self
+                .scry_looked(viewer)
+                .and_then(|ids| ids.get(cursor - base - effect_count))
+        {
+            candidates.push(
+                self.handle_for(viewer, *object)
+                    .map_err(|_| QueryRejection::Invariant)?,
+            );
+        }
         if let Some(PlayerRequest::DamageAllocation { candidates, .. }) = &mut b.decision
             && cursor >= base + effect_count
             && let Some(ids) = cache.allocation(self)?
@@ -474,6 +485,8 @@ impl Game {
                 cache.damage(self)?.len()
             } else if matches!(b.decision, Some(PlayerRequest::OrderTriggers { .. })) {
                 cache.triggers(self).len()
+            } else if matches!(b.decision, Some(PlayerRequest::Scry { .. })) {
+                self.scry_looked(viewer).map_or(0, |ids| ids.len())
             } else {
                 0
             };
@@ -512,7 +525,7 @@ impl Game {
                     return Err(QueryRejection::Invariant);
                 };
                 Ok(Some(QueryValue::Observation(Observation {
-                    observation_version: 23,
+                    observation_version: 24,
                     decision_context: self
                         .permitted_decision_context(builder.view.viewer, builder.decision.as_ref()),
                     view: builder.view,
@@ -520,6 +533,18 @@ impl Game {
                 })))
             }
             (Query::Decision { viewer }, Task::Decision { cursor, request }) => {
+                if let Some(PlayerRequest::Scry { candidates, .. }) = request {
+                    let ids = self.scry_looked(*viewer).ok_or(QueryRejection::Invariant)?;
+                    if let Some(object) = ids.get(*cursor as usize) {
+                        candidates.push(
+                            self.handle_for(*viewer, *object)
+                                .map_err(|_| QueryRejection::Invariant)?,
+                        );
+                    }
+                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
+                    return Ok((*cursor as usize >= ids.len())
+                        .then(|| QueryValue::Decision(request.take())));
+                }
                 if let Some(PlayerRequest::OrderTriggers { candidates, .. }) = request {
                     let ids = cache.triggers(self);
                     if let Some(id) = ids.get(*cursor as usize) {
@@ -643,6 +668,16 @@ impl Game {
                     self.validate_player_token(*viewer, token)
                         .map_err(invalid)?;
                     let timing_valid = match (&self.state.rules.frame, response) {
+                        (
+                            Frame::ResolutionChoice {
+                                choice: ResolutionChoice::Scry { player, looked, .. },
+                                ..
+                            },
+                            PlayerResponse::Scry { top, bottom },
+                        ) => {
+                            player == viewer
+                                && top.len().checked_add(bottom.len()) == Some(looked.len())
+                        }
                         (Frame::Setup, PlayerResponse::Mulligan { .. }) => true,
                         (Frame::Setup, PlayerResponse::BottomOpening { objects }) => {
                             objects.len() <= 7
@@ -741,6 +776,18 @@ impl Game {
                     converted.push(object);
                     return Ok(None);
                 }
+                if let PlayerResponse::Scry { top, bottom } = response
+                    && converted.len() < top.len().saturating_add(bottom.len())
+                {
+                    let index = converted.len();
+                    let handle = if index < top.len() {
+                        &top[index]
+                    } else {
+                        &bottom[index - top.len()]
+                    };
+                    converted.push(self.resolve_handle(*viewer, handle).map_err(invalid)?);
+                    return Ok(None);
+                }
                 if let PlayerResponse::Targets { objects } = response
                     && converted.len() < objects.len()
                 {
@@ -791,31 +838,34 @@ impl Game {
                     return Ok(None);
                 }
                 if value.is_none() {
-                    *value = Some(
-                        if matches!(response, PlayerResponse::DamageAllocation { .. }) {
-                            Response::DamageAllocation {
-                                allocations: converted_allocations.clone(),
-                            }
-                        } else if matches!(response, PlayerResponse::BottomOpening { .. }) {
-                            Response::BottomOpening {
-                                objects: converted.clone(),
-                            }
-                        } else if matches!(response, PlayerResponse::Targets { .. }) {
-                            Response::Targets {
-                                objects: converted.clone(),
-                            }
-                        } else if matches!(response, PlayerResponse::EntityTargets { .. }) {
-                            Response::EntityTargets {
-                                entities: converted_entities.clone(),
-                            }
-                        } else if matches!(response, PlayerResponse::OrderTriggers { .. }) {
-                            Response::OrderTriggers {
-                                order: converted_triggers.clone(),
-                            }
-                        } else {
-                            self.convert_response(*viewer, response).map_err(invalid)?
-                        },
-                    );
+                    *value = Some(if let PlayerResponse::Scry { top, .. } = response {
+                        Response::Scry {
+                            top: converted[..top.len()].to_vec(),
+                            bottom: converted[top.len()..].to_vec(),
+                        }
+                    } else if matches!(response, PlayerResponse::DamageAllocation { .. }) {
+                        Response::DamageAllocation {
+                            allocations: converted_allocations.clone(),
+                        }
+                    } else if matches!(response, PlayerResponse::BottomOpening { .. }) {
+                        Response::BottomOpening {
+                            objects: converted.clone(),
+                        }
+                    } else if matches!(response, PlayerResponse::Targets { .. }) {
+                        Response::Targets {
+                            objects: converted.clone(),
+                        }
+                    } else if matches!(response, PlayerResponse::EntityTargets { .. }) {
+                        Response::EntityTargets {
+                            entities: converted_entities.clone(),
+                        }
+                    } else if matches!(response, PlayerResponse::OrderTriggers { .. }) {
+                        Response::OrderTriggers {
+                            order: converted_triggers.clone(),
+                        }
+                    } else {
+                        self.convert_response(*viewer, response).map_err(invalid)?
+                    });
                     return Ok(None);
                 }
                 let receipt = self
@@ -844,7 +894,7 @@ impl Game {
                         // Search remains incomplete here. Keep its historical
                         // builder scratch intact for exact saved-work recovery.
                         *observation = Some(Box::new(Observation {
-                            observation_version: 23,
+                            observation_version: 24,
                             decision_context: self.permitted_decision_context(
                                 builder.view.viewer,
                                 builder.decision.as_ref(),
@@ -880,7 +930,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 23,
+                    context_version: 24,
                     observation: *observation.take().ok_or(QueryRejection::Invariant)?,
                     permitted_history: std::mem::take(history),
                     open_decklists: std::mem::take(decks),
@@ -899,7 +949,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 23,
+            work_version: 24,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -908,7 +958,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 23
+        if saved.work_version != 24
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?
@@ -942,6 +992,9 @@ impl Game {
 impl Game {
     fn request_extra_units(&self, viewer: PlayerId) -> Result<u64, String> {
         Ok(match self.request_header(viewer)? {
+            Some(PlayerRequest::Scry { .. }) => {
+                self.scry_looked(viewer).map_or(0, |ids| ids.len() as u64)
+            }
             Some(PlayerRequest::OrderTriggers { .. }) => self.trigger_order_ids().len() as u64,
             Some(PlayerRequest::Modes { .. }) => {
                 if let Some(Request::Modes { candidates, .. }) = self.modes_request()? {
@@ -986,6 +1039,7 @@ impl Game {
                     .ok_or("decision work resource limit")?,
                 Some(
                     PlayerRequest::OrderTriggers { .. }
+                    | PlayerRequest::Scry { .. }
                     | PlayerRequest::Modes { .. }
                     | PlayerRequest::DamageEffect { .. }
                     | PlayerRequest::DamageAllocation { .. },
@@ -994,6 +1048,7 @@ impl Game {
             }),
             Query::Check { response, .. } => {
                 let entries = match response {
+                    PlayerResponse::Scry { top, bottom } => top.len().saturating_add(bottom.len()),
                     PlayerResponse::Targets { objects }
                     | PlayerResponse::BottomOpening { objects } => objects.len(),
                     PlayerResponse::EntityTargets { entities } => entities.len(),
