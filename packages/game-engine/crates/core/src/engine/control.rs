@@ -1,17 +1,139 @@
-//! Layer 2 for complete, independent permanent-control Auras. Pinned CR 109.5,
-//! 110.2, 302.6, 506.4, 613.1b/7a/7e and 800.4a-c.
+//! Layer 2 for complete permanent-control Auras. Pinned CR 109.5, 110.2,
+//! 302.6, 506.4, 611.3, 613.1b/7a/7e/8a-c and 800.4a-c.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
+
+/// Scratch-only layer-2 instruction. The complete source recognizer excludes
+/// text/type/ability-changing effects; only the meaning of "you" can depend on
+/// another layer-2 effect. No final cached controller is an input.
+#[derive(Clone, Copy)]
+struct AuraControlEffect {
+    source: usize,
+    target: usize,
+    timestamp: u64,
+}
+
+/// CR 109.5/611.3a/613.8a: the structural link is only a potential
+/// dependency. Applying the other effect must *change* what this effect does.
+/// This is a derivation of the pinned rules, not an official worked-example
+/// ruling: assigning the same source controller leaves the recipient player
+/// unchanged. Compare attempted operations, NOT whether this effect's target
+/// already has that controller. A departed-player grant cannot apply (800.4b).
+/// Test against the current scratch view, never final winners.
+fn aura_control_depends(
+    effect: AuraControlEffect,
+    other: AuraControlEffect,
+    controllers: &[PlayerId],
+    live: &[PlayerId],
+) -> bool {
+    other.target == effect.source
+        && live.contains(&controllers[other.source])
+        && controllers[other.source] != controllers[effect.source]
+}
+
+/// The admitted producer always attaches a fresh Aura to an existing permanent;
+/// it cannot create a source-attachment cycle. Reject structural cycles even if
+/// equal controllers would hide their current semantic edges. General synthetic
+/// CR 613.8b loop interpretation remains outside this runtime's source boundary.
+fn validate_aura_control_graph(
+    effects: &[AuraControlEffect],
+    source_effects: &[Option<usize>],
+) -> Result<(), String> {
+    let mut prerequisites = vec![0; effects.len()];
+    for effect in effects {
+        if let Some(dependent) = source_effects[effect.target] {
+            prerequisites[dependent] += 1;
+        }
+    }
+    let mut ready: Vec<_> = prerequisites
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &count)| (count == 0).then_some(i))
+        .collect();
+    let mut visited = 0;
+    while let Some(i) = ready.pop() {
+        visited += 1;
+        if let Some(dependent) = source_effects[effects[i].target] {
+            prerequisites[dependent] -= 1;
+            if prerequisites[dependent] == 0 {
+                ready.push(dependent);
+            }
+        }
+    }
+    if visited != effects.len() {
+        return Err("unsupported cyclic Aura control sources".into());
+    }
+    Ok(())
+}
+
+/// CR 613.7/613.8a,c: select the earliest remaining effect with no current
+/// semantic prerequisites, apply ONE, then reevaluate. Each effect targets one
+/// object, which generates at most one control effect: at most A potential
+/// edges including fan-in, so each pass is O(A), not a pairwise scan.
+fn next_aura_control_effect(
+    effects: &[AuraControlEffect],
+    applied: &[bool],
+    source_effects: &[Option<usize>],
+    controllers: &[PlayerId],
+    live: &[PlayerId],
+) -> Option<usize> {
+    let mut blocked = vec![false; effects.len()];
+    for (other, grant) in effects.iter().enumerate() {
+        if !applied[other]
+            && let Some(effect) = source_effects[grant.target]
+            && !applied[effect]
+            && aura_control_depends(effects[effect], *grant, controllers, live)
+        {
+            blocked[effect] = true;
+        }
+    }
+    (0..effects.len())
+        .filter(|&i| !applied[i] && !blocked[i])
+        .min_by_key(|&i| effects[i].timestamp)
+}
+
+/// Dense battlefield indices bound scratch work to O(B + A²). No fixed-point,
+/// cached final controller, recursive winner-following or persistent graph.
+fn apply_aura_control_effects(
+    effects: &[AuraControlEffect],
+    controllers: &mut [PlayerId],
+    live: &[PlayerId],
+) -> Result<(), String> {
+    let mut source_effects = vec![None; controllers.len()];
+    for (i, effect) in effects.iter().enumerate() {
+        source_effects[effect.source] = Some(i);
+    }
+    validate_aura_control_graph(effects, &source_effects)?;
+    let mut applied = vec![false; effects.len()];
+    for _ in effects {
+        let next = next_aura_control_effect(effects, &applied, &source_effects, controllers, live)
+            .ok_or("unsupported cyclic Aura control dependencies")?;
+        let effect = effects[next];
+        applied[next] = true;
+        // A dead-default source can first be rescued by another Aura. A source
+        // still dead when its effect applies grants nothing before 800.4a/c exile.
+        if live.contains(&controllers[effect.source]) {
+            controllers[effect.target] = controllers[effect.source];
+        }
+    }
+    Ok(())
+}
 
 impl Game {
     fn supported_control_grant(&self, effect: &ControlEffect) -> bool {
         self.is_live(effect.controller)
             && match effect.source {
                 ControlSource::Persistent => true,
-                ControlSource::Static { object } => self
-                    .current(object)
-                    .is_ok_and(|source| source.zone == Zone::Battlefield),
+                ControlSource::Static { object } => self.control_battlefield(object),
             }
+    }
+
+    /// CR 800.4a: all frozen losing owners' objects are absent from the virtual
+    /// battlefield even during the existing sequential physical removal wave.
+    fn control_battlefield(&self, object: ObjectId) -> bool {
+        self.current(object).is_ok_and(|o| {
+            o.zone == Zone::Battlefield && self.is_live(self.state.rules.cards[&object.card].owner)
+        })
     }
 
     /// Derive the complete post-mutation view before changing any cached value.
@@ -21,7 +143,7 @@ impl Game {
         let mut controllers = BTreeMap::new();
         let mut granted = BTreeSet::new();
         for object in self.state.rules.objects.values() {
-            if object.zone != Zone::Battlefield {
+            if !self.control_battlefield(object.id) {
                 continue;
             }
             let grant = self
@@ -40,10 +162,16 @@ impl Game {
             );
         }
 
-        let mut candidates: BTreeMap<ObjectId, (u64, PlayerId)> = BTreeMap::new();
+        let indices: BTreeMap<_, _> = controllers
+            .keys()
+            .enumerate()
+            .map(|(i, id)| (*id, i))
+            .collect();
+        let mut scratch: Vec<_> = controllers.values().copied().collect();
+        let mut effects = vec![];
         let mut timestamps = BTreeSet::new();
         for source in self.state.rules.objects.values() {
-            if source.zone != Zone::Battlefield {
+            if !self.control_battlefield(source.id) {
                 continue;
             }
             let definition = self.definition(source.id.card)?;
@@ -62,9 +190,7 @@ impl Game {
             };
             // A stale pre-SBA attachment is reachable, but supplies no grant.
             // Never follow a physical card to its successor incarnation.
-            if !self
-                .current(target)
-                .is_ok_and(|o| o.zone == Zone::Battlefield)
+            if !self.control_battlefield(target)
                 || !self.attachment_target_type_valid(source.id.card, target.card)?
             {
                 continue;
@@ -78,28 +204,23 @@ impl Game {
             if !timestamps.insert(timestamp) {
                 return Err("unsupported simultaneous Aura control timestamps".into());
             }
-            let controller = controllers[&source.id];
-            // A source with no living controller is about to be exiled under
-            // 800.4a/c. It cannot transiently grant control during that cleanup.
-            if !self.is_live(controller) {
-                continue;
-            }
             if granted.contains(&target) {
                 return Err("unsupported composed Aura and synthetic control grants".into());
             }
-            let candidate = candidates.entry(target).or_insert((timestamp, controller));
-            if timestamp > candidate.0 {
-                *candidate = (timestamp, controller);
-            }
+            effects.push(AuraControlEffect {
+                source: indices[&source.id],
+                target: indices[&target],
+                timestamp,
+            });
         }
-        for (object, (_, controller)) in candidates {
-            controllers.insert(object, controller);
+        apply_aura_control_effects(&effects, &mut scratch, &self.live_players())?;
+        for (controller, final_controller) in controllers.values_mut().zip(scratch) {
+            *controller = final_controller;
         }
-        // Actual admitted Aura sources are pure Enchantment Auras. None can
-        // match the Creature/Artifact/Land domains of another admitted Aura. A private
-        // synthetic static grant whose source itself needs control-related
-        // exile would require another dependency pass, not ID-ordered cleanup.
-        // Reject that unimplemented composition rather than cache a stale grant.
+        // Synthetic grants have no timestamp in the Aura clock. In particular,
+        // a static grant whose exact source needs control-related exile would
+        // require removing that grant and reevaluating. Preserve the explicit
+        // boundary rather than publish an ID-ordered or stale interpretation.
         if self.state.rules.control_effects.iter().any(|effect| {
             self.supported_control_grant(effect)
                 && controllers.contains_key(&effect.object)
@@ -316,6 +437,498 @@ mod tests {
             .iter()
             .filter(|event| matches!(event, Event::ControlChanged { .. }))
             .count()
+    }
+
+    // General-control kernel tests are UNRUN. These use frozen complete
+    // definitions with private board construction, not paid casting histories.
+    fn general_game(rows: &[(&str, u8, u8)], mode: TraceMode) -> Game {
+        kernel_game(
+            rows,
+            &[include_str!(
+                "../../../../tests/fixtures/d599a38c-7719-443e-bb59-55bd43a8fee6.json"
+            )],
+            mode,
+        )
+    }
+
+    fn chronology_game(mode: TraceMode) -> Game {
+        general_game(
+            &[
+                ("Control Magic", 0, 0), // A
+                ("Mind Control", 1, 1),  // C: independent competing grant
+                ("Confiscate", 2, 2),    // B: controls A
+                ("Grizzly Bears", 3, 3),
+            ],
+            mode,
+        )
+    }
+
+    #[test]
+    fn general_aura_kernel_chronology_applies_dependencies_once_before_competing_grants() {
+        // CR 109.5/611.3a/613.7/613.8a-c. In A,C,B order C is independent
+        // and oldest eligible, then B, then A; A,B,C instead applies B,A,C.
+        // These private histories distinguish dependency order from recursively
+        // following the final winning Aura's controller. No paid-cast claim.
+        for (order, expected) in [([0, 1, 2], 2), ([0, 2, 1], 1)] {
+            let mut expected_state = None;
+            for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+                let mut game = chronology_game(mode);
+                let target = object(&game, 3);
+                let source = object(&game, 0);
+                for card in order {
+                    attach(
+                        &mut game,
+                        card,
+                        Some(if card == 2 { source } else { target }),
+                    );
+                }
+                assert_eq!(game.current(target).unwrap().controller, PlayerId(expected));
+                assert_eq!(game.current(source).unwrap().controller, PlayerId(2));
+                game.validate_control_state().unwrap();
+                if let Some(state) = &expected_state {
+                    assert_eq!(&game.state, state);
+                } else {
+                    expected_state = Some(game.state.clone());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn general_aura_kernel_same_controller_link_compares_attempted_operation() {
+        // Derived from pinned CR 109.5/611.3a/613.8a,c, not an official worked
+        // example. B's attempted assignment stays creature -> player 0 after A
+        // assigns B -> player 0, so B is initially independent. A depends on D.
+        // Apply B,D,A once: B/A end under player 1, creature stays under player 0.
+        let mut game = general_game(
+            &[
+                ("Control Magic", 0, 0), // B
+                ("Confiscate", 0, 0),    // A
+                ("Confiscate", 1, 1),    // D
+                ("Grizzly Bears", 0, 0),
+            ],
+            TraceMode::Detailed,
+        );
+        let b = object(&game, 0);
+        let a = object(&game, 1);
+        let target = object(&game, 3);
+        attach(&mut game, 0, Some(target));
+        attach(&mut game, 1, Some(b));
+        game.state
+            .rules
+            .objects
+            .get_mut(&target.card)
+            .unwrap()
+            .attack_ready = true;
+        game.state.rules.combat.push(Attacker {
+            attacker: target,
+            defender: PlayerId(3),
+            blocked: false,
+            blockers: vec![],
+        });
+        let events = game.events().len();
+        attach(&mut game, 2, Some(a));
+        assert_eq!(game.current(b).unwrap().controller, PlayerId(1));
+        assert_eq!(game.current(a).unwrap().controller, PlayerId(1));
+        assert_eq!(game.current(target).unwrap().controller, PlayerId(0));
+        assert!(game.current(target).unwrap().attack_ready);
+        assert_eq!(game.state.rules.combat.len(), 1);
+        assert!(!game.events()[events..].iter().any(|event| matches!(event,
+            Event::ControlChanged { object, .. } if *object == target)));
+        game.validate_control_state().unwrap();
+        // The source/target already sharing a controller does NOT suppress B's
+        // dependency on an unequal assignment to its source.
+        attach(&mut game, 1, None);
+        assert_eq!(game.current(target).unwrap().controller, PlayerId(0));
+        attach(&mut game, 2, Some(b));
+        assert_eq!(game.current(target).unwrap().controller, PlayerId(1));
+    }
+
+    #[test]
+    fn general_aura_kernel_synthetic_cycles_reject_even_when_values_hide_edges() {
+        // SYNTHETIC: current cast-only producers cannot create these cycles.
+        // No assertion of CR 613.8b outcomes; structural cycles remain outside
+        // the supported producer boundary. Self-attachment is separately illegal.
+        for size in [2, 3] {
+            for equal in [false, true] {
+                let rows: Vec<_> = (0..4)
+                    .map(|i| ("Confiscate", i, if equal { 0 } else { i }))
+                    .collect();
+                let mut game = general_game(&rows, TraceMode::Detailed);
+                for card in 0..size - 1 {
+                    let target = object(&game, card + 1);
+                    attach(&mut game, card, Some(target));
+                }
+                let first = object(&game, 0);
+                let last = object(&game, size - 1);
+                let before = game.fork();
+                let error = game
+                    .commit(
+                        ProposedEvent::Attach {
+                            object: last,
+                            target: Some(first),
+                        },
+                        BatchCause::Fixture,
+                    )
+                    .unwrap_err();
+                assert!(error.contains("cyclic Aura control"));
+                assert_eq!(game.state, before.state);
+                assert_eq!(game.trace, before.trace);
+
+                // Also reject a cycle with an external prerequisite. Exercise
+                // the scratch seam directly: graph rejection precedes cache writes.
+                let cycle_target = object(&game, 0);
+                let external = object(&game, 3);
+                game.state
+                    .rules
+                    .objects
+                    .get_mut(&last.card)
+                    .unwrap()
+                    .attached_to = Some(cycle_target);
+                game.state
+                    .rules
+                    .objects
+                    .get_mut(&last.card)
+                    .unwrap()
+                    .attachment_timestamp = Some(3);
+                game.state
+                    .rules
+                    .objects
+                    .get_mut(&external.card)
+                    .unwrap()
+                    .attached_to = Some(cycle_target);
+                game.state
+                    .rules
+                    .objects
+                    .get_mut(&external.card)
+                    .unwrap()
+                    .attachment_timestamp = Some(4);
+                game.state.rules.next_attachment_timestamp = 5;
+                let before = game.fork();
+                assert!(
+                    game.reconcile_controllers()
+                        .unwrap_err()
+                        .contains("cyclic Aura control")
+                );
+                assert_eq!(game.state, before.state);
+                assert_eq!(game.trace, before.trace);
+            }
+        }
+    }
+
+    #[test]
+    fn general_aura_kernel_synthetic_capacity_chain_is_iteration_order_independent() {
+        // SYNTHETIC dense scratch population at the four-seat physical-card
+        // bound. This tests allocation/iteration, not paid reachability or tokens.
+        let count = capacities::OWNED_LIMIT * 4;
+        let effects: Vec<_> = (1..count)
+            .map(|source| AuraControlEffect {
+                source,
+                target: source - 1,
+                timestamp: source as u64,
+            })
+            .collect();
+        let initial: Vec<_> = (0..count).map(|i| PlayerId((i % 4) as u8)).collect();
+        let live = [PlayerId(0), PlayerId(1), PlayerId(2), PlayerId(3)];
+        for order in [effects.clone(), effects.iter().rev().copied().collect()] {
+            let mut controllers = initial.clone();
+            apply_aura_control_effects(&order, &mut controllers, &live).unwrap();
+            assert!(controllers.iter().all(|p| *p == initial[count - 1]));
+        }
+        // Empty population and independent grants remain bounded as well.
+        apply_aura_control_effects(&[], &mut [], &live).unwrap();
+    }
+
+    #[test]
+    fn general_aura_kernel_fan_in_uses_timestamp_after_all_prerequisites() {
+        let mut game = general_game(
+            &[
+                ("Control Magic", 0, 0),
+                ("Confiscate", 1, 1),
+                ("Confiscate", 2, 2),
+                ("Grizzly Bears", 3, 3),
+            ],
+            TraceMode::Detailed,
+        );
+        let source = object(&game, 0);
+        let target = object(&game, 3);
+        attach(&mut game, 0, Some(target));
+        attach(&mut game, 1, Some(source));
+        let events = game.events().len();
+        attach(&mut game, 2, Some(source));
+        assert_eq!(game.current(source).unwrap().controller, PlayerId(2));
+        assert_eq!(game.current(target).unwrap().controller, PlayerId(2));
+        let changes: Vec<_> = game.events()[events..]
+            .iter()
+            .filter_map(|event| match event {
+                Event::ControlChanged {
+                    object,
+                    previous,
+                    controller,
+                } => Some((*object, *previous, *controller)),
+                _ => None,
+            })
+            .collect();
+        // Scratch's older grant never leaks a cache transition or event.
+        assert_eq!(
+            changes,
+            vec![
+                (source, PlayerId(1), PlayerId(2)),
+                (target, PlayerId(1), PlayerId(2))
+            ]
+        );
+        attach(&mut game, 2, None);
+        assert_eq!(game.current(target).unwrap().controller, PlayerId(1));
+        attach(&mut game, 1, None);
+        assert_eq!(game.current(target).unwrap().controller, PlayerId(0));
+        game.validate_control_state().unwrap();
+    }
+
+    #[test]
+    fn general_aura_kernel_source_removal_and_reincarnation_never_follow_successor() {
+        let mut game = chronology_game(TraceMode::Detailed);
+        let source = object(&game, 0);
+        let target = object(&game, 3);
+        attach(&mut game, 0, Some(target));
+        attach(&mut game, 2, Some(source));
+        let hand = game
+            .move_object(source, Zone::Hand { owner: PlayerId(0) })
+            .unwrap()
+            .successor;
+        assert_eq!(game.current(target).unwrap().controller, PlayerId(3));
+        let returned = game.move_object(hand, Zone::Battlefield).unwrap().successor;
+        assert_eq!(game.current(returned).unwrap().controller, PlayerId(0));
+        assert_eq!(
+            game.current(object(&game, 2)).unwrap().attached_to,
+            Some(source)
+        );
+        assert_eq!(game.current(returned).unwrap().attached_to, None);
+        game.validate_control_state().unwrap();
+        game.validate_attachment_state().unwrap();
+    }
+
+    #[test]
+    fn general_aura_kernel_source_cache_is_never_derivation_authority() {
+        let mut game = chronology_game(TraceMode::Detailed);
+        let target = object(&game, 3);
+        attach(&mut game, 0, Some(target));
+        let source = object(&game, 0);
+        attach(&mut game, 2, Some(source));
+        let expected = game.derived_controllers().unwrap();
+        for cached in game.state.rules.objects.values_mut() {
+            cached.controller = PlayerId(3);
+        }
+        assert_eq!(game.derived_controllers().unwrap(), expected);
+        assert!(game.validate_control_state().is_err());
+    }
+
+    #[test]
+    fn general_aura_kernel_source_with_dead_default_can_be_preserved_before_application() {
+        let mut game = chronology_game(TraceMode::Detailed);
+        let source = object(&game, 0);
+        let target = object(&game, 3);
+        attach(&mut game, 0, Some(target));
+        attach(&mut game, 2, Some(source));
+        // Private boundary setup: source owner survives its default controller.
+        game.state
+            .rules
+            .objects
+            .get_mut(&source.card)
+            .unwrap()
+            .default_controller = PlayerId(1);
+        game.state.rules.losing_players.push(PlayerId(1));
+        let view = game.derived_controllers().unwrap();
+        assert_eq!(view[&source], PlayerId(2));
+        assert_eq!(view[&target], PlayerId(2));
+        game.reconcile_controllers().unwrap();
+        let events = game.events().len();
+        attach(&mut game, 2, None);
+        assert_eq!(game.current(object(&game, 0)).unwrap().zone, Zone::Exile);
+        assert_eq!(game.current(target).unwrap().controller, PlayerId(3));
+        assert!(!game.events()[events..].iter().any(|event| matches!(
+            event,
+            Event::ControlChanged {
+                controller: PlayerId(1),
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn general_aura_kernel_all_frozen_losing_owners_are_absent_before_physical_removal() {
+        let mut game = general_game(
+            &[
+                ("Confiscate", 0, 0),
+                ("Confiscate", 1, 2), // later losing owner's stolen source
+                ("Control Magic", 2, 2),
+                ("Grizzly Bears", 3, 3),
+            ],
+            TraceMode::Detailed,
+        );
+        let target = object(&game, 3);
+        let controlled_source = object(&game, 2);
+        attach(&mut game, 2, Some(target));
+        attach(&mut game, 1, Some(controlled_source));
+        game.state.rules.losing_players = vec![PlayerId(0), PlayerId(1)];
+        let view = game.derived_controllers().unwrap();
+        assert!(!view.contains_key(&object(&game, 0)));
+        assert!(!view.contains_key(&object(&game, 1)));
+        assert_eq!(view[&controlled_source], PlayerId(2));
+        assert_eq!(view[&target], PlayerId(2));
+        // An attachment to a losing owner's target is likewise absent.
+        game.state
+            .rules
+            .objects
+            .get_mut(&controlled_source.card)
+            .unwrap()
+            .attached_to = Some(object(&game, 1));
+        assert_eq!(game.derived_controllers().unwrap()[&target], PlayerId(3));
+    }
+
+    #[test]
+    fn general_aura_kernel_late_failure_rolls_back_whole_group_and_trace() {
+        let mut game = chronology_game(TraceMode::Detailed);
+        let target = object(&game, 3);
+        attach(&mut game, 0, Some(target));
+        let source = object(&game, 0);
+        let confiscate = object(&game, 2);
+        rejected_unchanged(
+            &mut game,
+            EventGroup::Ordered {
+                children: vec![
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::Attach {
+                            object: confiscate,
+                            target: Some(source),
+                        },
+                    },
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::Attach {
+                            object: confiscate,
+                            target: Some(confiscate),
+                        },
+                    },
+                ],
+            },
+        );
+    }
+
+    #[test]
+    fn general_aura_kernel_dependent_synthetic_source_exile_still_rejects_atomically() {
+        let mut game = general_game(
+            &[
+                ("Control Magic", 0, 0),
+                ("Confiscate", 2, 2),
+                ("Grizzly Bears", 3, 3),
+                ("Forest", 3, 3),
+            ],
+            TraceMode::Detailed,
+        );
+        let source = object(&game, 0);
+        let target = object(&game, 2);
+        let synthetic_target = object(&game, 3);
+        attach(&mut game, 0, Some(target));
+        attach(&mut game, 1, Some(source));
+        game.state
+            .rules
+            .objects
+            .get_mut(&source.card)
+            .unwrap()
+            .default_controller = PlayerId(1);
+        game.state.rules.losing_players.push(PlayerId(1));
+        game.state.rules.control_effects.push(ControlEffect {
+            id: 1,
+            object: synthetic_target,
+            controller: PlayerId(2),
+            source: ControlSource::Static { object: source },
+        });
+        game.reconcile_controllers().unwrap();
+        let before = game.fork();
+        let confiscate = object(&game, 1);
+        let error = game
+            .commit(
+                ProposedEvent::Attach {
+                    object: confiscate,
+                    target: None,
+                },
+                BatchCause::Fixture,
+            )
+            .unwrap_err();
+        assert!(error.contains("dependent synthetic control-source exile"));
+        assert_eq!(game.state, before.state);
+        assert_eq!(game.trace, before.trace);
+    }
+
+    #[test]
+    fn general_aura_kernel_domains_include_control_sources_but_preserve_legacy_fences() {
+        for name in [
+            "Control Magic",
+            "Grizzly Bears",
+            "Forest",
+            "Bonesplitter",
+            "Glorious Anthem",
+            "Rancor",
+        ] {
+            let mut game = general_game(&[("Confiscate", 0, 0), (name, 1, 1)], TraceMode::Detailed);
+            let target = object(&game, 1);
+            assert!(
+                game.attachment_target_type_valid(CardId(0), CardId(1))
+                    .unwrap()
+            );
+            attach(&mut game, 0, Some(target));
+            assert_eq!(game.current(target).unwrap().controller, PlayerId(0));
+        }
+        let mut game = general_game(
+            &[
+                ("Confiscate", 0, 0),
+                ("Forest", 1, 1),
+                ("Bonesplitter", 1, 1),
+                ("Rancor", 1, 1),
+                ("Fog", 1, 1),
+            ],
+            TraceMode::Detailed,
+        );
+        for (source, target) in [(2, 1), (3, 1), (0, 4), (0, 0)] {
+            let source = object(&game, source);
+            let target = object(&game, target);
+            rejected_unchanged(
+                &mut game,
+                EventGroup::Occurrence {
+                    proposed: ProposedEvent::Attach {
+                        object: source,
+                        target: Some(target),
+                    },
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn general_aura_kernel_synthetic_grant_composition_remains_rejected() {
+        let mut game = chronology_game(TraceMode::Detailed);
+        let source = object(&game, 0);
+        let target = object(&game, 3);
+        attach(&mut game, 0, Some(target));
+        // Synthetic persistent authority on an Aura may feed its "you".
+        game.state.rules.control_effects.push(ControlEffect {
+            id: 1,
+            object: source,
+            controller: PlayerId(1),
+            source: ControlSource::Persistent,
+        });
+        game.reconcile_controllers().unwrap();
+        assert_eq!(game.current(target).unwrap().controller, PlayerId(1));
+        // But an Aura grant to that same source has no shared clock and rejects.
+        let confiscate = object(&game, 2);
+        rejected_unchanged(
+            &mut game,
+            EventGroup::Occurrence {
+                proposed: ProposedEvent::Attach {
+                    object: confiscate,
+                    target: Some(source),
+                },
+            },
+        );
     }
 
     #[test]
