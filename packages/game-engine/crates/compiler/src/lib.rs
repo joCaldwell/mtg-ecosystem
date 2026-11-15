@@ -958,7 +958,35 @@ struct SourceControlPlayer {
 struct SourceControlObject {
     #[serde(rename = "ref")]
     reference: String,
-    noun: String,
+    noun: AuraControlTarget,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum AuraControlTarget {
+    Creature,
+    Artifact,
+    Land,
+}
+impl AuraControlTarget {
+    fn noun(self) -> &'static str {
+        match self {
+            Self::Creature => "creature",
+            Self::Artifact => "artifact",
+            Self::Land => "land",
+        }
+    }
+    fn kind(self) -> CardKind {
+        match self {
+            Self::Creature => CardKind::Creature,
+            Self::Artifact => CardKind::Artifact,
+            Self::Land => CardKind::Land,
+        }
+    }
+    fn from_filter(filter: &Option<serde_json::Value>) -> Option<Self> {
+        [Self::Creature, Self::Artifact, Self::Land]
+            .into_iter()
+            .find(|t| *filter == Some(serde_json::json!({"types":[t.noun()]})))
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1232,23 +1260,22 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
     }
-    if abilities.iter().any(|a| {
-        matches!(
-            a,
-            Ability::Static {
-                effect: SourceStaticEffect::Control { .. },
-                ..
-            }
-        )
-    }) {
+    let control_target = abilities.iter().find_map(|a| match a {
+        Ability::Static {
+            effect: SourceStaticEffect::Control { what, .. },
+            ..
+        } => Some(what.noun),
+        _ => None,
+    });
+    if let Some(target) = control_target {
         // This family binds the complete source, never an approximated control
         // fragment. CR 303.4a/303.4m, 109.5, 611.3 and 613.1b (2026-09-25).
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
         let enchant = matches!(abilities.first(), Some(Ability::Keywords { keywords, .. })
             if matches!(keywords.as_slice(), [k] if k.keyword == "enchant" && k.cost.is_none()
-                && k.filter == Some(serde_json::json!({"types":["creature"]}))))
+                && AuraControlTarget::from_filter(&k.filter) == Some(target)))
             && result.lines.first().is_some_and(|line| {
-                normalization::literal_spelling(&line.text) == "Enchant creature"
+                normalization::literal_spelling(&line.text) == format!("Enchant {}", target.noun())
             });
         let controls = abilities
             .iter()
@@ -1272,18 +1299,24 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             .all(|(ability, line)| {
                 match ability {
                     Ability::Static {
-                        effect: SourceStaticEffect::Control { .. },
+                        effect: SourceStaticEffect::Control { who, what },
                         ..
                     } => {
                         // Preserve the reviewed control sentence boundary: a parser
                         // control fragment must not swallow an extra source clause.
-                        normalization::literal_spelling(&line.text)
-                            == "You control enchanted creature."
+                        who.player == "you"
+                            && what.reference == "enchanted"
+                            && what.noun == target
+                            && normalization::literal_spelling(&line.text)
+                                == format!("You control enchanted {}.", target.noun())
                     }
                     Ability::Static {
                         effect: SourceStaticEffect::Modify { what, .. },
                         ..
-                    } => *what == serde_json::json!({"ref":"enchanted","noun":"creature"}),
+                    } => {
+                        target == AuraControlTarget::Creature
+                            && *what == serde_json::json!({"ref":"enchanted","noun":"creature"})
+                    }
                     _ => false,
                 }
             });
@@ -1451,19 +1484,38 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                 && kind == CardKind::Enchantment
                                 && definition.characteristics.subtypes == ["Aura"]
                                 && keyword.cost.is_none()
-                                && keyword.filter == Some(serde_json::json!({"types":["creature"]}))
+                                && AuraControlTarget::from_filter(&keyword.filter).is_some_and(
+                                    |t| {
+                                        t == AuraControlTarget::Creature
+                                            || control_target == Some(t)
+                                    },
+                                )
                             {
+                                let target =
+                                    AuraControlTarget::from_filter(&keyword.filter).unwrap();
                                 let spell = definition.spell.as_mut().unwrap();
                                 if !spell.targets.is_empty() {
                                     return Err(unsupported("enchant", "duplicate enchant"));
                                 }
                                 spell.targets.push(TargetSpec {
                                     slot: 0,
-                                    selection_id: "enchanted-creature".into(),
+                                    selection_id: format!("enchanted-{}", target.noun()),
                                     chooser: Chooser::Controller,
                                     stage: EvaluationStage::Announcement,
-                                    filter: None,
-                                    domain: TargetDomain::BattlefieldCreature,
+                                    filter: (target != AuraControlTarget::Creature).then(|| {
+                                        PermanentFilter {
+                                            types: vec![target.kind()],
+                                            non_types: vec![],
+                                            non_colors: vec![],
+                                            opponent: false,
+                                            tapped: false,
+                                        }
+                                    }),
+                                    domain: if target == AuraControlTarget::Creature {
+                                        TargetDomain::BattlefieldCreature
+                                    } else {
+                                        TargetDomain::BattlefieldPermanent
+                                    },
                                 });
                                 continue;
                             }
@@ -1767,6 +1819,39 @@ fn append_spell_effects(
         return Err(unsupported("abilities.effects", "empty spell effects"));
     }
     let source_block = source_block(block)?;
+    // CR 109.2/109.5, 608.2h, 611.2c: the permanent family consumes the
+    // complete sole pure-gain sentence. The general wipe path below cannot
+    // admit this selector, including inside costs, modes or later blocks.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    if source_block == 0
+        && player_binding == PlayerBinding::Unbound
+        && program.functioning_zone == FunctioningZone::Stack
+        && program.resolution == SpellResolution::Instructions
+        && program.additional_sacrifice.is_none()
+        && program.targets.is_empty()
+        && program.instructions.is_empty()
+        && let [Sentence { bindings, steps }] = effects
+        && bindings.is_empty()
+        && let [
+            Step::GainAbilities {
+                what,
+                abilities,
+                duration,
+            },
+        ] = steps.as_slice()
+        && matches!(what["ref"].as_str(), Some("all" | "each"))
+        && duration.duration == "end-of-turn"
+        && lower_object_set(what)? == ObjectSet::ControllerPermanents
+    {
+        program.instructions.push(Instruction::GrantKeywordsSet {
+            set: ObjectSet::ControllerPermanents,
+            modifier: None,
+            keywords: lower_temporary_creature_keywords(abilities)?,
+            duration: Duration::UntilEndOfTurn,
+            source_block,
+        });
+        return Ok(());
+    }
     // CR 608.2c/h, 611.2c, 613.5–6: consume the whole typed sentence as one
     // continuous effect, with one membership capture across all its layers.
     // Never join distinct sentences or scan arbitrary later instruction pairs.
@@ -2605,6 +2690,11 @@ fn lower_object_set(v: &serde_json::Value) -> Result<ObjectSet, Failure> {
         ObjectSet::Enchantments
     } else if *f == json!({"types":["creature"],"status":["attacking"]}) {
         ObjectSet::AttackingCreatures
+    } else if *f == json!({"cls":"permanent","control":"you"}) {
+        // CR 109.2/109.5, 608.2h, 611.2c: every controlled permanent,
+        // captured by the ordinary keyword program; never narrow to creatures.
+        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+        ObjectSet::ControllerPermanents
     } else if *f == json!({"types":["creature"],"control":"you"}) {
         ObjectSet::ControllerCreatures
     } else if *f == json!({"types":["creature"],"control":"opponent"}) {
@@ -2633,8 +2723,15 @@ fn lower_wipes_step(
         } if (what["ref"] == "all" || what["ref"] == "each")
             && duration.duration == "end-of-turn" =>
         {
+            let set = lower_object_set(what)?;
+            if set == ObjectSet::ControllerPermanents {
+                return Err(unsupported(
+                    "set",
+                    "permanent keywords require a complete ordinary pure gain",
+                ));
+            }
             Instruction::GrantKeywordsSet {
-                set: lower_object_set(what)?,
+                set,
                 modifier: None,
                 keywords: lower_temporary_creature_keywords(abilities)?,
                 duration: Duration::UntilEndOfTurn,
@@ -3120,7 +3217,7 @@ fn lower_prevention(
 }
 fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
     if let SourceStaticEffect::Control { who, what } = effect {
-        if who.player != "you" || what.reference != "enchanted" || what.noun != "creature" {
+        if who.player != "you" || what.reference != "enchanted" {
             return Err(unsupported(
                 "static.control",
                 "unsupported Aura control operands",
@@ -3128,7 +3225,7 @@ fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
         }
         return Ok(StaticAbility {
             functioning_zone: FunctioningZone::Battlefield,
-            effect: StaticEffect::ControlEnchantedCreature,
+            effect: StaticEffect::ControlEnchantedPermanent,
         });
     }
     if let SourceStaticEffect::Prohibit { prohibition } = effect {
@@ -9176,3 +9273,6 @@ mod creature_set_keyword_tests;
 
 #[cfg(test)]
 mod ramos_m4b_tests;
+
+#[cfg(test)]
+mod permanent_set_keyword_tests;

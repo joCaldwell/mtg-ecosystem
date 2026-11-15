@@ -93,129 +93,74 @@ completion/host/SDK/consumer matrices were omitted.
 
 ### Temporary-keyword family qualification
 
-The controlled-target/Hexproof extension is qualified at source
-`b505e32cfb29bbfdcf5183b7480fbbd41a750ce1`, CLI producer
-`99b928452d95314d521379dcae9ef9020b71307a0541a25cc6c37f41a66c0656`,
-with 794 compiled source rows verified. It passed 473 selected Rust tests, 1,657
-exported-schema probes, workspace all-target compilation, formatting, production
-Clippy and CLI smoke/replay. Exact executed binaries, source/settings bridges and
-receipts remain under `generated/controlled-protection-family/combined01/` in the
-original engine lane. Exported schema SHA-256:
-`3f28372367ba186d4badf6f5ba8dc67152f0b4ae7ebd607f98ae1f801ec2de53`.
-Compiler/core/simulator production Clippy passed strictly; contracts retains only
-its inherited `collapsible_if` exception. No production-core change was needed.
-Initial owner/controller distinctions, target revalidation, Hexproof queries,
-cleanup, reentry and replay were exercised through supported actions. Those inputs had no control-changing operation, so that pass did not qualify
-same-incarnation dynamic control or substitute state mutation for such evidence.
-Existing catalog IR, playable pools, policy and host/search sets are unchanged.
-Full runtime, release/profile/completion, server/SDK and consumer matrices remain
-omitted. Later documentation-only commits do not relabel the retained producer.
-
-The preceding unfiltered family foundation retains source
-`6b23e81bc5535e6f4f89224072f01141981c7675`, its 787-row producer, 459 distinct
-selected tests and 230 probes under `generated/temporary-keyword-family/`.
-Earlier mechanic-family, next-three/five-more and full-game/client proofs keep
-their own source identities. No new consumer acceptance follows from these passes.
+Controlled-target/Hexproof source `b505e32cfb29bbfdcf5183b7480fbbd41a750ce1`
+passed 473 Rust tests and 1,657 schema probes; 794 source rows were verified.
+CLI `99b928452d95314d521379dcae9ef9020b71307a0541a25cc6c37f41a66c0656`;
+schema `3f28372367ba186d4badf6f5ba8dc67152f0b4ae7ebd607f98ae1f801ec2de53`.
+Receipts: `generated/controlled-protection-family/combined01/`. Supported actions
+proved targeting, privacy, cleanup, reentry and replay, with initial owner/controller
+distinctions. No control-changing operation was present, so this is not dynamic
+control qualification. Core production, catalogs and admission were unchanged.
+Preceding unfiltered source `6b23e81bc5535e6f4f89224072f01141981c7675` retains
+787 rows, 459 Rust/230 schema passes in `generated/temporary-keyword-family/`.
 
 ### Attachment-entry foundation qualification
 
-Source `feece7d468b5618b8b5849341650b99a2ad6f331` passed 82 distinct selected
-Rust tests, workspace all-target compilation, formatting, strict core/simulator
-production Clippy and CLI smoke/replay. The 796-row CLI producer is
-`bf1377dded86288dc92b772471bee24d7ab5098a0d766c1b0326ed9824f46d7b`;
-the independently verified optimized test producer is
-`8d68587f0acd172d2682276844792f6c6b779794991406bb45a5d39ee2f9d3ee`.
-Card IR/schema remains byte-identical to the controlled-target family above.
-Private snapshots are format 22; public/query versions and consumer admission do
-not change. Exact binaries, source/settings proof, command receipts and failures
-are under `generated/attachment-foundation/combined03/` in the original engine
-lane, with earlier failed test setup attempts preserved alongside it.
-
-Paid Rancor, Pacifism and Unholy Strength prove atomic attached entry, chronological
-attachment allocation, same-target no-op, departure/reentry and normalized
-snapshot-forgery rejection at quanta 1/4096 with restore/replay. Nine snapshot/codec
-tests actually ran through the corrected copied-binary selector; the original two
-zero-match invocations are retained and confer no coverage. Four existing combat
-witnesses passed outcome and trace/budget checks and produced exactly the same
-four digests on the new producer and retained pre-change `b505e32c` producer. One
-historical combat golden mismatch was reproduced on both; its expected value is
-unchanged. Full demo/bundle acceptance, full runtime/release/profile/completion,
-server/SDK/consumer matrices and Node suites requiring absent dependencies remain
-unrun. At that source, continuous Aura control sources remained wholly unsupported.
+Source `feece7d468b5618b8b5849341650b99a2ad6f331`: 82 selected Rust passes,
+796 verified rows; CLI
+`bf1377dded86288dc92b772471bee24d7ab5098a0d766c1b0326ed9824f46d7b`,
+optimized tests `8d68587f0acd172d2682276844792f6c6b779794991406bb45a5d39ee2f9d3ee`.
+Schema remained byte-identical to the controlled-target pass; snapshot advanced
+to 22, public/query admission unchanged. Paid Rancor/Pacifism/Unholy Strength
+proved atomic entry, timestamps, departures/reentry and normalized forgeries.
+`generated/attachment-foundation/combined03/` retains exact binaries/settings and
+failures. Nine snapshot tests actually ran after two zero-match invocations;
+those zeroes confer no coverage. Four combat digests matched both producers;
+one historical golden mismatch reproduced on both and remains unchanged.
+Continuous Aura control was still unsupported at this source.
 
 ### Continuous Aura-control family qualification
 
-Source `945c37a9da2902d7449caa4e1724a1d3d133f9f5` passed 497 distinct Rust tests
-(499 executions, including two overlapping filters), 1,710 exported-schema
-probes, workspace all-target compilation, formatting and CLI smoke/replay. Its
-802 compiled rows match the retained CLI producer
+Source `945c37a9da2902d7449caa4e1724a1d3d133f9f5`: 497 distinct Rust passes
+(499 executions), 1,710 schema probes, 802 verified rows. CLI
 `cdf572262656e9aa9ea0ab6f2b2fe11d8c6d1164c43364dfa265e6702e83e522`;
-optimized executed tests independently match
-`d8963e5fa0eb7bc1d25c666c9a0f11c32a2a543625a6c286007d4777536f91bd`.
-Schema 1 evolves in place; exported SHA-256 is
-`263d0e04d3367c88466c0bf7d61a978921c76082d6a8bc5b0d6ef705f100d947`.
-Private snapshots remain 22; public/query formats and consumer qualification do
-not change. Exact binaries, source/settings proof, schema outcomes and command
-receipts are under `generated/aura-control-family/combined04/` in the original
-engine lane. Failed compilation/registration and private-driver attempts remain
-preserved alongside the successful pass.
-
-Eight paid functions use complete Mind Control and Control Magic sources for
-actual entry/control changes, opposing timestamp order, same-controller no-ops,
-combat/readiness, ownership/default control, dynamic controlled targets/Hexproof,
-frozen invocations, departures/simultaneous removal, reentry and normalized
-snapshot forgeries at quanta 1/4096 with restore/replay. Seven kernel functions
-cover bounded reconciliation and explicit unsupported composition. The sacrificed
-mana receipt is synthetic: source admission still rejects sacrifice mana, so it
-establishes no reachable paid reversal claim. Contracts/compiler libraries,
-adjacent attachment/targeting/departure/snapshot/mana/staples and public-policy
-groups actually executed. Compiler/core/simulator production Clippy passed
-strictly; contracts retains its inherited `collapsible_if` exception. Source
-review found no correctness issue; exhaustive test/witness registrations and two
-private response-driver omissions were corrected without changing gameplay
-expectations or runtime guards. Pools and hosting/search sets remain unchanged.
-Full runtime/demo/release/profile/completion, server/SDK/consumer matrices and
-Node suites requiring absent local dependencies remain omitted. Pending Ramos
-counter-choice/cascade work requires its own later combined qualification.
+optimized tests `d8963e5fa0eb7bc1d25c666c9a0f11c32a2a543625a6c286007d4777536f91bd`;
+schema `263d0e04d3367c88466c0bf7d61a978921c76082d6a8bc5b0d6ef705f100d947`.
+Snapshot 22/public/query admission stayed fixed. Eight paid Mind Control/Control
+Magic functions and seven kernel functions cover control order, no-ops,
+combat/readiness, dynamic targeting, frozen invocations, departures and recovery.
+The sacrificed-mana receipt is synthetic, not reachable paid reversal evidence.
+`generated/aura-control-family/combined04/` preserves source/settings, binaries,
+probes and earlier compilation/registration/driver failures. Review found no
+correctness issue; driver/witness repairs did not alter runtime guards.
 
 ### Composed Aura-control qualification
 
-Source `3ee7fe8d51abd2c6bac9033a39381d14d761b45b` passed 412 distinct Rust tests
-(414 executions) and 1,753 exported-schema probes, including the unchanged 1,657
-prior keyword-family controls. Workspace all-target compilation, formatting,
-production Clippy and CLI smoke/replay passed. The 805-row CLI producer is
+Source `3ee7fe8d51abd2c6bac9033a39381d14d761b45b`: 412 distinct Rust passes
+(414 executions), 1,753 schema probes, 805 verified rows. CLI
 `72d27bad47d67ecf5a5b5a3a6acf82a87b3a375549557b88e3fe657365a33f15`;
-optimized executed tests independently match
-`adbc578e31e1e74bd033dbc4d60acf8d02c530b5992641d10563b298f397016a`.
-Schema 1 SHA-256 is
-`a9ecd6b8cc0e62c1a64f4f5ec5dfa148c593da3d1cfe1bfb192002ac289a2b7d`.
-No new capability, core production mechanic, snapshot/public/query format or
-profile/consumer admission was added. Compiler/core/simulator production Clippy
-passed strictly; contracts retains its inherited `collapsible_if` exception.
+optimized tests `adbc578e31e1e74bd033dbc4d60acf8d02c530b5992641d10563b298f397016a`;
+schema `a9ecd6b8cc0e62c1a64f4f5ec5dfa148c593da3d1cfe1bfb192002ac289a2b7d`.
+Four paid Spirit Away/Yavimaya's Embrace functions prove modifier/control union,
+timestamps, recovery and lethal SBA/controller LKI after modifier loss. No new
+core mechanic, capability, format or admission; committed catalog IR unchanged.
+`generated/composed-aura-control/combined02/` retains binaries/settings/probes and
+the failed timestamp assertion, corrected to include intervening Equipment order.
 
-Complete frozen Spirit Away and Yavimaya's Embrace use the shared control operation
-and shared enchanted-creature modifier validation. Four paid functions at quanta
-1/4096 prove stat/keyword union, existing counter/equipment/temporary-effect
-composition, opposing control timestamps, same-controller combat preservation,
-invalid targets, bounce/reentry, normalized forgeries and lethal SBA after modifier
-loss with correct restored-controller LKI. The failed timestamp assertion omitted
-an intervening Equipment attachment; the corrected witness explicitly proves the
-shared chronological order. The failure and exact final executables, schema probes,
-source/settings proof and receipts remain under
-`generated/composed-aura-control/combined02/` in the original engine lane (the first
-attempt is retained alongside it). Full runtime, simulator policy runtime,
-release/profile/completion/performance, server/SDK/host/search/consumer matrices and
-Node suites requiring absent dependencies remain unrun. Plain control source and
-all committed catalog IR remain unchanged; older proofs keep their own identities.
+These four passes include all-target compilation, formatting and CLI smoke/replay;
+q1/4096 witnesses do not establish full matrices or consumer acceptance. Contracts
+retains inherited `collapsible_if`; exact Clippy scopes, omissions and failures
+remain in the [frozen detailed ledger](https://github.com/joCaldwell/mtg-ecosystem/blob/2ac47a82d856b3ddb869f5f8317c89fa042bc247/docs/game-engine-evidence.md#current-temporary-keyword-family-qualification)
+and original-lane receipts above. No runtime/release/profile/completion/retention,
+server/SDK/browser acceptance transfers to later source. Missing-dependency Node
+suites and pending Ramos/counter/cascade integration remain separately qualified.
 
 ### Ramos basic-cascade combined qualification
 
-Source `6c2c295bed4a8575c8b78974d13618a9b9454ab4`, combined with main `ef8fc6da`,
-passed 498 distinct Rust tests, 1,832 schema probes and 908 source rows. Paid
-Aura/cascade/departure recovery passed in three trace modes. Exact executables,
-settings, merge resolutions, failures and timings remain in the coordinator's
-`generated/ramos/m3b-integrated/integration.json`. Snapshot/public were 23/18;
-no consumer or exact-deck acceptance transferred.
+Source `6c2c295bed4a8575c8b78974d13618a9b9454ab4` combined main `ef8fc6da`:
+498 distinct Rust tests, 1,832 schema probes, 908 rows; paid Aura/cascade/departure
+recovery in three traces. Exact artifacts, source/settings, failures and timings:
+`generated/ramos/m3b-integrated/integration.json`. Formats23/18; no consumer transfer.
 
 ### Atomic temporary-keyword qualification
 
@@ -225,10 +170,10 @@ The captured-set foundation at source
 `935cf02ab063686040396b02d02871a71ed69a434845d1456179bd039365d367`, optimized
 test producer `1d67b54914a0b7fefd0b7415b7cf11e6485fdfab5826fe55a03fa9a1e0ea2f54`,
 schema `9a80424e2d41b4baeb48b578bd15e467282a97e746ed41656099012a0ff89eb3`.
-Its snapshot/public boundaries are 25/20. Exact binaries, settings, interrupted
-split-effect attempt, rules review and corrected publication probe remain in
+Snapshot/public boundaries are 25/20. Binaries, settings, interrupted split-effect
+attempt, review and corrected publication probe remain in
 `generated/set-keyword-grants/{integration.json,review.json,combined04/}` in the
-original engine lane. Those failures retain their original outcomes.
+original engine lane; failures retain their outcomes.
 
 The targeted atomic repair is qualified at source
 `8462ce4c362702da5062762e45be00f4693080d9`: **547 distinct Rust tests** (259 compiler,
@@ -242,19 +187,61 @@ schema `30e93fedbb77779d8a83cebc39206620b213659384ecde9346c37bd4f8cf0c3c`.
 Snapshot/public-context-work are 26/21. Compiler/core/simulator production Clippy
 passed strictly; contracts retains inherited `collapsible_if`.
 
-Paid owner-departure LKI reproduced the split-effect defect; the unchanged
-regression and actual borrowed Prodigal damage/lifelink witness now pass.
-One complete sentence creates one effect with its stat and keyword components.
+Paid owner-departure LKI exposed the split-effect defect; the unchanged regression
+and borrowed Prodigal damage/lifelink witness pass.
 Only Mortal's Resolve's instruction encoding/digest changed in the admitted pool;
-the other 47 definitions, decks and policy behavior are preserved. Raw receipts,
-review, actual binaries, source/settings proof and schema outcomes are under
+the other 47 definitions, decks and policy behavior are preserved. Receipts,
+review, binaries, source/settings proof and schema outcomes remain in
 `generated/atomic-targeted-keywords/{integration.json,review.json,combined02/}`.
-The stale split-sentence positive and an overbroad build-ID verifier assertion
-are retained separately. Profile-only admission tests have exact executable/hash
-proof but do not reference the core build-ID constant. Full runtime/release/profile/
+Retained failures include a stale split-sentence test and verifier-scope assertion.
+Profile-only admission binaries are hash-verified without core build-ID references.
+Full runtime/release/profile/
 completion/performance/retention, server/SDK/host/search/consumer matrices and Node
 suites requiring absent dependencies remain omitted. Consumer acceptance retains
 its earlier exact producer; neither pass expands admission or qualifies later source.
+
+The controlled-permanent extension is qualified separately at source
+`21d10aaa67ea67f009366cbce0d754b59d9b7daa`: **465 distinct Rust tests / 471
+executions**, including 90 fresh distinct core tests and 375 compiler/contracts
+passes reused through a byte-equal source bridge across two test-only corrections.
+All-target compilation and production lint use that explicit bridge; affected
+core tests and CLI were rebuilt. All **2,805 exported-schema probes** passed;
+831 compiled source rows match Git. CLI producer
+`dbf3eea9f9fb7d468031c6364fc683710f864cfde77e800f7100fce1ce4de14d`,
+optimized runtime producer
+`beb0d485d8c289785046de3c83420cea28f748a258d24ed40fbe5472d49580a8`,
+schema `e37053a3e7e1f12f6963b04a303794f67b36226d0e64c003f9ca3dd51700682c`.
+Snapshot/public-context-work remain 26/21. Paid mixed-permanent protection and
+current/departed enchantment damage/LKI pass; broader noncreature keyword vectors
+remain labelled synthetic kernel probes. Exact executed copies, unchanged-input
+bridges, review, retained publication/outcome test failures and settings proofs
+are in `generated/permanent-set-keywords/{integration.json,review.json,combined03/}`.
+Full matrices, policy/pod runtime, hosting/search/SDK/consumer qualification and
+missing-dependency Node suites are omitted. This feature expands no admission and
+remains separate from the client-held main/consumer producer.
+
+The typed Aura-control extension is qualified at source
+`97afa6cdcdda88d76a86459b18ae53cda63c1546`: **507 distinct Rust tests**, including
+398 precheck passes at `99097789` through a three-private-test-file bridge and
+109 fresh core passes, **3,021 schema probes**, and 837 verified compiled rows.
+CLI producer `df8d293944268b10c2900f0628ef01e8872d0472febb845237a634145b5fb3ec`,
+optimized runtime producer
+`14bb7aa2b7cbe2c07672c439172cb13ca4743564ae9c80c479add9387ee80567`,
+schema `bf73e4bb9c58aa3661ee75e25d10590214d6aa466464908c4ce53745f34b99a0`.
+Formats remain 26/21 and Card IR 1. One review found no concrete issues;
+production remained unchanged through paid-test protocol/setup corrections.
+
+Paid multitype, Equipment, nested Signet, departure, targeting and authenticated
+recovery witnesses pass. Immutable-baseline multitype positives and three Aura
+rejections are retained. The stale spending failure was reproduced there before
+the published test-only correction. Binaries, independent identities, bridges,
+failures, review and schema results remain in
+`generated/typed-aura-control/{integration.json,review.json,preflight01/,combined05/}`.
+All-target compilation and production lint carry their explicit unchanged-input
+bridge; contracts uses inherited `collapsible_if`. Full matrices, simulator policy/
+pod runtime, consumer/host/search/SDK qualification and missing-dependency Node
+suites remain omitted. Catalog/profile bodies and admission are unchanged;
+client and Ramos producer qualifications remain separate.
 
 ### Complete-source compiler input rejection
 
@@ -428,13 +415,11 @@ evidence, historical source fixtures, credentials or worktrees were cleanup targ
 
 ### Ramos optional-cost and paid-prohibition combined qualification
 
-Source `2b83a4824a8d6561402aaf560cbd4dbba5561389` combined main `33dcbe9d` and
-closed M3's focused exit: source-bound kicker and the naturally paid Aura/Kutzil
-prohibition pair. Passed 528 distinct Rust tests (538 executions), 2,160 schema
-probes, all-target compilation/formatting and 925 native rows. The single review's
-empty-block/format findings were fixed. Exact producers, source bridges, preserved
-failures and timings remain in `generated/ramos/m3c-integrated/integration.json`.
-Formats were 24/19; consumer and exact-deck qualification stayed separate.
+Source `2b83a4824a8d6561402aaf560cbd4dbba5561389` combined main `33dcbe9d`:
+528 distinct Rust/538 executions, 2,160 schema probes, 925 rows; all-targets/fmt.
+Source-bound kicker and the paid Aura/Kutzil prohibition close the focused M3 exit.
+Review fixes, exact artifacts and bridges: `generated/ramos/m3c-integrated/integration.json`.
+Formats24/19; no consumer or exact-deck qualification.
 
 ### Ramos multiple cascade and live modifier combined qualification
 

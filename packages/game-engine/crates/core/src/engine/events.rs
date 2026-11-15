@@ -668,10 +668,9 @@ impl Game {
             && !objects.iter().any(|object| {
                 !self.is_live(object.default_controller)
                     || self.definition(object.id.card).is_ok_and(|definition| {
-                        definition
-                            .static_abilities
-                            .iter()
-                            .any(|ability| ability.effect == StaticEffect::ControlEnchantedCreature)
+                        definition.static_abilities.iter().any(|ability| {
+                            ability.effect == StaticEffect::ControlEnchantedPermanent
+                        })
                     })
             })
         {
@@ -1616,7 +1615,10 @@ impl Game {
                     || definition.characteristics.kind != CardKind::Enchantment
                     || definition.characteristics.subtypes != ["Aura"]
                     || !self.is_live(source.controller)
-                    || !self.is_battlefield_creature(*target)
+                    || !self.attachment_target_type_valid(object.card, target.card)?
+                    || !self
+                        .current(*target)
+                        .is_ok_and(|o| o.zone == Zone::Battlefield)
                     || !self
                         .current(*target)
                         .is_ok_and(|o| self.is_live(o.controller))
@@ -1651,6 +1653,16 @@ impl Game {
                 }
             }
             ProposedEvent::Attach { object, target } => {
+                let target_valid = match target {
+                    Some(t) => {
+                        *t != *object
+                            && self.current(*t).is_ok_and(|o| {
+                                o.zone == Zone::Battlefield && self.is_live(o.controller)
+                            })
+                            && self.attachment_target_type_valid(object.card, t.card)?
+                    }
+                    None => true,
+                };
                 if self.current(*object)?.zone != Zone::Battlefield
                     || !self.is_live(self.current(*object)?.controller)
                     || !self
@@ -1659,11 +1671,7 @@ impl Game {
                         .subtypes
                         .iter()
                         .any(|s| s == "Equipment" || s == "Aura")
-                    || target.is_some_and(|t| {
-                        t == *object
-                            || !self.is_battlefield_creature(t)
-                            || !self.current(t).is_ok_and(|o| self.is_live(o.controller))
-                    })
+                    || !target_valid
                 {
                     return Err("invalid attachment event".into());
                 }

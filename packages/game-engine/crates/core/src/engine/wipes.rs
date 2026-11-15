@@ -27,6 +27,7 @@ impl Game {
                         creature && self.state.rules.combat.iter().any(|a| a.attacker == o.id)
                     }
                     ObjectSet::ControllerCreatures => creature && o.controller == controller,
+                    ObjectSet::ControllerPermanents => o.controller == controller,
                     ObjectSet::OpponentCreatures => creature && o.controller != controller,
                     ObjectSet::FlyingCreatures => {
                         creature && self.has_keyword(o.id, KeywordAbility::Flying)
@@ -476,15 +477,23 @@ impl Game {
         &self,
         e: &ResolvedEffect,
         targets: &[ObjectId],
+        set: Option<&ObjectSet>,
     ) -> bool {
         e.target_handles.len() == targets.len() * 4
             && targets.len() <= self.event_group_limit()
             && targets.iter().collect::<BTreeSet<_>>().len() == targets.len()
             && targets.iter().all(|o| {
                 self.state.rules.cards.contains_key(&o.card)
-                    && self
-                        .definition(o.card)
-                        .is_ok_and(|d| d.characteristics.kind == CardKind::Creature)
+                    && self.definition(o.card).is_ok_and(|d| match set {
+                        Some(ObjectSet::ControllerPermanents) => matches!(
+                            d.characteristics.kind,
+                            CardKind::Creature
+                                | CardKind::Artifact
+                                | CardKind::Enchantment
+                                | CardKind::Land
+                        ),
+                        _ => d.characteristics.kind == CardKind::Creature,
+                    })
             })
     }
     pub(super) fn validate_wipe_damage_transaction(

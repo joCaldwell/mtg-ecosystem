@@ -12,7 +12,7 @@ pub(super) fn aura() -> Definition {
     .unwrap();
     d.static_abilities = vec![StaticAbility {
         functioning_zone: FunctioningZone::Battlefield,
-        effect: StaticEffect::ControlEnchantedCreature,
+        effect: StaticEffect::ControlEnchantedPermanent,
     }];
     d.capabilities = d.requirements();
     d
@@ -207,11 +207,11 @@ fn aura_control_rejects_every_outside_shape_even_with_recomputed_capabilities() 
 fn aura_control_schema_adds_narrow_shape_without_a_schema_bump() {
     assert_eq!(CURRENT_IR_VERSION, 1);
     let schema = catalog_schema();
-    let shape = &schema["$defs"]["AuraControlDefinition"]["properties"];
+    let shape = &schema["$defs"]["AuraControlDefinition"]["oneOf"][0]["properties"];
     assert_eq!(
         shape["static_abilities"]["contains"]["const"],
         serde_json::json!(
-            {"functioning_zone":"battlefield","effect":"control_enchanted_creature"}
+            {"functioning_zone":"battlefield","effect":"control_enchanted_permanent"}
         )
     );
     assert_eq!(shape["spell"]["properties"]["targets"]["minItems"], 1);
@@ -325,6 +325,249 @@ fn aura_control_composition_keeps_existing_modifier_semantic_negatives() {
         assert!(!aura_control_source(&d));
         if mutation != 3 {
             assert!(d.validate().is_err());
+        }
+    }
+}
+
+// New generalized family controls are source-only preparation; native tests UNRUN.
+pub(super) fn typed_aura(kind: CardKind) -> Definition {
+    let mut d = aura();
+    if kind != CardKind::Creature {
+        let t = &mut d.spell.as_mut().unwrap().targets[0];
+        t.domain = TargetDomain::BattlefieldPermanent;
+        t.filter = Some(PermanentFilter {
+            types: vec![kind],
+            non_types: vec![],
+            non_colors: vec![],
+            opponent: false,
+            tapped: false,
+        });
+    }
+    d.capabilities = d.requirements();
+    d
+}
+
+#[test]
+fn aura_control_target_type_is_exact_nonrecursive_and_capability_closed() {
+    for kind in [CardKind::Creature, CardKind::Artifact, CardKind::Land] {
+        let mut d = typed_aura(kind);
+        assert_eq!(aura_control_target_type(&d), Some(kind));
+        assert!(aura_control_source(&d));
+        d.validate().unwrap();
+        let target_cap = if kind == CardKind::Creature {
+            Capability::CreatureTargetV1
+        } else {
+            Capability::PermanentRemovalV1
+        };
+        assert_eq!(
+            d.requirements(),
+            BTreeSet::from([
+                Capability::NormalLayoutV1,
+                Capability::CastEnchantmentV1,
+                Capability::AttachmentsV1,
+                Capability::AuraControlV1,
+                target_cap,
+            ])
+        );
+        for cap in d.requirements() {
+            let mut missing = d.clone();
+            missing.capabilities.remove(&cap);
+            assert_eq!(aura_control_target_type(&missing), Some(kind));
+            assert!(missing.validate().is_err(), "missing {cap:?} on {kind:?}");
+        }
+        d.capabilities.insert(if kind == CardKind::Creature {
+            Capability::PermanentRemovalV1
+        } else {
+            Capability::CreatureTargetV1
+        });
+        assert!(d.validate().is_err());
+    }
+}
+
+#[test]
+fn aura_control_artifact_land_reject_all_filter_and_composition_extensions() {
+    type Mutation = fn(&mut Definition);
+    let mutations: &[(&str, Mutation)] = &[
+        ("absent filter", |d| {
+            d.spell.as_mut().unwrap().targets[0].filter = None
+        }),
+        ("creature domain with permanent filter", |d| {
+            d.spell.as_mut().unwrap().targets[0].domain = TargetDomain::BattlefieldCreature
+        }),
+        ("empty type", |d| {
+            d.spell.as_mut().unwrap().targets[0]
+                .filter
+                .as_mut()
+                .unwrap()
+                .types
+                .clear()
+        }),
+        ("union type", |d| {
+            d.spell.as_mut().unwrap().targets[0]
+                .filter
+                .as_mut()
+                .unwrap()
+                .types
+                .push(CardKind::Creature)
+        }),
+        ("duplicate type", |d| {
+            let f = d.spell.as_mut().unwrap().targets[0]
+                .filter
+                .as_mut()
+                .unwrap();
+            f.types.push(f.types[0]);
+        }),
+        ("enchantment", |d| {
+            d.spell.as_mut().unwrap().targets[0]
+                .filter
+                .as_mut()
+                .unwrap()
+                .types = vec![CardKind::Enchantment]
+        }),
+        ("creature permanent target", |d| {
+            d.spell.as_mut().unwrap().targets[0]
+                .filter
+                .as_mut()
+                .unwrap()
+                .types = vec![CardKind::Creature]
+        }),
+        ("non type", |d| {
+            d.spell.as_mut().unwrap().targets[0]
+                .filter
+                .as_mut()
+                .unwrap()
+                .non_types
+                .push(CardKind::Creature)
+        }),
+        ("non color", |d| {
+            d.spell.as_mut().unwrap().targets[0]
+                .filter
+                .as_mut()
+                .unwrap()
+                .non_colors
+                .push(Color::B)
+        }),
+        ("opponent", |d| {
+            d.spell.as_mut().unwrap().targets[0]
+                .filter
+                .as_mut()
+                .unwrap()
+                .opponent = true
+        }),
+        ("tapped", |d| {
+            d.spell.as_mut().unwrap().targets[0]
+                .filter
+                .as_mut()
+                .unwrap()
+                .tapped = true
+        }),
+        ("additional source type", |d| {
+            d.characteristics.additional_types.push(CardKind::Artifact)
+        }),
+        ("modifier", |d| {
+            d.static_abilities.push(
+                composed(2, 2, vec![KeywordAbility::Flying], vec![]).static_abilities[1].clone(),
+            )
+        }),
+        ("prohibition", |d| {
+            d.static_abilities.push(StaticAbility {
+                functioning_zone: FunctioningZone::Battlefield,
+                effect: StaticEffect::OpponentsCantCastDuringControllerTurn,
+            })
+        }),
+        ("duplicate control", |d| {
+            d.static_abilities.push(d.static_abilities[0].clone())
+        }),
+        ("target slot", |d| {
+            d.spell.as_mut().unwrap().targets[0].slot = 1
+        }),
+        ("empty selection", |d| {
+            d.spell.as_mut().unwrap().targets[0].selection_id.clear()
+        }),
+        ("stack static", |d| {
+            d.static_abilities[0].functioning_zone = FunctioningZone::Stack
+        }),
+    ];
+    for kind in [CardKind::Artifact, CardKind::Land] {
+        for (name, mutate) in mutations {
+            let mut d = typed_aura(kind);
+            mutate(&mut d);
+            d.capabilities = d.requirements();
+            assert_eq!(aura_control_target_type(&d), None, "{kind:?}: {name}");
+            assert!(!aura_control_source(&d));
+            assert!(d.validate().is_err(), "{kind:?}: {name}");
+        }
+    }
+}
+
+#[test]
+fn aura_control_new_unit_serialization_rejects_old_internal_ir() {
+    assert_eq!(
+        serde_json::to_value(StaticEffect::ControlEnchantedPermanent).unwrap(),
+        serde_json::json!("control_enchanted_permanent")
+    );
+    assert!(
+        serde_json::from_value::<StaticEffect>(serde_json::json!("control_enchanted_creature"))
+            .is_err()
+    );
+    let schema = catalog_schema();
+    let shapes = schema["$defs"]["AuraControlDefinition"]["oneOf"]
+        .as_array()
+        .unwrap();
+    assert_eq!(shapes.len(), 3);
+    for (i, kind) in [CardKind::Artifact, CardKind::Land].into_iter().enumerate() {
+        let props = &shapes[i + 1]["properties"];
+        assert_eq!(props["static_abilities"]["maxItems"], 1);
+        assert_eq!(
+            props["spell"]["properties"]["targets"]["items"]["properties"]["filter"]["properties"]
+                ["types"]["const"],
+            serde_json::json!([kind])
+        );
+        assert!(
+            props["capabilities"]["items"]["enum"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!(Capability::PermanentRemovalV1))
+        );
+        assert!(
+            !props["capabilities"]["items"]["enum"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!(Capability::CreatureTargetV1))
+        );
+    }
+}
+
+#[test]
+fn aura_control_typed_shapes_exclude_optional_cost_and_conditional_draw() {
+    for kind in [CardKind::Creature, CardKind::Artifact, CardKind::Land] {
+        let baseline = typed_aura(kind);
+        baseline.validate().unwrap();
+        for variant in 0..3 {
+            let mut invalid = baseline.clone();
+            let identity = format!(
+                "card:{}/faces/0/abilities/0/keywords/0#keyword",
+                invalid.oracle_id
+            );
+            let program = invalid.spell.as_mut().unwrap();
+            if variant != 1 {
+                program.optional_additional_costs.push(OptionalAdditionalManaCost {
+                    identity: identity.clone(),
+                    source_block: 0,
+                    mana: ManaCost { generic: 2.into(), colored: vec![Color::U] },
+                });
+            }
+            if variant != 0 {
+                program.instructions.push(Instruction::DrawCardsIfAdditionalCost {
+                    cost_identity: identity,
+                    count: 2.into(),
+                    source_block: 1,
+                });
+            }
+            assert_eq!(aura_control_target_type(&invalid), None);
+            assert!(!aura_control_source(&invalid));
+            invalid.capabilities = invalid.requirements();
+            assert!(invalid.validate().is_err());
         }
     }
 }

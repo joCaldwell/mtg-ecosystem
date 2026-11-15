@@ -208,7 +208,7 @@ fn creature_set_keyword_five_exact_sources_costs_order_and_closure() {
     }
 }
 #[test]
-fn creature_set_keyword_whole_heroic_intervention_remains_unsupported() {
+fn creature_set_keyword_whole_heroic_intervention_uses_distinct_permanent_family() {
     let raw = include_str!("../../../tests/fixtures/24882fa2-3fe9-4c1b-aa3d-0e6488b9db27.json");
     assert_eq!(
         sha256(raw.trim_end().as_bytes()),
@@ -221,7 +221,16 @@ fn creature_set_keyword_whole_heroic_intervention_remains_unsupported() {
         r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["what"],
         json!({"ref":"each","filter":{"cls":"permanent","control":"you"}})
     );
-    assert!(matches!(compile(HEADER,raw),CompileResult::Unsupported {path,..} if path=="set"));
+    let d = lowered(raw);
+    let p = d.spell.as_ref().unwrap();
+    assert!(temporary_creature_set_keyword_program(p).is_none());
+    let desc = temporary_permanent_set_keyword_program(p).unwrap();
+    assert_eq!(*desc.set, ObjectSet::ControllerPermanents);
+    assert_eq!(
+        desc.keywords,
+        [KeywordAbility::Hexproof, KeywordAbility::Indestructible]
+    );
+    assert!(desc.modifier.is_none());
 }
 #[test]
 fn creature_set_keyword_complete_selector_extras_reject_per_occurrence() {

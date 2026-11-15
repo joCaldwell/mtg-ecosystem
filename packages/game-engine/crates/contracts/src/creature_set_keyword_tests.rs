@@ -362,12 +362,16 @@ fn creature_set_keyword_excludes_optional_cost_and_conditional_draw_families() {
     for set in [
         ObjectSet::ControllerCreatures,
         ObjectSet::AttackingCreatures,
+        ObjectSet::ControllerPermanents,
     ] {
         for modifier in [false, true] {
+            if set == ObjectSet::ControllerPermanents && modifier {
+                continue;
+            }
             let baseline = grant(set.clone(), &[KeywordAbility::Lifelink], modifier);
             baseline.validate().unwrap();
             assert!(
-                temporary_creature_set_keyword_program(baseline.spell.as_ref().unwrap()).is_some()
+                temporary_set_keyword_program(baseline.spell.as_ref().unwrap()).is_some()
             );
             for variant in 0..3 {
                 let mut invalid = baseline.clone();
@@ -397,7 +401,7 @@ fn creature_set_keyword_excludes_optional_cost_and_conditional_draw_families() {
                             source_block: 1,
                         });
                 }
-                assert!(temporary_creature_set_keyword_program(program).is_none());
+                assert!(temporary_set_keyword_program(program).is_none());
                 invalid.capabilities = invalid.requirements();
                 assert!(invalid.validate().is_err());
             }

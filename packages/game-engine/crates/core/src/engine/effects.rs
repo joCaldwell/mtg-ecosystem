@@ -1017,7 +1017,8 @@ impl Game {
                             keywords: grants,
                         },
                     ) => {
-                        *targets == self.objects_in_set(set, frame.spell.controller)
+                        temporary_set_keyword_program(self.program_for(&frame.spell)?).is_some()
+                            && *targets == self.objects_in_set(set, frame.spell.controller)
                             && modifier == applied_modifier
                             && keywords == grants
                             && supported_temporary_creature_keywords(grants)
@@ -1386,11 +1387,13 @@ impl Game {
                 return Err("effect origin stack identity invariant".into());
             }
             let programs = self.origin_programs(&e.origin)?;
-            let instructions = programs
-                .iter()
-                .filter_map(|p| p.instructions.get(e.origin.cursor as usize));
+            let instructions = programs.iter().filter_map(|p| {
+                p.instructions
+                    .get(e.origin.cursor as usize)
+                    .map(|i| (*p, i))
+            });
             let mut bound = false;
-            for instruction in instructions {
+            for (program, instruction) in instructions {
                 bound |= match (instruction, &e.kind) {
                     (
                         Instruction::PumpSet {
@@ -1408,10 +1411,11 @@ impl Game {
                         p == power
                             && t == toughness
                             && *source_block == e.origin.source_block
-                            && self.valid_set_effect_targets(e, targets)
+                            && self.valid_set_effect_targets(e, targets, None)
                     }
                     (
                         Instruction::GrantKeywordsSet {
+                            set,
                             modifier,
                             keywords,
                             duration: Duration::UntilEndOfTurn,
@@ -1427,18 +1431,19 @@ impl Game {
                         // CR 611.2c: membership was captured at creation. Current
                         // controllers/attack status cannot authenticate past eligibility;
                         // restore's input replay proves the complete ordered capture.
-                        modifier == applied_modifier
+                        temporary_set_keyword_program(program).is_some()
+                            && modifier == applied_modifier
                             && keywords == grants
                             && supported_temporary_creature_keywords(grants)
                             && *source_block == e.origin.source_block
-                            && self.valid_set_effect_targets(e, targets)
+                            && self.valid_set_effect_targets(e, targets, Some(set))
                     }
                     (
                         Instruction::ExileDamagedThisTurn { source_block },
                         ResolvedEffectKind::ExileDamaged { targets },
                     ) => {
                         *source_block == e.origin.source_block
-                            && self.valid_set_effect_targets(e, targets)
+                            && self.valid_set_effect_targets(e, targets, None)
                     }
                     (
                         Instruction::ModifySourcePowerToughness {
@@ -2206,19 +2211,25 @@ impl Game {
             // replay still authenticate the captured historical appearance.
             // Validated ordinary spell grants belong here alongside static ones.
             let keywords_valid = {
-                let can_have_grants = d.source.zone == Zone::Battlefield
-                    && d.source.characteristics.kind == CardKind::Creature;
-                expected_keywords.iter().all(|k|d.source.keywords.contains(k))
-                    && d.source.keywords.iter().enumerate().all(|(n,k)| {
+                let battlefield = d.source.zone == Zone::Battlefield;
+                let creature = d.source.characteristics.kind == CardKind::Creature;
+                expected_keywords.iter().all(|k| d.source.keywords.contains(k))
+                    && d.source.keywords.iter().enumerate().all(|(n, k)| {
                         !d.source.keywords[..n].contains(k)
-                            && (expected_keywords.contains(k) || (can_have_grants && self.prepared.catalog.definitions.iter()
-                                .any(|definition| {
-                                    definition.static_abilities.iter().any(|a| matches!(&a.effect,
-                                        StaticEffect::ModifyCreatures {keywords,..} if keywords.contains(k)))
+                            && (expected_keywords.contains(k)
+                                || (battlefield && self.prepared.catalog.definitions.iter().any(|definition| {
+                                    // Noncreatures get no authority from creature static/scalar
+                                    // grants. Only the complete validated permanent-set family
+                                    // contributes their possible extra LKI vocabulary.
+                                    (creature && (definition.static_abilities.iter().any(|a| matches!(&a.effect,
+                                        StaticEffect::ModifyCreatures { keywords, .. } if keywords.contains(k)))
                                         || definition.spell.as_ref().is_some_and(|program|
                                             program.instructions.iter().any(|instruction| matches!(instruction,
-                                                Instruction::GrantKeywords {keywords,..}
-                                                | Instruction::GrantKeywordsSet {keywords,..} if keywords.contains(k))))
+                                                Instruction::GrantKeywords { keywords, .. }
+                                                | Instruction::GrantKeywordsSet { keywords, .. } if keywords.contains(k))))))
+                                        || definition.spell.as_ref()
+                                            .and_then(temporary_permanent_set_keyword_program)
+                                            .is_some_and(|program| program.keywords.contains(k))
                                 })))
                     })
             };

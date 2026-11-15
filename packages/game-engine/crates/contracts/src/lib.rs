@@ -273,6 +273,7 @@ pub enum Capability {
     CompoundIndestructibleSpellV1,
     TemporaryCreatureKeywordProgramV1,
     TemporaryCreatureSetKeywordProgramV1,
+    TemporaryPermanentSetKeywordProgramV1,
     TrampleV1,
     FirstStrikeV1,
     DoubleStrikeV1,
@@ -353,6 +354,7 @@ pub struct PermanentFilter {
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum ObjectSet {
     ControllerCreatures,
+    ControllerPermanents,
     Creatures,
     NonlandPermanents,
     Enchantments,
@@ -794,9 +796,9 @@ impl CounterPlacementModification {
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
     /// CR 109.5/303.4m/611.3/613.1b: the current source controller controls
-    /// its enchanted creature; this is not a frozen invocation recipient.
+    /// its enchanted permanent; this is not a frozen invocation recipient.
     /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    ControlEnchantedCreature,
+    ControlEnchantedPermanent,
     /// CR 101.2/109.5/601.3: opponents cannot cast during this controller's turn.
     OpponentsCantCastDuringControllerTurn,
     EntersTapped,
@@ -1360,14 +1362,31 @@ fn static_creature_modification_valid(
 
 /// The complete admitted Aura-control executable shape, without recursive
 /// validation, capability calculation, source identity or mana-cost dispatch.
-/// CR 303.4a/303.4m, 109.5 and 611.3: one creature target and one battlefield
-/// control effect using the current Aura controller, optionally composed with
-/// one already-supported enchanted-creature modifier. Other Aura families retain
+/// CR 303.4a/303.4m, 109.5 and 611.3: one creature, artifact or land target
+/// and one battlefield control effect using the current Aura controller. Only
+/// creature control may compose with one enchanted-creature modifier. Other Auras retain
 /// their existing admission rules.
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-pub fn aura_control_source(definition: &Definition) -> bool {
+pub fn aura_control_target_type(definition: &Definition) -> Option<CardKind> {
     let c = &definition.characteristics;
-    c.kind == CardKind::Enchantment
+    let p = definition.spell.as_ref()?;
+    let [target] = p.targets.as_slice() else {
+        return None;
+    };
+    let target_type = match (&target.domain, &target.filter) {
+        (TargetDomain::BattlefieldCreature, None) => CardKind::Creature,
+        (TargetDomain::BattlefieldPermanent, Some(f))
+            if matches!(f.types.as_slice(), [CardKind::Artifact] | [CardKind::Land])
+                && f.non_types.is_empty()
+                && f.non_colors.is_empty()
+                && !f.opponent
+                && !f.tapped =>
+        {
+            f.types[0]
+        }
+        _ => return None,
+    };
+    let valid = c.kind == CardKind::Enchantment
         && c.additional_types.is_empty()
         && c.subtypes == ["Aura"]
         && !c.basic
@@ -1386,35 +1405,40 @@ pub fn aura_control_source(definition: &Definition) -> bool {
         && definition
             .static_abilities
             .iter()
-            .filter(|a| a.effect == StaticEffect::ControlEnchantedCreature)
+            .filter(|a| a.effect == StaticEffect::ControlEnchantedPermanent)
             .count()
             == 1
         && definition.static_abilities.iter().all(|a| {
             a.functioning_zone == FunctioningZone::Battlefield
-                && (a.effect == StaticEffect::ControlEnchantedCreature
-                    || (matches!(
-                        a.effect,
-                        StaticEffect::ModifyCreatures {
-                            scope: CreatureScope::Enchanted,
-                            ..
-                        }
-                    ) && static_creature_modification_valid(c.kind, false, true, &a.effect)))
+                && (a.effect == StaticEffect::ControlEnchantedPermanent
+                    || (target_type == CardKind::Creature
+                        && matches!(
+                            a.effect,
+                            StaticEffect::ModifyCreatures {
+                                scope: CreatureScope::Enchanted,
+                                ..
+                            }
+                        )
+                        && static_creature_modification_valid(c.kind, false, true, &a.effect)))
         })
-        && definition.spell.as_ref().is_some_and(|p| {
-            p.timing == SpellTiming::MainPhase
-                && p.resolution == SpellResolution::Permanent
-                && p.functioning_zone == FunctioningZone::Stack
-                && (p.additional_sacrifice.is_none() && p.optional_additional_costs.is_empty())
-                && p.instructions.is_empty()
-                && p.modes.is_empty()
-                && matches!(p.targets.as_slice(), [t]
-                    if t.slot == 0 && !t.selection_id.is_empty()
-                        && t.domain == TargetDomain::BattlefieldCreature
-                        && t.chooser == Chooser::Controller
-                        && t.stage == EvaluationStage::Announcement
-                        && t.filter.is_none())
-        })
+        && p.timing == SpellTiming::MainPhase
+        && p.resolution == SpellResolution::Permanent
+        && p.functioning_zone == FunctioningZone::Stack
+        && p.additional_sacrifice.is_none()
+        && p.optional_additional_costs.is_empty()
+        && p.instructions.is_empty()
+        && p.modes.is_empty()
+        && target.slot == 0
+        && !target.selection_id.is_empty()
+        && target.chooser == Chooser::Controller
+        && target.stage == EvaluationStage::Announcement;
+    valid.then_some(target_type)
 }
+/// Whether this definition has the complete narrow Aura-control shape.
+pub fn aura_control_source(definition: &Definition) -> bool {
+    aura_control_target_type(definition).is_some()
+}
+
 impl Definition {
     pub fn requirements(&self) -> BTreeSet<Capability> {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1]);
@@ -1604,7 +1628,7 @@ impl Definition {
                 set.insert(Capability::IndestructibleV1);
             }
             set.insert(match a.effect {
-                StaticEffect::ControlEnchantedCreature => Capability::AuraControlV1,
+                StaticEffect::ControlEnchantedPermanent => Capability::AuraControlV1,
                 StaticEffect::OpponentsCantCastDuringControllerTurn => {
                     Capability::OpponentCastProhibitionV1
                 }
@@ -1643,7 +1667,7 @@ impl Definition {
         if self
             .static_abilities
             .iter()
-            .any(|a| a.effect == StaticEffect::ControlEnchantedCreature)
+            .any(|a| a.effect == StaticEffect::ControlEnchantedPermanent)
             && !aura_control_source(self)
         {
             return Err("unsupported complete Aura control family".into());
@@ -1651,7 +1675,7 @@ impl Definition {
         if self
             .spell
             .as_ref()
-            .is_some_and(|p| temporary_creature_set_keyword_program(p).is_some())
+            .is_some_and(|p| temporary_set_keyword_program(p).is_some())
             && (!self.keywords.is_empty()
                 || !self.static_abilities.is_empty()
                 || !self.activated.is_empty()
@@ -2464,7 +2488,7 @@ impl Definition {
                 }
                 continue;
             }
-            if a.effect == StaticEffect::ControlEnchantedCreature {
+            if a.effect == StaticEffect::ControlEnchantedPermanent {
                 // The whole definition was checked by aura_control_source above.
                 continue;
             }
@@ -2520,10 +2544,12 @@ impl Definition {
                     || p.functioning_zone != FunctioningZone::Stack
                     || p.timing != cast_timing
                     || p.resolution != SpellResolution::Permanent
-                    || if aura {
+                    || if aura && !aura_control_source(self) {
                         !matches!(p.targets.as_slice(), [t] if t.domain == TargetDomain::BattlefieldCreature && t.slot == 0 && !t.selection_id.is_empty() && t.chooser == Chooser::Controller && t.stage == EvaluationStage::Announcement)
-                    } else {
+                    } else if !aura {
                         !p.targets.is_empty()
+                    } else {
+                        false
                     }
                     || !p.instructions.is_empty()
                     || !p.modes.is_empty()
@@ -2759,8 +2785,7 @@ fn has_keyword_grant(p: &SpellProgram) -> bool {
     }) || p.modes.iter().any(|m| has_keyword_grant(&m.program))
 }
 fn ordinary_keyword_grant(p: &SpellProgram) -> bool {
-    temporary_creature_keyword_program(p).is_some()
-        || temporary_creature_set_keyword_program(p).is_some()
+    temporary_creature_keyword_program(p).is_some() || temporary_set_keyword_program(p).is_some()
 }
 /// Reviewed temporary-grant vocabulary. Order is retained, but repetitions and
 /// keywords outside this nonempty family are unsupported.
@@ -2825,18 +2850,16 @@ pub fn temporary_creature_keyword_program(
     supported_temporary_creature_keywords(keywords)
         .then_some(TemporaryCreatureKeywordProgram { modifier, keywords })
 }
-/// Borrowed parameters of the complete ordinary temporary creature-set family.
+/// Borrowed parameters of the complete ordinary temporary set-keyword family.
 #[derive(Clone, Copy, Debug)]
-pub struct TemporaryCreatureSetKeywordProgram<'a> {
+pub struct TemporarySetKeywordProgram<'a> {
     pub set: &'a ObjectSet,
     pub modifier: Option<(&'a Quantity, &'a Quantity)>,
     pub keywords: &'a [KeywordAbility],
 }
 /// CR 608.2c/h, 611.2c, 613.5–6: one instruction creates the complete effect.
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-pub fn temporary_creature_set_keyword_program(
-    p: &SpellProgram,
-) -> Option<TemporaryCreatureSetKeywordProgram<'_>> {
+pub fn temporary_set_keyword_program(p: &SpellProgram) -> Option<TemporarySetKeywordProgram<'_>> {
     if p.additional_sacrifice.is_some()
         || !p.optional_additional_costs.is_empty()
         || !p.modes.is_empty()
@@ -2859,15 +2882,34 @@ pub fn temporary_creature_set_keyword_program(
         return None;
     };
     let modifier = modifier.as_ref().map(|m| (&m.power, &m.toughness));
-    (matches!(
+    ((matches!(
         set,
         ObjectSet::ControllerCreatures | ObjectSet::AttackingCreatures
-    ) && supported_temporary_creature_keywords(keywords))
-    .then_some(TemporaryCreatureSetKeywordProgram {
+    ) || (*set == ObjectSet::ControllerPermanents && modifier.is_none()))
+        && supported_temporary_creature_keywords(keywords))
+    .then_some(TemporarySetKeywordProgram {
         set,
         modifier,
         keywords,
     })
+}
+/// Creature-only view of the shared complete ordinary set-keyword family.
+pub fn temporary_creature_set_keyword_program(
+    p: &SpellProgram,
+) -> Option<TemporarySetKeywordProgram<'_>> {
+    let program = temporary_set_keyword_program(p)?;
+    matches!(
+        program.set,
+        ObjectSet::ControllerCreatures | ObjectSet::AttackingCreatures
+    )
+    .then_some(program)
+}
+/// Permanent-only view; a permanent grant never carries a stat modifier.
+pub fn temporary_permanent_set_keyword_program(
+    p: &SpellProgram,
+) -> Option<TemporarySetKeywordProgram<'_>> {
+    let program = temporary_set_keyword_program(p)?;
+    (*program.set == ObjectSet::ControllerPermanents).then_some(program)
 }
 /// Narrow reviewed subset retained for existing protection policy callers.
 /// Quantities remain exact signed parameters of the shared program descriptor.
@@ -2920,19 +2962,27 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     {
         return Err("cascade requires one complete targetless program".into());
     }
-    // ControllerCreatures is reserved for the exact new family. The shared set
-    // decoder must not admit it into old movement, damage, pump or mode routes.
+    // Controller selectors are reserved for complete ordinary keyword families.
+    // Shared set decoding must not widen movement, damage, pump or nested routes.
     fn controller_set(p: &SpellProgram) -> bool {
         p.instructions.iter().any(|i| match i {
             Instruction::MoveSet { set, .. }
             | Instruction::PumpSet { set, .. }
-            | Instruction::GrantKeywordsSet { set, .. } => *set == ObjectSet::ControllerCreatures,
-            Instruction::DamageSet { sets, .. } => sets.contains(&ObjectSet::ControllerCreatures),
+            | Instruction::GrantKeywordsSet { set, .. } => matches!(
+                set,
+                ObjectSet::ControllerCreatures | ObjectSet::ControllerPermanents
+            ),
+            Instruction::DamageSet { sets, .. } => sets.iter().any(|set| {
+                matches!(
+                    set,
+                    ObjectSet::ControllerCreatures | ObjectSet::ControllerPermanents
+                )
+            }),
             _ => false,
         }) || p.modes.iter().any(|m| controller_set(&m.program))
     }
-    if controller_set(p) && temporary_creature_set_keyword_program(p).is_none() {
-        return Err("controller creature set requires complete temporary keyword family".into());
+    if controller_set(p) && temporary_set_keyword_program(p).is_none() {
+        return Err("controller set requires complete temporary keyword family".into());
     }
 
     if has_keyword_grant(p) && !ordinary_keyword_grant(p) {
@@ -3667,9 +3717,15 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         }
         set.insert(match instruction {
             Instruction::Cascade { .. } => Capability::CascadeV1,
-            Instruction::GrantKeywordsSet { .. } => {
-                Capability::TemporaryCreatureSetKeywordProgramV1
-            }
+            Instruction::GrantKeywordsSet {
+                set: ObjectSet::ControllerPermanents,
+                ..
+            } => Capability::TemporaryPermanentSetKeywordProgramV1,
+            Instruction::GrantKeywordsSet {
+                set: ObjectSet::ControllerCreatures | ObjectSet::AttackingCreatures,
+                ..
+            } => Capability::TemporaryCreatureSetKeywordProgramV1,
+            Instruction::GrantKeywordsSet { .. } => Capability::BoardWipesV1,
             Instruction::MoveSet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::DamageSet { .. }
@@ -4583,26 +4639,31 @@ pub fn catalog_schema() -> serde_json::Value {
     for set in [
         ObjectSet::ControllerCreatures,
         ObjectSet::AttackingCreatures,
+        ObjectSet::ControllerPermanents,
     ] {
+        let modifier = if set == ObjectSet::ControllerPermanents {
+            serde_json::json!({"type":"null"})
+        } else {
+            serde_json::json!({"anyOf":[{"type":"null"},{"$ref":"#/$defs/CreatureStatModifier"}]})
+        };
         let grant = serde_json::json!({"properties":{
             "op":{"const":"grant_keywords_set"},"set":{"const":set},
-            "modifier":{"anyOf":[{"type":"null"},{"$ref":"#/$defs/CreatureStatModifier"}]},
+            "modifier":modifier,
             "keywords":{"$ref":"#/$defs/TemporaryCreatureKeywords"},
             "duration":{"const":"until_end_of_turn"},"source_block":{"const":0}
         }});
         set_shapes.push(serde_json::json!({"minItems":1,"maxItems":1,"items":grant}));
     }
-    schema["$defs"]["TemporaryCreatureSetKeywordInstructions"] =
-        serde_json::json!({"anyOf":set_shapes});
+    schema["$defs"]["TemporarySetKeywordInstructions"] = serde_json::json!({"anyOf":set_shapes});
     let set_family_program = serde_json::json!({"properties":{
         "optional_additional_costs":{"maxItems":0},
         "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},"targets":{"maxItems":0},
         "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
-        "instructions":{"$ref":"#/$defs/TemporaryCreatureSetKeywordInstructions"}
+        "instructions":{"$ref":"#/$defs/TemporarySetKeywordInstructions"}
     }});
     let controller_set = serde_json::json!({"anyOf":[
-        {"required":["set"],"properties":{"set":{"const":ObjectSet::ControllerCreatures}}},
-        {"required":["sets"],"properties":{"sets":{"contains":{"const":ObjectSet::ControllerCreatures}}}}
+        {"required":["set"],"properties":{"set":{"enum":[ObjectSet::ControllerCreatures,ObjectSet::ControllerPermanents]}}},
+        {"required":["sets"],"properties":{"sets":{"contains":{"enum":[ObjectSet::ControllerCreatures,ObjectSet::ControllerPermanents]}}}}
     ]});
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"anyOf":[set_grant_program,{"required":["instructions"],"properties":{"instructions":{"contains":controller_set}}}]},
@@ -4612,13 +4673,18 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["KeywordGrantFreeProgram"]["properties"]["instructions"]["items"]["not"]["properties"]
         ["op"] = serde_json::json!({"enum":["grant_keywords","grant_keywords_set"]});
     let any_set_grant = serde_json::json!({"required":["spell"],"properties":{"spell":{"type":"object","allOf":[set_grant_program]}}});
-    let family_cap = Capability::TemporaryCreatureSetKeywordProgramV1;
+    let creature_cap = Capability::TemporaryCreatureSetKeywordProgramV1;
+    let permanent_cap = Capability::TemporaryPermanentSetKeywordProgramV1;
+    let permanent_set = serde_json::json!({"properties":{"spell":{"properties":{"instructions":{"contains":{
+        "required":["set"],"properties":{"set":{"const":ObjectSet::ControllerPermanents}}
+    }}}}}});
     let mut allowed_caps = vec![
         Capability::NormalLayoutV1,
         Capability::CastInstantV1,
         Capability::CastSorceryV1,
         Capability::BoardWipesV1,
-        family_cap,
+        creature_cap,
+        permanent_cap,
     ];
     let mut exact_caps = Vec::new();
     for keyword in [
@@ -4650,15 +4716,18 @@ pub fn catalog_schema() -> serde_json::Value {
                 "characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},
                     "legendary":{"const":false},"basic":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"},"additional_types":{"maxItems":0}}},
                 "capabilities":{"items":{"enum":allowed_caps},"allOf":[
-                    {"contains":{"const":family_cap}},{"contains":{"const":Capability::BoardWipesV1}},
+                    {"contains":{"const":Capability::BoardWipesV1}},
                     {"contains":{"const":Capability::NormalLayoutV1}}
                 ]}
             }},
             {"allOf":exact_caps},
+            {"if":permanent_set,
+             "then":{"properties":{"capabilities":{"allOf":[{"contains":{"const":permanent_cap}},{"not":{"contains":{"const":creature_cap}}}]}}},
+             "else":{"properties":{"capabilities":{"allOf":[{"contains":{"const":creature_cap}},{"not":{"contains":{"const":permanent_cap}}}]}}}},
             {"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
              "then":{"properties":{"spell":{"properties":{"timing":{"const":"instant"}}},"capabilities":{"allOf":[{"contains":{"const":Capability::CastInstantV1}},{"not":{"contains":{"const":Capability::CastSorceryV1}}}]}}},
              "else":{"properties":{"spell":{"properties":{"timing":{"const":"main_phase"}}},"capabilities":{"allOf":[{"contains":{"const":Capability::CastSorceryV1}},{"not":{"contains":{"const":Capability::CastInstantV1}}}]}}}}
-        ]},"else":{"properties":{"capabilities":{"not":{"contains":{"const":family_cap}}}}}
+        ]},"else":{"properties":{"capabilities":{"items":{"not":{"enum":[creature_cap,permanent_cap]}}}}}
     }));
     // Keep the Aura-control operation and capability paired with its complete
     // executable shape. This addition does not narrow other attachment families.
@@ -4708,7 +4777,7 @@ pub fn catalog_schema() -> serde_json::Value {
         }
     });
     let aura_control_static = serde_json::json!({"const":{
-        "functioning_zone":"battlefield","effect":"control_enchanted_creature"
+        "functioning_zone":"battlefield","effect":"control_enchanted_permanent"
     }});
     schema["$defs"]["AuraControlDefinition"] = serde_json::json!({
         "required":["spell","static_abilities","capabilities"],"properties":{
@@ -4729,6 +4798,7 @@ pub fn catalog_schema() -> serde_json::Value {
             "spell":{"type":"object","properties":{
                 "timing":{"const":"main_phase"},"resolution":{"const":"permanent"},
                 "functioning_zone":{"const":"stack"},"additional_sacrifice":{"type":"null"},
+                "optional_additional_costs":{"maxItems":0},
                 "instructions":{"maxItems":0},"modes":{"maxItems":0},
                 "targets":{"minItems":1,"maxItems":1,"items":{"properties":{
                     "slot":{"const":0},"selection_id":{"minLength":1},
@@ -4742,9 +4812,32 @@ pub fn catalog_schema() -> serde_json::Value {
             ]}}
         }
     });
+    let creature_control = schema["$defs"]["AuraControlDefinition"].clone();
+    let mut control_shapes = vec![creature_control.clone()];
+    for kind in [CardKind::Artifact, CardKind::Land] {
+        let mut shape = creature_control.clone();
+        shape["properties"]["static_abilities"] = serde_json::json!({
+            "minItems":1,"maxItems":1,"items":aura_control_static
+        });
+        let target = &mut shape["properties"]["spell"]["properties"]["targets"]["items"];
+        target["required"] = serde_json::json!(["filter"]);
+        target["properties"]["domain"] = serde_json::json!({"const":"battlefield_permanent"});
+        target["properties"]["filter"] = serde_json::json!({"type":"object",
+        "required":["types","non_types","non_colors","opponent"],"properties":{
+            "types":{"const":[kind]},"non_types":{"maxItems":0},
+            "non_colors":{"maxItems":0},"opponent":{"const":false},
+            "tapped":{"const":false}
+        }});
+        shape["properties"]["capabilities"]["items"] = serde_json::json!({"enum":[
+            Capability::NormalLayoutV1,Capability::CastEnchantmentV1,
+            Capability::PermanentRemovalV1,Capability::AttachmentsV1,Capability::AuraControlV1
+        ]});
+        control_shapes.push(shape);
+    }
+    schema["$defs"]["AuraControlDefinition"] = serde_json::json!({"oneOf":control_shapes});
     let aura_control = serde_json::json!({"required":["static_abilities"],"properties":{
         "static_abilities":{"contains":{"required":["effect"],"properties":{
-            "effect":{"const":StaticEffect::ControlEnchantedCreature}
+            "effect":{"const":StaticEffect::ControlEnchantedPermanent}
         }}}
     }});
     schema["$defs"]["Definition"]["allOf"]
@@ -4962,6 +5055,7 @@ mod tests {
             CompoundIndestructibleSpellV1,
             TemporaryCreatureKeywordProgramV1,
             TemporaryCreatureSetKeywordProgramV1,
+            TemporaryPermanentSetKeywordProgramV1,
             TrampleV1,
             FirstStrikeV1,
             DoubleStrikeV1,
@@ -5067,6 +5161,11 @@ mod tests {
             &[KeywordAbility::Haste],
             false,
         ));
+        definitions.push(creature_set_keyword_tests::grant(
+            ObjectSet::ControllerPermanents,
+            &[KeywordAbility::Hexproof, KeywordAbility::Indestructible],
+            false,
+        ));
         let mut blocking = definitions
             .iter()
             .find(|d| d.name == "Giant Growth")
@@ -5093,8 +5192,10 @@ mod tests {
         // Complete typed untap witness; the compiler separately checks the
         // retained source and its complete unqualified target selection.
         // Complete typed Aura-control witness; compiler tests independently
-        // qualify both exact frozen sources without a profile admission change.
+        // qualify exact frozen sources without a profile admission change.
         definitions.push(aura_control_tests::aura());
+        definitions.push(aura_control_tests::typed_aura(CardKind::Artifact));
+        definitions.push(aura_control_tests::typed_aura(CardKind::Land));
         definitions.push(indestructible_tests::intrinsic());
         definitions.push(temporary_indestructible_tests::grant());
         definitions.push(temporary_flying_tests::grant());
@@ -6784,3 +6885,6 @@ mod creature_set_keyword_tests;
 
 #[cfg(test)]
 mod static_controller_tests;
+
+#[cfg(test)]
+mod permanent_set_keyword_tests;

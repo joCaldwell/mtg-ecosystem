@@ -3829,3 +3829,6 @@ mod scalar_keyword_effect_kernel_tests;
 
 #[cfg(test)]
 mod creature_set_keyword_tests;
+
+#[cfg(test)]
+mod permanent_set_keyword_kernel_tests;

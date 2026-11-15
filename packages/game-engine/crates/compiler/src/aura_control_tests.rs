@@ -122,7 +122,7 @@ fn aura_control_complete_frozen_witnesses_have_pinned_source_and_same_reusable_s
             d.static_abilities,
             vec![StaticAbility {
                 functioning_zone: FunctioningZone::Battlefield,
-                effect: StaticEffect::ControlEnchantedCreature,
+                effect: StaticEffect::ControlEnchantedPermanent,
             }]
         );
         assert_eq!(
@@ -161,7 +161,7 @@ fn aura_control_complete_frozen_witnesses_have_pinned_source_and_same_reusable_s
                 "targets":[{"slot":0,"selection_id":"enchanted-creature","chooser":"controller",
                     "stage":"announcement","domain":"battlefield_creature"}],"instructions":[]
             },
-            "static_abilities":[{"functioning_zone":"battlefield","effect":"control_enchanted_creature"}],
+            "static_abilities":[{"functioning_zone":"battlefield","effect":"control_enchanted_permanent"}],
             "capabilities":["cast_enchantment_v1","aura_control_v1","normal_layout_v1","creature_target_v1","attachments_v1"]
         });
         assert_eq!(
@@ -524,5 +524,367 @@ fn aura_control_composition_rejects_whole_source_and_modifier_boundary_negatives
                     .unwrap()
             ));
         }));
+    }
+}
+
+// Generalized source witnesses and strict boundaries; native tests UNRUN.
+const STEAL: &str =
+    include_str!("../../../tests/fixtures/cd8ae9f2-edac-473a-8846-c08219e617c3.json");
+const ANNEX: &str =
+    include_str!("../../../tests/fixtures/5f1f49dd-b7ce-494a-9b4b-ac702d3664c5.json");
+const CONQUER: &str =
+    include_str!("../../../tests/fixtures/be15e131-0753-4ceb-a36b-4f9172241080.json");
+const MYR: &str = include_str!("../../../tests/fixtures/66e8f7f8-3a6d-46ba-837c-b9713ddf7f40.json");
+const SEAT: &str =
+    include_str!("../../../tests/fixtures/39451b4d-cd7a-40da-b457-cb51b609173f.json");
+
+#[test]
+fn aura_control_generalized_five_complete_sources_pin_provenance_and_typed_bindings() {
+    let accepted = accepted_manifest(HEADER).unwrap();
+    for (raw, name, oracle, record_hash, source_hash, ast_hash, binding_hash, index) in [
+        (
+            STEAL,
+            "Steal Artifact",
+            "cd8ae9f2-edac-473a-8846-c08219e617c3",
+            "f2d2a434615abee4dd768d625ff726f5f3a1db1c184bcd4cc6acb3c2d210469a",
+            "a642f7110e83d4ea706b33d482d7ec43327646b0d739005e8c498966ff9b12aa",
+            "dc7aaa9a60e77269264f0d8a511313bb027019e67ec1605f283512fd29b16560",
+            "fc9027db39ce1240e7ea38a66aa7b6b7d4cb6da1e30bdd534c6fd7c33d35f3b5",
+            30992,
+        ),
+        (
+            ANNEX,
+            "Annex",
+            "5f1f49dd-b7ce-494a-9b4b-ac702d3664c5",
+            "56ffc027d62d1217aab065b00ed166549c7716ffff9c5fd551e4d32a6bc29359",
+            "fe62c95f3f539124103e3dee0a487d177c2a2b781d1f2eb837f4dbdeed440cbb",
+            "9fdb236292ee2277a6e36dfd1ec08fc9879fbd5d514b3b0baee86d917e601112",
+            "28b10a7dd1077f500af40cbaaa4b2f6b1c73fb8da861caf071aac61cf6148cff",
+            14277,
+        ),
+        (
+            CONQUER,
+            "Conquer",
+            "be15e131-0753-4ceb-a36b-4f9172241080",
+            "2115492aa1e6cb8531b57d41f82d5e1eb23f3fc99078075d9db2bd9698ea3ec9",
+            "ee8f56b6d16989aee5ff603ee8a76d52ca27fe71d9dadd72c0f536ea137c0ea3",
+            "9fdb236292ee2277a6e36dfd1ec08fc9879fbd5d514b3b0baee86d917e601112",
+            "5648b81e5f671ba3435b8efcf4b21a00fcc75c6bd6c2b1074343f5ab8d7699a0",
+            28632,
+        ),
+        (
+            MYR,
+            "Silver Myr",
+            "66e8f7f8-3a6d-46ba-837c-b9713ddf7f40",
+            "6009ff09fee7722d66e8a1fdf25ba77855b55db94c0145bde6c4bca1778ff239",
+            "6020ef1fba44fb7778ebb9c876f5c312d7f09456f4a22d998ed525f14aeaed23",
+            "16906ab71995a12aec380bfefea691a7e5a80d476641cb7de1469ce53cd18b6e",
+            "2a9317292a2e5cc5b3f6bf43e4dd0d6a48396fe682b8b27f88fdf1c657b45ad1",
+            15462,
+        ),
+        (
+            SEAT,
+            "Seat of the Synod",
+            "39451b4d-cd7a-40da-b457-cb51b609173f",
+            "efb9922ef0cf89f95bd6595f7d908048952aee301b8ee9dd71f60d5a80defa1a",
+            "995c037886be2fc76d994e8507170016784480ed69b52d1e153444eca9cbf7ba",
+            "16906ab71995a12aec380bfefea691a7e5a80d476641cb7de1469ce53cd18b6e",
+            "e7991fc0dc59c585e7b2ac976f63162caa5cc6b0cbb473ebd709dfeea31c5de8",
+            8573,
+        ),
+    ] {
+        assert_eq!(sha256(raw.trim_end().as_bytes()), record_hash);
+        assert!(accepted.record_sha256.contains(record_hash));
+        let record: Value = strict_read(raw).unwrap();
+        assert_eq!(record["source"]["layout"], "normal");
+        assert_eq!(record["source"]["legalities"]["commander"], "legal");
+        assert_eq!(record["binding"]["referencesBound"], true);
+        assert_eq!(record["binding"]["fullyBound"], true);
+        assert_eq!(record["binding"]["counts"]["unresolved"], 0);
+        let d = lowered(raw);
+        assert_eq!(d.name, name);
+        assert_eq!(d.oracle_id, oracle);
+        assert_eq!(d.provenance.source_index, index);
+        assert_eq!(d.provenance.source_sha256, source_hash);
+        assert_eq!(d.provenance.ast_sha256, ast_hash);
+        assert_eq!(d.provenance.binding_sha256, binding_hash);
+        assert_eq!(
+            strict_read::<Value>(&d.provenance.abilities_json).unwrap(),
+            record["faces"][0]["result"]["abilities"]
+        );
+    }
+}
+
+#[test]
+fn aura_control_generalized_artifact_land_bind_exact_targets_costs_and_control_unit() {
+    for (raw, kind, generic, colors) in [
+        (STEAL, CardKind::Artifact, 2_i64, vec![Color::U, Color::U]),
+        (ANNEX, CardKind::Land, 2, vec![Color::U, Color::U]),
+        (CONQUER, CardKind::Land, 3, vec![Color::R, Color::R]),
+    ] {
+        let d = lowered(raw);
+        assert_eq!(d.characteristics.kind, CardKind::Enchantment);
+        assert!(d.characteristics.additional_types.is_empty());
+        assert_eq!(d.characteristics.subtypes, ["Aura"]);
+        assert_eq!(
+            d.characteristics.mana_cost,
+            ManaCost {
+                generic: generic.into(),
+                colored: colors
+            }
+        );
+        assert_eq!(aura_control_target_type(&d), Some(kind));
+        assert_eq!(
+            d.static_abilities,
+            vec![StaticAbility {
+                functioning_zone: FunctioningZone::Battlefield,
+                effect: StaticEffect::ControlEnchantedPermanent
+            }]
+        );
+        let p = d.spell.as_ref().unwrap();
+        assert_eq!(p.targets.len(), 1);
+        let t = &p.targets[0];
+        assert_eq!(t.slot, 0);
+        assert_eq!(t.chooser, Chooser::Controller);
+        assert_eq!(t.stage, EvaluationStage::Announcement);
+        assert_eq!(t.domain, TargetDomain::BattlefieldPermanent);
+        assert_eq!(
+            t.selection_id,
+            if kind == CardKind::Artifact {
+                "enchanted-artifact"
+            } else {
+                "enchanted-land"
+            }
+        );
+        assert_eq!(
+            t.filter,
+            Some(PermanentFilter {
+                types: vec![kind],
+                non_types: vec![],
+                non_colors: vec![],
+                opponent: false,
+                tapped: false
+            })
+        );
+        assert!(
+            p.instructions.is_empty() && p.modes.is_empty() && p.additional_sacrifice.is_none()
+        );
+        assert_eq!(
+            d.capabilities,
+            BTreeSet::from([
+                Capability::NormalLayoutV1,
+                Capability::CastEnchantmentV1,
+                Capability::PermanentRemovalV1,
+                Capability::AttachmentsV1,
+                Capability::AuraControlV1
+            ])
+        );
+    }
+    for raw in [MIND, MAGIC, SPIRIT, EMBRACE] {
+        assert_eq!(
+            aura_control_target_type(&lowered(raw)),
+            Some(CardKind::Creature)
+        );
+    }
+}
+
+#[test]
+fn aura_control_supplemental_multitype_mana_sources_use_existing_complete_lowering() {
+    for (raw, kind) in [(MYR, CardKind::Creature), (SEAT, CardKind::Land)] {
+        let d = lowered(raw);
+        assert_eq!(d.characteristics.kind, kind);
+        assert_eq!(d.characteristics.additional_types, vec![CardKind::Artifact]);
+        assert!(d.characteristics.has_type(CardKind::Artifact));
+        assert!(d.characteristics.has_type(kind));
+        assert_eq!(
+            d.mana_abilities,
+            vec![ManaAbility {
+                costs: PermanentActivationCosts {
+                    tap: true,
+                    mana: None,
+                    sacrifice: false
+                },
+                production: ManaProduction::Fixed {
+                    symbols: vec![Color::U]
+                },
+                source_block: 0,
+            }]
+        );
+        assert!(d.activated.is_empty() && d.triggered.is_empty() && d.static_abilities.is_empty());
+        assert_eq!(aura_control_target_type(&d), None);
+        if kind == CardKind::Creature {
+            assert_eq!(d.characteristics.power, Some(1.into()));
+            assert_eq!(d.characteristics.toughness, Some(1.into()));
+            assert_eq!(
+                d.characteristics.mana_cost,
+                ManaCost {
+                    generic: 2.into(),
+                    colored: vec![]
+                }
+            );
+        } else {
+            assert!(d.spell.is_none());
+            assert_eq!(d.intrinsic_zone, Some(FunctioningZone::Battlefield));
+        }
+    }
+}
+
+#[test]
+fn aura_control_generalized_reidentified_sources_do_not_dispatch_by_card_identity() {
+    for raw in [STEAL, ANNEX, CONQUER] {
+        let mutant = changed_from(raw, |r| {
+            r["oracleIdentity"] = json!("synthetic-generalized-control");
+            r["source"]["oracle_id"] = json!("synthetic-generalized-control");
+            r["source"]["id"] = json!("synthetic-printing");
+            r["source"]["name"] = json!("Synthetic Aura");
+            r["faces"][0]["result"]["name"] = json!("Synthetic Aura");
+            r["binding"] = json!({});
+        });
+        let d = lowered(&mutant);
+        assert_eq!(d.name, "Synthetic Aura");
+        assert_eq!(
+            aura_control_target_type(&d),
+            aura_control_target_type(&lowered(raw))
+        );
+    }
+}
+
+#[test]
+fn aura_control_generalized_rejects_wrong_noun_filter_extra_operands_and_null() {
+    for raw in [STEAL, ANNEX, CONQUER] {
+        for noun in [
+            "creature",
+            "artifact",
+            "land",
+            "permanent",
+            "enchantment",
+            "unknown",
+        ] {
+            let record: Value = strict_read(raw).unwrap();
+            if record["faces"][0]["result"]["abilities"][1]["effect"]["what"]["noun"] == noun {
+                continue;
+            }
+            rejected(&changed_from(raw, |r| {
+                r["faces"][0]["result"]["abilities"][1]["effect"]["what"]["noun"] = json!(noun)
+            }));
+        }
+        for filter in [
+            json!({"types":[]}),
+            json!({"types":["artifact","land"]}),
+            json!({"types":["enchantment"]}),
+            json!({"cls":"permanent"}),
+            json!({"types":["land"],"control":"you"}),
+            json!({"types":["artifact"],"status":["tapped"]}),
+            Value::Null,
+        ] {
+            rejected(&changed_from(raw, |r| {
+                r["faces"][0]["result"]["abilities"][0]["keywords"][0]["filter"] = filter
+            }));
+        }
+        for (field, value) in [
+            ("who", Value::Null),
+            ("what", Value::Null),
+            ("duration", Value::Null),
+            ("bindings", json!([])),
+            ("unknown", json!(true)),
+        ] {
+            rejected(&changed_from(raw, |r| {
+                r["faces"][0]["result"]["abilities"][1]["effect"][field] = value
+            }));
+        }
+        for field in ["filter", "selectionId", "of"] {
+            rejected(&changed_from(raw, |r| {
+                r["faces"][0]["result"]["abilities"][1]["effect"]["what"][field] = Value::Null
+            }));
+        }
+        for field in ["noun", "ref"] {
+            rejected(&changed_from(raw, |r| {
+                r["faces"][0]["result"]["abilities"][1]["effect"]["what"][field] = Value::Null
+            }));
+        }
+        rejected(&changed_from(raw, |r| {
+            r["faces"][0]["result"]["abilities"][1]["bindings"] = json!([])
+        }));
+        rejected(&changed_from(raw, |r| {
+            r["source"]["type_line"] = json!("Artifact Enchantment — Aura")
+        }));
+    }
+}
+
+#[test]
+fn aura_control_generalized_rejects_unrepresented_source_and_noncreature_modifiers() {
+    for raw in [STEAL, ANNEX, CONQUER] {
+        rejected_complete_source(&changed_from(raw, |r| {
+            let old = r["faces"][0]["result"]["lines"][1]["text"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            let extra = format!("{old} It has flying.");
+            r["source"]["oracle_text"] = json!(format!(
+                "{}\n{extra}",
+                r["source"]["oracle_text"]
+                    .as_str()
+                    .unwrap()
+                    .split('\n')
+                    .next()
+                    .unwrap()
+            ));
+            r["faces"][0]["result"]["lines"][1]["text"] = json!(extra);
+        }));
+        let spirit: Value = strict_read(SPIRIT).unwrap();
+        let modifier = spirit["faces"][0]["result"]["abilities"][2].clone();
+        for (text, ability) in [
+            ("Enchanted creature gets +2/+2 and has flying.", modifier),
+            (
+                "{1}: Draw a card.",
+                json!({"kind":"activated","costs":[{"cost":"mana","symbols":["1"]}],"effects":[{"steps":[{"effect":"draw","who":{"player":"you"},"amount":{"amount":"fixed","value":1}}]}]}),
+            ),
+        ] {
+            rejected_complete_source(&changed_from(raw, |r| {
+                r["source"]["oracle_text"] = json!(format!(
+                    "{}\n{text}",
+                    r["source"]["oracle_text"].as_str().unwrap()
+                ));
+                let result = &mut r["faces"][0]["result"];
+                result["abilities"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(ability.clone());
+                result["lines"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({"text":text,"ok":true,"ability":ability}));
+            }));
+        }
+    }
+}
+
+#[test]
+fn aura_control_generalized_rejects_line_aggregate_and_unaccounted_block_mismatches() {
+    for raw in [STEAL, ANNEX, CONQUER] {
+        for mutant in [
+            tests::changed_source(raw, |r| {
+                r["faces"][0]["result"]["lines"][1]["ability"]["effect"]["who"]["player"] =
+                    json!("opponent");
+            }),
+            tests::changed_source(raw, |r| {
+                r["faces"][0]["result"]["lines"]
+                    .as_array_mut()
+                    .unwrap()
+                    .pop();
+            }),
+            tests::changed_source(raw, |r| {
+                r["source"]["oracle_text"] = json!(format!(
+                    "{}\nDraw a card.",
+                    r["source"]["oracle_text"].as_str().unwrap()
+                ));
+            }),
+        ] {
+            let result = compile(HEADER, &mutant);
+            assert!(
+                matches!(result, CompileResult::Invalid { .. }),
+                "{result:?}"
+            );
+        }
     }
 }
