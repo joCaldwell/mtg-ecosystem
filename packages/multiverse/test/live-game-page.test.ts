@@ -132,3 +132,22 @@ test("unmount fences all deferred replies and clears status/grant deadlines", as
   assert.equal(elements(r.render()).some(node => node.type === "GameSession"), false);
   assert.equal(r.timers.size, 0);
 });
+
+for (const [pause, cause] of [["human_timeout", "human decision time limit"], ["lifetime_exceeded", "game time limit"]]) {
+  test(`interrupted ${pause} displays its recorded cause without inventing a rules outcome`, async () => {
+    const r = rig();
+    try {
+      r.reads[0]!.resolve(r.status("active")); r.grants[0]!.resolve({ bootstrap_file: "{}" }); await flush();
+      const originalFile = elements(r.render()).find(node => node.type === "GameSession")!.props.bootstrapFile;
+      r.nextPoll();
+      r.reads[1]!.resolve({ game: { id: gameId, state: "interrupted", outcome: null, pause } }); await flush();
+      const view = r.render(), session = elements(view).find(node => node.type === "GameSession")!;
+      assert.match(text(view), /Game interrupted/);
+      assert.ok(text(view).includes(`The game stopped after the ${cause}.`));
+      assert.doesNotMatch(text(view), /Game complete|You won|draw|to resume/);
+      assert.equal(session.props.interactive, false);
+      assert.equal(session.props.bootstrapFile, originalFile, "Timeout is independent of command-journal disposition");
+      assert.equal(r.timers.size, 0);
+    } finally { r.stop(); }
+  });
+}
