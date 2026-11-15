@@ -1629,6 +1629,11 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }) {
         return Err(unsupported("trigger", "unbound death controller"));
     }
+    if let Some(p) = definition.spell.as_ref()
+        && temporary_permanent_keyword_program(p).is_some()
+    {
+        validate_temporary_permanent_bindings(&binding, &definition.oracle_id, &abilities)?;
+    }
     definition.capabilities = definition.requirements();
     definition
         .validate()
@@ -1658,6 +1663,102 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .validate()
         .map_err(|e| unsupported("definition", e))?;
     Ok(definition)
+}
+
+// Only the new scalar permanent family requires this bounded, complete binding
+// closure. Existing creature/removal/Aura provenance policies remain unchanged.
+fn validate_temporary_permanent_bindings(
+    binding: &serde_json::Value,
+    identity: &str,
+    abilities: &[Ability],
+) -> Result<(), Failure> {
+    let fail = || {
+        unsupported(
+            "binding",
+            "unsupported complete permanent keyword binding closure",
+        )
+    };
+    let [Ability::Spell { effects, .. }] = abilities else {
+        return Err(fail());
+    };
+    let Some(Sentence { steps, .. }) = effects.first() else {
+        return Err(fail());
+    };
+    let [Step::GainAbilities { what, .. }] = steps.as_slice() else {
+        return Err(fail());
+    };
+    let scope = format!("card:{identity}/faces/0/abilities/0#ability");
+    let you = format!("card:{identity}/faces/0/abilities/0#you");
+    let selection = format!(
+        "{scope}/targets/{}",
+        what["selectionId"]
+            .as_str()
+            .ok_or_else(fail)?
+            .bytes()
+            .map(|b| {
+                if b.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&b) {
+                    (b as char).to_string()
+                } else {
+                    format!("%{b:02X}")
+                }
+            })
+            .collect::<String>()
+    );
+    let base = "/faces/0/abilities/0/effects";
+    let mut expected = vec![
+        (
+            format!("{base}/0/steps/0/what/filter/control"),
+            serde_json::json!({"player":"you"}),
+            you.clone(),
+        ),
+        (
+            format!("{base}/0/steps/0/what"),
+            what.clone(),
+            selection.clone(),
+        ),
+    ];
+    if effects.len() == 2 {
+        expected.push((
+            format!("{base}/1/steps/0/who"),
+            serde_json::json!({"player":"you"}),
+            you.clone(),
+        ));
+    }
+    let references = binding["references"].as_array().ok_or_else(fail)?;
+    let nodes = binding["nodes"].as_array().ok_or_else(fail)?;
+    if binding["identity"] != identity
+        || binding["fullyBound"] != true
+        || binding["referencesBound"] != true
+        || binding["diagnostics"] != serde_json::json!([])
+        || binding["counts"]
+            != serde_json::json!({"obligations":expected.len(),"bound":expected.len(),"unresolved":0})
+        || references.len() != expected.len()
+        || !nodes.iter().any(|n| {
+            n["id"] == you
+                && n["node"] == "runtime-player"
+                && n["scope"] == scope
+                && n["role"] == "spell-controller"
+        })
+        || !nodes.iter().any(|n| {
+            n["id"] == selection
+                && n["node"] == "selection"
+                && n["scope"] == scope
+                && n["expression"] == *what
+                && n["cardinality"] == "one"
+                && n["timing"] == "stack-announcement"
+                && n["selection"] == "target"
+        })
+        || expected.iter().any(|(path, expression, target)| {
+            let matches: Vec<_> = references.iter().filter(|r| r["path"] == *path).collect();
+            matches.len() != 1
+                || matches[0]["expression"] != *expression
+                || matches[0]["binding"] != "bound"
+                || matches[0]["target"] != *target
+        })
+    {
+        return Err(fail());
+    }
+    Ok(())
 }
 
 fn fixed_one(count: &Count) -> bool {
@@ -1764,6 +1865,78 @@ fn append_spell_effects(
         return Err(unsupported("abilities.effects", "empty spell effects"));
     }
     let source_block = source_block(block)?;
+    // CR 109.5, 601.2c, 608.2b/c, 611.2c: consume the complete ordinary
+    // controlled-permanent grant, including its optional fixed controller tail.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    if let Some(Sentence { steps, .. }) = effects.first()
+        && matches!(steps.first(), Some(Step::GainAbilities { what, .. })
+            if what["filter"]["cls"] == "permanent" && what["ref"] == "target")
+    {
+        if source_block != 0
+            || player_binding != PlayerBinding::Unbound
+            || program.functioning_zone != FunctioningZone::Stack
+            || program.resolution != SpellResolution::Instructions
+            || program.additional_sacrifice.is_some()
+            || !program.targets.is_empty()
+            || !program.instructions.is_empty()
+            || !slots.is_empty()
+            || effects.iter().any(|s| !s.bindings.is_empty())
+            || effects.len() > 2
+        {
+            return Err(unsupported(
+                "effects",
+                "unsupported complete permanent keyword context",
+            ));
+        }
+        let [
+            Step::GainAbilities {
+                what,
+                abilities,
+                duration,
+            },
+        ] = steps.as_slice()
+        else {
+            return Err(unsupported(
+                "effects",
+                "permanent grant must occupy its whole sentence",
+            ));
+        };
+        if duration.duration != "end-of-turn" {
+            return Err(unsupported(
+                "effects.duration",
+                "permanent grant must end this turn",
+            ));
+        }
+        let target_slot = bind_temporary_permanent_target(program, slots, what)?;
+        let keywords = lower_temporary_creature_keywords(abilities)?;
+        let tail = if effects.len() == 2 {
+            let [
+                Step::GainLife {
+                    who,
+                    amount,
+                    for_each: None,
+                },
+            ] = effects[1].steps.as_slice()
+            else {
+                return Err(unsupported(
+                    "effects",
+                    "only fixed controller life tail supported",
+                ));
+            };
+            Some(lower_fixed_controller_life(who, amount, source_block)?)
+        } else {
+            None
+        };
+        program.instructions.push(Instruction::GrantKeywords {
+            target_slot,
+            modifier: None,
+            keywords,
+            duration: Duration::UntilEndOfTurn,
+            source_block,
+        });
+        program.instructions.extend(tail);
+        return Ok(());
+    }
     // CR 109.2/109.5, 608.2h, 611.2c: the permanent family consumes the
     // complete sole pure-gain sentence. The general wipe path below cannot
     // admit this selector, including inside costs, modes or later blocks.
@@ -3551,6 +3724,88 @@ fn bind_pump_target(
         );
     }
     bind_temporary_creature_target(program, slots, what)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ControlledPermanentTarget {
+    #[serde(rename = "ref")]
+    reference: String,
+    filter: ControlledPermanentFilter,
+    count: Count,
+    #[serde(rename = "selectionId")]
+    selection_id: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ControlledPermanentFilter {
+    cls: String,
+    control: String,
+}
+fn bind_temporary_permanent_target(
+    program: &mut SpellProgram,
+    slots: &mut BTreeMap<String, u32>,
+    what: &serde_json::Value,
+) -> Result<u32, Failure> {
+    let target: ControlledPermanentTarget = serde_json::from_value(what.clone())
+        .map_err(|_| unsupported("targets", "requires complete controlled permanent target"))?;
+    if target.reference != "target"
+        || target.filter.cls != "permanent"
+        || target.filter.control != "you"
+        || !fixed_one(&target.count)
+    {
+        return Err(unsupported(
+            "targets",
+            "requires exact controlled permanent target",
+        ));
+    }
+    let filter = Some(PermanentFilter {
+        types: vec![],
+        non_types: vec![],
+        non_colors: vec![],
+        opponent: false,
+        tapped: false,
+    });
+    if let Some(slot) = slots.get(&target.selection_id)
+        && program
+            .targets
+            .get(*slot as usize)
+            .is_none_or(|t| t.filter != filter)
+    {
+        return Err(unsupported(
+            "targets",
+            "inconsistent reused permanent selection",
+        ));
+    }
+    let slot = bind_target(
+        program,
+        slots,
+        &target.selection_id,
+        TargetDomain::ControlledBattlefieldPermanent,
+    )?;
+    program.targets[slot as usize].filter = filter;
+    Ok(slot)
+}
+fn lower_fixed_controller_life(
+    who: &PlayerSelector,
+    amount: &serde_json::Value,
+    source_block: u32,
+) -> Result<Instruction, Failure> {
+    if who.player != "you" || who.selection_id.is_some() || who.of.is_some() {
+        return Err(unsupported(
+            "life",
+            "requires unqualified invocation controller",
+        ));
+    }
+    let count: Count = serde_json::from_value(amount.clone())
+        .map_err(|_| unsupported("life", "requires complete fixed nonnegative life amount"))?;
+    if count.amount != "fixed" {
+        return Err(unsupported("life", "requires fixed life amount"));
+    }
+    Ok(Instruction::GainLife {
+        recipient: LifeRecipient::Controller,
+        amount: Quantity::from(i64::from(count.value)),
+        source_block,
+    })
 }
 // CR 109.5/601.2c/608.2b: “you” is the invocation controller and remains a
 // target restriction, not an owner test. Consume the exact controlled shape
@@ -8911,3 +9166,6 @@ mod creature_set_keyword_tests;
 
 #[cfg(test)]
 mod permanent_set_keyword_tests;
+
+#[cfg(test)]
+mod temporary_permanent_keyword_tests;
