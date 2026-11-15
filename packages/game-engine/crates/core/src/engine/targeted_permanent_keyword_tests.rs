@@ -381,13 +381,23 @@ fn targeted_permanent_keyword_paid_borrowed_control_recheck_and_postgrant_hexpro
                 ("Tamiyo's Safekeeping", 0, 0, true),
                 ("Disperse", 1, 1, true),
                 ("Disperse", 0, 0, true),
-                ("Disperse", 2, 2, true),
+                (
+                    if name == "Forest" {
+                        "Tamiyo's Safekeeping"
+                    } else {
+                        "Disperse"
+                    },
+                    2,
+                    2,
+                    true,
+                ),
                 ("Bonesplitter", 1, 1, false), // honest unprotected decoy
             ];
             lands(&mut rows, "Island", 0, 8);
             lands(&mut rows, "Forest", 0, 1);
             lands(&mut rows, "Island", 1, 2);
             lands(&mut rows, "Island", 2, 2);
+            lands(&mut rows, "Forest", 2, 1);
             both(prepared(&rows), |g, q| {
                 cast_paid(g, q, 0, target(g, 1));
                 control(g, 1, 0, 2, 2);
@@ -438,11 +448,21 @@ fn targeted_permanent_keyword_paid_borrowed_control_recheck_and_postgrant_hexpro
                 assert_eq!(probe.state, state);
                 assert_eq!(probe.trace, trace);
                 queries(g, recipient);
-                cast_paid(g, q, 5, target(g, 1)); // current controller's own bounce
-                assert!(g.current(recipient).is_err());
-                zone(g, 1, Zone::Hand { owner: PlayerId(2) });
+                // Disperse's complete source excludes lands. For the land,
+                // the current controller instead pays for a second Safekeeping
+                // while the original Hexproof still applies.
+                cast_paid(g, q, 5, target(g, 1));
+                if name == "Forest" {
+                    assert!(g.current(recipient).is_ok());
+                    assert_eq!(g.state.rules.effects.len(), 2);
+                    assert_eq!(g.state.rules.players[2].life, 42.into());
+                    protected(g, recipient, true);
+                } else {
+                    assert!(g.current(recipient).is_err());
+                    zone(g, 1, Zone::Hand { owner: PlayerId(2) });
+                    queries(g, recipient);
+                }
                 assert_eq!(g.state.rules.players[0].life, 42.into());
-                queries(g, recipient);
             });
         }
     }
