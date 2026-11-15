@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { completeResponse, verifyInputs, startHostedFixture } from "./product-session-fixture.ts";
+import { completeResponse, verifyInputs, startHostedFixture, repository, fileHash } from "./product-session-fixture.ts";
 
 test("acceptance compares complete responses including FinishMana reversal and rejects frozen qualification before native I/O", () => {
   completeResponse({ response: "finish_mana", undo_mana: true }, { response: "finish_mana", undo_mana: true });
@@ -36,4 +36,30 @@ test("disposable public hosted factory verifies real signed BetterAuth cookies a
       assert.equal(session.user, null);
     }
   } finally { await fixture.close(); }
+});
+
+test("coqualified native/SDK inputs verify the compiled closure and reject stale source/build/receipt pins before native I/O", {
+  skip: process.env.MULTIVERSE_TEST_BROWSER_QUALIFICATION !== "1",
+}, () => {
+  const qualification = join(repository, "packages/game-client/sdk-qualification.json");
+  const pins = JSON.parse(readFileSync(qualification, "utf8"));
+  const inputs = { qualification, nativeRoot: join(pins.evidence_root, "native"), sdkRoot: join(pins.sdk_evidence_root, "sdk"),
+    // This gate hashes an opaque input; it does not ingest cards or start a host.
+    records: qualification, recordsHash: fileHash(qualification) };
+  assert.equal(verifyInputs(inputs).native_source, pins.native_source);
+  const directory = mkdtempSync(join(tmpdir(), "product-coqualified-inputs-"));
+  const modified = join(directory, "pins.json");
+  for (const [patch, failure] of [
+    [{ server_build_id: "c1be893414c34a3869f059a872b053d4c69e77da21e98242ffb654a980372d15" }, "native_build_pin"],
+    [{ native_source_manifest_sha256: "1eddba690527db4a1654f7556cf97c35d90225b2f7652141f640bc9b8842273a" }, "native_source_manifest_pin"],
+    [{ native_source_verification_sha256: "0".repeat(64) }, "coqualified_native_verification_pin"],
+    [{ native_source: "f".repeat(40), sdk_source: "f".repeat(40) }, "coqualified_native_source_binding"],
+    [{ sdk_source_bridge_sha256: undefined }, "coqualified_source_proof_required"],
+    [{ sdk_evidence_root: join(pins.sdk_evidence_root, "../product-presentation-sdk-20261115") }, "coqualified_sdk_bridge_pin"],
+    [{ sdk_verification_sha256: "0".repeat(64) }, "coqualified_sdk_receipt_pin"],
+    [{ sdk_source: "b9991c9cd5f709fd0d4d0f8da58f6a063b139699" }, "followup_native_binding"],
+  ] as const) {
+    writeFileSync(modified, JSON.stringify({ ...pins, ...patch }), { mode: 0o600 });
+    assert.throws(() => verifyInputs({ ...inputs, qualification: modified }), new RegExp(failure));
+  }
 });

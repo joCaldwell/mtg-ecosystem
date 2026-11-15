@@ -28,6 +28,7 @@ interface Pins {
   native_source: string; sdk_source: string; engine_build_id: string; server_build_id: string;
   protocol_schema_sha256: string; bootstrap_schema_sha256: string;
   native_source_manifest_sha256: string;
+  native_source_verification_sha256?: string;
   sdk_build_manifest_sha256?: string; sdk_verification_sha256?: string;
   sdk_evidence_root?: string; sdk_source_bridge_sha256?: string;
 }
@@ -59,7 +60,18 @@ export function verifyInputs(inputs: Inputs): Pins {
   const info = JSON.parse(readFileSync(native("native-info.json"), "utf8"));
   check(info.engine_build_id === pins.engine_build_id && info.server_build_id === pins.server_build_id, "native_build_pin");
   const copies = JSON.parse(readFileSync(native("native-copies-safe.json"), "utf8"));
-  check(copies.source_unchanged && fileHash(native("mtg-server")) === copies.binaries["mtg-server"], "native_artifact_digest");
+  const binaryHashes = copies.binaries ?? copies.binary_hashes;
+  check(copies.source_unchanged && binaryHashes && fileHash(native("mtg-server")) === binaryHashes["mtg-server"], "native_artifact_digest");
+  const compiled = JSON.parse(readFileSync(native("source-files.json"), "utf8")) as { path: string; sha256: string }[];
+  check(Array.isArray(compiled) && compiled.length > 0 && compiled.length <= 2_000
+    && new Set(compiled.map(row => row.path)).size === compiled.length, "compiled_source_manifest");
+  // Always check the retained COMPILED closure. Moving main's unused Rust
+  // source is neither rebuilt nor relabelled by this browser-only fixture.
+  const frozenSource = resolve(inputs.nativeRoot, "../source");
+  for (const row of compiled) {
+    check(typeof row.path === "string" && /^[a-f0-9]{64}$/.test(row.sha256), "compiled_source_row");
+    check(fileHash(confined(frozenSource, row.path)) === row.sha256, "frozen_native_source_changed");
+  }
   const sdk = resolve(repository, "packages/game-server/sdk");
   const build = JSON.parse(readFileSync(confined(inputs.sdkRoot, "dist/build.json"), "utf8"));
   check(build.schema_sha256 === pins.protocol_schema_sha256
@@ -74,16 +86,11 @@ export function verifyInputs(inputs: Inputs): Pins {
     check(fileHash(bridgePath) === pins.sdk_source_bridge_sha256, "followup_sdk_bridge_pin");
     const bridge = JSON.parse(readFileSync(bridgePath, "utf8"));
     check(bridge.native_source === pins.native_source && bridge.head === pins.sdk_source
-      && bridge.native_binary_sha256 === copies.binaries["mtg-server"], "followup_native_binding");
+      && bridge.native_binary_sha256 === binaryHashes["mtg-server"], "followup_native_binding");
     const changedPaths = ["packages/game-server/sdk/README.md", "packages/game-server/sdk/package.json", "packages/game-server/sdk/scripts/build-browser.mjs"];
     check(bridge.changed_original_rows.length === 3 && changedPaths.every(path => bridge.changed_original_rows.filter((row: { path: string }) => row.path === path).length === 1), "only_documented_sdk_changes");
-    const original = JSON.parse(readFileSync(native("source-files.json"), "utf8")) as { path: string; sha256: string }[];
-    check(original.length === 898 && bridge.unchanged_original_rows === 895 && verification.source_files.length === 50, "source_closure_counts");
-    // These are the retained COMPILED native inputs, not a claim that this
-    // browser-only checkout's unused Rust source was rebuilt or requalified.
-    const frozenSource = resolve(inputs.nativeRoot, "../source");
-    for (const row of original) {
-      check(fileHash(confined(frozenSource, row.path)) === row.sha256, "frozen_native_source_changed");
+    check(compiled.length === 898 && bridge.unchanged_original_rows === 895 && verification.source_files.length === 50, "source_closure_counts");
+    for (const row of compiled) {
       if (!row.path.startsWith("packages/game-server/sdk/")) continue;
       const changed = bridge.changed_original_rows.find((entry: { path: string }) => entry.path === row.path);
       if (changed) check(changed.original_sha256 === row.sha256, "documented_sdk_original");
@@ -92,6 +99,32 @@ export function verifyInputs(inputs: Inputs): Pins {
     sdkBuildPin = bridge.sdk_build_sha256; sdkVerificationPin = bridge.sdk_verification_sha256;
     check(fileHash(confined(inputs.sdkRoot, "dist/build.json")) === sdkBuildPin
       && fileHash(confined(inputs.sdkRoot, "generated/verification.json")) === sdkVerificationPin, "followup_sdk_receipt_pin");
+  } else {
+    check(pins.native_source_verification_sha256 && pins.sdk_evidence_root && pins.sdk_source_bridge_sha256, "coqualified_source_proof_required");
+    check(fileHash(native("source-verification.json")) === pins.native_source_verification_sha256, "coqualified_native_verification_pin");
+    const sourceProof = JSON.parse(readFileSync(native("source-verification.json"), "utf8"));
+    check(sourceProof.source_sha === pins.native_source && sourceProof.source_rows === compiled.length
+      && sourceProof.source_manifest_sha256 === pins.native_source_manifest_sha256
+      && sourceProof.engine_build_id === pins.engine_build_id && sourceProof.server_build_id === pins.server_build_id
+      && sourceProof.source_before_after_equal && sourceProof.all_manifest_rows_match_git_head
+      && sourceProof.engine_and_server_independently_rederived, "coqualified_native_source_binding");
+    for (const name of ["mtg-server", "provision_client"]) {
+      check(sourceProof.binary_hashes[name] === binaryHashes[name] && fileHash(native(name)) === binaryHashes[name], "coqualified_native_binary_pin");
+    }
+    const bridgePath = confined(pins.sdk_evidence_root, "sdk-source-bridge.json");
+    check(fileHash(bridgePath) === pins.sdk_source_bridge_sha256, "coqualified_sdk_bridge_pin");
+    const bridge = JSON.parse(readFileSync(bridgePath, "utf8"));
+    check(bridge.bridge_version === 2 && bridge.native_source === pins.native_source && bridge.head === pins.sdk_source
+      && bridge.native_source_manifest_sha256 === pins.native_source_manifest_sha256
+      && bridge.native_source_verification_sha256 === pins.native_source_verification_sha256
+      && bridge.native_binary_sha256 === binaryHashes["mtg-server"] && bridge.compiled_source_rows === compiled.length
+      && bridge.sdk_source_files === verification.source_files.length && bridge.all_sdk50_inputs_byte_equal, "coqualified_sdk_source_binding");
+    for (const row of compiled) {
+      if (row.path.startsWith("packages/game-server/sdk/")) check(fileHash(sdkFile(inputs.sdkRoot, row.path.slice("packages/game-server/sdk/".length))) === row.sha256, "coqualified_sdk_source_changed");
+    }
+    check(sdkBuildPin === bridge.sdk_build_sha256 && sdkVerificationPin === bridge.sdk_verification_sha256
+      && fileHash(confined(inputs.sdkRoot, "dist/build.json")) === sdkBuildPin
+      && fileHash(confined(inputs.sdkRoot, "generated/verification.json")) === sdkVerificationPin, "coqualified_sdk_receipt_pin");
   }
   check(verification.status === "preliminary-sdk-checks-passed" && verification.generation_manifest_sha256 === build.generation_sha256
     && verification.source_files.some((row: { path: string }) => row.path === "src/policies.ts"), "sdk_qualification_receipt");

@@ -156,6 +156,20 @@ the three-click stale-discovery bound with an incomplete menu, active record,
 empty journal and no outcome. Resources joined. Full-game qualification remains
 unproven; approved product identities stay empty. Later host builds need fresh proof.
 
+### Clock-stable query producer
+
+Source `c48ceff0bb0ea760471b3a393f15897f0de90fbd` retains
+`~/.local/share/mtg-ecosystem/engine-evidence/native21-clock-query-continuation-20261115/qualification.json`.
+The old unchanged-Tick continuation failure was independently reproduced. The
+repair passed 38 focused Rust tests and SDK69; inherited strict-Clippy failures
+remain, with scoped exceptions recorded. All 901 source rows match that Git
+source; both build IDs independently rederive. Engine `5d922d68` and all three
+schemas stay unchanged; server is now `0d29823b`. All 50 SDK inputs remain equal
+to `b9991c9c`, reverified at `c48ceff0`. The consumer SDK bridge is retained under
+`native21-clock-client-integration-20261115/`. Separately, current-main cherry-pick
+`cbb8fc02` passed 32 host tests without relabelling this frozen producer.
+Fresh browser/full-game acceptance remains pending; older roots are untouched.
+
 ## Earlier prerequisites and unique provenance
 
 Earlier reports qualify bounded prerequisites. Their historical source/receipt
