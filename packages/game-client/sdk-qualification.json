@@ -1,7 +1,11 @@
 {
-  "native_source": "6632c1add5daa41b9993fb684979af15b1ba0213",
+  "native_source": "565a1204d6e4b14443b9f49dda2ecbc6b46ee85a",
   "protocol_schema_sha256": "2eb874b2fa9e306b57d7da05d2e9a26b6965f2a639711d6705981e790d906ba5",
   "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
-  "scope": "Source-bound decision context and action-label protocol consumer. Candidate producer checkpoint passed 255 compiler tests, 11 native action tests and 66 SDK tests; intrinsic mana follow-up and final source-qualified host/browser evidence remain pending. Historical fixture capture provenance remains unchanged. No full-game or product-launch acceptance follows.",
-  "sdk_source": "6632c1add5daa41b9993fb684979af15b1ba0213"
+  "scope": "Frozen source 565a1204 producer/SDK consumer qualification at observation_version 16, separate from later integrated observation_version 20 and lifecycle source. Compiler-bound labels/context, both hosted paid first-turn core witnesses and source/private/query/snapshot recovery checks passed; exact server/provisioner and both builds independently verified against 882 source rows. SDK regenerated from these exact exports: strict generation/types/browser build and 66 tests passed. Frozen spending target-departure receipt stays 6 pass/1 fail; parent CR601.6/source review identifies stale expectation for separate test-only repair. Unchanged grouped-damage Clippy warning remains explicit; full-play, current-HEAD, complete-game, browser, performance and offline-retention qualification omitted. Historical captures remain unchanged; see docs/game-client-evidence.md#producer-context-and-admission-qualification.",
+  "sdk_source": "565a1204d6e4b14443b9f49dda2ecbc6b46ee85a",
+  "engine_build_id": "719552cf7e12c01bdd608f8ccdf0ce65f25b968a6c8c36eb2322d657888f38dc",
+  "server_build_id": "8fb3296863d538d39b51e0cb76da8c86557c6a79cff32cfd4b52d7940919fb15",
+  "native_source_manifest_sha256": "c19f36a3f8f9c87f298d88d31fb4aa72c7920073ec4832bfe619cd2304843bd8",
+  "evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/authoritative-decision-context-565a1204-20261114"
 }
