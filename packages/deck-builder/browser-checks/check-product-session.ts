@@ -84,7 +84,8 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   child.send({ directory: join(directory, "private"), dist, inputs, stressRaisedLimits, ...(pauseCase ? { humanThinkTimeMs: 10_000 } : {}) });
   let browser, context: BrowserContext | undefined, page: Page | undefined, ready: Ready | undefined;
   const audit = new ObserverAudit();
-  let failure = "", presentationMissing = 0, presentationVerified = false, namedCards = 0;
+  let failure = "", presentationMissing = 0, presentationVerified = false, presentationArtifacts = 0, namedCards = 0;
+  let immutableAssetsRevalidated = false;
   let observation: Observation | null = null, revision = "", outcome: RulesResult | null = null, lifecycle = "";
   let gameId = "", artifactPath = "", bootstrap: SeatBootstrap | undefined, grants = 0, nativeReads = 0, activeReads = 0;
   let lazyLoaded = false, admission = false, launched = false, recovered = false, unmounted = false, regranted = false;
@@ -153,6 +154,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
             check(found?.faces.length === 1 && found.faces[0].name === card.name, "presentation_frozen_names");
           }
           artifactPath = path;
+          presentationArtifacts++;
           presentationVerified = true;
         }
         if (/\/assets\/live-game-[^/]+\.js$/.test(path)) lazyLoaded = true;
@@ -314,21 +316,24 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     const commanderName = ready.cards.find(card => card.oracle_id === commanderOracle)?.name;
     check(commanderName, "frozen_commander_name");
     check(await page.getByRole("region", { name: "Command zone", exact: true }).getByRole("button", { name: `Inspect ${commanderName}`, exact: true }).count() === 1, "named_commander_ui"); namedCards++;
+    const expectedHandNames = new Map<string, number>();
     for (const object of current().view.objects.filter(object => object.owner === 0 && object.zone.zone === "hand")) {
       const name = ready.cards.find(card => card.oracle_id === object.oracle_id)?.name;
-      check(name && await page.getByRole("region", { name: /^Your hand/ }).getByRole("button", { name: `Inspect ${name}`, exact: true }).count() > 0, "named_hand_ui"); namedCards++;
+      check(name, "frozen_hand_name"); expectedHandNames.set(name, (expectedHandNames.get(name) ?? 0) + 1);
+    }
+    for (const [name, count] of expectedHandNames) {
+      check(await page.getByRole("region", { name: /^Your hand/ }).getByRole("button", { name: `Inspect ${name}`, exact: true }).count() === count, "named_hand_ui");
+      namedCards += count;
     }
     if (pauseCase) {
       check(current().decision?.request === "mulligan" && sent.size === 0, "pause_opening_withheld");
-      await until(() => recordPaused && recordPauseCode === "human_timeout", "actual_human_timeout", 35_000);
+      await until(() => recordState === "interrupted" && recordPauseCode === "human_timeout", "actual_human_timeout", 35_000);
       await until(async () => {
         pauseBannerVisible = await page!.getByRole("heading", { name: "Game paused", exact: true }).isVisible();
         interruptionBannerVisible = await page!.getByRole("heading", { name: "Game interrupted", exact: true }).isVisible();
         return pauseBannerVisible || interruptionBannerVisible;
       }, "timeout_banner");
-      pauseCauseVisible = await page.getByRole("status").filter({ hasText: "The game paused after the human decision time limit." }).isVisible();
-      check(pauseBannerVisible, "timeout_banner_contract");
-      check(pauseCauseVisible, "pause_cause_visible");
+      pauseCauseVisible = await page.getByRole("status").filter({ hasText: "The game stopped after the human decision time limit. Its saved record is retained." }).isVisible();
       commandControlsDisabled = await page.getByRole("button", { name: "Confirm choice", exact: true }).isDisabled()
         && await page.getByRole("radio", { name: "Keep hand", exact: true }).isDisabled();
       check(commandControlsDisabled && sent.size === 0 && recordOutcome === null, "pause_controls_and_no_commands");
@@ -338,7 +343,9 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
         && await page.getByText("The game ended in a draw.", { exact: true }).count() === 0, "pause_is_not_rules_outcome");
       await page.getByRole("region", { name: "Command zone", exact: true }).getByRole("button", { name: `Inspect ${commanderName}`, exact: true }).click();
       check(await page.getByRole("complementary", { name: "Card inspector", exact: true }).isVisible(), "paused_inspection_available");
-      check(await journal(page), "pause_journal_empty"); resourcePauseVerified = true;
+      check(await journal(page), "pause_journal_empty");
+      check(interruptionBannerVisible && !pauseBannerVisible, "timeout_banner_contract");
+      check(pauseCauseVisible, "pause_cause_visible"); resourcePauseVerified = true;
     } else {
     const openingContext = { revision, token: current().decision!.token };
     await page.getByRole("radio", { name: "Keep hand", exact: true }).check();
@@ -412,6 +419,14 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     }
     const noBearer = await context.request.get(`${ready.origin}/api/games/${gameId}/native/v1/matches/${gameId}/resume`, { timeout: 5_000 });
     check(noBearer.status() === 401, "owner_cookie_without_bearer_denied"); negatives++;
+    // Each fresh File revalidates immutable assets. Command-only refreshes keep
+    // those verified facts while still obtaining their own coherent resumes.
+    const failedReads = Object.entries(nativeStatuses).some(([key, count]) => count > 0 && /_(429|503)$/.test(key));
+    if (!failedReads) {
+      immutableAssetsRevalidated = nativeStatuses.manifest_200 === grants && nativeStatuses.presentation_200 === grants
+        && presentationArtifacts === grants && activeReads >= sent.size + grants;
+      check(immutableAssetsRevalidated, "immutable_assets_and_fresh_resumes");
+    }
     // Continue only through explicit DOM choices from permitted requests. This
     // uses only the resolved commander, offered defenders and pass/draw choices.
     // There is no imported human policy or product-side automatic action.
@@ -533,7 +548,8 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       fixture_stress_raised_limits: stressRaisedLimits, default_ui_budget: !stressRaisedLimits && ready?.uiRateBudget === 240 && ready?.uiRateWindowMs === 60_000,
       ui_rate_budget: ready?.uiRateBudget ?? 0, ui_rate_window_ms: ready?.uiRateWindowMs ?? 0, query_outcome_counts: queryOutcomes, discovery_phase_counts: discoveryPhases,
       last_discovery_calls: lastDiscoveryCalls, last_discovery_beginnings: lastDiscoveryBeginnings, last_discovery_pass_offered: lastDiscoveryPassOffered,
-      presentation_404: presentationMissing, production_presentation_verified: presentationVerified, named_cards_verified: namedCards,
+      presentation_404: presentationMissing, presentation_artifacts: presentationArtifacts, production_presentation_verified: presentationVerified,
+      immutable_assets_revalidated_per_grant: immutableAssetsRevalidated, named_cards_verified: namedCards,
       land_played: landPlayed, commander_resolved: commanderResolved, conditional_reversal_wording: conditionalReversal,
       natural_attempted: naturalAttempted, natural_completed: naturalCompleted, natural_resource_paused: naturalPaused, natural_bounded: naturalBounded,
       natural_unsupported: naturalUnsupported, rules_win: (outcome as RulesResult | null)?.outcome === "win", rules_draw: (outcome as RulesResult | null)?.outcome === "draw", cleanup_complete: cleanup, joined_bot_leases: joinedLeases, observer_shutdown_cancellations: audit.expectedCancellations,
