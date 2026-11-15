@@ -5,9 +5,10 @@ import { once } from 'node:events';
 import { closeSync, mkdirSync, openSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { resolve } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import {
   GameClient, parsePreparedCommand, parseSeatBootstrap, prepareCommand,
-  type ActionBeginning, type ActionQueryResponse, type Observation, type PlayerResponse,
+  type ActionBeginning, type ActionInitiation, type ActionQueryResponse, type Observation, type PlayerResponse,
   type SeatResume, type StreamPage,
 } from '@multiverse/game-server-sdk/browser';
 
@@ -20,6 +21,70 @@ process.env.PLAYWRIGHT_NO_COPY_PROMPT = '1';
 test.use({ trace: 'off', screenshot: 'off', video: 'off' });
 const hash = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
 const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+
+// Translate only the supplied initiation, retaining every wire response field.
+// Compare in memory as a boolean so failures never dump permitted/private handles.
+function initiationResponse(action: ActionInitiation): PlayerResponse {
+  switch (action.action) {
+    case 'pass': return { response: 'pass' };
+    case 'play_land': return { response: 'play_land', object: action.object };
+    case 'cast': return { response: 'cast', card: action.card };
+    case 'activate_mana': return { response: 'activate_mana', object: action.object };
+    case 'activate_ability': return { response: 'activate_ability', object: action.object, ability: action.ability };
+    case 'finish_mana': return { response: 'finish_mana', undo_mana: action.undo_mana };
+  }
+}
+
+function assertCompleteResponse(actual: PlayerResponse, expected: PlayerResponse): void {
+  expect(isDeepStrictEqual(actual, expected)).toBe(true);
+}
+
+// Bound even an operation that ignores its signal. SDK fetches additionally get
+// the shared shutdown signal and a per-call deadline, including response bodies.
+async function driverCall<T>(shutdown: AbortSignal, operation: (signal: AbortSignal) => Promise<T>, timeoutMs = 4_000): Promise<T> {
+  const deadline = new AbortController();
+  const signal = AbortSignal.any([shutdown, deadline.signal]);
+  let rejectAbort!: (error: Error) => void;
+  const aborted = new Promise<never>((_, reject) => { rejectAbort = reject; });
+  const onAbort = () => rejectAbort(Error('Test driver stopped or exceeded deadline'));
+  signal.addEventListener('abort', onAbort, { once: true });
+  const timer = setTimeout(() => deadline.abort(), timeoutMs);
+  try {
+    if (signal.aborted) onAbort();
+    return await Promise.race([aborted, Promise.resolve().then(() => {
+      signal.throwIfAborted();
+      return operation(signal);
+    })]);
+  } finally { clearTimeout(timer); signal.removeEventListener('abort', onAbort); }
+}
+
+async function finishOwnedHost(cleanup: () => Promise<unknown>, shutdown: () => Promise<void>, timeoutMs = 2_000): Promise<void> {
+  try { await driverCall(new AbortController().signal, cleanup, timeoutMs); }
+  finally { await shutdown(); }
+}
+
+test('qualification guards compare whole actions and shut down after stalled driver cleanup', async () => {
+  const selected = initiationResponse({ action: 'finish_mana', undo_mana: true });
+  assertCompleteResponse(selected, { response: 'finish_mana', undo_mana: true });
+  expect(() => assertCompleteResponse({ response: 'finish_mana', undo_mana: false }, selected)).toThrow();
+  expect(() => assertCompleteResponse({ response: 'activate_ability', object: 'synthetic-object', ability: 3 },
+    initiationResponse({ action: 'activate_ability', object: 'synthetic-object', ability: 2 }))).toThrow();
+  const stalled = () => new Promise<never>(() => {});
+  const abort = new AbortController();
+  let started!: () => void;
+  const arrival = new Promise<void>(resolve => { started = resolve; });
+  const pending = driverCall(abort.signal, async signal => {
+    expect(signal.aborted).toBe(false); started(); return stalled();
+  });
+  const rejected = expect(pending).rejects.toThrow('Test driver stopped or exceeded deadline');
+  await arrival; abort.abort(); await rejected;
+  await expect(driverCall(new AbortController().signal, stalled, 20)).rejects.toThrow('Test driver stopped or exceeded deadline');
+  for (const cleanup of [stalled, async () => { throw Error('cleanup failed'); }]) {
+    let stopped = false;
+    await expect(finishOwnedHost(cleanup, async () => { stopped = true; }, 20)).rejects.toThrow();
+    expect(stopped).toBe(true);
+  }
+});
 
 async function freePort(): Promise<number> {
   const listener = createServer();
@@ -80,10 +145,13 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
   closeSync(log);
   const exited = once(host, 'exit');
   let stop = false, driverFailure = false, driverCommands = 0;
+  const driverAbort = new AbortController();
+  const stopDriver = () => { stop = true; driverAbort.abort(); };
   let driver: Promise<void> = Promise.resolve();
   let observation: Observation | null = null, revision = '';
   let beginnings: ActionBeginning[] = [];
-  let errors = 0, journalBeforeSend = 0, originalContexts = 0, resumes = 0;
+  let errors = 0, journalBeforeSend = 0, originalContexts = 0, completeResponses = 0, resumes = 0;
+  let cleanupComplete = false;
   let recovered = false, commanderResolved = false, landPlayed = false, conditionalReversal = false;
   const sent = new Map<string, string>(), accepted = new Set<string>(), consumed = new Set<string>();
   const kinds: string[] = [];
@@ -92,7 +160,7 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
   const record = (name: string, value: unknown) => writeFileSync(resolve(parent, name), JSON.stringify(value, null, 2)+'\n', { mode: 0o600, flag: 'wx' });
   try {
     await expect.poll(async () => {
-      try { return (await fetch(`${origin}/client-config.json`)).status; } catch { return 0; }
+      try { return (await fetch(`${origin}/client-config.json`, { signal: AbortSignal.timeout(2_000) })).status; } catch { return 0; }
     }).toBe(200);
     page.on('pageerror', () => { errors++; });
     page.on('response', response => {
@@ -143,7 +211,7 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
       if (!observation) throw Error('No App-published observation');
       return observation;
     };
-    const settle = async (action: () => Promise<unknown>, original = { revision, token: current().decision!.token }) => {
+    const settle = async (action: () => Promise<unknown>, expectedResponse: PlayerResponse, original = { revision, token: current().decision!.token }) => {
       const before = sent.size;
       await action();
       await expect.poll(() => sent.size).toBe(before + 1);
@@ -151,6 +219,9 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
       const envelope = parsePreparedCommand(sent.get(id)!).envelope;
       expect(envelope.expected_revision === original.revision && envelope.command.kind === 'decision' && envelope.command.token === original.token).toBe(true);
       originalContexts++;
+      if (envelope.command.kind !== 'decision') throw Error('Expected human decision command');
+      assertCompleteResponse(envelope.command.response, expectedResponse);
+      completeResponses++;
       await expect.poll(() => accepted.has(id) && consumed.has(id) && !protocolFailure).toBe(true);
       await expect.poll(() => journal(page)).toBe(true);
       await expect(page.getByRole('region', { name: 'Choice status' })).toContainText('The table used your choice.');
@@ -169,6 +240,7 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
       const index = beginnings.findIndex(predicate);
       expect(index >= 0).toBe(true);
       const beginning = beginnings[index]!;
+      const expectedResponse = initiationResponse(beginning.initiation);
       expect(beginning.label !== 'unavailable').toBe(true);
       if (beginning.initiation.action === 'finish_mana' && beginning.initiation.undo_mana) {
         expect(beginning.label !== 'unavailable' && beginning.label.available.text === 'Finish adding mana; reverse reversible mana if payment fails').toBe(true);
@@ -177,7 +249,7 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
       const menu = page.getByRole('region').filter({ has: page.getByRole('heading', { name: 'Available actions', exact: true }) });
       const button = menu.locator('ol > li > button').nth(index);
       expect(beginning.label !== 'unavailable' && (await button.textContent())!.startsWith(beginning.label.available.text)).toBe(true);
-      await settle(() => button.click(), original);
+      await settle(() => button.click(), expectedResponse, original);
     };
     await join();
     expect(current().observation_version).toBe(16);
@@ -192,7 +264,7 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
       for (let rounds = 0; !stop && rounds < 900; rounds++) {
         for (const [index, client] of clients.entries()) {
           if (stop) break;
-          const seat = index + 1, read = await client.resume();
+          const seat = index + 1, read = await driverCall(driverAbort.signal, signal => client.resume({ signal }));
           expect(read.viewer === seat && read.engine_build_id === identity.engine_build_id && read.server_build_id === identity.server_build_id).toBe(true);
           if (read.state.status !== 'available' || !read.state.observation.decision) continue;
           const request = read.state.observation.decision;
@@ -203,19 +275,23 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
           const command = prepareCommand({ protocol_version: read.protocol_version, command_id: randomUUID().replaceAll('-', ''), expected_revision: read.next, command: { kind: 'decision', token: request.token, response } });
           const name = `driver-seat-${seat}-${driverCommands++}`;
           writeFileSync(resolve(parent, `${name}.exact.json`), command.exactBody, { mode: 0o600, flag: 'wx' });
-          const submission = await client.submitExact(command.exactBody);
+          const submission = await driverCall(driverAbort.signal, signal => client.submitExact(command.exactBody, { signal }));
           expect(submission.status === 'accepted').toBe(true);
-          let status = await client.execution(command.envelope.command_id);
-          for (let retry = 0; status.status.status === 'pending' && retry < 100; retry++) { await delay(30); status = await client.execution(command.envelope.command_id); }
+          let status = await driverCall(driverAbort.signal, signal => client.execution(command.envelope.command_id, { signal }));
+          for (let retry = 0; !stop && status.status.status === 'pending' && retry < 100; retry++) {
+            await delay(30);
+            if (stop) break;
+            status = await driverCall(driverAbort.signal, signal => client.execution(command.envelope.command_id, { signal }));
+          }
           record(`${name}.status.json`, { seat, submission, execution: status });
           expect(status.status.status === 'consumed_by_rules').toBe(true);
         }
         await delay(50);
       }
-    })().catch(() => { driverFailure = true; });
+    })().catch(() => { if (!driverAbort.signal.aborted) driverFailure = true; });
     const openingContext = { revision, token: current().decision!.token };
     await page.getByRole('radio', { name: 'Keep hand', exact: true }).check();
-    await settle(() => page.getByRole('button', { name: 'Confirm choice', exact: true }).click(), openingContext);
+    await settle(() => page.getByRole('button', { name: 'Confirm choice', exact: true }).click(), { response: 'mulligan', take: false }, openingContext);
     for (let attempts = 0; attempts < 12; attempts++) {
       await expect.poll(() => current().decision?.request === 'priority').toBe(true);
       if (current().view.turn.step === 'precombat_main') break;
@@ -243,11 +319,13 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
     expect(payment.cost.generic === '0' && Boolean(current().decision_context?.source)).toBe(true);
     const paymentContext = { revision, token: payment.token };
     const colors = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green', C: 'Colorless' };
+    const spending: Extract<PlayerResponse, { response: 'spend_mana' }>['spending'] = {};
     for (const color of Object.keys(payment.available) as (keyof typeof colors)[]) {
       const amount = payment.cost.colored.filter(required => required === color).length.toString();
+      if (amount !== '0') spending[color] = amount;
       await page.getByRole('textbox', { name: new RegExp(`^${colors[color]}`) }).fill(amount);
     }
-    await settle(() => page.getByRole('button', { name: 'Confirm choice', exact: true }).click(), paymentContext);
+    await settle(() => page.getByRole('button', { name: 'Confirm choice', exact: true }).click(), { response: 'spend_mana', spending }, paymentContext);
     for (let attempts = 0; attempts < 4; attempts++) {
       if (current().view.objects.some(object => object.owner === 0 && object.oracle_id === commanderOracle && object.zone.zone === 'battlefield')) break;
       await expect.poll(() => current().decision?.request === 'priority' || current().view.objects.some(object => object.owner === 0 && object.oracle_id === commanderOracle && object.zone.zone === 'battlefield')).toBe(true);
@@ -257,7 +335,7 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
     await expect.poll(() => current().view.objects.some(object => object.owner === 0 && object.oracle_id === commanderOracle && object.zone.zone === 'battlefield')).toBe(true);
     await expect(page.getByRole('region', { name: 'Battlefield', exact: true }).getByRole('button')).toHaveCount(2);
     commanderResolved = true;
-    stop = true; await driver;
+    stopDriver(); await driverCall(new AbortController().signal, () => driver);
     expect(driverFailure).toBe(false);
     // Meaningful resolved-command recovery: lose memory authorization, reimport
     // the original seat, and prove the consumed command and changed board persist.
@@ -270,25 +348,31 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
     await expect(page.getByRole('region', { name: 'Battlefield', exact: true }).getByRole('button')).toHaveCount(2);
     expect(await journal(page)).toBe(true); recovered = true;
     expect(await page.evaluate(() => localStorage.length === 0 && sessionStorage.length === 0 && location.search === '' && location.hash === '')).toBe(true);
-    expect(errors === 0 && !protocolFailure && journalBeforeSend === sent.size && originalContexts === sent.size && accepted.size === sent.size && consumed.size === sent.size).toBe(true);
+    expect(errors === 0 && !protocolFailure && journalBeforeSend === sent.size && originalContexts === sent.size && completeResponses === sent.size && accepted.size === sent.size && consumed.size === sent.size).toBe(true);
     expect(['mulligan', 'pass', 'play_land', 'cast', 'activate_mana', 'finish_mana', 'spend_mana'].every(kind => kinds.includes(kind))).toBe(true);
     await page.getByRole('button', { name: 'Release seat and clear view' }).click();
   } finally {
-    stop = true; await driver;
-    await page.close(); await Promise.allSettled([...responseJobs]);
-    host.kill('SIGINT');
-    const termination = await Promise.race([exited, delay(10_000).then(() => null)]);
-    const units = execFileSync('systemctl', ['--user', 'list-units', 'mtg-p8-*.service', '--all', '--plain', '--no-legend', '--no-pager'], { encoding: 'utf8' });
-    const ownedUnitsReleased = !units.split('\n').some(line => line.includes(`mtg-p8-${host.pid}-`) || line.includes(parent));
-    // Never kill an unowned port/process. Retain every private registry/receipt.
-    const released = await new Promise<boolean>(resolve => {
-      const listener = createServer(); listener.once('error', () => resolve(false));
-      listener.listen(port, '127.0.0.1', () => listener.close(() => resolve(true)));
+    stopDriver();
+    await finishOwnedHost(async () => {
+      await Promise.allSettled([driver, page.close(), ...responseJobs]);
+      cleanupComplete = true;
+    }, async () => {
+      // This separate finally path runs even if driver/browser cleanup fails or
+      // ignores cancellation. No unbounded cleanup may precede owned-host SIGINT.
+      host.kill('SIGINT');
+      const termination = await Promise.race([exited, delay(10_000).then(() => null)]);
+      const units = execFileSync('systemctl', ['--user', 'list-units', 'mtg-p8-*.service', '--all', '--plain', '--no-legend', '--no-pager'], { encoding: 'utf8' });
+      const ownedUnitsReleased = !units.split('\n').some(line => line.includes(`mtg-p8-${host.pid}-`) || line.includes(parent));
+      // Never kill an unowned port/process. Retain every private registry/receipt.
+      const released = await new Promise<boolean>(resolve => {
+        const listener = createServer(); listener.once('error', () => resolve(false));
+        listener.listen(port, '127.0.0.1', () => listener.close(() => resolve(true)));
+      });
+      record('browser-receipt.json', { browser: info.project.name, version: browser.version(), origin, engine_build_id: identity.engine_build_id, server_build_id: identity.server_build_id, observation_version: 16,
+        human_commands: sent.size, journal_before_send: journalBeforeSend, original_contexts: originalContexts, complete_responses: completeResponses, accepted: accepted.size, consumed: consumed.size, command_kinds: kinds, driver_commands: driverCommands, driver_failed: driverFailure, cleanup_complete: cleanupComplete,
+        land_played: landPlayed, commander_resolved: commanderResolved, conditional_reversal_wording: conditionalReversal, recovered, page_errors: errors, protocol_failed: protocolFailure, sigint_exit: termination, port_released: released, owned_units_released: ownedUnitsReleased,
+        scope: 'Disposable foundations first turn; seats 1–3 test-only keep/pass; no full game, strategy, generic permissions, newer native or Safari acceptance.' });
+      expect(termination !== null && termination[0] === 0 && released && ownedUnitsReleased).toBe(true);
     });
-    record('browser-receipt.json', { browser: info.project.name, version: browser.version(), origin, engine_build_id: identity.engine_build_id, server_build_id: identity.server_build_id, observation_version: 16,
-      human_commands: sent.size, journal_before_send: journalBeforeSend, original_contexts: originalContexts, accepted: accepted.size, consumed: consumed.size, command_kinds: kinds, driver_commands: driverCommands, driver_failed: driverFailure,
-      land_played: landPlayed, commander_resolved: commanderResolved, conditional_reversal_wording: conditionalReversal, recovered, page_errors: errors, protocol_failed: protocolFailure, sigint_exit: termination, port_released: released, owned_units_released: ownedUnitsReleased,
-      scope: 'Disposable foundations first turn; seats 1–3 test-only keep/pass; no full game, strategy, generic permissions, newer native or Safari acceptance.' });
-    expect(termination !== null && termination[0] === 0 && released && ownedUnitsReleased).toBe(true);
   }
 });
