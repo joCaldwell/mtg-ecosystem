@@ -272,6 +272,25 @@ Ramos qualifications remain distinct. Full runtime/release/profile/performance/
 retention, policy/pod, SDK/browser/consumer matrices and missing-dependency Node
 suites remain omitted; selected admission/lifecycle tests do not renew host acceptance.
 
+General Aura-control source `aa28e9b7a39d601a8a9a8bb4fbde9484fe20fc1f` passed
+**550 distinct Rust tests**: 416 prechecks at `1163d0fd` through a one-private-test
+bridge (390 libraries, 26 kernels), plus 134 fresh core passes; **3,190 probes**
+and 843 source rows. CLI
+`2f2c427810ee56b74aaf97312f278ceaec32520242a11530c59dac53af0088db`,
+current optimized core `bd47a51c072088661d98acf10184b985fa6b68660513eba3024ae3c6a1d13cff`,
+precheck core `2ce7d22d0cd876d41653ddf9b4060b3bce4a116189986d693820527c49822eae`,
+schema `5caa2ff0392cf173057faa20342ba7f816c367e01ef1d59d69c0b3333ac6eb95`.
+One review found no issues; production stayed unchanged through priority/decoy
+witness corrections. Paid chains, attempted-operation chronology, control/no-op
+consequences, departures, targeting and recovery pass. Synthetic structural cycles
+reject; no official same-controller worked-example or cyclic rules outcome is claimed.
+Formats/admission remain unchanged. Commands, failures, exact binaries, independent
+identities and bridges are indexed in `generated/control-dependencies/integration.json`,
+`review.json`, `review-continuity.json` and `combined01/`–`combined02/`.
+Workspace/lint prechecks retain their explicit bridge and inherited contracts
+exception. Full matrices, policy/pods, host/SDK/browser/consumer and absent-dependency
+Node suites remain omitted; client pins and earlier host qualification stay separate.
+
 ### Complete-source compiler input rejection
 
 Compiler source `6dc5e91c` rejects empty printed mana costs on nonlands rather

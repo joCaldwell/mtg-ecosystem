@@ -34,10 +34,10 @@ capture; later control or incarnation changes do not select new recipients.
 Permanent-wide grants reject stat modifiers. Profiles and consumers remain
 separately admitted.
 
-Continuous Aura control shares one typed operation for creatures, artifacts and
-lands. Attachment legality, semantic timestamps and controller reconciliation are
-shared; artifact creatures and artifact lands retain all their types. General
-permanent-control dependencies and type-changing sources remain unsupported.
+Continuous Aura control shares one operation for creatures, artifacts, lands and
+general permanents. Control-source dependencies use scratch, apply-once ordering;
+attachment legality and timestamps remain shared. Multitype targets retain all
+types. Structural attachment cycles and type-changing sources remain unsupported.
 
 Product setup embeds a qualified sample; standalone client acceptance covers
 joining and opening choices. Full decisions, automated launch, account-to-seat
@@ -54,6 +54,7 @@ The platform baseline was `c62777b`; acceptance never transfers to later source:
 | D2c-d `394301d` | Accepted declared-attack triggers at historical IR24, including reviewed demo/Bundle lifetimes |
 | Later D2c-e/IR25 and finite trigger/keyword/interaction additions | Candidate/focused source qualification; no renewed combined acceptance or P7 performance claim |
 | Schema-1 reset | Regenerated 29 active pools, 1,357 definitions unchanged; focused checks only |
+| General Aura-control dependencies | Source `aa28e9b7a39d601a8a9a8bb4fbde9484fe20fc1f`; 843 rows; 550 distinct Rust tests, 3,190 probes; explicit private-test source bridge, IR1/26/21; consumers unqualified |
 | Fresh-main typed Aura/permanent integration | Source `f3326dcd6fab0e6dc8ebbbbef33c622ceb3e3db3`; 841 rows; 605 distinct Rust tests/606 executions, 3,021 probes; IR1/26/21. Client producer pins remain separate |
 | Prior typed Aura feature | Source `97afa6cdcdda88d76a86459b18ae53cda63c1546`; 837 rows; 507 distinct Rust tests, 3,021 probes; explicit private-test source bridge |
 | Controlled-permanent keyword feature | Source `21d10aaa67ea67f009366cbce0d754b59d9b7daa`; 831 rows; 90 fresh core tests plus 375 source-bridged library passes, 2,805 probes; 26/21 |
