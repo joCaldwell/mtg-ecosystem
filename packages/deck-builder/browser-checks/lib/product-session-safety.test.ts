@@ -3,7 +3,25 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { chromium } from "playwright-core";
-import { ObserverAudit, finishOwnedChild, deadline, discoverWithRateRecovery, boundedRetryAfter } from "./product-session-safety.ts";
+import { ObserverAudit, finishOwnedChild, deadline, discoverWithRateRecovery, waitForUiRead, boundedRetryAfter } from "./product-session-safety.ts";
+
+test("actual checker wait allows a 35s read cooldown but never treats it as command consumption", async () => {
+  for (const [rate, consumedAt, end, failure] of [
+    [true, 36_000, 100_000, ""], [false, 36_000, 100_000, "still_unknown"],
+    [true, Infinity, 100_000, "still_unknown"], [true, 36_000, 30_000, "still_unknown"],
+  ] as const) {
+    let now = 0, extended = 0;
+    const work = waitForUiRead({ end, code: "still_unknown", now: () => now, healthy: () => {},
+      ratePending: () => rate && now >= 1_000, onCooldown: () => { extended++; },
+      // This simulates only arrival of the observed consumed receipt. A saved
+      // journal stays unresolved until that explicit predicate becomes true.
+      predicate: async () => now >= consumedAt, wait: async () => { now += 1_000; },
+    });
+    if (failure) { await assert.rejects(work, new RegExp(failure)); assert.equal(now, Math.min(end, rate ? 90_000 : 20_000)); }
+    else { assert.equal(await work, true); assert.equal(now, consumedAt); }
+    assert.equal(extended, rate ? 1 : 0);
+  }
+});
 
 test("checker discards a stale menu and captures a new context only after real-UI recovery", async () => {
   const counts = { handled: 0, started: 0, ready: 0, freshDiscoveries: 0 };

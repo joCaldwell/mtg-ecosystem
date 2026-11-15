@@ -9,7 +9,7 @@ import { chromium, firefox, type Page, type BrowserContext, type Request } from 
 import type { GameRecord } from "../src/contracts.ts";
 import type { ActionBeginning, ActionInitiation, Observation, PlayerResponse, SeatBootstrap, RulesResult } from "@multiverse/game-server-sdk";
 import { check, completeResponse, fileHash, repository, verifyInputs, OBSERVATION_VERSION, type Inputs } from "./lib/product-session-fixture.ts";
-import { ObserverAudit, finishOwnedChild, discoverWithRateRecovery, boundedRetryAfter } from "./lib/product-session-safety.ts";
+import { ObserverAudit, finishOwnedChild, discoverWithRateRecovery, waitForUiRead, boundedRetryAfter } from "./lib/product-session-safety.ts";
 
 const option = (name: string) => { const i = process.argv.indexOf(`--${name}`); return i < 0 ? undefined : process.argv[i + 1]; };
 const required = (name: string) => { const value = option(name); check(value && !value.startsWith("--"), `argument_${name}`); return resolve(value); };
@@ -118,18 +118,14 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   const add = (counts: Record<string, number>, name: string) => { counts[name] = (counts[name] ?? 0) + 1; };
   const connected = () => page!.getByRole("heading", { name: "Connected · Seat 1", exact: true }).isVisible();
   const untilRead = async (predicate: () => Promise<boolean>, code: string) => {
-    const started = Date.now(); let extended = false;
-    for (;;) {
-      check(!shutdown.signal.aborted, "check_aborted");
-      check(!audit.protocolFailed && audit.pageErrors === 0, "rate_recovery_protocol_or_page_error");
-      if (!extended && naturalAttempted && readRateLimits > rateRecovery.handled) { extended = true; readCooldownWaits++; }
-      check(Date.now() < Math.min(naturalEnd, started + (extended ? 90_000 : 20_000)), code);
-      if (await predicate()) {
-        if (extended && activeReads > resumesAtRateLimit && await connected()) readCooldownReady++;
-        return;
-      }
-      await delay(30);
-    }
+    const extended = await waitForUiRead({ end: naturalEnd, code, now: Date.now, predicate, wait: () => delay(30),
+      ratePending: () => naturalAttempted && readRateLimits > rateRecovery.handled, onCooldown: () => { readCooldownWaits++; },
+      healthy: () => {
+        check(!shutdown.signal.aborted, "check_aborted");
+        check(!audit.protocolFailed && audit.pageErrors === 0, "rate_recovery_protocol_or_page_error");
+      },
+    });
+    if (extended && activeReads > resumesAtRateLimit && await connected()) readCooldownReady++;
   };
   const installRecord = (game: GameRecord) => {
     recordReads++;
@@ -294,7 +290,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
         await action();
         await until(() => !audit.protocolFailed && sent.size === before + 1, "human_post_observed");
         const id = [...sent.keys()].at(-1)!;
-        await until(() => !audit.protocolFailed && accepted.has(id) && consumed.has(id), "native_consumed_by_rules");
+        await untilRead(async () => accepted.has(id) && consumed.has(id), "native_consumed_by_rules");
         await until(() => journal(page!), "journal_resolved");
         // Acceptance, consumption and exact journal resolution were already
         // proved above. A real read cooldown may delay only the refreshed UI.

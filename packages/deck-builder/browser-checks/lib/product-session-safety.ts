@@ -6,6 +6,22 @@ export async function deadline<T>(work: Promise<T>, milliseconds: number): Promi
   finally { clearTimeout(timer); }
 }
 
+/** Waits only for the caller's authoritative UI/receipt predicate. Observed read
+ * cooldown can extend 20s to 90s; it never establishes command disposition. */
+export async function waitForUiRead(effects: {
+  end: number; code: string; now(): number; healthy(): void; ratePending(): boolean;
+  predicate(): Promise<boolean>; wait(): Promise<void>; onCooldown(): void;
+}) {
+  const started = effects.now(); let extended = false;
+  for (;;) {
+    effects.healthy();
+    if (!extended && effects.ratePending()) { extended = true; effects.onCooldown(); }
+    if (effects.now() >= Math.min(effects.end, started + (extended ? 90_000 : 20_000))) throw Error(effects.code);
+    if (await effects.predicate()) return extended;
+    await effects.wait();
+  }
+}
+
 /** Test-driver recovery only: never returns a stale menu or submits a command.
  * A new discovery is permitted only after an observed read 429 and UI recovery. */
 export async function discoverWithRateRecovery<C, T>(effects: {
