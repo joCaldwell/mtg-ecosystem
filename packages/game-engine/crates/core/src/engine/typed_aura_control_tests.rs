@@ -327,8 +327,12 @@ fn typed_aura_control_noncreature_mana_and_attached_equipment_authority() {
         ];
         lands(&mut rows, "Island", 0, 6);
         both(prepared(&rows), |g, q| {
+            // Keep the Mountain for the later Signet payment: otherwise the
+            // generic-payment helper selects it before the remaining Islands.
+            fund(g, q, "Island", 2);
             cast_paid(g, q, 0, target(g, 1));
             control(g, 1, 0, 1, 1);
+            assert!(!g.current(object(g, 4)).unwrap().tapped);
             fund(g, q, "Island", 2); // Pre-cast mana is independent of undo.
             answer(g, q, Response::Cast { card: CardId(2) });
             answer(
