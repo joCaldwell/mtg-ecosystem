@@ -1095,3 +1095,7 @@ mod general_aura_control_tests;
 #[cfg(test)]
 #[path = "targeted_permanent_keyword_tests.rs"]
 mod targeted_permanent_keyword_tests;
+
+#[cfg(test)]
+#[path = "controller_scry_paid_tests.rs"]
+mod controller_scry_paid_tests;
