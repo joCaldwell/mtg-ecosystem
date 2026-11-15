@@ -5,6 +5,67 @@ import { createServer } from "node:http";
 import { chromium } from "playwright-core";
 import { ObserverAudit, finishOwnedChild, deadline, discoverWithRateRecovery, waitForUiRead, readCooldownPending, boundedRetryAfter } from "./product-session-safety.ts";
 
+const freshStaleCounts = () => ({ native: 0, local: 0, started: 0, ready: 0, freshGenerations: 0,
+  contextChanges: 0, tokenChanges: 0, cursorChanges: 0, maxClicks: 0, exhausted: 0 });
+
+test("normal native stale uses a fresh ready-context query and never returns the old selection", async () => {
+  const counts = freshStaleCounts(); let ready = false, calls = 0;
+  const originals: string[] = [];
+  const result = await discoverWithRateRecovery({ allowed: true, end: Date.now() + 1_000, now: Date.now,
+    healthy: async () => {}, capture: () => ready ? "new-token-and-cursor" : "original",
+    rateCount: () => 0, recovered: async () => { throw Error("no_rate_lane"); },
+    normalStale: { counts, ready: async () => { ready = true; }, changed: (a, b) => ({ token: a !== b, cursor: a !== b }) },
+    discover: async original => { originals.push(original); calls++; return calls === 1
+      ? { phase: "stale", value: ["old-selection"], nativeStale: true } : { phase: "complete", value: ["new-only-candidate"] }; },
+  }, { handled: 0, started: 0, ready: 0, freshDiscoveries: 0 });
+  assert.deepEqual(originals, ["original", "new-token-and-cursor"]);
+  assert.deepEqual(result.value, ["new-only-candidate"]); assert.equal(result.context, "new-token-and-cursor");
+  assert.equal(result.rediscovered, true); assert.equal(result.recovered, false);
+  assert.deepEqual(counts, { native: 1, local: 0, started: 1, ready: 1, freshGenerations: 1,
+    contextChanges: 1, tokenChanges: 1, cursorChanges: 1, maxClicks: 2, exhausted: 0 });
+});
+
+test("normal stale and rate recovery share three total UI discovery clicks, then fail typed", async () => {
+  for (const withRate of [false, true]) {
+    const counts = freshStaleCounts(); let calls = 0, ready = 0;
+    const rate = { handled: 0, started: 0, ready: 0, freshDiscoveries: 0 };
+    await assert.rejects(discoverWithRateRecovery({ allowed: true, end: Date.now() + 1_000, now: Date.now,
+      healthy: async () => {}, capture: () => calls, rateCount: () => withRate ? 1 : 0, recovered: async () => 1,
+      normalStale: { counts, ready: async () => { ready++; }, changed: (a, b) => ({ token: a !== b, cursor: false }) },
+      discover: async () => { calls++; return { phase: "stale", value: "never-return", nativeStale: true }; },
+    }, rate), /persistent_discovery_stale/);
+    assert.equal(calls, 3); assert.equal(counts.exhausted, 1); assert.equal(counts.maxClicks, 3);
+    assert.equal(counts.native, 3); assert.equal(ready, withRate ? 1 : 2); assert.equal(rate.started, withRate ? 1 : 0);
+  }
+});
+
+test("normal stale never retries auth, protocol, unsupported or unknown-journal failures", async () => {
+  for (const failure of ["unauthorized", "forbidden", "protocol", "unknown_journal", "unavailable"]) {
+    let retries = 0;
+    await assert.rejects(discoverWithRateRecovery({ allowed: true, end: Date.now() + 1_000, now: Date.now,
+      healthy: async () => { if (failure === "unknown_journal") throw Error(failure); }, capture: () => "context",
+      rateCount: () => 0, recovered: async () => { throw Error("no_rate_lane"); },
+      normalStale: { counts: freshStaleCounts(), ready: async () => { retries++; }, changed: () => ({ token: false, cursor: false }) },
+      discover: async () => { if (failure !== "unavailable") throw Error(failure); return { phase: "unavailable", value: "unsupported" }; },
+    }, { handled: 0, started: 0, ready: 0, freshDiscoveries: 0 }), new RegExp(failure));
+    assert.equal(retries, 0);
+  }
+});
+
+test("ordinary local invalidation does not reuse retired429 evidence or its menu", async () => {
+  const counts = freshStaleCounts(); let calls = 0, ready = false;
+  const rate = { handled: 1, started: 0, ready: 0, freshDiscoveries: 0 };
+  const result = await discoverWithRateRecovery({ allowed: true, end: Date.now() + 1_000, now: Date.now,
+    healthy: async () => {}, capture: () => ready ? "fresh-cursor" : "old-cursor", rateCount: () => 1,
+    recovered: async () => { throw Error("retired_cooldown_used"); },
+    normalStale: { counts, ready: async () => { ready = true; }, changed: (a, b) => ({ token: false, cursor: a !== b }) },
+    discover: async () => { calls++; return { phase: "complete", value: calls === 1 ? "discard" : "fresh" }; }, usable: async () => ready,
+  }, rate);
+  assert.equal(result.value, "fresh"); assert.equal(result.rediscovered, true); assert.equal(result.recovered, false);
+  assert.equal(counts.local, 1); assert.equal(counts.native, 0); assert.equal(counts.cursorChanges, 1);
+  assert.equal(rate.started, 0); assert.equal(rate.freshDiscoveries, 0);
+});
+
 test("a successful post429 resume retires the cooldown allowance for unrelated later waits", async () => {
   let now = 0, resumes = 10, cooldowns = 0;
   const rateCount = 1, resumesAtRate = 10;

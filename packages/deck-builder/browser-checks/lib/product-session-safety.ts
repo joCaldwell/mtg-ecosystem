@@ -26,16 +26,25 @@ export async function waitForUiRead(effects: {
   }
 }
 
+export interface StaleRediscoveryCounts {
+  native: number; local: number; started: number; ready: number; freshGenerations: number;
+  contextChanges: number; tokenChanges: number; cursorChanges: number; maxClicks: number; exhausted: number;
+}
+
 /** Test-driver recovery only: never returns a stale menu or submits a command.
- * A new discovery is permitted only after an observed read 429 and UI recovery. */
+ * The opt-in normal-stale lane shares a three-click decision budget with rate
+ * recovery. Each attempt captures its own context and discards prior results. */
 export async function discoverWithRateRecovery<C, T>(effects: {
   allowed: boolean; end: number; now(): number;
   healthy(): Promise<void>; capture(): C | Promise<C>;
-  discover(context: C, end: number): Promise<{ phase: string; value: T }>;
+  discover(context: C, end: number): Promise<{ phase: string; value: T; nativeStale?: boolean }>;
   usable?(context: C, value: T): Promise<boolean>;
   rateCount(): number; recovered(end: number): Promise<number>;
+  normalStale?: { counts: StaleRediscoveryCounts; ready(end: number): Promise<void>;
+    changed(previous: C, current: C): { token: boolean; cursor: boolean } };
 }, counts: { handled: number; started: number; ready: number; freshDiscoveries: number }) {
-  let recoveries = 0;
+  let recoveries = 0, normalRecoveries = 0, clicks = 0;
+  let previous: C | undefined, nextRecovery: "rate" | "normal" | null = null;
   const within = async <V>(work: () => Promise<V>) => {
     const remaining = effects.end - effects.now();
     if (remaining <= 0) throw Error("rate_recovery_deadline");
@@ -49,19 +58,39 @@ export async function discoverWithRateRecovery<C, T>(effects: {
   for (;;) {
     await within(effects.healthy);
     const context = await within(async () => effects.capture());
-    if (recoveries) counts.freshDiscoveries++;
+    if (nextRecovery === "rate") counts.freshDiscoveries++;
+    const normal = effects.normalStale;
+    if (normal && clicks) {
+      normal.counts.freshGenerations++;
+      const change = normal.changed(previous!, context);
+      if (change.token || change.cursor) normal.counts.contextChanges++;
+      if (change.token) normal.counts.tokenChanges++;
+      if (change.cursor) normal.counts.cursorChanges++;
+    }
+    previous = context; clicks++;
+    if (normal) normal.counts.maxClicks = Math.max(normal.counts.maxClicks, clicks);
     const result = await within(() => effects.discover(context, effects.end));
     await within(effects.healthy);
     const phase = result.phase === "complete" && effects.usable && !await within(() => effects.usable!(context, result.value)) ? "stale" : result.phase;
-    if (phase === "complete") return { context, value: result.value, recovered: recoveries > 0 };
-    if (phase !== "stale" || !effects.allowed || effects.rateCount() <= counts.handled)
+    if (phase === "complete") return { context, value: result.value, recovered: recoveries > 0,
+      ...(normal ? { rediscovered: normalRecoveries > 0 } : {}) };
+    if (normal && phase === "stale") normal.counts[result.nativeStale ? "native" : "local"]++;
+    if (phase !== "stale" || !effects.allowed)
       throw Error(`discovery_${phase || "deadline"}`);
+    if (normal && clicks === 3) { normal.counts.exhausted++; throw Error("persistent_discovery_stale"); }
+    if (effects.rateCount() <= counts.handled) {
+      if (!normal) throw Error("discovery_stale");
+      normalRecoveries++; normal.counts.started++;
+      await within(() => normal.ready(effects.end));
+      normal.counts.ready++; nextRecovery = "normal";
+      continue;
+    }
     if (recoveries === 2) throw Error("persistent_rate_recovery");
     recoveries++; counts.started++;
     // The UI callback requires a successful resume after the latest observed
     // 429, a ready connection, enabled discovery and an empty journal.
     counts.handled = await within(() => effects.recovered(effects.end));
-    counts.ready++;
+    counts.ready++; nextRecovery = "rate";
   }
 }
 

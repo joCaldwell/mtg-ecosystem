@@ -68,6 +68,8 @@ type RecordedOutcome = { kind: "win"; winner: number } | { kind: "draw" };
 
 async function run(name: "chromium" | "firefox", output: string, dist: string, inputs: Inputs, natural: boolean, pauseCase: boolean) {
   const pins = verifyInputs(inputs);
+  const naturalLimitMs = natural ? Number(option("natural-ms") ?? 240_000) : 0;
+  check(!natural || Number.isSafeInteger(naturalLimitMs) && naturalLimitMs >= 1 && naturalLimitMs <= 5_400_000, "natural_bound");
   const checkerSources = ["check-product-session.ts", "lib/product-session-fixture.ts", "lib/product-session-host.ts", "lib/product-session-safety.ts"].map(path => ({ path, sha256: fileHash(fileURLToPath(new URL(path, import.meta.url))) }));
   const directory = mkdtempSync(join(output, `${name}-`));
   const log = openSync(join(directory, "host.log"), "wx", 0o600);
@@ -98,7 +100,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   const recordPauseCounts: Record<string, number> = {};
   const recordStateCounts: Record<string, number> = {};
   let beginnings: ActionBeginning[] = [], requests = 0, queries = 0;
-  type Discovery = { context: { revision: string; token: string }; beginnings: ActionBeginning[]; calls: number };
+  type Discovery = { context: { revision: string; token: string }; beginnings: ActionBeginning[]; calls: number; nativeStale: boolean };
   let discovery: Discovery | null = null;
   const queryOwners = new WeakMap<Request, Discovery>();
   let readRateLimits = 0, resumesAtRateLimit = 0, recoveredCommands = 0, naturalEnd = Infinity;
@@ -107,6 +109,9 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   let retryAfterPresent = 0, retryAfterMissing = 0, retryAfterUnbounded = 0;
   const retryAfterSeconds: Record<string, number> = {};
   const rateRecovery = { handled: 0, started: 0, ready: 0, freshDiscoveries: 0 };
+  const staleRediscovery = { native: 0, local: 0, started: 0, ready: 0, freshGenerations: 0,
+    contextChanges: 0, tokenChanges: 0, cursorChanges: 0, maxClicks: 0, exhausted: 0 };
+  let discoveryGenerations = 0, staleRecoveredCommands = 0;
   let pending: { response: PlayerResponse; revision: string; token: string } | undefined;
   const sent = new Map<string, string>(), accepted = new Set<string>(), consumed = new Set<string>();
   const requestKinds: Record<string, number> = {}, responseKinds: Record<string, number> = {};
@@ -236,6 +241,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
             add(queryOutcomes, value.outcome.status);
             if (queryOwner && queryOwner === discovery) {
               queryOwner.calls++;
+              if (value.outcome.status === "stale") queryOwner.nativeStale = true;
               if (["complete", "incomplete"].includes(value.outcome.status)) {
                 check(value.outcome.page.token === queryOwner.context.token, "discovery_original_token");
                 queryOwner.beginnings.push(...value.outcome.page.beginnings);
@@ -299,6 +305,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       } finally { pending = undefined; }
     };
     const choose = async (predicate: (beginning: ActionBeginning) => boolean) => {
+      beginnings = []; // No prior selection/menu crosses a UI discovery chain.
       const button = page!.getByRole("button", { name: "Discover actions", exact: true });
       const phases = {
         complete: "Discovery complete. Each submitted action is validated again by the host.",
@@ -319,6 +326,21 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
           await untilRead(async () => await connected() && await button.getAttribute("aria-disabled") === "false", "discover_enabled");
           return { revision, token: current().decision!.token };
         }, rateCount: () => readRateLimits,
+        ...(naturalAttempted ? { normalStale: {
+          counts: staleRediscovery,
+          changed: (previous: { revision: string; token: string }, next: { revision: string; token: string }) => ({ token: previous.token !== next.token, cursor: previous.revision !== next.revision }),
+          ready: async (end: number) => {
+            // Native/optimistic stale is a UI request to discover afresh. Keep
+            // the single product read owner; never poll the SDK here.
+            beginnings = [];
+            await until(async () => {
+              await healthy();
+              check(await page!.getByRole("heading", { name: /^(Rate limit or possible contention|Host temporarily unavailable|Connection lost|Seat authorization rejected|Incompatible table or presentation)$/ }).count() === 0, "stale_rediscovery_persistent_failure");
+              return await connected() && !readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads)
+                && await button.getAttribute("aria-disabled") === "false";
+            }, "stale_rediscovery_deadline", Math.max(1, end - Date.now()));
+          },
+        } } : {}),
         usable: async original => {
           const usable = await connected() && revision === original.revision && current().decision?.token === original.token
             && !readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads);
@@ -337,9 +359,9 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
         discover: async (original, end) => {
           // The returned command context belongs to this fresh discovery,
           // never to the discarded stale menu.
-          const attempt: Discovery = { context: original, beginnings: [], calls: 0 }; discovery = attempt;
+          const attempt: Discovery = { context: original, beginnings: [], calls: 0, nativeStale: false }; discovery = attempt;
           await page!.getByLabel("Discovery scope", { exact: true }).selectOption("");
-          await button.click(); let phase = "";
+          await button.click(); discoveryGenerations++; let phase = "";
           try {
             await until(async () => {
               if (!attempt.calls) return false;
@@ -352,7 +374,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
             lastDiscoveryPassOffered = attempt.beginnings.some(value => value.initiation.action === "pass");
             add(discoveryPhases, phase || "deadline");
           }
-          return { phase, value: attempt.beginnings };
+          return { phase, value: attempt.beginnings, nativeStale: attempt.nativeStale };
         },
       }, rateRecovery);
       const original = chosen.context; beginnings = chosen.value;
@@ -370,6 +392,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
         && await menu.locator("ol > li > button").nth(index).getAttribute("aria-disabled") === "false", "discovery_current_menu");
       await settle(() => menu.locator("ol > li > button").nth(index).click(), initiationResponse(beginning.initiation), original);
       if (chosen.recovered) recoveredCommands++;
+      if (chosen.rediscovered) staleRecoveredCommands++;
     };
     await page.goto(`${ready.origin}/play?deck=${ready.deckId}`);
     // Use the actual custom product selector, not URL-derived deck authority.
@@ -507,9 +530,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     // uses only the resolved commander, offered defenders and pass/draw choices.
     // There is no imported human policy or product-side automatic action.
     if (natural) {
-      const milliseconds = Number(option("natural-ms") ?? 240_000);
-      check(Number.isSafeInteger(milliseconds) && milliseconds >= 1 && milliseconds <= 1_800_000, "natural_bound");
-      naturalAttempted = true; const end = Date.now() + milliseconds; naturalEnd = end;
+      naturalAttempted = true; const end = Date.now() + naturalLimitMs; naturalEnd = end;
       while (Date.now() < end && sent.size < 2_000 && !audit.protocolFailed) {
         check(!shutdown.signal.aborted, "check_aborted");
         // Observe the product route's own serial Actor-record polling. No test
@@ -627,6 +648,8 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       rate_recovery_fresh_discoveries: rateRecovery.freshDiscoveries, rate_recovery_consumed_commands: recoveredCommands,
       read_cooldown_waits: readCooldownWaits, read_cooldown_ready: readCooldownReady,
       discovery_completed_menus_invalidated: invalidatedCompleteMenus,
+      discovery_ui_generations: discoveryGenerations, stale_discovery_counts: staleRediscovery,
+      stale_rediscovery_consumed_commands: staleRecoveredCommands,
       fixture_stress_raised_limits: stressRaisedLimits, default_ui_budget: !stressRaisedLimits && ready?.uiRateBudget === 240 && ready?.uiRateWindowMs === 60_000,
       ui_rate_budget: ready?.uiRateBudget ?? 0, ui_rate_window_ms: ready?.uiRateWindowMs ?? 0, query_outcome_counts: queryOutcomes, discovery_phase_counts: discoveryPhases,
       last_discovery_calls: lastDiscoveryCalls, last_discovery_beginnings: lastDiscoveryBeginnings, last_discovery_pass_offered: lastDiscoveryPassOffered,
@@ -634,6 +657,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       immutable_assets_revalidated_per_grant: immutableAssetsRevalidated, named_cards_verified: namedCards,
       land_played: landPlayed, commander_resolved: commanderResolved, conditional_reversal_wording: conditionalReversal,
       natural_attempted: naturalAttempted, natural_completed: naturalCompleted, natural_resource_paused: naturalPaused, natural_bounded: naturalBounded,
+      natural_bound_ms: naturalLimitMs, natural_human_command_bound: natural ? 2_000 : 0, discovery_ui_click_bound_per_choice: 3,
       natural_unsupported: naturalUnsupported, rules_win: (outcome as RulesResult | null)?.outcome === "win", rules_draw: (outcome as RulesResult | null)?.outcome === "draw", cleanup_complete: cleanup, joined_bot_leases: joinedLeases, observer_shutdown_cancellations: audit.expectedCancellations,
       owned_child_exited: ending.exited, owned_child_escalated: ending.escalated, owned_ipc_disconnected: ending.ipcDisconnected };
     Object.assign(receipt, { game_record_reads: recordReads, game_record_completed: recordCompleted, game_record_paused: recordState === "paused", game_record_interrupted: recordState === "interrupted",
