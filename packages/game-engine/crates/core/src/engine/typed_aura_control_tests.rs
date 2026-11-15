@@ -282,6 +282,33 @@ fn typed_aura_control_noncreature_mana_and_attached_equipment_authority() {
             timestamp
         );
         assert_eq!(g.characteristics(creature).unwrap().power, Some(4.into()));
+        let r = request(g, q);
+        let before = g.state.clone();
+        let trace = g.trace.clone();
+        assert!(
+            g.respond(
+                PlayerId(0),
+                r.decision_id(),
+                Response::ActivateAbility {
+                    object: equipment,
+                    ability: 0
+                }
+            )
+            .is_err()
+        );
+        assert_eq!(g.state, before);
+        assert_eq!(g.trace, trace);
+        assert!(
+            g.validate_actions_response(
+                PlayerId(1),
+                &Response::ActivateAbility {
+                    object: equipment,
+                    ability: 0
+                }
+            )
+            .unwrap()
+            .is_ok()
+        );
         // Only the new Equipment controller announces its real equip ability.
         equip(g, q, 1, 3);
         assert_eq!(
@@ -291,12 +318,135 @@ fn typed_aura_control_noncreature_mana_and_attached_equipment_authority() {
         control(g, 2, 0, 2, 0);
         assert_eq!(g.characteristics(creature).unwrap().power, Some(2.into()));
     });
+
+    // A genuinely paid Steal Artifact supplies authority for the existing
+    // nested Signet mana ability. No synthetic control or sacrifice source.
+    for depart_target in [false, true] {
+        let mut rows = vec![
+            ("Steal Artifact", 0, 0, true),
+            ("Golgari Signet", 1, 1, false),
+            ("Annex", 0, 0, true),
+            ("Forest", 2, 2, false),
+            ("Mountain", 0, 0, false),
+        ];
+        lands(&mut rows, "Island", 0, 6);
+        both(prepared(&rows), |g, q| {
+            cast_paid(g, q, 0, target(g, 1));
+            control(g, 1, 0, 1, 1);
+            fund(g, q, "Island", 2); // Pre-cast mana is independent of undo.
+            answer(g, q, Response::Cast { card: CardId(2) });
+            answer(
+                g,
+                q,
+                Response::Targets {
+                    objects: vec![object(g, 3)],
+                },
+            );
+            assert!(matches!(request(g, q), Request::Mana { .. }));
+            answer(
+                g,
+                q,
+                Response::ActivateMana {
+                    object: object(g, 1),
+                },
+            );
+            assert!(
+                matches!(request(g, q), Request::Mana { cost, .. } if cost.generic == 1.into() && cost.colored.is_empty())
+            );
+            answer(
+                g,
+                q,
+                Response::ActivateMana {
+                    object: object(g, 4),
+                },
+            );
+            answer(g, q, Response::FinishMana { undo_mana: false });
+            assert!(matches!(request(g, q), Request::SpendMana { .. }));
+            answer(
+                g,
+                q,
+                Response::SpendMana {
+                    spending: BTreeMap::from([(Color::R, 1.into())]),
+                },
+            );
+            assert!(matches!(request(g, q), Request::Mana { .. }));
+            assert!(g.current(object(g, 1)).unwrap().tapped);
+            assert_eq!(
+                g.state.rules.players[0].mana.get(&Color::B),
+                Some(&1.into())
+            );
+            assert_eq!(
+                g.state.rules.players[0].mana.get(&Color::G),
+                Some(&1.into())
+            );
+            recover(g);
+            g.concede(PlayerId(1)).unwrap();
+            assert!(matches!(request(g, q), Request::Mana { .. }));
+            assert!(g.object_id(CardId(1)).is_none());
+            // Owner departure cannot refund the surviving payer's pre-cast
+            // mana or the Signet's already completed mana production.
+            assert_eq!(
+                g.state.rules.players[0].mana.get(&Color::U),
+                Some(&2.into())
+            );
+            recover(g);
+            // FinishMana's flag requests undo only if payment cannot complete.
+            // This payable spell must proceed to an actual spending decision.
+            answer(g, q, Response::FinishMana { undo_mana: true });
+            assert!(matches!(request(g, q), Request::SpendMana { .. }));
+            if depart_target {
+                g.concede(PlayerId(2)).unwrap();
+                assert!(matches!(request(g, q), Request::SpendMana { .. }));
+                assert!(g.object_id(CardId(3)).is_none());
+                recover(g);
+            }
+            answer(
+                g,
+                q,
+                Response::SpendMana {
+                    spending: BTreeMap::from([
+                        (Color::U, 2.into()),
+                        (Color::B, 1.into()),
+                        (Color::G, 1.into()),
+                    ]),
+                },
+            );
+            assert!(matches!(request(g, q), Request::Priority { .. }));
+            let paid = g.state.rules.stack.last().unwrap().clone();
+            assert!(
+                paid.paid.is_some(),
+                "CR601.6: target loss during payment does not undo the completed proposal"
+            );
+            assert_eq!(paid.source.card, CardId(2));
+            assert!(g.current(object(g, 4)).unwrap().tapped);
+            recover(g);
+            resolve(g, q, |_| {});
+            zone(g, 0, Zone::Graveyard { owner: PlayerId(0) });
+            if depart_target {
+                zone(g, 2, Zone::Graveyard { owner: PlayerId(0) });
+                if g.trace.mode == TraceMode::Detailed {
+                    assert!(g.events().iter().any(|e| matches!(e, Event::SpellCompleted { stack_id, resolved: false } if *stack_id == paid.id)));
+                }
+            } else {
+                control(g, 3, 0, 2, 2);
+                zone(g, 2, Zone::Battlefield);
+            }
+            for color in [Color::U, Color::B, Color::G] {
+                assert_eq!(g.state.rules.players[0].mana.get(&color), Some(&0.into()));
+            }
+        });
+    }
 }
 
 #[test]
 fn typed_aura_control_artifact_creature_sickness_combat_and_actual_untap() {
-    let mut rows = vec![("Steal Artifact", 0, 0, true), ("Silver Myr", 2, 1, false)];
+    let mut rows = vec![
+        ("Steal Artifact", 0, 0, true),
+        ("Silver Myr", 2, 1, false),
+        ("Disperse", 1, 1, true),
+    ];
     lands(&mut rows, "Island", 0, 4);
+    lands(&mut rows, "Island", 1, 2);
     both(prepared(&rows), |g, q| {
         cast_paid(g, q, 0, target(g, 1));
         let myr = object(g, 1);
@@ -356,6 +506,40 @@ fn typed_aura_control_artifact_creature_sickness_combat_and_actual_untap() {
             g.state.rules.players[0].mana.get(&Color::U),
             Some(&1.into())
         );
+        let turn = g.turn().number;
+        own_main(g, q, 0, turn);
+        assert!(!g.current(myr).unwrap().tapped);
+        let mut declared = false;
+        for _ in 0..100 {
+            let r = request(g, q);
+            if let Request::Attackers { candidates, .. } = &r {
+                assert!(candidates.contains(&myr));
+                answer(
+                    g,
+                    q,
+                    Response::Attackers {
+                        attacks: vec![(myr, PlayerId(1))],
+                    },
+                );
+                declared = true;
+                break;
+            }
+            answer(g, q, pass(&r));
+        }
+        assert!(declared);
+        until_player(g, q, PlayerId(1));
+        assert!(g.state.rules.combat.iter().any(|a| a.attacker == myr));
+        cast_paid(g, q, 2, target(g, 0));
+        control(g, 1, 1, 2, 1);
+        assert!(g.current(myr).unwrap().tapped);
+        assert!(!g.current(myr).unwrap().attack_ready);
+        assert!(
+            !g.state
+                .rules
+                .combat
+                .iter()
+                .any(|a| a.attacker == myr || a.blockers.contains(&myr))
+        );
     });
 }
 
@@ -404,4 +588,456 @@ fn typed_aura_control_artifact_land_shared_clock_both_orders_reveal_older() {
             });
         }
     }
+}
+
+#[test]
+fn typed_aura_control_paid_bounce_reincarnation_and_resolution_fizzle() {
+    for (aura, name) in [
+        ("Steal Artifact", "Sol Ring"),
+        ("Annex", "Forest"),
+        ("Conquer", "Forest"),
+    ] {
+        for fizzle in [false, true] {
+            let mut rows = vec![
+                (aura, 0, 0, true),
+                (name, 0, 1, false),
+                ("Disperse", 0, 0, true),
+                ("Regress", 0, 0, true),
+                ("Regress", 1, 1, true),
+            ];
+            lands(&mut rows, "Island", 0, 18);
+            lands(&mut rows, "Mountain", 0, 10);
+            lands(&mut rows, "Island", 1, 3);
+            both(prepared(&rows), |g, q| {
+                let original = object(g, 1);
+                if fizzle {
+                    announce_paid(g, q, 0, target(g, 1));
+                    let paid = g.state.rules.stack.last().unwrap().clone();
+                    recover(g);
+                    until_player(g, q, PlayerId(1));
+                    cast_paid(g, q, 4, target(g, 1));
+                    zone(g, 0, Zone::Graveyard { owner: PlayerId(0) });
+                    assert_eq!(g.state.rules.next_attachment_timestamp, 1);
+                    if g.trace.mode == TraceMode::Detailed {
+                        assert!(g.events().iter().any(|e| matches!(e, Event::SpellCompleted { stack_id, resolved: false } if *stack_id == paid.id)));
+                        assert!(!batches(g).iter().flat_map(|b| &b.occurrences).any(|o| matches!(&o.actual, EventOutcome::EnteredAttached { movement, .. } if movement.previous == paid.source)));
+                    }
+                } else {
+                    cast_paid(g, q, 0, target(g, 1));
+                    let aura_object = object(g, 0);
+                    cast_paid(g, q, 2, target(g, 0));
+                    control(g, 1, 1, 0, 1);
+                    assert!(g.current(aura_object).is_err());
+                    assert_eq!(g.current(object(g, 0)).unwrap().attachment_timestamp, None);
+                    cast_paid(g, q, 0, target(g, 1));
+                    assert_ne!(object(g, 0), aura_object);
+                    assert_eq!(
+                        g.current(object(g, 0)).unwrap().attachment_timestamp,
+                        Some(2)
+                    );
+                    cast_paid(g, q, 3, target(g, 1));
+                    zone(g, 0, Zone::Graveyard { owner: PlayerId(0) });
+                    assert_eq!(g.state.rules.next_attachment_timestamp, 3);
+                }
+                zone(g, 1, Zone::Hand { owner: PlayerId(0) });
+                assert!(g.current(original).is_err());
+                until_player(g, q, PlayerId(0));
+                if name == "Forest" {
+                    answer(g, q, Response::PlayLand { card: CardId(1) });
+                    request(g, q);
+                } else {
+                    cast_paid(g, q, 1, vec![]);
+                }
+                assert_ne!(object(g, 1), original);
+                control(g, 1, 0, 0, 0);
+                assert_eq!(g.current(object(g, 0)).unwrap().attached_to, None);
+                recover(g);
+            });
+        }
+    }
+}
+
+// Finish a target choice submitted through a public validation receipt. Every
+// mana unit is already floated; choose exact colors rather than auto-canceling.
+fn pay_funded(g: &mut Game, q: u64) {
+    let r = request(g, q);
+    assert!(matches!(r, Request::Mana { .. }));
+    answer(g, q, Response::FinishMana { undo_mana: false });
+    let r = request(g, q);
+    let Request::SpendMana {
+        cost, available, ..
+    } = r
+    else {
+        panic!("exact funded payment")
+    };
+    let mut rest = available;
+    let mut spending = BTreeMap::<Color, Quantity>::new();
+    for c in cost.colored {
+        rest.get_mut(&c).unwrap().subtract(&1.into());
+        spending.entry(c).or_default().add(&1.into());
+    }
+    let mut generic = cost.generic;
+    for (c, n) in rest {
+        let used = n.min(generic.clone());
+        generic.subtract(&used);
+        if used > Quantity::zero() {
+            spending.entry(c).or_default().add(&used);
+        }
+    }
+    assert_eq!(generic, Quantity::zero());
+    answer(g, q, Response::SpendMana { spending });
+    assert!(matches!(request(g, q), Request::Priority { .. }));
+    assert!(g.state.rules.stack.last().unwrap().paid.is_some());
+}
+
+#[test]
+fn typed_aura_control_current_controller_hexproof_receipts_and_query_privacy() {
+    for (aura, name) in [
+        ("Steal Artifact", "Sol Ring"),
+        ("Annex", "Forest"),
+        ("Conquer", "Forest"),
+    ] {
+        let mut rows = vec![
+            (aura, 0, 0, true),
+            (name, 2, 1, false),
+            ("Heroic Intervention", 0, 0, true),
+            ("Disperse", 0, 0, true),
+            ("Regress", 0, 0, true),
+            ("Regress", 1, 1, true),
+        ];
+        lands(&mut rows, "Island", 0, 12);
+        lands(&mut rows, "Mountain", 0, 5);
+        lands(&mut rows, "Forest", 0, 2);
+        lands(&mut rows, "Island", 1, 6);
+        both(prepared(&rows), |g, q| {
+            cast_paid(g, q, 0, target(g, 1));
+            cast_paid(g, q, 2, vec![]);
+            let permanent = object(g, 1);
+            assert!(g.has_keyword(permanent, KeywordAbility::Hexproof));
+            assert!(g.targetable_by(permanent, PlayerId(0)));
+            assert!(!g.targetable_by(permanent, PlayerId(1)));
+            let mut opposing = g.fork();
+            until_player(&mut opposing, q, PlayerId(1));
+            answer(&mut opposing, q, Response::Cast { card: CardId(5) });
+            let r = request(&mut opposing, q);
+            assert!(
+                matches!(&r, Request::Targets { candidates, .. } if !candidates.contains(&permanent))
+            );
+            let before = opposing.state.clone();
+            let trace = opposing.trace.clone();
+            assert!(
+                opposing
+                    .respond(
+                        r.player(),
+                        r.decision_id(),
+                        Response::Targets {
+                            objects: vec![permanent]
+                        }
+                    )
+                    .is_err()
+            );
+            assert_eq!(opposing.state, before);
+            assert_eq!(opposing.trace, trace);
+            // Own Hexproof permits the actual paid permanent target. Only the
+            // announcing viewer receives its token/candidates or a receipt.
+            fund(g, q, "Island", 3);
+            answer(g, q, Response::Cast { card: CardId(4) });
+            let r = request(g, q);
+            assert!(
+                matches!(&r, Request::Targets { candidates, .. } if candidates.contains(&permanent))
+            );
+            let before = g.state.clone();
+            let trace = g.trace.clone();
+            let QueryValue::Decision(Some(PlayerRequest::Targets { token, .. })) =
+                finish_query(g, g.player_decision_for(PlayerId(0), Budget::new(0)))
+            else {
+                panic!("own target query")
+            };
+            let handle = g.handle_for(PlayerId(0), permanent).unwrap();
+            for seat in 1..4 {
+                assert!(matches!(
+                    finish_query(g, g.player_decision_for(PlayerId(seat), Budget::new(0))),
+                    QueryValue::Decision(None)
+                ));
+            }
+            let QueryResult::Incomplete { work: stale, .. } =
+                g.observe(PlayerId(0), Budget::new(0))
+            else {
+                panic!("private suspended work")
+            };
+            let response = PlayerResponse::Targets {
+                objects: vec![handle],
+            };
+            let QueryValue::Validated(receipt) = finish_query(
+                g,
+                g.check_player_response(
+                    PlayerId(0),
+                    token.clone(),
+                    response.clone(),
+                    Budget::new(0),
+                ),
+            ) else {
+                panic!("own validation receipt")
+            };
+            let QueryValue::Validated(duplicate) = finish_query(
+                g,
+                g.check_player_response(PlayerId(0), token, response, Budget::new(0)),
+            ) else {
+                panic!("duplicate pre-change receipt")
+            };
+            for viewer in 0..4 {
+                let QueryValue::Observation(o) =
+                    finish_query(g, g.observe(PlayerId(viewer), Budget::new(0)))
+                else {
+                    panic!("permitted observation")
+                };
+                assert!(
+                    !o.view
+                        .objects
+                        .iter()
+                        .any(|o| matches!(o.zone, Zone::Library { .. }))
+                );
+            }
+            assert_eq!(g.state, before);
+            assert_eq!(g.trace, trace);
+            g.submit(receipt).unwrap();
+            pay_funded(g, q);
+            let paid = g.state.rules.stack.last().unwrap().id;
+            recover(g);
+            // The Aura also has Hexproof: its current controller can bounce
+            // it with a genuine paid Disperse. The lower paid Regress then
+            // encounters an opposing Hexproof target and fails at resolution.
+            cast_paid(g, q, 3, target(g, 0));
+            zone(g, 0, Zone::Hand { owner: PlayerId(0) });
+            zone(g, 4, Zone::Graveyard { owner: PlayerId(0) });
+            if g.trace.mode == TraceMode::Detailed {
+                assert!(g.events().iter().any(|e| matches!(e, Event::SpellCompleted { stack_id, resolved: false } if *stack_id == paid)));
+            }
+            control(g, 1, 1, 2, 1);
+            assert!(g.has_keyword(permanent, KeywordAbility::Hexproof));
+            assert!(g.targetable_by(permanent, PlayerId(1)));
+            assert!(!g.targetable_by(permanent, PlayerId(2)));
+            assert!(!g.state.rules.stack.iter().any(|s| s.id == paid));
+            let before = g.state.clone();
+            let trace = g.trace.clone();
+            assert!(g.submit(duplicate).is_err());
+            assert!(matches!(
+                g.resume_work(stale, Budget::unlimited()),
+                QueryResult::Rejected(QueryRejection::StaleOrForeignWork)
+            ));
+            assert_eq!(g.state, before);
+            assert_eq!(g.trace, trace);
+            until_player(g, q, PlayerId(1));
+            cast_paid(g, q, 5, target(g, 1));
+            zone(g, 1, Zone::Hand { owner: PlayerId(2) });
+        });
+    }
+}
+
+#[test]
+fn typed_aura_control_departures_and_common_prior_wipe() {
+    for (aura, name) in [
+        ("Steal Artifact", "Sol Ring"),
+        ("Annex", "Forest"),
+        ("Conquer", "Forest"),
+    ] {
+        for departure in ["source_owner", "target_owner", "default"] {
+            let mut rows = vec![
+                (aura, 0, 0, true),
+                (name, 3, 2, false),
+                ("Disperse", 0, 0, true),
+            ];
+            lands(&mut rows, "Island", 0, 8);
+            lands(&mut rows, "Mountain", 0, 5);
+            both(prepared(&rows), |g, q| {
+                cast_paid(g, q, 0, target(g, 1));
+                let permanent = object(g, 1);
+                control(g, 1, 0, 3, 2);
+                match departure {
+                    "source_owner" => {
+                        g.concede(PlayerId(0)).unwrap();
+                        request(g, q);
+                        assert!(g.object_id(CardId(0)).is_none());
+                        control(g, 1, 2, 3, 2);
+                    }
+                    "target_owner" => {
+                        g.concede(PlayerId(3)).unwrap();
+                        request(g, q);
+                        assert!(g.object_id(CardId(1)).is_none());
+                        zone(g, 0, Zone::Graveyard { owner: PlayerId(0) });
+                    }
+                    _ => {
+                        g.concede(PlayerId(2)).unwrap();
+                        request(g, q);
+                        control(g, 1, 0, 3, 2);
+                        until_player(g, q, PlayerId(0));
+                        cast_paid(g, q, 2, target(g, 0));
+                        assert!(g.current(permanent).is_err());
+                        zone(g, 1, Zone::Exile);
+                    }
+                }
+            });
+        }
+    }
+    for target_first in [false, true] {
+        let mut rows = vec![
+            ("Steal Artifact", 0, 0, true),
+            ("Annex", 0, 0, true),
+            ("Sol Ring", 3, 2, false),
+            ("Seat of the Synod", 3, 2, false),
+            ("Planar Cleansing", 0, 0, true),
+        ];
+        let (artifact_aura, artifact) = if target_first {
+            rows.swap(0, 2);
+            (2, 0)
+        } else {
+            (0, 2)
+        };
+        lands(&mut rows, "Island", 0, 8);
+        lands(&mut rows, "Plains", 0, 6);
+        both(prepared(&rows), |g, q| {
+            cast_paid(g, q, artifact_aura, target(g, artifact));
+            cast_paid(g, q, 1, target(g, 3));
+            let moved = object(g, artifact);
+            let surviving = object(g, 3);
+            let start = g.events().len();
+            cast_paid(g, q, 4, vec![]);
+            zone(g, artifact, Zone::Graveyard { owner: PlayerId(3) });
+            zone(g, artifact_aura, Zone::Graveyard { owner: PlayerId(0) });
+            zone(g, 1, Zone::Graveyard { owner: PlayerId(0) });
+            zone(g, 3, Zone::Battlefield); // Its land type excludes the wipe.
+            control(g, 3, 2, 3, 2);
+            if g.trace.mode == TraceMode::Detailed {
+                assert!(!g.events().iter().skip(start).any(
+                    |e| matches!(e, Event::ControlChanged { object, .. } if *object == moved)
+                ));
+                assert_eq!(g.events().iter().skip(start).filter(|e| matches!(e, Event::ControlChanged { object, previous, controller } if *object == surviving && *previous == PlayerId(0) && *controller == PlayerId(2))).count(), 1);
+                let wipe = batches(g).into_iter().find(|b| b.occurrences.iter().any(|o| matches!(&o.actual, EventOutcome::Moved { movement } if movement.previous == moved))).unwrap();
+                assert!(wipe.occurrences.len() >= 3);
+                for occurrence in &wipe.occurrences {
+                    let authority = occurrence.before.control.as_ref().unwrap();
+                    for target in [moved, surviving] {
+                        assert_eq!(
+                            authority
+                                .objects
+                                .iter()
+                                .find(|o| o.object == target)
+                                .unwrap()
+                                .controller,
+                            PlayerId(0)
+                        );
+                    }
+                }
+            }
+        });
+    }
+}
+
+#[test]
+fn typed_aura_control_normalized_timestamp_controller_attachment_domain_forgery() {
+    let mut rows = vec![
+        ("Steal Artifact", 0, 0, true),
+        ("Annex", 1, 1, true),
+        ("Seat of the Synod", 3, 2, false),
+        ("Seat of the Synod", 3, 2, false),
+        ("Forest", 3, 2, false),
+    ];
+    lands(&mut rows, "Island", 0, 4);
+    lands(&mut rows, "Island", 1, 4);
+    both(prepared(&rows), |g, q| {
+        cast_paid(g, q, 0, target(g, 2));
+        let turn = g.turn().number;
+        own_main(g, q, 1, turn);
+        cast_paid(g, q, 1, target(g, 2));
+        recover(g);
+        let wire = g.snapshot().unwrap();
+        for variant in 0..4 {
+            let mut bad: Snapshot = strict_read(&wire).unwrap();
+            match variant {
+                0 => {
+                    bad.state
+                        .rules
+                        .objects
+                        .get_mut(&CardId(0))
+                        .unwrap()
+                        .attachment_timestamp = Some(2);
+                    bad.state
+                        .rules
+                        .objects
+                        .get_mut(&CardId(1))
+                        .unwrap()
+                        .attachment_timestamp = Some(1);
+                    bad.state
+                        .rules
+                        .objects
+                        .get_mut(&CardId(2))
+                        .unwrap()
+                        .controller = PlayerId(0);
+                }
+                1 => {
+                    bad.state
+                        .rules
+                        .objects
+                        .get_mut(&CardId(2))
+                        .unwrap()
+                        .controller = PlayerId(2)
+                }
+                2 => {
+                    // Both typed domains still fit the other actual artifact
+                    // land. Locally coherent authority cannot replace history.
+                    for id in [0, 1] {
+                        bad.state
+                            .rules
+                            .objects
+                            .get_mut(&CardId(id))
+                            .unwrap()
+                            .attached_to = Some(object(g, 3));
+                    }
+                    bad.state
+                        .rules
+                        .objects
+                        .get_mut(&CardId(2))
+                        .unwrap()
+                        .controller = PlayerId(2);
+                    bad.state
+                        .rules
+                        .objects
+                        .get_mut(&CardId(3))
+                        .unwrap()
+                        .controller = PlayerId(1);
+                }
+                _ => {
+                    // A real basic land fits Annex but not Steal Artifact.
+                    bad.state
+                        .rules
+                        .objects
+                        .get_mut(&CardId(0))
+                        .unwrap()
+                        .attached_to = Some(object(g, 4));
+                    bad.state
+                        .rules
+                        .objects
+                        .get_mut(&CardId(4))
+                        .unwrap()
+                        .controller = PlayerId(0);
+                }
+            }
+            let mut structural = g.fork();
+            structural.state = bad.state.clone();
+            if variant == 0 || variant == 2 {
+                structural.validate_state().unwrap();
+            }
+            if variant == 1 {
+                assert!(structural.validate_control_state().is_err());
+            }
+            if variant == 3 {
+                assert!(structural.validate_state().is_err());
+            }
+            bad.state_sha256 = digest(&bad.state).unwrap();
+            assert!(
+                Game::restore(g.prepared.as_ref().clone(), &canonical(&bad).unwrap()).is_err(),
+                "normalized forgery {variant}"
+            );
+        }
+    });
 }
