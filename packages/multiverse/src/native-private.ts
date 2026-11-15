@@ -14,6 +14,12 @@ export function privateDirectory(path: string): void {
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
   const info = lstatSync(path);
   if (info.uid !== process.getuid?.() || !info.isDirectory() || (info.mode & 0o777) !== 0o700) throw new Error("Private directory must be 0700");
+  // The child metadata and its link in the parent must both survive a crash.
+  // Repeat on existing paths because a prior creation/fsync may have failed.
+  for (const directory of [path, dirname(path)]) {
+    const fd = openSync(directory, constants.O_RDONLY);
+    try { fsyncSync(fd); } finally { closeSync(fd); }
+  }
 }
 export function readPrivate(path: string, maximum = 65_536): string {
   const info = lstatSync(path);
