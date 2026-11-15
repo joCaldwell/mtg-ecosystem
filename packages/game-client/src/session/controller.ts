@@ -36,6 +36,7 @@ export interface ReadSnapshot {
 }
 const empty = (): ReadSnapshot => immutable({ actions: null, command: disabledCommand(), connection: 'idle', binding: null, read: null, metadata: null, metadataMissing: false, retry: 0, failure: null });
 let nextIncarnation = 0;
+interface VerifiedReads { readonly manifest: PublicManifest; readonly metadata: PresentationArtifact | null }
 interface Run {
   readonly cancel: ReturnType<SessionEffects<unknown>['cancellation']>;
   pollCancel: ReturnType<SessionEffects<unknown>['cancellation']> | null;
@@ -191,24 +192,34 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
         run.actions.subscribe(() => { if (this.#current(run)) this.#update({ actions: run.actions!.getSnapshot() }); });
       }
       let initialized = false;
+      // Only a command refresh in this original authorization may reuse these
+      // verified immutable reads. Reconnects invalidate them before retrying.
+      let verified: VerifiedReads | null = null;
       let consecutiveFailures = 0;
       // A successful empty poll does not reset a collision/rate-limit budget.
       let rateLimitFailures = 0;
       while (this.#current(run)) {
         if (run.refresh) initialized = false;
         const polling = initialized;
+        let commandWakeup = false;
         try {
           if (!initialized) {
             this.#update({ connection: 'authenticating' });
-            const manifest = await transport.manifest(signal);
-            if (!this.#current(run)) return;
-            checkManifest(binding, manifest);
-            const metadata = await transport.presentation(signal);
-            if (!this.#current(run)) return;
-            if (metadata && metadata.catalog_sha256 !== binding.catalog_sha256) throw new SessionFailure('incompatible');
+            let assets: VerifiedReads | null = run.refresh ? verified : null;
+            if (!assets) {
+              const manifest = await transport.manifest(signal);
+              if (!this.#current(run)) return;
+              checkManifest(binding, manifest);
+              const metadata = await transport.presentation(signal);
+              if (!this.#current(run)) return;
+              if (metadata && metadata.catalog_sha256 !== binding.catalog_sha256) throw new SessionFailure('incompatible');
+              assets = immutable({ manifest, metadata });
+            }
             const refreshing = run.refresh;
             const read = resumeRead(binding, this.#snapshot.read, await transport.resume(signal));
             if (!this.#current(run)) return;
+            verified = assets;
+            const { metadata } = assets;
             this.#update({ read, metadata, metadataMissing: metadata === null });
             if (commands && !run.commands) {
               run.commandsBinding = journalBinding(binding, commands.protocol);
@@ -232,6 +243,13 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
             run.pollCancel = pollCancel;
             let page: StreamPage;
             try { page = await transport.poll(current.next, pollCancel.signal); }
+            catch (error) {
+              // An HTTP/protocol failure may finish after command refresh has
+              // aborted this signal. Only an explicit abort result is a wakeup;
+              // preserve genuine failures for classification and revalidation.
+              commandWakeup = pollCancel.signal.aborted && error instanceof Error && error.name === 'AbortError';
+              throw error;
+            }
             finally { if (run.pollCancel === pollCancel) run.pollCancel = null; }
             if (!this.#current(run)) return;
             this.#update({ read: streamRead(binding, current, page) });
@@ -249,7 +267,8 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
           await this.#effects.wait(100, signal);
         } catch (error) {
           if (!this.#current(run)) return;
-          if (polling && run.refresh) { initialized = false; continue; }
+          if (polling && run.refresh && commandWakeup) { initialized = false; continue; }
+          verified = null;
           const kind = error instanceof SessionFailure ? error.kind : this.#effects.classify(error);
           if (!['rate-limited', 'unavailable', 'disconnected'].includes(kind)) throw new SessionFailure(kind);
           consecutiveFailures += 1;
