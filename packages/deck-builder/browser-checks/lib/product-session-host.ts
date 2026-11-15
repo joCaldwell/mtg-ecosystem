@@ -23,13 +23,14 @@ const close = () => closing ??= (async () => {
   process.send?.({ stopped: true, games: games.length, leases: games.length * 3 });
   process.disconnect?.();
 })();
-process.once("message", async (options: { directory: string; dist: string; inputs: Inputs; humanThinkTimeMs?: number }) => {
+process.once("message", async (options: { directory: string; dist: string; inputs: Inputs; humanThinkTimeMs?: number; stressRaisedLimits?: boolean }) => {
   directory = options.directory; executable = join(options.inputs.nativeRoot, "mtg-server");
   try {
     starting = startHostedFixture(options);
     fixture = await starting;
     if (!process.connected || closing) { await close(); return; }
-    process.send?.({ ready: true, origin: fixture.origin, owner: fixture.owner, foreign: fixture.foreign, deckId: fixture.deckId, identity: fixture.identity, cards: fixture.cards });
+    process.send?.({ ready: true, origin: fixture.origin, owner: fixture.owner, foreign: fixture.foreign, deckId: fixture.deckId, identity: fixture.identity, cards: fixture.cards,
+      uiRateBudget: fixture.uiRateBudget, uiRateWindowMs: fixture.uiRateWindowMs });
     process.on("message", () => { void close().catch(() => { process.exitCode = 1; process.disconnect?.(); }); });
   } catch { process.send?.({ failed: true }); process.exitCode = 1; process.disconnect?.(); }
 });

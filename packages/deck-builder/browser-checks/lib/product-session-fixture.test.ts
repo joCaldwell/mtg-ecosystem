@@ -21,6 +21,7 @@ test("disposable public hosted factory verifies real signed BetterAuth cookies a
   const parent = mkdtempSync(join(tmpdir(), "product-session-auth-"));
   const fixture = await startHostedFixture({ directory: join(parent, "private") });
   try {
+    assert.equal(fixture.uiRateBudget, 240); assert.equal(fixture.uiRateWindowMs, 60_000);
     const call = (path: string, cookie?: string) => fetch(fixture.origin + path, { headers: cookie ? { Cookie: `better-auth.session_token=${cookie}` } : {}, signal: AbortSignal.timeout(5_000) });
     for (const principal of [fixture.owner, fixture.foreign]) {
       const response = await call("/api/session", principal.cookie);

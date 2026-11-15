@@ -123,7 +123,7 @@ export function privateTree(path: string) {
     if (info.isDirectory()) privateTree(file);
   }
 }
-export async function startHostedFixture(options: { directory: string; dist?: string; inputs?: Inputs; humanThinkTimeMs?: number }) {
+export async function startHostedFixture(options: { directory: string; dist?: string; inputs?: Inputs; humanThinkTimeMs?: number; stressRaisedLimits?: boolean }) {
   process.umask(0o077);
   mkdirSync(options.directory, { mode: 0o700 });
   check(options.humanThinkTimeMs === undefined || options.humanThinkTimeMs === 10_000, "fixture_think_time");
@@ -140,10 +140,10 @@ export async function startHostedFixture(options: { directory: string; dist?: st
   // Resolve only after setting explicit disposable paths; db.ts reads env once.
   const { openDb } = await import("../../src/db.ts");
   const { createHostedAuth, provisionIdentity } = await import("../../src/auth.ts");
-  // Existing browser fixture pattern: accelerated explicit UI input/polling is
-  // not a rate-limit test. This process owns only a disposable DB and limiter.
   const { LIMITS } = await import("../../src/ratelimit.ts");
-  for (const rule of Object.values(LIMITS) as { count: number }[]) rule.count = 1_000_000;
+  check(LIMITS.ui.count === 240 && LIMITS.ui.window === 60_000, "default_ui_budget");
+  // Stress prefixes are explicit and cannot establish default-budget acceptance.
+  if (options.stressRaisedLimits) for (const rule of Object.values(LIMITS) as { count: number }[]) rule.count = 1_000_000;
   const hostPath = createRequire(new URL("../../package.json", import.meta.url)).resolve("@mtg-ecosystem/deck-builder/host");
   const { createHost } = await import(hostPath) as typeof import("../../src/host.ts");
   const db = openDb(process.env.DECKBUILDER_DB!);
@@ -196,7 +196,7 @@ export async function startHostedFixture(options: { directory: string; dist?: st
       // The sole explicit test-only browser qualification. Default server stays false.
       games: native ? { native, browser_session_qualified: true, ...(options.humanThinkTimeMs ? { human_think_time_ms: options.humanThinkTimeMs } : {}) } : undefined });
     await host.start();
-    return { origin, owner, foreign, deckId, identity, cards,
+    return { origin, owner, foreign, deckId, identity, cards, uiRateBudget: LIMITS.ui.count, uiRateWindowMs: LIMITS.ui.window,
       capture: () => {
         const rows = db.prepare("SELECT record_json FROM game_launches WHERE user_id=?").all(owner.user_id) as { record_json: string }[];
         return rows.map(row => JSON.parse(row.record_json) as GameRecord);

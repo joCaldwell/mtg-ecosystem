@@ -6,6 +6,7 @@ import { existsSync, readdirSync, mkdirSync, mkdtempSync, openSync, closeSync, w
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, firefox, type Page, type BrowserContext } from "playwright-core";
+import type { GameRecord } from "../src/contracts.ts";
 import type { ActionBeginning, ActionInitiation, Observation, PlayerResponse, SeatBootstrap, RulesResult } from "@multiverse/game-server-sdk";
 import { check, completeResponse, fileHash, repository, verifyInputs, OBSERVATION_VERSION, type Inputs } from "./lib/product-session-fixture.ts";
 import { ObserverAudit, finishOwnedChild } from "./lib/product-session-safety.ts";
@@ -16,6 +17,7 @@ const delay = (ms: number) => new Promise<void>(done => setTimeout(done, ms));
 const shutdown = new AbortController();
 process.once("SIGINT", () => shutdown.abort());
 process.once("SIGTERM", () => shutdown.abort());
+process.once("SIGHUP", () => shutdown.abort());
 async function until(predicate: () => unknown | Promise<unknown>, code: string, ms = 20_000) {
   const end = Date.now() + ms;
   while (Date.now() < end) { check(!shutdown.signal.aborted, "check_aborted"); if (await predicate()) return; await delay(30); }
@@ -60,7 +62,7 @@ async function journal(page: Page, exactBody?: string, binding?: Record<string, 
 interface Ready {
   ready: true; origin: string; owner: { user_id: number; cookie: string }; foreign: { user_id: number; cookie: string };
   deckId: number; identity: { engine_build_id: string; server_build_id: string; catalog_sha256: string; profile: string };
-  cards: { oracle_id: string; name: string }[];
+  cards: { oracle_id: string; name: string }[]; uiRateBudget: number; uiRateWindowMs: number;
 }
 type RecordedOutcome = { kind: "win"; winner: number } | { kind: "draw" };
 
@@ -78,7 +80,8 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     child.once("exit", () => fail(Error("fixture_early_exit")));
     child.once("message", (value: any) => value.ready ? done(value) : fail(Error("fixture_start")));
   }), 170_000, "fixture_start_deadline");
-  child.send({ directory: join(directory, "private"), dist, inputs, ...(pauseCase ? { humanThinkTimeMs: 10_000 } : {}) });
+  const stressRaisedLimits = process.argv.includes("--stress-raised-limits");
+  child.send({ directory: join(directory, "private"), dist, inputs, stressRaisedLimits, ...(pauseCase ? { humanThinkTimeMs: 10_000 } : {}) });
   let browser, context: BrowserContext | undefined, page: Page | undefined, ready: Ready | undefined;
   const audit = new ObserverAudit();
   let failure = "", presentationMissing = 0, presentationVerified = false, namedCards = 0;
@@ -98,15 +101,14 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   const sent = new Map<string, string>(), accepted = new Set<string>(), consumed = new Set<string>();
   const requestKinds: Record<string, number> = {}, responseKinds: Record<string, number> = {};
   const nativeStatuses: Record<string, number> = {};
+  const httpStatuses: Record<string, number> = {}, recordHttpStatuses: Record<string, number> = {};
   const queryOutcomes: Record<string, number> = {};
   const discoveryPhases: Record<string, number> = {};
   let lastDiscoveryCalls = 0, lastDiscoveryBeginnings = 0, lastDiscoveryPassOffered = false;
   let journalBeforeSend = 0, originalContexts = 0, completeResponses = 0, authenticatedPosts = 0;
   const add = (counts: Record<string, number>, name: string) => { counts[name] = (counts[name] ?? 0) + 1; };
-  const readRecord = async () => {
-    const response = await context!.request.get(`${ready!.origin}/api/games/${gameId}`, { timeout: 5_000 });
-    check(response.status() === 200, "owner_game_record");
-    const { game } = await response.json(); recordReads++;
+  const installRecord = (game: GameRecord) => {
+    recordReads++;
     check(game.id === gameId && game.identity.engine_build_id === ready!.identity.engine_build_id
       && game.identity.server_build_id === ready!.identity.server_build_id && game.identity.catalog_sha256 === ready!.identity.catalog_sha256
       && game.identity.profile === ready!.identity.profile, "outcome_record_identity");
@@ -124,7 +126,8 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   try {
     ready = await readiness;
     const sdk = await import("@multiverse/game-server-sdk");
-    browser = await ({ chromium, firefox }[name]).launch({ headless: true });
+    // The harness owns shutdown; Playwright's SIGINT handler can exit before finally.
+    browser = await ({ chromium, firefox }[name]).launch({ headless: true, handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false });
     context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: "block", reducedMotion: "reduce" });
     const cookie = (value: string) => ({ name: "better-auth.session_token", value, url: ready!.origin, httpOnly: true, sameSite: "Lax" as const });
     await context.addCookies([cookie(ready.owner.cookie)]);
@@ -136,6 +139,12 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     page.on("response", response => {
       audit.track(async () => {
         const path = new URL(response.url()).pathname;
+        add(httpStatuses, String(response.status()));
+        if (path === `/api/games/${gameId}` && response.request().method() === "GET") {
+          add(recordHttpStatuses, String(response.status()));
+          if (response.status() === 200) installRecord((await audit.json(response)).game);
+          return;
+        }
         if (/\/presentation\/[a-f0-9]{64}\.json$/.test(path) && response.status() === 200) {
           const artifact = await audit.json(response);
           check(artifact.catalog_sha256 === ready!.identity.catalog_sha256, "presentation_catalog");
@@ -311,7 +320,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     }
     if (pauseCase) {
       check(current().decision?.request === "mulligan" && sent.size === 0, "pause_opening_withheld");
-      await until(async () => { await readRecord(); if (recordPaused && recordPauseCode === "human_timeout") return true; await delay(250); return false; }, "actual_human_timeout", 35_000);
+      await until(() => recordPaused && recordPauseCode === "human_timeout", "actual_human_timeout", 35_000);
       await until(async () => {
         pauseBannerVisible = await page!.getByRole("heading", { name: "Game paused", exact: true }).isVisible();
         interruptionBannerVisible = await page!.getByRole("heading", { name: "Game interrupted", exact: true }).isVisible();
@@ -410,11 +419,10 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       const milliseconds = Number(option("natural-ms") ?? 240_000);
       check(Number.isSafeInteger(milliseconds) && milliseconds >= 1 && milliseconds <= 1_800_000, "natural_bound");
       naturalAttempted = true; const end = Date.now() + milliseconds;
-      let lastRecord = 0;
       while (Date.now() < end && sent.size < 2_000 && !audit.protocolFailed) {
         check(!shutdown.signal.aborted, "check_aborted");
-        // Account-owned status only; this does not add a native seat reader.
-        if (Date.now() - lastRecord >= 2_000) { await readRecord(); lastRecord = Date.now(); }
+        // Observe the product route's own serial Actor-record polling. No test
+        // polling consumes its shared 240/min UI budget.
         if (recordCompleted) { naturalCompleted = true; break; }
         if (recordPaused) { naturalPaused = lifecycle === "resource_paused"; break; }
         if (outcome) { naturalCompleted = true; break; }
@@ -464,7 +472,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   } finally {
     if (naturalAttempted && context && page && ready && gameId) {
       try {
-        await readRecord();
+        if (outcome && !recordCompleted && !recordPaused) await until(() => recordCompleted || recordPaused, "terminal_record_observed", 20_000);
         const recorded = recordOutcome as RecordedOutcome | null;
         if (recordCompleted && recorded) {
           naturalCompleted = true; naturalBounded = false;
@@ -521,7 +529,9 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       grants, recovered, unmounted, regranted, negative_checks: negatives, requests, native_requests: nativeReads, authenticated_posts: authenticatedPosts,
       human_commands: sent.size, journal_before_send: journalBeforeSend, original_contexts: originalContexts, complete_responses: completeResponses,
       accepted: accepted.size, consumed: consumed.size, action_queries: queries, request_counts: requestKinds, response_counts: responseKinds,
-      native_status_counts: nativeStatuses, query_outcome_counts: queryOutcomes, discovery_phase_counts: discoveryPhases,
+      native_status_counts: nativeStatuses, http_status_counts: httpStatuses, record_http_status_counts: recordHttpStatuses,
+      fixture_stress_raised_limits: stressRaisedLimits, default_ui_budget: !stressRaisedLimits && ready?.uiRateBudget === 240 && ready?.uiRateWindowMs === 60_000,
+      ui_rate_budget: ready?.uiRateBudget ?? 0, ui_rate_window_ms: ready?.uiRateWindowMs ?? 0, query_outcome_counts: queryOutcomes, discovery_phase_counts: discoveryPhases,
       last_discovery_calls: lastDiscoveryCalls, last_discovery_beginnings: lastDiscoveryBeginnings, last_discovery_pass_offered: lastDiscoveryPassOffered,
       presentation_404: presentationMissing, production_presentation_verified: presentationVerified, named_cards_verified: namedCards,
       land_played: landPlayed, commander_resolved: commanderResolved, conditional_reversal_wording: conditionalReversal,
@@ -543,7 +553,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
 
 async function main() {
   if (process.argv.includes("--help")) {
-    console.log("node check-product-session.ts --native-root DIR --sdk-root DIR --qualification JSON --records ARCHIVE_JSON_OR_JSONL --records-sha256 SHA256 --out NEW_DIR [--browser chromium|firefox|both] [--natural] [--natural-ms 240000] [--pause]"); return;
+    console.log("node check-product-session.ts --native-root DIR --sdk-root DIR --qualification JSON --records ARCHIVE_JSON_OR_JSONL --records-sha256 SHA256 --out NEW_DIR [--browser chromium|firefox|both] [--natural] [--natural-ms 240000] [--pause] [--stress-raised-limits]"); return;
   }
   process.umask(0o077);
   check(!(process.argv.includes("--pause") && process.argv.includes("--natural")), "exclusive_fixture_cases");
