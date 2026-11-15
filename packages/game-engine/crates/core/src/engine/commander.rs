@@ -110,51 +110,10 @@ impl Game {
         alternative: Option<cascade::AlternativeCost>,
         selected: &[String],
     ) -> Result<ManaCost, String> {
-        let mut cost = match alternative {
-            None => self.definition(card)?.characteristics.mana_cost.clone(),
-            Some(cascade::AlternativeCost::WithoutManaCost) => ManaCost {
-                generic: Quantity::zero(),
-                colored: vec![],
-            },
-        };
-        // CR 118.9d/601.2f: a free alternative bypasses printed mana,
-        // never selected additional mana. Add before increases/reductions.
-        for identity in selected {
-            let additional = self
-                .definition(card)?
-                .spell
-                .as_ref()
-                .and_then(|p| {
-                    p.optional_additional_costs
-                        .iter()
-                        .find(|c| c.identity == *identity)
-                })
-                .ok_or("foreign optional cost identity")?;
-            cost.generic.add(&additional.mana.generic);
-            cost.colored.extend_from_slice(&additional.mana.colored);
-        }
-        if self
-            .definition(card)?
-            .static_abilities
-            .iter()
-            .any(|a| a.effect == StaticEffect::ReduceGenericByCreatureCount)
-        {
-            cost.generic.subtract(&Quantity::from(
-                self.objects_in_set(&ObjectSet::Creatures, caster).len() as i64,
-            ));
-            if cost.generic.is_negative() {
-                cost.generic = Quantity::zero();
-            }
-        }
-        if matches!(from, Zone::Command { .. }) {
-            if from != (Zone::Command { owner: caster }) {
-                return Err("unsupported command-zone casting permission".into());
-            }
-            cost.generic
-                .add(&self.state.rules.commanders.tax(card, caster)?);
-        }
-        Ok(cost)
+        let lock = self.cost_lock_inputs(card, caster, from)?;
+        self.construct_spell_cost(card, alternative, None, selected, &lock)
     }
+
     // CR 903.9a / 704.3: consume a fresh graveyard/exile incarnation's next
     // SBA opportunity even if declined. Historical pools permit at most one.
     // Match pods preserve every simultaneous fresh opportunity and process

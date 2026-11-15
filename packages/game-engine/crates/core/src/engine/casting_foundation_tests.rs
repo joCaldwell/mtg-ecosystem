@@ -131,11 +131,11 @@ fn m3_foundation_payment_receipt_defers_resumption_and_cannot_complete_twice() {
 }
 
 #[test]
-fn m3_foundation_empty_payment_completes_without_changing_printed_mana_value() {
+fn m3_foundation_forged_zero_payment_rejects_without_changing_printed_mana_value() {
     let mut game = mana_window(TraceMode::Detailed);
     let mut cast = casting(&game);
-    // Synthetic locked-zero-cost control, not a free-casting permission or a
-    // source-backed alternative-cost witness. Printed cost remains untouched.
+    // A forged total is not a free-casting permission or a valid lock.
+    // Genuine alternative/ordinary-zero payments have separate witnesses.
     game.state.rules.stack.last_mut().unwrap().total_cost = zero_mana_cost();
     cast.spending = Some(BTreeMap::new());
     let printed = game
@@ -147,11 +147,8 @@ fn m3_foundation_empty_payment_completes_without_changing_printed_mana_value() {
     let value = game.stack_mana_value(game.top().unwrap()).unwrap();
     assert!(value > Quantity::zero());
     let frame = game.state.rules.frame.clone();
-    assert!(matches!(
-        game.pay_announcement_costs(&cast).unwrap(),
-        AnnouncementPayment::Completed(_)
-    ));
-    assert_eq!(game.top().unwrap().paid, Some(zero_mana_cost()));
+    assert!(game.pay_announcement_costs(&cast).is_err());
+    assert_eq!(game.top().unwrap().paid, None);
     assert_eq!(
         game.definition(CardId(1))
             .unwrap()
@@ -166,7 +163,7 @@ fn m3_foundation_empty_payment_completes_without_changing_printed_mana_value() {
             .iter()
             .filter(|event| matches!(event, Event::SpellCast { .. }))
             .count(),
-        1
+        0
     );
 }
 

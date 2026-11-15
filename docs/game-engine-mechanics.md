@@ -115,8 +115,12 @@ spell. Reversal refunds only receipt-recorded casting-time mana/taps, preserving
 pre-cast mana, combat taps and departures; retained legal mana activations clear
 passes. Mixed-color spending needs explicit choices. Nested permanent-mana costs,
 colored production and X use exact supported cost shapes, never guessed colors.
-X is announced nonnegative and frozen; only stack mana value includes it. Generic
-self-cost reduction cannot erase colored costs.
+X is announced nonnegative and frozen; only stack mana value includes it.
+CountedSelfGenericCostReductionV1 admits artifact/caster self reducers independently
+of BoardWipes. Every validated slot applies; the legacy creature reducer shares
+its arithmetic. Base/alternative, X, selected additionals and increases precede
+reductions and floor-zero, preserving colored/colorless symbols. Private locks freeze
+bounded counts at CR601.2f; replay authenticates them without later-board repricing.
 
 Activated abilities use a separate stack ID/historical source handle; their card
 stays in place. Tap-source costs enforce readiness/continuous control, subject to

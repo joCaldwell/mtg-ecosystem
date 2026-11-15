@@ -137,6 +137,7 @@ impl Game {
             .successor;
         let effect_source_handles = self.capture_trigger_source_handles(source)?;
         self.state.rules.stack.push(StackInstance {
+            cost_lock: None,
             selected_additional_costs: None,
             alternative_cost,
             x: (alternative_cost.is_some() && self.definition(card)?.x_mana_cost)

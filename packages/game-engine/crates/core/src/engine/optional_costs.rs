@@ -35,22 +35,12 @@ impl Game {
             return Err("optional cost response invariant".into());
         };
         self.validate_additional_cost_selection(input.player, &selected)?;
-        let top = self.top()?;
-        let total = self.announcement_cost_with_additional(
-            top.source.card,
-            top.controller,
-            top.cast_from,
-            top.alternative_cost,
-            &selected,
-        )?;
-        let top = self
-            .state
+        self.state
             .rules
             .stack
             .last_mut()
-            .ok_or("missing optional cost invocation")?;
-        top.selected_additional_costs = Some(selected);
-        top.total_cost = total;
+            .ok_or("missing optional cost invocation")?
+            .selected_additional_costs = Some(selected);
         self.state.rules.frame = self.spell_announcement_frame(cast)?;
         Ok(())
     }
@@ -117,14 +107,6 @@ impl Game {
                         .iter()
                         .any(|c| c.identity == *id)
             })
-            || entry.total_cost
-                != self.announcement_cost_with_additional(
-                    entry.source.card,
-                    entry.controller,
-                    entry.cast_from,
-                    entry.alternative_cost,
-                    selected,
-                )?
         {
             return Err("optional cost declaration/selection/locked total invariant".into());
         }

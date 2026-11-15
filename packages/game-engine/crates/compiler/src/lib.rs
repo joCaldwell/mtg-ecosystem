@@ -170,15 +170,17 @@ impl<'de> Deserialize<'de> for SourceKeyword {
             "double-strike" => "double strike".to_owned(),
             _ => keyword,
         };
-        if !matches!(keyword.as_str(), "equip" | "enchant" | "cascade" | "kicker")
-            && serde_json::from_value::<KeywordAbility>(serde_json::Value::String(keyword.clone()))
-                .is_err()
+        if !matches!(
+            keyword.as_str(),
+            "equip" | "enchant" | "cascade" | "kicker" | "affinity"
+        ) && serde_json::from_value::<KeywordAbility>(serde_json::Value::String(keyword.clone()))
+            .is_err()
         {
             return Err(D::Error::custom(format!("keyword:{keyword}")));
         }
         let allowed = match keyword.as_str() {
             "equip" | "kicker" => ["keyword", "cost"].as_slice(),
-            "enchant" => ["keyword", "filter"].as_slice(),
+            "enchant" | "affinity" => ["keyword", "filter"].as_slice(),
             _ => ["keyword"].as_slice(),
         };
         if object.len() != allowed.len() || object.keys().any(|k| !allowed.contains(&k.as_str())) {
@@ -1470,7 +1472,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         if keywords.is_empty() {
                             return Err(unsupported("abilities.keywords", "empty keyword block"));
                         }
-                        for keyword in keywords {
+                        for (keyword_index, keyword) in keywords.iter().enumerate() {
                             if keyword.keyword == "equip"
                                 && kind == CardKind::Artifact
                                 && definition.characteristics.subtypes == ["Equipment"]
@@ -1551,6 +1553,89 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                         TargetDomain::BattlefieldCreature
                                     } else {
                                         TargetDomain::BattlefieldPermanent
+                                    },
+                                });
+                                continue;
+                            }
+                            if keyword.keyword == "affinity" {
+                                // CR 702.41a/b: complete exact filter and prospective caster.
+                                // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+                                if keyword.cost.is_some()
+                                    || keyword.filter
+                                        != Some(serde_json::json!({"types":["artifact"]}))
+                                {
+                                    return Err(unsupported(
+                                        "affinity",
+                                        "unsupported exact affinity selector",
+                                    ));
+                                }
+                                let binding: serde_json::Value =
+                                    decode(r.binding.get(), "binding")?;
+                                let path =
+                                    format!("/faces/0/abilities/{block}/keywords/{keyword_index}");
+                                let scope = format!(
+                                    "card:{}/faces/0/abilities/{block}#ability",
+                                    definition.oracle_id
+                                );
+                                let you = format!("card:{}{path}#you", definition.oracle_id);
+                                let id = format!("card:{}{path}#keyword", definition.oracle_id);
+                                let nodes = binding["nodes"].as_array().ok_or_else(|| {
+                                    unsupported("binding.affinity", "missing nodes")
+                                })?;
+                                let source_id =
+                                    format!("card:{}/source#object", definition.oracle_id);
+                                let face_id = format!("card:{}/faces/0#face", definition.oracle_id);
+                                let required = [
+                                    serde_json::json!({"id":source_id,"path":"/source","node":"source","identity":definition.oracle_id}),
+                                    serde_json::json!({"id":face_id,"path":"/faces/0","node":"face","source":source_id,"sourceFaceIndex":0,"name":definition.name,"layout":source.layout,"typeLine":source.type_line,"manaCost":source.mana_cost}),
+                                    serde_json::json!({"id":scope,"path":format!("/faces/0/abilities/{block}"),"node":"ability","source":source_id,"face":face_id,"abilityKind":"keywords"}),
+                                ];
+                                if binding["identity"] != definition.oracle_id
+                                    || required.iter().any(|expected| {
+                                        let found: Vec<_> = nodes
+                                            .iter()
+                                            .filter(|n| n["id"] == expected["id"])
+                                            .collect();
+                                        found.len() != 1
+                                            || expected
+                                                .as_object()
+                                                .unwrap()
+                                                .iter()
+                                                .any(|(k, v)| found[0][k] != *v)
+                                    })
+                                    || nodes.iter().filter(|n| n["id"] == id).count() != 1
+                                    || nodes.iter().filter(|n| n["id"] == you).count() != 1
+                                    || !nodes.iter().any(|n| {
+                                        n["id"] == id
+                                            && n["path"] == path
+                                            && n["scope"] == scope
+                                            && n["node"] == "keyword-ability"
+                                            && n["keyword"] == "affinity"
+                                            && n["abilities"] == serde_json::json!(["static"])
+                                            && n["you"] == you
+                                    })
+                                    || !nodes.iter().any(|n| {
+                                        n["id"] == you
+                                            && n["path"] == path
+                                            && n["scope"] == scope
+                                            && n["node"] == "runtime-player"
+                                            && n["role"] == "prospective-caster"
+                                    })
+                                {
+                                    return Err(unsupported(
+                                        "binding.affinity",
+                                        "missing exact prospective caster binding",
+                                    ));
+                                }
+                                labels.statics.push(source_block(block)?);
+                                definition.static_abilities.push(StaticAbility {
+                                    functioning_zone: FunctioningZone::Stack,
+                                    effect: StaticEffect::ReduceSelfGenericCost {
+                                        per_object: 1.into(),
+                                        count: BattlefieldCount {
+                                            kind: CardKind::Artifact,
+                                            controller: CountController::Caster,
+                                        },
                                     },
                                 });
                                 continue;
@@ -9361,3 +9446,5 @@ mod ramos_m4c_tests;
 
 #[cfg(test)]
 mod ramos_m4d_tests;
+#[cfg(test)]
+mod ramos_m4e_tests;

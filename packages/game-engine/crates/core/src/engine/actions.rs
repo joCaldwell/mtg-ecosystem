@@ -1177,6 +1177,7 @@ impl Game {
         child: Option<StackId>,
     ) -> Result<(), String> {
         self.validate_trigger_entry(&frame.spell)?;
+        self.validate_cost_lock(&frame.spell)?;
         self.validate_additional_cost_entry(&frame.spell)?;
         self.validate_mode_binding(&frame.spell)?;
         self.validate_condition_cache(frame)?;

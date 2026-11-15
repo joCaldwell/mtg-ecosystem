@@ -1,4 +1,5 @@
 //! Executable Card IR contracts. No rules execution or parser dependency.
+mod counted_costs;
 /// Engine build identity excludes card/profile data and hosting code. Retained
 /// evidence still carries those files with their own hashes; matches/snapshots
 /// separately bind the exact catalog digest. Used by both the core build and
@@ -179,6 +180,7 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+    CountedSelfGenericCostReductionV1,
     OptionalAdditionalManaCostV1,
     ResolutionCastV1,
     CascadeV1,
@@ -880,6 +882,10 @@ pub enum StaticEffect {
     OpponentsCantCastDuringControllerTurn,
     EntersTapped,
     ReduceGenericByCreatureCount,
+    ReduceSelfGenericCost {
+        per_object: Quantity,
+        count: BattlefieldCount,
+    },
     CantBeCountered,
     ModifyCreatures {
         scope: CreatureScope,
@@ -898,6 +904,37 @@ pub enum StaticEffect {
     DoubleDamageToPermanentOrPlayer,
     /// Double damage from creatures controlled by this battlefield source's controller.
     DoubleControllerCreatureDamageToPermanentOrPlayer,
+}
+/// Count current battlefield types and control, never ownership (CR 702.41).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BattlefieldCount {
+    pub kind: CardKind,
+    pub controller: CountController,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CountController {
+    Any,
+    Caster,
+}
+impl StaticEffect {
+    /// Preserve the canonical legacy IR while sharing one arithmetic path.
+    pub fn counted_generic_reduction(&self) -> Option<(Quantity, BattlefieldCount)> {
+        match self {
+            Self::ReduceGenericByCreatureCount => Some((
+                1.into(),
+                BattlefieldCount {
+                    kind: CardKind::Creature,
+                    controller: CountController::Any,
+                },
+            )),
+            Self::ReduceSelfGenericCost { per_object, count } => {
+                Some((per_object.clone(), count.clone()))
+            }
+            _ => None,
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1792,6 +1829,9 @@ impl Definition {
                     Capability::ControllerCreaturePlusOneCounterReplacementV1
                 }
                 StaticEffect::EntersTapped => Capability::EntersTappedV1,
+                StaticEffect::ReduceSelfGenericCost { .. } => {
+                    Capability::CountedSelfGenericCostReductionV1
+                }
                 StaticEffect::ReduceGenericByCreatureCount | StaticEffect::CantBeCountered => {
                     Capability::BoardWipesV1
                 }
@@ -2607,8 +2647,10 @@ impl Definition {
             validate_instruction_program(p)?;
         }
         if self.static_abilities.iter().any(|a| {
-            !matches!(a.effect, StaticEffect::GrantSpellCascade { .. })
-                && a.effect != StaticEffect::EntersTapped
+            !matches!(
+                a.effect,
+                StaticEffect::GrantSpellCascade { .. } | StaticEffect::ReduceSelfGenericCost { .. }
+            ) && a.effect != StaticEffect::EntersTapped
                 && a.effect != StaticEffect::OpponentsCantCastDuringControllerTurn
                 && !matches!(
                     a.effect,
@@ -2630,7 +2672,9 @@ impl Definition {
             return Err("static damage replacement requires a supported enchantment".into());
         }
         if self.static_abilities.iter().any(|a| {
-            if matches!(
+            if matches!(a.effect, StaticEffect::ReduceSelfGenericCost { .. }) {
+                a.functioning_zone != FunctioningZone::Stack
+            } else if matches!(
                 a.effect,
                 StaticEffect::ReduceGenericByCreatureCount | StaticEffect::CantBeCountered
             ) {
@@ -2643,6 +2687,18 @@ impl Definition {
             return Err("static damage replacement must function on battlefield".into());
         }
         for a in &self.static_abilities {
+            if let StaticEffect::ReduceSelfGenericCost { per_object, count } = &a.effect {
+                if *per_object <= Quantity::zero()
+                    || count.kind != CardKind::Artifact
+                    || count.controller != CountController::Caster
+                    || self.spell.is_none()
+                    || equipment
+                    || aura
+                {
+                    return Err("unsupported counted self generic cost reduction".into());
+                }
+                continue;
+            }
             if let StaticEffect::GrantSpellCascade {
                 eligibility,
                 program,
@@ -5092,6 +5148,7 @@ pub fn catalog_schema() -> serde_json::Value {
         ]);
     static_controller::schema(&mut schema);
     optional_costs::schema(&mut schema);
+    counted_costs::schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -5228,6 +5285,7 @@ mod tests {
     fn every_capability_has_a_complete_current_witness() {
         use Capability::*;
         let expected = [
+            CountedSelfGenericCostReductionV1,
             OptionalAdditionalManaCostV1,
             ResolutionCastV1,
             CascadeV1,
@@ -5373,6 +5431,25 @@ mod tests {
                 catalog.definitions
             })
             .collect::<Vec<_>>();
+        // Synthetic complete typed control; exact frozen source is compiled
+        // independently in compiler::ramos_m4e_tests.
+        let mut counted = definitions
+            .iter()
+            .find(|d| d.name == "Grizzly Bears")
+            .unwrap()
+            .clone();
+        counted.static_abilities = vec![StaticAbility {
+            functioning_zone: FunctioningZone::Stack,
+            effect: StaticEffect::ReduceSelfGenericCost {
+                per_object: 1.into(),
+                count: BattlefieldCount {
+                    kind: CardKind::Artifact,
+                    controller: CountController::Caster,
+                },
+            },
+        }];
+        counted.capabilities = counted.requirements();
+        definitions.push(counted);
         let mut static_grant = definitions
             .iter()
             .find(|d| d.name == "Grizzly Bears")

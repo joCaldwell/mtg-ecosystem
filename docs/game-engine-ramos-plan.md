@@ -60,7 +60,7 @@ They retain exact copied producers, independent build proofs, test-only bridges,
 reviews, failures and timings; historical acceptance never transfers. Original Apex
 833-second seeded evidence is preserved, not repeated. Full contract research stays
 in Git `30ec86ee` and ignored copies. Consumer/exact-deck admission remains open;
-current publication is feature-only. The former client main hold has ended.
+current publication is feature-only.
 
 ## Ordered remaining milestones
 
@@ -82,7 +82,9 @@ The focused exit above does not cover every possible casting source or cost.
 
 ### M4 Complete the cascade package and casting history
 
-Apex/Wanderer/Imoti/Nexus/Sorcerer are qualified above. Next: Ethersworn affinity;
+Apex/Wanderer/Imoti/Nexus/Sorcerer are qualified above. Ethersworn's counted artifact
+affinity has a bounded source checkpoint
+(private30/public22,IR1); parent qualification remains separate. Next:
 Enigma's exact battlefield-to-own-graveyard successor and third-from-top library
 movement/knowledge; Yidris grants and remaining turn/zone scopes. Add Averna's action, Call Forth's other-spell mana
 values and Vega's non-hand-cast draw. Preflight effective trigger batches and checked

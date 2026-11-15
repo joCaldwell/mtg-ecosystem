@@ -185,6 +185,7 @@ impl Game {
         cast: &Casting,
     ) -> Result<AnnouncementPayment, String> {
         let stack = self.top()?.clone();
+        self.validate_cost_lock(&stack)?;
         self.validate_additional_cost_entry(&stack)?;
         if stack.id != cast.stack_id
             || stack.paid.is_some()

@@ -200,26 +200,7 @@ impl Game {
             && self.stack_mana_value(stack)? < permission.resulting_mana_value_below)
     }
     pub(super) fn announcement_mana_frame(&mut self, mut cast: Casting) -> Result<Frame, String> {
-        if !self.program()?.optional_additional_costs.is_empty() {
-            let entry = self.top()?;
-            let selected = entry
-                .selected_additional_costs
-                .as_ref()
-                .ok_or("missing cost declaration before locking")?;
-            let total = self.announcement_cost_with_additional(
-                entry.source.card,
-                entry.controller,
-                entry.cast_from,
-                entry.alternative_cost,
-                selected,
-            )?;
-            self.state
-                .rules
-                .stack
-                .last_mut()
-                .ok_or("missing cost lock spell")?
-                .total_cost = total;
-        }
+        self.lock_spell_cost()?;
         let stack = self.top()?;
         if matches!(cast.completion, CastCompletion::Resolution { .. })
             && !self.has_selected_additional_mana(stack)

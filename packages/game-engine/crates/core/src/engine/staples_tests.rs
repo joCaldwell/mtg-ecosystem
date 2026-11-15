@@ -1248,6 +1248,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | StaticEffect::OpponentsCantCastDuringControllerTurn
                     | StaticEffect::ControllerCreaturePlusOneCounterReplacement { .. }
                     | StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer
+                    | StaticEffect::ReduceSelfGenericCost { .. }
                     | StaticEffect::ReduceGenericByCreatureCount
                     | StaticEffect::CantBeCountered
                     | StaticEffect::ModifyCreatures { .. } => {

@@ -36,7 +36,8 @@ separately admitted.
 Ramos rules `836a63a9` and schema `dbc644a5` combine main `d842ef59`, direct/granted
 cascade, semantic first-cast history, optional costs, counters and General Aura
 control. Qualified586 distinct Rust/3,531 schema/969 rows use private/public-context-work
-28/22,IR1. Affinity, ordered graveyard successors, remaining grants and exact-target/
+28/22,IR1. Counted affinity has a private30/public22 candidate; ordered graveyard
+successors, remaining grants and exact-target/
 profile/host/SDK/search admission remain open; historical client26/21 stays separate.
 
 Continuous Aura control shares one operation for creatures, artifacts, lands and

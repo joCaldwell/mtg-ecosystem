@@ -1559,3 +1559,5 @@ mod m4c_tests;
 mod m4d_lifecycle_tests;
 #[path = "m4d_tests.rs"]
 mod m4d_tests;
+#[path = "m4e_tests.rs"]
+mod m4e_tests;

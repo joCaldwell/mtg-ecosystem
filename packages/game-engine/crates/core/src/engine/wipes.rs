@@ -72,7 +72,7 @@ impl Game {
             return Err("X already announced".into());
         }
         top.x = Some(value.clone());
-        top.total_cost.generic.add(&value);
+
         let stack_id = top.id;
         self.record_event(Event::XAnnounced {
             stack_id,
