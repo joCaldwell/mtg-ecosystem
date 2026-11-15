@@ -10,9 +10,9 @@ function savedStatus(game: GameRecord): string {
   if (game.state === "completed") return game.outcome?.kind === "draw" ? "The game ended in a draw."
     : game.outcome?.kind === "win" ? game.outcome.winner === 0 ? "You won." : `Automated seat ${game.outcome.winner + 1} won.` : "The game is complete.";
   if (game.state === "provisioning") return "Your game is being prepared.";
+  if (game.pause === "human_timeout") return "The game stopped after the human decision time limit. Its saved record is retained.";
+  if (game.pause === "lifetime_exceeded") return "The game stopped after the game time limit. Its saved record is retained.";
   if (game.state === "interrupted") return "The game was interrupted. Its saved record is retained.";
-  if (game.pause === "human_timeout") return "The game paused after the human decision time limit. Return to saved games to resume.";
-  if (game.pause === "lifetime_exceeded") return "The game paused after the game time limit.";
   return "The game is paused. Return to saved games to resume.";
 }
 /** The route selects the match endpoint; imported bytes can never choose it.
