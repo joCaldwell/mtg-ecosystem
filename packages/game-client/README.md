@@ -22,7 +22,7 @@ unchanged and establishes no fresh native acceptance.
 Fixture routes remain `/`, `/fixtures/opening`, `/fixtures/missing-metadata` and
 `/fixtures/decisions`; its `#table` opens the local interactive preview.
 
-Public `/session` exports `GameSession({gameId, bootstrapFile, headingLevel})`.
+Public `/session` exports `GameSession({gameId, bootstrapFile, headingLevel, interactive})`.
 It owns a memory-only imported File/session lifetime and uses the app-selected
 same-origin `/api/games/:id/native` endpoint with account cookies plus human seat
 authorization. Match/seat binding is checked before requests; numeric-loopback

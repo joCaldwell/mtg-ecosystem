@@ -15,54 +15,33 @@ full-game qualification remain separate.
 
 ## Producer context and admission qualification
 
-Frozen producer source `565a1204d6e4b14443b9f49dda2ecbc6b46ee85a` supplies
-compiler-bound action/ability/mode/trigger/effect descriptions and optional permitted
-decision context at observation version **16**. The consumer pin in
-[`sdk-qualification.json`](../packages/game-client/sdk-qualification.json) qualifies
-this source separately from later integrated observation version 20 and lifecycle
-work. Historical captures retain their original identities.
-
-Evidence root:
+Frozen source `565a1204d6e4b14443b9f49dda2ecbc6b46ee85a`, observation **16**,
+qualified compiler-bound descriptions/context and exact native admission. Its
+permanent root is
 `~/.local/share/mtg-ecosystem/engine-evidence/authoritative-decision-context-565a1204-20261114/`.
-`qualification.json` (SHA-256 `a2d9a7fb607e584a6dc27750104d7f9062b48549a58df58e7eac9625202a0053`)
-pins exact native binaries, source snapshot, SDK sources/generated/distribution and
-passing/failing logs. Reusable SDK is `sdk/`; native exports and proofs are `native/`.
-No original source/cache/evidence was removed.
+`qualification.json` SHA-256 is
+`a2d9a7fb607e584a6dc27750104d7f9062b48549a58df58e7eac9625202a0053`;
+`native/`, `source/` and `sdk/` retain binaries, schemas, complete sources,
+SDK artifacts and passing/failing receipts. The
+[immutable full record](https://github.com/joCaldwell/mtg-ecosystem/blob/301b4f10ad19dedba5c417fa6716e934a310b891/docs/game-client-evidence.md#producer-context-and-admission-qualification)
+retains individual build/browser hashes and the detailed test matrix.
 
-| Focused boundary | Actual result |
-| --- | --- |
-| Complete frozen source/compiler | 255 tests; all 30 active catalogs compiler-regenerated, 1,412 rows; removing only source labels reproduces prior mechanical IR |
-| Native permitted context | 11 action tests including paid first-turn commander sequences in both hosted profiles; 9 choices, 6 optional, 6 effects and 34 query regression tests |
-| Admission/privacy/recovery | Search admission 1 separately; host admission 2, hosted profiles 1, seat recovery 1, delivery 4; actual retained CLI admits both exact default profiles and rejects wrong builds |
-| Native delivery | Workspace all-target type check and real debug server/provisioner build passed; 882 source rows unchanged before/after, both actual build identities independently rederived |
-| Generated SDK | Exact final exports, strict declarations/browser build and 66 tests passed; historical observations remain valid without optional context |
+Passed: compiler 255, contexts 32 (including paid commander turns in both profiles),
+query 34, separate search-admission 1, host 8 and SDK 66. All 30 catalogs/1,412 rows
+reproduce prior mechanics after removing source labels; admission did not expand.
+Workspace all-target checks passed. Both actual native IDs independently rederive
+from 882 unchanged source rows; manifest SHA-256:
+`c19f36a3f8f9c87f298d88d31fb4aa72c7920073ec4832bfe619cd2304843bd8`.
+Protocol SHA-256 was `2eb874b2fa9e306b57d7da05d2e9a26b6965f2a639711d6705981e790d906ba5`.
 
-Source manifest SHA-256: `c19f36a3f8f9c87f298d88d31fb4aa72c7920073ec4832bfe619cd2304843bd8`.
-Engine build: `719552cf7e12c01bdd608f8ccdf0ce65f25b968a6c8c36eb2322d657888f38dc`.
-Server build: `8fb3296863d538d39b51e0cb76da8c86557c6a79cff32cfd4b52d7940919fb15`.
-Protocol schema: `2eb874b2fa9e306b57d7da05d2e9a26b6965f2a639711d6705981e790d906ba5`.
-SDK browser: `7c28e57929a198d77973af9f97d59b57a1cd415b3f99ecf57a776eed3c8c6df1`.
-Binary/bootstrap/config hashes remain in `native/final-binaries.json`.
-
-The spending suite has **6 pass / 1 fail**:
-`targeted_player_leaving_at_accepted_spending_reverses_the_incomplete_cast`
-expects an empty stack after target departure; the stack remains. Expectations
-and frozen rule code were preserved. Cruel Edict is in both hosted pools; the
-specific concurrent host path was not requalified here. The parent's rules/source
-review classifies this as a stale regression expectation: retained CR 601.6 and
-[deliberate target preservation](https://github.com/joCaldwell/mtg-ecosystem/commit/66aef19943ede8ce6229057789a1adf57f429f21)
-keep a legal proposal when illegality arises during payment. A separate test-only
-followup repairs that expectation; the frozen receipt remains failed. Production
-Clippy also fails on the unchanged grouped-damage `collapsible_if` block. Neither
-receipt is rewritten or counted as passing by metadata qualification. Raw failures, empty selectors,
-cache-freshness repair receipts and rejected injected-board snapshot evidence are
-preserved. Injected prevention setup proves source/privacy/query-work context;
-accepted-input paid-turn and optional witnesses separately prove snapshot/replay.
-
-Full runtime matrices, completed hosted games, browser first-turn/full-play/CSP,
-performance and full offline retention were omitted. Later combined source needs
-fresh schema/SDK, compiler metadata regeneration and native qualification before
-claiming latest-HEAD support or expanded hosting/search.
+Spending retained **6 pass/1 stale-expectation failure**: target departure during
+payment preserved the legal cast. Pinned CR 601.6 and deliberate `66aef199` support
+that behavior; later test-only repairs do not rewrite this failed receipt.
+Grouped-damage Clippy, empty-selector, cache-freshness and injected-board snapshot
+failures remain preserved. Injected prevention proves source/privacy/query context,
+not an admitted host path. Browser/full-game/performance/retention were omitted.
+Later combined-source and current consumer pins qualify their own producers;
+historical captures and this frozen proof remain unchanged.
 
 ## Opening and recovery evidence
 
@@ -92,40 +71,26 @@ full games, query menus, expanded admission, Safari or human-usability acceptanc
 
 ## Product native lifecycle (observation 16)
 
-Native/product source checkpoint `981f585a` combines metadata source `565a1204`
-with the actual lifecycle bridge, private consumers, scoped Actor proxy and lazy
-human game route. Proof is retained at
-`~/.local/share/mtg-ecosystem/engine-evidence/native-game-lifecycle-observation16-981f585a-20261114/`.
-`native/` preserves the exact executable, protocol/bootstrap/config schemas,
-private disposable registries/Actor databases, source manifests and raw receipts;
-`source/` and `sdk/` retain reconstruction inputs without dependencies.
-`qualification.json` indexes their exact boundaries.
+Checkpoint `981f585a` combined frozen metadata565 with the private lifecycle,
+three consumers, Actor proxy and lazy route. Permanent proof:
+`~/.local/share/mtg-ecosystem/engine-evidence/native-game-lifecycle-observation16-981f585a-20261114/qualification.json`.
+Its `native/`, `source/` and `sdk/` retain exact reconstruction inputs, schemas,
+independently rederived build IDs, registries, Actor databases and receipts. The
+[immutable original record](https://github.com/joCaldwell/mtg-ecosystem/blob/29f257976bd2cf7a05b9dc9bddcdb29d0410d2e7/docs/game-client-evidence.md#product-native-lifecycle-observation-16)
+retains full identities and per-case counts.
 
-Engine build is `719552cf7e12c01bdd608f8ccdf0ce65f25b968a6c8c36eb2322d657888f38dc`;
-server build is `6d7813dc1e4b21e41f66afe9f9377486d417d710441103df97bbfd43ccb69adc`.
-Both were independently rederived from source/toolchain/configuration; schema
-SHA-256 remains `2eb874b2fa9e306b57d7da05d2e9a26b6965f2a639711d6705981e790d906ba5`.
-Focused lifecycle/process/store checks passed 2/3/10 tests; SDK verification passed
-66. The lifecycle suite passed five tests, including three real-native cases and
-two storage/origin guards: immutable same-match recovery and uncertain
-ensure fencing, three distinct capabilities/private consumers and joined leases,
-stable human waits, actual Actor-DB human bootstrap/proxy exact replay, and parent
-SIGKILL stop/recovery. A further real proxy check rejects raw dot/encoded aliases.
-Driver umask was 0077; fresh native children used 0022 to prove 0700/0600 explicitly.
+Lifecycle/process/store passed 2/3/10; SDK 66. Five Node cases included three actual
+native cases: immutable/uncertain recovery, distinct private consumers/leases,
+stable human waits, Actor-owned exact human replay and parent SIGKILL recovery.
+A further real proxy check rejected raw path aliases. Children used 0022 to prove
+0700/0600 independently of the 0077 driver. Original 0644 SQLite producer/source
+and failure remain under `before-store-permissions/` and `integration-1.log`;
+original spending exit 101 remains `spending-baseline.log`.
 
-The first real run's 0644 SQLite failure, its original binary and independently
-reconstructed source remain under `before-store-permissions/` and
-`integration-1.log`. The independent original spending selector still failed at
-`spending_tests.rs:347`; its exit-101 receipt is `spending-baseline.log`. No rules
-or expected outcome was changed in this lane. Production Clippy, a full native
-matrix and release retention were omitted. Product types/tests/build/bundle and
-route boundaries passed separately; they do not qualify the new route in browsers.
-
-This is finite foundations pass/draw lifecycle proof on observation 16, with
-explicit pause on unsupported decisions. It grants no complete-profile game,
-search-policy, attachments-automation, remote-hosting or observation-20 acceptance.
-Default browser qualification remains false. Current-main integration requires
-fresh native/schema/SDK and actual product session proof.
+This proves finite foundations lifecycle, with explicit unsupported-decision pause,
+not browser usability, attachments automation or complete-profile play. New
+source/durability changes, schemas and consumers require separate qualification;
+production Clippy, full matrix, remote hosting and release retention were omitted.
 
 ## Product/shared display evidence (PR24)
 
