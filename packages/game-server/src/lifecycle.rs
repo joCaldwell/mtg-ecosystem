@@ -52,6 +52,14 @@ fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 fn private_dir(path: &Path) -> Result<(), String> {
+    private_dir_with_sync(path, |directory| {
+        File::open(directory).and_then(|file| file.sync_all())
+    })
+}
+fn private_dir_with_sync(
+    path: &Path,
+    mut sync_directory: impl FnMut(&Path) -> std::io::Result<()>,
+) -> Result<(), String> {
     // Existing path ancestors may be public; the lifecycle root itself and all
     // descendants must be private. No symlinks in any existing component.
     let mut prefix = PathBuf::new();
@@ -81,6 +89,10 @@ fn private_dir(path: &Path) -> Result<(), String> {
     {
         return Err("lifecycle directory must be 0700".into());
     }
+    // Sync even an existing path: a retry can follow a failed creation/fsync.
+    // Syncing only files inside the child does not persist its parent link.
+    sync_directory(path).map_err(err)?;
+    sync_directory(path.parent().ok_or("missing lifecycle parent")?).map_err(err)?;
     Ok(())
 }
 fn read<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
@@ -588,6 +600,46 @@ pub fn profile_info(name: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn lifecycle_directory_syncs_child_and_parent_and_propagates_failures() {
+        for failure_at in [None, Some(0), Some(1)] {
+            let mut bytes = [0; 16];
+            getrandom::fill(&mut bytes).unwrap();
+            let parent = std::env::temp_dir();
+            let path = parent.join(format!(
+                "mtg-lifecycle-directory-sync-{}",
+                bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
+            ));
+            let expected = vec![path.clone(), parent];
+            let mut synced = Vec::new();
+            let result = private_dir_with_sync(&path, |directory| {
+                let index = synced.len();
+                synced.push(directory.to_path_buf());
+                if failure_at == Some(index) {
+                    Err(std::io::Error::other("directory sync failed"))
+                } else {
+                    File::open(directory).and_then(|file| file.sync_all())
+                }
+            });
+            if let Some(index) = failure_at {
+                assert_eq!(result.unwrap_err(), "directory sync failed");
+                assert_eq!(synced, expected[..=index]);
+            } else {
+                result.unwrap();
+                assert_eq!(synced, expected);
+            }
+            // An existing directory may be left by an uncertain/failed call.
+            // Recovery must repeat both syncs before accepting that path.
+            let mut retried = Vec::new();
+            private_dir_with_sync(&path, |directory| {
+                retried.push(directory.to_path_buf());
+                File::open(directory).and_then(|file| file.sync_all())
+            })
+            .unwrap();
+            assert_eq!(retried, expected);
+            private_dir(&path).unwrap();
+        }
+    }
     fn binding() -> Binding {
         let p = match_profile("commander-foundations-v1").unwrap();
         Binding {
