@@ -1,4 +1,4 @@
-//! Layer 2 for complete, independent creature-control Auras. Pinned CR 109.5,
+//! Layer 2 for complete, independent permanent-control Auras. Pinned CR 109.5,
 //! 110.2, 302.6, 506.4, 613.1b/7a/7e and 800.4a-c.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
@@ -50,7 +50,7 @@ impl Game {
             if !definition
                 .static_abilities
                 .iter()
-                .any(|ability| ability.effect == StaticEffect::ControlEnchantedCreature)
+                .any(|ability| ability.effect == StaticEffect::ControlEnchantedPermanent)
             {
                 continue;
             }
@@ -62,7 +62,11 @@ impl Game {
             };
             // A stale pre-SBA attachment is reachable, but supplies no grant.
             // Never follow a physical card to its successor incarnation.
-            if !self.is_battlefield_creature(target) {
+            if !self
+                .current(target)
+                .is_ok_and(|o| o.zone == Zone::Battlefield)
+                || !self.attachment_target_type_valid(source.id.card, target.card)?
+            {
                 continue;
             }
             let timestamp = source
@@ -91,7 +95,8 @@ impl Game {
         for (object, (_, controller)) in candidates {
             controllers.insert(object, controller);
         }
-        // Actual admitted Aura sources are independent noncreatures. A private
+        // Actual admitted Aura sources are pure Enchantment Auras. None can
+        // match the Creature/Artifact/Land domains of another admitted Aura. A private
         // synthetic static grant whose source itself needs control-related
         // exile would require another dependency pass, not ID-ordered cleanup.
         // Reject that unimplemented composition rather than cache a stale grant.
