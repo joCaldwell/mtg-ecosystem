@@ -187,13 +187,19 @@ No consumer acceptance transfers.
 
 ### Ramos first-cast history combined qualification
 
-Rules source `836a63a9`, schema source `dbc644a5`, combined main `d842ef59`:
-**586 distinct Rust,3,531 schema probes,969 source rows**. Opt2 `d89d3290` and CLIopt0
-`8d39663f` identities were independently reproduced. Private28/public-context-work22,IR1.
-The single review's retained-continuation charge defect is fixed; paid source-control,
-reentry, departure, countered-cast, real reset/opponent-turn and recovery witnesses pass.
-A separate schema-only object-type guard repairs legacy-unit static rejection;
-unchanged-rules and test-only bridges retain original producers. All-target/fmt/smoke/
-replay passed. `generated/ramos/m4d-integrated/integration.json` indexes binaries,
-reviews, failures, schema, manifests and timings. Full runtime/release/Clippy/Node/
-consumer matrices and exact-target admission remain omitted.
+Rules `836a63a9`/schema `dbc644a5`, combined main `d842ef59`:586 distinct Rust,
+3,531 probes,969 rows;28/22. Opt2 `d89d3290`, CLIopt0 `8d39663f`; proofs, repairs, bridges and failures: `generated/ramos/m4d-integrated/integration.json`
+and [immutable detail](https://github.com/joCaldwell/mtg-ecosystem/blob/009ce1784223eeb5aaf5bd51403623b755f7989a/docs/game-engine-evidence.md#ramos-first-cast-history-combined-qualification).
+
+### Ramos counted-cost combined qualification
+
+Source `802aab64`, combined main `a39dc880`:**665 distinct Rust/684 executions,
+4,696 schema probes,978 rows**;30/23,IR1. Libraries retain `0a050bcc` across two
+test-literal corrections. Opt2 `35b47dac`, CLIopt0 `98bca014` are independently reproduced. Both review defects and ordinary-block integration
+are repaired. All-target/fmt, paid
+cost/cascade/history/search/target/query/recovery, scoped Clippy and smoke/replay pass.
+Clippy exceptions cover byte-proven inherited core enum-size/redundant-result and
+contracts collapsible-if warnings. `generated/ramos/m4e-integrated/integration.json`
+indexes artifacts and failures. Current85-source audit:
+24 lowered/validated,61 Unsupported,zero Invalid; historical M0 stays unchanged.
+Full runtime/release/Node/consumer matrices and exact-deck admission remain open.

@@ -55,7 +55,12 @@ rules or policies. Keep the standalone deck-builder independent.
   per-seat successful-cast history. Review's continuation-accounting defect and
   schema's legacy-unit predicate are fixed; paid lifecycle/recovery witnesses pass.
 
-Coordinator receipts: `generated/ramos/{m3b-integrated,m3c-integrated,m4a-integrated,m4c-integrated,m4d-integrated}/integration.json`.
+- **M4e:** `802aab64` combines main `a39dc880`:665 distinct Rust,4,696 schema,
+  978 rows;30/23. Complete Ethersworn uses parameterized counted reductions and
+  once-locked casting totals. Both review findings and ordinary-source integration
+  regression are repaired; admission remains separate.
+
+Coordinator receipts: `generated/ramos/{m3b-integrated,m3c-integrated,m4a-integrated,m4c-integrated,m4d-integrated,m4e-integrated}/integration.json`.
 They retain exact copied producers, independent build proofs, test-only bridges,
 reviews, failures and timings; historical acceptance never transfers. Original Apex
 833-second seeded evidence is preserved, not repeated. Full contract research stays
@@ -70,6 +75,7 @@ Complete typed multicolor lands, shock/conditional/tapped entry, fetch life/tap/
 sacrifice costs, typed nonbasic searches, mana choices/opponent production and hand
 cycling. Cover Farseek, Nature's Lore, Skyshroud Claim and all triome modes; Forest
 need not mean basic. Preserve reveal, optional quantities and destination entry rules.
+Typed-search source `da5ba48d` is unqualified; review findings and native gates remain.
 
 ### M3 Build casting during resolution and basic cascade
 
@@ -82,11 +88,9 @@ The focused exit above does not cover every possible casting source or cost.
 
 ### M4 Complete the cascade package and casting history
 
-Apex/Wanderer/Imoti/Nexus/Sorcerer are qualified above. Ethersworn's counted artifact
-affinity has a bounded source checkpoint
-(private30/public22,IR1); parent qualification remains separate. Next:
+Apex/Wanderer/Imoti/Nexus/Sorcerer/Ethersworn are qualified above. Next:
 Enigma's exact battlefield-to-own-graveyard successor and third-from-top library
-movement/knowledge; Yidris grants and remaining turn/zone scopes. Add Averna's action, Call Forth's other-spell mana
+movement/knowledge; Yidris needs complete AST/binding before grants. Remaining turn/zone scopes follow. Add Averna's action, Call Forth's other-spell mana
 values and Vega's non-hand-cast draw. Preflight effective trigger batches and checked
 IDs from common physical bounds; no card/profile ceilings, truncation or partial
 publication. Copies require a revised capacity proof.

@@ -33,12 +33,12 @@ A combined fixed stat/keyword grant is one instruction/effect with one recipient
 capture; later control or incarnation changes do not select new recipients.
 Permanent-wide grants reject stat modifiers. Profiles and consumers remain
 separately admitted.
-Ramos rules `836a63a9` and schema `dbc644a5` combine main `d842ef59`, direct/granted
-cascade, semantic first-cast history, optional costs, counters and General Aura
-control. Qualified586 distinct Rust/3,531 schema/969 rows use private/public-context-work
-28/22,IR1. Counted affinity has a private30/public22 candidate; ordered graveyard
-successors, remaining grants and exact-target/
-profile/host/SDK/search admission remain open; historical client26/21 stays separate.
+Ramos source `802aab64` combines main `a39dc880`, counted affinity and once-locked
+casting totals with prior cascade/history/counter/control families. Qualified665
+distinct Rust/4,696 schema/978 rows use private30/public-context-work23,IR1;
+unchanged-library bridges retain original producers. The current85-source audit is
+24 lowered/validated,61 Unsupported,zero Invalid. Exact-target/profile/host/SDK/search
+admission remains open; historical client acceptance stays separate.
 
 Continuous Aura control shares one operation for creatures, artifacts, lands and
 general permanents. Control-source dependencies use scratch, apply-once ordering;
@@ -60,7 +60,7 @@ The platform baseline was `c62777b`; acceptance never transfers to later source:
 | D2c-d `394301d` | Accepted declared-attack triggers at historical IR24, including reviewed demo/Bundle lifetimes |
 | Later D2c-e/IR25 and finite trigger/keyword/interaction additions | Candidate/focused source qualification; no renewed combined acceptance or P7 performance claim |
 | Schema-1 reset | Regenerated 29 active pools, 1,357 definitions unchanged; focused checks only |
-| Ramos combined M4d | Rules `836a63a9`/schema `dbc644a5`; producer/settings and explicit bridges in the evidence guide; focused qualification only |
+| Ramos combined M4e | Source `802aab64`;665 distinct Rust/4,696 probes/978 rows;30/23; exact producers/bridges in evidence; focused qualification only |
 | Independent typed Aura main | Source `f3326dcd`; 605 distinct Rust, 3,021 schema, 841 rows; 26/21; separate from Imoti and consumer acceptance |
 | Controlled-permanent scalar keywords | Rules `7315ffe2`, schema `44930622`; 626 distinct Rust/633 executions, 4,316 probes, 848 rows; explicit bridges; IR1/29/23; consumers unqualified |
 | General Aura-control dependencies | Source `aa28e9b7a39d601a8a9a8bb4fbde9484fe20fc1f`; 843 rows; 550 distinct Rust tests, 3,190 probes; explicit private-test source bridge, IR1/26/21; consumers unqualified |
