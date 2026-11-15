@@ -33,6 +33,11 @@ fn prepared(rows: &[Row]) -> Prepared {
 // Float the exact colored cost with real public mana activations, then reuse
 // the ordinary target/payment helper. No stack entry or receipt is synthesized.
 fn announce_paid(g: &mut Game, q: u64, id: u32, targets: Vec<TargetEntity>) {
+    // Resolution returns priority to the active player, who need not be the
+    // previous instant's caster. Pass real priority back to this hand's owner
+    // before selecting that player's mana sources for the next proposal.
+    let caster = g.state.rules.cards[&CardId(id)].owner;
+    until_player(g, q, caster);
     let colors = g
         .definition(CardId(id))
         .unwrap()
@@ -547,6 +552,9 @@ fn general_aura_control_paid_hexproof_current_controller_and_private_stale_queri
         ("Disperse", 1, 1, true),
         ("Disperse", 1, 1, true),
         ("Disperse", 0, 0, true),
+        // An unprotected nonland keeps the opposing Cast proposal legal, so
+        // the target response can specifically reject the protected Aura.
+        ("Bonesplitter", 0, 0, false),
     ];
     lands(&mut rows, "Island", 0, 4);
     lands(&mut rows, "Island", 1, 14);
@@ -570,7 +578,8 @@ fn general_aura_control_paid_hexproof_current_controller_and_private_stale_queri
         until_player(&mut opposing, q, PlayerId(0));
         answer(&mut opposing, q, Response::Cast { card: CardId(6) });
         let r = request(&mut opposing, q);
-        assert!(matches!(&r, Request::Targets { candidates, .. } if !candidates.contains(&aura)));
+        assert!(matches!(&r, Request::Targets { candidates, .. }
+            if !candidates.contains(&aura) && candidates.contains(&object(&opposing, 7))));
         let before_opposing = opposing.state.clone();
         let trace_opposing = opposing.trace.clone();
         assert!(
