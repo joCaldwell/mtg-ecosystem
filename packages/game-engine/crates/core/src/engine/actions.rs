@@ -646,7 +646,8 @@ impl Game {
             | Instruction::DestroyAllCreatures { .. }
             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
             | Instruction::SearchBasicLands { .. }
-            | Instruction::SearchBasicLandsSplit { .. }) => {
+            | Instruction::SearchBasicLandsSplit { .. }
+            | Instruction::SearchTypedLands { .. }) => {
                 self.execute_staples_instruction(frame, op)
             }
             op @ (Instruction::CreateCreatureTokens { .. }

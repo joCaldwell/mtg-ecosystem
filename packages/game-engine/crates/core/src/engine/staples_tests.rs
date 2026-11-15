@@ -1171,7 +1171,8 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | Instruction::DamageTargetController { .. }
                     | Instruction::AttachEquipment { .. }
                     | Instruction::ReturnAuraFromGraveyard { .. }
-                    | Instruction::SearchBasicLandsSplit { .. } => {
+                    | Instruction::SearchBasicLandsSplit { .. }
+                    | Instruction::SearchTypedLands { .. } => {
                         panic!("attachment outside historical staples proof")
                     }
                     Instruction::CreateCreatureTokens { .. }
@@ -1411,3 +1412,6 @@ mod ramos_m1_tests;
 
 #[path = "counter_placement_tests.rs"]
 mod counter_placement_tests;
+
+#[path = "typed_land_search_tests.rs"]
+mod typed_land_search_tests;

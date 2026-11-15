@@ -238,15 +238,22 @@ Complete Shrapnel Blast lowers one-artifact additional sacrifice through that
 same family. Forced opponent sacrifices choose in APNAP order with earlier choices
 visible, then move simultaneously. A player with no candidate sacrifices nothing.
 
-Board-wide sets are evaluated at instruction execution, including granted
-keywords. Set destruction/exile/bounce and all-recipient damage commit atomically.
-Temporary set P/T effects capture members on creation; later entrants are excluded.
-Counted quantities use the instruction's actual typed outcomes, not a later board
-scan. Destruction counts exclude prevented destruction but include successful
-movement replaced by exile. An Anger-style turn-long replacement applies only to
-creatures actually dealt its damage; later sacrifice/zero-toughness deaths may be
-exiled and do not die. Indestructible prevents destruction before that replacement.
-No creature dies trigger is inferred from generic departure.
+Board-wide sets include granted keywords at execution; destruction/exile/bounce
+and all-recipient damage commit atomically. Temporary P/T sets capture recipients,
+excluding later entrants. Counts use typed outcomes, including exile-replaced
+but excluding prevented destruction. Anger-style turn-long replacement covers
+only creatures actually dealt its damage, including later sacrifices/zero-toughness
+moves: exile causes no death. Indestructible prevents destruction before replacement;
+generic departures never imply dies triggers.
+
+`TypedLandSearchV1` consumes complete own-library → battlefield → shuffle spells:
+Nature's Lore, Farseek, Skyshroud Claim. Land subtype OR ignores Basic supertype;
+positive exact maxima use only common physical capacity for offered counts.
+Zero is legal (CR 701.23b); found cards enter simultaneously without reveal;
+forced tapping preserves intrinsic entry. Extra filters/clauses/costs/composition
+reject. Basic/split IR stays separate. Typed nonbasics remain invalid: synthetic
+Characteristic probes supply no paid witness; Command Tower is negative.
+Shock/conditional entry, cycling and consumer admission remain open.
 
 ## Keywords, attachments and temporary effects
 

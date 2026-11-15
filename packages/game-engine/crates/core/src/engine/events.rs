@@ -1736,6 +1736,7 @@ impl Game {
                 })?
             }
             ProposedEvent::SearchLandEntry { object, player } => {
+                let force_tapped = self.searched_land_force_tapped(*player)?;
                 if !self.search_lands(*player).contains(object) {
                     return Err("invalid searched land entry".into());
                 }
@@ -1750,7 +1751,8 @@ impl Game {
                     .get_mut(&object.card)
                     .ok_or("missing searched land")?;
                 o.controller = *player;
-                o.tapped = true;
+                // Ordinary entry preserves intrinsic EntersTapped from Move.
+                if force_tapped { o.tapped = true; }
                 moved
             }
             ProposedEvent::ShuffleLibraryWord { player, index } => {

@@ -16,6 +16,7 @@ mod self_reference;
 mod spell_cascade_grants;
 use optional_costs::KickedCondition;
 mod type_line;
+mod typed_land_search;
 pub use catalog::*;
 use normalization::source_lines;
 
@@ -2336,6 +2337,10 @@ fn append_spell_effects(
             && !matches!(sentence.steps.as_slice(),[Step::Damage {amount,..}] if *amount==serde_json::json!({"amount":"x"}))
         {
             return Err(unsupported("bindings", "unconsumed count binding"));
+        }
+        if let Some(instruction) = typed_land_search::lower(&sentence.steps, source_block)? {
+            program.instructions.push(instruction);
+            continue;
         }
         // CR 701.20a-b, 701.23b, 701.24a/e (pinned 2026-09-25): consume
         // the entire reveal/identity partition, never squeeze it into all-entry search.
