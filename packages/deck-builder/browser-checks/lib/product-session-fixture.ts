@@ -29,6 +29,7 @@ interface Pins {
   protocol_schema_sha256: string; bootstrap_schema_sha256: string;
   native_source_manifest_sha256: string;
   sdk_build_manifest_sha256?: string; sdk_verification_sha256?: string;
+  sdk_evidence_root?: string; sdk_source_bridge_sha256?: string;
 }
 function confined(root: string, path: string) {
   const result = resolve(root, path);
@@ -66,9 +67,31 @@ export function verifyInputs(inputs: Inputs): Pins {
   const generation = JSON.parse(readFileSync(confined(inputs.sdkRoot, "generated/generation.json"), "utf8"));
   check(generation.bootstrap_schema_sha256 === pins.bootstrap_schema_sha256, "sdk_bootstrap_pin");
   const verification = JSON.parse(readFileSync(confined(inputs.sdkRoot, "generated/verification.json"), "utf8"));
+  let sdkBuildPin = pins.sdk_build_manifest_sha256, sdkVerificationPin = pins.sdk_verification_sha256;
   if (pins.sdk_source !== pins.native_source) {
-    check(fileHash(confined(inputs.sdkRoot, "dist/build.json")) === pins.sdk_build_manifest_sha256
-      && fileHash(confined(inputs.sdkRoot, "generated/verification.json")) === pins.sdk_verification_sha256, "followup_sdk_receipt_pin");
+    check(pins.sdk_evidence_root && pins.sdk_source_bridge_sha256, "followup_sdk_bridge_required");
+    const bridgePath = confined(pins.sdk_evidence_root, "sdk-source-bridge.json");
+    check(fileHash(bridgePath) === pins.sdk_source_bridge_sha256, "followup_sdk_bridge_pin");
+    const bridge = JSON.parse(readFileSync(bridgePath, "utf8"));
+    check(bridge.native_source === pins.native_source && bridge.head === pins.sdk_source
+      && bridge.native_binary_sha256 === copies.binaries["mtg-server"], "followup_native_binding");
+    const changedPaths = ["packages/game-server/sdk/README.md", "packages/game-server/sdk/package.json", "packages/game-server/sdk/scripts/build-browser.mjs"];
+    check(bridge.changed_original_rows.length === 3 && changedPaths.every(path => bridge.changed_original_rows.filter((row: { path: string }) => row.path === path).length === 1), "only_documented_sdk_changes");
+    const original = JSON.parse(readFileSync(native("source-files.json"), "utf8")) as { path: string; sha256: string }[];
+    check(original.length === 898 && bridge.unchanged_original_rows === 895 && verification.source_files.length === 50, "source_closure_counts");
+    // These are the retained COMPILED native inputs, not a claim that this
+    // browser-only checkout's unused Rust source was rebuilt or requalified.
+    const frozenSource = resolve(inputs.nativeRoot, "../source");
+    for (const row of original) {
+      check(fileHash(confined(frozenSource, row.path)) === row.sha256, "frozen_native_source_changed");
+      if (!row.path.startsWith("packages/game-server/sdk/")) continue;
+      const changed = bridge.changed_original_rows.find((entry: { path: string }) => entry.path === row.path);
+      if (changed) check(changed.original_sha256 === row.sha256, "documented_sdk_original");
+      check(fileHash(sdkFile(inputs.sdkRoot, row.path.slice("packages/game-server/sdk/".length))) === (changed?.current_sha256 ?? row.sha256), "undocumented_sdk_diff");
+    }
+    sdkBuildPin = bridge.sdk_build_sha256; sdkVerificationPin = bridge.sdk_verification_sha256;
+    check(fileHash(confined(inputs.sdkRoot, "dist/build.json")) === sdkBuildPin
+      && fileHash(confined(inputs.sdkRoot, "generated/verification.json")) === sdkVerificationPin, "followup_sdk_receipt_pin");
   }
   check(verification.status === "preliminary-sdk-checks-passed" && verification.generation_manifest_sha256 === build.generation_sha256
     && verification.source_files.some((row: { path: string }) => row.path === "src/policies.ts"), "sdk_qualification_receipt");
@@ -83,8 +106,8 @@ export function verifyInputs(inputs: Inputs): Pins {
   check(fileHash(inputs.records) === inputs.recordsHash, "frozen_records_pin");
   return { native_source: pins.native_source, sdk_source: pins.sdk_source, engine_build_id: pins.engine_build_id,
     server_build_id: pins.server_build_id, protocol_schema_sha256: pins.protocol_schema_sha256, bootstrap_schema_sha256: pins.bootstrap_schema_sha256,
-    native_source_manifest_sha256: pins.native_source_manifest_sha256, sdk_build_manifest_sha256: pins.sdk_build_manifest_sha256,
-    sdk_verification_sha256: pins.sdk_verification_sha256 };
+    native_source_manifest_sha256: pins.native_source_manifest_sha256, sdk_build_manifest_sha256: sdkBuildPin,
+    sdk_verification_sha256: sdkVerificationPin, sdk_source_bridge_sha256: pins.sdk_source_bridge_sha256 };
 }
 export async function freePort() {
   const server = createServer();
@@ -100,9 +123,10 @@ export function privateTree(path: string) {
     if (info.isDirectory()) privateTree(file);
   }
 }
-export async function startHostedFixture(options: { directory: string; dist?: string; inputs?: Inputs }) {
+export async function startHostedFixture(options: { directory: string; dist?: string; inputs?: Inputs; humanThinkTimeMs?: number }) {
   process.umask(0o077);
   mkdirSync(options.directory, { mode: 0o700 });
+  check(options.humanThinkTimeMs === undefined || options.humanThinkTimeMs === 10_000, "fixture_think_time");
   const port = await freePort(), origin = `http://127.0.0.1:${port}`;
   const secret = randomBytes(32).toString("hex");
   Object.assign(process.env, {
@@ -170,7 +194,7 @@ export async function startHostedFixture(options: { directory: string; dist?: st
     host = await createHost({ mode: "hosted", port, databasePath: process.env.DECKBUILDER_DB, dataDirectory: options.directory, backgroundJobs: false,
       webDist: options.dist, isApplicationPath: (await import("../../../multiverse/src/page-paths.ts")).isApplicationPath,
       // The sole explicit test-only browser qualification. Default server stays false.
-      games: native ? { native, browser_session_qualified: true } : undefined });
+      games: native ? { native, browser_session_qualified: true, ...(options.humanThinkTimeMs ? { human_think_time_ms: options.humanThinkTimeMs } : {}) } : undefined });
     await host.start();
     return { origin, owner, foreign, deckId, identity, cards,
       capture: () => {

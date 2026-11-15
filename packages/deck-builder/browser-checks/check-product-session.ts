@@ -64,7 +64,7 @@ interface Ready {
 }
 type RecordedOutcome = { kind: "win"; winner: number } | { kind: "draw" };
 
-async function run(name: "chromium" | "firefox", output: string, dist: string, inputs: Inputs, natural: boolean) {
+async function run(name: "chromium" | "firefox", output: string, dist: string, inputs: Inputs, natural: boolean, pauseCase: boolean) {
   const pins = verifyInputs(inputs);
   const checkerSources = ["check-product-session.ts", "lib/product-session-fixture.ts", "lib/product-session-host.ts", "lib/product-session-safety.ts"].map(path => ({ path, sha256: fileHash(fileURLToPath(new URL(path, import.meta.url))) }));
   const directory = mkdtempSync(join(output, `${name}-`));
@@ -78,7 +78,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     child.once("exit", () => fail(Error("fixture_early_exit")));
     child.once("message", (value: any) => value.ready ? done(value) : fail(Error("fixture_start")));
   }), 170_000, "fixture_start_deadline");
-  child.send({ directory: join(directory, "private"), dist, inputs });
+  child.send({ directory: join(directory, "private"), dist, inputs, ...(pauseCase ? { humanThinkTimeMs: 10_000 } : {}) });
   let browser, context: BrowserContext | undefined, page: Page | undefined, ready: Ready | undefined;
   const audit = new ObserverAudit();
   let failure = "", presentationMissing = 0, presentationVerified = false, namedCards = 0;
@@ -89,6 +89,10 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   let naturalAttempted = false, naturalCompleted = false, naturalPaused = false, naturalBounded = false, naturalUnsupported = false;
   let recordOutcome: RecordedOutcome | null = null;
   let recordCompleted = false, recordPaused = false, uiOutcomeMatches = false, journalUnresolved = false, recordReads = 0;
+  let recordPauseCode = "", resourcePauseVerified = false, commandControlsDisabled = false;
+  let recordState = "", pauseBannerVisible = false, interruptionBannerVisible = false, pauseCauseVisible = false;
+  const recordPauseCounts: Record<string, number> = {};
+  const recordStateCounts: Record<string, number> = {};
   let beginnings: ActionBeginning[] = [], requests = 0, queries = 0;
   let pending: { response: PlayerResponse; revision: string; token: string } | undefined;
   const sent = new Map<string, string>(), accepted = new Set<string>(), consumed = new Set<string>();
@@ -104,9 +108,15 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     check(response.status() === 200, "owner_game_record");
     const { game } = await response.json(); recordReads++;
     check(game.id === gameId && game.identity.engine_build_id === ready!.identity.engine_build_id
-      && game.identity.server_build_id === ready!.identity.server_build_id, "outcome_record_identity");
+      && game.identity.server_build_id === ready!.identity.server_build_id && game.identity.catalog_sha256 === ready!.identity.catalog_sha256
+      && game.identity.profile === ready!.identity.profile, "outcome_record_identity");
+    check(["provisioning", "active", "paused", "completed", "interrupted"].includes(game.state), "typed_record_state");
+    recordState = game.state; add(recordStateCounts, recordState);
     recordCompleted = game.state === "completed";
     recordPaused = ["paused", "interrupted"].includes(game.state);
+    check(game.pause === null || ["consumer_failed", "human_timeout", "native_unavailable", "identity_mismatch", "lifetime_exceeded"].includes(game.pause), "typed_record_pause");
+    recordPauseCode = game.pause ?? "";
+    if (recordPauseCode) add(recordPauseCounts, recordPauseCode);
     check(game.outcome === null || game.outcome?.kind === "draw"
       || (game.outcome?.kind === "win" && [0, 1, 2, 3].includes(game.outcome.winner)), "typed_record_outcome");
     recordOutcome = game.outcome;
@@ -299,6 +309,28 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       const name = ready.cards.find(card => card.oracle_id === object.oracle_id)?.name;
       check(name && await page.getByRole("region", { name: /^Your hand/ }).getByRole("button", { name: `Inspect ${name}`, exact: true }).count() > 0, "named_hand_ui"); namedCards++;
     }
+    if (pauseCase) {
+      check(current().decision?.request === "mulligan" && sent.size === 0, "pause_opening_withheld");
+      await until(async () => { await readRecord(); if (recordPaused && recordPauseCode === "human_timeout") return true; await delay(250); return false; }, "actual_human_timeout", 35_000);
+      await until(async () => {
+        pauseBannerVisible = await page!.getByRole("heading", { name: "Game paused", exact: true }).isVisible();
+        interruptionBannerVisible = await page!.getByRole("heading", { name: "Game interrupted", exact: true }).isVisible();
+        return pauseBannerVisible || interruptionBannerVisible;
+      }, "timeout_banner");
+      pauseCauseVisible = await page.getByRole("status").filter({ hasText: "The game paused after the human decision time limit." }).isVisible();
+      check(pauseBannerVisible, "timeout_banner_contract");
+      check(pauseCauseVisible, "pause_cause_visible");
+      commandControlsDisabled = await page.getByRole("button", { name: "Confirm choice", exact: true }).isDisabled()
+        && await page.getByRole("radio", { name: "Keep hand", exact: true }).isDisabled();
+      check(commandControlsDisabled && sent.size === 0 && recordOutcome === null, "pause_controls_and_no_commands");
+      check(await page.getByRole("heading", { name: "Game complete", exact: true }).count() === 0
+        && await page.getByText(/^Rules outcome:/).count() === 0
+        && await page.getByText("You won.", { exact: true }).count() === 0
+        && await page.getByText("The game ended in a draw.", { exact: true }).count() === 0, "pause_is_not_rules_outcome");
+      await page.getByRole("region", { name: "Command zone", exact: true }).getByRole("button", { name: `Inspect ${commanderName}`, exact: true }).click();
+      check(await page.getByRole("complementary", { name: "Card inspector", exact: true }).isVisible(), "paused_inspection_available");
+      check(await journal(page), "pause_journal_empty"); resourcePauseVerified = true;
+    } else {
     const openingContext = { revision, token: current().decision!.token };
     await page.getByRole("radio", { name: "Keep hand", exact: true }).check();
     await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), { response: "mulligan", take: false }, openingContext);
@@ -365,7 +397,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
         const artifact = await other.request.get(`${ready.origin}${artifactPath}`, { timeout: 5_000 });
         check(artifact.status() === (foreign ? 404 : 401), "artifact_actor_required"); negatives++;
         const otherPage = await other.newPage(); await otherPage.goto(`${ready.origin}/play/games/${gameId}`);
-        await until(() => foreign ? otherPage.getByText(/This game session is unavailable/).isVisible() : otherPage.getByRole("main", { name: "Sign in", exact: true }).isVisible(), "foreign_route_denied");
+        await until(() => foreign ? otherPage.getByText(/This game (session is unavailable|is no longer available from your account)/).isVisible() : otherPage.getByRole("main", { name: "Sign in", exact: true }).isVisible(), "foreign_route_denied");
         check(await otherPage.getByRole("heading", { name: "Connected · Seat 1", exact: true }).count() === 0, "no_foreign_session"); negatives++;
       } finally { await other.close(); }
     }
@@ -418,10 +450,11 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       }
       naturalCompleted ||= Boolean(outcome); naturalBounded = !naturalCompleted && !naturalPaused && !naturalUnsupported && !recordPaused && !["faulted", "cancelled", "rejected"].includes(lifecycle);
     }
+    }
     check(await page.evaluate(() => localStorage.length === 0 && sessionStorage.length === 0 && location.search === "" && location.hash === ""), "no_secret_storage_or_url");
     check(!audit.protocolFailed && audit.pageErrors === 0 && sent.size === journalBeforeSend && sent.size === originalContexts
       && sent.size === completeResponses && sent.size === accepted.size && sent.size === consumed.size, "all_command_proofs");
-    check(["mulligan", "pass", "play_land", "cast", "activate_mana", "finish_mana", "spend_mana"].every(kind => responseKinds[kind]), "first_turn_responses");
+    if (!pauseCase) check(["mulligan", "pass", "play_land", "cast", "activate_mana", "finish_mana", "spend_mana"].every(kind => responseKinds[kind]), "first_turn_responses");
     audit.closing = true;
     await page.getByRole("button", { name: "Release seat and clear view", exact: true }).click();
   } catch (error) {
@@ -435,11 +468,14 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
         const recorded = recordOutcome as RecordedOutcome | null;
         if (recordCompleted && recorded) {
           naturalCompleted = true; naturalBounded = false;
-          const expected = recorded.kind === "draw" ? "Draw" : `Seat ${recorded.winner + 1} wins`;
+          const expected = recorded.kind === "draw" ? ["Draw", "The game ended in a draw."]
+            : [`Seat ${recorded.winner + 1} wins`, recorded.winner === 0 ? "You won." : `Automated seat ${recorded.winner + 1} won.`];
           const end = Date.now() + 20_000;
           while (Date.now() < end && !uiOutcomeMatches) {
-            const matches = page.getByText(expected, { exact: true });
-            for (let i = 0; i < await matches.count(); i++) if (await matches.nth(i).isVisible()) uiOutcomeMatches = true;
+            for (const text of expected) {
+              const matches = page.getByText(text, { exact: true });
+              for (let i = 0; i < await matches.count(); i++) if (await matches.nth(i).isVisible()) uiOutcomeMatches = true;
+            }
             if (!uiOutcomeMatches) await delay(100);
           }
           if (outcome) check((outcome as RulesResult).outcome === recorded.kind
@@ -492,9 +528,12 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       natural_attempted: naturalAttempted, natural_completed: naturalCompleted, natural_resource_paused: naturalPaused, natural_bounded: naturalBounded,
       natural_unsupported: naturalUnsupported, rules_win: (outcome as RulesResult | null)?.outcome === "win", rules_draw: (outcome as RulesResult | null)?.outcome === "draw", cleanup_complete: cleanup, joined_bot_leases: joinedLeases, observer_shutdown_cancellations: audit.expectedCancellations,
       owned_child_exited: ending.exited, owned_child_escalated: ending.escalated, owned_ipc_disconnected: ending.ipcDisconnected };
-    Object.assign(receipt, { game_record_reads: recordReads, game_record_completed: recordCompleted, game_record_paused: recordPaused,
+    Object.assign(receipt, { game_record_reads: recordReads, game_record_completed: recordCompleted, game_record_paused: recordState === "paused", game_record_interrupted: recordState === "interrupted",
       game_record_win: (recordOutcome as RecordedOutcome | null)?.kind === "win", game_record_draw: (recordOutcome as RecordedOutcome | null)?.kind === "draw", visible_outcome_matches: uiOutcomeMatches,
-      native_outcome_observed: Boolean(outcome), journal_unresolved: journalUnresolved });
+      native_outcome_observed: Boolean(outcome), journal_unresolved: journalUnresolved, game_record_pause_counts: recordPauseCounts,
+      coordinator_timeout_case: pauseCase, coordinator_timeout_verified: resourcePauseVerified, command_controls_disabled: commandControlsDisabled,
+      game_record_state_counts: recordStateCounts, timeout_pause_banner_visible: pauseBannerVisible,
+      timeout_interruption_banner_visible: interruptionBannerVisible, timeout_cause_visible: pauseCauseVisible });
     writeFileSync(join(directory, "receipt.json"), JSON.stringify(receipt, null, 2) + "\n", { mode: 0o600, flag: "wx" });
     // Only fixed booleans/counts/public source identities, never raw diagnostics.
     console.log(JSON.stringify(receipt));
@@ -504,9 +543,10 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
 
 async function main() {
   if (process.argv.includes("--help")) {
-    console.log("node check-product-session.ts --native-root DIR --sdk-root DIR --qualification JSON --records ARCHIVE_JSON_OR_JSONL --records-sha256 SHA256 --out NEW_DIR [--browser chromium|firefox|both] [--natural] [--natural-ms 240000]"); return;
+    console.log("node check-product-session.ts --native-root DIR --sdk-root DIR --qualification JSON --records ARCHIVE_JSON_OR_JSONL --records-sha256 SHA256 --out NEW_DIR [--browser chromium|firefox|both] [--natural] [--natural-ms 240000] [--pause]"); return;
   }
   process.umask(0o077);
+  check(!(process.argv.includes("--pause") && process.argv.includes("--natural")), "exclusive_fixture_cases");
   const inputs: Inputs = { nativeRoot: required("native-root"), sdkRoot: required("sdk-root"), qualification: required("qualification"), records: required("records"), recordsHash: option("records-sha256") ?? "" };
   verifyInputs(inputs); // Before building, fixture startup or opening a browser.
   const output = required("out"); mkdirSync(output, { mode: 0o700 });
@@ -519,7 +559,7 @@ async function main() {
   const selected = option("browser") ?? "both"; check(["chromium", "firefox", "both"].includes(selected), "browser_argument");
   let passed = true;
   for (const name of selected === "both" ? ["chromium", "firefox"] as const : [selected as "chromium" | "firefox"])
-    passed = await run(name, output, dist, inputs, process.argv.includes("--natural") && name === "chromium") && passed;
+    passed = await run(name, output, dist, inputs, process.argv.includes("--natural") && name === "chromium", process.argv.includes("--pause")) && passed;
   check(passed, "product_acceptance_failed");
 }
 void main().catch(error => { console.error(error instanceof Error && /^[a-z][a-z0-9_]{0,80}$/.test(error.message) ? error.message : "product_check_failed"); process.exitCode = 1; });

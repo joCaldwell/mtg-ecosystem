@@ -23,7 +23,7 @@ const close = () => closing ??= (async () => {
   process.send?.({ stopped: true, games: games.length, leases: games.length * 3 });
   process.disconnect?.();
 })();
-process.once("message", async (options: { directory: string; dist: string; inputs: Inputs }) => {
+process.once("message", async (options: { directory: string; dist: string; inputs: Inputs; humanThinkTimeMs?: number }) => {
   directory = options.directory; executable = join(options.inputs.nativeRoot, "mtg-server");
   try {
     starting = startHostedFixture(options);
