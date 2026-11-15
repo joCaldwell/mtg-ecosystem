@@ -537,19 +537,48 @@ fn m4c_whole_paid_completion_history_and_id_faults_restore_payment_and_trace() {
                     .checked_sub(g.grant_payload_charge())
                     .unwrap();
                 assert!(grant_growth > 0);
-                let headroom = grant_growth / 2;
-                let extra = capacities::HISTORY_LIMIT
+                // Find the narrow headroom that reaches paid completion in the
+                // actual staged step. Payment events have their own retained
+                // history, so grant bytes alone are not the pre-payment margin.
+                let maximum = capacities::HISTORY_LIMIT
                     .checked_sub(g.history_charge())
-                    .unwrap()
-                    .checked_sub(headroom)
                     .unwrap();
-                g.state.rules.retained_auxiliary_charge = g
-                    .state
-                    .rules
-                    .retained_auxiliary_charge
-                    .checked_add(extra)
-                    .unwrap();
+                let mut low = 0;
+                let mut high = maximum;
+                while low < high {
+                    let middle = low + (high - low) / 2;
+                    let mut probe = g.fork();
+                    probe.state.rules.retained_auxiliary_charge += maximum - middle;
+                    probe.in_rule_step = true;
+                    let result = probe.step();
+                    if let Err(error) = result {
+                        assert!(
+                            matches!(
+                                probe.typed_fault(),
+                                Some(RuleFault::HistoryCapacityExceeded { .. })
+                            ),
+                            "unexpected calibration fault: {error}"
+                        );
+                    }
+                    if probe
+                        .state
+                        .rules
+                        .stack
+                        .iter()
+                        .find(|s| s.id == original)
+                        .unwrap()
+                        .paid
+                        .is_some()
+                    {
+                        high = middle;
+                    } else {
+                        low = middle + 1;
+                    }
+                }
+                let headroom = low;
+                g.state.rules.retained_auxiliary_charge += maximum - headroom;
                 assert_eq!(g.history_charge(), capacities::HISTORY_LIMIT - headroom);
+                println!("M4C_HISTORY_PROBE headroom={headroom} grant_growth={grant_growth}");
                 let mut reached = g.fork();
                 reached.in_rule_step = true;
                 let step = reached.step();
@@ -710,6 +739,27 @@ fn m4c_pending_tagged_grant_views_exact_order_stale_work_and_accepted_replay() {
             .count(),
         1
     );
+    for candidate in &visible {
+        let expected = match candidate.ability {
+            VisibleTriggerAbility::Intrinsic { index } => {
+                let spell = g.state.rules.stack.first().unwrap();
+                g.trigger_source_label(spell.source, EffectiveTriggerAbility::Intrinsic { index })
+            }
+            VisibleTriggerAbility::Granted { ref oracle_id, .. } => {
+                let definition = g
+                    .prepared
+                    .catalog
+                    .definitions
+                    .iter()
+                    .find(|d| &d.oracle_id == oracle_id)
+                    .unwrap();
+                let labels = definition.source_labels.as_ref().unwrap();
+                Some(labels.blocks[labels.statics[0] as usize].as_str())
+            }
+        };
+        assert_eq!(candidate.label.as_deref(), expected);
+        assert!(candidate.label.is_some());
+    }
     let response = PlayerResponse::OrderTriggers {
         order: visible.iter().rev().map(|v| v.handle.clone()).collect(),
     };
@@ -753,8 +803,8 @@ fn m4c_pending_tagged_grant_views_exact_order_stale_work_and_accepted_replay() {
 fn m4c_synthetic_stack_x_and_cost_reduction_use_stack_value_not_payment() {
     for (x, qualifies) in [(0, false), (5, true)] {
         let mut p = root("Apex Devastator", &["Forest"], true);
-        // Explicit synthetic definition: a normal-faced X creature. This is
-        // not a complete-source positive for a printed X card.
+        // Explicit synthetic spell combines the existing supported X damage
+        // program and a single self-cascade. No printed-source claim.
         let c = Arc::make_mut(&mut p.catalog);
         let d = c
             .definitions
@@ -762,7 +812,17 @@ fn m4c_synthetic_stack_x_and_cost_reduction_use_stack_value_not_payment() {
             .find(|d| d.name == "Apex Devastator")
             .unwrap();
         d.x_mana_cost = true;
+        d.characteristics.kind = CardKind::Sorcery;
+        d.characteristics.legendary = false;
+        d.characteristics.subtypes.clear();
+        d.characteristics.power = None;
+        d.characteristics.toughness = None;
         d.characteristics.mana_cost.generic = 0.into();
+        d.characteristics.mana_cost.colored = vec![Color::G, Color::G];
+        d.triggered.truncate(1);
+        d.spell = lowered(include_str!("../../../../tests/fixtures/earthquake.json"))
+            .spell
+            .clone();
         d.capabilities = d.requirements();
         c.validate().unwrap();
         p.catalog_digest = digest(c).unwrap();
@@ -865,6 +925,9 @@ fn m4c_genuine_granted_parent_child_kicker_nested_mana_failure_keep_and_undo() {
         let mut p = root("Apex Devastator", &["Dismantling Blow"], true);
         for name in ["Bloodbraid Elf", "Shardless Agent", "Healing Salve"] {
             replace(&mut p, PlayerId(0), name, Zone::Hand { owner: PlayerId(0) });
+        }
+        for name in std::iter::repeat_n("Forest", 12).chain(["Mountain", "Mountain"]) {
+            replace(&mut p, PlayerId(0), name, Zone::Battlefield);
         }
         for _ in 0..2 {
             replace(&mut p, PlayerId(0), "Golgari Signet", Zone::Battlefield);
