@@ -105,7 +105,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   const queryOwners = new WeakMap<Request, Discovery>();
   let readRateLimits = 0, resumesAtRateLimit = 0, recoveredCommands = 0, naturalEnd = Infinity;
   let readCooldownWaits = 0, readCooldownReady = 0;
-  let invalidatedCompleteMenus = 0;
+  let invalidatedCompleteMenus = 0, lateNoSendInvalidations = 0, actionClickTimeouts = 0;
   let retryAfterPresent = 0, retryAfterMissing = 0, retryAfterUnbounded = 0;
   const retryAfterSeconds: Record<string, number> = {};
   const rateRecovery = { handled: 0, started: 0, ready: 0, freshDiscoveries: 0, retired: 0 };
@@ -289,20 +289,24 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       } catch { audit.protocolFailed = true; await route.abort().catch(() => {}); }
     }));
     const current = (): Observation => { check(observation, "browser_observation"); return observation; };
-    const settle = async (action: () => Promise<unknown>, response: PlayerResponse, original = { revision, token: current().decision!.token }) => {
+    const sendChoice = async (action: () => Promise<unknown>, response: PlayerResponse, original: { revision: string; token: string }, end = naturalEnd) => {
       check(!pending && !audit.protocolFailed, "command_gate");
       add(requestKinds, current().decision!.request);
       pending = { ...original, response }; const before = sent.size;
       try {
         await action();
-        await until(() => !audit.protocolFailed && sent.size === before + 1, "human_post_observed");
-        const id = [...sent.keys()].at(-1)!;
-        await untilRead(async () => accepted.has(id) && consumed.has(id), "native_consumed_by_rules");
-        await until(() => journal(page!), "journal_resolved");
-        // Acceptance, consumption and exact journal resolution were already
-        // proved above. A real read cooldown may delay only the refreshed UI.
-        await untilRead(() => page!.getByRole("region", { name: "Choice status" }).filter({ hasText: "The table used your choice." }).isVisible(), "choice_status");
+        await until(() => !audit.protocolFailed && sent.size === before + 1, "human_post_observed", Math.min(20_000, Math.max(1, end - Date.now())));
+        return [...sent.keys()].at(-1)!;
       } finally { pending = undefined; }
+    };
+    const finishChoice = async (id: string) => {
+      await untilRead(async () => accepted.has(id) && consumed.has(id), "native_consumed_by_rules");
+      await until(() => journal(page!), "journal_resolved");
+      // Only observed consumption and exact journal resolution reach this UI wait.
+      await untilRead(() => page!.getByRole("region", { name: "Choice status" }).filter({ hasText: "The table used your choice." }).isVisible(), "choice_status");
+    };
+    const settle = async (action: () => Promise<unknown>, response: PlayerResponse, original = { revision, token: current().decision!.token }) => {
+      await finishChoice(await sendChoice(action, response, original));
     };
     const choose = async (predicate: (beginning: ActionBeginning) => boolean) => {
       beginnings = []; // No prior selection/menu crosses a UI discovery chain.
@@ -320,7 +324,11 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
         check(!pending && await journal(page!), "rate_recovery_unknown_journal");
         check(!recordPaused && !recordCompleted && !outcome, "rate_recovery_terminal_record");
       };
-      const chosen = await discoverWithRateRecovery({
+      let selectedCommand: string | undefined;
+      const currentContext = async (original: { revision: string; token: string }) => await connected()
+        && revision === original.revision && current().decision?.token === original.token
+        && !readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads);
+      const chosen = await discoverWithRateRecovery<{ revision: string; token: string }, ActionBeginning[]>({
         allowed: naturalAttempted, now: Date.now, end: Math.min(naturalEnd, Date.now() + 90_000), healthy,
         capture: async () => {
           await untilRead(async () => await connected() && await button.getAttribute("aria-disabled") === "false", "discover_enabled");
@@ -356,6 +364,33 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
           }, "rate_recovery_deadline", Math.max(1, end - Date.now()));
           return readRateLimits;
         },
+        use: async (original, values, end) => {
+          if (!await currentContext(original)) { lateNoSendInvalidations++; return false; }
+          const index = values.findIndex(predicate); check(index >= 0, "permitted_beginning");
+          const beginning = values[index]!;
+          check(beginning.initiation.action === "pass" || beginning.label !== "unavailable", "producer_action_label");
+          if (beginning.initiation.action === "finish_mana" && beginning.initiation.undo_mana) {
+            check(beginning.label !== "unavailable" && beginning.label.available.text === "Finish adding mana; reverse reversible mana if payment fails", "conditional_reversal_wording");
+            conditionalReversal = true;
+          }
+          const menu = page!.getByRole("region", { name: "Available actions", exact: true });
+          const action = menu.locator("ol > li > button").nth(index);
+          check(await menu.locator("ol > li > button").count() === values.length, "discovery_current_menu");
+          const before = sent.size;
+          try {
+            // A short actionability deadline avoids waiting on an old disabled
+            // draft across reconnect. No forced click or SDK command is used.
+            selectedCommand = await sendChoice(() => action.click({ timeout: Math.min(1_000, Math.max(1, end - Date.now())) }), initiationResponse(beginning.initiation), original, end);
+            return true;
+          } catch (error) {
+            const timeout = error instanceof Error && error.name === "TimeoutError";
+            if (timeout) actionClickTimeouts++;
+            if (!(timeout || error instanceof Error && error.message === "human_post_observed") || sent.size !== before) throw error;
+            await healthy(); // Includes empty journal; attempted/unknown commands never retry.
+            if (await currentContext(original) && await action.getAttribute("aria-disabled") !== "true") throw error;
+            lateNoSendInvalidations++; return false;
+          }
+        },
         discover: async (original, end) => {
           // The returned command context belongs to this fresh discovery,
           // never to the discarded stale menu.
@@ -377,20 +412,9 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
           return { phase, value: attempt.beginnings, nativeStale: attempt.nativeStale };
         },
       }, rateRecovery);
-      const original = chosen.context; beginnings = chosen.value;
-      check(await connected() && revision === original.revision && current().decision?.token === original.token
-        && !readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads), "discovery_current_context");
-      const index = beginnings.findIndex(predicate); check(index >= 0, "permitted_beginning");
-      const beginning = beginnings[index]!;
-      check(beginning.initiation.action === "pass" || beginning.label !== "unavailable", "producer_action_label");
-      if (beginning.initiation.action === "finish_mana" && beginning.initiation.undo_mana) {
-        check(beginning.label !== "unavailable" && beginning.label.available.text === "Finish adding mana; reverse reversible mana if payment fails", "conditional_reversal_wording");
-        conditionalReversal = true;
-      }
-      const menu = page!.getByRole("region", { name: "Available actions", exact: true });
-      check(await menu.locator("ol > li > button").count() === beginnings.length
-        && await menu.locator("ol > li > button").nth(index).getAttribute("aria-disabled") === "false", "discovery_current_menu");
-      await settle(() => menu.locator("ol > li > button").nth(index).click(), initiationResponse(beginning.initiation), original);
+      beginnings = chosen.value;
+      check(selectedCommand, "human_post_observed");
+      await finishChoice(selectedCommand);
       if (chosen.recovered) recoveredCommands++;
       if (chosen.rediscovered) staleRecoveredCommands++;
     };
@@ -648,7 +672,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       read_cooldown_pending: readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads),
       rate_recovery_fresh_discoveries: rateRecovery.freshDiscoveries, rate_recovery_consumed_commands: recoveredCommands,
       read_cooldown_waits: readCooldownWaits, read_cooldown_ready: readCooldownReady,
-      discovery_completed_menus_invalidated: invalidatedCompleteMenus,
+      discovery_completed_menus_invalidated: invalidatedCompleteMenus, late_no_send_invalidations: lateNoSendInvalidations, action_click_timeouts: actionClickTimeouts,
       discovery_ui_generations: discoveryGenerations, stale_discovery_counts: staleRediscovery,
       stale_rediscovery_consumed_commands: staleRecoveredCommands,
       fixture_stress_raised_limits: stressRaisedLimits, default_ui_budget: !stressRaisedLimits && ready?.uiRateBudget === 240 && ready?.uiRateWindowMs === 60_000,

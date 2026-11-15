@@ -8,6 +8,53 @@ import { ObserverAudit, finishOwnedChild, deadline, discoverWithRateRecovery, wa
 const freshStaleCounts = () => ({ native: 0, local: 0, started: 0, ready: 0, freshGenerations: 0,
   contextChanges: 0, tokenChanges: 0, cursorChanges: 0, maxClicks: 0, exhausted: 0 });
 
+test("late no-send UI invalidation re-discovers; a newly arriving429 is not retired as old evidence", async () => {
+  const counts = freshStaleCounts(); let calls = 0, rates = 0, ready = false;
+  const dispatched: string[] = [];
+  const rate = { handled: 0, retired: 0, started: 0, ready: 0, freshDiscoveries: 0 };
+  const result = await discoverWithRateRecovery({ allowed: true, end: Date.now() + 1_000, now: Date.now,
+    healthy: async () => {}, capture: () => ready ? "new-context" : "old-context", rateCount: () => rates,
+    normalStale: { counts, ready: async () => { throw Error("expected_new_rate_lane"); }, changed: (a, b) => ({ token: a !== b, cursor: a !== b }) },
+    discover: async () => ({ phase: "complete", value: ++calls === 1 ? "old-menu" : "fresh-menu" }),
+    use: async (_context, value) => { if (value === "old-menu") { rates++; return false; } dispatched.push(value); return true; },
+    recovered: async () => { ready = true; return rates; },
+  }, rate);
+  assert.deepEqual(dispatched, ["fresh-menu"]); assert.equal(result.context, "new-context");
+  assert.equal(calls, 2); assert.equal(rate.started, 1); assert.equal(rate.retired, 0); assert.equal(counts.local, 1);
+  let retries = 0;
+  await assert.rejects(discoverWithRateRecovery({ allowed: true, end: Date.now() + 1_000, now: Date.now,
+    healthy: async () => {}, capture: () => "context", rateCount: () => 0, recovered: async () => 0,
+    normalStale: { counts: freshStaleCounts(), ready: async () => { retries++; }, changed: () => ({ token: false, cursor: false }) },
+    discover: async () => ({ phase: "complete", value: "candidate" }), use: async () => { throw Error("unknown_journal"); },
+  }, { handled: 0, started: 0, ready: 0, freshDiscoveries: 0 }), /unknown_journal/);
+  assert.equal(retries, 0);
+});
+
+test("actual browser disabled-click invalidation never dispatches the old candidate", async () => {
+  // Unauthenticated driver fault probe only; no product/native responses or
+  // metadata are substituted. Plain Playwright captures no artifacts.
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage(); let queries = 0; const clicked: string[] = [];
+    const result = await discoverWithRateRecovery({ allowed: true, end: Date.now() + 2_000, now: Date.now,
+      healthy: async () => {}, capture: () => queries, rateCount: () => 0, recovered: async () => 0,
+      normalStale: { counts: freshStaleCounts(), ready: async () => {}, changed: (a, b) => ({ token: a !== b, cursor: false }) },
+      discover: async () => {
+        const candidate = ++queries === 1 ? "old" : "fresh";
+        await page.setContent(`<button ${candidate === "old" ? "disabled" : ""} onclick="this.dataset.clicked='true'">${candidate}</button>`);
+        return { phase: "complete", value: candidate };
+      },
+      use: async (_context, candidate) => {
+        const button = page.getByRole("button", { name: candidate, exact: true });
+        try { await button.click({ timeout: candidate === "old" ? 50 : 1_000 }); }
+        catch (error) { assert.equal((error as Error).name, "TimeoutError"); assert.equal(await button.getAttribute("data-clicked"), null); return false; }
+        assert.equal(await button.getAttribute("data-clicked"), "true"); clicked.push(candidate); return true;
+      },
+    }, { handled: 0, started: 0, ready: 0, freshDiscoveries: 0 });
+    assert.equal(queries, 2); assert.deepEqual(clicked, ["fresh"]); assert.equal(result.value, "fresh");
+  } finally { await browser.close(); }
+});
+
 test("normal native stale uses a fresh ready-context query and never returns the old selection", async () => {
   const counts = freshStaleCounts(); let ready = false, calls = 0;
   const originals: string[] = [];

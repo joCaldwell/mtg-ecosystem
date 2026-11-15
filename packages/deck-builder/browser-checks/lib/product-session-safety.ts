@@ -39,6 +39,9 @@ export async function discoverWithRateRecovery<C, T>(effects: {
   healthy(): Promise<void>; capture(): C | Promise<C>;
   discover(context: C, end: number): Promise<{ phase: string; value: T; nativeStale?: boolean }>;
   usable?(context: C, value: T): Promise<boolean>;
+  /** Optional UI dispatch fence: false proves no command was sent and requires
+   * discarding this menu. Never retry an attempted/unknown command here. */
+  use?(context: C, value: T, end: number): Promise<boolean>;
   rateCount(): number; recovered(end: number): Promise<number>;
   normalStale?: { counts: StaleRediscoveryCounts; ready(end: number): Promise<void>;
     changed(previous: C, current: C): { token: boolean; cursor: boolean } };
@@ -71,17 +74,23 @@ export async function discoverWithRateRecovery<C, T>(effects: {
     if (normal) normal.counts.maxClicks = Math.max(normal.counts.maxClicks, clicks);
     const result = await within(() => effects.discover(context, effects.end));
     await within(effects.healthy);
-    const phase = result.phase === "complete" && effects.usable && !await within(() => effects.usable!(context, result.value)) ? "stale" : result.phase;
+    const rateAtMenuCheck = effects.rateCount();
+    let phase = result.phase === "complete" && effects.usable && !await within(() => effects.usable!(context, result.value)) ? "stale" : result.phase;
+    let nativeStale = result.nativeStale;
     if (phase === "complete") {
       // A coherent usable menu closes the prior rate episode, even if it did
       // not require rediscovery. Never spend old unused 429 evidence on an
       // unrelated stale menu later. Retirement is not a recovery claim.
-      const retired = Math.max(0, effects.rateCount() - counts.handled);
+      // A new429 arriving during/after the menu check belongs to the later UI
+      // dispatch attempt, not this completed menu's retired rate episode.
+      const retired = Math.max(0, rateAtMenuCheck - counts.handled);
       if (retired) { counts.handled += retired; counts.retired = (counts.retired ?? 0) + retired; }
-      return { context, value: result.value, recovered: recoveries > 0,
-        ...(normal ? { rediscovered: normalRecoveries > 0 } : {}) };
+      if (!effects.use || await within(() => effects.use!(context, result.value, effects.end)))
+        return { context, value: result.value, recovered: recoveries > 0,
+          ...(normal ? { rediscovered: normalRecoveries > 0 } : {}) };
+      phase = "stale"; nativeStale = false;
     }
-    if (normal && phase === "stale") normal.counts[result.nativeStale ? "native" : "local"]++;
+    if (normal && phase === "stale") normal.counts[nativeStale ? "native" : "local"]++;
     if (phase !== "stale" || !effects.allowed)
       throw Error(`discovery_${phase || "deadline"}`);
     if (normal && clicks === 3) { normal.counts.exhausted++; throw Error("persistent_discovery_stale"); }
