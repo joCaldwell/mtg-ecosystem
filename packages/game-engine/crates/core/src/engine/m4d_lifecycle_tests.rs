@@ -13,7 +13,23 @@ fn named(g: &Game, name: &str, zone: Zone) -> ObjectId {
         .id
 }
 fn prepared(original: &str, library: &[&str], board: &[&str]) -> Prepared {
-    let mut p = root(original, library, board);
+    let mut p = root("Control Magic", library, board);
+    let catalog = Arc::make_mut(&mut p.catalog);
+    catalog.definitions.push(lowered(include_str!(
+        "../../../../tests/fixtures/9d8fe3f8-5027-4f9e-999e-e277caa96478.json"
+    )));
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.config.cards[1].oracle_id = catalog
+        .definitions
+        .iter()
+        .find(|d| d.name == original)
+        .unwrap()
+        .oracle_id
+        .clone();
+    p.catalog_digest = digest(catalog).unwrap();
     for name in ["Island", "Island", "Mountain"] {
         replace(&mut p, PlayerId(0), name, Zone::Battlefield);
     }
@@ -34,7 +50,7 @@ fn cast_target(g: &mut Game, card: ObjectId, target: ObjectId) -> StackId {
 #[test]
 fn m4d_borrowed_sorcerer_departure_before_or_after_free_child_completion() {
     for when in 0..3 {
-        let mut p = prepared("Control Magic", &["Grizzly Bears"], &[]);
+        let mut p = prepared("Control Magic", &["Dismantling Blow"], &[]);
         replace(
             &mut p,
             PlayerId(1),
@@ -47,6 +63,7 @@ fn m4d_borrowed_sorcerer_departure_before_or_after_free_child_completion() {
             "Bloodbraid Elf",
             Zone::Hand { owner: PlayerId(0) },
         );
+        replace(&mut p, PlayerId(0), "Arcane Signet", Zone::Battlefield);
         p.profile_digest = digest(&p.config).unwrap();
         let mut g = Game::with_trace(p, TraceMode::Off);
         let sorcerer = named(&g, "Wild-Magic Sorcerer", Zone::Battlefield);
@@ -63,6 +80,22 @@ fn m4d_borrowed_sorcerer_departure_before_or_after_free_child_completion() {
         paid(&mut g, "Bloodbraid Elf");
         offer(&mut g);
         answer(&mut g, Response::OptionalEffect { perform: true });
+        let Request::AdditionalCosts { candidates, .. } = request(&mut g) else {
+            panic!()
+        };
+        answer(
+            &mut g,
+            Response::AdditionalCosts {
+                selected: vec![candidates[0].identity.clone()],
+            },
+        );
+        let target = named(&g, "Arcane Signet", Zone::Battlefield);
+        answer(
+            &mut g,
+            Response::Targets {
+                objects: vec![target],
+            },
+        );
         assert!(matches!(request(&mut g), Request::Mana { .. }));
         assert_eq!(
             flags(&g, 0),
@@ -73,7 +106,7 @@ fn m4d_borrowed_sorcerer_departure_before_or_after_free_child_completion() {
             g.concede(PlayerId(1)).unwrap();
             request(&mut g);
         }
-        m3c_tests::finish_announcement(&mut g, false, None, None);
+        m3c_tests::finish_announcement(&mut g, true, Some(target), None);
         let child = g
             .state
             .rules
