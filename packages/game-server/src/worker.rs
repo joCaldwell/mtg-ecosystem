@@ -772,6 +772,16 @@ impl Worker {
         for (index, row) in hashes.into_iter().enumerate() {
             publication_hashes[index] = row?;
         }
+        let state_sha256 = candidate.state_digest()?;
+        let preserve_query_executor = matches!(
+            &action,
+            Action::Clock {
+                control: ClockControl::Tick
+            }
+        ) && matches!(self.host.phase, WorkerPhase::Waiting)
+            && matches!(host.phase, WorkerPhase::Waiting)
+            && candidate.rule_boundary() == self.head.boundary
+            && state_sha256 == self.head.state_sha256;
         let body = WorkerRecord {
             worker_record_version: VERSION,
             elapsed_ns: elapsed,
@@ -782,7 +792,6 @@ impl Worker {
             execution_updates: execution_updates.clone(),
         };
         let record = serde_json::to_value(body).map_err(|e| e.to_string())?;
-        let state_sha256 = candidate.state_digest()?;
         let wrapped = DurableRecord {
             head: Head {
                 sequence: self
@@ -811,8 +820,14 @@ impl Worker {
         };
         match self.store.commit(self.store.generation(), transition) {
             Ok(CommitResult::Committed(head)) => {
-                self.action_queries.clear();
-                self.game = candidate;
+                // Continuations bind the exact Game executor, not just its public
+                // token. A waiting clock-only tick commits host time but keeps
+                // the original Game and scratch together; installing its fork
+                // would stale even an otherwise unchanged continuation.
+                if !preserve_query_executor {
+                    self.action_queries.clear();
+                    self.game = candidate;
+                }
                 self.host = host;
                 self.head = head;
                 self.last_sample = Some(now);
@@ -1700,6 +1715,196 @@ mod tests {
             [canonical(&value).unwrap()],
         )
         .unwrap();
+    }
+    fn query_prefix() -> (Temp, Worker, u8) {
+        let (temp, mut worker) = create();
+        settle(&mut worker);
+        for id in 1..=4 {
+            let (seat, input) = keep(&worker, id);
+            worker.submit(seat, input, now(&worker)).unwrap();
+            settle(&mut worker);
+        }
+        let (seat, offered) = decision(&worker);
+        assert!(matches!(offered, mtg_core::PlayerRequest::Priority { .. }));
+        (temp, worker, seat)
+    }
+    fn start_query(worker: &mut Worker, seat: u8) -> String {
+        let token = decision(worker).1.token().clone();
+        let response = worker.query_actions(
+            seat,
+            crate::protocol::ActionQueryRequest::Start {
+                token,
+                scope: mtg_core::ActionScope::Window,
+                page_size: 1,
+                work: 1,
+            },
+            now(worker),
+        );
+        let crate::protocol::ActionQueryStatus::Incomplete { cursor, .. } = response.outcome else {
+            panic!("expected incomplete query: {response:?}")
+        };
+        cursor
+    }
+    fn continue_query(
+        worker: &mut Worker,
+        seat: u8,
+        cursor: String,
+    ) -> crate::protocol::ActionQueryStatus {
+        worker
+            .query_actions(
+                seat,
+                crate::protocol::ActionQueryRequest::Continue { cursor, work: 1000 },
+                now(worker),
+            )
+            .outcome
+    }
+    #[test]
+    fn clock_tick_preserves_live_query_and_durably_debits_without_rules_change() {
+        let (temp, mut worker, seat) = query_prefix();
+        let snapshot = worker.game.snapshot().unwrap();
+        let journal = worker.game.replay_journal();
+        let head = worker.head.clone();
+        let host = worker.host.clone();
+        assert!(matches!(host.phase, WorkerPhase::Waiting));
+        let views: Vec<_> = (0..4).map(|s| worker.resume(s).unwrap()).collect();
+        let cursor = start_query(&mut worker, seat);
+        assert_eq!(worker.game.snapshot().unwrap(), snapshot);
+        worker
+            .clock(ClockControl::Tick, now(&worker) + Duration::from_secs(1))
+            .unwrap();
+        assert!(matches!(worker.host.phase, WorkerPhase::Waiting));
+        assert_eq!(worker.head.sequence, head.sequence + 1);
+        assert_eq!(worker.head.boundary, head.boundary);
+        assert_eq!(worker.head.state_sha256, head.state_sha256);
+        assert_eq!(worker.game.snapshot().unwrap(), snapshot);
+        assert_eq!(worker.game.replay_journal(), journal);
+        assert_eq!(worker.host.ready, host.ready);
+        assert_eq!(worker.host.viewer_cursors, host.viewer_cursors);
+        for s in 0..4 {
+            assert_eq!(
+                worker.host.remaining_ns[s],
+                host.remaining_ns[s]
+                    - if s == usize::from(seat) {
+                        1_000_000_000
+                    } else {
+                        0
+                    }
+            );
+            assert_eq!(worker.resume(s as u8).unwrap(), views[s]);
+        }
+        let outcome = continue_query(&mut worker, seat, cursor);
+        assert!(
+            matches!(
+                outcome,
+                crate::protocol::ActionQueryStatus::Incomplete { .. }
+                    | crate::protocol::ActionQueryStatus::Complete { .. }
+            ),
+            "continuation after unchanged clock tick: {outcome:?}"
+        );
+        let head = worker.head.clone();
+        let host = worker.host.clone();
+        drop(worker);
+        let recovered = Worker::recover(&temp.pod(), catalog(), "a1", Instant::now()).unwrap();
+        assert_eq!(recovered.head, head);
+        assert_eq!(recovered.host, host);
+        assert_eq!(recovered.game.snapshot().unwrap(), snapshot);
+    }
+    #[test]
+    fn query_scratch_invalidates_on_pause_expiry_and_actual_decision() {
+        for transition in 0..3 {
+            let (_temp, mut worker, seat) = query_prefix();
+            let cursor = start_query(&mut worker, seat);
+            match transition {
+                0 => {
+                    worker.clock(ClockControl::Pause, now(&worker)).unwrap();
+                    worker.clock(ClockControl::Resume, now(&worker)).unwrap();
+                }
+                1 => {
+                    worker
+                        .clock(ClockControl::Tick, now(&worker) + Duration::from_secs(1800))
+                        .unwrap();
+                    assert!(matches!(
+                        worker.host.phase,
+                        WorkerPhase::Paused {
+                            reason: PauseReason::ClockExpired
+                        }
+                    ));
+                    assert!(worker.clock(ClockControl::Resume, now(&worker)).is_err());
+                }
+                _ => {
+                    let input = request(
+                        &worker,
+                        seat,
+                        10,
+                        CommandBody::Decision {
+                            token: decision(&worker).1.token().clone(),
+                            response: PlayerResponse::Pass,
+                        },
+                    );
+                    let before = worker.state_sha256().unwrap();
+                    assert!(matches!(
+                        worker.submit(seat, input, now(&worker)).unwrap(),
+                        SubmissionResult::Accepted { .. }
+                    ));
+                    settle(&mut worker);
+                    assert_ne!(worker.state_sha256().unwrap(), before);
+                }
+            }
+            // Check scratch itself even when the paused executor rejects queries.
+            assert_eq!(
+                worker.action_queries.query(
+                    &worker.game,
+                    seat,
+                    crate::protocol::ActionQueryRequest::Continue {
+                        cursor: cursor.clone(),
+                        work: 1
+                    },
+                    now(&worker)
+                ),
+                crate::protocol::ActionQueryStatus::Stale
+            );
+            if transition == 1 {
+                assert_eq!(
+                    continue_query(&mut worker, seat, cursor),
+                    crate::protocol::ActionQueryStatus::Unavailable {
+                        reason: crate::protocol::ActionQueryUnavailable::Executor
+                    }
+                );
+            }
+        }
+    }
+    #[test]
+    fn query_scratch_is_absent_from_snapshot_ledger_and_recovery() {
+        let (temp, mut worker, seat) = query_prefix();
+        let snapshot = worker.game.snapshot().unwrap();
+        let head = worker.head.clone();
+        let host = worker.host.clone();
+        let cursor = start_query(&mut worker, seat);
+        assert_eq!(worker.game.snapshot().unwrap(), snapshot);
+        assert_eq!(worker.head, head);
+        assert_eq!(worker.host, host);
+        worker
+            .clock(ClockControl::Tick, now(&worker) + Duration::from_secs(1))
+            .unwrap();
+        let records = worker.store.records_after(0, 128).unwrap();
+        assert!(!serde_json::to_string(&records).unwrap().contains(&cursor));
+        let head = worker.head.clone();
+        let host = worker.host.clone();
+        drop(worker);
+        let mut recovered = Worker::recover(&temp.pod(), catalog(), "a1", Instant::now()).unwrap();
+        assert_eq!(recovered.game.snapshot().unwrap(), snapshot);
+        assert_eq!(recovered.head, head);
+        assert_eq!(recovered.host, host);
+        assert_eq!(
+            continue_query(&mut recovered, seat, cursor),
+            crate::protocol::ActionQueryStatus::Stale
+        );
+        let fresh = start_query(&mut recovered, seat);
+        assert!(matches!(
+            continue_query(&mut recovered, seat, fresh),
+            crate::protocol::ActionQueryStatus::Incomplete { .. }
+                | crate::protocol::ActionQueryStatus::Complete { .. }
+        ));
     }
     #[test]
     fn seat_resume_is_committed_pure_private_and_survives_recovery() {
