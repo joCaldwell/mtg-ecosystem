@@ -4,6 +4,22 @@
   "rules_sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca",
   "definitions": [
     {
+      "source_labels": {
+        "text": "This artifact enters tapped.\n{T}: Add {G}.",
+        "blocks": [
+          "This artifact enters tapped.",
+          "{T}: Add {G}."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [
+          1
+        ],
+        "statics": [
+          0
+        ],
+        "spell_modes": []
+      },
       "oracle_id": "02500f21-6e15-423e-93ff-891e09fe9904",
       "name": "Moss Diamond",
       "characteristics": {
@@ -70,6 +86,20 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Flash\nThis creature enters tapped.",
+        "blocks": [
+          "Flash",
+          "This creature enters tapped."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [
+          1
+        ],
+        "spell_modes": []
+      },
       "oracle_id": "0f5401c2-0189-4a07-8e7b-a765ccd7c954",
       "name": "Daring Thunder-Thief",
       "characteristics": {
@@ -132,6 +162,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Winter Soldier enters tapped.",
+        "blocks": [
+          "~ enters tapped."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [
+          0
+        ],
+        "spell_modes": []
+      },
       "oracle_id": "874bbeb2-aa15-41e8-afad-122ab9b555fd",
       "name": "Winter Soldier, Bucky Barnes",
       "characteristics": {
@@ -192,6 +235,18 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Flash\nDeathtouch",
+        "blocks": [
+          "Flash",
+          "Deathtouch"
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "8957f7c2-040c-4048-9f21-efa7c97682b7",
       "name": "Ambush Viper",
       "characteristics": {
@@ -248,6 +303,22 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Timeless Lotus enters tapped.\n{T}: Add {W}{U}{B}{R}{G}.",
+        "blocks": [
+          "~ enters tapped.",
+          "{T}: Add {W}{U}{B}{R}{G}."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [
+          1
+        ],
+        "statics": [
+          0
+        ],
+        "spell_modes": []
+      },
       "oracle_id": "fec77e0a-433e-4d32-9260-e26a37f6ad23",
       "name": "Timeless Lotus",
       "characteristics": {

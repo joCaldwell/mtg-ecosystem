@@ -38,9 +38,18 @@ checks the exact normalized returned deck and native identity, bounds stdout,
 discards stderr and passes only the runtime library path rather than application
 credentials to the child. It has no shell or arbitrary native command surface.
 Native rejection stays distinct from process failure and stale deck revision.
-The existing offline registry CLI cannot supply a recoverable account launch or
-three supervised consumers; its lifecycle adapter remains unqualified, as does
-the browser live session. Start game remains disabled even after admission succeeds.
+To select the actual local lifecycle bridge, additionally configure
+`MULTIVERSE_NATIVE_LIFECYCLE_DIRECTORY` (absolute private 0700 directory) and
+`MULTIVERSE_NATIVE_HUMAN_ORIGIN` (the exact numeric loopback HTTP product origin).
+`mtg-server lifecycle-profile commander-foundations-v1` reports actual native pins
+and its reviewed public pod. Retain that exact executable and private directory.
+The bridge owns one offline registry/server per game, at most two concurrent
+matches, and three separate seat consumers. Native lifecycle proof is separate
+from browser qualification. Its finite foundations pass/draw
+policy pauses explicitly on unsupported requests; attachments have no automated
+launch qualification. No shared hot registry, remote HTTPS bootstrap or whole-
+profile play is claimed. Browser qualification remains false in the default
+entrypoint, so Start game stays disabled pending separate parent session proof.
 
 ## Verification
 

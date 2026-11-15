@@ -118,6 +118,23 @@ fn check_agreement(game: &Game, viewer: PlayerId) -> Vec<ActionBeginning> {
         })
         .collect::<Vec<_>>();
     let (actual, _) = collect(game, viewer, ActionScope::Window, 64, u64::MAX);
+    for beginning in &actual {
+        if matches!(
+            beginning.initiation,
+            ActionInitiation::Cast { .. }
+                | ActionInitiation::ActivateMana { .. }
+                | ActionInitiation::ActivateAbility { .. }
+        ) {
+            assert!(matches!(
+                &beginning.label,
+                ActionLabel::Available {
+                    source: Some(_),
+                    ..
+                }
+            ));
+        }
+    }
+
     assert_eq!(
         actual
             .iter()
@@ -387,7 +404,27 @@ fn mana_beginnings_validate_initiation_only_and_preserve_exact_cost() {
         .into_iter()
         .find(|b| matches!(b.initiation, ActionInitiation::Cast { .. }))
         .unwrap();
+    assert!(matches!(
+        &cast.label,
+        ActionLabel::Available {
+            source: Some(DecisionSource {
+                kind: DecisionSourceKind::Spell,
+                ..
+            }),
+            ..
+        }
+    ));
     answer(&mut game, cast.initiation.response());
+    assert!(
+        observation(&game, PlayerId(0))
+            .decision_context
+            .as_ref()
+            .unwrap()
+            .source
+            .is_some()
+    );
+    assert!(observation(&game, PlayerId(1)).decision_context.is_none());
+
     let request = observation(&game, PlayerId(0)).decision.unwrap();
     let PlayerRequest::Targets { candidates, .. } = request else {
         panic!("target window")
@@ -436,7 +473,15 @@ fn mana_beginnings_validate_initiation_only_and_preserve_exact_cost() {
         page.context,
         Some(ActionDecisionContext::Mana {
             cost,
-            source: ActionSourceContext::Unavailable
+            source: ActionSourceContext::Available {
+                object: observation(&game, PlayerId(0))
+                    .decision_context
+                    .unwrap()
+                    .source
+                    .unwrap()
+                    .object
+                    .unwrap()
+            }
         })
     );
     assert_eq!(game.snapshot().unwrap(), before);
@@ -503,9 +548,21 @@ fn admitted_hosted_profiles_cover_opening_main_land_cast_and_mana() {
                 .iter()
                 .any(|b| matches!(b.initiation, ActionInitiation::PlayLand { .. }))
         );
+        let commander = observation(&game, PlayerId(0))
+            .view
+            .objects
+            .into_iter()
+            .find(|o| o.zone == (Zone::Command { owner: PlayerId(0) }))
+            .unwrap();
+        let command = commander.handle;
         let cast = actions
             .iter()
-            .find(|b| matches!(b.initiation, ActionInitiation::Cast { .. }))
+            .find(|b| {
+                b.initiation
+                    == (ActionInitiation::Cast {
+                        card: command.clone(),
+                    })
+            })
             .unwrap();
         answer(&mut game, cast.initiation.response());
         assert!(matches!(
@@ -514,6 +571,51 @@ fn admitted_hosted_profiles_cover_opening_main_land_cast_and_mana() {
         ));
         let actions = check_agreement(&game, PlayerId(0));
         eprintln!("{profile}: mana {} beginnings", actions.len());
+        let mana = actions
+            .iter()
+            .find(|b| matches!(b.initiation, ActionInitiation::ActivateMana { .. }))
+            .unwrap();
+        answer(&mut game, mana.initiation.response());
+        // true is conditional reversal on failure, never a cancel action.
+        answer(&mut game, PlayerResponse::FinishMana { undo_mana: true });
+        let paid = observation(&game, PlayerId(0));
+        assert!(paid.decision_context.as_ref().unwrap().source.is_some());
+        let PlayerRequest::SpendMana { cost, .. } = paid.decision.unwrap() else {
+            panic!("explicit payment");
+        };
+        assert_eq!(cost.generic, Quantity::zero());
+        let mut spending = BTreeMap::<Color, Quantity>::new();
+        for color in cost.colored {
+            spending
+                .entry(color)
+                .or_insert_with(Quantity::zero)
+                .add(&1.into());
+        }
+        answer(&mut game, PlayerResponse::SpendMana { spending });
+        for _ in 0..4 {
+            let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
+                panic!("priority");
+            };
+            game.respond(request.player(), request.decision_id(), Response::Pass)
+                .unwrap();
+        }
+        let _ = game.advance(Budget::unlimited());
+        let restored =
+            Game::restore(game.prepared.as_ref().clone(), &game.snapshot().unwrap()).unwrap();
+        assert_eq!(
+            observation(&game, PlayerId(0)),
+            observation(&restored, PlayerId(0))
+        );
+        assert!(
+            observation(&game, PlayerId(0))
+                .view
+                .objects
+                .iter()
+                .any(|o| o.oracle_id == commander.oracle_id
+                    && o.owner == PlayerId(0)
+                    && o.zone == Zone::Battlefield)
+        );
+
         assert!(
             actions
                 .iter()

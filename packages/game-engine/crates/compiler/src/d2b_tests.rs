@@ -24,6 +24,8 @@ fn bound_self_reference_equals_this_source_and_rejects_wrong_or_missing_bindings
     let CompileResult::Lowered { definition: other } = compile(MANIFEST, &this) else {
         panic!("this source")
     };
+    assert_ne!(definition.source_labels, other.source_labels);
+    definition.source_labels = other.source_labels.clone();
     definition.provenance = other.provenance.clone();
     assert_eq!(definition, other);
     for mutation in [
@@ -238,6 +240,8 @@ fn labels_preserve_the_complete_source_program_without_new_runtime_semantics() {
         let CompileResult::Lowered { mut definition } = compile(MANIFEST, &raw) else {
             panic!("labelled source: {:?}", compile(MANIFEST, &raw))
         };
+        assert_ne!(definition.source_labels, original.source_labels);
+        definition.source_labels = original.source_labels.clone();
         definition.provenance = original.provenance.clone();
         assert_eq!(*definition, *original);
     }

@@ -17,6 +17,7 @@ export type Route =
   | { page: "deck"; deckId: number; review?: boolean; proposal?: number; importing?: boolean }
   | { page: "playtest"; deckId: number }
   | { page: "play" | "game-preview"; deckId?: number }
+  | { page: "live-game"; gameId: string }
   | { page: "shared"; slug: string }
   | { page: "user"; handle: string }
   | { page: "signin" | "privacy" | "terms" }
@@ -35,6 +36,8 @@ export function parseRoute(pathname: string, search = ""): Route {
     if (selected !== null && (!/^[1-9]\d*$/.test(selected) || !Number.isSafeInteger(Number(selected)))) return { page: "missing" };
     return { page: path === "/play" ? "play" : "game-preview", ...(selected === null ? {} : { deckId: Number(selected) }) };
   }
+  const liveGame = path.match(/^\/play\/games\/([a-f0-9]{32})$/);
+  if (liveGame) return { page: "live-game", gameId: liveGame[1] };
   const playtest = path.match(/^\/deck\/(\d+)\/playtest$/);
   if (playtest) return { page: "playtest", deckId: Number(playtest[1]) };
   const deck = path.match(/^\/deck\/(\d+)(\/review)?$/);
@@ -62,6 +65,7 @@ export function href(route: Route): string {
     // A review and an import never start together; only a review names a proposal.
     case "deck": return `/deck/${route.deckId}${route.review ? "/review" : ""}${route.importing ? "?import=1" : route.review && route.proposal ? `?proposal=${route.proposal}` : ""}`;
     case "inbox": return `/inbox${route.entry ? `?${new URLSearchParams({ entry: route.entry })}` : ""}`;
+    case "live-game": return `/play/games/${route.gameId}`;
     case "playtest": return `/deck/${route.deckId}/playtest`;
     case "shared": return `/d/${encodeURIComponent(route.slug)}`;
     case "user": return `/u/${encodeURIComponent(route.handle)}`;

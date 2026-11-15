@@ -6,7 +6,7 @@ import { accountInfo } from "./accounts.ts";
 import { databaseGate } from "./auth-database.ts";
 import { withTransaction } from "./db.ts";
 import { ServiceError } from "./errors.ts";
-import type { GameAdmission, GameCoordinatorOptions, GameDeck, GameIdentity, GameLaunchResult, GamePause, GameRecord, GameStopTarget, NativeGameStatus } from "./game-contracts.ts";
+import type { GameAdmission, GameCoordinatorOptions, GameDeck, GameIdentity, GameLaunchResult, GamePause, GameRecord, GameStopTarget, NativeGameStatus, NativeGameProxyRequest, NativeGameProxyResponse } from "./game-contracts.ts";
 
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const sameIdentity = (a: GameIdentity, b: GameIdentity) => a.catalog_sha256 === b.catalog_sha256 && a.profile === b.profile && a.engine_build_id === b.engine_build_id && a.server_build_id === b.server_build_id;
@@ -44,12 +44,12 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
     if (!row) throw new ServiceError("Game not found", 404);
     return JSON.parse(row.record_json);
   };
-  async function call<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  async function call<T>(work: (signal: AbortSignal) => Promise<T>, deadline = timeout): Promise<T> {
     const controller = new AbortController();
     let handle: ReturnType<typeof setTimeout> | undefined;
     try {
       return await Promise.race([work(controller.signal), new Promise<never>((_, reject) => {
-        handle = setTimeout(() => { controller.abort(); reject(new Error("Native game operation unavailable")); }, timeout);
+        handle = setTimeout(() => { controller.abort(); reject(new Error("Native game operation unavailable")); }, deadline);
       })]);
     } finally { clearTimeout(handle); }
   }
@@ -232,6 +232,22 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
   }
   return {
     admission, launch, resume,
+    async nativeProxy(actor: Actor, id: string, request: NativeGameProxyRequest): Promise<NativeGameProxyResponse> {
+      const game = await sql(() => read(actor, id));
+      if (closed || !native?.lifecycle_qualified || !native.proxy || game.state !== "active" || !sameIdentity(game.identity, native.identity)) throw new ServiceError("Game session is unavailable", 503);
+      if (!["GET", "POST"].includes(request.method) || typeof request.path !== "string" || request.path.length > 2048 || typeof request.body !== "string" || Buffer.byteLength(request.body) > 65_536 || typeof request.authorization !== "string" || request.authorization.length > 4096) throw new ServiceError("Invalid game request", 400);
+      let response: NativeGameProxyResponse;
+      try {
+        // The bridge independently validates exact routes and human authority.
+        // Keep the original body bytes and never hold SQLite during native I/O.
+        const captured = { method: request.method, path: request.path, body: request.body, authorization: request.authorization };
+        response = await call(signal => native.proxy!(structuredClone(game), captured, signal), 25_000);
+        if (!Number.isInteger(response.status) || response.status < 200 || response.status > 599 || typeof response.body !== "string" || Buffer.byteLength(response.body) > 8 * 1024 * 1024) throw Error("Invalid native reply");
+      } catch { throw new ServiceError("Game session is unavailable", 503); }
+      const current = await sql(() => read(actor, id));
+      if (closed || current.state !== "active" || !sameIdentity(current.identity, game.identity) || !sameIdentity(current.identity, native.identity)) throw new ServiceError("Game session is unavailable", 503);
+      return { status: response.status, body: response.body };
+    },
     async humanSeat(actor: Actor, id: string): Promise<{ bootstrap_file: string }> {
       const game = await sql(() => read(actor, id));
       if (closed || !native?.lifecycle_qualified || !options.browser_session_qualified || game.state !== "active" || !sameIdentity(game.identity, native.identity)) throw new ServiceError("Game session is unavailable", 503);

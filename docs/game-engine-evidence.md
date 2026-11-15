@@ -17,6 +17,40 @@ acceptance; reuse requires an unchanged-source bridge. [Storage](game-engine-sto
 protects unique ignored/external evidence. Use frozen [catalog inputs](game-engine-catalogs.md),
 new output paths and separately qualified native/SDK/browser producers.
 
+## Combined client native producer (observation 21)
+
+Checkpoint `2305e2f81d433c86717eb1f35fa0fe7e5c6b22d4` combines main `2ac47a82`,
+source labels, lifecycle durability patches `be7e0243`/`59ea1523`, and the separate
+payment-test-only correction `16bbefc4`. Snapshot is 26; public observation,
+context and query work are 21; executable IR remains 1. All 30 catalogs were
+compiler-regenerated (1,412 rows). Removing only `source_labels` reproduces exact
+main mechanics and capabilities; admission does not expand. Only the merged
+blocking catalog digest required a generated change.
+
+Permanent proof root:
+`~/.local/share/mtg-ecosystem/engine-evidence/native-game-client-observation21-combined-20261115/`.
+Its `qualification.json` indexes exact commands/counts, source bridges, schemas,
+binary hashes and failures. The 898 source/data/SDK rows match before/after and
+committed Git bytes. Both actual build IDs were independently rederived:
+
+- Engine: `5d922d685619c979173c56e50285b2eea79b506cb24d718195339b2126b47b4d`.
+- Server: `c1be893414c34a3869f059a872b053d4c69e77da21e98242ffb654a980372d15`.
+
+Selected Rust checks passed 543 tests: compiler/contracts 260/109, core/payment
+92, server 82, plus one isolated lifecycle child execution. Unchanged compiler,
+contracts and catalog inputs bridge their prefix checks to final source. Formatting
+and workspace all-target compilation passed; fresh SDK verification passed 66 tests,
+including its public policies source export. Exact server/provisioner, schemas,
+source and SDK generated/dist files are retained.
+
+Strict production workspace Clippy retains the inherited grouped-damage
+`collapsible_if` failure at contracts line 2120. Catalog-bootstrap, empty-selector
+and two stale payment-expectation failures retain their receipts; the payment
+failure also retains its original executable/source. Frozen 565/observation-16
+proofs and the superseded observation-20 prefix remain separate. No browser,
+product-session, full-game, full-matrix, release or offline-retention acceptance
+follows; the parent must qualify those consumers independently.
+
 ## Accepted D2c-d and lifetime freeze
 
 **Combined acceptance and independent audit passed at

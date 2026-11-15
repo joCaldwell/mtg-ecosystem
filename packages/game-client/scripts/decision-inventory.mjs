@@ -26,17 +26,19 @@ group('discard resolve_discard', 'implemented-unordered-handles', 'Supplied cand
 group('legend_rule', 'implemented-single-handle', 'Supplied candidates and previous_choices; permitted object labels; no legend eligibility calculation.');
 group('sacrifice sacrifice_cost forced_sacrifice', 'implemented-single-handle', 'Supplied candidates; permitted object labels. Rich initiating source/cost/effect and previous choice presentation remain integration requirements.');
 group('search_lands', 'implemented-bounded-handles', 'Supplied maximum and VisibleSearchLand handle/oracle_id; caller must map permitted search-result metadata, never inspect library/IR.');
-group('announce_x', 'context-missing', 'Core permitted source/action and meaning of X, plus compiler source-label mapping; quantity syntax alone is insufficient.');
-group('mana_color', 'context-missing', 'Supplied colors plus permitted mana_ability_source and source/ability meaning. No automatic first color.');
-group('optional_effect optional_recursion', 'context-missing', 'Core permitted effect/source and producer source-block mapping; boolean alone does not explain what is accepted.');
-group('modes', 'context-missing', 'Core mode candidates plus compiler mode-index-to-source-label mapping. Numeric indices are not human choices.');
-group('order_triggers', 'context-missing', 'VisiblePendingTrigger identity plus compiler ability/source-label mapping. Generic ordered selection exists, no trigger gameplay adapter.');
-group('damage_effect damage_allocation', 'context-missing', 'Core recipient/effect/damage identities, permitted source labels and allocation constraints. No internal IR interpretation or derived damage amounts.');
-group('commander_return', 'context-missing', 'Designation/object/destination and previous choices need reviewed permitted designation/zone explanation; no name-based mapping.');
-group('priority mana', 'context-missing', 'Bound authenticated core action query, completeness/continuation handling and source labels. ActionLabel is Unavailable; missing mana source remains explicit.');
-group('spend_mana', 'unsupported', 'Core cost/available/source context, reviewed joint payment flow and reversal semantics. No local payment-legality calculation.');
-group('targets entity_targets player_targets stack_targets', 'unsupported', 'Core ordered occurrences/candidates and permitted target/source labels with joint validator; no local TargetSpec interpretation.');
-group('attackers blockers damage', 'unsupported', 'Core candidate/defender/assignment and supplied lethal/legal-block context; joint combat validation and source mapping. No menace/lethal/eligibility calculation.');
+group('announce_x', 'implemented-source-quantity', 'Requires producer spell source text; explicit canonical X input, never a derived maximum.');
+group('mana_color', 'implemented-source-color', 'Requires producer mana-ability source text and supplied colors. No automatic first color.');
+group('optional_effect optional_recursion', 'implemented-source-confirmation', 'Requires producer source and current instruction text before explicit perform/decline.');
+group('modes', 'implemented-source-mode', 'Requires producer source and one unambiguous compiler label per supplied mode candidate.');
+group('order_triggers', 'implemented-source-ordered-triggers', 'Requires compiler-bound labels for every supplied trigger handle; preserve explicit complete order.');
+group('damage_effect', 'implemented-source-damage-effect', 'Requires compiler-bound per-occurrence effect labels; preserve exact effect/damage pair and supplied amounts.');
+group('damage_allocation', 'implemented-source-allocation', 'Requires selected effect source/instruction context, supplied occurrence maxima and required exact allocation total.');
+group('commander_return', 'implemented-commander-destination', 'Supplied object/designation/destination and previous choices only; explicit command-zone or destination choice.');
+group('priority mana', 'session-action-query', 'Bound authenticated query, complete original generation/scope and producer available labels/source. Pass needs priority/window; unexplained actions remain blocked. FinishMana preserves conditional payment-failure reversal.');
+group('spend_mana', 'implemented-source-payment', 'Requires producer source and supplied cost/available mana; explicit exact amount for every available color. Core validates joint payment legality.');
+group('targets entity_targets player_targets stack_targets', 'implemented-source-target-occurrences', 'Requires producer source/instruction; explicit candidate for each supplied ordered occurrence. Never interpret TargetSpec or derive joint eligibility.');
+group('attackers blockers', 'implemented-supplied-combat-mapping', 'Explicit per-candidate attacker/defender or blocker/attacker choices, including unused. Missing/ambiguous blocker eligibility fails closed. Core validates joint restrictions.');
+group('damage', 'implemented-supplied-damage-allocation', 'Supplied source, recipients, power, player recipient and lethal hints; exact total bookkeeping only, no derived lethal calculation.');
 const observed = {
   mulligan: 'Historical authenticated foundations opening plus fresh separately validated openings in both admitted profiles. Bounded captures only.',
   priority: 'Fresh separately validated foundations and attachments main-priority-before-land/main-priority-before-cast captures, plus core query report. Bounded prefixes only.',
@@ -46,7 +48,7 @@ const reportPath = 'docs/game-client.md';
 const prefixes = await readJSON(new URL('fixtures/decision-controls/prefix-provenance.json', client));
 const capturedRequests = new Set(prefixes.captures.flatMap(capture => capture.stages.map(stage => stage.request)));
 const capturedActions = new Set(prefixes.captures.flatMap(capture => capture.stages.flatMap(stage => stage.action_families)));
-const sourcePaths = [reportPath, 'docs/game-engine-current.md', 'docs/game-engine-server.md', 'packages/game-engine/crates/core/src/engine/visibility.rs', 'packages/game-client/src/decisions/controls.ts', 'packages/game-client/src/features/decisions/LocalControls.tsx', 'packages/game-client/src/features/decisions/DecisionPanel.tsx', 'packages/game-client/src/features/decisions/DecisionGallery.tsx', 'packages/game-client/src/features/decisions/decisions.module.css', 'packages/game-client/src/preview/fixture.ts', 'packages/game-client/scripts/decision-inventory.mjs', 'packages/game-client/tests/decision-controls.test.ts', 'packages/game-client/tests/decision-inventory.test.ts', 'packages/game-client/tests/browser/decision-controls.spec.ts', 'packages/game-client/fixtures/foundations-opening/provenance.json'];
+const sourcePaths = [reportPath, 'docs/game-engine-current.md', 'docs/game-engine-server.md', 'packages/game-engine/crates/core/src/engine/visibility.rs', 'packages/game-client/src/decisions/controls.ts', 'packages/game-client/src/decisions/structured-controls.ts', 'packages/game-client/src/features/decisions/LocalControls.tsx', 'packages/game-client/src/features/decisions/DecisionPanel.tsx', 'packages/game-client/src/features/decisions/DecisionGallery.tsx', 'packages/game-client/src/features/decisions/decisions.module.css', 'packages/game-client/src/preview/fixture.ts', 'packages/game-client/scripts/decision-inventory.mjs', 'packages/game-client/tests/decision-controls.test.ts', 'packages/game-client/tests/structured-controls.test.ts', 'packages/game-client/tests/decision-inventory.test.ts', 'packages/game-client/tests/browser/decision-controls.spec.ts', 'packages/game-client/fixtures/foundations-opening/provenance.json'];
 const evidence = [];
 for (const path of sourcePaths) evidence.push({ path, sha256: hash(await readFile(new URL(path, repo))) });
 for (const path of ['packages/game-client/scripts/decision-prefixes.mjs', 'packages/game-client/fixtures/decision-controls/prefix-provenance.json']) evidence.push({ path, sha256: hash(await readFile(new URL(path, repo))) });
@@ -63,7 +65,7 @@ const requestRows = requests.map(row => {
     reachability_evidence: observed[row.variant] ? [reportPath, ...(row.variant === 'mulligan' ? ['packages/game-client/fixtures/foundations-opening/provenance.json'] : []), ...(capturedRequests.has(row.variant) ? ['packages/game-client/fixtures/decision-controls/prefix-provenance.json'] : [])] : [],
     implemented_control_draft: policy.control, required_core_context_and_source_mapping: policy.required_context,
     permitted_fixture: row.variant === 'mulligan' ? 'fixtures/foundations-opening/opening-seat0-http.json (exact historical capture); fresh opening prefixes in prefix-provenance.json (evidence only)' : capturedRequests.has(row.variant) ? 'Fresh isolated admitted prefix observations/queries in prefix-provenance.json (evidence only; no runtime query integration)' : 'No captured request in this slice. Structural tests, where present, do not establish reachability.',
-    test_locator: policy.control.startsWith('implemented') ? 'tests/decision-controls.test.ts; tests/browser/decision-controls.spec.ts (gallery covers mulligan, synthetic discard/bottom, generic quantity only)' : 'src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only',
+    test_locator: policy.control.startsWith('implemented') ? 'tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)' : 'src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only',
     gallery_locator: row.variant === 'mulligan' ? '/fixtures/decisions#captured' : ['discard', 'bottom_opening'].includes(row.variant) ? '/fixtures/decisions#structural (synthetic only)' : row.variant === 'modes' ? '/fixtures/decisions#blocked (synthetic only)' : null,
   };
 });
@@ -79,7 +81,7 @@ const output = {
     known_admitted_reachability: capturedActions.has(row.variant) ? 'Fresh isolated admitted prefix queries expose this initiation family (prefix-provenance.json); no accepted-response or client-control proof follows.' : observed[row.variant] ?? 'Not established by this slice; response schema does not prove admission.',
     required_core_context_and_source_mapping: policies[row.variant]?.required_context ?? 'Core query/decision context and source labels; response variant alone is not an action menu.',
     permitted_fixture: row.variant === 'mulligan' ? 'Captured request only; completion is local human draft, not an accepted native command.' : null,
-    test_locator: policies[row.variant]?.control.startsWith('implemented') ? 'tests/decision-controls.test.ts' : 'Generated SDK exhaustive consumer/typecheck; no control acceptance claimed.',
+    test_locator: policies[row.variant]?.control.startsWith('implemented') ? 'tests/decision-controls.test.ts; tests/structured-controls.test.ts' : 'Generated SDK exhaustive consumer/typecheck; no control acceptance claimed.',
   })),
 };
 const bytes = JSON.stringify(output, null, 2) + '\n';

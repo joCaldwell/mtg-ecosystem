@@ -1,5 +1,7 @@
-import type { PlayerRequest, PlayerResponse } from '@multiverse/game-server-sdk';
+import type { DecisionContext, PlayerRequest, PlayerResponse } from '@multiverse/game-server-sdk';
 import { parseQuantity } from './quantity.ts';
+import { completeStructuredDecision, structuredDecisionSurface } from './structured-controls.ts';
+export type { DecisionContext } from '@multiverse/game-server-sdk';
 
 export type DecisionRequest = PlayerRequest;
 export interface DecisionCompletion { readonly binding: DecisionBinding; readonly response: PlayerResponse }
@@ -19,16 +21,20 @@ export function bindingKey(binding: DecisionBinding): string {
   return JSON.stringify([binding.origin, binding.match, binding.seat, binding.incarnation, binding.revision, binding.token]);
 }
 export interface Option { readonly id: string; readonly label: string; readonly detail: string }
+export interface ChoiceRow extends Option { readonly options: readonly Option[] }
+export interface QuantityField extends Option { readonly maximum?: string }
 interface Base { readonly title: string; readonly description: string }
 /** Presentation models only. No alternative gameplay request/response types. */
 export type LocalControl = Base & (
   | { readonly kind: 'choice'; readonly options: readonly Option[] }
   | { readonly kind: 'selection'; readonly options: readonly Option[]; readonly minimum: number; readonly maximum: number; readonly ordered: boolean }
   | { readonly kind: 'quantity'; readonly maxDigits: number }
+  | { readonly kind: 'mapping'; readonly rows: readonly ChoiceRow[] }
+  | { readonly kind: 'quantities'; readonly fields: readonly QuantityField[]; readonly maxDigits: number; readonly total?: string }
 );
 export type DecisionSurface = { readonly status: 'supported'; readonly control: LocalControl }
   | { readonly status: 'context-missing' | 'unsupported'; readonly title: string; readonly reason: string };
-export interface LocalDraft { readonly selected: readonly string[]; readonly quantity: string }
+export interface LocalDraft { readonly selected: readonly string[]; readonly quantity: string; readonly values?: readonly (readonly [string, string])[] }
 export const emptyDraft: LocalDraft = Object.freeze({ selected: Object.freeze([]), quantity: '' });
 /** Labels must come only from the same permitted observation and producer
  * presentation mapping. Missing metadata preserves the exact handle. */
@@ -42,7 +48,9 @@ const choice = (title: string, description: string, values: readonly (readonly [
 
 /** Exhaustive over generated Rust requests. Supplied membership/count bookkeeping
  * never establishes joint legality. Ambiguous semantic context stays blocked. */
-export function decisionSurface(request: PlayerRequest, labels: readonly ObjectLabel[]): DecisionSurface {
+export function decisionSurface(request: PlayerRequest, labels: readonly ObjectLabel[], context?: DecisionContext | null): DecisionSurface {
+  const structured = structuredDecisionSurface(request, labels, context);
+  if (structured) return structured;
   const selection = (title: string, handles: readonly string[], minimum: number, maximum: number, ordered = false): DecisionSurface => ({
     status: 'supported', control: { kind: 'selection', title, description: 'Choose from the supplied handles. Core must validate the complete response.', options: options(handles, labels), minimum, maximum, ordered },
   });
@@ -66,11 +74,37 @@ export function decisionSurface(request: PlayerRequest, labels: readonly ObjectL
 
 /** New candidate incarnations never inherit selection by label. */
 export function reconcileDraft(draft: LocalDraft, control: LocalControl): LocalDraft {
+  if (control.kind === 'mapping' || control.kind === 'quantities') {
+    const fields = control.kind === 'mapping' ? control.rows : control.fields;
+    return { ...emptyDraft, values: (draft.values ?? []).filter(([id, value]) => fields.some(field => field.id === id && (control.kind !== 'mapping' || control.rows.find(row => row.id === id)?.options.some(option => option.id === value)))) };
+  }
   const selected = control.kind === 'quantity' ? [] : draft.selected.filter(id => control.options.some(option => option.id === id));
   return { selected: [...new Set(selected)], quantity: draft.quantity };
 }
 export function draftError(control: LocalControl, draft: LocalDraft): string | null {
   if (control.kind === 'quantity') return parseQuantity(draft.quantity, control.maxDigits) === null ? `Enter a canonical nonnegative integer, at most ${control.maxDigits} digits.` : null;
+  if (control.kind === 'mapping' || control.kind === 'quantities') {
+    const fields = control.kind === 'mapping' ? control.rows : control.fields;
+    const values = draft.values ?? [];
+    if (new Set(fields.map(field => field.id)).size !== fields.length) return 'Candidate identity is ambiguous.';
+    if (new Set(values.map(([id]) => id)).size !== values.length || values.some(([id]) => !fields.some(field => field.id === id))) return 'Selection is no longer in the supplied candidates.';
+    if (control.kind === 'mapping') {
+      for (const row of control.rows) {
+        if (new Set(row.options.map(option => option.id)).size !== row.options.length) return 'Candidate identity is ambiguous.';
+        if (!row.options.some(option => option.id === draftValue(draft, row.id))) return 'Choose an option for each item, including any explicit decision to leave it unused.';
+      }
+    } else {
+      let total = 0n;
+      for (const field of control.fields) {
+        const value = parseQuantity(draftValue(draft, field.id), control.maxDigits);
+        if (value === null) return `Enter a canonical nonnegative integer for each item, at most ${control.maxDigits} digits.`;
+        if (field.maximum !== undefined && value > BigInt(field.maximum)) return 'An amount exceeds the supplied available quantity.';
+        total += value;
+      }
+      if (control.total !== undefined && total !== BigInt(control.total)) return `Assign exactly the supplied total of ${control.total}.`;
+    }
+    return null;
+  }
   if (new Set(control.options.map(option => option.id)).size !== control.options.length) return 'Candidate identity is ambiguous.';
   if (new Set(draft.selected).size !== draft.selected.length || draft.selected.some(id => !control.options.some(option => option.id === id))) return 'Selection is no longer in the supplied candidates.';
   const minimum = control.kind === 'choice' ? 1 : control.minimum;
@@ -79,10 +113,14 @@ export function draftError(control: LocalControl, draft: LocalDraft): string | n
   return draft.selected.length < minimum || draft.selected.length > maximum ? `Choose ${minimum === maximum ? minimum : `${minimum}–${maximum}`} item(s).` : null;
 }
 export function toggleDraft(control: LocalControl, draft: LocalDraft, id: string): LocalDraft {
-  if (control.kind === 'quantity' || !control.options.some(option => option.id === id)) return draft;
+  if (control.kind === 'quantity' || control.kind === 'mapping' || control.kind === 'quantities' || !control.options.some(option => option.id === id)) return draft;
   if (control.kind === 'choice') return { ...draft, selected: [id] };
   if (draft.selected.includes(id)) return { ...draft, selected: draft.selected.filter(value => value !== id) };
   return draft.selected.length < control.maximum ? { ...draft, selected: [...draft.selected, id] } : draft;
+}
+export function draftValue(draft: LocalDraft, id: string): string { return draft.values?.find(([key]) => key === id)?.[1] ?? ''; }
+export function setDraftValue(draft: LocalDraft, id: string, value: string): LocalDraft {
+  return { ...draft, values: [...(draft.values ?? []).filter(([key]) => key !== id), [id, value]] };
 }
 export function reorderDraft(draft: LocalDraft, id: string, offset: -1 | 1): LocalDraft {
   const from = draft.selected.indexOf(id), to = from + offset;
@@ -94,9 +132,11 @@ export function reorderDraft(draft: LocalDraft, id: string, offset: -1 | 1): Loc
 
 /** Returns only generated responses for explicitly implemented request branches.
  * No default values, guesses, implicit pass, or side effects. */
-export function completeDecision(request: PlayerRequest, labels: readonly ObjectLabel[], draft: LocalDraft): PlayerResponse | null {
-  const surface = decisionSurface(request, labels);
+export function completeDecision(request: PlayerRequest, labels: readonly ObjectLabel[], draft: LocalDraft, context?: DecisionContext | null): PlayerResponse | null {
+  const surface = decisionSurface(request, labels, context);
   if (surface.status !== 'supported' || draftError(surface.control, draft)) return null;
+  const structured = completeStructuredDecision(request, draft);
+  if (structured !== undefined) return structured;
   const objects = [...draft.selected];
   const object = objects[0];
   switch (request.request) {

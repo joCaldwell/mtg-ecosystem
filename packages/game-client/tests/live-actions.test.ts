@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { ActionQueryRequest, ActionQueryResponse, CommandEnvelope, PublicManifest, SeatResume, StreamPage } from '@multiverse/game-server-sdk';
 import { parsePreparedCommand, prepareCommand } from '@multiverse/game-server-sdk/browser';
-import opening from '../fixtures/foundations-opening/opening-seat0-http.json' with { type: 'json' };
+import opening from './current-opening.ts';
 import { ReadSession, type SessionEffects } from '../src/session/controller.ts';
 import type { CommandEffects } from '../src/session/command.ts';
 import type { JournalRecord } from '../src/session/contracts.ts';

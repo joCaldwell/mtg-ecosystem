@@ -1296,7 +1296,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     {
         return Err(unsupported("mana_cost", "unsupported X cost"));
     }
+    let mut labels = SourceLabels {
+        text: source.oracle_text.clone(),
+        blocks: result.lines.iter().map(|l| l.text.clone()).collect(),
+        ..SourceLabels::default()
+    };
     let mut definition = Definition {
+        source_labels: None,
         x_mana_cost: source.mana_cost.contains("{X}"),
         oracle_id: r.oracle_identity,
         name: source.name,
@@ -1369,6 +1375,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             for (block, ability) in abilities.iter().enumerate() {
                 match ability {
                     Ability::Static { effect, .. } => {
+                        labels.statics.push(source_block(block)?);
                         definition.static_abilities.push(lower_static(effect)?)
                     }
                     Ability::Keywords { keywords, .. } => {
@@ -1392,6 +1399,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                         "equip requires fixed mana only",
                                     ));
                                 }
+                                labels.activated.push(source_block(block)?);
                                 definition.activated.push(ActivatedAbility {
                                     functioning_zone: FunctioningZone::Battlefield,
                                     cost: ActivationCost::Mana {
@@ -1499,8 +1507,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     }
                     Ability::Activated { costs, effects, .. } => {
                         if let Some(mana) = lower_mana_ability(costs, effects, block, kind)? {
+                            labels.mana.push(source_block(block)?);
                             definition.mana_abilities.push(mana);
                         } else {
+                            labels.activated.push(source_block(block)?);
                             definition
                                 .activated
                                 .push(lower_activation(costs, effects, block, kind)?);
@@ -1512,6 +1522,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         condition,
                         ability_word: _,
                     } => {
+                        labels.triggered.push(source_block(block)?);
                         definition.triggered.push(lower_trigger(
                             trigger,
                             effects,
@@ -1567,6 +1578,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     if a.functioning_zone != FunctioningZone::Stack {
                         return Err(unsupported("static", "spell static must function on stack"));
                     }
+                    labels.statics.push(source_block(block)?);
                     definition.static_abilities.push(a);
                     continue;
                 }
@@ -1608,6 +1620,30 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         return Err(unsupported("trigger", "unbound death controller"));
     }
     definition.capabilities = definition.requirements();
+    definition
+        .validate()
+        .map_err(|e| unsupported("definition", e))?;
+    if let Some(spell) = &definition.spell
+        && !spell.modes.is_empty()
+    {
+        // The complete standalone choose-one lowering above binds option order.
+        // Reject an unlabelled source rather than inventing mode descriptions.
+        labels.spell_modes = labels
+            .blocks
+            .iter()
+            .flat_map(|block| block.lines().skip(1))
+            .map(str::to_owned)
+            .collect();
+        if labels.spell_modes.len() != spell.modes.len()
+            || labels.spell_modes.iter().any(|line| !line.starts_with('•'))
+        {
+            return Err(unsupported(
+                "labels.modes",
+                "source option labels do not match compiled modes",
+            ));
+        }
+    }
+    definition.source_labels = Some(labels);
     definition
         .validate()
         .map_err(|e| unsupported("definition", e))?;
@@ -8856,6 +8892,9 @@ mod aura_control_tests;
 
 #[cfg(test)]
 mod temporary_combat_keyword_tests;
+
+#[cfg(test)]
+mod source_label_tests;
 
 #[cfg(test)]
 mod creature_set_keyword_tests;

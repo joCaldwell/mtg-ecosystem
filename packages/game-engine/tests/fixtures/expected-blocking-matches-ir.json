@@ -4,6 +4,17 @@
   "rules_sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca",
   "definitions": [
     {
+      "source_labels": {
+        "text": "Target opponent sacrifices a creature of their choice.",
+        "blocks": [
+          "Target opponent sacrifices a creature of their choice."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "10c585c4-bf5b-4d8f-94a9-e9a5036a688f",
       "name": "Cruel Edict",
       "characteristics": {
@@ -67,6 +78,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "14c8f55d-d177-4c25-a931-ebeb9e6062a0",
       "name": "Grizzly Bears",
       "characteristics": {
@@ -117,6 +137,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "19b4cf0b-e1e4-4e50-80bc-673bc6ef8bb8",
       "name": "Yoked Ox",
       "characteristics": {
@@ -167,6 +196,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Sacrifice this creature: Draw a card, then discard a card.",
+        "blocks": [
+          "Sacrifice this creature: Draw a card, then discard a card."
+        ],
+        "activated": [
+          0
+        ],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "240a349a-79f8-4e11-9a05-a78148e70a62",
       "name": "Hapless Researcher",
       "characteristics": {
@@ -246,6 +288,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Prevent all combat damage that would be dealt this turn.",
+        "blocks": [
+          "Prevent all combat damage that would be dealt this turn."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "27e9db49-7af7-4bef-ad4c-bf5dfb92030d",
       "name": "Fog",
       "characteristics": {
@@ -300,6 +353,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "You gain 4 life.",
+        "blocks": [
+          "You gain 4 life."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "30870ee5-6ad7-48a9-983e-d3b018f2344f",
       "name": "Sacred Nectar",
       "characteristics": {
@@ -355,6 +419,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Put target creature on top of its owner's library.",
+        "blocks": [
+          "Put target creature on top of its owner's library."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "30cc8f7b-3c28-40f5-8f8f-157e8212280b",
       "name": "Time Ebb",
       "characteristics": {
@@ -418,6 +493,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Whenever this creature or another creature dies, target player loses 1 life and you gain 1 life.",
+        "blocks": [
+          "Whenever this creature or another creature dies, target player loses 1 life and you gain 1 life."
+        ],
+        "activated": [],
+        "triggered": [
+          0
+        ],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "310f141c-7f37-4729-aed6-dd9c09db448d",
       "name": "Blood Artist",
       "characteristics": {
@@ -511,6 +599,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "{1}, {T}: Tap target artifact, creature, or land.",
+        "blocks": [
+          "{1}, {T}: Tap target artifact, creature, or land."
+        ],
+        "activated": [
+          0
+        ],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "3608f1f7-8dc5-4dd1-ae91-c830e1de9529",
       "name": "Icy Manipulator",
       "characteristics": {
@@ -605,6 +706,18 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Target player gains 4 life.\nDraw a card.",
+        "blocks": [
+          "Target player gains 4 life.",
+          "Draw a card."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "3cc48835-3ac0-4774-b380-f9b21d2dc974",
       "name": "Healing Hands",
       "characteristics": {
@@ -679,6 +792,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Target blocking creature gets +7/+7 until end of turn.",
+        "blocks": [
+          "Target blocking creature gets +7/+7 until end of turn."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "3f6b2f76-0364-415e-a6a2-e9e5bf31b745",
       "name": "Righteousness",
       "characteristics": {
@@ -745,6 +869,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Lightning Bolt deals 3 damage to any target.",
+        "blocks": [
+          "~ deals 3 damage to any target."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "4457ed35-7c10-48c8-9776-456485fdf070",
       "name": "Lightning Bolt",
       "characteristics": {
@@ -809,6 +944,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "({T}: Add {B}.)",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "56719f6a-1a6c-4c0a-8d21-18f7d7350b68",
       "name": "Swamp",
       "characteristics": {
@@ -849,6 +993,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Target creature gets +3/+3 until end of turn.",
+        "blocks": [
+          "Target creature gets +3/+3 until end of turn."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "5748ebf1-24e3-499d-ab7c-c2cebd462a24",
       "name": "Giant Growth",
       "characteristics": {
@@ -915,6 +1070,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Destroy target tapped creature.",
+        "blocks": [
+          "Destroy target tapped creature."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "5820d760-8ed7-4abf-a959-c06ed86a3730",
       "name": "Swift Response",
       "characteristics": {
@@ -987,6 +1153,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "{T}: This creature deals 1 damage to any target.",
+        "blocks": [
+          "{T}: This creature deals 1 damage to any target."
+        ],
+        "activated": [
+          0
+        ],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "5e961d15-5972-4e4b-9385-1cd7cd7c6bbe",
       "name": "Prodigal Sorcerer",
       "characteristics": {
@@ -1071,6 +1250,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "{T}: Draw a card, then discard a card.",
+        "blocks": [
+          "{T}: Draw a card, then discard a card."
+        ],
+        "activated": [
+          0
+        ],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "67362406-b1ca-49e2-800d-9050bfe8742a",
       "name": "Merfolk Looter",
       "characteristics": {
@@ -1150,6 +1342,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "If a source would deal damage to a permanent or player, it deals double that damage to that permanent or player instead.",
+        "blocks": [
+          "If a source would deal damage to a permanent or player, it deals double that damage to that permanent or player instead."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [
+          0
+        ],
+        "spell_modes": []
+      },
       "oracle_id": "68715465-6cf9-4006-87e9-31f227fe9ed3",
       "name": "Furnace of Rath",
       "characteristics": {
@@ -1206,6 +1411,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "{T}: Add {G}.",
+        "blocks": [
+          "{T}: Add {G}."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [
+          0
+        ],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "68954295-54e3-4303-a6bc-fc4547a4e3a3",
       "name": "Llanowar Elves",
       "characteristics": {
@@ -1273,6 +1491,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Whenever another creature enters, you gain 1 life.",
+        "blocks": [
+          "Whenever another creature enters, you gain 1 life."
+        ],
+        "activated": [],
+        "triggered": [
+          0
+        ],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "6ca2a89e-7032-4864-b4e9-66f3178f90ab",
       "name": "Essence Warden",
       "characteristics": {
@@ -1347,6 +1578,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "{T}: Untap target creature.",
+        "blocks": [
+          "{T}: Untap target creature."
+        ],
+        "activated": [
+          0
+        ],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "704723f3-0490-4d96-930a-aacc6d19ba8d",
       "name": "Seeker of Skybreak",
       "characteristics": {
@@ -1437,6 +1681,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Target creature gets -2/-2 until end of turn.",
+        "blocks": [
+          "Target creature gets -2/-2 until end of turn."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "77eafe49-b9c5-461d-89c5-cec217dd2974",
       "name": "Disfigure",
       "characteristics": {
@@ -1503,6 +1758,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Target player loses 4 life and you gain 4 life.",
+        "blocks": [
+          "Target player loses 4 life and you gain 4 life."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "8186fd80-015f-470c-9e1c-cbf45764a057",
       "name": "Soul Feast",
       "characteristics": {
@@ -1579,6 +1845,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Hellbent — When this creature dies, if you have no cards in hand, target creature gets -3/-3 until end of turn.",
+        "blocks": [
+          "Hellbent — When this creature dies, if you have no cards in hand, target creature gets -3/-3 until end of turn."
+        ],
+        "activated": [],
+        "triggered": [
+          0
+        ],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "82076865-7917-4d3b-8fe8-c21bfcd64d29",
       "name": "Slaughterhouse Bouncer",
       "characteristics": {
@@ -1666,6 +1945,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Return target creature to its owner's hand.",
+        "blocks": [
+          "Return target creature to its owner's hand."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "837182db-1bf3-4a2c-bd01-1af9d9873561",
       "name": "Unsummon",
       "characteristics": {
@@ -1729,6 +2019,20 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Choose one —\n• Target player gains 3 life.\n• Prevent the next 3 damage that would be dealt to any target this turn.",
+        "blocks": [
+          "Choose one —\n• Target player gains 3 life.\n• Prevent the next 3 damage that would be dealt to any target this turn."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": [
+          "• Target player gains 3 life.",
+          "• Prevent the next 3 damage that would be dealt to any target this turn."
+        ]
+      },
       "oracle_id": "8da8644c-75a1-4fe9-8e94-900d948d631c",
       "name": "Healing Salve",
       "characteristics": {
@@ -1836,6 +2140,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "{T}: Prevent the next 1 damage that would be dealt to any target this turn.",
+        "blocks": [
+          "{T}: Prevent the next 1 damage that would be dealt to any target this turn."
+        ],
+        "activated": [
+          0
+        ],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "95a0ca48-d924-47f4-86ed-42c673ee778c",
       "name": "Samite Healer",
       "characteristics": {
@@ -1920,6 +2237,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "980e1721-3717-4425-95a4-938dbf2ac661",
       "name": "Yargle and Multani",
       "characteristics": {
@@ -1977,6 +2303,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "{T}: Destroy target tapped creature.",
+        "blocks": [
+          "{T}: Destroy target tapped creature."
+        ],
+        "activated": [
+          0
+        ],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "9ed6f28f-a3db-48c5-9ab0-b90a7fba5f57",
       "name": "Royal Assassin",
       "characteristics": {
@@ -2070,6 +2409,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "({T}: Add {R}.)",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "a3fb7228-e76b-4e96-a40e-20b5fed75685",
       "name": "Mountain",
       "characteristics": {
@@ -2110,6 +2458,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Defender (This creature can't attack.)",
+        "blocks": [
+          "Defender"
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "aa5e6894-8c97-46f8-a0fd-07c6db51e9a7",
       "name": "Wall of Wood",
       "characteristics": {
@@ -2164,6 +2523,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "({T}: Add {U}.)",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "b2c6aa39-2d2a-459c-a555-fb48ba993373",
       "name": "Island",
       "characteristics": {
@@ -2204,6 +2572,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "({T}: Add {G}.)",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6",
       "name": "Forest",
       "characteristics": {
@@ -2244,6 +2621,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Counter target activated or triggered ability. (Mana abilities can't be targeted.)",
+        "blocks": [
+          "Counter target activated or triggered ability."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "b3b00911-ece7-4484-bc36-f211ce72b6cc",
       "name": "Stifle",
       "characteristics": {
@@ -2307,6 +2695,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Untap target permanent.",
+        "blocks": [
+          "Untap target permanent."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "b795ecfd-31ac-4a2a-9679-97b088932d93",
       "name": "Burst of Energy",
       "characteristics": {
@@ -2376,6 +2775,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "{3}{U}: Draw a card.",
+        "blocks": [
+          "{3}{U}: Draw a card."
+        ],
+        "activated": [
+          0
+        ],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "bbf9fd47-10e1-4749-b06f-4fe72200afc7",
       "name": "Azure Mage",
       "characteristics": {
@@ -2458,6 +2870,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "({T}: Add {W}.)",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "bc71ebf6-2056-41f7-be35-b2e5c34afa99",
       "name": "Plains",
       "characteristics": {
@@ -2498,6 +2919,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Target creature gains indestructible until end of turn. (Damage and effects that say \"destroy\" don't destroy it. If its toughness is 0 or less, it still dies.)",
+        "blocks": [
+          "Target creature gains indestructible until end of turn."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "c462adf3-4ade-4b90-bdec-7247b080471f",
       "name": "Withstand Death",
       "characteristics": {
@@ -2566,6 +2998,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "When this creature enters, draw a card.",
+        "blocks": [
+          "When this creature enters, draw a card."
+        ],
+        "activated": [],
+        "triggered": [
+          0
+        ],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "c6a3a882-a127-4590-93d7-679ef4313efe",
       "name": "Elvish Visionary",
       "characteristics": {
@@ -2639,6 +3084,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Counter target spell.",
+        "blocks": [
+          "Counter target spell."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "cc187110-1148-4090-bbb8-e205694a39f5",
       "name": "Counterspell",
       "characteristics": {
@@ -2703,6 +3159,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Destroy target tapped creature.",
+        "blocks": [
+          "Destroy target tapped creature."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "ce979f36-84f2-4419-b400-971263494cc6",
       "name": "Assassinate",
       "characteristics": {
@@ -2775,6 +3242,15 @@
       }
     },
     {
+      "source_labels": {
+        "text": "",
+        "blocks": [],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "cfb756dd-6fe1-430a-8f04-8b10cac62a86",
       "name": "Isamaru, Hound of Konda",
       "characteristics": {
@@ -2826,6 +3302,18 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Tap target creature.\nDraw a card.",
+        "blocks": [
+          "Tap target creature.",
+          "Draw a card."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "d4bbdd0c-e578-49ed-b2f7-b1decb04ee87",
       "name": "Pressure Point",
       "characteristics": {
@@ -2895,6 +3383,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Target creature gets +1/+1 until end of turn.\nTarget creature gets +1/+1 until end of turn.\nTarget creature gets +1/+1 until end of turn.",
+        "blocks": [
+          "Target creature gets +1/+1 until end of turn.",
+          "Target creature gets +1/+1 until end of turn.",
+          "Target creature gets +1/+1 until end of turn."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "dd3d4d96-1e88-49e1-8276-7f62c22ad91a",
       "name": "Seeds of Strength",
       "characteristics": {
@@ -2994,6 +3495,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Target creature gets +1/+1 and gains indestructible until end of turn. (Damage and effects that say \"destroy\" don't destroy it.)",
+        "blocks": [
+          "Target creature gets +1/+1 and gains indestructible until end of turn."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "ef29f979-1a6d-47bb-83f5-4679389471da",
       "name": "Mortal's Resolve",
       "characteristics": {
@@ -3067,6 +3579,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "{2}{U}{U}, {T}: Counter target spell.",
+        "blocks": [
+          "{2}{U}{U}, {T}: Counter target spell."
+        ],
+        "activated": [
+          0
+        ],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "f2902dfd-888f-4b02-b8ad-1056f0059fc3",
       "name": "Ertai, Wizard Adept",
       "characteristics": {
@@ -3165,6 +3690,17 @@
       }
     },
     {
+      "source_labels": {
+        "text": "Target creature gains flying until end of turn.",
+        "blocks": [
+          "Target creature gains flying until end of turn."
+        ],
+        "activated": [],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "f7518456-45ed-41d4-bd3c-5aacea28eb35",
       "name": "Jump",
       "characteristics": {
@@ -3233,6 +3769,19 @@
       }
     },
     {
+      "source_labels": {
+        "text": "{U}{U}{U}, {T}: Return target permanent to its owner's hand.",
+        "blocks": [
+          "{U}{U}{U}, {T}: Return target permanent to its owner's hand."
+        ],
+        "activated": [
+          0
+        ],
+        "triggered": [],
+        "mana": [],
+        "statics": [],
+        "spell_modes": []
+      },
       "oracle_id": "fd9b5462-6578-4bf6-8026-23eaf5af3eee",
       "name": "Temporal Adept",
       "characteristics": {
