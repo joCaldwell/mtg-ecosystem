@@ -43,6 +43,39 @@ impl Game {
         Ok((timestamp, next))
     }
 
+    /// CR 301.5/303.4/701.3: type/domain validity only. Exact incarnation,
+    /// battlefield presence and spell targetability belong to the caller. In
+    /// particular, gaining Hexproof/Shroud never ends an existing attachment.
+    pub(super) fn attachment_target_type_valid(
+        &self,
+        source: CardId,
+        target: CardId,
+    ) -> Result<bool, String> {
+        let definition = self.definition(source)?;
+        let kind = if definition
+            .static_abilities
+            .iter()
+            .any(|ability| ability.effect == StaticEffect::ControlEnchantedPermanent)
+        {
+            // Validate the whole narrow source: a malformed control Aura must
+            // not fall back to the legacy creature-only attachment family.
+            let Some(kind) = mtg_contracts::aura_control_target_type(definition) else {
+                return Ok(false);
+            };
+            kind
+        } else if definition
+            .characteristics
+            .subtypes
+            .iter()
+            .any(|s| s == "Equipment" || s == "Aura")
+        {
+            CardKind::Creature
+        } else {
+            return Ok(false);
+        };
+        Ok(self.definition(target)?.characteristics.has_type(kind))
+    }
+
     pub(super) fn validate_attachment_state(&self) -> Result<(), String> {
         let next = self.state.rules.next_attachment_timestamp;
         if next == 0 {
@@ -84,7 +117,7 @@ impl Game {
                     .iter()
                     .any(|s| s == "Equipment" || s == "Aura")
                 || !known_target
-                || self.definition(target.card)?.characteristics.kind != CardKind::Creature
+                || !self.attachment_target_type_valid(o.id.card, target.card)?
             {
                 return Err("snapshot attachment invariant".into());
             }
@@ -227,9 +260,16 @@ impl Game {
             .filter(|o| o.zone == Zone::Battlefield)
         {
             let subtypes = &self.definition(o.id.card)?.characteristics.subtypes;
-            let legal = o
-                .attached_to
-                .is_some_and(|t| t != o.id && self.is_battlefield_creature(t));
+            let legal = match o.attached_to {
+                Some(target) => {
+                    target != o.id
+                        && self.current(target).is_ok_and(|t| {
+                            t.zone == Zone::Battlefield && self.is_live(t.controller)
+                        })
+                        && self.attachment_target_type_valid(o.id.card, target.card)?
+                }
+                None => false,
+            };
             if subtypes == &["Aura"] && !legal {
                 occurrences.push(ProposedEvent::Move {
                     object: o.id,
