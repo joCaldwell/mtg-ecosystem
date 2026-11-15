@@ -281,3 +281,38 @@ fn ramos_m3c_instant_cascade_extra_keyword_arguments_and_battlefield_triggers_re
         );
     }
 }
+
+#[test]
+fn ramos_m3c_compound_grants_reject_unconsumed_sentence_conditions() {
+    let blow: serde_json::Value = serde_json::from_str(BLOW).unwrap();
+    let condition = blow["faces"][0]["result"]["abilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|a| a["effects"].as_array())
+        .flatten()
+        .find_map(|sentence| sentence.get("condition"))
+        .unwrap()
+        .clone();
+    for raw in [
+        include_str!("../../../tests/fixtures/058a8475-649f-433a-b258-42bc03bf40ba.json"),
+        include_str!("../../../tests/fixtures/0cd28580-d718-4d0b-96e3-a836c2911c27.json"),
+    ] {
+        lower(raw).validate().unwrap();
+        for variant in 0..3 {
+            let changed = tests::changed_source(raw, |r| {
+                let sentence = &mut r["faces"][0]["result"]["abilities"][0]["effects"][0];
+                if variant != 1 {
+                    sentence["conditionKind"] = "if".into();
+                }
+                if variant != 0 {
+                    sentence["condition"] = condition.clone();
+                }
+            });
+            assert!(matches!(
+                compile(MANIFEST, &changed),
+                CompileResult::Unsupported { .. }
+            ));
+        }
+    }
+}

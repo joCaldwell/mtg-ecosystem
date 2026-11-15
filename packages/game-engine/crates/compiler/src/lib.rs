@@ -1778,7 +1778,14 @@ fn append_spell_effects(
         && program.additional_sacrifice.is_none()
         && program.targets.is_empty()
         && program.instructions.is_empty()
-        && let [Sentence { bindings, steps }] = effects
+        && let [
+            Sentence {
+                condition: None,
+                condition_kind: None,
+                bindings,
+                steps,
+            },
+        ] = effects
         && bindings.is_empty()
         && let [
             Step::Pump {
@@ -1831,7 +1838,14 @@ fn append_spell_effects(
         && program.additional_sacrifice.is_none()
         && program.targets.is_empty()
         && program.instructions.is_empty()
-        && let [Sentence { bindings, steps }] = effects
+        && let [
+            Sentence {
+                condition: None,
+                condition_kind: None,
+                bindings,
+                steps,
+            },
+        ] = effects
         && bindings.is_empty()
         && let [
             Step::Pump {
