@@ -30,7 +30,13 @@ fn prepared(rows: &[Row]) -> Prepared {
             .iter()
             .find(|d| d.name == name)
             .unwrap();
-        assert_eq!(mtg_contracts::aura_control_target_type(d), Some(kind));
+        let domain = match kind {
+            CardKind::Creature => mtg_contracts::AuraControlDomain::Creature,
+            CardKind::Artifact => mtg_contracts::AuraControlDomain::Artifact,
+            CardKind::Land => mtg_contracts::AuraControlDomain::Land,
+            _ => panic!("unexpected typed Aura fixture domain"),
+        };
+        assert_eq!(mtg_contracts::aura_control_domain(d), Some(domain));
         assert!(mtg_contracts::aura_control_source(d));
         assert!(d.capabilities.contains(&Capability::AuraControlV1));
         assert_eq!(d.provenance.source_index, index);

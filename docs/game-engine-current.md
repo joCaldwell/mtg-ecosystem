@@ -40,10 +40,10 @@ granted cascades retain event-time identity/control and private recovery. Its
 27/22, IR1. First-cast history and exact-target/profile/host/SDK/search admission
 remain open; historical client26/21 acceptance stays separate.
 
-Continuous Aura control shares one typed operation for creatures, artifacts and
-lands. Attachment legality, semantic timestamps and controller reconciliation are
-shared; artifact creatures and artifact lands retain all their types. General
-permanent-control dependencies and type-changing sources remain unsupported.
+Continuous Aura control shares one operation for creatures, artifacts, lands and
+general permanents. Control-source dependencies use scratch, apply-once ordering;
+attachment legality and timestamps remain shared. Multitype targets retain all
+types. Structural attachment cycles and type-changing sources remain unsupported.
 
 Product setup embeds a qualified sample; standalone client acceptance covers
 joining and opening choices. Full decisions, automated launch, account-to-seat
@@ -62,6 +62,7 @@ The platform baseline was `c62777b`; acceptance never transfers to later source:
 | Schema-1 reset | Regenerated 29 active pools, 1,357 definitions unchanged; focused checks only |
 | Ramos combined M4c | Source `f6c9d7c7`; exact producer/settings proof in the evidence guide; focused qualification only |
 | Independent typed Aura main | Source `f3326dcd`; 605 distinct Rust, 3,021 schema, 841 rows; 26/21; separate from Imoti and consumer acceptance |
+| General Aura-control dependencies | Source `aa28e9b7a39d601a8a9a8bb4fbde9484fe20fc1f`; 843 rows; 550 distinct Rust tests, 3,190 probes; explicit private-test source bridge, IR1/26/21; consumers unqualified |
 | Client/hosting consumers | Retain their own exact producer/schema/catalog/build qualification, separate from current engine HEAD |
 
 [The evidence guide](game-engine-evidence.md) retains exact source/digest and proof

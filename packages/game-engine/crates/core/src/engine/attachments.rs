@@ -52,28 +52,26 @@ impl Game {
         target: CardId,
     ) -> Result<bool, String> {
         let definition = self.definition(source)?;
-        let kind = if definition
+        let target_characteristics = &self.definition(target)?.characteristics;
+        if definition
             .static_abilities
             .iter()
             .any(|ability| ability.effect == StaticEffect::ControlEnchantedPermanent)
         {
             // Validate the whole narrow source: a malformed control Aura must
             // not fall back to the legacy creature-only attachment family.
-            let Some(kind) = mtg_contracts::aura_control_target_type(definition) else {
-                return Ok(false);
-            };
-            kind
+            Ok(mtg_contracts::aura_control_domain(definition)
+                .is_some_and(|domain| domain.accepts(target_characteristics)))
         } else if definition
             .characteristics
             .subtypes
             .iter()
             .any(|s| s == "Equipment" || s == "Aura")
         {
-            CardKind::Creature
+            Ok(target_characteristics.has_type(CardKind::Creature))
         } else {
-            return Ok(false);
-        };
-        Ok(self.definition(target)?.characteristics.has_type(kind))
+            Ok(false)
+        }
     }
 
     pub(super) fn validate_attachment_state(&self) -> Result<(), String> {

@@ -1095,3 +1095,7 @@ mod typed_aura_control_tests;
 #[cfg(test)]
 #[path = "m4c_control_tests.rs"]
 mod m4c_control_tests;
+
+#[cfg(test)]
+#[path = "general_aura_control_tests.rs"]
+mod general_aura_control_tests;

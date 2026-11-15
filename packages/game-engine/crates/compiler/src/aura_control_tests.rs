@@ -6,6 +6,8 @@ use super::*;
 use serde_json::{Value, json};
 
 const HEADER: &str = include_str!("../../../tests/fixtures/archive-manifest-current.json");
+const CONFISCATE: &str =
+    include_str!("../../../tests/fixtures/d599a38c-7719-443e-bb59-55bd43a8fee6.json");
 const MIND: &str =
     include_str!("../../../tests/fixtures/5912546a-acc2-448c-b042-64bdac5ec129.json");
 const SPIRIT: &str =
@@ -542,9 +544,19 @@ const SEAT: &str =
     include_str!("../../../tests/fixtures/39451b4d-cd7a-40da-b457-cb51b609173f.json");
 
 #[test]
-fn aura_control_generalized_five_complete_sources_pin_provenance_and_typed_bindings() {
+fn aura_control_generalized_six_complete_sources_pin_provenance_and_typed_bindings() {
     let accepted = accepted_manifest(HEADER).unwrap();
     for (raw, name, oracle, record_hash, source_hash, ast_hash, binding_hash, index) in [
+        (
+            CONFISCATE,
+            "Confiscate",
+            "d599a38c-7719-443e-bb59-55bd43a8fee6",
+            "0f1e193c598d5f453cc11ded4c44dc40e8909d34e21d0ed0aba2dd518a2c202f",
+            "375e3637f506ab95097a82ada04b035d473ffb0eb379862b20fe24cb38b738f1",
+            "72fac74fa985a392fdfb56a560a899cec7c0f832295284136f3a403d8441b871",
+            "f84c560feeb7b65fb2270701ec8ad18b56bf3cec0e68f2c8c67e6d0645ea0dfd",
+            32249,
+        ),
         (
             STEAL,
             "Steal Artifact",
@@ -636,7 +648,15 @@ fn aura_control_generalized_artifact_land_bind_exact_targets_costs_and_control_u
                 colored: colors
             }
         );
-        assert_eq!(aura_control_target_type(&d), Some(kind));
+        assert_eq!(
+            aura_control_domain(&d),
+            Some(match kind {
+                CardKind::Creature => AuraControlDomain::Creature,
+                CardKind::Artifact => AuraControlDomain::Artifact,
+                CardKind::Land => AuraControlDomain::Land,
+                _ => unreachable!(),
+            })
+        );
         assert_eq!(
             d.static_abilities,
             vec![StaticAbility {
@@ -685,8 +705,8 @@ fn aura_control_generalized_artifact_land_bind_exact_targets_costs_and_control_u
     }
     for raw in [MIND, MAGIC, SPIRIT, EMBRACE] {
         assert_eq!(
-            aura_control_target_type(&lowered(raw)),
-            Some(CardKind::Creature)
+            aura_control_domain(&lowered(raw)),
+            Some(AuraControlDomain::Creature)
         );
     }
 }
@@ -716,7 +736,7 @@ fn aura_control_supplemental_multitype_mana_sources_use_existing_complete_loweri
             }]
         );
         assert!(d.activated.is_empty() && d.triggered.is_empty() && d.static_abilities.is_empty());
-        assert_eq!(aura_control_target_type(&d), None);
+        assert_eq!(aura_control_domain(&d), None);
         if kind == CardKind::Creature {
             assert_eq!(d.characteristics.power, Some(1.into()));
             assert_eq!(d.characteristics.toughness, Some(1.into()));
@@ -736,7 +756,7 @@ fn aura_control_supplemental_multitype_mana_sources_use_existing_complete_loweri
 
 #[test]
 fn aura_control_generalized_reidentified_sources_do_not_dispatch_by_card_identity() {
-    for raw in [STEAL, ANNEX, CONQUER] {
+    for raw in [STEAL, ANNEX, CONQUER, CONFISCATE] {
         let mutant = changed_from(raw, |r| {
             r["oracleIdentity"] = json!("synthetic-generalized-control");
             r["source"]["oracle_id"] = json!("synthetic-generalized-control");
@@ -747,16 +767,13 @@ fn aura_control_generalized_reidentified_sources_do_not_dispatch_by_card_identit
         });
         let d = lowered(&mutant);
         assert_eq!(d.name, "Synthetic Aura");
-        assert_eq!(
-            aura_control_target_type(&d),
-            aura_control_target_type(&lowered(raw))
-        );
+        assert_eq!(aura_control_domain(&d), aura_control_domain(&lowered(raw)));
     }
 }
 
 #[test]
 fn aura_control_generalized_rejects_wrong_noun_filter_extra_operands_and_null() {
-    for raw in [STEAL, ANNEX, CONQUER] {
+    for raw in [STEAL, ANNEX, CONQUER, CONFISCATE] {
         for noun in [
             "creature",
             "artifact",
@@ -777,7 +794,6 @@ fn aura_control_generalized_rejects_wrong_noun_filter_extra_operands_and_null() 
             json!({"types":[]}),
             json!({"types":["artifact","land"]}),
             json!({"types":["enchantment"]}),
-            json!({"cls":"permanent"}),
             json!({"types":["land"],"control":"you"}),
             json!({"types":["artifact"],"status":["tapped"]}),
             Value::Null,
@@ -786,6 +802,14 @@ fn aura_control_generalized_rejects_wrong_noun_filter_extra_operands_and_null() 
                 r["faces"][0]["result"]["abilities"][0]["keywords"][0]["filter"] = filter
             }));
         }
+        let mismatch = if raw == CONFISCATE {
+            json!({"types":["artifact"]})
+        } else {
+            json!({"cls":"permanent"})
+        };
+        rejected(&changed_from(raw, |r| {
+            r["faces"][0]["result"]["abilities"][0]["keywords"][0]["filter"] = mismatch;
+        }));
         for (field, value) in [
             ("who", Value::Null),
             ("what", Value::Null),
@@ -818,7 +842,7 @@ fn aura_control_generalized_rejects_wrong_noun_filter_extra_operands_and_null() 
 
 #[test]
 fn aura_control_generalized_rejects_unrepresented_source_and_noncreature_modifiers() {
-    for raw in [STEAL, ANNEX, CONQUER] {
+    for raw in [STEAL, ANNEX, CONQUER, CONFISCATE] {
         rejected_complete_source(&changed_from(raw, |r| {
             let old = r["faces"][0]["result"]["lines"][1]["text"]
                 .as_str()
@@ -866,7 +890,7 @@ fn aura_control_generalized_rejects_unrepresented_source_and_noncreature_modifie
 
 #[test]
 fn aura_control_generalized_rejects_line_aggregate_and_unaccounted_block_mismatches() {
-    for raw in [STEAL, ANNEX, CONQUER] {
+    for raw in [STEAL, ANNEX, CONQUER, CONFISCATE] {
         for mutant in [
             tests::changed_source(raw, |r| {
                 r["faces"][0]["result"]["lines"][1]["ability"]["effect"]["who"]["player"] =
@@ -891,5 +915,185 @@ fn aura_control_generalized_rejects_line_aggregate_and_unaccounted_block_mismatc
                 "{result:?}"
             );
         }
+    }
+}
+
+#[test]
+fn aura_control_confiscate_complete_general_lowering_keeps_explicit_filter_and_labels() {
+    let record: Value = strict_read(CONFISCATE).unwrap();
+    assert_eq!(
+        record["source"]["oracle_text"],
+        "Enchant permanent\nYou control enchanted permanent."
+    );
+    assert_eq!(
+        record["faces"][0]["result"]["abilities"][0]["keywords"][0]["filter"],
+        json!({"cls":"permanent"})
+    );
+    let d = lowered(CONFISCATE);
+    assert_eq!(aura_control_domain(&d), Some(AuraControlDomain::Permanent));
+    assert!(aura_control_source(&d));
+    assert_eq!(
+        d.characteristics.mana_cost,
+        ManaCost {
+            generic: 4.into(),
+            colored: vec![Color::U, Color::U]
+        }
+    );
+    assert_eq!(
+        d.static_abilities,
+        vec![StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::ControlEnchantedPermanent
+        }]
+    );
+    let p = d.spell.as_ref().unwrap();
+    assert_eq!(
+        p.targets,
+        vec![TargetSpec {
+            slot: 0,
+            selection_id: "enchanted-permanent".into(),
+            chooser: Chooser::Controller,
+            stage: EvaluationStage::Announcement,
+            domain: TargetDomain::BattlefieldPermanent,
+            filter: Some(PermanentFilter {
+                types: vec![],
+                non_types: vec![],
+                non_colors: vec![],
+                opponent: false,
+                tapped: false
+            })
+        }]
+    );
+    assert!(p.instructions.is_empty() && p.modes.is_empty() && p.additional_sacrifice.is_none());
+    assert_eq!(
+        d.capabilities,
+        BTreeSet::from([
+            Capability::NormalLayoutV1,
+            Capability::CastEnchantmentV1,
+            Capability::PermanentRemovalV1,
+            Capability::AttachmentsV1,
+            Capability::AuraControlV1
+        ])
+    );
+    let labels = d.source_labels.as_ref().unwrap();
+    assert_eq!(
+        labels.blocks,
+        vec!["Enchant permanent", "You control enchanted permanent."]
+    );
+    let mut descriptive = d.clone();
+    descriptive.source_labels = None;
+    assert_eq!(
+        aura_control_domain(&descriptive),
+        Some(AuraControlDomain::Permanent)
+    );
+    descriptive.validate().unwrap();
+    assert_eq!(descriptive.requirements(), d.requirements());
+}
+
+#[test]
+fn aura_control_confiscate_rejects_nonexact_filter_and_missing_null_or_extra_clauses() {
+    for filter in [
+        json!({}),
+        json!({"types":[]}),
+        json!({"cls":"permanent","types":[]}),
+        json!({"cls":"permanent","control":"you"}),
+        json!({"cls":"permanent","status":[]}),
+        json!({"cls":"permanent","extra":null}),
+        json!({"cls":null}),
+        json!({"cls":["permanent"]}),
+        Value::Null,
+    ] {
+        rejected(&changed_from(CONFISCATE, |r| {
+            r["faces"][0]["result"]["abilities"][0]["keywords"][0]["filter"] = filter;
+        }));
+    }
+    for (path, field) in [
+        ("/faces/0/result/abilities/0/keywords/0", "filter"),
+        ("/faces/0/result/abilities/1", "effect"),
+        ("/faces/0/result/abilities/1/effect", "who"),
+        ("/faces/0/result/abilities/1/effect", "what"),
+        ("/faces/0/result/abilities/1/effect/who", "player"),
+        ("/faces/0/result/abilities/1/effect/what", "noun"),
+        ("/faces/0/result/abilities/1/effect/what", "ref"),
+    ] {
+        for null in [false, true] {
+            rejected(&changed_from(CONFISCATE, |r| {
+                let obj = r.pointer_mut(path).unwrap().as_object_mut().unwrap();
+                if null {
+                    obj.insert(field.into(), Value::Null);
+                } else {
+                    obj.remove(field);
+                }
+            }));
+        }
+    }
+    for (path, field, value) in [
+        ("/faces/0/result/abilities/0/keywords/0", "cost", json!([])),
+        (
+            "/faces/0/result/abilities/0/keywords/0",
+            "cost",
+            Value::Null,
+        ),
+        ("/faces/0/result/abilities/1", "condition", Value::Null),
+        ("/faces/0/result/abilities/1", "costs", json!([])),
+        ("/faces/0/result/abilities/1", "effects", json!([])),
+        (
+            "/faces/0/result/abilities/1/effect/who",
+            "relation",
+            json!("opponent"),
+        ),
+        (
+            "/faces/0/result/abilities/1/effect/what",
+            "filter",
+            json!({}),
+        ),
+    ] {
+        rejected(&changed_from(CONFISCATE, |r| {
+            r.pointer_mut(path).unwrap()[field] = value;
+        }));
+    }
+    let exact: Value = strict_read(CONFISCATE).unwrap();
+    let rancor: Value = strict_read(include_str!("../../../tests/fixtures/rancor.json")).unwrap();
+    for (text, ability) in [
+        (
+            "You control enchanted permanent.",
+            exact["faces"][0]["result"]["abilities"][1].clone(),
+        ),
+        (
+            "Flying",
+            json!({"kind":"keywords","keywords":[{"keyword":"flying"}]}),
+        ),
+        (
+            "Draw a card.",
+            json!({"kind":"spell","effects":[{"steps":[{"effect":"draw","who":{"player":"you"},"amount":{"amount":"fixed","value":1}}]}]}),
+        ),
+        (
+            "Choose one —\n• Draw a card.",
+            json!({"kind":"spell","effects":[{"steps":[{"effect":"modal","count":{"exactly":1},"options":[{"effects":[{"steps":[{"effect":"draw","who":{"player":"you"},"amount":{"amount":"fixed","value":1}}]}]}]}]}]}),
+        ),
+        (
+            "As an additional cost to cast this spell, sacrifice a creature.",
+            json!({"kind":"additional-cost","costs":[{"cost":"sacrifice","what":{"ref":"a","filter":{"types":["creature"]}}}]}),
+        ),
+        (
+            "When this Aura is put into a graveyard from the battlefield, return it to its owner's hand.",
+            rancor["faces"][0]["result"]["abilities"][2].clone(),
+        ),
+    ] {
+        serde_json::from_value::<Ability>(ability.clone()).unwrap();
+        rejected_complete_source(&changed_from(CONFISCATE, |r| {
+            r["source"]["oracle_text"] = json!(format!(
+                "{}\n{text}",
+                r["source"]["oracle_text"].as_str().unwrap()
+            ));
+            r["faces"][0]["result"]["abilities"]
+                .as_array_mut()
+                .unwrap()
+                .push(ability.clone());
+            r["faces"][0]["result"]["lines"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"text":text,"ok":true,"ability":ability}));
+        }));
     }
 }

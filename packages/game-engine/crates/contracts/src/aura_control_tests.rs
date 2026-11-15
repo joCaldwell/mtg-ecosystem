@@ -348,10 +348,18 @@ pub(super) fn typed_aura(kind: CardKind) -> Definition {
 }
 
 #[test]
-fn aura_control_target_type_is_exact_nonrecursive_and_capability_closed() {
+fn aura_control_domain_is_exact_nonrecursive_and_capability_closed() {
     for kind in [CardKind::Creature, CardKind::Artifact, CardKind::Land] {
         let mut d = typed_aura(kind);
-        assert_eq!(aura_control_target_type(&d), Some(kind));
+        assert_eq!(
+            aura_control_domain(&d),
+            Some(match kind {
+                CardKind::Creature => AuraControlDomain::Creature,
+                CardKind::Artifact => AuraControlDomain::Artifact,
+                CardKind::Land => AuraControlDomain::Land,
+                _ => unreachable!(),
+            })
+        );
         assert!(aura_control_source(&d));
         d.validate().unwrap();
         let target_cap = if kind == CardKind::Creature {
@@ -372,7 +380,15 @@ fn aura_control_target_type_is_exact_nonrecursive_and_capability_closed() {
         for cap in d.requirements() {
             let mut missing = d.clone();
             missing.capabilities.remove(&cap);
-            assert_eq!(aura_control_target_type(&missing), Some(kind));
+            assert_eq!(
+                aura_control_domain(&missing),
+                Some(match kind {
+                    CardKind::Creature => AuraControlDomain::Creature,
+                    CardKind::Artifact => AuraControlDomain::Artifact,
+                    CardKind::Land => AuraControlDomain::Land,
+                    _ => unreachable!(),
+                })
+            );
             assert!(missing.validate().is_err(), "missing {cap:?} on {kind:?}");
         }
         d.capabilities.insert(if kind == CardKind::Creature {
@@ -385,7 +401,7 @@ fn aura_control_target_type_is_exact_nonrecursive_and_capability_closed() {
 }
 
 #[test]
-fn aura_control_artifact_land_reject_all_filter_and_composition_extensions() {
+fn aura_control_noncreature_domains_reject_all_filter_and_composition_extensions() {
     type Mutation = fn(&mut Definition);
     let mutations: &[(&str, Mutation)] = &[
         ("absent filter", |d| {
@@ -393,14 +409,6 @@ fn aura_control_artifact_land_reject_all_filter_and_composition_extensions() {
         }),
         ("creature domain with permanent filter", |d| {
             d.spell.as_mut().unwrap().targets[0].domain = TargetDomain::BattlefieldCreature
-        }),
-        ("empty type", |d| {
-            d.spell.as_mut().unwrap().targets[0]
-                .filter
-                .as_mut()
-                .unwrap()
-                .types
-                .clear()
         }),
         ("union type", |d| {
             d.spell.as_mut().unwrap().targets[0]
@@ -415,7 +423,7 @@ fn aura_control_artifact_land_reject_all_filter_and_composition_extensions() {
                 .filter
                 .as_mut()
                 .unwrap();
-            f.types.push(f.types[0]);
+            f.types = vec![CardKind::Artifact, CardKind::Artifact];
         }),
         ("enchantment", |d| {
             d.spell.as_mut().unwrap().targets[0]
@@ -488,12 +496,17 @@ fn aura_control_artifact_land_reject_all_filter_and_composition_extensions() {
             d.static_abilities[0].functioning_zone = FunctioningZone::Stack
         }),
     ];
-    for kind in [CardKind::Artifact, CardKind::Land] {
+    for original in [
+        typed_aura(CardKind::Artifact),
+        typed_aura(CardKind::Land),
+        general_aura(),
+    ] {
+        let kind = aura_control_domain(&original).unwrap();
         for (name, mutate) in mutations {
-            let mut d = typed_aura(kind);
+            let mut d = original.clone();
             mutate(&mut d);
             d.capabilities = d.requirements();
-            assert_eq!(aura_control_target_type(&d), None, "{kind:?}: {name}");
+            assert_eq!(aura_control_domain(&d), None, "{kind:?}: {name}");
             assert!(!aura_control_source(&d));
             assert!(d.validate().is_err(), "{kind:?}: {name}");
         }
@@ -514,14 +527,17 @@ fn aura_control_new_unit_serialization_rejects_old_internal_ir() {
     let shapes = schema["$defs"]["AuraControlDefinition"]["oneOf"]
         .as_array()
         .unwrap();
-    assert_eq!(shapes.len(), 3);
-    for (i, kind) in [CardKind::Artifact, CardKind::Land].into_iter().enumerate() {
+    assert_eq!(shapes.len(), 4);
+    for (i, types) in [vec![CardKind::Artifact], vec![CardKind::Land], vec![]]
+        .into_iter()
+        .enumerate()
+    {
         let props = &shapes[i + 1]["properties"];
         assert_eq!(props["static_abilities"]["maxItems"], 1);
         assert_eq!(
             props["spell"]["properties"]["targets"]["items"]["properties"]["filter"]["properties"]
                 ["types"]["const"],
-            serde_json::json!([kind])
+            serde_json::json!(types)
         );
         assert!(
             props["capabilities"]["items"]["enum"]
@@ -540,8 +556,7 @@ fn aura_control_new_unit_serialization_rejects_old_internal_ir() {
 
 #[test]
 fn aura_control_typed_shapes_exclude_optional_cost_and_conditional_draw() {
-    for kind in [CardKind::Creature, CardKind::Artifact, CardKind::Land] {
-        let baseline = typed_aura(kind);
+    for baseline in [typed_aura(CardKind::Creature), typed_aura(CardKind::Artifact), typed_aura(CardKind::Land), general_aura()] {
         baseline.validate().unwrap();
         for variant in 0..3 {
             let mut invalid = baseline.clone();
@@ -571,10 +586,166 @@ fn aura_control_typed_shapes_exclude_optional_cost_and_conditional_draw() {
                         source_block: 1,
                     });
             }
-            assert_eq!(aura_control_target_type(&invalid), None);
+            assert_eq!(aura_control_domain(&invalid), None);
             assert!(!aura_control_source(&invalid));
             invalid.capabilities = invalid.requirements();
             assert!(invalid.validate().is_err());
         }
     }
+}
+
+pub(super) fn general_aura() -> Definition {
+    let mut d = typed_aura(CardKind::Artifact);
+    d.spell.as_mut().unwrap().targets[0]
+        .filter
+        .as_mut()
+        .unwrap()
+        .types
+        .clear();
+    d
+}
+
+#[test]
+fn aura_control_general_explicit_empty_filter_and_domain_membership() {
+    let d = general_aura();
+    assert_eq!(aura_control_domain(&d), Some(AuraControlDomain::Permanent));
+    assert!(aura_control_source(&d));
+    d.validate().unwrap();
+    assert_eq!(d.capabilities, typed_aura(CardKind::Artifact).capabilities);
+    for kind in [
+        CardKind::Creature,
+        CardKind::Artifact,
+        CardKind::Land,
+        CardKind::Enchantment,
+        CardKind::Instant,
+        CardKind::Sorcery,
+    ] {
+        let mut c = d.characteristics.clone();
+        c.kind = kind;
+        c.additional_types.clear();
+        assert_eq!(
+            AuraControlDomain::Permanent.accepts(&c),
+            !matches!(kind, CardKind::Instant | CardKind::Sorcery)
+        );
+        for (domain, expected) in [
+            (AuraControlDomain::Creature, CardKind::Creature),
+            (AuraControlDomain::Artifact, CardKind::Artifact),
+            (AuraControlDomain::Land, CardKind::Land),
+        ] {
+            assert_eq!(domain.accepts(&c), kind == expected);
+        }
+    }
+    for kind in [CardKind::Creature, CardKind::Land] {
+        let mut c = d.characteristics.clone();
+        c.kind = kind;
+        c.additional_types = vec![CardKind::Artifact];
+        assert!(AuraControlDomain::Artifact.accepts(&c));
+        assert!(AuraControlDomain::Permanent.accepts(&c));
+    }
+}
+
+#[test]
+fn aura_control_general_keeps_complete_program_capability_and_metadata_fences() {
+    let original = general_aura();
+    for (name, mutate) in [
+        (
+            "instruction",
+            (|d: &mut Definition| {
+                d.spell
+                    .as_mut()
+                    .unwrap()
+                    .instructions
+                    .push(Instruction::DrawCards {
+                        count: 1.into(),
+                        recipient: None,
+                        source_block: 2,
+                    })
+            }) as fn(&mut Definition),
+        ),
+        ("mode", |d| {
+            let p = d.spell.as_ref().unwrap().clone();
+            d.spell
+                .as_mut()
+                .unwrap()
+                .modes
+                .push(SpellMode { program: p });
+        }),
+        ("cost", |d| {
+            d.spell.as_mut().unwrap().additional_sacrifice = Some(SacrificeFilter {
+                types: vec![CardKind::Artifact],
+                subtypes: vec![],
+            })
+        }),
+        ("timing", |d| {
+            d.spell.as_mut().unwrap().timing = SpellTiming::Instant
+        }),
+        ("resolution", |d| {
+            d.spell.as_mut().unwrap().resolution = SpellResolution::Instructions
+        }),
+        ("spell zone", |d| {
+            d.spell.as_mut().unwrap().functioning_zone = FunctioningZone::Battlefield
+        }),
+        ("keyword", |d| d.keywords.push(KeywordAbility::Flying)),
+        ("variable cost", |d| d.x_mana_cost = true),
+        ("intrinsic zone", |d| {
+            d.intrinsic_zone = Some(FunctioningZone::Battlefield)
+        }),
+        ("snow", |d| d.characteristics.snow = true),
+        ("legendary", |d| d.characteristics.legendary = true),
+        ("additional type", |d| {
+            d.characteristics.additional_types.push(CardKind::Artifact)
+        }),
+    ] {
+        let mut d = original.clone();
+        mutate(&mut d);
+        d.capabilities = d.requirements();
+        assert_eq!(aura_control_domain(&d), None, "{name}");
+        assert!(d.validate().is_err(), "{name}");
+    }
+    for cap in &original.capabilities {
+        let mut d = original.clone();
+        d.capabilities.remove(cap);
+        assert_eq!(aura_control_domain(&d), Some(AuraControlDomain::Permanent));
+        assert!(d.validate().is_err(), "missing {cap:?}");
+    }
+    let mut spare = original.clone();
+    spare.capabilities.insert(Capability::CreatureTargetV1);
+    assert!(spare.validate().is_err());
+    let serialized = serde_json::to_value(&original).unwrap();
+    for value in [serde_json::Value::Null, serde_json::json!({})] {
+        let mut bad = serialized.clone();
+        bad["spell"]["targets"][0]["filter"] = value;
+        assert!(serde_json::from_value::<Definition>(bad).map_or(true, |d| d.validate().is_err()));
+    }
+    let mut missing = serialized.clone();
+    missing["spell"]["targets"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("filter");
+    assert!(serde_json::from_value::<Definition>(missing).map_or(true, |d| d.validate().is_err()));
+    for field in ["types", "non_types", "non_colors", "opponent"] {
+        for null in [false, true] {
+            let mut bad = serialized.clone();
+            let obj = bad["spell"]["targets"][0]["filter"]
+                .as_object_mut()
+                .unwrap();
+            if null {
+                obj.insert(field.into(), serde_json::Value::Null);
+            } else {
+                obj.remove(field);
+            }
+            assert!(
+                serde_json::from_value::<Definition>(bad).is_err(),
+                "{field}: null={null}"
+            );
+        }
+    }
+    let mut metadata = original.clone();
+    metadata.source_labels = None;
+    metadata.validate().unwrap();
+    assert_eq!(metadata.requirements(), original.requirements());
+    assert_eq!(
+        aura_control_domain(&metadata),
+        Some(AuraControlDomain::Permanent)
+    );
 }
