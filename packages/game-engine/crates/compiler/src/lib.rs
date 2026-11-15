@@ -934,6 +934,7 @@ enum AuraControlTarget {
     Creature,
     Artifact,
     Land,
+    Permanent,
 }
 impl AuraControlTarget {
     fn noun(self) -> &'static str {
@@ -941,19 +942,28 @@ impl AuraControlTarget {
             Self::Creature => "creature",
             Self::Artifact => "artifact",
             Self::Land => "land",
+            Self::Permanent => "permanent",
         }
     }
-    fn kind(self) -> CardKind {
+    fn kind(self) -> Option<CardKind> {
         match self {
-            Self::Creature => CardKind::Creature,
-            Self::Artifact => CardKind::Artifact,
-            Self::Land => CardKind::Land,
+            Self::Creature => Some(CardKind::Creature),
+            Self::Artifact => Some(CardKind::Artifact),
+            Self::Land => Some(CardKind::Land),
+            Self::Permanent => None,
         }
     }
     fn from_filter(filter: &Option<serde_json::Value>) -> Option<Self> {
-        [Self::Creature, Self::Artifact, Self::Land]
+        [Self::Creature, Self::Artifact, Self::Land, Self::Permanent]
             .into_iter()
-            .find(|t| *filter == Some(serde_json::json!({"types":[t.noun()]})))
+            .find(|t| {
+                let exact = if *t == Self::Permanent {
+                    serde_json::json!({"cls":"permanent"})
+                } else {
+                    serde_json::json!({"types":[t.noun()]})
+                };
+                *filter == Some(exact)
+            })
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -1451,7 +1461,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                     stage: EvaluationStage::Announcement,
                                     filter: (target != AuraControlTarget::Creature).then(|| {
                                         PermanentFilter {
-                                            types: vec![target.kind()],
+                                            types: target.kind().into_iter().collect(),
                                             non_types: vec![],
                                             non_colors: vec![],
                                             opponent: false,
