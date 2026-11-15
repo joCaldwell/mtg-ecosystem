@@ -3,7 +3,48 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { chromium } from "playwright-core";
-import { ObserverAudit, finishOwnedChild, deadline, discoverWithRateRecovery, waitForUiRead, readCooldownPending, boundedRetryAfter } from "./product-session-safety.ts";
+import { prepareCommand, parsePreparedCommand } from "@multiverse/game-server-sdk";
+import { ObserverAudit, SubmissionAudit, finishOwnedChild, deadline, discoverWithRateRecovery, waitForUiRead, readCooldownPending, boundedRetryAfter } from "./product-session-safety.ts";
+
+test("observed submit429/execution404 permits only the saved SDK bytes and resolves once after consumed", () => {
+  const command = prepareCommand({ protocol_version: 1, command_id: "a".repeat(32), expected_revision: "7",
+    command: { kind: "decision", token: "v0-d0", response: { response: "finish_mana", undo_mana: true } } });
+  const original = { revision: "7", token: "v0-d0", binding: { match: "private-fixture", seat: "0" }, response: { response: "finish_mana", undo_mana: true } };
+  const ledger = new SubmissionAudit<typeof original>();
+  const id = command.envelope.command_id;
+  assert.equal(ledger.attempt(id, command.exactBody, original).replay, false);
+  original.token = "must-not-replace-original";
+  ledger.rateLimited(id, 10);
+  assert.throws(() => ledger.resolve(id), /unproven_command_resolution/);
+  ledger.missing(id); // Missing is permission for identical delivery, never settlement.
+  assert.equal(ledger.resolutions, 0); assert.equal(ledger.active, id);
+  const replay = ledger.attempt(id, command.exactBody);
+  assert.equal(replay.replay, true); assert.equal(replay.original.token, "v0-d0");
+  assert.equal(parsePreparedCommand(command.exactBody).envelope.expected_revision, replay.original.revision);
+  assert.deepEqual(replay.original.response, { response: "finish_mana", undo_mana: true });
+  assert.deepEqual(replay.original.binding, { match: "private-fixture", seat: "0" });
+  ledger.accepted(id); assert.throws(() => ledger.resolve(id), /unproven_command_resolution/);
+  ledger.consumed(id); ledger.consumed(id); ledger.resolve(id);
+  assert.equal(ledger.records.size, 1); assert.equal(ledger.attempts, 2); assert.equal(ledger.replays, 1);
+  assert.equal(ledger.resolutions, 1); assert.equal(ledger.recovered, 1); assert.equal(ledger.active, null);
+  assert.throws(() => ledger.resolve(id), /unproven_command_resolution/);
+});
+
+test("submission replay rejects changed bytes/ID, missing causal evidence and post-resolution duplicates", () => {
+  for (const fault of ["changed_bytes", "new_id", "no429", "no404", "new_intent", "reused404", "consumed"]) {
+    const ledger = new SubmissionAudit<{ token: string }>(); ledger.attempt("original", "exact-body", { token: "original-context" });
+    if (fault !== "no429") ledger.rateLimited("original", 0);
+    if (fault !== "no404") ledger.missing("original");
+    if (fault === "reused404") ledger.attempt("original", "exact-body");
+    if (fault === "consumed") { ledger.accepted("original"); ledger.consumed("original"); ledger.resolve("original"); }
+    assert.throws(() => ledger.attempt(fault === "new_id" ? "replacement" : "original",
+      fault === "changed_bytes" ? "different-context-or-payload" : "exact-body", fault === "new_intent" || fault === "new_id" ? { token: "new" } : undefined));
+  }
+  const bounded = new SubmissionAudit<object>(); bounded.attempt("id", "bytes", {});
+  for (let attempt = 1; attempt < 5; attempt++) { bounded.rateLimited("id", 0); bounded.missing("id"); bounded.attempt("id", "bytes"); }
+  bounded.rateLimited("id", 0); bounded.missing("id");
+  assert.throws(() => bounded.attempt("id", "bytes"), /submission_attempt_bound/);
+});
 
 const freshStaleCounts = () => ({ native: 0, local: 0, started: 0, ready: 0, freshGenerations: 0,
   contextChanges: 0, tokenChanges: 0, cursorChanges: 0, maxClicks: 0, exhausted: 0 });

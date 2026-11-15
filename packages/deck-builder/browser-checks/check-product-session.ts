@@ -9,7 +9,7 @@ import { chromium, firefox, type Page, type BrowserContext, type Request } from 
 import type { GameRecord } from "../src/contracts.ts";
 import type { ActionBeginning, ActionInitiation, Observation, PlayerResponse, SeatBootstrap, RulesResult } from "@multiverse/game-server-sdk";
 import { check, completeResponse, fileHash, repository, verifyInputs, OBSERVATION_VERSION, type Inputs } from "./lib/product-session-fixture.ts";
-import { ObserverAudit, finishOwnedChild, discoverWithRateRecovery, waitForUiRead, readCooldownPending, boundedRetryAfter } from "./lib/product-session-safety.ts";
+import { ObserverAudit, SubmissionAudit, finishOwnedChild, discoverWithRateRecovery, waitForUiRead, readCooldownPending, boundedRetryAfter } from "./lib/product-session-safety.ts";
 
 const option = (name: string) => { const i = process.argv.indexOf(`--${name}`); return i < 0 ? undefined : process.argv[i + 1]; };
 const required = (name: string) => { const value = option(name); check(value && !value.startsWith("--"), `argument_${name}`); return resolve(value); };
@@ -113,8 +113,14 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     contextChanges: 0, tokenChanges: 0, cursorChanges: 0, maxClicks: 0, exhausted: 0 };
   let discoveryGenerations = 0, staleRecoveredCommands = 0;
   let pending: { response: PlayerResponse; revision: string; token: string } | undefined;
+  type SavedIntent = { response: PlayerResponse; revision: string; token: string; binding: Record<string, string> };
+  const submissions = new SubmissionAudit<SavedIntent>();
+  const submissionRequestIds = new WeakMap<Request, string>();
+  const submissionObservations = new Map<string, Promise<void>>();
+  let submissionFailure = "", submissionRetryClicks = 0, submissionRetryTimeouts = 0;
   const sent = new Map<string, string>(), accepted = new Set<string>(), consumed = new Set<string>();
   const requestKinds: Record<string, number> = {}, responseKinds: Record<string, number> = {};
+  const responseAttemptKinds: Record<string, number> = {};
   const nativeStatuses: Record<string, number> = {};
   const httpStatuses: Record<string, number> = {}, recordHttpStatuses: Record<string, number> = {};
   const queryOutcomes: Record<string, number> = {};
@@ -125,10 +131,11 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   const connected = () => page!.getByRole("heading", { name: "Connected · Seat 1", exact: true }).isVisible();
   const untilRead = async (predicate: () => Promise<boolean>, code: string) => {
     const extended = await waitForUiRead({ end: naturalEnd, code, now: Date.now, predicate, wait: () => delay(30),
-      ratePending: () => naturalAttempted && readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads), onCooldown: () => { readCooldownWaits++; },
+      ratePending: () => naturalAttempted && (readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads) || submissions.pendingRateLimited), onCooldown: () => { readCooldownWaits++; },
       healthy: () => {
         check(!shutdown.signal.aborted, "check_aborted");
         check(!audit.protocolFailed && audit.pageErrors === 0, "rate_recovery_protocol_or_page_error");
+        check(!submissionFailure, submissionFailure);
       },
     });
     if (extended && activeReads > resumesAtRateLimit && await connected()) readCooldownReady++;
@@ -163,9 +170,10 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     // locator diagnostics are captured. Plain playwright-core avoids test-runner
     // automatic authenticated failure artifacts.
     page.on("response", response => {
-      audit.track(async () => {
+      const job = audit.track(async () => {
         const path = new URL(response.url()).pathname;
         add(httpStatuses, String(response.status()));
+        let rateHint: number | null = null;
         if (response.status() === 429) {
           if (path.includes("/native/v1/") && response.request().method() === "GET") {
             readRateLimits++; resumesAtRateLimit = activeReads;
@@ -175,6 +183,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
           else {
             retryAfterPresent++;
             const seconds = boundedRetryAfter(header, Date.now());
+            rateHint = seconds;
             if (seconds === null) retryAfterUnbounded++; else add(retryAfterSeconds, String(seconds));
           }
         }
@@ -215,11 +224,19 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
             : path.endsWith("/presentation") ? "presentation" : path.endsWith("/manifest") ? "manifest"
               : path.endsWith("/actions/query") ? "query" : path.endsWith("/commands") ? "submit" : "execution";
           add(nativeStatuses, `${operation}_${response.status()}`);
+          if (operation === "submit" && response.status() === 429) {
+            const id = sdk.parsePreparedCommand(response.request().postData()!).envelope.command_id;
+            if (rateHint === null) submissionFailure ||= "submission429_without_bounded_hint";
+            else submissions.rateLimited(id, activeReads);
+            return; // A transport/rate response never proves disposition or schema failure.
+          }
           if (path.endsWith("/presentation") && response.status() === 404) { presentationMissing++; return; }
           // Reads may exercise the real controller's bounded retry path. Only a
           // later successful command/consumption qualifies recovered operation.
           if (response.request().method() === "GET" && [429, 503].includes(response.status())) return;
-          if (operation === "execution" && response.status() === 404) return;
+          if (operation === "execution" && response.status() === 404) {
+            submissions.missing(decodeURIComponent(path.split("/").at(-1)!)); return;
+          }
           check(response.status() === 200, "native_browser_http");
           const queryOwner = queryOwners.get(response.request());
           const value = await audit.json(response);
@@ -248,11 +265,22 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
               }
             }
           } else if (path.endsWith("/commands")) {
-            check(value.status === "accepted", "human_command_rejected"); accepted.add(value.command_id);
-          } else if (/\/commands\/[^/]+$/.test(path) && value.status.status === "consumed_by_rules") consumed.add(value.command_id);
+            const id = sdk.parsePreparedCommand(response.request().postData()!).envelope.command_id;
+            check(value.command_id === id && value.status === "accepted", "human_command_rejected");
+            submissions.accepted(id); accepted.add(id);
+          } else if (/\/commands\/[^/]+$/.test(path)) {
+            const id = decodeURIComponent(path.split("/").at(-1)!);
+            check(value.command_id === id, "execution_command_identity");
+            if (value.status.status === "consumed_by_rules") { submissions.consumed(id); consumed.add(id); }
+          }
           if (observation) check(observation.observation_version === OBSERVATION_VERSION && observation.view.viewer === 0, "actual_observation_21");
         }
       });
+      const id = submissionRequestIds.get(response.request());
+      if (id) {
+        submissionObservations.set(id, job);
+        void job.finally(() => { if (submissionObservations.get(id) === job) submissionObservations.delete(id); });
+      }
     });
     await context.route("**/*", route => audit.track(async () => {
       const request = route.request(), url = new URL(request.url()); requests++;
@@ -269,16 +297,28 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
           if (request.method() === "POST") authenticatedPosts++;
           if (url.pathname.endsWith("/actions/query") && discovery) queryOwners.set(request, discovery);
           if (/\/commands$/.test(url.pathname) && request.method() === "POST") {
-            const body = request.postData(); check(body && pending && !audit.protocolFailed, "unsolicited_human_post");
+            const body = request.postData(); check(body && !audit.protocolFailed && !submissionFailure, "unsolicited_human_post");
             const envelope = sdk.parsePreparedCommand(body).envelope;
-            check(!sent.has(envelope.command_id), "duplicate_human_post");
-            check(envelope.expected_revision === pending.revision && envelope.command.kind === "decision"
-              && envelope.command.token === pending.token, "original_command_context"); originalContexts++;
+            const previous = submissions.records.get(envelope.command_id);
+            if (previous) {
+              const observation = submissionObservations.get(envelope.command_id);
+              if (observation) await bounded(observation, 5_000, "submission_response_observation");
+              check(!audit.protocolFailed && !submissionFailure, "submission_response_fault");
+            }
+            const binding = { origin: ready!.origin, match: gameId, seat: "0", engineBuild: ready!.identity.engine_build_id,
+              serverBuild: ready!.identity.server_build_id, catalog: ready!.identity.catalog_sha256, protocol: pins.protocol_schema_sha256 };
+            const original: SavedIntent | undefined = previous?.original ?? (pending ? { ...pending, binding } : undefined);
+            check(original && Object.keys(binding).length === Object.keys(original.binding).length
+              && Object.entries(binding).every(([key, value]) => original.binding[key] === value), "original_journal_binding");
+            check(envelope.expected_revision === original.revision && envelope.command.kind === "decision"
+              && envelope.command.token === original.token, "original_command_context"); originalContexts++;
             check(envelope.command.kind === "decision", "decision_command");
-            completeResponse(envelope.command.response, pending.response); completeResponses++;
-            check(await journal(page!, body, { origin: ready!.origin, match: gameId, seat: "0", engineBuild: ready!.identity.engine_build_id,
-              serverBuild: ready!.identity.server_build_id, catalog: ready!.identity.catalog_sha256, protocol: pins.protocol_schema_sha256 }), "durable_exact_bytes"); journalBeforeSend++;
-            add(responseKinds, envelope.command.response.response); sent.set(envelope.command_id, body);
+            completeResponse(envelope.command.response, original.response); completeResponses++;
+            check(await journal(page!, body, original.binding), "durable_exact_bytes"); journalBeforeSend++;
+            const attempt = submissions.attempt(envelope.command_id, body, previous ? undefined : original);
+            submissionRequestIds.set(request, envelope.command_id);
+            add(responseAttemptKinds, envelope.command.response.response);
+            if (!attempt.replay) { add(responseKinds, envelope.command.response.response); sent.set(envelope.command_id, body); }
           }
         }
         try { await route.continue(); }
@@ -290,7 +330,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     }));
     const current = (): Observation => { check(observation, "browser_observation"); return observation; };
     const sendChoice = async (action: () => Promise<unknown>, response: PlayerResponse, original: { revision: string; token: string }, end = naturalEnd) => {
-      check(!pending && !audit.protocolFailed, "command_gate");
+      check(!pending && submissions.active === null && !audit.protocolFailed && !submissionFailure, "command_gate");
       add(requestKinds, current().decision!.request);
       pending = { ...original, response }; const before = sent.size;
       try {
@@ -300,8 +340,22 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       } finally { pending = undefined; }
     };
     const finishChoice = async (id: string) => {
-      await untilRead(async () => accepted.has(id) && consumed.has(id), "native_consumed_by_rules");
+      let retryUsed = false;
+      await untilRead(async () => {
+        if (accepted.has(id) && consumed.has(id)) return true;
+        const saved = submissions.records.get(id)!;
+        const retry = page!.getByRole("button", { name: "Check or retry saved choice", exact: true });
+        if (!retryUsed && saved.rateLimited && activeReads > saved.resumeAtRate && !recordPaused && !recordCompleted && !outcome
+          && !readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads) && await connected()
+          && await retry.count() === 1 && await retry.isEnabled()) {
+          check(await journal(page!, saved.body, saved.original.binding), "retry_original_journal"); retryUsed = true;
+          try { await retry.click({ timeout: 1_000 }); submissionRetryClicks++; }
+          catch (error) { if (error instanceof Error && error.name === "TimeoutError") submissionRetryTimeouts++; else throw error; }
+        }
+        return false;
+      }, "native_consumed_by_rules");
       await until(() => journal(page!), "journal_resolved");
+      submissions.resolve(id);
       // Only observed consumption and exact journal resolution reach this UI wait.
       await untilRead(() => page!.getByRole("region", { name: "Choice status" }).filter({ hasText: "The table used your choice." }).isVisible(), "choice_status");
     };
@@ -596,8 +650,9 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     }
     }
     check(await page.evaluate(() => localStorage.length === 0 && sessionStorage.length === 0 && location.search === "" && location.hash === ""), "no_secret_storage_or_url");
-    check(!audit.protocolFailed && audit.pageErrors === 0 && sent.size === journalBeforeSend && sent.size === originalContexts
-      && sent.size === completeResponses && sent.size === accepted.size && sent.size === consumed.size, "all_command_proofs");
+    check(!audit.protocolFailed && !submissionFailure && audit.pageErrors === 0 && submissions.attempts === journalBeforeSend && submissions.attempts === originalContexts
+      && submissions.attempts === completeResponses && sent.size === accepted.size && sent.size === consumed.size
+      && submissions.resolutions === sent.size, "all_command_proofs");
     if (!pauseCase) check(["mulligan", "pass", "play_land", "cast", "activate_mana", "finish_mana", "spend_mana"].every(kind => responseKinds[kind]), "first_turn_responses");
     audit.closing = true;
     await page.getByRole("button", { name: "Release seat and clear view", exact: true }).click();
@@ -657,13 +712,18 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     joinedLeases = ending.leases;
     if (!cleanup) failure ||= "owned_leases_not_joined";
     try { await audit.drain(5_000); } catch { failure ||= "observer_drain_deadline"; }
-    const final = audit.verdict(failure, sent.size === journalBeforeSend && sent.size === originalContexts
-      && sent.size === completeResponses && sent.size === accepted.size && sent.size === consumed.size);
+    const final = audit.verdict(failure || submissionFailure, submissions.attempts === journalBeforeSend && submissions.attempts === originalContexts
+      && submissions.attempts === completeResponses && sent.size === accepted.size && sent.size === consumed.size && submissions.resolutions === sent.size);
     failure = final.failure;
     const receipt = { browser: name, version: browser?.version() ?? "unavailable", source: pins, checker_sources: checkerSources, product_manifest_sha256: fileHash(join(dist, ".vite/manifest.json")), observation_version: OBSERVATION_VERSION,
       passed: final.passed, failure, page_errors: audit.pageErrors, protocol_failed: audit.protocolFailed, lazy_loaded: lazyLoaded, admission, launched,
       grants, recovered, unmounted, regranted, negative_checks: negatives, requests, native_requests: nativeReads, authenticated_posts: authenticatedPosts,
       human_commands: sent.size, journal_before_send: journalBeforeSend, original_contexts: originalContexts, complete_responses: completeResponses,
+      submission_attempts: submissions.attempts, submission_replays: submissions.replays, submission429: submissions.rateLimits,
+      submission_execution404: submissions.missingExecutions, submission_resolutions: submissions.resolutions, submission_recovered_commands: submissions.recovered,
+      submission_retry_ui_clicks: submissionRetryClicks, submission_retry_ui_timeouts: submissionRetryTimeouts, submission_transport_failure: submissionFailure,
+      submission_attempt_bound_per_command: 5, submission_retry_ui_click_bound_per_command: 1,
+      response_attempt_counts: responseAttemptKinds,
       accepted: accepted.size, consumed: consumed.size, action_queries: queries, request_counts: requestKinds, response_counts: responseKinds,
       native_status_counts: nativeStatuses, http_status_counts: httpStatuses, record_http_status_counts: recordHttpStatuses,
       retry_after_present: retryAfterPresent, retry_after_missing: retryAfterMissing, retry_after_unbounded: retryAfterUnbounded, retry_after_seconds_counts: retryAfterSeconds,

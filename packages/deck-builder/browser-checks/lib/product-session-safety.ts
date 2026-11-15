@@ -10,6 +10,50 @@ export function readCooldownPending(rateCount: number, resumesAtLastRate: number
   return rateCount > 0 && successfulResumes <= resumesAtLastRate;
 }
 
+/** Browser-observation ledger, never a command sender or journal writer. A
+ * missing execution only permits byte-identical delivery of an existing intent. */
+export class SubmissionAudit<T> {
+  readonly records = new Map<string, { body: string; original: T; attempts: number; rateLimited: boolean;
+    missing: boolean; accepted: boolean; consumed: boolean; resolved: boolean; resumeAtRate: number }>();
+  active: string | null = null;
+  attempts = 0; replays = 0; rateLimits = 0; missingExecutions = 0; resolutions = 0; recovered = 0;
+  attempt(id: string, body: string, original?: T) {
+    let record = this.records.get(id);
+    const replay = Boolean(record);
+    if (record) {
+      if (body !== record.body) throw Error("replay_changed_bytes");
+      if (original !== undefined || this.active !== id || record.consumed || record.resolved
+        || !record.rateLimited || !record.missing) throw Error("unexplained_command_replay");
+      if (record.attempts >= 5) throw Error("submission_attempt_bound");
+      record.missing = false; this.replays++;
+    } else {
+      if (this.active !== null || original === undefined) throw Error("new_intent_while_unresolved");
+      record = { body, original: structuredClone(original), attempts: 0, rateLimited: false,
+        missing: false, accepted: false, consumed: false, resolved: false, resumeAtRate: 0 };
+      this.records.set(id, record); this.active = id;
+    }
+    record.attempts++; this.attempts++;
+    return { replay, original: record.original };
+  }
+  #record(id: string) { const value = this.records.get(id); if (!value) throw Error("unrelated_command_response"); return value; }
+  rateLimited(id: string, successfulResumes: number) {
+    const record = this.#record(id); record.rateLimited = true; record.resumeAtRate = successfulResumes; this.rateLimits++;
+  }
+  missing(id: string) {
+    const record = this.#record(id); this.missingExecutions++;
+    if (!record.consumed && !record.resolved) record.missing = true;
+  }
+  accepted(id: string) { this.#record(id).accepted = true; }
+  consumed(id: string) { this.#record(id).consumed = true; }
+  resolve(id: string) {
+    const record = this.#record(id);
+    if (!record.accepted || !record.consumed || record.resolved || this.active !== id) throw Error("unproven_command_resolution");
+    record.resolved = true; this.active = null; this.resolutions++;
+    if (record.rateLimited) this.recovered++;
+  }
+  get pendingRateLimited() { return this.active !== null && this.records.get(this.active)!.rateLimited; }
+}
+
 /** Waits only for the caller's authoritative UI/receipt predicate. Observed read
  * cooldown can extend 20s to 90s; it never establishes command disposition. */
 export async function waitForUiRead(effects: {
