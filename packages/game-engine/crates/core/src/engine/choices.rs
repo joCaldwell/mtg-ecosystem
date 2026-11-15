@@ -301,6 +301,7 @@ impl Game {
                     Frame::PlayerTargets { cast }
                 }
                 TargetDomain::ControlledBattlefieldCreature
+                | TargetDomain::ControlledBattlefieldPermanent
                 | TargetDomain::BattlefieldPermanent
                 | TargetDomain::BattlefieldCreature
                 | TargetDomain::BlockingBattlefieldCreature

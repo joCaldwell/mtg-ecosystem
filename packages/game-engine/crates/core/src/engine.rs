@@ -2527,6 +2527,7 @@ impl Game {
                     !matches!(
                         t.domain,
                         TargetDomain::ControlledBattlefieldCreature
+                            | TargetDomain::ControlledBattlefieldPermanent
                             | TargetDomain::BattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
                             | TargetDomain::BlockingBattlefieldCreature

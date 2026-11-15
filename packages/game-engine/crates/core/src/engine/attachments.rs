@@ -201,7 +201,9 @@ impl Game {
             let grants = match &effect.kind {
                 ResolvedEffectKind::GrantKeywords {
                     target, keywords, ..
-                } if *target == object && self.is_battlefield_creature(object) => Some(keywords),
+                } if *target == object && self.scalar_keyword_effect_applies(effect, object) => {
+                    Some(keywords)
+                }
                 ResolvedEffectKind::GrantKeywordsSet {
                     targets, keywords, ..
                 } if targets.contains(&object)

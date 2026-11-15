@@ -69,7 +69,9 @@ impl Game {
             .and_then(|p| p.targets.first())
             .map(|t| t.domain)
         {
-            Some(TargetDomain::BattlefieldPermanent) => self
+            Some(
+                TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent,
+            ) => self
                 .program_for(entry)
                 .ok()
                 .and_then(|p| p.targets.first())
