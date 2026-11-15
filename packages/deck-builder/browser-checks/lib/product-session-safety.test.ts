@@ -3,7 +3,22 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { chromium } from "playwright-core";
-import { ObserverAudit, finishOwnedChild, deadline, discoverWithRateRecovery, waitForUiRead, boundedRetryAfter } from "./product-session-safety.ts";
+import { ObserverAudit, finishOwnedChild, deadline, discoverWithRateRecovery, waitForUiRead, readCooldownPending, boundedRetryAfter } from "./product-session-safety.ts";
+
+test("a successful post429 resume retires the cooldown allowance for unrelated later waits", async () => {
+  let now = 0, resumes = 10, cooldowns = 0;
+  const rateCount = 1, resumesAtRate = 10;
+  const effects = { end: 200_000, code: "still_unknown", now: () => now, healthy: () => {},
+    ratePending: () => readCooldownPending(rateCount, resumesAtRate, resumes), onCooldown: () => { cooldowns++; },
+    wait: async () => { now += 1_000; if (now === 35_000) resumes++; },
+  };
+  assert.equal(await waitForUiRead({ ...effects, predicate: async () => now >= 36_000 }), true);
+  assert.equal(now, 36_000); assert.equal(cooldowns, 1);
+  // No new429: an unrelated missing receipt must fail at its normal20s bound,
+  // rather than extending again or counting the old cooldown a second time.
+  await assert.rejects(waitForUiRead({ ...effects, predicate: async () => false }), /still_unknown/);
+  assert.equal(now, 56_000); assert.equal(cooldowns, 1);
+});
 
 test("actual checker wait allows a 35s read cooldown but never treats it as command consumption", async () => {
   for (const [rate, consumedAt, end, failure] of [

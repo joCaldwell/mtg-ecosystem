@@ -6,6 +6,10 @@ export async function deadline<T>(work: Promise<T>, milliseconds: number): Promi
   finally { clearTimeout(timer); }
 }
 
+export function readCooldownPending(rateCount: number, resumesAtLastRate: number, successfulResumes: number) {
+  return rateCount > 0 && successfulResumes <= resumesAtLastRate;
+}
+
 /** Waits only for the caller's authoritative UI/receipt predicate. Observed read
  * cooldown can extend 20s to 90s; it never establishes command disposition. */
 export async function waitForUiRead(effects: {

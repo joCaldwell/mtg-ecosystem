@@ -9,7 +9,7 @@ import { chromium, firefox, type Page, type BrowserContext, type Request } from 
 import type { GameRecord } from "../src/contracts.ts";
 import type { ActionBeginning, ActionInitiation, Observation, PlayerResponse, SeatBootstrap, RulesResult } from "@multiverse/game-server-sdk";
 import { check, completeResponse, fileHash, repository, verifyInputs, OBSERVATION_VERSION, type Inputs } from "./lib/product-session-fixture.ts";
-import { ObserverAudit, finishOwnedChild, discoverWithRateRecovery, waitForUiRead, boundedRetryAfter } from "./lib/product-session-safety.ts";
+import { ObserverAudit, finishOwnedChild, discoverWithRateRecovery, waitForUiRead, readCooldownPending, boundedRetryAfter } from "./lib/product-session-safety.ts";
 
 const option = (name: string) => { const i = process.argv.indexOf(`--${name}`); return i < 0 ? undefined : process.argv[i + 1]; };
 const required = (name: string) => { const value = option(name); check(value && !value.startsWith("--"), `argument_${name}`); return resolve(value); };
@@ -120,7 +120,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   const connected = () => page!.getByRole("heading", { name: "Connected · Seat 1", exact: true }).isVisible();
   const untilRead = async (predicate: () => Promise<boolean>, code: string) => {
     const extended = await waitForUiRead({ end: naturalEnd, code, now: Date.now, predicate, wait: () => delay(30),
-      ratePending: () => naturalAttempted && readRateLimits > rateRecovery.handled, onCooldown: () => { readCooldownWaits++; },
+      ratePending: () => naturalAttempted && readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads), onCooldown: () => { readCooldownWaits++; },
       healthy: () => {
         check(!shutdown.signal.aborted, "check_aborted");
         check(!audit.protocolFailed && audit.pageErrors === 0, "rate_recovery_protocol_or_page_error");
@@ -321,7 +321,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
         }, rateCount: () => readRateLimits,
         usable: async original => {
           const usable = await connected() && revision === original.revision && current().decision?.token === original.token
-            && (readRateLimits <= rateRecovery.handled || activeReads > resumesAtRateLimit);
+            && !readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads);
           if (!usable) invalidatedCompleteMenus++;
           return usable;
         },
@@ -357,7 +357,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       }, rateRecovery);
       const original = chosen.context; beginnings = chosen.value;
       check(await connected() && revision === original.revision && current().decision?.token === original.token
-        && (readRateLimits <= rateRecovery.handled || activeReads > resumesAtRateLimit), "discovery_current_context");
+        && !readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads), "discovery_current_context");
       const index = beginnings.findIndex(predicate); check(index >= 0, "permitted_beginning");
       const beginning = beginnings[index]!;
       check(beginning.initiation.action === "pass" || beginning.label !== "unavailable", "producer_action_label");
@@ -623,6 +623,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       native_status_counts: nativeStatuses, http_status_counts: httpStatuses, record_http_status_counts: recordHttpStatuses,
       retry_after_present: retryAfterPresent, retry_after_missing: retryAfterMissing, retry_after_unbounded: retryAfterUnbounded, retry_after_seconds_counts: retryAfterSeconds,
       read_rate_limits: readRateLimits, rate_recoveries_started: rateRecovery.started, rate_recoveries_ready: rateRecovery.ready,
+      rate_recovery_handled_limits: rateRecovery.handled, read_cooldown_pending: readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads),
       rate_recovery_fresh_discoveries: rateRecovery.freshDiscoveries, rate_recovery_consumed_commands: recoveredCommands,
       read_cooldown_waits: readCooldownWaits, read_cooldown_ready: readCooldownReady,
       discovery_completed_menus_invalidated: invalidatedCompleteMenus,
