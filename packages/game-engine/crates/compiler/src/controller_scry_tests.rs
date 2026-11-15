@@ -2,7 +2,7 @@
 use super::*;
 use serde_json::{Value, json};
 const HEADER: &str = include_str!("../../../tests/fixtures/archive-manifest-current.json");
-const CASES: &[(&str, &str, &str, u64, &str, &str, &str)] = &[
+const CASES: &[(&str, &str, &str, u32, &str, &str, &str)] = &[
     (
         "Loran's Escape",
         include_str!("../../../tests/fixtures/1a9048d6-f3fa-4f3b-9baa-35318177bc6e.json"),
