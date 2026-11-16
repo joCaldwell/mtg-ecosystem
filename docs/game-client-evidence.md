@@ -1,17 +1,14 @@
 # Client and product acceptance evidence
 
-[Client contracts](game-client.md) own current behavior and delivery gates;
-[application launch gates](../packages/multiverse/web/ARCHITECTURE.md#game-launch) own product launch. These records retain
-their exact producer/source/schema qualification; they are not current-engine-HEAD
-acceptance or a requirement to repeat the entire matrix for documentation edits.
-Original source/proof identities are preserved in their named evidence locations
-or the explicit retirement archive below; no raw evidence was discarded.
-The metadata-delivery SDK followup retains its separate source bridge and checks at
+[Client contracts](game-client.md) own behavior;
+[application launch gates](../packages/multiverse/web/ARCHITECTURE.md#game-launch) own launch. Evidence qualifies exact
+producer/source/schema, never moving HEAD. Original identities and raw proof
+remain at named locations or the retirement archive below.
+The metadata-delivery SDK followup retains its source bridge at
 `~/.local/share/mtg-ecosystem/engine-evidence/product-presentation-sdk-20261115/`.
-Its 69 SDK tests extend the prior 66; native observation21 builds/schema remain
-unchanged. The original 898-row proof and SDK archive remain historical, without
-claiming all rows match after these non-native SDK changes. Product browser and
-full-game qualification remain separate.
+Its 69 SDK tests extend 66; native observation21 builds/schema stay unchanged.
+The historical 898-row proof does not claim every row matches the SDK followup.
+Browser/full-game gates stay separate.
 
 ## Producer context and admission qualification
 
@@ -168,13 +165,27 @@ schemas stay unchanged; server is now `0d29823b`. All 50 SDK inputs remain equal
 to `b9991c9c`, reverified at `c48ceff0`. The consumer SDK bridge is retained under
 `native21-clock-client-integration-20261115/`. Separately, current-main cherry-pick
 `cbb8fc02` passed 32 host tests without relabelling this frozen producer.
-Fresh browser/full-game acceptance remains pending; older roots are untouched.
+Consumer `bac3ad83`/byte-identical main `427d44e8` passed four Chromium/Firefox
+prefix/timeout cases. Its longer run consumed 223 commands, then a query closed at
+four seconds (`discovery_uncertain`); no outcome, empty journal, cleanup complete.
+Receipts remain under `product-native21-clock-browser-bac3ad83-20261115/`.
+
+### Broker clock fairness
+
+Source `ea14d13cb1356dcfb10a0b1a57aed88317203054` retains
+`~/.local/share/mtg-ecosystem/engine-evidence/native21-broker-clock-fairness-20261116/qualification.json`.
+Starting the next clock interval after worker completion prevents slow Ticks from
+starving queued requests. The anchor-before-await mutation failed its regression;
+42 distinct focused Rust tests (47 successful executions) and SDK69 passed.
+All 901 compiled rows match Git and both IDs independently rederive. Engine and
+schemas remain unchanged; server becomes `a0ab6836`. Inherited lint exceptions
+and the selector-count driver failure remain recorded. Earlier-run causality is
+unproven. Fresh browser/full-game acceptance remains pending; approvals stay empty.
 
 ## Earlier prerequisites and unique provenance
 
-Earlier reports qualify bounded prerequisites. Their historical source/receipt
-tables remain at the immutable baselines below; tracked provenance/inventories/pins
-remain in place.
+Immutable baselines retain prerequisite source/artifact identities, failures and
+omissions; tracked provenance/inventories/pins remain in place.
 `generated/action-transport/attempt02` and `generated/m2-integration` belong to the
 original action transport/controls lanes; `generated/core-queries/attempt02` belongs
 to the native discovery proof above.
@@ -182,5 +193,4 @@ The [immutable transport/delivery reports](https://github.com/joCaldwell/mtg-eco
 retain `game-client-{action-transport,local-serving,native-integration,browser-sdk}.md`.
 The [immutable package reports](https://github.com/joCaldwell/mtg-ecosystem/tree/1c3eca4c37b90de02decca316fefab5c8035140e/packages/game-client)
 retain foundation, live-session, decision-controls, command-journal,
-action-session, live-opening and workspace-UX reports. Each owns its original
-source/artifact identities, failures and omissions. No raw evidence was deleted.
+action-session, live-opening and workspace-UX reports.
