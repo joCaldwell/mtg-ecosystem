@@ -1,7 +1,7 @@
 // Dev-only seeding may use backend internals. The product still uses ./host.
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { readFileSync, lstatSync, readdirSync, mkdirSync, openSync, closeSync, writeFileSync, fsyncSync, constants } from "node:fs";
+import { readFileSync, lstatSync, readdirSync, mkdirSync, openSync, closeSync, writeFileSync, fsyncSync, renameSync, constants } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
@@ -160,6 +160,8 @@ export function privateTree(path: string) {
  * shape, independent of game count. This retains a first initiating failure and
  * later cleanup failures even after arbitrarily many token mismatches. */
 export function createPrivateDiagnostics(directory: string): { path: string; diagnostic: GameDiagnosticSink } {
+  const parent = lstatSync(directory);
+  check(parent.isDirectory() && !parent.isSymbolicLink() && (parent.mode & 0o777) === 0o700 && parent.uid === process.getuid?.(), "diagnostic_parent");
   const root = join(directory, "diagnostics");
   mkdirSync(root, { mode: 0o700 });
   const info = lstatSync(root);
@@ -174,10 +176,20 @@ export function createPrivateDiagnostics(directory: string): { path: string; dia
     const bytes = JSON.stringify({ version: 1, events }) + "\n";
     check(events.length <= 512 && Buffer.byteLength(bytes) <= 262_144, "diagnostic_bound");
     // One fixed file; no append growth, credentials, payloads or error strings.
-    const output = openSync(path, constants.O_WRONLY | constants.O_TRUNC | constants.O_NOFOLLOW);
+    const file = lstatSync(path);
+    check(file.isFile() && !file.isSymbolicLink() && file.nlink === 1 && (file.mode & 0o777) === 0o600 && file.uid === process.getuid?.(), "diagnostic_file");
+    const pending = `${path}.pending`;
+    const output = openSync(pending, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
     try { writeFileSync(output, bytes); fsyncSync(output); } finally { closeSync(output); }
+    // A partial failed write can leave one bounded private pending artifact, but
+    // never destroys the last complete initiating-fault/cleanup record.
+    renameSync(pending, path);
+    const parentFd = openSync(root, constants.O_RDONLY);
+    try { fsyncSync(parentFd); } finally { closeSync(parentFd); }
   };
   closeSync(fd); persist();
+  const directoryFd = openSync(directory, constants.O_RDONLY);
+  try { fsyncSync(directoryFd); } finally { closeSync(directoryFd); }
   const diagnostic: GameDiagnosticSink = (event: GameDiagnosticEvent) => {
     try {
       // Reconstruct a runtime allowlist, including for malformed JS callbacks.

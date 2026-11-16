@@ -86,7 +86,9 @@ export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGa
       let cause: NativeDiagnosticCause = "identity_failure", reported = false;
       try {
         signal.throwIfAborted();
-        if (!same(game.identity, options.identity) || stoppingGames.has(game.id)) throw unavailable();
+        if (!same(game.identity, options.identity)) throw unavailable();
+        cause = "state_unavailable";
+        if (stoppingGames.has(game.id)) throw unavailable();
         cause = "private_file";
         const directory = root(game); privateDirectory(directory);
         const epoch = generation(directory);

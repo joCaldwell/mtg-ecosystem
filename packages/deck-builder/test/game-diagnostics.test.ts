@@ -71,3 +71,17 @@ test("throwing, rejecting and never-settling diagnostic sinks cannot change paus
     } finally { await f.coordinator.close(); f.db.close(); }
   }
 });
+
+test("cleanup stop deadline stays distinct from initiating failure and retains the stop lease", async () => {
+  const events: GameDiagnosticEvent[] = [], f = fixture(event => { events.push(event); });
+  f.native.status = async () => { throw Error("unsafe initial failure"); };
+  f.native.stop = async () => new Promise(() => {});
+  try {
+    const result = await f.launch();
+    assert.equal(result.game!.pause, "native_unavailable"); assert.equal(result.game!.consumers_stopped, false);
+    assert.deepEqual(events.map(({ stage, cause }) => [stage, cause]), [["status", "adapter_failure"], ["stop", "started"], ["stop", "deadline"]]);
+    f.native.stop = async () => {};
+    await f.coordinator.tick();
+    assert.equal((await f.coordinator.get(OWNER, result.game!.id)).consumers_stopped, true);
+  } finally { await f.coordinator.close(); f.db.close(); }
+});

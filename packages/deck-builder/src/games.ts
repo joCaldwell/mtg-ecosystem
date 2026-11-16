@@ -45,6 +45,7 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
     return JSON.parse(row.record_json);
   };
   const diagnostic = (event: GameDiagnosticEvent) => {
+    if (!/^[a-f0-9]{32}$/.test(event.game_id)) return;
     try { void Promise.resolve(options.diagnostic?.(event)).catch(() => {}); } catch { /* observations cannot affect operations */ }
   };
   type Context = Omit<Extract<GameDiagnosticEvent, { source: "coordinator" }>, "source" | "cause">;
@@ -122,7 +123,7 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
     // branch, including already paused/completed/interrupted records.
     if (!record.consumers_stopped) owned.set(record.id, record);
     try {
-      if (!sameIdentity(record.identity, native.identity)) { owned.set(record.id, record); await pause(record, "identity_mismatch"); return record; }
+      if (!sameIdentity(record.identity, native.identity)) { diagnostic({ source: "coordinator", game_id: record.id, stage: "ensure", phase: "operation", cause: "identity_failure" }); owned.set(record.id, record); await pause(record, "identity_mismatch"); return record; }
       if (record.state === "paused" || record.state === "completed" || record.state === "interrupted") {
         if (record.consumers_stopped) return record;
         await pause(record, record.state === "completed" ? "completed" : record.pause!); return record;
@@ -136,7 +137,11 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
       if (!await save(record)) { owned.delete(record.id); return record; }
       await call(signal => native.ensure(structuredClone(record), signal), timeout, { game_id: record.id, stage: "ensure", phase: "operation" });
       const status = await call(signal => native.status(structuredClone(record), signal), timeout, { game_id: record.id, stage: "status", phase: "operation" });
-      if (!statusValid(status) || !sameIdentity(record.identity, status.identity)) { diagnostic({ source: "coordinator", game_id: record.id, stage: "status", phase: "operation", cause: statusValid(status) ? "identity_failure" : "status_invalid" }); await pause(record, "identity_mismatch"); return record; }
+      const validStatus = statusValid(status);
+      if (!validStatus || !sameIdentity(record.identity, status.identity)) {
+        diagnostic({ source: "coordinator", game_id: record.id, stage: "status", phase: "operation", cause: validStatus ? "identity_failure" : "status_invalid" });
+        await pause(record, "identity_mismatch"); return record;
+      }
       if (status.outcome) {
         record.outcome = status.outcome.kind === "draw" ? { kind: "draw" } : { kind: "win", winner: status.outcome.winner };
         record.state = "completed"; record.pause = null;
