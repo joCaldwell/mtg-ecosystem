@@ -1,4 +1,4 @@
-//! Controller-only ordinary scry. CR 109.5, 608.2c, 701.22a-d.
+//! Controller-only ordinary library choices. CR 109.5,608.2c,701.22/701.25.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 

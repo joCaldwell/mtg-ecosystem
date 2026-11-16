@@ -476,7 +476,7 @@ pub struct CreatureStatModifier {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
-    /// CR 701.22: only the invocation controller looks and orders the prefix.
+    /// CR 701.22/701.25: the invocation controller looks and partitions the prefix.
     Surveil {
         #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
         amount: Quantity,
