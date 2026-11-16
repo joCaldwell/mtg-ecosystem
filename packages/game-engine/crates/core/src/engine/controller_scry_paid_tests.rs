@@ -746,6 +746,7 @@ fn controller_scry_kernel_zero_empty_and_large_counts_use_one_complete_operation
             p.config
                 .cards
                 .retain(|c| c.zone != (Zone::Library { owner: PlayerId(0) }));
+            p.config.initial.libraries = None;
             p.config.initial.libraries = Some(p.config.initial_libraries());
             p.profile_digest = digest(&p.config).unwrap();
         }
@@ -824,7 +825,13 @@ fn controller_scry_kernel_ordered_failure_and_private_memory_capacity_are_atomic
             let before = scratch.state.clone();
             let trace = scratch.trace.clone();
             assert!(scratch.commit(event, cause).is_err());
-            assert_eq!(scratch.state, before);
+            assert!(matches!(
+                scratch.state.rules.typed_fault,
+                Some(RuleFault::HistoryCapacityExceeded { .. })
+            ));
+            let mut expected = before;
+            expected.rules.typed_fault = scratch.state.rules.typed_fault.clone();
+            assert_eq!(scratch.state, expected);
             assert_eq!(scratch.trace, trace);
             choose(g, &r, looked, vec![]);
             finish(g, q);
