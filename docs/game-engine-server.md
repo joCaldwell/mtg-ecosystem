@@ -222,6 +222,9 @@ loading its catalog or Game.
 
 Unsent queue admission, exact cancellation and connection/poll capacity are
 bounded independently. Clock checks run even during continuous polling.
+The one-second clock-check interval starts after automatic worker work completes,
+so a slow Tick cannot continually outrank queued requests. Running execution keeps
+its four-external-call advance limit.
 Finished/faulted actors await notification rather than spinning. Cleanup after
 cancellation, timeout, correlation failure and shutdown kills/reaps the exact
 worker resource group. A replacement may start only after the old group is

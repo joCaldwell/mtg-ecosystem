@@ -51,7 +51,10 @@ test("coqualified native/SDK inputs verify the compiled closure and reject stale
   const modified = join(directory, "pins.json");
   for (const [patch, failure] of [
     [{ server_build_id: "c1be893414c34a3869f059a872b053d4c69e77da21e98242ffb654a980372d15" }, "native_build_pin"],
+    [{ server_build_id: "0d29823bcbe03b17bd4d6aeab2765c2b7b8ea9d93abb7833e0b96fcfe4c61d82" }, "native_build_pin"],
     [{ native_source_manifest_sha256: "1eddba690527db4a1654f7556cf97c35d90225b2f7652141f640bc9b8842273a" }, "native_source_manifest_pin"],
+    [{ native_source_manifest_sha256: "1915ae68e93ec55dbf4a1f6aa976d7d147bd662f0890a98ec32608609b9c8963" }, "native_source_manifest_pin"],
+    [{ sdk_verification_sha256: "c0ea983fa64820d4b47f0c009ec8351fb832cc6ea9e8b8ce15535af1450872ac" }, "coqualified_sdk_receipt_pin"],
     [{ native_source_verification_sha256: "0".repeat(64) }, "coqualified_native_verification_pin"],
     [{ native_source: "f".repeat(40), sdk_source: "f".repeat(40) }, "coqualified_native_source_binding"],
     [{ sdk_source_bridge_sha256: undefined }, "coqualified_source_proof_required"],
