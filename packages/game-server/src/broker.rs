@@ -31,6 +31,35 @@ struct Queue {
     stopping: bool,
     dead: bool,
 }
+impl Queue {
+    fn next_request(
+        &mut self,
+        status: &ExecutionStatus,
+        served: usize,
+        last_clock: tokio::time::Instant,
+        now: tokio::time::Instant,
+    ) -> Option<Queued> {
+        let progress_due = matches!(status, ExecutionStatus::Running) && served >= 4;
+        let clock_due = matches!(status, ExecutionStatus::Waiting)
+            && now.duration_since(last_clock) >= Duration::from_secs(1);
+        if progress_due || clock_due {
+            None
+        } else {
+            self.requests.pop_front()
+        }
+    }
+}
+async fn complete_scheduled<T>(
+    request: impl std::future::Future<Output = T>,
+    last_clock: &mut tokio::time::Instant,
+) -> T {
+    let result = request.await;
+    // Worker busy time is excluded from its action clock. Also exclude it from
+    // the broker's next sampling interval: a Tick taking >=1s must not make
+    // another Tick immediately due ahead of every queued request.
+    *last_clock = tokio::time::Instant::now();
+    result
+}
 #[derive(Clone)]
 pub struct Broker {
     queue: Arc<Mutex<Queue>>,
@@ -171,14 +200,7 @@ impl Broker {
                 if queue.stopping {
                     break;
                 }
-                let progress_due = matches!(status, ExecutionStatus::Running) && served >= 4;
-                let clock_due = matches!(status, ExecutionStatus::Waiting)
-                    && last_clock.elapsed() >= Duration::from_secs(1);
-                if progress_due || clock_due {
-                    None
-                } else {
-                    queue.requests.pop_front()
-                }
+                queue.next_request(&status, served, last_clock, tokio::time::Instant::now())
             };
             let command = if let Some(item) = item {
                 if matches!(item.command, WorkerCommand::QueryActions { .. })
@@ -242,8 +264,7 @@ impl Broker {
                 }
             };
             served = 0;
-            last_clock = tokio::time::Instant::now();
-            match process.call(command, CALL_TIMEOUT).await {
+            match complete_scheduled(process.call(command, CALL_TIMEOUT), &mut last_clock).await {
                 Ok(reply) if !matches!(reply, WorkerReply::Error { .. }) => {
                     if let Some(next) = reply.status() {
                         status = next.clone();
@@ -287,6 +308,90 @@ mod tests {
             queue: Arc::new(Mutex::new(Queue::default())),
             notify: Arc::new(Notify::new()),
         }
+    }
+    #[tokio::test]
+    async fn slow_clock_completion_services_queued_query_before_another_tick() {
+        let broker = idle();
+        let _receiver = broker
+            .enqueue(WorkerCommand::QueryActions {
+                seat: 0,
+                request: crate::protocol::ActionQueryRequest::Continue {
+                    cursor: "a".repeat(64),
+                    work: 1,
+                },
+            })
+            .unwrap();
+        let mut last_clock = tokio::time::Instant::now() - Duration::from_secs(2);
+        assert!(
+            broker
+                .queue
+                .lock()
+                .unwrap()
+                .next_request(
+                    &ExecutionStatus::Waiting,
+                    0,
+                    last_clock,
+                    tokio::time::Instant::now()
+                )
+                .is_none()
+        );
+        // Exercise the same completion path as the real automatic worker call.
+        // Starting the interval before this slow call leaves the queue starved.
+        complete_scheduled(
+            async {
+                tokio::time::sleep(Duration::from_millis(1_050)).await;
+            },
+            &mut last_clock,
+        )
+        .await;
+        let finished = tokio::time::Instant::now();
+        let item = broker
+            .queue
+            .lock()
+            .unwrap()
+            .next_request(&ExecutionStatus::Waiting, 0, last_clock, finished)
+            .expect("slow clock must leave a service interval for the queued query");
+        assert!(matches!(item.command, WorkerCommand::QueryActions { .. }));
+        assert_eq!(item.replies.len(), 1);
+        assert!(!item.replies[0].is_closed());
+        broker.enqueue(submission(8)).unwrap();
+        assert!(
+            broker
+                .queue
+                .lock()
+                .unwrap()
+                .next_request(
+                    &ExecutionStatus::Waiting,
+                    0,
+                    last_clock,
+                    finished + Duration::from_secs(1)
+                )
+                .is_none(),
+            "clock sampling still becomes due after the service interval"
+        );
+        assert_eq!(broker.queue.lock().unwrap().requests.len(), 1);
+    }
+    #[test]
+    fn running_quantum_keeps_its_existing_priority_over_queued_work() {
+        let broker = idle();
+        let _receiver = broker.enqueue(submission(9)).unwrap();
+        let now = tokio::time::Instant::now();
+        assert!(
+            broker
+                .queue
+                .lock()
+                .unwrap()
+                .next_request(&ExecutionStatus::Running, 4, now, now)
+                .is_none()
+        );
+        assert!(
+            broker
+                .queue
+                .lock()
+                .unwrap()
+                .next_request(&ExecutionStatus::Running, 3, now, now)
+                .is_some()
+        );
     }
     #[tokio::test]
     async fn queue_bounds_are_reversible_and_shutdown_rejects_unacknowledged_work() {
