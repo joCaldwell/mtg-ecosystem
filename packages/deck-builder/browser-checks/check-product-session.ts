@@ -97,6 +97,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   let recordCompleted = false, recordPaused = false, uiOutcomeMatches = false, journalUnresolved = false, recordReads = 0;
   let recordPauseCode = "", resourcePauseVerified = false, commandControlsDisabled = false;
   let recordState = "", pauseBannerVisible = false, interruptionBannerVisible = false, pauseCauseVisible = false;
+  let naturalPauseUiObserved = false, naturalPauseCauseVisible = false, naturalPauseControls = 0;
   const recordPauseCounts: Record<string, number> = {};
   const recordStateCounts: Record<string, number> = {};
   let beginnings: ActionBeginning[] = [], requests = 0, queries = 0;
@@ -132,6 +133,31 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   let journalBeforeSend = 0, originalContexts = 0, completeResponses = 0, authenticatedPosts = 0;
   const add = (counts: Record<string, number>, name: string) => { counts[name] = (counts[name] ?? 0) + 1; };
   const connected = () => page!.getByRole("heading", { name: "Connected · Seat 1", exact: true }).isVisible();
+  const inspectPauseUI = async () => {
+    check(recordState === "paused" || recordState === "interrupted", "inactive_record_required");
+    const title = recordState === "paused" ? "Game paused" : "Game interrupted";
+    let controls = 0, commandsBlocked = false;
+    await until(async () => {
+      if (!await page!.getByRole("heading", { name: title, exact: true }).isVisible()) return false;
+      // Scope selection/inspection and stopping read-only discovery are not
+      // game commands. Check every exposed dispatch control, not just opening.
+      const buttons = page!.getByRole("button", { name: /^(Confirm choice|Discover actions|Check or retry saved choice)$/ })
+        .or(page!.getByRole("region", { name: "Available actions", exact: true }).locator("ol > li > button"));
+      controls = await buttons.count(); commandsBlocked = true;
+      for (let i = 0; i < controls; i++) commandsBlocked &&= await buttons.nth(i).isDisabled() || await buttons.nth(i).getAttribute("aria-disabled") === "true";
+      return commandsBlocked;
+    }, "pause_ui_commands_blocked");
+    check(recordOutcome === null && !outcome
+      && await page!.getByRole("heading", { name: "Game complete", exact: true }).count() === 0
+      && await page!.getByText(/^Rules outcome:/).count() === 0
+      && await page!.getByText("You won.", { exact: true }).count() === 0
+      && await page!.getByText("The game ended in a draw.", { exact: true }).count() === 0, "pause_is_not_rules_outcome");
+    const cause = recordPauseCode === "human_timeout" ? "The game stopped after the human decision time limit. Its saved record is retained."
+      : recordPauseCode === "lifetime_exceeded" ? "The game stopped after the game time limit. Its saved record is retained." : null;
+    const causeVisible = cause !== null && await page!.getByRole("status").filter({ hasText: cause }).isVisible();
+    if (cause) check(causeVisible, "pause_cause_visible");
+    return { controls, commandsBlocked, causeVisible };
+  };
   const untilRead = async (predicate: () => Promise<boolean>, code: string) => {
     const extended = await waitForUiRead({ end: naturalEnd, code, now: Date.now, predicate, wait: () => delay(30),
       ratePending: () => naturalAttempted && (readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads) || queryCooldownPending() || submissions.pendingRateLimited), onCooldown: () => { readCooldownWaits++; },
@@ -522,6 +548,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     if (pauseCase) {
       check(current().decision?.request === "mulligan" && sent.size === 0, "pause_opening_withheld");
       await until(() => recordState === "interrupted" && recordPauseCode === "human_timeout", "actual_human_timeout", 35_000);
+      await inspectPauseUI();
       await until(async () => {
         pauseBannerVisible = await page!.getByRole("heading", { name: "Game paused", exact: true }).isVisible();
         interruptionBannerVisible = await page!.getByRole("heading", { name: "Game interrupted", exact: true }).isVisible();
@@ -671,8 +698,6 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       && submissions.attempts === completeResponses && sent.size === accepted.size && sent.size === consumed.size
       && submissions.resolutions === sent.size, "all_command_proofs");
     if (!pauseCase) check(["mulligan", "pass", "play_land", "cast", "activate_mana", "finish_mana", "spend_mana"].every(kind => responseKinds[kind]), "first_turn_responses");
-    audit.closing = true;
-    await page.getByRole("button", { name: "Release seat and clear view", exact: true }).click();
   } catch (error) {
     // Only our short fixed assertion codes may become evidence; Playwright and
     // SDK exceptions can include authenticated DOM, headers or private bodies.
@@ -698,12 +723,24 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
             && (recorded.kind !== "win" || (outcome as Extract<RulesResult, { outcome: "win" }>).player === recorded.winner), "native_record_outcome_match");
           if (!uiOutcomeMatches) failure ||= "terminal_outcome_not_visible";
         }
+        if (recordPaused) {
+          const inactive = await inspectPauseUI();
+          naturalPauseUiObserved = inactive.commandsBlocked;
+          naturalPauseCauseVisible = inactive.causeVisible;
+          naturalPauseControls = inactive.controls;
+        }
         journalUnresolved = !(await journal(page));
       } catch { failure ||= "terminal_comparison_failed"; }
     }
     // Final acceptance follows closure and observer drain. Only evidenced body
     // transport cancellation is expected; late schema/context/page errors fail.
     audit.closing = true;
+    // Inspect terminal/paused controls before releasing the File clears them.
+    // Failure or a stalled release still proceeds to independent host cleanup.
+    try {
+      const release = page?.getByRole("button", { name: "Release seat and clear view", exact: true });
+      if (release && await release.count()) await release.click({ timeout: 5_000 });
+    } catch { failure ||= "seat_release_failed"; }
     try {
       await bounded(Promise.allSettled([context?.close(), browser?.close()]), 5_000, "browser_cleanup");
       check(!browser?.isConnected(), "browser_cleanup");
@@ -730,7 +767,9 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     if (!cleanup) failure ||= "owned_leases_not_joined";
     try { await audit.drain(5_000); } catch { failure ||= "observer_drain_deadline"; }
     const final = audit.verdict(failure || submissionFailure, submissions.attempts === journalBeforeSend && submissions.attempts === originalContexts
-      && submissions.attempts === completeResponses && sent.size === accepted.size && sent.size === consumed.size && submissions.resolutions === sent.size);
+      && submissions.attempts === completeResponses && sent.size === accepted.size && sent.size === consumed.size && submissions.resolutions === sent.size,
+      natural ? { recordState, recordedOutcome: recordOutcome as RecordedOutcome | null, observedOutcome: outcome as RulesResult | null,
+        outcomeVisible: uiOutcomeMatches, journalUnresolved } : undefined);
     failure = final.failure;
     const receipt = { browser: name, version: browser?.version() ?? "unavailable", source: pins, checker_sources: checkerSources, product_manifest_sha256: fileHash(join(dist, ".vite/manifest.json")), observation_version: OBSERVATION_VERSION,
       passed: final.passed, failure, page_errors: audit.pageErrors, protocol_failed: audit.protocolFailed, lazy_loaded: lazyLoaded, admission, launched,
@@ -760,6 +799,8 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       immutable_assets_revalidated_per_grant: immutableAssetsRevalidated, named_cards_verified: namedCards,
       land_played: landPlayed, commander_resolved: commanderResolved, conditional_reversal_wording: conditionalReversal,
       natural_attempted: naturalAttempted, natural_completed: naturalCompleted, natural_resource_paused: naturalPaused, natural_bounded: naturalBounded,
+      natural_game_verified: natural && final.passed, natural_pause_ui_observed: naturalPauseUiObserved,
+      natural_pause_cause_visible: naturalPauseCauseVisible, natural_pause_command_controls: naturalPauseControls,
       natural_bound_ms: naturalLimitMs, natural_human_command_bound: natural ? 2_000 : 0, discovery_ui_click_bound_per_choice: 3,
       natural_unsupported: naturalUnsupported, rules_win: (outcome as RulesResult | null)?.outcome === "win", rules_draw: (outcome as RulesResult | null)?.outcome === "draw", cleanup_complete: cleanup, joined_bot_leases: joinedLeases, observer_shutdown_cancellations: audit.expectedCancellations,
       owned_child_exited: ending.exited, owned_child_escalated: ending.escalated, owned_ipc_disconnected: ending.ipcDisconnected };

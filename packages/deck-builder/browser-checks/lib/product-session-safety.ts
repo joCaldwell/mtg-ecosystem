@@ -167,6 +167,14 @@ export function boundedRetryAfter(value: string | null, now: number): number | n
   return Number.isSafeInteger(seconds) && seconds >= 0 && seconds <= 60 ? seconds : null;
 }
 class ShutdownCancellation extends Error {}
+export interface NaturalCompletionEvidence {
+  recordState: string;
+  recordedOutcome: { kind: "win"; winner: number } | { kind: "draw" } | null;
+  observedOutcome: { outcome: "win"; player: number } | { outcome: "draw" } | null;
+  outcomeVisible: boolean;
+  journalUnresolved: boolean;
+}
+
 /** Cancellation is classified only at the response-body transport boundary.
  * Syntax/schema/context errors and page errors never become shutdown noise. */
 export class ObserverAudit {
@@ -201,8 +209,18 @@ export class ObserverAudit {
     } while (this.#jobs.size && Date.now() < end);
     if (this.#jobs.size) throw Error("observer_drain_deadline");
   }
-  verdict(failure: string, complete: boolean) {
-    const reason = failure || (this.pageErrors ? "page_error" : this.protocolFailed ? "protocol_failed" : !complete ? "all_command_proofs" : "");
+  verdict(failure: string, complete: boolean, natural?: NaturalCompletionEvidence) {
+    let reason = failure || (this.pageErrors ? "page_error" : this.protocolFailed ? "protocol_failed" : !complete ? "all_command_proofs" : "");
+    if (!reason && natural) {
+      const recorded = natural.recordedOutcome, observed = natural.observedOutcome;
+      // Consumed command prefixes, elapsed bounds and operational pauses are
+      // useful receipts, but none qualifies a completed natural game.
+      reason = natural.journalUnresolved ? "natural_unresolved_command"
+        : natural.recordState !== "completed" || !recorded ? "natural_game_not_completed"
+        : recorded.kind === "win" && (!Number.isInteger(recorded.winner) || recorded.winner < 0 || recorded.winner > 3) ? "natural_invalid_outcome"
+        : observed && (observed.outcome !== recorded.kind || (observed.outcome === "win" && recorded.kind === "win" && observed.player !== recorded.winner)) ? "natural_outcome_mismatch"
+        : !natural.outcomeVisible ? "natural_outcome_not_visible" : "";
+    }
     return { passed: !reason, failure: reason };
   }
 }
