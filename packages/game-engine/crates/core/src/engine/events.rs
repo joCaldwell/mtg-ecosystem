@@ -131,6 +131,9 @@ pub struct AttachmentBefore {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PreEventFacts {
+    /// Exact common-prior controller counts; narrow consumed entry authority.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub entry_basic_lands: BTreeMap<PlayerId, Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) control: Option<Box<ControlBefore>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -576,6 +579,18 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             .collect(),
         _ => vec![],
     };
+    if game.conditional_entry(event) {
+        // Only prior battlefield objects are dependencies. A simultaneously
+        // entering sibling is deliberately absent (CR614.12).
+        reads.extend(
+            game.state
+                .rules
+                .objects
+                .values()
+                .filter(|o| o.zone == Zone::Battlefield)
+                .map(|o| FactKey::Object(o.id.card)),
+        );
+    }
     reads.extend(keys.iter().copied());
     writes.extend(keys);
     (reads, writes)
@@ -736,6 +751,14 @@ impl Game {
     }
 
     fn facts(&self, events: &[&ProposedEvent]) -> Result<PreEventFacts, String> {
+        let counts = self.entry_basic_counts(events)?;
+        self.facts_with_entry_counts(events, &counts)
+    }
+    fn facts_with_entry_counts(
+        &self,
+        events: &[&ProposedEvent],
+        counts: &BTreeMap<PlayerId, Quantity>,
+    ) -> Result<PreEventFacts, String> {
         let mut damage_sources = vec![];
         let effects_event = events.iter().any(|e| {
             matches!(
@@ -1241,6 +1264,11 @@ impl Game {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(PreEventFacts {
+            entry_basic_lands: if events.iter().any(|e| self.conditional_entry(e)) {
+                counts.clone()
+            } else {
+                BTreeMap::new()
+            },
             control: if events.iter().any(|event| changes_control_inputs(event)) {
                 self.control_before()?
             } else {
@@ -1406,8 +1434,12 @@ impl Game {
                 let common = self.fork();
                 let offset = out.len();
                 let mut facts = vec![];
+                // One prior scan per complete simultaneous occurrence. Only
+                // bounded controller counts are copied into charged leaf facts.
+                let entry_counts =
+                    common.entry_basic_counts(&occurrences.iter().collect::<Vec<_>>())?;
                 for event in occurrences {
-                    facts.push(common.facts(&[event])?);
+                    facts.push(common.facts_with_entry_counts(&[event], &entry_counts)?);
                     let mut validation = common.fork();
                     if let Err(error) = validation.apply_occurrence(event) {
                         // The validation branch is discarded, but its typed
@@ -1532,6 +1564,204 @@ impl Game {
 }
 
 impl Game {
+    fn conditional_entry(&self, event: &ProposedEvent) -> bool {
+        let object = match event {
+            ProposedEvent::SearchLandEntry { object, .. }
+            | ProposedEvent::Move {
+                object,
+                destination: Zone::Battlefield,
+            } => object,
+            _ => return false,
+        };
+        self.definition(object.card).is_ok_and(|d| {
+            d.static_abilities.iter().any(|a| {
+                matches!(
+                    a.effect,
+                    StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
+                )
+            })
+        })
+    }
+    fn entry_basic_counts(
+        &self,
+        events: &[&ProposedEvent],
+    ) -> Result<BTreeMap<PlayerId, Quantity>, String> {
+        if !events.iter().any(|e| self.conditional_entry(e)) {
+            return Ok(BTreeMap::new());
+        }
+        let mut counts: BTreeMap<_, _> = self
+            .live_players()
+            .into_iter()
+            .map(|p| (p, Quantity::zero()))
+            .collect();
+        for o in self
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|o| o.zone == Zone::Battlefield)
+        {
+            let c = self.characteristics(o.id)?;
+            if c.basic && c.has_type(CardKind::Land) {
+                counts.entry(o.controller).or_default().add(&1.into());
+            }
+        }
+        Ok(counts)
+    }
+    fn entry_tapped(
+        &self,
+        object: ObjectId,
+        controller: PlayerId,
+        before: Option<&PreEventFacts>,
+    ) -> Result<bool, String> {
+        for a in &self.definition(object.card)?.static_abilities {
+            match &a.effect {
+                StaticEffect::EntersTapped => return Ok(true),
+                StaticEffect::EntersTappedUnlessControllerBasicLands { minimum } => {
+                    let current;
+                    let counts = if let Some(before) = before {
+                        &before.entry_basic_lands
+                    } else {
+                        current = self.entry_basic_counts(&[&ProposedEvent::Move {
+                            object,
+                            destination: Zone::Battlefield,
+                        }])?;
+                        &current
+                    };
+                    if counts
+                        .get(&controller)
+                        .ok_or("missing common-prior entry controller count")?
+                        < minimum
+                    {
+                        return Ok(true);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(false)
+    }
+    fn apply_move(
+        &mut self,
+        object: ObjectId,
+        destination: Zone,
+        intended_controller: Option<PlayerId>,
+        force_tapped: bool,
+        before: Option<&PreEventFacts>,
+    ) -> Result<EventOutcome, String> {
+        let object = &object;
+        let destination = &destination;
+
+        // Pinned CR 614.1a/6: replace every would-die cause, including
+        // costs and SBAs, before any graveyard move or dies observer.
+        let replaced = if self.anger_replaces_death(*object, *destination) {
+            Zone::Exile
+        } else {
+            *destination
+        };
+        let destination = &replaced;
+        let o = self.current(*object)?.clone();
+        // CR 111.8: once a token has left the battlefield it cannot move again.
+        if self.state.rules.tokens.contains_key(&object.card) && o.zone != Zone::Battlefield {
+            return Err("token cannot move again after leaving battlefield".into());
+        }
+        self.retain_source_lki(*object)?;
+        let owner = self
+            .state
+            .rules
+            .cards
+            .get(&object.card)
+            .ok_or("missing movement card")?
+            .owner;
+        if let Zone::Hand { owner: p }
+        | Zone::Graveyard { owner: p }
+        | Zone::Library { owner: p }
+        | Zone::Command { owner: p } = destination
+            && *p != owner
+        {
+            return Err("zone owner invariant".into());
+        }
+        if self
+            .state
+            .rules
+            .match_state
+            .as_ref()
+            .is_some_and(|m| m.setup.is_none())
+            && o.zone == (Zone::Library { owner })
+            && *destination == (Zone::Hand { owner })
+        {
+            let oracle_id = self.state.rules.cards[&object.card].oracle_id.clone();
+            self.remember_draw(owner, oracle_id);
+        }
+        self.state
+            .rules
+            .mana_ability_uses
+            .retain(|k| k.source != *object);
+        // CR 400.7: a zone move creates a new incarnation, and an actual
+        // outcome explicitly provides its successor. No stale lookup.
+        let successor = ObjectId {
+            card: object.card,
+            incarnation: object
+                .incarnation
+                .checked_add(1)
+                .ok_or("incarnation resource limit")?,
+        };
+        self.state
+            .rules
+            .commander_returns
+            .retain(|id| id.card != object.card);
+        if self.state.rules.commanders.history(object.card).is_some()
+            && matches!(destination, Zone::Graveyard { .. } | Zone::Exile)
+        {
+            self.state.rules.commander_returns.insert(successor);
+        }
+        let controller = if *destination == Zone::Battlefield {
+            intended_controller.unwrap_or(o.controller)
+        } else {
+            owner
+        };
+        self.remove_from_combat(*object);
+        for library in self.state.rules.libraries.values_mut() {
+            library.retain(|c| *c != object.card);
+        }
+        if let Zone::Library { owner } = destination {
+            self.state
+                .rules
+                .libraries
+                .entry(*owner)
+                .or_default()
+                .push(object.card);
+        }
+        // CR 614.1c/614.12: this source replacement modifies entry,
+        // rather than tapping the permanent in a subsequent event.
+        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+        let enters_tapped = *destination == Zone::Battlefield
+            && (force_tapped || self.entry_tapped(*object, controller, before)?);
+        self.state.rules.objects.insert(
+            object.card,
+            Object {
+                attached_to: None,
+                attachment_timestamp: None,
+                plus_one_counters: Quantity::zero(),
+                marked_damage: Quantity::zero(),
+                attack_ready: false,
+                deathtouch_damage: false,
+                id: successor,
+                controller,
+                default_controller: controller,
+                zone: *destination,
+                tapped: enters_tapped,
+            },
+        );
+        Ok(EventOutcome::Moved {
+            movement: MoveOutcome {
+                previous: *object,
+                successor,
+                from: o.zone,
+                destination: *destination,
+            },
+        })
+    }
     fn destruction_is_prevented(
         &self,
         object: ObjectId,
@@ -1757,22 +1987,13 @@ impl Game {
                 if !self.search_lands(*player).contains(object) {
                     return Err("invalid searched land entry".into());
                 }
-                let moved = self.apply_occurrence(&ProposedEvent::Move {
-                    object: *object,
-                    destination: Zone::Battlefield,
-                })?;
-                let o = self
-                    .state
-                    .rules
-                    .objects
-                    .get_mut(&object.card)
-                    .ok_or("missing searched land")?;
-                o.controller = *player;
-                // Ordinary entry preserves intrinsic EntersTapped from Move.
-                if force_tapped {
-                    o.tapped = true;
-                }
-                moved
+                self.apply_move(
+                    *object,
+                    Zone::Battlefield,
+                    Some(*player),
+                    force_tapped,
+                    before,
+                )?
             }
             ProposedEvent::ShuffleLibraryWord { player, index } => {
                 self.apply_search_shuffle_word(*player, *index)?
@@ -2351,122 +2572,7 @@ impl Game {
             ProposedEvent::Move {
                 object,
                 destination,
-            } => {
-                // Pinned CR 614.1a/6: replace every would-die cause, including
-                // costs and SBAs, before any graveyard move or dies observer.
-                let replaced = if self.anger_replaces_death(*object, *destination) {
-                    Zone::Exile
-                } else {
-                    *destination
-                };
-                let destination = &replaced;
-                let o = self.current(*object)?.clone();
-                // CR 111.8: once a token has left the battlefield it cannot move again.
-                if self.state.rules.tokens.contains_key(&object.card) && o.zone != Zone::Battlefield
-                {
-                    return Err("token cannot move again after leaving battlefield".into());
-                }
-                self.retain_source_lki(*object)?;
-                let owner = self
-                    .state
-                    .rules
-                    .cards
-                    .get(&object.card)
-                    .ok_or("missing movement card")?
-                    .owner;
-                if let Zone::Hand { owner: p }
-                | Zone::Graveyard { owner: p }
-                | Zone::Library { owner: p }
-                | Zone::Command { owner: p } = destination
-                    && *p != owner
-                {
-                    return Err("zone owner invariant".into());
-                }
-                if self
-                    .state
-                    .rules
-                    .match_state
-                    .as_ref()
-                    .is_some_and(|m| m.setup.is_none())
-                    && o.zone == (Zone::Library { owner })
-                    && *destination == (Zone::Hand { owner })
-                {
-                    let oracle_id = self.state.rules.cards[&object.card].oracle_id.clone();
-                    self.remember_draw(owner, oracle_id);
-                }
-                self.state
-                    .rules
-                    .mana_ability_uses
-                    .retain(|k| k.source != *object);
-                // CR 400.7: a zone move creates a new incarnation, and an actual
-                // outcome explicitly provides its successor. No stale lookup.
-                let successor = ObjectId {
-                    card: object.card,
-                    incarnation: object
-                        .incarnation
-                        .checked_add(1)
-                        .ok_or("incarnation resource limit")?,
-                };
-                self.state
-                    .rules
-                    .commander_returns
-                    .retain(|id| id.card != object.card);
-                if self.state.rules.commanders.history(object.card).is_some()
-                    && matches!(destination, Zone::Graveyard { .. } | Zone::Exile)
-                {
-                    self.state.rules.commander_returns.insert(successor);
-                }
-                let controller = if *destination == Zone::Battlefield {
-                    o.controller
-                } else {
-                    owner
-                };
-                self.remove_from_combat(*object);
-                for library in self.state.rules.libraries.values_mut() {
-                    library.retain(|c| *c != object.card);
-                }
-                if let Zone::Library { owner } = destination {
-                    self.state
-                        .rules
-                        .libraries
-                        .entry(*owner)
-                        .or_default()
-                        .push(object.card);
-                }
-                // CR 614.1c/614.12: this source replacement modifies entry,
-                // rather than tapping the permanent in a subsequent event.
-                // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-                let enters_tapped = *destination == Zone::Battlefield
-                    && self
-                        .definition(object.card)?
-                        .static_abilities
-                        .iter()
-                        .any(|a| a.effect == StaticEffect::EntersTapped);
-                self.state.rules.objects.insert(
-                    object.card,
-                    Object {
-                        attached_to: None,
-                        attachment_timestamp: None,
-                        plus_one_counters: Quantity::zero(),
-                        marked_damage: Quantity::zero(),
-                        attack_ready: false,
-                        deathtouch_damage: false,
-                        id: successor,
-                        controller,
-                        default_controller: controller,
-                        zone: *destination,
-                        tapped: enters_tapped,
-                    },
-                );
-                EventOutcome::Moved {
-                    movement: MoveOutcome {
-                        previous: *object,
-                        successor,
-                        from: o.zone,
-                        destination: *destination,
-                    },
-                }
-            }
+            } => self.apply_move(*object, *destination, None, false, before)?,
         };
         Ok(actual)
     }

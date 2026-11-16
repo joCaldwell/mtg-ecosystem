@@ -325,6 +325,7 @@ mod casting;
 use cascade::{CascadeProgress, CastCompletion, CastPermission};
 #[cfg(test)]
 mod casting_foundation_tests;
+mod intrinsic_mana;
 mod mana_permanents;
 #[cfg(test)]
 mod mana_tests;
@@ -957,6 +958,12 @@ struct Resolving {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum Frame {
+    /// CR305.6/605.3: select an intrinsic ability before activation or costs.
+    IntrinsicManaChoice {
+        player: PlayerId,
+        source: ObjectId,
+        resume: Box<Frame>,
+    },
     Cascade {
         progress: Box<CascadeProgress>,
     },
@@ -2230,6 +2237,7 @@ impl Game {
                 .retained_auxiliary_charge
                 .saturating_add(self.cost_lock_charge())
                 .saturating_add(self.cascade_charge())
+                .saturating_add(self.intrinsic_choice_charge())
                 .saturating_add(self.grant_payload_charge()),
             |n, k| n.saturating_add(k.history.retention_charge()),
         )
@@ -2472,6 +2480,11 @@ impl Game {
             | Frame::OptionalDamage { .. } => {
                 return Ok(self.sacrifice_request()?.filter(|r| r.player() == viewer));
             }
+            Frame::IntrinsicManaChoice { player, source, .. } => Request::ManaColor {
+                decision_id: self.state.rules.revision,
+                player: *player,
+                colors: self.mana_abilities(*source)?,
+            },
             Frame::ManaAbility { activation } => self.permanent_mana_request(activation)?,
             Frame::SpendMana { .. } => self.spend_mana_request()?,
             Frame::CommanderReturn {
@@ -2580,6 +2593,19 @@ impl Game {
         }
         if let Some(result) = self.validate_actions_response(player, response) {
             return result;
+        }
+        if let Frame::IntrinsicManaChoice {
+            player: chooser,
+            source,
+            ..
+        } = &self.state.rules.frame
+        {
+            return match response {
+                Response::ManaColor { color } if *chooser == player => {
+                    self.validate_intrinsic_choice(player, *source, *color)
+                }
+                _ => Err("invalid intrinsic ability choice".into()),
+            };
         }
         if let Frame::ManaAbility { activation } = &self.state.rules.frame {
             return self.validate_permanent_mana_response(activation, player, response);
@@ -2816,9 +2842,7 @@ impl Game {
                         if self.is_permanent_mana(object) {
                             self.begin_permanent_mana(&input, object, Frame::Priority)?;
                         } else {
-                            self.activate_intrinsic_mana(&input, object)?;
-                            self.state.rules.passes.clear();
-                            self.stabilize()?;
+                            self.begin_intrinsic_mana(&input, object, Frame::Priority)?;
                         }
                     }
                     Response::Cast { card } => {
@@ -2891,9 +2915,7 @@ impl Game {
                         if self.is_permanent_mana(object) {
                             self.begin_permanent_mana(&input, object, Frame::Mana { cast })?;
                         } else {
-                            let receipt = self.activate_intrinsic_mana(&input, object)?;
-                            cast.mana_activations.push(receipt);
-                            self.state.rules.frame = self.announcement_mana_frame(cast)?;
+                            self.begin_intrinsic_mana(&input, object, Frame::Mana { cast })?;
                         }
                     }
                     Response::FinishMana { undo_mana } => {
@@ -2903,6 +2925,11 @@ impl Game {
                     _ => return Err("mana response/frame invariant".into()),
                 }
             }
+            Frame::IntrinsicManaChoice {
+                player,
+                source,
+                resume,
+            } => self.intrinsic_mana_step(player, source, *resume)?,
             Frame::ManaAbility { activation } => self.permanent_mana_step(*activation)?,
             Frame::Payment { cast } => self.payment_step(cast)?,
             Frame::SpendMana { cast } => self.spend_mana_step(cast)?,
@@ -3119,7 +3146,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 31,
+            snapshot_version: 32,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3161,7 +3188,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 31
+        if s.snapshot_version != 32
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

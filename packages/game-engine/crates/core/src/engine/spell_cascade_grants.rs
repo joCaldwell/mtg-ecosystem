@@ -192,7 +192,9 @@ pub(super) fn retained_effect_frame(mut frame: &Frame) -> &Frame {
     loop {
         frame = match frame {
             Frame::ManaAbility { activation } => &activation.resume,
-            Frame::Stabilize { resume, .. } | Frame::LegendRule { resume, .. } => resume,
+            Frame::IntrinsicManaChoice { resume, .. }
+            | Frame::Stabilize { resume, .. }
+            | Frame::LegendRule { resume, .. } => resume,
             Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
                 CommanderContinuation::StateBased { resume }
                 | CommanderContinuation::StateBasedBatch { resume, .. } => resume,

@@ -109,6 +109,14 @@ Personal effects for a departed invocation controller skip rather than redirect.
 
 <a id="announcement-priority-and-payment"></a>
 
+Pure nonbasic lands with unique basic land subtypes derive separate intrinsic
+mana abilities. Existing public `ManaColor` selects the ability before costs;
+paid explicit production choices retain their separate continuation. Conditional
+self-entry counts exact prior Basic+Land objects of the intended controller;
+simultaneous entries share prior counts. Forced and intrinsic tapped flags combine
+inside movement before observers. Cinder Glade/Prairie Stream source qualification
+is separate from admission; shocks/triomes/cycling remain unsupported.
+
 ## Casting, costs, targets and stack
 
 Stack projections run bottom to top. Saved announcement handles are historical:

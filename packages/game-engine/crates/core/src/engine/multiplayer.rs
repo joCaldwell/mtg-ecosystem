@@ -549,6 +549,7 @@ impl Game {
                 | Frame::SacrificeCost { .. }
                 | Frame::SpendMana { .. }
                 | Frame::ManaAbility { .. }
+                | Frame::IntrinsicManaChoice { .. }
         ) && self
             .state
             .rules

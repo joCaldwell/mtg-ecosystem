@@ -34,12 +34,10 @@ rules or policies. Keep the standalone deck-builder independent.
 - **M0:** frozen against main `bbdba9f5`, planning base `46ef08fa`; all 85 archive
   records verified. Production audit: 11 lowered/validated, 74 Unsupported, zero
   Invalid. The baseline retains exact diagnostics; later checkpoints do not rewrite it.
-- **M1:** complete frozen Ramos, Hardened Scales and Corpsejack Menace have private
-  paid mechanics/recovery witnesses. Ramos uses current/LKI spell colors, exact
-  incarnations, positive counter-removal costs, ten-mana production, once-each-turn
-  tracking and nested keep/undo. Prospective Add/Multiply replacements use atomic
-  transactions and affected-controller ordering. Entry/simultaneous/distributed
-  placement producers remain unavailable.
+- **M1:** complete frozen Ramos, Hardened Scales and Corpsejack have paid
+  mechanics/recovery witnesses. Counter removal/mana, color triggers and atomic
+  Add/Multiply ordering are supported; entry/simultaneous/distributed placement
+  producers remain unavailable. [Mechanics](game-engine-mechanics.md) owns details.
 - **M2 partial:** Cultivate/Reach support optional basic search, temporary public
   reveal, identity-bound battlefield/hand partition, tapped entry and shuffle.
   The other land/ramp sources below remain obligations.

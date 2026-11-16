@@ -134,13 +134,28 @@ impl Game {
     }
     pub(super) fn underlying_mana_frame<'a>(&self, frame: &'a Frame) -> &'a Frame {
         let mut f = frame;
-        while let Frame::ManaAbility { activation } = f {
-            f = &activation.resume;
+        loop {
+            f = match f {
+                Frame::ManaAbility { activation } => &activation.resume,
+                Frame::IntrinsicManaChoice { resume, .. } => resume,
+                _ => break,
+            };
         }
         f
     }
     pub(super) fn reserved_mana_source(&self, source: ObjectId) -> bool {
         let mut f = &self.state.rules.frame;
+        if let Frame::IntrinsicManaChoice {
+            source: selected,
+            resume,
+            ..
+        } = f
+        {
+            if *selected == source {
+                return true;
+            }
+            f = resume;
+        }
         while let Frame::ManaAbility { activation } = f {
             if activation.source == source {
                 return true;
@@ -306,11 +321,13 @@ impl Game {
                         },
                     )?;
                 } else {
-                    a.receipts
-                        .push(self.activate_intrinsic_mana(&input, object)?);
-                    self.state.rules.frame = Frame::ManaAbility {
-                        activation: Box::new(a),
-                    };
+                    self.begin_intrinsic_mana(
+                        &input,
+                        object,
+                        Frame::ManaAbility {
+                            activation: Box::new(a),
+                        },
+                    )?;
                 }
             }
             Response::FinishMana { undo_mana } if a.stage == ManaStage::Payment => {
@@ -506,7 +523,7 @@ impl Game {
         });
         self.resume_mana(*a.resume, a.receipts)
     }
-    fn resume_mana(
+    pub(super) fn resume_mana(
         &mut self,
         mut resume: Frame,
         receipts: Vec<ManaActivationUndo>,
@@ -655,7 +672,22 @@ impl Game {
         })
     }
     pub(super) fn revalidate_mana_departure(&mut self) -> Result<(), String> {
+        if let Frame::IntrinsicManaChoice {
+            player,
+            source,
+            resume,
+        } = &self.state.rules.frame
+        {
+            if self.intrinsic_choice_colors(*player, *source).is_err() {
+                let resume = *resume.clone();
+                self.state.rules.pending = None;
+                self.state.rules.frame = resume;
+            }
+        }
         let mut f = &self.state.rules.frame;
+        if let Frame::IntrinsicManaChoice { resume, .. } = f {
+            f = resume;
+        }
         let mut invalid = false;
         while let Frame::ManaAbility { activation: a } = f {
             invalid |= !self.is_live(a.player)
@@ -671,6 +703,9 @@ impl Game {
             });
         }
         if invalid {
+            if let Frame::IntrinsicManaChoice { resume, .. } = self.state.rules.frame.clone() {
+                self.state.rules.frame = *resume;
+            }
             while let Frame::ManaAbility { activation } = self.state.rules.frame.clone() {
                 let mut a = *activation;
                 if let Some(receipt) = a.paid.take() {
@@ -706,6 +741,20 @@ impl Game {
     pub(super) fn validate_nested_mana_frame(&self, frame: &Frame) -> Result<(), String> {
         let mut f = frame;
         let mut sources = BTreeSet::new();
+        if let Frame::IntrinsicManaChoice {
+            player,
+            source,
+            resume,
+        } = f
+        {
+            if self.intrinsic_choice_colors(*player, *source)?.len() < 2
+                || !self.mana_resume_player(resume, *player)
+            {
+                return Err("intrinsic choice snapshot invariant".into());
+            }
+            sources.insert(*source);
+            f = resume;
+        }
         while let Frame::ManaAbility { activation: a } = f {
             if !self.is_live(a.player)
                 || !sources.insert(a.source)
@@ -716,6 +765,9 @@ impl Game {
                 return Err("nested mana snapshot invariant".into());
             }
             f = &a.resume;
+        }
+        if matches!(f, Frame::IntrinsicManaChoice { .. }) {
+            return Err("buried intrinsic choice continuation".into());
         }
         Ok(())
     }

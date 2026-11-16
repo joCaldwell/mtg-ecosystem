@@ -80,15 +80,20 @@ impl Game {
             // Use precisely the runtime's intrinsic CR 305.6 production query.
             // Never describe a permanent ability as intrinsic when its labels are missing.
             let colors = self.mana_abilities(object).ok()?;
-            let [color] = colors.as_slice() else {
+            if colors.is_empty() {
                 return None;
-            };
+            }
+            let symbols = colors
+                .iter()
+                .map(|color| format!("{{{color:?}}}"))
+                .collect::<Vec<_>>()
+                .join(" or ");
             return Some(DecisionSource {
                 kind,
                 oracle_id: definition.oracle_id.clone(),
                 object: Some(self.handle_for(viewer, object).ok()?),
                 ability: None,
-                text: format!("Tap: Add {{{color:?}}}. (Intrinsic basic land mana ability.)"),
+                text: format!("Tap: Add {symbols}. (Intrinsic basic land mana ability.)"),
             });
         }
         let labels = definition.source_labels.as_ref()?;
@@ -169,6 +174,14 @@ impl Game {
         // No stack fallback for setup, combat, cleanup, rule choices or observers.
         // Otherwise a different player's pending source could leak through context.
         let entry = match (&self.state.rules.frame, request) {
+            (Frame::IntrinsicManaChoice { player, source, .. }, _) if *player == viewer => {
+                return self
+                    .described_source(viewer, *source, DecisionSourceKind::ManaAbility, None)
+                    .map(|source| DecisionContext {
+                        source: Some(source),
+                        ..Default::default()
+                    });
+            }
             (Frame::ManaAbility { activation }, _) if activation.player == viewer => {
                 return self
                     .described_source(

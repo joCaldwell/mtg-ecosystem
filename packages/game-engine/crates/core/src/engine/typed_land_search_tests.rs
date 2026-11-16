@@ -32,7 +32,7 @@ fn source(raw: &str, manifest: &str) -> Definition {
     };
     *definition
 }
-fn typed_prepared(raw: &str) -> Prepared {
+pub(super) fn typed_prepared(raw: &str) -> Prepared {
     let mut p = search_prepared("Rampant Growth");
     let mut opening_probe = Game::new(p.clone());
     opening(&mut opening_probe);
@@ -159,7 +159,7 @@ fn paid_search(g: &mut Game, name: &str, cost: usize) -> Request {
     }
     panic!("search not reached")
 }
-fn validate(g: &Game, response: PlayerResponse) -> ValidatedResponse {
+pub(super) fn validate(g: &Game, response: PlayerResponse) -> ValidatedResponse {
     let before = g.state.clone();
     let trace = g.trace.clone();
     let token = observation(g, 0).decision.unwrap().token().clone();
@@ -182,7 +182,7 @@ fn validate(g: &Game, response: PlayerResponse) -> ValidatedResponse {
     assert_eq!(g.trace, trace);
     receipt
 }
-fn observation_work(g: &Game, viewer: PlayerId) {
+pub(super) fn observation_work(g: &Game, viewer: PlayerId) {
     let before = g.state.clone();
     let trace = g.trace.clone();
     let QueryResult::Incomplete { work, .. } = g.observe(viewer, Budget::new(1)) else {

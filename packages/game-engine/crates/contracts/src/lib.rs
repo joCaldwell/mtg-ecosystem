@@ -1,4 +1,5 @@
 //! Executable Card IR contracts. No rules execution or parser dependency.
+mod conditional_lands;
 mod counted_costs;
 mod typed_land_search;
 pub use typed_land_search::{BasicLandType, TypedLandSearch};
@@ -212,6 +213,8 @@ pub enum Capability {
     SourceStatusConditionV1,
     StepBeginningTriggerV1,
     EntersTappedV1,
+    ConditionalBasicLandEntryV1,
+    TypedNonbasicIntrinsicManaV1,
     FlashV1,
     CastArtifactV1,
     PermanentManaV1,
@@ -901,6 +904,10 @@ pub enum StaticEffect {
     /// CR 101.2/109.5/601.3: opponents cannot cast during this controller's turn.
     OpponentsCantCastDuringControllerTurn,
     EntersTapped,
+    /// CR 109.5/205.4c/614.12: count prior basic lands of the entering controller.
+    EntersTappedUnlessControllerBasicLands {
+        minimum: Quantity,
+    },
     ReduceGenericByCreatureCount,
     ReduceSelfGenericCost {
         per_object: Quantity,
@@ -1655,6 +1662,8 @@ impl Definition {
                 set.insert(Capability::LandPlayV1);
                 if self.characteristics.basic {
                     set.insert(Capability::BasicLandManaV1);
+                } else if !self.characteristics.subtypes.is_empty() {
+                    set.insert(Capability::TypedNonbasicIntrinsicManaV1);
                 }
             }
             CardKind::Creature => {
@@ -1834,6 +1843,9 @@ impl Definition {
                     Capability::ControllerCreaturePlusOneCounterReplacementV1
                 }
                 StaticEffect::EntersTapped => Capability::EntersTappedV1,
+                StaticEffect::EntersTappedUnlessControllerBasicLands { .. } => {
+                    Capability::ConditionalBasicLandEntryV1
+                }
                 StaticEffect::ReduceSelfGenericCost { .. } => {
                     Capability::CountedSelfGenericCostReductionV1
                 }
@@ -1863,6 +1875,7 @@ impl Definition {
     pub fn validate(&self) -> Result<(), String> {
         optional_costs::validate_definition(self)?;
         typed_land_search::validate_definition(self)?;
+        conditional_lands::validate_definition(self)?;
         // Every occurrence retains its own u32 ability index, including repeated
         // keywords in one source block (CR 702.85c). No per-card instance cap.
         u32::try_from(self.triggered.len()).map_err(|_| "trigger ability index limit")?;
@@ -2655,7 +2668,9 @@ impl Definition {
         if self.static_abilities.iter().any(|a| {
             !matches!(
                 a.effect,
-                StaticEffect::GrantSpellCascade { .. } | StaticEffect::ReduceSelfGenericCost { .. }
+                StaticEffect::GrantSpellCascade { .. }
+                    | StaticEffect::ReduceSelfGenericCost { .. }
+                    | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
             ) && a.effect != StaticEffect::EntersTapped
                 && a.effect != StaticEffect::OpponentsCantCastDuringControllerTurn
                 && !matches!(
@@ -2763,7 +2778,11 @@ impl Definition {
                 }
                 continue;
             }
-            if a.effect == StaticEffect::EntersTapped {
+            if matches!(
+                a.effect,
+                StaticEffect::EntersTapped
+                    | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
+            ) {
                 if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
                     return Err("entry replacement requires a permanent".into());
                 }
@@ -2811,7 +2830,14 @@ impl Definition {
                         || basic_land_color(&c.subtypes[0]).is_none()
                         || !self.mana_abilities.is_empty()
                 } else {
-                    !c.subtypes.is_empty() || self.mana_abilities.is_empty()
+                    if c.subtypes.is_empty() {
+                        self.mana_abilities.is_empty()
+                    } else {
+                        !self.mana_abilities.is_empty()
+                            || c.subtypes.iter().any(|s| basic_land_color(s).is_none())
+                            || c.subtypes.iter().collect::<BTreeSet<_>>().len() != c.subtypes.len()
+                            || !c.additional_types.is_empty()
+                    }
                 } || c.mana_cost.generic != Quantity::zero()
                     || !c.mana_cost.colored.is_empty()
                     || c.power.is_some()
@@ -5421,6 +5447,7 @@ pub fn catalog_schema() -> serde_json::Value {
     counted_costs::schema(&mut schema);
     typed_land_search::schema(&mut schema);
     controller_scry::extend_schema(&mut schema);
+    conditional_lands::schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -5653,6 +5680,8 @@ mod tests {
             BoardWipesV1,
             FlashV1,
             EntersTappedV1,
+            ConditionalBasicLandEntryV1,
+            TypedNonbasicIntrinsicManaV1,
             StepBeginningTriggerV1,
             EventPlayerRecipientV1,
             SourceStatusConditionV1,
@@ -5827,6 +5856,7 @@ mod tests {
         definitions.push(permanent_owner_hand_tests::permanent_owner_hand());
         definitions.push(basic_land_split_tests::split_search());
         definitions.push(typed_land_search_tests::typed_search());
+        definitions.push(conditional_lands::tests::land());
         definitions.push(ramos_m1_tests::ramos());
         definitions.push(counter_placement_tests::provider(
             CounterPlacementModification::Add { amount: 7.into() },
