@@ -448,8 +448,11 @@ fn paid_controller_scry_queries_are_private_ordered_resumable_and_atomic() {
             let (r, looked) = scry_request(g, q);
             let before = g.state.clone();
             let trace = g.trace.clone();
-            let QueryValue::Decision(Some(PlayerRequest::Scry { token, candidates })) =
-                finish_query(g, g.player_decision_for(PlayerId(0), Budget::new(0)))
+            let QueryValue::Decision(Some(PlayerRequest::Scry {
+                token,
+                candidates,
+                player: PlayerId(0),
+            })) = finish_query(g, g.player_decision_for(PlayerId(0), Budget::new(0)))
             else {
                 panic!("public scry")
             };
@@ -816,7 +819,7 @@ fn controller_scry_kernel_ordered_failure_and_private_memory_capacity_are_atomic
             assert_eq!(g.state, before);
             assert_eq!(g.trace, trace);
             // Deliberately synthetic capacity saturation, never a replayable history claim.
-            let mut scratch = g.clone();
+            let mut scratch = g.fork();
             scratch.state.rules.retained_auxiliary_charge = usize::MAX;
             let before = scratch.state.clone();
             let trace = scratch.trace.clone();
