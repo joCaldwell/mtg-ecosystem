@@ -31,7 +31,7 @@
     },
     {
       "path": "docs/game-engine-current.md",
-      "sha256": "5cb9d124388a03313ec6676758362c1c16f1e2bd74c946fd522a2df6ac5ccad3"
+      "sha256": "3b804e777364292829ab05aecca01851fc2afa2c49eff4bd7bd74ba7440526f6"
     },
     {
       "path": "docs/game-engine-server.md",
@@ -39,7 +39,7 @@
     },
     {
       "path": "packages/game-engine/crates/core/src/engine/visibility.rs",
-      "sha256": "ded6413279683485b7c1f362ec2ba5f3bfdfea816cb807afc0309c97372ee2ad"
+      "sha256": "8aee0f317c8be0b7c263444dac31c0f49b203f8bdc44712dec2ba79006eb7436"
     },
     {
       "path": "packages/game-client/src/decisions/controls.ts",

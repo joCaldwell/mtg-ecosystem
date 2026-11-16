@@ -1,17 +1,14 @@
 # Client and product acceptance evidence
 
-[Client contracts](game-client.md) own current behavior and delivery gates;
-[application launch gates](../packages/multiverse/web/ARCHITECTURE.md#game-launch) own product launch. These records retain
-their exact producer/source/schema qualification; they are not current-engine-HEAD
-acceptance or a requirement to repeat the entire matrix for documentation edits.
-Original source/proof identities are preserved in their named evidence locations
-or the explicit retirement archive below; no raw evidence was discarded.
-The metadata-delivery SDK followup retains its separate source bridge and checks at
+[Client contracts](game-client.md) own behavior;
+[application launch gates](../packages/multiverse/web/ARCHITECTURE.md#game-launch) own launch. Evidence qualifies exact
+producer/source/schema, never moving HEAD. Original identities and raw proof
+remain at named locations or the retirement archive below.
+The metadata-delivery SDK followup retains its source bridge at
 `~/.local/share/mtg-ecosystem/engine-evidence/product-presentation-sdk-20261115/`.
-Its 69 SDK tests extend the prior 66; native observation21 builds/schema remain
-unchanged. The original 898-row proof and SDK archive remain historical, without
-claiming all rows match after these non-native SDK changes. Product browser and
-full-game qualification remain separate.
+Its 69 SDK tests extend 66; native observation21 builds/schema stay unchanged.
+The historical 898-row proof does not claim every row matches the SDK followup.
+Browser/full-game gates stay separate.
 
 ## Producer context and admission qualification
 
@@ -187,9 +184,8 @@ unproven. Fresh browser/full-game acceptance remains pending; approvals stay emp
 
 ## Earlier prerequisites and unique provenance
 
-Earlier reports qualify bounded prerequisites. Their historical source/receipt
-tables remain at the immutable baselines below; tracked provenance/inventories/pins
-remain in place.
+Immutable baselines retain prerequisite source/artifact identities, failures and
+omissions; tracked provenance/inventories/pins remain in place.
 `generated/action-transport/attempt02` and `generated/m2-integration` belong to the
 original action transport/controls lanes; `generated/core-queries/attempt02` belongs
 to the native discovery proof above.
@@ -197,5 +193,4 @@ The [immutable transport/delivery reports](https://github.com/joCaldwell/mtg-eco
 retain `game-client-{action-transport,local-serving,native-integration,browser-sdk}.md`.
 The [immutable package reports](https://github.com/joCaldwell/mtg-ecosystem/tree/1c3eca4c37b90de02decca316fefab5c8035140e/packages/game-client)
 retain foundation, live-session, decision-controls, command-journal,
-action-session, live-opening and workspace-UX reports. Each owns its original
-source/artifact identities, failures and omissions. No raw evidence was deleted.
+action-session, live-opening and workspace-UX reports.
