@@ -168,7 +168,22 @@ schemas stay unchanged; server is now `0d29823b`. All 50 SDK inputs remain equal
 to `b9991c9c`, reverified at `c48ceff0`. The consumer SDK bridge is retained under
 `native21-clock-client-integration-20261115/`. Separately, current-main cherry-pick
 `cbb8fc02` passed 32 host tests without relabelling this frozen producer.
-Fresh browser/full-game acceptance remains pending; older roots are untouched.
+Consumer `bac3ad83`/byte-identical main `427d44e8` passed four Chromium/Firefox
+prefix/timeout cases. Its longer run consumed 223 commands, then a query closed at
+four seconds (`discovery_uncertain`); no outcome, empty journal, cleanup complete.
+Receipts remain under `product-native21-clock-browser-bac3ad83-20261115/`.
+
+### Broker clock fairness
+
+Source `ea14d13cb1356dcfb10a0b1a57aed88317203054` retains
+`~/.local/share/mtg-ecosystem/engine-evidence/native21-broker-clock-fairness-20261116/qualification.json`.
+Starting the next clock interval after worker completion prevents slow Ticks from
+starving queued requests. The anchor-before-await mutation failed its regression;
+42 distinct focused Rust tests (47 successful executions) and SDK69 passed.
+All 901 compiled rows match Git and both IDs independently rederive. Engine and
+schemas remain unchanged; server becomes `a0ab6836`. Inherited lint exceptions
+and the selector-count driver failure remain recorded. Earlier-run causality is
+unproven. Fresh browser/full-game acceptance remains pending; approvals stay empty.
 
 ## Earlier prerequisites and unique provenance
 
