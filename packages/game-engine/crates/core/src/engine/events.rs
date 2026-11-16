@@ -1752,7 +1752,9 @@ impl Game {
                     .ok_or("missing searched land")?;
                 o.controller = *player;
                 // Ordinary entry preserves intrinsic EntersTapped from Move.
-                if force_tapped { o.tapped = true; }
+                if force_tapped {
+                    o.tapped = true;
+                }
                 moved
             }
             ProposedEvent::ShuffleLibraryWord { player, index } => {

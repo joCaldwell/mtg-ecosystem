@@ -19,22 +19,37 @@ struct LandSearch<'a> {
 impl<'a> LandSearch<'a> {
     fn instruction(instruction: &'a Instruction) -> Option<Self> {
         let (typed, maximum, split, source_block) = match instruction {
-            Instruction::SearchBasicLands { maximum, source_block } => (None, *maximum, false, *source_block),
+            Instruction::SearchBasicLands {
+                maximum,
+                source_block,
+            } => (None, *maximum, false, *source_block),
             Instruction::SearchBasicLandsSplit { source_block } => (None, 2, true, *source_block),
-            Instruction::SearchTypedLands { search, source_block } => {
+            Instruction::SearchTypedLands {
+                search,
+                source_block,
+            } => {
                 // Only the offered count is physically bounded. The exact IR
                 // quantity remains unchanged, including arbitrarily large maxima.
                 let bound = capacities::OWNED_LIMIT as u32;
-                let maximum = if search.maximum >= Quantity::from(i64::from(bound)) { bound }
-                    else { search.maximum.to_string().parse().ok()? };
+                let maximum = if search.maximum >= Quantity::from(i64::from(bound)) {
+                    bound
+                } else {
+                    search.maximum.to_string().parse().ok()?
+                };
                 (Some(search), maximum, false, *source_block)
             }
             _ => return None,
         };
-        Some(Self { typed, maximum, split, source_block })
+        Some(Self {
+            typed,
+            maximum,
+            split,
+            source_block,
+        })
     }
     fn accepts(&self, c: &Characteristics) -> bool {
-        self.typed.map_or_else(|| c.kind == CardKind::Land && c.basic, |s| s.accepts(c))
+        self.typed
+            .map_or_else(|| c.kind == CardKind::Land && c.basic, |s| s.accepts(c))
     }
     fn force_tapped(&self) -> bool {
         self.typed.is_none_or(|s| s.force_tapped)
@@ -42,19 +57,43 @@ impl<'a> LandSearch<'a> {
 }
 impl Game {
     fn land_search_for(&self, frame: &Resolving) -> Option<LandSearch<'_>> {
-        LandSearch::instruction(self.program_for(&frame.spell).ok()?.instructions.get(frame.cursor as usize)?)
+        LandSearch::instruction(
+            self.program_for(&frame.spell)
+                .ok()?
+                .instructions
+                .get(frame.cursor as usize)?,
+        )
     }
     fn active_land_search(&self) -> Option<LandSearch<'_>> {
-        let Frame::ResolutionChoice { frame, choice } = &self.state.rules.frame else { return None };
-        if !matches!(choice, ResolutionChoice::Search { .. } | ResolutionChoice::SearchSplit { .. } | ResolutionChoice::Shuffle { .. }) { return None; }
+        let Frame::ResolutionChoice { frame, choice } = &self.state.rules.frame else {
+            return None;
+        };
+        if !matches!(
+            choice,
+            ResolutionChoice::Search { .. }
+                | ResolutionChoice::SearchSplit { .. }
+                | ResolutionChoice::Shuffle { .. }
+        ) {
+            return None;
+        }
         self.land_search_for(frame)
     }
     pub(super) fn searched_land_force_tapped(&self, player: PlayerId) -> Result<bool, String> {
-        let Frame::ResolutionChoice { frame, choice } = &self.state.rules.frame else { return Err("no searched land entry".into()) };
-        if frame.spell.controller != player || !matches!(choice, ResolutionChoice::Search { .. } | ResolutionChoice::SearchSplit { .. }) {
+        let Frame::ResolutionChoice { frame, choice } = &self.state.rules.frame else {
+            return Err("no searched land entry".into());
+        };
+        if frame.spell.controller != player
+            || !matches!(
+                choice,
+                ResolutionChoice::Search { .. } | ResolutionChoice::SearchSplit { .. }
+            )
+        {
             return Err("wrong searched land entry controller or phase".into());
         }
-        Ok(self.land_search_for(frame).ok_or("not land search instruction")?.force_tapped())
+        Ok(self
+            .land_search_for(frame)
+            .ok_or("not land search instruction")?
+            .force_tapped())
     }
     pub(super) fn resolution_draw_player(&self, frame: &Resolving) -> Result<PlayerId, String> {
         match self
@@ -264,8 +303,13 @@ impl Game {
             op @ (Instruction::SearchBasicLands { .. }
             | Instruction::SearchBasicLandsSplit { .. }
             | Instruction::SearchTypedLands { .. }) => {
-                let descriptor = LandSearch::instruction(&op).ok_or("invalid land search instruction")?;
-                let (maximum, source_block, split) = (descriptor.maximum, descriptor.source_block, descriptor.split);
+                let descriptor =
+                    LandSearch::instruction(&op).ok_or("invalid land search instruction")?;
+                let (maximum, source_block, split) = (
+                    descriptor.maximum,
+                    descriptor.source_block,
+                    descriptor.split,
+                );
                 if !self.is_live(frame.spell.controller) {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
@@ -351,7 +395,9 @@ impl Game {
             ) => Some(
                 if *p == player
                     && self.is_live(player)
-                    && self.active_land_search().is_some_and(|s| s.maximum == *maximum)
+                    && self
+                        .active_land_search()
+                        .is_some_and(|s| s.maximum == *maximum)
                     && objects.len() <= *maximum as usize
                     && objects.iter().collect::<BTreeSet<_>>().len() == objects.len()
                     && objects
@@ -674,9 +720,11 @@ impl Game {
                 instruction,
             ) => {
                 *player == frame.spell.controller
-                    && LandSearch::instruction(instruction).is_some_and(|s|
-                        *split == s.split && *maximum == s.maximum && *source_block == s.source_block)
-
+                    && LandSearch::instruction(instruction).is_some_and(|s| {
+                        *split == s.split
+                            && *maximum == s.maximum
+                            && *source_block == s.source_block
+                    })
             }
             (
                 ResolutionChoice::SearchSplit {
@@ -704,7 +752,9 @@ impl Game {
                     source_block: b, ..
                 }
                 | Instruction::SearchBasicLandsSplit { source_block: b }
-                | Instruction::SearchTypedLands { source_block: b, .. },
+                | Instruction::SearchTypedLands {
+                    source_block: b, ..
+                },
             ) => {
                 *player == frame.spell.controller
                     && source_block == b

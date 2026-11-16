@@ -1289,6 +1289,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
     }
+    for (ability, raw) in abilities.iter().zip(&original) {
+        typed_land_search::validate_raw_actors(ability, raw.get())?;
+    }
     let control_target = abilities.iter().find_map(|a| match a {
         Ability::Static {
             effect: SourceStaticEffect::Control { what, .. },

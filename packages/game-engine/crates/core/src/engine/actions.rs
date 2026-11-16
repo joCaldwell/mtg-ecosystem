@@ -647,9 +647,7 @@ impl Game {
             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
             | Instruction::SearchBasicLands { .. }
             | Instruction::SearchBasicLandsSplit { .. }
-            | Instruction::SearchTypedLands { .. }) => {
-                self.execute_staples_instruction(frame, op)
-            }
+            | Instruction::SearchTypedLands { .. }) => self.execute_staples_instruction(frame, op),
             op @ (Instruction::CreateCreatureTokens { .. }
             | Instruction::PutPlusOneCounters { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. }) => {

@@ -2,7 +2,9 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum BasicLandType {
     Plains,
@@ -39,25 +41,39 @@ impl TypedLandSearch {
             || self.any_basic_land_types.is_empty()
             || !self.any_basic_land_types.windows(2).all(|w| w[0] < w[1])
         {
-            return Err("typed land search requires positive maximum and canonical nonempty types".into());
+            return Err(
+                "typed land search requires positive maximum and canonical nonempty types".into(),
+            );
         }
         Ok(())
     }
     pub fn accepts(&self, c: &Characteristics) -> bool {
         c.has_type(CardKind::Land)
-            && self.any_basic_land_types.iter().any(|t| c.subtypes.iter().any(|s| s == t.subtype()))
+            && self
+                .any_basic_land_types
+                .iter()
+                .any(|t| c.subtypes.iter().any(|s| s == t.subtype()))
     }
 }
 
 fn has_search(p: &SpellProgram) -> bool {
-    p.instructions.iter().any(|i| matches!(i, Instruction::SearchTypedLands { .. }))
+    p.instructions
+        .iter()
+        .any(|i| matches!(i, Instruction::SearchTypedLands { .. }))
         || p.modes.iter().any(|m| has_search(&m.program))
 }
 pub(super) fn validate_program(p: &SpellProgram) -> Result<(), String> {
     if has_search(p)
-        && (!matches!(p.instructions.as_slice(), [Instruction::SearchTypedLands { source_block: 0, .. }])
-            || !p.targets.is_empty() || !p.modes.is_empty()
-            || p.additional_sacrifice.is_some() || !p.optional_additional_costs.is_empty()
+        && (!matches!(
+            p.instructions.as_slice(),
+            [Instruction::SearchTypedLands {
+                source_block: 0,
+                ..
+            }]
+        ) || !p.targets.is_empty()
+            || !p.modes.is_empty()
+            || p.additional_sacrifice.is_some()
+            || !p.optional_additional_costs.is_empty()
             || p.functioning_zone != FunctioningZone::Stack
             || p.resolution != SpellResolution::Instructions)
     {
@@ -69,10 +85,18 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
     let present = d.spell.as_ref().is_some_and(has_search)
         || d.activated.iter().any(|a| has_search(&a.program))
         || d.triggered.iter().any(|a| has_search(&a.program));
-    if present && (d.x_mana_cost || !matches!(d.characteristics.kind, CardKind::Instant | CardKind::Sorcery)
-        || !d.spell.as_ref().is_some_and(has_search)
-        || !d.activated.is_empty() || !d.triggered.is_empty() || !d.mana_abilities.is_empty()
-        || !d.static_abilities.is_empty() || !d.keywords.is_empty())
+    if present
+        && (d.x_mana_cost
+            || !matches!(
+                d.characteristics.kind,
+                CardKind::Instant | CardKind::Sorcery
+            )
+            || !d.spell.as_ref().is_some_and(has_search)
+            || !d.activated.is_empty()
+            || !d.triggered.is_empty()
+            || !d.mana_abilities.is_empty()
+            || !d.static_abilities.is_empty()
+            || !d.keywords.is_empty())
     {
         return Err("typed land search requires a complete ordinary spell source".into());
     }
@@ -80,9 +104,25 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
 }
 pub(super) fn schema(s: &mut serde_json::Value) {
     use serde_json::json;
-    let types = [BasicLandType::Plains, BasicLandType::Island, BasicLandType::Swamp, BasicLandType::Mountain, BasicLandType::Forest];
-    let sets: Vec<_> = (1..32).map(|mask| types.iter().enumerate().filter(|(i,_)| mask & (1 << i) != 0).map(|(_,t)| *t).collect::<Vec<_>>()).collect();
-    s["$defs"]["TypedLandSearch"]["properties"]["maximum"] = json!({"type":"string","pattern":"^[1-9][0-9]*$"});
+    let types = [
+        BasicLandType::Plains,
+        BasicLandType::Island,
+        BasicLandType::Swamp,
+        BasicLandType::Mountain,
+        BasicLandType::Forest,
+    ];
+    let sets: Vec<_> = (1..32)
+        .map(|mask| {
+            types
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| mask & (1 << i) != 0)
+                .map(|(_, t)| *t)
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    s["$defs"]["TypedLandSearch"]["properties"]["maximum"] =
+        json!({"type":"string","pattern":"^[1-9][0-9]*$"});
     s["$defs"]["TypedLandSearch"]["properties"]["any_basic_land_types"] = json!({"enum":sets});
     s["$defs"]["TypedLandSearchFreeProgram"] = json!({"properties":{
         "instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"const":"search_typed_lands"}}}}},
