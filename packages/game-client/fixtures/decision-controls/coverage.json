@@ -35,7 +35,7 @@
     },
     {
       "path": "docs/game-engine-server.md",
-      "sha256": "1c0096aeca177a43c709567780a570225d888c24b5b189f0d666cb2ead46fa3f"
+      "sha256": "fdb69e515af92affcb1756e78755bf563805ddead28ed575ed2451d28d80648a"
     },
     {
       "path": "packages/game-engine/crates/core/src/engine/visibility.rs",
