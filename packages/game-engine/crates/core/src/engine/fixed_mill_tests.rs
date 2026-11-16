@@ -86,7 +86,7 @@ fn finish(g: &mut Game, q: u64) {
     panic!("finish bound")
 }
 fn mill_done(g: &Game) -> bool {
-    matches!(&g.state.rules.frame,Frame::Resolve(f) if f.cursor==1)
+    matches!(&g.state.rules.frame,Frame::Resolve { frame:f } if f.cursor==1)
 }
 #[test]
 fn fixed_mill_paid_complete_sources_player_targets_order_draw_and_public_successors() {
@@ -303,7 +303,7 @@ fn fixed_mill_atomic_rollback_and_authenticated_completed_prefix() {
             paid(g, q, None);
             // Capture the real resolving prefix before its first instruction.
             for _ in 0..500 {
-                if matches!(&g.state.rules.frame,Frame::Resolve(f) if f.cursor==0) {
+                if matches!(&g.state.rules.frame,Frame::Resolve { frame:f } if f.cursor==0) {
                     break;
                 }
                 match g.advance(Budget::new(1)) {
@@ -314,7 +314,7 @@ fn fixed_mill_atomic_rollback_and_authenticated_completed_prefix() {
                     x => panic!("{x:?}"),
                 }
             }
-            let Frame::Resolve(f) = &g.state.rules.frame else {
+            let Frame::Resolve { frame: f } = &g.state.rules.frame else {
                 panic!("resolving")
             };
             let cause = BatchCause::Instruction {
