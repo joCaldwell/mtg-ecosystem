@@ -341,7 +341,8 @@ fn changes_control_inputs(event: &ProposedEvent) -> bool {
 
 fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
     match event {
-        ProposedEvent::Scry { player, looked, .. } => {
+        ProposedEvent::Scry { player, looked, .. }
+        | ProposedEvent::Surveil { player, looked, .. } => {
             let mut read = BTreeSet::from([FactKey::Libraries, FactKey::Life(*player)]);
             read.extend(looked.iter().map(|o| FactKey::Object(o.card)));
             (read, BTreeSet::from([FactKey::Libraries]))
@@ -751,7 +752,8 @@ impl Game {
         let mut stack = BTreeSet::new();
         for event in events {
             match event {
-                ProposedEvent::Scry { player, looked, .. } => {
+                ProposedEvent::Scry { player, looked, .. }
+                | ProposedEvent::Surveil { player, looked, .. } => {
                     libraries.insert(*player);
                     players.insert(*player);
                     objects.extend(looked.iter().copied());
@@ -1534,6 +1536,13 @@ impl Game {
         before: Option<&PreEventFacts>,
     ) -> Result<EventOutcome, String> {
         let actual = match proposed {
+            ProposedEvent::Surveil {
+                player,
+                amount,
+                looked,
+                top,
+                graveyard,
+            } => self.apply_surveil(*player, amount, looked, top, graveyard, before)?,
             ProposedEvent::Scry {
                 player,
                 amount,

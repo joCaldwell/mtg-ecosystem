@@ -70,7 +70,9 @@ pub(super) fn choose(
     let beneficial =
         selected_program(catalog, observation).is_some_and(search_candidates::beneficial);
     Ok(match request {
-        PlayerRequest::Scry { .. } => return Err("scry outside this policy admission".into()),
+        PlayerRequest::Scry { .. } | PlayerRequest::Surveil { .. } => {
+            return Err("scry outside this policy admission".into());
+        }
         PlayerRequest::LegendRule { candidates, .. } => PlayerResponse::LegendRule {
             keep: candidates.last().ok_or("empty legend choices")?.clone(),
         },

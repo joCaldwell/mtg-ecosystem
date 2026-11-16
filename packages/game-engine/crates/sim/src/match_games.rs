@@ -118,7 +118,9 @@ impl Strategy<'_> {
         let v = &o.view;
         let request = o.decision.as_ref().ok_or("missing match request")?;
         Ok(match request {
-            PlayerRequest::Scry { .. } => return Err("scry outside this policy admission".into()),
+            PlayerRequest::Scry { .. } | PlayerRequest::Surveil { .. } => {
+                return Err("scry outside this policy admission".into());
+            }
             PlayerRequest::LegendRule { candidates, .. } => self.legend_choice(candidates)?,
             PlayerRequest::AnnounceX { .. } => PlayerResponse::AnnounceX {
                 value: self
