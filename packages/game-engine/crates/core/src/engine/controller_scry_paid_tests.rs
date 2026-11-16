@@ -520,11 +520,25 @@ fn paid_controller_scry_queries_are_private_ordered_resumable_and_atomic() {
                 panic!("saved query")
             };
             // Recover a partially assembled decision, including its one-card prefix.
-            let mut work = g.player_decision_for(PlayerId(0), Budget::new(1));
+            let mut work = g.player_decision_for(PlayerId(0), Budget::new(2));
             let QueryResult::Incomplete { work: partial, .. } = work else {
                 panic!("partial decision")
             };
             let encoded = g.save_work(&partial).unwrap();
+            let mut changed: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+            assert_eq!(
+                changed["data"]["task"]["request"]["candidates"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                1
+            );
+            changed["data"]["task"]["request"]["candidates"][0] =
+                serde_json::to_value(&candidates[1]).unwrap();
+            assert!(
+                g.restore_work(&serde_json::to_string(&changed).unwrap())
+                    .is_err()
+            );
             let restored_work = g.restore_work(&encoded).unwrap();
             work = g.resume_work(restored_work, Budget::unlimited());
             let QueryValue::Decision(actual) = finish_query(g, work) else {
