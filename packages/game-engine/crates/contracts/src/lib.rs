@@ -1,5 +1,7 @@
 //! Executable Card IR contracts. No rules execution or parser dependency.
 mod counted_costs;
+mod typed_land_search;
+pub use typed_land_search::{BasicLandType, TypedLandSearch};
 /// Engine build identity excludes card/profile data and hosting code. Retained
 /// evidence still carries those files with their own hashes; matches/snapshots
 /// separately bind the exact catalog digest. Used by both the core build and
@@ -289,6 +291,7 @@ pub enum Capability {
     GraveyardRecursionV1,
     BasicLandSearchV1,
     BasicLandSplitSearchV1,
+    TypedLandSearchV1,
     CreatureAnthemV1,
     TargetPlayerDrawV1,
     AttachmentsV1,
@@ -601,6 +604,10 @@ pub enum Instruction {
     SearchBasicLandsSplit {
         source_block: u32,
     },
+    SearchTypedLands {
+        search: TypedLandSearch,
+        source_block: u32,
+    },
     SearchBasicLands {
         maximum: u32,
         source_block: u32,
@@ -730,6 +737,7 @@ impl Instruction {
         match self {
             Self::Cascade { source_block, .. }
             | Self::SearchBasicLandsSplit { source_block, .. }
+            | Self::SearchTypedLands { source_block, .. }
             | Self::PutSourcePlusOneCountersForCastColors { source_block, .. }
             | Self::DrawCardsIfAdditionalCost { source_block, .. } => *source_block,
             Self::MoveSet { source_block, .. } => *source_block,
@@ -1844,6 +1852,7 @@ impl Definition {
     }
     pub fn validate(&self) -> Result<(), String> {
         optional_costs::validate_definition(self)?;
+        typed_land_search::validate_definition(self)?;
         // Every occurrence retains its own u32 ability index, including repeated
         // keywords in one source block (CR 702.85c). No per-card instance cap.
         u32::try_from(self.triggered.len()).map_err(|_| "trigger ability index limit")?;
@@ -3237,6 +3246,7 @@ fn temporary_creature_keyword_capability(p: &SpellProgram) -> Capability {
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     optional_costs::validate_program(p)?;
+    typed_land_search::validate_program(p)?;
     if p.instructions
         .iter()
         .any(|i| matches!(i, Instruction::Cascade { .. }))
@@ -3616,6 +3626,10 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             Instruction::DestroyAllCreatures { .. } => None,
             Instruction::ReturnOwnGraveyardCreatureToHand { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::OwnGraveyardCreatureCard))
+            }
+            Instruction::SearchTypedLands { search, .. } => {
+                search.validate()?;
+                None
             }
             Instruction::SearchBasicLandsSplit { .. } => {
                 if p.instructions.len() != 1
@@ -4083,6 +4097,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::ReturnOwnGraveyardCreatureToHand { .. } => {
                 Capability::GraveyardRecursionV1
             }
+            Instruction::SearchTypedLands { .. } => Capability::TypedLandSearchV1,
             Instruction::SearchBasicLandsSplit { .. } => Capability::BasicLandSplitSearchV1,
             Instruction::SearchBasicLands { .. } => Capability::BasicLandSearchV1,
             Instruction::DrawCards {
@@ -5350,6 +5365,7 @@ pub fn catalog_schema() -> serde_json::Value {
     static_controller::schema(&mut schema);
     optional_costs::schema(&mut schema);
     counted_costs::schema(&mut schema);
+    typed_land_search::schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -5569,6 +5585,7 @@ mod tests {
             GraveyardRecursionV1,
             BasicLandSearchV1,
             BasicLandSplitSearchV1,
+            TypedLandSearchV1,
             CreatureAnthemV1,
             TargetPlayerDrawV1,
             CastArtifactV1,
@@ -5752,6 +5769,7 @@ mod tests {
         definitions.push(activated_permanent_return_tests::activated_return());
         definitions.push(permanent_owner_hand_tests::permanent_owner_hand());
         definitions.push(basic_land_split_tests::split_search());
+        definitions.push(typed_land_search_tests::typed_search());
         definitions.push(ramos_m1_tests::ramos());
         definitions.push(counter_placement_tests::provider(
             CounterPlacementModification::Add { amount: 7.into() },
@@ -7432,3 +7450,6 @@ mod spell_cascade_grant_tests;
 
 #[cfg(test)]
 mod temporary_permanent_keyword_tests;
+
+#[cfg(test)]
+mod typed_land_search_tests;
