@@ -677,6 +677,11 @@ impl Game {
     ) -> Result<(), String> {
         let player = frame.spell.controller;
         match instruction {
+            Instruction::MillCards {
+                recipient,
+                count,
+                source_block,
+            } => self.execute_mill(frame, recipient, count, source_block),
             Instruction::Scry {
                 amount,
                 source_block,
