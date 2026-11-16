@@ -8,8 +8,9 @@
     "serve": "node serve.ts"
   },
   "devDependencies": {
+    "@multiverse/game-server-sdk": "file:../../game-server/sdk",
     "axe-core": "4.14.0",
-    "playwright-core": "1.62.1"
+    "playwright-core": "1.65.0"
   },
   "engines": {
     "node": ">=24.12"
