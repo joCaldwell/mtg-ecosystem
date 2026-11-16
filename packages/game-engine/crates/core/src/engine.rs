@@ -317,6 +317,7 @@ mod mana_permanents;
 #[cfg(test)]
 mod mana_tests;
 mod scry;
+mod surveil;
 pub use mana_permanents::PermanentManaUndo;
 use mana_permanents::{ManaActivation, zero_mana_cost};
 mod stack_costs;
@@ -1044,6 +1045,10 @@ enum Frame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    Surveil {
+        top: Vec<ObjectId>,
+        graveyard: Vec<ObjectId>,
+    },
     Scry {
         top: Vec<ObjectId>,
         bottom: Vec<ObjectId>,
@@ -1160,6 +1165,11 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    Surveil {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
+    },
     Scry {
         decision_id: u64,
         player: PlayerId,
@@ -1334,7 +1344,7 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::Scry { decision_id, .. } => *decision_id,
+            Self::Scry { decision_id, .. } | Self::Surveil { decision_id, .. } => *decision_id,
             Self::AnnounceX { decision_id, .. }
             | Self::ManaColor { decision_id, .. }
             | Self::SearchLands { decision_id, .. }
@@ -1367,7 +1377,7 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::Scry { player, .. } => *player,
+            Self::Scry { player, .. } | Self::Surveil { player, .. } => *player,
             Self::AnnounceX { player, .. }
             | Self::ManaColor { player, .. }
             | Self::SearchLands { player, .. }
@@ -1402,6 +1412,13 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    Surveil {
+        player: PlayerId,
+        amount: Quantity,
+        looked: Vec<ObjectId>,
+        top: Vec<ObjectId>,
+        graveyard: Vec<ObjectId>,
+    },
     Scry {
         player: PlayerId,
         amount: Quantity,
@@ -1581,6 +1598,13 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    Surveilled {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        top: Vec<ObjectId>,
+        graveyard: Vec<ObjectId>,
+        movements: Vec<MoveOutcome>,
+    },
     Scried {
         player: PlayerId,
         looked: Vec<ObjectId>,
@@ -3135,7 +3159,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 31,
+            snapshot_version: 33,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3177,7 +3201,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 31
+        if s.snapshot_version != 33
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

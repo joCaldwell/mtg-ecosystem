@@ -45,6 +45,23 @@ pub(super) fn instruction(
     })
 }
 
+pub(super) fn surveil_instruction(
+    amount: &serde_json::Value,
+    source_block: u32,
+) -> Result<Instruction, Failure> {
+    let Instruction::Scry {
+        amount,
+        source_block,
+    } = instruction(amount, source_block)?
+    else {
+        unreachable!()
+    };
+    Ok(Instruction::Surveil {
+        amount,
+        source_block,
+    })
+}
+
 pub(super) fn artifact_creature_target(what: &serde_json::Value) -> bool {
     lower_permanent_filter(&what["filter"]).is_ok_and(|f| {
         f.types.len() == 2

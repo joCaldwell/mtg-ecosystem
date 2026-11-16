@@ -8,9 +8,11 @@ pub mod fixtures {
     include!(concat!(env!("OUT_DIR"), "/fixtures.rs"));
 }
 pub mod catalog;
-mod controller_scry;
+mod controller_library;
 #[cfg(test)]
 mod controller_scry_tests;
+#[cfg(test)]
+mod controller_surveil_tests;
 pub mod coverage;
 mod diagnostics;
 mod normalization;
@@ -566,6 +568,9 @@ struct Sentence {
 #[serde(tag = "effect", rename_all = "kebab-case")]
 enum Step {
     Scry {
+        amount: serde_json::Value,
+    },
+    Surveil {
         amount: serde_json::Value,
     },
     CreateReplacement {
@@ -1638,9 +1643,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     if definition.spell.as_ref().is_some_and(|p| {
         p.instructions
             .iter()
-            .any(|i| matches!(i, Instruction::Scry { .. }))
+            .any(|i| matches!(i, Instruction::Scry { .. } | Instruction::Surveil { .. }))
     }) {
-        controller_scry::validate_source_shape(&canonical_abilities)?;
+        controller_library::validate_source_shape(&canonical_abilities)?;
     }
     if let Some(p) = definition.spell.as_ref()
         && temporary_permanent_keyword_program(p).is_some()
@@ -1652,12 +1657,14 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             &canonical_abilities,
         )?;
     }
-    if definition
-        .spell
-        .as_ref()
-        .is_some_and(mtg_contracts::controller_scry_program)
-    {
-        controller_scry::validate_bindings(&binding, &definition.oracle_id, &canonical_abilities)?;
+    if definition.spell.as_ref().is_some_and(|p| {
+        mtg_contracts::controller_scry_program(p) || mtg_contracts::controller_surveil_program(p)
+    }) {
+        controller_library::validate_bindings(
+            &binding,
+            &definition.oracle_id,
+            &canonical_abilities,
+        )?;
     }
     definition.capabilities = definition.requirements();
     definition
@@ -1900,7 +1907,7 @@ fn append_spell_effects(
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     if let Some(Sentence { steps, .. }) = effects.first()
         && matches!(steps.first(), Some(Step::GainAbilities { what, .. })
-            if (what["filter"]["cls"] == "permanent" || controller_scry::artifact_creature_target(what)) && what["ref"] == "target")
+            if (what["filter"]["cls"] == "permanent" || controller_library::artifact_creature_target(what)) && what["ref"] == "target")
     {
         if source_block != 0
             || player_binding != PlayerBinding::Unbound
@@ -1937,9 +1944,9 @@ fn append_spell_effects(
                 "permanent grant must end this turn",
             ));
         }
-        let filtered = controller_scry::artifact_creature_target(what);
+        let filtered = controller_library::artifact_creature_target(what);
         let target_slot = if filtered {
-            controller_scry::bind_grant_target(program, slots, what)?
+            controller_library::bind_grant_target(program, slots, what)?
         } else {
             bind_temporary_permanent_target(program, slots, what)?
         };
@@ -1952,7 +1959,7 @@ fn append_spell_effects(
                         "scry tail requires artifact-or-creature family",
                     ));
                 }
-                Some(controller_scry::instruction(amount, source_block)?)
+                Some(controller_library::instruction(amount, source_block)?)
             } else {
                 if filtered {
                     return Err(unsupported(
@@ -2487,7 +2494,10 @@ fn append_spell_effects(
                         source_block,
                     }
                 }
-                Step::Scry { amount } => controller_scry::instruction(amount, source_block)?,
+                Step::Scry { amount } => controller_library::instruction(amount, source_block)?,
+                Step::Surveil { amount } => {
+                    controller_library::surveil_instruction(amount, source_block)?
+                }
                 Step::GainLife { who, amount, .. } => Instruction::GainLife {
                     recipient: life_recipient(
                         program,

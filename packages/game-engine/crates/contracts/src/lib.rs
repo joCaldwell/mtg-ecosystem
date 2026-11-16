@@ -14,8 +14,8 @@ pub fn engine_build_input(path: &str) -> bool {
 use num_bigint::BigInt;
 use num_traits::Zero;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
-mod controller_scry;
-pub use controller_scry::controller_scry_program;
+mod controller_library;
+pub use controller_library::{controller_scry_program, controller_surveil_program};
 use serde::{Deserialize, Serialize, de};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, fmt, str::FromStr};
@@ -230,6 +230,7 @@ pub enum Capability {
     SacrificeSourceCostV1,
     ControllerDrawV1,
     ControllerScryV1,
+    ControllerSurveilV1,
     ControllerDiscardV1,
     OpponentTargetV1,
     TargetPlayerSacrificeCreatureV1,
@@ -475,7 +476,12 @@ pub struct CreatureStatModifier {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
-    /// CR 701.22: only the invocation controller looks and orders the prefix.
+    /// CR 701.22/701.25: the invocation controller looks and partitions the prefix.
+    Surveil {
+        #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
+        amount: Quantity,
+        source_block: u32,
+    },
     Scry {
         #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
         amount: Quantity,
@@ -701,7 +707,7 @@ impl Instruction {
     /// Compiler-owned complete source block for this instruction.
     pub fn source_block(&self) -> u32 {
         match self {
-            Self::Scry { source_block, .. } => *source_block,
+            Self::Scry { source_block, .. } | Self::Surveil { source_block, .. } => *source_block,
             Self::MoveSet { source_block, .. } => *source_block,
             Self::PumpSet { source_block, .. } => *source_block,
             Self::DamageSet { source_block, .. } => *source_block,
@@ -1664,7 +1670,7 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
-        controller_scry::validate_definition(self)?;
+        controller_library::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -2966,8 +2972,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         return Err("controller set requires complete temporary keyword family".into());
     }
 
-    if controller_scry::has_scry(p)
+    if controller_library::has_look(p)
         && !controller_scry_program(p)
+        && !controller_surveil_program(p)
         && !temporary_permanent_keyword_program(p).is_some_and(|d| d.controller_scry.is_some())
     {
         return Err("unsupported complete controller scry program".into());
@@ -3403,7 +3410,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     .ok_or("counter requires a stack target domain")?;
                 Some((*target_slot, domain))
             }
-            Instruction::Scry { amount, .. } => {
+            Instruction::Scry { amount, .. } | Instruction::Surveil { amount, .. } => {
                 if amount.is_negative() {
                     return Err("scry amount must be nonnegative".into());
                 }
@@ -3753,6 +3760,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::CounterStackObject { .. } => Capability::CounterStackObjectV1,
             Instruction::DealDamage { .. } => Capability::NoncombatDamageV1,
             Instruction::Scry { .. } => Capability::ControllerScryV1,
+            Instruction::Surveil { .. } => Capability::ControllerSurveilV1,
             Instruction::GainLife { .. } => Capability::LifeGainV1,
             Instruction::LoseLife { .. } => Capability::LifeLossV1,
         });
@@ -4804,7 +4812,7 @@ pub fn catalog_schema() -> serde_json::Value {
             "capabilities":{"contains":{"const":Capability::AuraControlV1}}
         }},"then":{"$ref":"#/$defs/AuraControlDefinition"}}),
         ]);
-    controller_scry::extend_schema(&mut schema);
+    controller_library::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -4963,6 +4971,7 @@ mod tests {
             SacrificeSourceCostV1,
             ControllerDrawV1,
             ControllerScryV1,
+            ControllerSurveilV1,
             ControllerDiscardV1,
             OpponentTargetV1,
             TargetPlayerSacrificeCreatureV1,
@@ -5126,7 +5135,8 @@ mod tests {
             false,
         ));
         definitions.push(temporary_permanent_keyword_tests::grant(true));
-        definitions.push(controller_scry::witness());
+        definitions.push(controller_library::witness());
+        definitions.push(controller_library::surveil_witness());
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());

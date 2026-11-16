@@ -1189,6 +1189,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | Instruction::DestroyTargetCreature { .. }
                     | Instruction::DestroyAllCreatures { .. }
                     | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
+                    | Instruction::Surveil { .. }
                     | Instruction::Scry { .. }
                     | Instruction::SearchBasicLands { .. } => {}
                 }

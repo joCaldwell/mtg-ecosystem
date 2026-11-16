@@ -185,6 +185,11 @@ pub struct PermittedView {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    Surveil {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+    },
     Scry {
         token: DecisionToken,
         player: PlayerId,
@@ -374,7 +379,7 @@ pub enum PlayerRequest {
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
-            Self::Scry { token, .. } => token,
+            Self::Scry { token, .. } | Self::Surveil { token, .. } => token,
             Self::LegendRule { token, .. }
             | Self::ManaColor { token, .. }
             | Self::SearchLands { token, .. }
@@ -418,6 +423,10 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    Surveil {
+        top: Vec<ObjectHandle>,
+        graveyard: Vec<ObjectHandle>,
+    },
     Scry {
         top: Vec<ObjectHandle>,
         bottom: Vec<ObjectHandle>,
@@ -767,7 +776,9 @@ impl Game {
     fn visible_to(&self, viewer: PlayerId, object: &Object) -> bool {
         match object.zone {
             Zone::Hand { owner } => owner == viewer,
-            Zone::Library { owner } => owner == viewer && self.scry_visible_to(viewer, object.id),
+            Zone::Library { owner } => {
+                owner == viewer && self.library_look_visible_to(viewer, object.id)
+            }
             _ => true,
         }
     }
@@ -1287,7 +1298,15 @@ impl Game {
                 candidates: vec![],
             }));
         }
-        if self.scry_looked(viewer).is_some() {
+        if matches!(&self.state.rules.frame,Frame::ResolutionChoice {choice:ResolutionChoice::Surveil {player,..},..} if *player==viewer && self.is_live(viewer))
+        {
+            return Ok(Some(PlayerRequest::Surveil {
+                token,
+                player: viewer,
+                candidates: vec![],
+            }));
+        }
+        if self.library_looked(viewer).is_some() {
             return Ok(Some(PlayerRequest::Scry {
                 token,
                 player: viewer,
@@ -1304,6 +1323,11 @@ impl Game {
                     .collect::<Result<Vec<_>, _>>()
             };
             return Ok(Some(match request {
+                Request::Surveil { .. } => PlayerRequest::Surveil {
+                    token,
+                    player: viewer,
+                    candidates: vec![],
+                },
                 Request::Scry { .. } => PlayerRequest::Scry {
                     token,
                     player: viewer,
@@ -1623,7 +1647,7 @@ impl Game {
             // The chooser's newly visible library cards acquire handles in
             // their permitted top-to-bottom order, never hidden physical-ID
             // order. Unlooked library IDs still consume no viewer counters.
-            if let Some(looked) = self.scry_looked(viewer) {
+            if let Some(looked) = self.library_looked(viewer) {
                 let ids = looked.iter().copied().collect::<BTreeSet<_>>();
                 current.retain(|id| !ids.contains(id));
                 current.splice(0..0, looked.iter().copied());
@@ -1860,7 +1884,11 @@ impl Game {
         response: &PlayerResponse,
     ) -> Result<Response, String> {
         let size = match response {
-            PlayerResponse::Scry { top, bottom } => top.len().saturating_add(bottom.len()),
+            PlayerResponse::Scry { top, bottom }
+            | PlayerResponse::Surveil {
+                top,
+                graveyard: bottom,
+            } => top.len().saturating_add(bottom.len()),
             PlayerResponse::Attackers { attacks } => attacks.len(),
             PlayerResponse::Blockers { blocks } => blocks.len(),
             PlayerResponse::Damage { assignments }
@@ -1879,6 +1907,16 @@ impl Game {
             return Err("oversized player declaration".into());
         }
         match response {
+            PlayerResponse::Surveil { top, graveyard } => Ok(Response::Surveil {
+                top: top
+                    .iter()
+                    .map(|h| self.resolve_handle(viewer, h))
+                    .collect::<Result<_, _>>()?,
+                graveyard: graveyard
+                    .iter()
+                    .map(|h| self.resolve_handle(viewer, h))
+                    .collect::<Result<_, _>>()?,
+            }),
             PlayerResponse::Scry { top, bottom } => Ok(Response::Scry {
                 top: top
                     .iter()
