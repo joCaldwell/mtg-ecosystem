@@ -438,3 +438,393 @@ fn paid_controller_scry_two_all_ordered_partitions_preserve_tail_and_incarnation
         });
     }
 }
+
+#[test]
+fn paid_controller_scry_queries_are_private_ordered_resumable_and_atomic() {
+    both(
+        prepared(&[("Serum Visions", 0, 0, true), ("Island", 0, 0, false)]),
+        |g, q| {
+            announce_paid(g, q, 0, vec![]);
+            let (r, looked) = scry_request(g, q);
+            let before = g.state.clone();
+            let trace = g.trace.clone();
+            let QueryValue::Decision(Some(PlayerRequest::Scry { token, candidates })) =
+                finish_query(g, g.player_decision_for(PlayerId(0), Budget::new(0)))
+            else {
+                panic!("public scry")
+            };
+            assert_eq!(
+                candidates,
+                looked
+                    .iter()
+                    .map(|id| g.handle_for(PlayerId(0), *id).unwrap())
+                    .collect::<Vec<_>>()
+            );
+            for seat in 0..4 {
+                let QueryValue::Observation(observation) =
+                    finish_query(g, g.observe(PlayerId(seat), Budget::new(0)))
+                else {
+                    panic!("observation")
+                };
+                let visible = observation
+                    .view
+                    .objects
+                    .iter()
+                    .filter(|o| o.zone == (Zone::Library { owner: PlayerId(0) }))
+                    .count();
+                assert_eq!(visible, if seat == 0 { 2 } else { 0 });
+                if seat != 0 {
+                    assert!(observation.decision.is_none());
+                }
+            }
+            assert_eq!(g.state, before);
+            assert_eq!(g.trace, trace);
+            let foreign = library(g, 1)[0];
+            for (top, bottom) in [
+                (vec![], vec![]),
+                (looked.clone(), looked.clone()),
+                (vec![looked[0]], vec![looked[0]]),
+                (vec![foreign], vec![looked[1]]),
+                (
+                    vec![ObjectId {
+                        incarnation: looked[0].incarnation + 1,
+                        ..looked[0]
+                    }],
+                    vec![looked[1]],
+                ),
+            ] {
+                assert!(
+                    g.respond(PlayerId(0), r.decision_id(), Response::Scry { top, bottom })
+                        .is_err()
+                );
+                assert_eq!(g.state, before);
+                assert_eq!(g.trace, trace);
+            }
+            assert!(
+                g.respond(
+                    PlayerId(1),
+                    r.decision_id(),
+                    Response::Scry {
+                        top: looked.clone(),
+                        bottom: vec![]
+                    }
+                )
+                .is_err()
+            );
+            let QueryResult::Incomplete { work: stale, .. } =
+                g.observe(PlayerId(0), Budget::new(0))
+            else {
+                panic!("saved query")
+            };
+            // Recover a partially assembled decision, including its one-card prefix.
+            let mut work = g.player_decision_for(PlayerId(0), Budget::new(1));
+            let QueryResult::Incomplete { work: partial, .. } = work else {
+                panic!("partial decision")
+            };
+            let encoded = g.save_work(&partial).unwrap();
+            let restored_work = g.restore_work(&encoded).unwrap();
+            work = g.resume_work(restored_work, Budget::unlimited());
+            let QueryValue::Decision(actual) = finish_query(g, work) else {
+                panic!("resumed decision")
+            };
+            let QueryValue::Decision(expected) =
+                finish_query(g, g.player_decision_for(PlayerId(0), Budget::unlimited()))
+            else {
+                panic!("fresh decision")
+            };
+            assert_eq!(actual, expected);
+            let response = PlayerResponse::Scry {
+                top: vec![candidates[1].clone()],
+                bottom: vec![candidates[0].clone()],
+            };
+            let QueryValue::Validated(receipt) = finish_query(
+                g,
+                g.check_player_response(
+                    PlayerId(0),
+                    token.clone(),
+                    response.clone(),
+                    Budget::new(0),
+                ),
+            ) else {
+                panic!("valid partition receipt")
+            };
+            let QueryValue::Validated(duplicate) = finish_query(
+                g,
+                g.check_player_response(PlayerId(0), token, response, Budget::new(0)),
+            ) else {
+                panic!("duplicate receipt")
+            };
+            assert_eq!(g.state, before);
+            assert_eq!(g.trace, trace);
+            g.submit(receipt).unwrap();
+            recover(g);
+            let accepted = g.state.clone();
+            assert!(g.submit(duplicate).is_err());
+            assert_eq!(g.state, accepted);
+            assert!(matches!(
+                g.resume_work(stale, Budget::unlimited()),
+                QueryResult::Rejected(_)
+            ));
+            finish(g, q);
+            for handle in candidates {
+                assert!(g.resolve_handle(PlayerId(0), &handle).is_err());
+            }
+        },
+    );
+}
+
+#[test]
+fn paid_controller_scry_recovery_rejects_coherently_rehashed_prefix_and_order_forgery() {
+    both(
+        prepared(&[("Serum Visions", 0, 0, true), ("Island", 0, 0, false)]),
+        |g, q| {
+            announce_paid(g, q, 0, vec![]);
+            let (_, looked) = scry_request(g, q);
+            let wire = g.snapshot().unwrap();
+            for variant in 0..5 {
+                let mut bad: Snapshot = strict_read(&wire).unwrap();
+                let Frame::ResolutionChoice {
+                    frame,
+                    choice:
+                        ResolutionChoice::Scry {
+                            player,
+                            looked: ids,
+                            source_block,
+                        },
+                } = &mut bad.state.rules.frame
+                else {
+                    unreachable!()
+                };
+                match variant {
+                    0 => ids.reverse(),
+                    1 => *player = PlayerId(1),
+                    2 => *source_block += 1,
+                    3 => frame.cursor = 0,
+                    _ => {
+                        ids.reverse();
+                        bad.state
+                            .rules
+                            .libraries
+                            .get_mut(&PlayerId(0))
+                            .unwrap()
+                            .swap(0, 1);
+                    }
+                }
+                assert_ne!(bad.state, g.state);
+                bad.state_sha256 = digest(&bad.state).unwrap();
+                assert!(
+                    Game::restore(g.prepared.as_ref().clone(), &canonical(&bad).unwrap()).is_err(),
+                    "forgery {variant}"
+                );
+            }
+            let (r, _) = scry_request(g, q);
+            choose(g, &r, looked, vec![]);
+            finish(g, q);
+        },
+    );
+}
+
+#[test]
+fn paid_controller_scry_loran_all_type_memberships_and_whole_spell_fizzle() {
+    for name in [
+        "Grizzly Bears",
+        "Bonesplitter",
+        "Silver Myr",
+        "Seat of the Synod",
+    ] {
+        both(
+            prepared(&[
+                ("Loran's Escape", 0, 0, true),
+                (name, 1, 1, false),
+                ("Plains", 0, 0, false),
+            ]),
+            |g, q| {
+                let recipient = object(g, 1);
+                announce_paid(g, q, 0, target(g, 1));
+                let (r, looked) = scry_request(g, q);
+                let keywords = g.current_keywords(recipient);
+                assert!(keywords.contains(&KeywordAbility::Hexproof));
+                assert!(keywords.contains(&KeywordAbility::Indestructible));
+                choose(g, &r, looked, vec![]);
+                finish(g, q);
+            },
+        );
+    }
+    // An opponent lawfully responds with an instant returning the only target.
+    both(
+        prepared(&[
+            ("Loran's Escape", 0, 0, true),
+            ("Grizzly Bears", 1, 1, false),
+            ("Disperse", 1, 1, true),
+            ("Plains", 0, 0, false),
+            ("Island", 1, 1, false),
+            ("Island", 1, 1, false),
+        ]),
+        |g, q| {
+            let original = library(g, 0);
+            let old = object(g, 1);
+            announce_paid(g, q, 0, target(g, 1));
+            announce_paid(g, q, 2, target(g, 1));
+            finish(g, q);
+            assert_ne!(object(g, 1), old);
+            assert_eq!(
+                g.current(object(g, 1)).unwrap().zone,
+                Zone::Hand { owner: PlayerId(1) }
+            );
+            assert_eq!(library(g, 0), original);
+            assert!(g.state.rules.effects.is_empty());
+            assert!(
+                !batches(g)
+                    .iter()
+                    .flat_map(|b| &b.occurrences)
+                    .any(|o| matches!(o.actual, EventOutcome::Scried { .. }))
+            );
+        },
+    );
+}
+
+#[test]
+fn paid_controller_scry_departed_chooser_discards_only_its_pending_partition() {
+    for accepted in [false, true] {
+        both(
+            prepared(&[("Serum Visions", 0, 0, true), ("Island", 0, 0, false)]),
+            |g, q| {
+                announce_paid(g, q, 0, vec![]);
+                let (r, looked) = scry_request(g, q);
+                if accepted {
+                    choose(g, &r, looked, vec![]);
+                }
+                g.concede(PlayerId(0)).unwrap();
+                recover(g);
+                finish(g, q);
+                assert!(!g.is_live(PlayerId(0)));
+                assert!(g.state.rules.pending.is_none());
+                assert!(
+                    !batches(g)
+                        .iter()
+                        .flat_map(|b| &b.occurrences)
+                        .any(|o| matches!(
+                            o.actual,
+                            EventOutcome::Scried {
+                                player: PlayerId(0),
+                                ..
+                            }
+                        ))
+                );
+            },
+        );
+    }
+}
+
+#[test]
+fn controller_scry_kernel_zero_empty_and_large_counts_use_one_complete_operation() {
+    // Synthetic typed count parameterization, not additional printed-source support.
+    for (amount, empty) in [
+        ("0", false),
+        ("2", true),
+        ("9999999999999999999999999999", false),
+    ] {
+        let mut p = prepared(&[("Serum Visions", 0, 0, true), ("Island", 0, 0, false)]);
+        let catalog = Arc::make_mut(&mut p.catalog);
+        let d = catalog
+            .definitions
+            .iter_mut()
+            .find(|d| d.name == "Serum Visions")
+            .unwrap();
+        d.name = "Synthetic typed controller Scry count".into();
+        d.spell.as_mut().unwrap().instructions = vec![Instruction::Scry {
+            amount: amount.parse().unwrap(),
+            source_block: 0,
+        }];
+        d.capabilities = d.requirements();
+        catalog.validate().unwrap();
+        p.catalog_digest = digest(catalog).unwrap();
+        if empty {
+            p.config
+                .cards
+                .retain(|c| c.zone != (Zone::Library { owner: PlayerId(0) }));
+            p.config.initial.libraries = Some(p.config.initial_libraries());
+            p.profile_digest = digest(&p.config).unwrap();
+        }
+        both(p, |g, q| {
+            let before = library(g, 0);
+            announce_paid(g, q, 0, vec![]);
+            if amount != "0" && !empty {
+                let (r, looked) = scry_request(g, q);
+                assert_eq!(looked, before);
+                choose(g, &r, vec![], looked);
+            }
+            finish(g, q);
+            assert_eq!(library(g, 0), before);
+            if g.trace.mode == TraceMode::Detailed {
+                let events = batches(g)
+                    .iter()
+                    .flat_map(|b| &b.occurrences)
+                    .filter(|o| matches!(o.actual, EventOutcome::Scried { .. }))
+                    .count();
+                assert_eq!(events, usize::from(amount != "0"));
+            }
+        });
+    }
+}
+
+#[test]
+fn controller_scry_kernel_ordered_failure_and_private_memory_capacity_are_atomic() {
+    both(
+        prepared(&[("Serum Visions", 0, 0, true), ("Island", 0, 0, false)]),
+        |g, q| {
+            announce_paid(g, q, 0, vec![]);
+            let (r, looked) = scry_request(g, q);
+            let Frame::ResolutionChoice { frame, .. } = &g.state.rules.frame else {
+                unreachable!()
+            };
+            let cause = BatchCause::Instruction {
+                stack_id: frame.spell.id,
+                player: PlayerId(0),
+                source: frame.spell.source,
+                cursor: frame.cursor,
+                source_block: 0,
+            };
+            let event = ProposedEvent::Scry {
+                player: PlayerId(0),
+                amount: 2.into(),
+                looked: looked.clone(),
+                top: vec![],
+                bottom: looked.clone(),
+            };
+            let before = g.state.clone();
+            let trace = g.trace.clone();
+            let mut invalid = event.clone();
+            let ProposedEvent::Scry { bottom, .. } = &mut invalid else {
+                unreachable!()
+            };
+            bottom.pop();
+            assert!(
+                g.commit_batch(
+                    cause.clone(),
+                    EventGroup::Ordered {
+                        children: vec![
+                            EventGroup::Occurrence {
+                                proposed: event.clone()
+                            },
+                            EventGroup::Occurrence { proposed: invalid }
+                        ]
+                    }
+                )
+                .is_err()
+            );
+            assert_eq!(g.state, before);
+            assert_eq!(g.trace, trace);
+            // Deliberately synthetic capacity saturation, never a replayable history claim.
+            let mut scratch = g.clone();
+            scratch.state.rules.retained_auxiliary_charge = usize::MAX;
+            let before = scratch.state.clone();
+            let trace = scratch.trace.clone();
+            assert!(scratch.commit(event, cause).is_err());
+            assert_eq!(scratch.state, before);
+            assert_eq!(scratch.trace, trace);
+            choose(g, &r, looked, vec![]);
+            finish(g, q);
+        },
+    );
+}
