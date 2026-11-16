@@ -54,7 +54,9 @@ pub struct CommanderHistory {
 // deserialize buffered Content, which cannot decode a string as the numeric
 // scalar inside PlayerId. Adapt these map KEYS only; PlayerId values remain
 // numeric. Serialization and JsonSchema still use the original field types.
-fn player_quantity_map<'de, D>(deserializer: D) -> Result<BTreeMap<PlayerId, Quantity>, D::Error>
+pub(super) fn player_quantity_map<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<PlayerId, Quantity>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {

@@ -6900,7 +6900,15 @@ mod tests {
             d.characteristics.snow = true;
             d.characteristics.kind = kind;
             d.capabilities = d.requirements();
-            assert!(d.validate().unwrap_err().contains("non-mana creature"));
+            assert!(
+                d.validate()
+                    .unwrap_err()
+                    .contains(if kind == CardKind::Land {
+                        "unsupported complete pure typed nonbasic land"
+                    } else {
+                        "non-mana creature"
+                    })
+            );
         }
         for (power, toughness, keywords, restrictions) in [
             (

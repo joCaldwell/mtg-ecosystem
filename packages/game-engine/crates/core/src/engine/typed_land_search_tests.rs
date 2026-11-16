@@ -186,7 +186,10 @@ pub(super) fn observation_work(g: &Game, viewer: PlayerId) {
     let before = g.state.clone();
     let trace = g.trace.clone();
     let QueryResult::Incomplete { work, .. } = g.observe(viewer, Budget::new(1)) else {
-        panic!("bounded observation")
+        panic!(
+            "bounded observation: {:?}",
+            g.observe(viewer, Budget::new(1))
+        )
     };
     let saved = g.save_work(&work).unwrap();
     let bad: serde_json::Value = serde_json::from_str(&saved).unwrap();

@@ -132,7 +132,11 @@ pub struct AttachmentBefore {
 #[serde(deny_unknown_fields)]
 pub struct PreEventFacts {
     /// Exact common-prior controller counts; narrow consumed entry authority.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "multiplayer::player_quantity_map"
+    )]
     pub entry_basic_lands: BTreeMap<PlayerId, Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) control: Option<Box<ControlBefore>>,

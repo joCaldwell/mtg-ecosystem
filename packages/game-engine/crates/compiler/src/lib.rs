@@ -8865,7 +8865,7 @@ mod tests {
     fn white_mana_fixture_does_not_admit_additional_land_semantics() {
         type Mutation = fn(&mut serde_json::Value);
         let mutations: Vec<Mutation> = vec![
-            |record| record["source"]["type_line"] = "Land — Plains Island".into(),
+            |record| record["source"]["type_line"] = "Land — Plains Desert".into(),
             |record| record["source"]["type_line"] = "Legendary Land — Plains".into(),
             |record| record["source"]["oracle_text"] = "{T}: Add {W}.".into(),
             |record| record["source"]["oracle_text"] = "When this land enters, draw a card.".into(),
