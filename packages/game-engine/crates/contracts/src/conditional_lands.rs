@@ -50,6 +50,7 @@ pub(super) mod tests {
     use super::*;
     pub(crate) fn land() -> Definition {
         let mut d = Catalog::read(include_str!("../../../tests/fixtures/expected-ir.json")).unwrap().definitions.into_iter().find(|d| d.characteristics.basic).unwrap();
+        d.source_labels = None; // Synthetic contract shape, not printed-source evidence.
         d.characteristics.basic = false;
         d.characteristics.subtypes = vec!["Mountain".into(), "Forest".into()];
         d.static_abilities = vec![StaticAbility { functioning_zone: FunctioningZone::Battlefield, effect: StaticEffect::EntersTappedUnlessControllerBasicLands { minimum: 2.into() } }];
