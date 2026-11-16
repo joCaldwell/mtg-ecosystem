@@ -336,6 +336,36 @@ test("late context/schema failures, nested observers and page errors defeat fina
   assert.equal(page.verdict("", true).failure, "page_error");
 });
 
+test("natural verdict rejects operational pauses and consumed prefixes without a completed visible outcome", () => {
+  const audit = new ObserverAudit();
+  const evidence = { recordState: "paused", recordedOutcome: null, observedOutcome: null, outcomeVisible: false, journalUnresolved: false };
+  // The actual 139-command run had complete command proofs, empty journal,
+  // paused/native_unavailable and no result. Those facts cannot pass a game.
+  assert.equal(audit.verdict("", true).passed, true); // Prefix mode retains its contract.
+  for (const state of ["paused", "interrupted", "active", "provisioning", ""]) {
+    assert.deepEqual(audit.verdict("", true, { ...evidence, recordState: state }), { passed: false, failure: "natural_game_not_completed" });
+  }
+  assert.equal(audit.verdict("", true, { ...evidence, recordState: "completed" }).passed, false);
+  assert.equal(audit.verdict("", true, { ...evidence, observedOutcome: { outcome: "win", player: 0 }, outcomeVisible: true }).passed, false);
+});
+
+test("natural verdict requires matching typed result, visible owner outcome and resolved journal after observer drain", async () => {
+  const audit = new ObserverAudit();
+  const evidence = { recordState: "completed", recordedOutcome: { kind: "win" as const, winner: 0 },
+    observedOutcome: { outcome: "win" as const, player: 0 }, outcomeVisible: true, journalUnresolved: false };
+  assert.equal(audit.verdict("", true, evidence).passed, true);
+  assert.equal(audit.verdict("", true, { ...evidence, observedOutcome: null }).passed, true); // Durable owner result survives native shutdown.
+  assert.equal(audit.verdict("", true, { ...evidence, recordedOutcome: { kind: "draw" }, observedOutcome: { outcome: "draw" } }).passed, true);
+  for (const patch of [{ outcomeVisible: false }, { journalUnresolved: true }, { observedOutcome: { outcome: "draw" as const } },
+    { observedOutcome: { outcome: "win" as const, player: 1 } }, { recordedOutcome: { kind: "win" as const, winner: 4 } }]) {
+    assert.equal(audit.verdict("", true, { ...evidence, ...patch }).passed, false);
+  }
+  assert.equal(audit.verdict("cleanup_failed", true, evidence).failure, "cleanup_failed");
+  assert.equal(audit.verdict("", false, evidence).failure, "all_command_proofs");
+  audit.track(async () => { audit.pageErrors++; }); await audit.drain(1_000);
+  assert.equal(audit.verdict("", true, evidence).failure, "page_error");
+});
+
 test("only evidenced shutdown body cancellation is excluded, never a context assertion", async () => {
   const audit = new ObserverAudit(); audit.closing = true;
   audit.track(async () => { await audit.json({ json: async () => { throw Error("body_closed"); }, request: () => ({ failure: () => ({ errorText: "NS_BINDING_ABORTED" }) }) }); });
