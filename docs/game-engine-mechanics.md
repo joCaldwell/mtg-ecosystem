@@ -99,8 +99,8 @@ Scry partitions the available prefix between ordered top/bottom positions;
 Surveil moves selected cards to graveyards as one typed operation and orders the
 remaining top cards (CR 701.22/701.25). Zone moves create successors; retained
 cards keep incarnations. Only the chooser sees temporary handles, and private
-ordered memory is charged and replay-proven. Ordinary draw compositions and
-Scry's artifact-or-creature grant tail are supported. Invalid choices reject
+ordered memory is charged and replay-proven. Ordinary draw compositions and artifact-or-creature grants followed by Scry
+are supported. Invalid choices reject
 atomically; departed choosers skip. Activated/triggered sources, Flashback and
 search reconstruction remain unsupported. Commander SBAs follow spell resolution.
 
