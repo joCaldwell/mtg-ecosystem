@@ -41,29 +41,18 @@ rules or policies. Keep the standalone deck-builder independent.
 - **M2 partial:** Cultivate/Reach support optional basic search, temporary public
   reveal, identity-bound battlefield/hand partition, tapped entry and shuffle.
   The other land/ramp sources below remain obligations.
-- **M3/M4a/M4b:** source `2b83a482` closes basic/instant cascade, optional kicker
-  and paid prohibition; `3813db05` qualifies Apex/Wanderer independent self-cascades
-  and live controller-creature haste. Original source/format identities, reviews,
-  private-root limits and the unrepeated 833-second Apex witness remain in their
-  receipts and the [immutable prior plan](https://github.com/joCaldwell/mtg-ecosystem/blob/516fa1648f3f5ca3d4f040f7c1daf776bb5f3ceb/docs/game-engine-ramos-plan.md).
-- **M4c:** `f6c9d7c7` qualifies complete Imoti and tagged grants; its582 Rust/3,325
-  schema/964-row proof remains separate at27/22.
-- **M4d:** rules `836a63a9`, schema `dbc644a5`, main `d842ef59`:586 distinct Rust,
-  3,531 schema,969 rows;28/22,IR1. Complete Nexus/Wild-Magic Sorcerer use semantic
-  per-seat successful-cast history. Review's continuation-accounting defect and
-  schema's legacy-unit predicate are fixed; paid lifecycle/recovery witnesses pass.
+- **M3:** source-qualified basic/instant cascade, owned casting, optional kicker
+  and paid prohibition have private paid/recovery witnesses.
+- **M4 partial:** Apex/Wanderer independent cascades, live haste, Imoti grants,
+  Nexus/Wild-Magic Sorcerer first-cast history and Ethersworn counted reductions
+  are qualified. [Evidence](game-engine-evidence.md) owns exact producers, source
+  bridges, counts and exclusions; historical acceptance never transfers.
 
-- **M4e:** `802aab64` combines main `a39dc880`:665 distinct Rust,4,696 schema,
-  978 rows;30/23. Complete Ethersworn uses parameterized counted reductions and
-  once-locked casting totals. Both review findings and ordinary-source integration
-  regression are repaired; admission remains separate.
-
-Coordinator receipts: `generated/ramos/{m3b-integrated,m3c-integrated,m4a-integrated,m4c-integrated,m4d-integrated,m4e-integrated}/integration.json`.
-They retain exact copied producers, independent build proofs, test-only bridges,
-reviews, failures and timings; historical acceptance never transfers. Original Apex
-833-second seeded evidence is preserved, not repeated. Full contract research stays
-in Git `30ec86ee` and ignored copies. Consumer/exact-deck admission remains open;
-current publication is feature-only.
+Coordinator receipts remain in `generated/ramos/*-integrated/integration.json`.
+Original source/format boundaries, reviews, failures, timings and the unrepeated
+833-second Apex witness are preserved there and in the [immutable prior plan](https://github.com/joCaldwell/mtg-ecosystem/blob/ad428b23ee5b3f5750f8c79b4a7823c8d93d5b7f/docs/game-engine-ramos-plan.md).
+Contract research remains in Git `30ec86ee` and ignored copies. Exact-deck and
+consumer admission remain open; publication is feature-only.
 
 ## Ordered remaining milestones
 
