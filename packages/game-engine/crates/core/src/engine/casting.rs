@@ -272,7 +272,7 @@ impl Game {
             return Err("mana source is already announcing".into());
         }
         let o = self.current(object)?;
-        if o.controller != player || o.tapped || self.mana_abilities(object)?.len() != 1 {
+        if o.controller != player || o.tapped || self.mana_abilities(object)?.is_empty() {
             return Err("invalid mana activation".into());
         }
         Ok(())
@@ -281,16 +281,13 @@ impl Game {
     // CR 601.2g / 605.3a-b: intrinsic mana abilities resolve immediately,
     // including in the casting mana window. No player receives priority here.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn activate_intrinsic_mana(
+    pub(super) fn activate_selected_intrinsic_mana(
         &mut self,
         input: &AcceptedInput,
         object: ObjectId,
+        color: Color,
     ) -> Result<ManaActivationUndo, String> {
-        self.validate_mana_activation(input.player, object)?;
-        let color = *self
-            .mana_abilities(object)?
-            .first()
-            .ok_or("missing intrinsic mana ability")?;
+        self.validate_intrinsic_choice(input.player, object, color)?;
         let receipt = ManaActivationUndo {
             permanent: None,
             object,

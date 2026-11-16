@@ -1415,3 +1415,6 @@ mod counter_placement_tests;
 
 #[path = "typed_land_search_tests.rs"]
 mod typed_land_search_tests;
+
+#[path = "conditional_lands_tests.rs"]
+mod conditional_lands_tests;

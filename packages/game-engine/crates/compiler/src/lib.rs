@@ -17,6 +17,7 @@ mod spell_cascade_grants;
 use optional_costs::KickedCondition;
 mod type_line;
 mod typed_land_search;
+mod conditional_lands;
 pub use catalog::*;
 use normalization::source_lines;
 
@@ -933,8 +934,9 @@ enum SourceStaticEffect {
     },
     EntersTapped {
         what: serde_json::Value,
-        #[serde(rename = "conditionKind")]
+        #[serde(default, rename = "conditionKind", deserialize_with = "present_json_operand")]
         condition_kind: Option<serde_json::Value>,
+        #[serde(default, deserialize_with = "present_json_operand")]
         condition: Option<serde_json::Value>,
     },
     CostModification {
@@ -1272,6 +1274,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     for (block, ability) in abilities.iter().enumerate() {
         if let Ability::Static { effect, .. } = ability {
+            conditional_lands::bind(effect, &binding, &r.oracle_identity, source_block(block)?, &source)?;
             spell_cascade_grants::bind(
                 effect,
                 &binding,
@@ -3568,6 +3571,9 @@ fn lower_prevention(
     }
 }
 fn lower_static(effect: &SourceStaticEffect, source_block: u32) -> Result<StaticAbility, Failure> {
+    if let Some(entry) = conditional_lands::lower(effect)? {
+        return Ok(entry);
+    }
     if let Some(grant) = spell_cascade_grants::lower(effect, source_block)? {
         return Ok(grant);
     }

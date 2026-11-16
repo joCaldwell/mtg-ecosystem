@@ -695,6 +695,7 @@ impl Game {
                             | PlayerResponse::SpendMana { .. }
                             | PlayerResponse::ManaColor { .. },
                         ) => true,
+                        (Frame::IntrinsicManaChoice { .. }, PlayerResponse::ManaColor { .. }) => true,
                         (Frame::Cascade { .. }, PlayerResponse::OptionalEffect { .. }) => true,
                         (Frame::AdditionalCosts { .. }, PlayerResponse::AdditionalCosts { .. }) => {
                             true
