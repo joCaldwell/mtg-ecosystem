@@ -200,6 +200,7 @@ impl Strategy {
         let v = &o.view;
         let r = o.decision.as_ref().ok_or("missing action decision")?;
         Ok(match r {
+            PlayerRequest::Scry { .. } => return Err("scry outside this policy admission".into()),
             PlayerRequest::LegendRule { candidates, .. } => PlayerResponse::LegendRule {
                 keep: candidates.last().ok_or("empty legend choices")?.clone(),
             },
