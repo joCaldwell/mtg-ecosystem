@@ -206,7 +206,7 @@ fn conditional_lands_landplay_thresholds_current_controller_and_nonbasic_counts(
             let old = named(g, "Cinder Glade");
             let r = request(g);
             let card = g.handle_for(PlayerId(0), old).unwrap();
-            public(g, PlayerResponse::PlayLand { card });
+            public(g, PlayerResponse::PlayLand { object: card });
             check(g);
             let _ = request(g);
             let entered = named(g, "Cinder Glade");
