@@ -40,6 +40,11 @@ impl StackKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "choice", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum ResolutionChoice {
+    Scry {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        source_block: u32,
+    },
     Search {
         player: PlayerId,
         maximum: u32,
@@ -280,6 +285,13 @@ impl Game {
         };
         let decision_id = self.state.rules.revision;
         Ok(match choice {
+            ResolutionChoice::Scry { player, looked, .. } if self.is_live(*player) => {
+                Some(Request::Scry {
+                    decision_id,
+                    player: *player,
+                    candidates: looked.clone(),
+                })
+            }
             ResolutionChoice::Search {
                 player, maximum, ..
             } if self.is_live(*player) => Some(Request::SearchLands {
@@ -364,6 +376,26 @@ impl Game {
             return Some(result);
         }
         match (&self.state.rules.frame, response) {
+            (
+                Frame::ResolutionChoice {
+                    frame,
+                    choice:
+                        ResolutionChoice::Scry {
+                            player: chooser,
+                            looked,
+                            source_block,
+                        },
+                },
+                Response::Scry { top, bottom },
+            ) => Some(
+                self.validate_scry_choice(frame, *chooser, looked, *source_block)
+                    .and_then(|_| {
+                        if player != *chooser {
+                            return Err("invalid scry chooser".into());
+                        }
+                        self.validate_scry_partition(player, looked, top, bottom)
+                    }),
+            ),
             (
                 Frame::EntityTargets { .. } | Frame::TriggerTargets { .. },
                 Response::EntityTargets { entities },
@@ -461,6 +493,14 @@ impl Game {
                 self.state.rules.frame = self.announcement_mana_frame(cast)?;
             }
             Frame::ResolutionChoice { frame, choice } => {
+                if let ResolutionChoice::Scry {
+                    player,
+                    looked,
+                    source_block,
+                } = choice
+                {
+                    return self.scry_choice_step(frame, player, looked, source_block);
+                }
                 if let ResolutionChoice::OptionalEffect {
                     player,
                     target,
@@ -482,7 +522,8 @@ impl Game {
                 }
                 let Some(request) = self.actions_request()? else {
                     let outcome = match choice {
-                        ResolutionChoice::OptionalEffect { .. }
+                        ResolutionChoice::Scry { .. }
+                        | ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
                         | ResolutionChoice::SearchSplit { .. }
                         | ResolutionChoice::Shuffle { .. }
@@ -511,7 +552,8 @@ impl Game {
                     .ok_or("missing resolution choice")?;
                 self.validate_choice_input(&choice, input.player, &input.response)?;
                 let source_block = match choice {
-                    ResolutionChoice::OptionalEffect { .. }
+                    ResolutionChoice::Scry { .. }
+                    | ResolutionChoice::OptionalEffect { .. }
                     | ResolutionChoice::Search { .. }
                     | ResolutionChoice::SearchSplit { .. }
                     | ResolutionChoice::Shuffle { .. }
@@ -614,6 +656,10 @@ impl Game {
         let player = frame.spell.controller;
         match instruction {
             Instruction::Cascade { source_block, .. } => self.begin_cascade(frame, source_block),
+            Instruction::Scry {
+                amount,
+                source_block,
+            } => self.begin_scry(frame, amount, source_block),
             i @ (Instruction::MoveSet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }
@@ -1262,6 +1308,16 @@ impl Game {
                 .get(frame.cursor as usize)
                 .ok_or("snapshot missing choice instruction")?;
             let valid = match (choice, instruction) {
+                (
+                    ResolutionChoice::Scry {
+                        player,
+                        looked,
+                        source_block,
+                    },
+                    Instruction::Scry { .. },
+                ) => self
+                    .validate_scry_choice(frame, *player, looked, *source_block)
+                    .is_ok(),
                 (
                     ResolutionChoice::Sacrifice {
                         player,

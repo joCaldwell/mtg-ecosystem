@@ -5,7 +5,7 @@ use std::io;
 
 fn reference<'a>(game: &'a Game, digest: &'a str) -> SnapshotRef<'a> {
     SnapshotRef {
-        snapshot_version: 30,
+        snapshot_version: 31,
         build_id: BUILD_ID,
         catalog_digest: &game.prepared.catalog_digest,
         profile_digest: &game.prepared.profile_digest,
@@ -230,7 +230,7 @@ fn snapshot_codec_unchanged_reader_rejects_full_rehashed_shape_and_state_forgeri
     let game = Game::new(historical());
     let value: serde_json::Value = serde_json::from_str(&exact(&game)).unwrap();
     let mut previous_format = value.clone();
-    previous_format["snapshot_version"] = 26.into();
+    previous_format["snapshot_version"] = 29.into();
     let previous_format = canonical(&previous_format).unwrap();
     assert!(Game::restore(historical(), &previous_format).is_err());
     assert!(
@@ -289,7 +289,7 @@ fn snapshot_codec_unchanged_reader_rejects_full_rehashed_shape_and_state_forgeri
     assert!(
         Game::restore_from_reader(historical(), &mut std::io::Cursor::new(raw.as_bytes())).is_err()
     );
-    let duplicate = exact(&game).replacen("{", "{\"snapshot_version\":30,", 1);
+    let duplicate = exact(&game).replacen("{", "{\"snapshot_version\":31,", 1);
     assert!(Game::restore(historical(), &duplicate).is_err());
     assert!(
         Game::restore_from_reader(

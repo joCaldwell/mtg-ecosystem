@@ -213,6 +213,11 @@ pub enum PlayerRequest {
         player: PlayerId,
         candidates: Vec<AdditionalCostChoice>,
     },
+    Scry {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+    },
     LegendRule {
         token: DecisionToken,
         player: PlayerId,
@@ -408,6 +413,7 @@ pub enum PlayerRequest {
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
+            Self::Scry { token, .. } => token,
             Self::LegendRule { token, .. }
             | Self::ManaColor { token, .. }
             | Self::SearchLands { token, .. }
@@ -456,6 +462,10 @@ pub struct Observation {
 pub enum PlayerResponse {
     AdditionalCosts {
         selected: Vec<String>,
+    },
+    Scry {
+        top: Vec<ObjectHandle>,
+        bottom: Vec<ObjectHandle>,
     },
     LegendRule {
         keep: ObjectHandle,
@@ -850,7 +860,7 @@ impl Game {
         }
         match object.zone {
             Zone::Hand { owner } => owner == viewer,
-            Zone::Library { .. } => false,
+            Zone::Library { owner } => owner == viewer && self.scry_visible_to(viewer, object.id),
             _ => true,
         }
     }
@@ -1410,6 +1420,13 @@ impl Game {
                 candidates: vec![],
             }));
         }
+        if self.scry_looked(viewer).is_some() {
+            return Ok(Some(PlayerRequest::Scry {
+                token,
+                player: viewer,
+                candidates: vec![],
+            }));
+        }
         if let Some(request) = self.actions_request()?
             && request.player() == viewer
         {
@@ -1427,6 +1444,11 @@ impl Game {
                         candidates: handles(candidates)?,
                     }
                 }
+                Request::Scry { .. } => PlayerRequest::Scry {
+                    token,
+                    player: viewer,
+                    candidates: vec![],
+                },
                 Request::SearchLands {
                     maximum,
                     candidates,
@@ -1730,7 +1752,7 @@ impl Game {
         self.refresh_effect_handles()?;
         for v in 0..4 {
             let viewer = PlayerId(v);
-            let current = self
+            let mut current = self
                 .state
                 .rules
                 .objects
@@ -1738,6 +1760,14 @@ impl Game {
                 .filter(|o| self.visible_to(viewer, o))
                 .map(|o| o.id)
                 .collect::<Vec<_>>();
+            // The chooser's newly visible library cards acquire handles in
+            // their permitted top-to-bottom order, never hidden physical-ID
+            // order. Unlooked library IDs still consume no viewer counters.
+            if let Some(looked) = self.scry_looked(viewer) {
+                let ids = looked.iter().copied().collect::<BTreeSet<_>>();
+                current.retain(|id| !ids.contains(id));
+                current.splice(0..0, looked.iter().copied());
+            }
             let current_set = current.iter().copied().collect::<BTreeSet<_>>();
             let mut k = self.state.knowledge.visibility[v as usize].clone();
             k.handles.retain_objects(&current_set);
@@ -1984,6 +2014,7 @@ impl Game {
     ) -> Result<Response, String> {
         let size = match response {
             PlayerResponse::AdditionalCosts { selected } => selected.len(),
+            PlayerResponse::Scry { top, bottom } => top.len().saturating_add(bottom.len()),
             PlayerResponse::Attackers { attacks } => attacks.len(),
             PlayerResponse::Blockers { blocks } => blocks.len(),
             PlayerResponse::Damage { assignments }
@@ -2002,6 +2033,16 @@ impl Game {
             return Err("oversized player declaration".into());
         }
         match response {
+            PlayerResponse::Scry { top, bottom } => Ok(Response::Scry {
+                top: top
+                    .iter()
+                    .map(|h| self.resolve_handle(viewer, h))
+                    .collect::<Result<_, _>>()?,
+                bottom: bottom
+                    .iter()
+                    .map(|h| self.resolve_handle(viewer, h))
+                    .collect::<Result<_, _>>()?,
+            }),
             PlayerResponse::DamageAllocation { allocations } => Ok(Response::DamageAllocation {
                 allocations: self.resolve_allocation_response(viewer, allocations)?,
             }),

@@ -17,6 +17,8 @@ pub fn engine_build_input(path: &str) -> bool {
 use num_bigint::BigInt;
 use num_traits::Zero;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
+mod controller_scry;
+pub use controller_scry::controller_scry_program;
 use serde::{Deserialize, Serialize, de};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, fmt, str::FromStr};
@@ -245,6 +247,7 @@ pub enum Capability {
     ActivatedAbilityV1,
     SacrificeSourceCostV1,
     ControllerDrawV1,
+    ControllerScryV1,
     ControllerDiscardV1,
     OpponentTargetV1,
     TargetPlayerSacrificeCreatureV1,
@@ -497,6 +500,12 @@ pub enum Instruction {
         threshold: CascadeThreshold,
         source_block: u32,
     },
+    /// CR 701.22: only the invocation controller looks and orders the prefix.
+    Scry {
+        #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
+        amount: Quantity,
+        source_block: u32,
+    },
     MoveSet {
         set: ObjectSet,
         action: SetMove,
@@ -740,6 +749,7 @@ impl Instruction {
             | Self::SearchTypedLands { source_block, .. }
             | Self::PutSourcePlusOneCountersForCastColors { source_block, .. }
             | Self::DrawCardsIfAdditionalCost { source_block, .. } => *source_block,
+            Self::Scry { source_block, .. } => *source_block,
             Self::MoveSet { source_block, .. } => *source_block,
             Self::PumpSet { source_block, .. } => *source_block,
             Self::DamageSet { source_block, .. } => *source_block,
@@ -1857,6 +1867,7 @@ impl Definition {
         // keywords in one source block (CR 702.85c). No per-card instance cap.
         u32::try_from(self.triggered.len()).map_err(|_| "trigger ability index limit")?;
         u32::try_from(self.static_abilities.len()).map_err(|_| "static ability index limit")?;
+        controller_scry::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -3048,6 +3059,7 @@ pub struct TemporaryTargetedKeywordProgram<'a> {
     pub modifier: Option<(&'a Quantity, &'a Quantity)>,
     pub keywords: &'a [KeywordAbility],
     pub controller_life: Option<&'a Quantity>,
+    pub controller_scry: Option<&'a Quantity>,
 }
 /// Recognize one complete grant on one captured creature target. The caller
 /// checks definition kind/context. Pure grants retain source-block provenance;
@@ -3090,6 +3102,7 @@ pub fn temporary_creature_keyword_program(
         modifier,
         keywords,
         controller_life: None,
+        controller_scry: None,
     })
 }
 /// Complete scalar union; narrow wrappers preserve their own target policy.
@@ -3098,12 +3111,33 @@ pub fn temporary_targeted_keyword_program(
 ) -> Option<TemporaryTargetedKeywordProgram<'_>> {
     temporary_creature_keyword_program(p).or_else(|| temporary_permanent_keyword_program(p))
 }
-/// One controlled permanent, optionally followed by fixed controller life gain.
+/// One controlled permanent with optional fixed controller life gain, or one
+/// artifact-or-creature target with optional fixed controller scry.
 /// CR 109.5, 608.2b/c, 611.2c:
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 pub fn temporary_permanent_keyword_program(
     p: &SpellProgram,
 ) -> Option<TemporaryTargetedKeywordProgram<'_>> {
+    let controlled = p.targets.first().is_some_and(|t| {
+        t.domain == TargetDomain::ControlledBattlefieldPermanent
+            && t.filter.as_ref().is_some_and(|f| {
+                f.types.is_empty()
+                    && f.non_types.is_empty()
+                    && f.non_colors.is_empty()
+                    && !f.opponent
+                    && !f.tapped
+            })
+    });
+    let artifact_or_creature = p.targets.first().is_some_and(|t| {
+        t.domain == TargetDomain::BattlefieldPermanent
+            && t.filter.as_ref().is_some_and(|f| {
+                f.types == [CardKind::Creature, CardKind::Artifact]
+                    && f.non_types.is_empty()
+                    && f.non_colors.is_empty()
+                    && !f.opponent
+                    && !f.tapped
+            })
+    });
     if p.additional_sacrifice.is_some()
         || !p.optional_additional_costs.is_empty()
         || !p.modes.is_empty()
@@ -3111,14 +3145,12 @@ pub fn temporary_permanent_keyword_program(
         || p.resolution != SpellResolution::Instructions
         || !matches!(p.targets.as_slice(), [t] if t.slot == 0 && !t.selection_id.is_empty()
             && t.chooser == Chooser::Controller && t.stage == EvaluationStage::Announcement
-            && t.domain == TargetDomain::ControlledBattlefieldPermanent
-            && t.filter.as_ref().is_some_and(|f| f.types.is_empty() && f.non_types.is_empty()
-                && f.non_colors.is_empty() && !f.opponent && !f.tapped))
+            && (controlled || artifact_or_creature))
     {
         return None;
     }
-    let (grant, controller_life) = match p.instructions.as_slice() {
-        [grant] => (grant, None),
+    let (grant, controller_life, controller_scry) = match p.instructions.as_slice() {
+        [grant] => (grant, None, None),
         [
             grant,
             Instruction::GainLife {
@@ -3126,7 +3158,14 @@ pub fn temporary_permanent_keyword_program(
                 amount,
                 source_block: 0,
             },
-        ] if !amount.is_negative() => (grant, Some(amount)),
+        ] if controlled && !amount.is_negative() => (grant, Some(amount), None),
+        [
+            grant,
+            Instruction::Scry {
+                amount,
+                source_block: 0,
+            },
+        ] if artifact_or_creature && !amount.is_negative() => (grant, None, Some(amount)),
         _ => return None,
     };
     let Instruction::GrantKeywords {
@@ -3143,6 +3182,7 @@ pub fn temporary_permanent_keyword_program(
         modifier: None,
         keywords,
         controller_life,
+        controller_scry,
     })
 }
 /// Borrowed parameters of the complete ordinary temporary set-keyword family.
@@ -3292,6 +3332,12 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         return Err("controller set requires complete temporary keyword family".into());
     }
 
+    if controller_scry::has_scry(p)
+        && !controller_scry_program(p)
+        && !temporary_permanent_keyword_program(p).is_some_and(|d| d.controller_scry.is_some())
+    {
+        return Err("unsupported complete controller scry program".into());
+    }
     if has_keyword_grant(p) && !ordinary_keyword_grant(p) {
         return Err("unsupported temporary keyword grant program".into());
     }
@@ -3739,6 +3785,12 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     .ok_or("counter requires a stack target domain")?;
                 Some((*target_slot, domain))
             }
+            Instruction::Scry { amount, .. } => {
+                if amount.is_negative() {
+                    return Err("scry amount must be nonnegative".into());
+                }
+                None
+            }
             Instruction::DealDamage {
                 target_slot,
                 amount,
@@ -4138,6 +4190,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::DiscardCards { .. } => Capability::ControllerDiscardV1,
             Instruction::CounterStackObject { .. } => Capability::CounterStackObjectV1,
             Instruction::DealDamage { .. } => Capability::NoncombatDamageV1,
+            Instruction::Scry { .. } => Capability::ControllerScryV1,
             Instruction::GainLife { .. } => Capability::LifeGainV1,
             Instruction::LoseLife { .. } => Capability::LifeLossV1,
         });
@@ -5081,7 +5134,7 @@ pub fn catalog_schema() -> serde_json::Value {
             "if":permanent_target,"then":{"$ref":"#/$defs/TemporaryPermanentKeywordProgram"}
         }));
     let permanent_grant = serde_json::json!({"required":["spell"],"properties":{"spell":{
-        "type":"object","allOf":[permanent_target,{"$ref":"#/$defs/TemporaryPermanentKeywordProgram"}]
+        "type":"object","$ref":"#/$defs/TemporaryPermanentKeywordProgram"
     }}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":permanent_grant,"then":{"properties":{
@@ -5103,6 +5156,7 @@ pub fn catalog_schema() -> serde_json::Value {
         Capability::TemporaryPermanentKeywordProgramV1,
         Capability::PermanentRemovalV1,
         Capability::LifeGainV1,
+        Capability::ControllerScryV1,
     ];
     for keyword in [
         KeywordAbility::Flying,
@@ -5122,7 +5176,7 @@ pub fn catalog_schema() -> serde_json::Value {
             {"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
              "then":{"properties":{"spell":{"properties":{"timing":{"const":"instant"}}},"capabilities":{"contains":{"const":Capability::CastInstantV1},"not":{"contains":{"const":Capability::CastSorceryV1}}}}},
              "else":{"properties":{"spell":{"properties":{"timing":{"const":"main_phase"}}},"capabilities":{"contains":{"const":Capability::CastSorceryV1},"not":{"contains":{"const":Capability::CastInstantV1}}}}}},
-            {"if":{"properties":{"spell":{"properties":{"instructions":{"minItems":2}}}}},
+            {"if":{"properties":{"spell":{"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"gain_life"}}}}}}}},
              "then":{"properties":{"capabilities":{"contains":{"const":Capability::LifeGainV1}}}},
              "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::LifeGainV1}}}}}}
         ]}
@@ -5366,6 +5420,7 @@ pub fn catalog_schema() -> serde_json::Value {
     optional_costs::schema(&mut schema);
     counted_costs::schema(&mut schema);
     typed_land_search::schema(&mut schema);
+    controller_scry::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -5533,6 +5588,7 @@ mod tests {
             ActivatedAbilityV1,
             SacrificeSourceCostV1,
             ControllerDrawV1,
+            ControllerScryV1,
             ControllerDiscardV1,
             OpponentTargetV1,
             TargetPlayerSacrificeCreatureV1,
@@ -5760,6 +5816,7 @@ mod tests {
             false,
         ));
         definitions.push(temporary_permanent_keyword_tests::grant(true));
+        definitions.push(controller_scry::witness());
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());

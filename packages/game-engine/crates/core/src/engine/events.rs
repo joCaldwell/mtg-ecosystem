@@ -342,6 +342,11 @@ fn changes_control_inputs(event: &ProposedEvent) -> bool {
 
 fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
     let (mut reads, mut writes) = match event {
+        ProposedEvent::Scry { player, looked, .. } => {
+            let mut read = BTreeSet::from([FactKey::Libraries, FactKey::Life(*player)]);
+            read.extend(looked.iter().map(|o| FactKey::Object(o.card)));
+            (read, BTreeSet::from([FactKey::Libraries]))
+        }
         ProposedEvent::RevealSearchLands { objects, .. } => (
             objects
                 .iter()
@@ -785,6 +790,11 @@ impl Game {
                 } => {
                     objects.extend(selected.iter().copied());
                     libraries.insert(*player);
+                }
+                ProposedEvent::Scry { player, looked, .. } => {
+                    libraries.insert(*player);
+                    players.insert(*player);
+                    objects.extend(looked.iter().copied());
                 }
                 ProposedEvent::CreateCreatureTokens { controller, .. } => {
                     // CR608.2m: the invocation owns its fixed token definition.
@@ -1583,6 +1593,13 @@ impl Game {
                 }
             }
 
+            ProposedEvent::Scry {
+                player,
+                amount,
+                looked,
+                top,
+                bottom,
+            } => self.apply_scry(*player, amount, looked, top, bottom)?,
             ProposedEvent::FinishLibraryShuffle { player } => {
                 if !matches!(self.state.rules.frame,Frame::ResolutionChoice {choice:ResolutionChoice::Shuffle {player:p,index:0,..},..} if p==*player)
                 {

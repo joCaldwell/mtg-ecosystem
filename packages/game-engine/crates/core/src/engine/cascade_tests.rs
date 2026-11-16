@@ -1610,3 +1610,65 @@ mod m4d_lifecycle_tests;
 mod m4d_tests;
 #[path = "m4e_tests.rs"]
 mod m4e_tests;
+
+#[test]
+fn cascade_complete_opt_child_scry_draw_preserves_original_and_private_recovery() {
+    for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+        let p = prepared_with_records(
+            "Shardless Agent",
+            &["Opt", "Forest"],
+            &[include_str!(
+                "../../../../tests/fixtures/713332c1-5bd8-400f-bfff-c1ca0697a043.json"
+            )],
+        );
+        let mut g = Game::with_trace(p, mode);
+        let original = paid(&mut g, "Shardless Agent");
+        offer(&mut g);
+        answer(&mut g, Response::OptionalEffect { perform: true });
+        let r = loop {
+            let r = request(&mut g);
+            if matches!(r, Request::Scry { .. }) {
+                break r;
+            }
+            assert!(
+                matches!(r, Request::Priority { .. }),
+                "unexpected child choice {r:?}"
+            );
+            answer(&mut g, Response::Pass);
+        };
+        let Request::Scry { candidates, .. } = &r else {
+            unreachable!()
+        };
+        assert_eq!(candidates.len(), 1);
+        let looked = candidates[0];
+        assert!(g.state.rules.stack.iter().any(|s| s.id == original));
+        let Frame::ResolutionChoice { frame, .. } = &g.state.rules.frame else {
+            unreachable!()
+        };
+        assert_eq!(g.definition(frame.spell.source.card).unwrap().name, "Opt");
+        assert_eq!(frame.spell.paid.as_ref(), Some(&zero_mana_cost()));
+        let child = frame.spell.id;
+        prove(&g);
+        answer(
+            &mut g,
+            Response::Scry {
+                top: vec![],
+                bottom: candidates.clone(),
+            },
+        );
+        prove(&g);
+        loop {
+            let r = request(&mut g);
+            if !g.state.rules.stack.iter().any(|s| s.id == child) {
+                break;
+            }
+            assert!(matches!(r, Request::Priority { .. }));
+            answer(&mut g, Response::Pass);
+        }
+        assert!(g.state.rules.stack.iter().any(|s| s.id == original));
+        let drawn = g.current(g.object_id(looked.card).unwrap()).unwrap();
+        assert_eq!(drawn.zone, Zone::Hand { owner: PlayerId(0) });
+        assert_ne!(drawn.id, looked);
+        prove(&g);
+    }
+}

@@ -94,6 +94,14 @@ Library-top events preserve order and cannot compose with a conflicting order wr
 Drain concessions and revalidate owner choices before exposing queries.
 Commander-return decisions are resumable continuations, never priority windows.
 
+Controller-only Scry uses fixed nonnegative counts: zero emits no event; positive
+counts order the available library prefix into top/bottom partitions without zone
+or incarnation changes (CR 701.22). Only the chooser sees temporary handles;
+private ordered memory is charged and replay-proven. Complete ordinary Scry/draw
+compositions and artifact-or-creature keyword grants with Scry tails are supported.
+Invalid choices reject atomically; departed choosers skip. Simultaneous-player
+Scry, optional costs, activated/triggered sources and search reconstruction reject.
+
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
 Surviving activators retain paid abilities when a borrowed source's owner leaves.

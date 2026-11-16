@@ -25,9 +25,17 @@ pub struct RememberedCard {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum OwnKnowledgeAction {
+    Scry {
+        top: Vec<RememberedCard>,
+        bottom: Vec<RememberedCard>,
+    },
     OpeningRedraw,
-    OpeningBottom { cards: Vec<RememberedCard> },
-    Drawn { oracle_id: String },
+    OpeningBottom {
+        cards: Vec<RememberedCard>,
+    },
+    Drawn {
+        oracle_id: String,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -103,6 +111,46 @@ fn unsupported(s: impl Into<String>) -> SearchRejection {
 }
 
 impl Game {
+    pub(super) fn remember_scry(
+        &mut self,
+        player: PlayerId,
+        top: &[ObjectId],
+        bottom: &[ObjectId],
+    ) -> Result<(), String> {
+        let sequence = self.state.knowledge.visibility[player.0 as usize]
+            .own_knowledge
+            .len();
+        let remember = |objects: &[ObjectId], offset: usize| {
+            objects
+                .iter()
+                .enumerate()
+                .map(|(i, o)| {
+                    Ok(RememberedCard {
+                        memory_ref: format!("memory-{sequence}-{}", offset + i),
+                        oracle_id: self.definition(o.card)?.oracle_id.clone(),
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()
+        };
+        let top_memory = remember(top, 0)?;
+        let bottom_memory = remember(bottom, top.len())?;
+        let action = OwnKnowledgeAction::Scry {
+            top: top_memory,
+            bottom: bottom_memory,
+        };
+        // This ordered private memory is retained beyond the temporary look.
+        // Charge its complete payload in every trace mode before publishing it.
+        self.state.rules.retained_auxiliary_charge = self
+            .state
+            .rules
+            .retained_auxiliary_charge
+            .saturating_add(stored_history::payload_charge(&action));
+        self.check_history_capacity()?;
+        self.state.knowledge.visibility[player.0 as usize]
+            .own_knowledge
+            .push(action);
+        Ok(())
+    }
     pub(super) fn remember_opening_redraw(&mut self, player: PlayerId) {
         self.state.knowledge.visibility[player.0 as usize]
             .own_knowledge
@@ -154,6 +202,11 @@ fn known_suffix(
     let mut draws: Vec<&str> = vec![];
     for action in actions {
         match action {
+            OwnKnowledgeAction::Scry { .. } => {
+                return Err(SearchRejection::UnsupportedHistory(
+                    "scry library ordering is outside foundations search".into(),
+                ));
+            }
             OwnKnowledgeAction::OpeningRedraw => {
                 if !draws.is_empty() {
                     return Err(SearchRejection::UnsupportedHistory(

@@ -2087,6 +2087,42 @@
       "ast_sha256": "050500699479157305337569bca1c1d753142907cc8ba254403d7ecc75053b86",
       "archive": "archive-manifest-current.json",
       "archive_line": 28168
+    },
+    {
+      "file": "1a9048d6-f3fa-4f3b-9baa-35318177bc6e.json",
+      "oracle_id": "1a9048d6-f3fa-4f3b-9baa-35318177bc6e",
+      "record_sha256": "5a1488a883a71b471003fc2c2909ff25e45fd25c9c77a8636732ff9885516571",
+      "source_sha256": "19e472477a351e8baf5f61cba4c1b92e16ac82cac3543cbe3bc626ca8069fa71",
+      "ast_sha256": "0e36b6d3b16e0386b5c94f2cc1db737c4906cf5072b0e4e60e550a54cb7c9e45",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 4059
+    },
+    {
+      "file": "56956afd-db53-4542-816b-490c8b0bbcf7.json",
+      "oracle_id": "56956afd-db53-4542-816b-490c8b0bbcf7",
+      "record_sha256": "a95b4ac8017fac4d632079fa696d3e89f8545277600fa9512a9ae66391334f90",
+      "source_sha256": "052e4ac325d97cf9e084bf9a07381965d3b8eab22a463750bf74dff225c06ea3",
+      "ast_sha256": "0511dad10956edc72c0f39e9114508cac382942d7de366682f33cb09a6bde27c",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 13007
+    },
+    {
+      "file": "713332c1-5bd8-400f-bfff-c1ca0697a043.json",
+      "oracle_id": "713332c1-5bd8-400f-bfff-c1ca0697a043",
+      "record_sha256": "3627b05641eea07780e6fa8fc2691352a5dcfdf26ce1374be7b5739aace979f7",
+      "source_sha256": "9bc1edc63bdad6b1b08e0fbbf0269fed7181fb674b9542c7bfcc1359a76d8b55",
+      "ast_sha256": "8053ea35233d5b3168e61cba98ae5ab21b04db3f56148b1173eea69b2b34e3ff",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 17039
+    },
+    {
+      "file": "ac641490-ca14-48d7-8cc4-b69ce984befa.json",
+      "oracle_id": "ac641490-ca14-48d7-8cc4-b69ce984befa",
+      "record_sha256": "0185b470d802635525fe9e6070363be7450be55c73669940ef537a78fdac45f7",
+      "source_sha256": "277d1648e22306a768023eabf7f890007238994c3de816998e649602fafc35d5",
+      "ast_sha256": "c4abd40f9475a271acf375110d731eb6110a9fc2716e9bbb2acc1eb6e2168f91",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 25951
     }
   ]
 }

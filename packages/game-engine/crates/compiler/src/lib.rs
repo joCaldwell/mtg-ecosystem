@@ -8,6 +8,9 @@ pub mod fixtures {
     include!(concat!(env!("OUT_DIR"), "/fixtures.rs"));
 }
 pub mod catalog;
+mod controller_scry;
+#[cfg(test)]
+mod controller_scry_tests;
 pub mod coverage;
 mod diagnostics;
 mod normalization;
@@ -577,6 +580,9 @@ struct Sentence {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "effect", rename_all = "kebab-case")]
 enum Step {
+    Scry {
+        amount: serde_json::Value,
+    },
     CreateReplacement {
         replacement: serde_json::Value,
         duration: SourceDuration,
@@ -1830,6 +1836,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }) {
         return Err(unsupported("trigger", "unbound death controller"));
     }
+    if definition.spell.as_ref().is_some_and(|p| {
+        p.instructions
+            .iter()
+            .any(|i| matches!(i, Instruction::Scry { .. }))
+    }) {
+        controller_scry::validate_source_shape(&canonical_abilities)?;
+    }
     if let Some(p) = definition.spell.as_ref()
         && temporary_permanent_keyword_program(p).is_some()
     {
@@ -1839,6 +1852,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             &abilities,
             &canonical_abilities,
         )?;
+    }
+    if definition
+        .spell
+        .as_ref()
+        .is_some_and(mtg_contracts::controller_scry_program)
+    {
+        controller_scry::validate_bindings(&binding, &definition.oracle_id, &canonical_abilities)?;
     }
     definition.capabilities = definition.requirements();
     definition
@@ -1912,19 +1932,19 @@ fn validate_temporary_permanent_bindings(
             .collect::<String>()
     );
     let base = "/faces/0/abilities/0/effects";
-    let mut expected = vec![
-        (
+    let mut expected = vec![(
+        format!("{base}/0/steps/0/what"),
+        what.clone(),
+        selection.clone(),
+    )];
+    if what["filter"]["control"] == "you" {
+        expected.push((
             format!("{base}/0/steps/0/what/filter/control"),
             serde_json::json!({"player":"you"}),
             you.clone(),
-        ),
-        (
-            format!("{base}/0/steps/0/what"),
-            what.clone(),
-            selection.clone(),
-        ),
-    ];
-    if effects.len() == 2 {
+        ));
+    }
+    if effects.len() == 2 && matches!(effects[1].steps.as_slice(), [Step::GainLife { .. }]) {
         // PlayerSelector's optional fields erase explicit nulls. This complete
         // source family requires the exact unqualified raw recipient as well
         // as its matching binding expression; typed equality alone is weaker.
@@ -2089,7 +2109,7 @@ fn append_spell_effects(
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     if let Some(Sentence { steps, .. }) = effects.first()
         && matches!(steps.first(), Some(Step::GainAbilities { what, .. })
-            if what["filter"]["cls"] == "permanent" && what["ref"] == "target")
+            if (what["filter"]["cls"] == "permanent" || controller_scry::artifact_creature_target(what)) && what["ref"] == "target")
     {
         if source_block != 0
             || player_binding != PlayerBinding::Unbound
@@ -2129,23 +2149,44 @@ fn append_spell_effects(
                 "permanent grant must end this turn",
             ));
         }
-        let target_slot = bind_temporary_permanent_target(program, slots, what)?;
+        let filtered = controller_scry::artifact_creature_target(what);
+        let target_slot = if filtered {
+            controller_scry::bind_grant_target(program, slots, what)?
+        } else {
+            bind_temporary_permanent_target(program, slots, what)?
+        };
         let keywords = lower_temporary_creature_keywords(abilities)?;
         let tail = if effects.len() == 2 {
-            let [
-                Step::GainLife {
-                    who,
-                    amount,
-                    for_each: None,
-                },
-            ] = effects[1].steps.as_slice()
-            else {
-                return Err(unsupported(
-                    "effects",
-                    "only fixed controller life tail supported",
-                ));
-            };
-            Some(lower_fixed_controller_life(who, amount, source_block)?)
+            if let [Step::Scry { amount }] = effects[1].steps.as_slice() {
+                if !filtered {
+                    return Err(unsupported(
+                        "effects",
+                        "scry tail requires artifact-or-creature family",
+                    ));
+                }
+                Some(controller_scry::instruction(amount, source_block)?)
+            } else {
+                if filtered {
+                    return Err(unsupported(
+                        "effects",
+                        "artifact-or-creature grant only supports scry tail",
+                    ));
+                }
+                let [
+                    Step::GainLife {
+                        who,
+                        amount,
+                        for_each: None,
+                    },
+                ] = effects[1].steps.as_slice()
+                else {
+                    return Err(unsupported(
+                        "effects",
+                        "only fixed controller life tail supported",
+                    ));
+                };
+                Some(lower_fixed_controller_life(who, amount, source_block)?)
+            }
         } else {
             None
         };
@@ -2757,6 +2798,7 @@ fn append_spell_effects(
                         source_block,
                     }
                 }
+                Step::Scry { amount } => controller_scry::instruction(amount, source_block)?,
                 Step::GainLife { who, amount, .. } => Instruction::GainLife {
                     recipient: life_recipient(
                         program,
