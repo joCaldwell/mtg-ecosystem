@@ -345,7 +345,8 @@ fn changes_control_inputs(event: &ProposedEvent) -> bool {
 
 fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
     let (mut reads, mut writes) = match event {
-        ProposedEvent::Scry { player, looked, .. } => {
+        ProposedEvent::Scry { player, looked, .. }
+        | ProposedEvent::Surveil { player, looked, .. } => {
             let mut read = BTreeSet::from([FactKey::Libraries, FactKey::Life(*player)]);
             read.extend(looked.iter().map(|o| FactKey::Object(o.card)));
             (read, BTreeSet::from([FactKey::Libraries]))
@@ -814,7 +815,8 @@ impl Game {
                     objects.extend(selected.iter().copied());
                     libraries.insert(*player);
                 }
-                ProposedEvent::Scry { player, looked, .. } => {
+                ProposedEvent::Scry { player, looked, .. }
+                | ProposedEvent::Surveil { player, looked, .. } => {
                     libraries.insert(*player);
                     players.insert(*player);
                     objects.extend(looked.iter().copied());
@@ -1353,7 +1355,11 @@ impl Game {
             }
         }
         collect(&group, self, 0, self.event_group_limit(), &mut events)?;
-        let before = self.facts(&events)?;
+        let before = if matches!(&group, EventGroup::Ordered { .. }) {
+            self.facts_with_entry_counts(&events, &BTreeMap::new())?
+        } else {
+            self.facts(&events)?
+        };
         let batch_id = self.state.rules.next_batch_id;
         let next_batch = batch_id.checked_add(1).ok_or("batch ID resource limit")?;
         if self.in_rule_step {
@@ -1385,7 +1391,13 @@ impl Game {
     ) -> Result<CommittedBatch, String> {
         self.state.rules.next_batch_id = next_batch;
         let mut occurrences = vec![];
-        self.apply_group(&group, batch_id, &mut vec![], &mut occurrences)?;
+        self.apply_group(
+            &group,
+            batch_id,
+            &mut vec![],
+            &mut occurrences,
+            Some(&before),
+        )?;
         let result = CommittedBatch {
             batch_id,
             rules: cause.rules(),
@@ -1406,12 +1418,16 @@ impl Game {
         batch: u64,
         path: &mut Vec<u32>,
         out: &mut Vec<OccurrenceResult>,
+        prepared: Option<&PreEventFacts>,
     ) -> Result<(), String> {
         match group {
             EventGroup::Occurrence { proposed } => {
                 let trigger_before = Some(self.fork());
                 let offset = out.len();
-                let before = self.facts(&[proposed])?;
+                let before = match prepared {
+                    Some(before) => before.clone(),
+                    None => self.facts(&[proposed])?,
+                };
                 self.apply_leaf(proposed, batch, path, before, out)?;
                 if changes_control_inputs(proposed) {
                     self.reconcile_controllers()?;
@@ -1423,7 +1439,7 @@ impl Game {
             EventGroup::Ordered { children } => {
                 for (i, child) in children.iter().enumerate() {
                     path.push(u32::try_from(i).map_err(|_| "event path resource limit")?);
-                    self.apply_group(child, batch, path, out)?;
+                    self.apply_group(child, batch, path, out, None)?;
                     path.pop();
                 }
             }
@@ -1436,18 +1452,22 @@ impl Game {
                 let mut facts = vec![];
                 // One prior scan per complete simultaneous occurrence. Only
                 // bounded controller counts are copied into charged leaf facts.
-                let entry_counts =
-                    common.entry_basic_counts(&occurrences.iter().collect::<Vec<_>>())?;
+                let entry_counts = match prepared {
+                    Some(before) => before.entry_basic_lands.clone(),
+                    None => common.entry_basic_counts(&occurrences.iter().collect::<Vec<_>>())?,
+                };
                 for event in occurrences {
-                    facts.push(common.facts_with_entry_counts(&[event], &entry_counts)?);
+                    let before = common.facts_with_entry_counts(&[event], &entry_counts)?;
                     let mut validation = common.fork();
-                    if let Err(error) = validation.apply_occurrence(event) {
+                    if let Err(error) = validation.apply_occurrence_with_prior(event, Some(&before))
+                    {
                         // The validation branch is discarded, but its typed
                         // resource failure must reach the enclosing atomic
                         // transaction just as an application failure does.
                         self.state.rules.typed_fault = validation.state.rules.typed_fault;
                         return Err(error);
                     }
+                    facts.push(before);
                 }
                 for (i, (event, before)) in occurrences.iter().zip(facts).enumerate() {
                     path.push(u32::try_from(i).map_err(|_| "event path resource limit")?);
@@ -1823,6 +1843,13 @@ impl Game {
                 }
             }
 
+            ProposedEvent::Surveil {
+                player,
+                amount,
+                looked,
+                top,
+                graveyard,
+            } => self.apply_surveil(*player, amount, looked, top, graveyard, before)?,
             ProposedEvent::Scry {
                 player,
                 amount,

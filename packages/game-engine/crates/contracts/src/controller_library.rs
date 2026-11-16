@@ -1,17 +1,26 @@
-//! Controller-only ordinary scry. CR 109.5, 608.2c, 701.22a-d.
+//! Controller-only ordinary library choices. CR 109.5,608.2c,701.22/701.25.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-pub(crate) fn has_scry(p: &SpellProgram) -> bool {
+pub(crate) fn has_look(p: &SpellProgram) -> bool {
     p.instructions
         .iter()
-        .any(|i| matches!(i, Instruction::Scry { .. }))
-        || p.modes.iter().any(|mode| has_scry(&mode.program))
+        .any(|i| matches!(i, Instruction::Scry { .. } | Instruction::Surveil { .. }))
+        || p.modes.iter().any(|mode| has_look(&mode.program))
 }
 
 /// Complete nontargeted ordinary scry, alone or with one mandatory card draw.
 /// Either ordering and original source-block provenance are meaningful.
 pub fn controller_scry_program(p: &SpellProgram) -> bool {
+    controller_look_program(p, false)
+}
+
+/// Complete ordinary controller Surveil, alone or with one mandatory draw.
+pub fn controller_surveil_program(p: &SpellProgram) -> bool {
+    controller_look_program(p, true)
+}
+
+fn controller_look_program(p: &SpellProgram, surveil: bool) -> bool {
     if p.additional_sacrifice.is_some()
         || !p.optional_additional_costs.is_empty()
         || !p.modes.is_empty()
@@ -21,8 +30,11 @@ pub fn controller_scry_program(p: &SpellProgram) -> bool {
     {
         return false;
     }
-    let scry =
-        |i: &Instruction| matches!(i, Instruction::Scry { amount, .. } if !amount.is_negative());
+    let scry = |i: &Instruction| match i {
+        Instruction::Scry { amount, .. } if !surveil => !amount.is_negative(),
+        Instruction::Surveil { amount, .. } if surveil => !amount.is_negative(),
+        _ => false,
+    };
     let draw = |i: &Instruction| matches!(i, Instruction::DrawCards { recipient: None, count, .. } if *count == Quantity::from(1));
     match p.instructions.as_slice() {
         [i] => scry(i),
@@ -32,12 +44,12 @@ pub fn controller_scry_program(p: &SpellProgram) -> bool {
 }
 
 pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
-    if d.activated.iter().any(|a| has_scry(&a.program))
-        || d.triggered.iter().any(|a| has_scry(&a.program))
+    if d.activated.iter().any(|a| has_look(&a.program))
+        || d.triggered.iter().any(|a| has_look(&a.program))
     {
-        return Err("scry requires an ordinary spell source".into());
+        return Err("library look requires an ordinary spell source".into());
     }
-    if !d.spell.as_ref().is_some_and(has_scry) {
+    if !d.spell.as_ref().is_some_and(has_look) {
         return Ok(());
     }
     let c = &d.characteristics;
@@ -55,7 +67,7 @@ pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
         || !d.triggered.is_empty()
         || !d.mana_abilities.is_empty()
     {
-        return Err("scry requires a complete ordinary spell definition".into());
+        return Err("library look requires a complete ordinary spell definition".into());
     }
     Ok(())
 }
@@ -127,6 +139,46 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
             {"if":draw_in_program,"then":{"properties":{"capabilities":{"contains":{"const":Capability::ControllerDrawV1}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerDrawV1}}}}}}
         ]}}
     ]}}));
+    extend_surveil_schema(schema);
+}
+
+fn extend_surveil_schema(schema: &mut serde_json::Value) {
+    use serde_json::json;
+    // Same closed composition grammar, with a distinct opcode/capability.
+    let encoded = serde_json::to_string(&schema["$defs"]["ControllerScryProgram"]).unwrap();
+    schema["$defs"]["ControllerSurveilProgram"] =
+        serde_json::from_str(&encoded.replace("\"scry\"", "\"surveil\"")).unwrap();
+    schema["$defs"]["SurveilFreeProgram"] = json!({"properties":{
+        "instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"const":"surveil"}}}}},
+        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/SurveilFreeProgram"}}}}
+    }});
+    let contains = json!({"not":{"$ref":"#/$defs/SurveilFreeProgram"}});
+    schema["$defs"]["SpellProgram"]["allOf"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"if":contains,"then":{"$ref":"#/$defs/ControllerSurveilProgram"}}));
+    let has = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":{"$ref":"#/$defs/SurveilFreeProgram"}}}});
+    let def = schema["$defs"]["Definition"]["allOf"]
+        .as_array_mut()
+        .unwrap();
+    def.push(json!({"properties":{
+        "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/SurveilFreeProgram"}}}},
+        "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/SurveilFreeProgram"}}}}
+    }}));
+    def.push(json!({"if":has,"then":{"properties":{
+        "spell":{"$ref":"#/$defs/ControllerSurveilProgram"},
+        "keywords":{"maxItems":0},"static_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},
+        "characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},"additional_types":{"maxItems":0},"basic":{"const":false},"legendary":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"}}},
+        "capabilities":{"items":{"enum":[Capability::NormalLayoutV1,Capability::CastInstantV1,Capability::CastSorceryV1,Capability::ControllerSurveilV1,Capability::ControllerDrawV1]},"allOf":[{"contains":{"const":Capability::NormalLayoutV1}},{"contains":{"const":Capability::ControllerSurveilV1}}]}
+    }},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerSurveilV1}}}}}}));
+    def.push(json!({"if":has,"then":{"allOf":[
+        {"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
+         "then":{"properties":{"spell":{"properties":{"timing":{"const":"instant"}}},"capabilities":{"contains":{"const":Capability::CastInstantV1},"not":{"contains":{"const":Capability::CastSorceryV1}}}}},
+         "else":{"properties":{"spell":{"properties":{"timing":{"const":"main_phase"}}},"capabilities":{"contains":{"const":Capability::CastSorceryV1},"not":{"contains":{"const":Capability::CastInstantV1}}}}}},
+        {"if":{"properties":{"spell":{"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"draw_cards"}}}}}}}},
+         "then":{"properties":{"capabilities":{"contains":{"const":Capability::ControllerDrawV1}}}},
+         "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerDrawV1}}}}}}
+    ]}}));
 }
 
 #[cfg(test)]
@@ -136,6 +188,17 @@ pub(crate) fn witness() -> Definition {
     p.targets.clear();
     p.instructions = vec![Instruction::Scry {
         amount: Quantity::from(2),
+        source_block: 0,
+    }];
+    d.capabilities = d.requirements();
+    d
+}
+
+#[cfg(test)]
+pub(crate) fn surveil_witness() -> Definition {
+    let mut d = witness();
+    d.spell.as_mut().unwrap().instructions = vec![Instruction::Surveil {
+        amount: 2.into(),
         source_block: 0,
     }];
     d.capabilities = d.requirements();
@@ -264,6 +327,7 @@ mod tests {
         d.validate().unwrap();
         let p = d.spell.as_ref().unwrap();
         assert!(!controller_scry_program(p));
+        assert!(!controller_surveil_program(p));
         let descriptor = temporary_permanent_keyword_program(p).unwrap();
         assert_eq!(descriptor.controller_scry, Some(&Quantity::from(1)));
         assert!(descriptor.controller_life.is_none());
@@ -331,9 +395,12 @@ mod combined_cost_fences {
     use super::*;
     #[test]
     fn scry_combined_optional_cost_and_conditional_draw_fences() {
-        for targeted in [false, true] {
+        for variant in 0..3 {
+            let targeted = variant == 1;
             let mut d = if targeted {
                 temporary_permanent_keyword_tests::grant(false)
+            } else if variant == 2 {
+                surveil_witness()
             } else {
                 witness()
             };
@@ -364,6 +431,7 @@ mod combined_cost_fences {
                     },
                 });
             assert!(!controller_scry_program(p));
+            assert!(!controller_surveil_program(p));
             assert!(temporary_targeted_keyword_program(p).is_none());
             d.capabilities = d.requirements();
             assert!(d.validate().is_err());
@@ -375,9 +443,61 @@ mod combined_cost_fences {
                 source_block: 0,
             });
             assert!(!controller_scry_program(p));
+            assert!(!controller_surveil_program(p));
             assert!(temporary_targeted_keyword_program(p).is_none());
             d.capabilities = d.requirements();
             assert!(d.validate().is_err());
+        }
+    }
+}
+
+#[cfg(test)]
+mod surveil_tests {
+    use super::*;
+    #[test]
+    fn controller_surveil_contract_counts_orders_and_strict_family() {
+        for n in ["0", "2", "9999999999999999999999999999"] {
+            for order in 0..3 {
+                let mut d = surveil_witness();
+                let look = Instruction::Surveil {
+                    amount: n.parse().unwrap(),
+                    source_block: 0,
+                };
+                let draw = Instruction::DrawCards {
+                    recipient: None,
+                    count: 1.into(),
+                    source_block: 1,
+                };
+                d.spell.as_mut().unwrap().instructions = match order {
+                    0 => vec![look],
+                    1 => vec![look, draw],
+                    _ => vec![draw, look],
+                };
+                d.capabilities = d.requirements();
+                d.validate().unwrap();
+                assert!(controller_surveil_program(d.spell.as_ref().unwrap()));
+                assert!(!controller_scry_program(d.spell.as_ref().unwrap()));
+                for cap in d.capabilities.clone() {
+                    let mut missing = d.clone();
+                    missing.capabilities.remove(&cap);
+                    assert!(missing.validate().is_err());
+                }
+                let mut spare = d.clone();
+                spare.capabilities.insert(Capability::ControllerScryV1);
+                assert!(spare.validate().is_err());
+                let mut mixed = d;
+                mixed
+                    .spell
+                    .as_mut()
+                    .unwrap()
+                    .instructions
+                    .push(Instruction::Scry {
+                        amount: 1.into(),
+                        source_block: 0,
+                    });
+                mixed.capabilities = mixed.requirements();
+                assert!(mixed.validate().is_err());
+            }
         }
     }
 }

@@ -443,6 +443,12 @@ impl Game {
                         active: self.state.rules.active,
                     }]
                 }
+                EventOutcome::Surveilled { movements, .. } => movements
+                    .iter()
+                    .map(|movement| TriggerEventWitness::Moved {
+                        movement: movement.clone(),
+                    })
+                    .collect(),
                 actual => movement(actual)
                     .map(|m| {
                         vec![TriggerEventWitness::Moved {

@@ -88,17 +88,17 @@ Source `feece7d468b5618b8b5849341650b99a2ad6f331` passed 82 selected Rust tests 
 
 ### Continuous Aura-control family qualification
 
-Source `945c37a9` passed 497 distinct Rust/1,710 schema, 802 rows; `generated/aura-control-family/combined04/`. Paid control/order/departure/recovery passes remain distinct from synthetic sacrificed-mana reversal. No consumer admission.
+Source `945c37a9` passed 497 distinct Rust/1,710 schema, 802 rows; `generated/aura-control-family/combined04/`. Paid and synthetic witnesses retain separate boundaries; no consumer admission.
 
 ### Composed Aura-control qualification
 
-Source `3ee7fe8d51abd2c6bac9033a39381d14d761b45b` passed 412 distinct Rust/1,753 schema, 805 rows. `generated/composed-aura-control/combined02/` preserves the corrected Equipment timestamp assertion. No new core mechanic, capability, format or admission. All four families above passed focused all-target/fmt/smoke/replay; full matrices remain omitted.
+Source `3ee7fe8d51abd2c6bac9033a39381d14d761b45b` passed 412 distinct Rust/1,753 schema, 805 rows. `generated/composed-aura-control/combined02/` preserves the corrected Equipment timestamp assertion. No new core mechanic, capability, format or admission. Focused all-target/fmt/smoke/replay passed; full matrices remain omitted.
 
 ### Ramos basic-cascade combined qualification
 
 Source `6c2c295bed4a8575c8b78974d13618a9b9454ab4` combined main `ef8fc6da`:
 498 distinct Rust tests, 1,832 schema probes, 908 rows; paid Aura/cascade/departure
-recovery in three traces. Exact artifacts, source/settings, failures and timings:
+recovery in three traces. Artifacts and omissions:
 `generated/ramos/m3b-integrated/integration.json`. Formats23/18; no consumer transfer.
 
 ### Atomic temporary-keyword qualification
@@ -117,6 +117,8 @@ No broader runtime, release, profile, performance, retention, consumer, host,
 search, SDK or missing-dependency Node acceptance transfers.
 
 Controlled-permanent scalar keywords retain rules `7315ffe2` and schema-only `44930622`: 626 distinct Rust/633 executions, 4,316 probes, 848 rows, IR1/29/23. Exact CLI `83be4c3b`, runtime `c29b9b70`, schema `4761f067` identities, null-recipient RED/GREEN, zero-tail schema repair and unchanged-rule bridges are retained in `generated/targeted-permanent-keywords/integration.json` in the engine coordinator checkout and [immutable evidence](https://github.com/joCaldwell/mtg-ecosystem/blob/a39dc880fa1f447b78af64c061f15cf1fca8b87c/docs/game-engine-evidence.md). Consumer acceptance remains separate.
+
+Controller Surveil source `ad6630c8`: 16 focused Rust and 631 probes; IR1/33/25. Exact producers, comments-only bridge and omissions: `generated/controller-surveil/integration.json`.
 
 Formatting, all-target, catalog freshness and strict compiler/core/sim production
 lint retain their explicit bridges; contracts/server use proven inherited

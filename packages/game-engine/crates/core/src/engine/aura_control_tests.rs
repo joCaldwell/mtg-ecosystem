@@ -1107,3 +1107,6 @@ mod targeted_permanent_keyword_tests;
 #[cfg(test)]
 #[path = "controller_scry_paid_tests.rs"]
 mod controller_scry_paid_tests;
+
+#[path = "controller_surveil_tests.rs"]
+mod controller_surveil_tests;

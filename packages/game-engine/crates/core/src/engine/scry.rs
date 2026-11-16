@@ -4,16 +4,18 @@
 use super::*;
 
 impl Game {
-    pub(super) fn scry_looked(&self, viewer: PlayerId) -> Option<&[ObjectId]> {
+    pub(super) fn library_looked(&self, viewer: PlayerId) -> Option<&[ObjectId]> {
         match &self.state.rules.frame {
             Frame::ResolutionChoice {
-                choice: ResolutionChoice::Scry { player, looked, .. },
+                choice:
+                    ResolutionChoice::Scry { player, looked, .. }
+                    | ResolutionChoice::Surveil { player, looked, .. },
                 ..
             } if *player == viewer && self.is_live(viewer) => Some(looked),
             _ => None,
         }
     }
-    pub(super) fn scry_prefix(
+    pub(super) fn library_prefix(
         &self,
         player: PlayerId,
         amount: &Quantity,
@@ -43,7 +45,7 @@ impl Game {
         Ok(looked)
     }
 
-    pub(super) fn validate_scry_partition(
+    pub(super) fn validate_library_partition(
         &self,
         player: PlayerId,
         looked: &[ObjectId],
@@ -85,7 +87,7 @@ impl Game {
             || looked
                 .iter()
                 .any(|o| !self.state.rules.cards.contains_key(&o.card))
-            || (self.is_live(player) && self.scry_prefix(player, amount)? != looked)
+            || (self.is_live(player) && self.library_prefix(player, amount)? != looked)
         {
             return Err("snapshot scry prefix invariant".into());
         }
@@ -111,7 +113,7 @@ impl Game {
         if amount == Quantity::zero() {
             return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
         }
-        let looked = self.scry_prefix(player, &amount)?;
+        let looked = self.library_prefix(player, &amount)?;
         if looked.is_empty() {
             return self.complete_scry(frame, amount, looked, vec![], vec![], source_block);
         }
@@ -155,7 +157,7 @@ impl Game {
         if input.player != player {
             return Err("scry actor invariant".into());
         }
-        self.validate_scry_partition(player, &looked, &top, &bottom)?;
+        self.validate_library_partition(player, &looked, &top, &bottom)?;
         let Instruction::Scry { amount, .. } =
             self.program_for(&frame.spell)?.instructions[frame.cursor as usize].clone()
         else {
@@ -205,10 +207,10 @@ impl Game {
         top: &[ObjectId],
         bottom: &[ObjectId],
     ) -> Result<EventOutcome, String> {
-        if amount <= &Quantity::zero() || self.scry_prefix(player, amount)? != looked {
+        if amount <= &Quantity::zero() || self.library_prefix(player, amount)? != looked {
             return Err("invalid scry event prefix".into());
         }
-        self.validate_scry_partition(player, looked, top, bottom)?;
+        self.validate_library_partition(player, looked, top, bottom)?;
         if let Some(library) = self.state.rules.libraries.get_mut(&player) {
             *library = top
                 .iter()
@@ -226,8 +228,8 @@ impl Game {
         })
     }
 
-    pub(super) fn scry_visible_to(&self, viewer: PlayerId, object: ObjectId) -> bool {
-        self.scry_looked(viewer)
+    pub(super) fn library_look_visible_to(&self, viewer: PlayerId, object: ObjectId) -> bool {
+        self.library_looked(viewer)
             .is_some_and(|looked| looked.contains(&object))
     }
 }

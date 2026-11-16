@@ -40,6 +40,11 @@ impl StackKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "choice", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum ResolutionChoice {
+    Surveil {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        source_block: u32,
+    },
     Scry {
         player: PlayerId,
         looked: Vec<ObjectId>,
@@ -285,6 +290,13 @@ impl Game {
         };
         let decision_id = self.state.rules.revision;
         Ok(match choice {
+            ResolutionChoice::Surveil { player, looked, .. } if self.is_live(*player) => {
+                Some(Request::Surveil {
+                    decision_id,
+                    player: *player,
+                    candidates: looked.clone(),
+                })
+            }
             ResolutionChoice::Scry { player, looked, .. } if self.is_live(*player) => {
                 Some(Request::Scry {
                     decision_id,
@@ -380,6 +392,26 @@ impl Game {
                 Frame::ResolutionChoice {
                     frame,
                     choice:
+                        ResolutionChoice::Surveil {
+                            player: chooser,
+                            looked,
+                            source_block,
+                        },
+                },
+                Response::Surveil { top, graveyard },
+            ) => Some(
+                self.validate_surveil_choice(frame, *chooser, looked, *source_block)
+                    .and_then(|_| {
+                        if player != *chooser {
+                            return Err("invalid surveil chooser".into());
+                        }
+                        self.validate_library_partition(player, looked, top, graveyard)
+                    }),
+            ),
+            (
+                Frame::ResolutionChoice {
+                    frame,
+                    choice:
                         ResolutionChoice::Scry {
                             player: chooser,
                             looked,
@@ -393,7 +425,7 @@ impl Game {
                         if player != *chooser {
                             return Err("invalid scry chooser".into());
                         }
-                        self.validate_scry_partition(player, looked, top, bottom)
+                        self.validate_library_partition(player, looked, top, bottom)
                     }),
             ),
             (
@@ -493,6 +525,14 @@ impl Game {
                 self.state.rules.frame = self.announcement_mana_frame(cast)?;
             }
             Frame::ResolutionChoice { frame, choice } => {
+                if let ResolutionChoice::Surveil {
+                    player,
+                    looked,
+                    source_block,
+                } = choice
+                {
+                    return self.surveil_choice_step(frame, player, looked, source_block);
+                }
                 if let ResolutionChoice::Scry {
                     player,
                     looked,
@@ -522,7 +562,8 @@ impl Game {
                 }
                 let Some(request) = self.actions_request()? else {
                     let outcome = match choice {
-                        ResolutionChoice::Scry { .. }
+                        ResolutionChoice::Surveil { .. }
+                        | ResolutionChoice::Scry { .. }
                         | ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
                         | ResolutionChoice::SearchSplit { .. }
@@ -552,7 +593,8 @@ impl Game {
                     .ok_or("missing resolution choice")?;
                 self.validate_choice_input(&choice, input.player, &input.response)?;
                 let source_block = match choice {
-                    ResolutionChoice::Scry { .. }
+                    ResolutionChoice::Surveil { .. }
+                    | ResolutionChoice::Scry { .. }
                     | ResolutionChoice::OptionalEffect { .. }
                     | ResolutionChoice::Search { .. }
                     | ResolutionChoice::SearchSplit { .. }
@@ -660,6 +702,10 @@ impl Game {
                 amount,
                 source_block,
             } => self.begin_scry(frame, amount, source_block),
+            Instruction::Surveil {
+                amount,
+                source_block,
+            } => self.begin_surveil(frame, amount, source_block),
             i @ (Instruction::MoveSet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }
@@ -1308,6 +1354,16 @@ impl Game {
                 .get(frame.cursor as usize)
                 .ok_or("snapshot missing choice instruction")?;
             let valid = match (choice, instruction) {
+                (
+                    ResolutionChoice::Surveil {
+                        player,
+                        looked,
+                        source_block,
+                    },
+                    Instruction::Surveil { .. },
+                ) => self
+                    .validate_surveil_choice(frame, *player, looked, *source_block)
+                    .is_ok(),
                 (
                     ResolutionChoice::Scry {
                         player,

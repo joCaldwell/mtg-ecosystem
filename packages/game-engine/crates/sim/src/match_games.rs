@@ -122,7 +122,9 @@ impl Strategy<'_> {
                 return Err("counter placement replacement choices outside this policy".into());
             }
 
-            PlayerRequest::Scry { .. } => return Err("scry outside this policy admission".into()),
+            PlayerRequest::Scry { .. } | PlayerRequest::Surveil { .. } => {
+                return Err("scry outside this policy admission".into());
+            }
             PlayerRequest::LegendRule { candidates, .. } => self.legend_choice(candidates)?,
             PlayerRequest::AdditionalCosts { .. } => {
                 return Err("optional casting costs outside this completion policy".into());

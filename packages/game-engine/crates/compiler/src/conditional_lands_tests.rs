@@ -158,3 +158,86 @@ fn conditional_lands_whole_ast_predicate_binding_null_and_extra_rejections() {
         ));
     }
 }
+
+#[test]
+fn conditional_lands_binding_obligations_are_complete_and_parameterized() {
+    for case in 0..9 {
+        let changed = crate::tests::changed_source(CINDER, |r| match case {
+            0 | 1 => {
+                let mut extra = r["binding"]["references"][0].clone();
+                extra["path"] = json!("/faces/0/abilities/0/effect/extra");
+                if case == 0 {
+                    extra["binding"] = json!("unresolved");
+                }
+                r["binding"]["references"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(extra);
+            }
+            2 => {
+                let duplicate = r["binding"]["references"][0].clone();
+                r["binding"]["references"][1] = duplicate;
+            }
+            3 => {
+                r["binding"]["references"].as_array_mut().unwrap().pop();
+            }
+            4 => r["binding"]["counts"]["obligations"] = json!(3),
+            5 => r["binding"]["counts"]["bound"] = json!(1),
+            6 => r["binding"]["counts"]["unresolved"] = json!(1),
+            7 => r["binding"]["counts"] = json!(null),
+            _ => r["binding"]["counts"]["extra"] = json!(true),
+        });
+        assert!(
+            matches!(
+                compile(MANIFEST, &changed),
+                CompileResult::Unsupported { .. }
+            ),
+            "case {case}: {:?}",
+            compile(MANIFEST, &changed)
+        );
+    }
+    // Two complete static clauses have four obligations, not a printed-card ceiling.
+    let doubled = crate::tests::changed_source(CINDER, |r| {
+        let a = r["faces"][0]["result"]["abilities"][0].clone();
+        let line = r["faces"][0]["result"]["lines"][0].clone();
+        r["faces"][0]["result"]["abilities"]
+            .as_array_mut()
+            .unwrap()
+            .push(a);
+        r["faces"][0]["result"]["lines"]
+            .as_array_mut()
+            .unwrap()
+            .push(line.clone());
+        r["source"]["oracle_text"] = json!(format!(
+            "{}\n{}",
+            r["source"]["oracle_text"].as_str().unwrap(),
+            line["text"].as_str().unwrap()
+        ));
+        for field in ["nodes", "references"] {
+            let rows = r["binding"][field].as_array().unwrap().clone();
+            for row in rows {
+                if field == "nodes"
+                    && !row["path"]
+                        .as_str()
+                        .unwrap_or("")
+                        .starts_with("/faces/0/abilities/0")
+                {
+                    continue;
+                }
+                let changed: serde_json::Value = serde_json::from_str(
+                    &serde_json::to_string(&row)
+                        .unwrap()
+                        .replace("/abilities/0", "/abilities/1"),
+                )
+                .unwrap();
+                r["binding"][field].as_array_mut().unwrap().push(changed);
+            }
+        }
+        r["binding"]["counts"] = json!({"obligations":4,"bound":4,"unresolved":0});
+    });
+    assert!(
+        matches!(compile(MANIFEST, &doubled), CompileResult::Lowered { .. }),
+        "{:?}",
+        compile(MANIFEST, &doubled)
+    );
+}

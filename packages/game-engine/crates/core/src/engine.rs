@@ -330,6 +330,7 @@ mod mana_permanents;
 #[cfg(test)]
 mod mana_tests;
 mod scry;
+mod surveil;
 pub use mana_permanents::PermanentManaUndo;
 use mana_permanents::{ManaActivation, zero_mana_cost};
 mod stack_costs;
@@ -1082,6 +1083,10 @@ pub enum Response {
     AdditionalCosts {
         selected: Vec<String>,
     },
+    Surveil {
+        top: Vec<ObjectId>,
+        graveyard: Vec<ObjectId>,
+    },
     Scry {
         top: Vec<ObjectId>,
         bottom: Vec<ObjectId>,
@@ -1208,6 +1213,11 @@ pub enum Request {
         decision_id: u64,
         player: PlayerId,
         candidates: Vec<mtg_contracts::OptionalAdditionalManaCost>,
+    },
+    Surveil {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
     },
     Scry {
         decision_id: u64,
@@ -1394,7 +1404,8 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::Scry { decision_id, .. }
+            Self::Surveil { decision_id, .. }
+            | Self::Scry { decision_id, .. }
             | Self::AdditionalCosts { decision_id, .. }
             | Self::AnnounceX { decision_id, .. }
             | Self::ManaColor { decision_id, .. }
@@ -1430,7 +1441,8 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::Scry { player, .. }
+            Self::Surveil { player, .. }
+            | Self::Scry { player, .. }
             | Self::AdditionalCosts { player, .. }
             | Self::AnnounceX { player, .. }
             | Self::ManaColor { player, .. }
@@ -1471,6 +1483,13 @@ pub enum ProposedEvent {
     RevealSearchLands {
         player: PlayerId,
         objects: Vec<ObjectId>,
+    },
+    Surveil {
+        player: PlayerId,
+        amount: Quantity,
+        looked: Vec<ObjectId>,
+        top: Vec<ObjectId>,
+        graveyard: Vec<ObjectId>,
     },
     Scry {
         player: PlayerId,
@@ -1660,6 +1679,13 @@ pub enum EventOutcome {
     SearchLandsRevealed {
         player: PlayerId,
         objects: Vec<ObjectId>,
+    },
+    Surveilled {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        top: Vec<ObjectId>,
+        graveyard: Vec<ObjectId>,
+        movements: Vec<MoveOutcome>,
     },
     Scried {
         player: PlayerId,
@@ -3146,7 +3172,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 32,
+            snapshot_version: 33,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3188,7 +3214,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 32
+        if s.snapshot_version != 33
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

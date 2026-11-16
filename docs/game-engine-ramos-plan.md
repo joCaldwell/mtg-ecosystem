@@ -49,10 +49,8 @@ rules or policies. Keep the standalone deck-builder independent.
   bridges, counts and exclusions; historical acceptance never transfers.
 
 Coordinator receipts remain in `generated/ramos/*-integrated/integration.json`.
-Original source/format boundaries, reviews, failures, timings and the unrepeated
-833-second Apex witness are preserved there and in the [immutable prior plan](https://github.com/joCaldwell/mtg-ecosystem/blob/ad428b23ee5b3f5750f8c79b4a7823c8d93d5b7f/docs/game-engine-ramos-plan.md).
-Contract research remains in Git `30ec86ee` and ignored copies. Exact-deck and
-consumer admission remain open; publication is feature-only.
+Source boundaries, failures and the unrepeated 833-second Apex witness remain in receipts and the [immutable prior plan](https://github.com/joCaldwell/mtg-ecosystem/blob/ad428b23ee5b3f5750f8c79b4a7823c8d93d5b7f/docs/game-engine-ramos-plan.md).
+Research remains in Git `30ec86ee`. Exact-deck and consumer admission remain open.
 
 ## Ordered remaining milestones
 

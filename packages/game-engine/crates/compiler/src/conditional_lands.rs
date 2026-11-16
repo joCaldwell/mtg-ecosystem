@@ -110,6 +110,71 @@ pub(super) fn bind(
     Ok(())
 }
 
+// Whole-source reference authority: no unconsumed or contradictory obligations.
+pub(super) fn validate_binding_closure(
+    abilities: &[Ability],
+    binding: &Value,
+    identity: &str,
+) -> Result<(), Failure> {
+    let mut conditional = false;
+    for a in abilities {
+        if let Ability::Static { effect, .. } = a {
+            conditional |= lower(effect)?.is_some();
+        }
+    }
+    if !conditional {
+        return Ok(());
+    }
+    let bad = || {
+        unsupported(
+            "binding.entry",
+            "incomplete conditional-entry binding obligation set",
+        )
+    };
+    let mut expected = Vec::new();
+    for (block, a) in abilities.iter().enumerate() {
+        let Ability::Static {
+            effect: SourceStaticEffect::EntersTapped { what, .. },
+            ..
+        } = a
+        else {
+            return Err(bad());
+        };
+        let path = format!("/faces/0/abilities/{block}/effect");
+        expected.push(json!({"path":format!("{path}/what"),"expression":what,"binding":"bound","target":format!("card:{identity}/source#object")}));
+        if let Ability::Static { effect, .. } = a {
+            if lower(effect)?.is_some() {
+                expected.push(json!({"path":format!("{path}/condition/who"),"expression":{"player":"you"},"binding":"bound","target":format!("card:{identity}{path}#entering-controller")}));
+            }
+        }
+    }
+    let references = binding["references"].as_array().ok_or_else(bad)?;
+    if references.len() != expected.len()
+        || binding["counts"]
+            != json!({"obligations":expected.len(),"bound":expected.len(),"unresolved":0})
+    {
+        return Err(bad());
+    }
+    for wanted in &expected {
+        let matching: Vec<_> = references
+            .iter()
+            .filter(|r| r["path"] == wanted["path"])
+            .collect();
+        if matching.len() != 1 {
+            return Err(bad());
+        }
+        let mut actual = matching[0].clone();
+        let Some(object) = actual.as_object_mut() else {
+            return Err(bad());
+        };
+        object.remove("rules");
+        if actual != *wanted {
+            return Err(bad());
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 #[path = "conditional_lands_tests.rs"]
 mod tests;
