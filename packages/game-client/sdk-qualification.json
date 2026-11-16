@@ -1,16 +1,16 @@
 {
-  "native_source": "c48ceff0bb0ea760471b3a393f15897f0de90fbd",
+  "native_source": "ea14d13cb1356dcfb10a0b1a57aed88317203054",
   "protocol_schema_sha256": "b191d97401a2ff548ff8acfc4ff9c588e3fcf6bde2f2cec42238f47e42af0dfd",
   "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
-  "scope": "Frozen Native21 host-only ClockTick query-continuation repair c48ceff0 passed 38 distinct focused Rust tests and SDK69. The engine and all three schemas remain unchanged; the server build is new. All 901 compiled rows match that Git source. The 50 SDK source inputs remain byte-equal to b9991c9c and were reverified at c48ceff0; generated schemas/browser ESM remain unchanged. Original Native21 and product-presentation archives are preserved separately. Fresh browser/full-game and product-launch qualification remain separate gates; approved identities stay empty.",
-  "sdk_source": "c48ceff0bb0ea760471b3a393f15897f0de90fbd",
+  "scope": "Frozen Native21 broker clock-fairness repair ea14d13c passed 42 distinct focused Rust tests (47 successful executions including overlapping selectors) and SDK69. A preserved anchor-before-await mutation fails the slow-tick regression. The engine, all three schemas and all 50 SDK source inputs remain unchanged; the server build is new. All 901 compiled rows match that Git source. Original c48 and earlier native/SDK archives remain untouched. Fresh browser/full-game and product-launch qualification remain separate gates; approved identities stay empty.",
+  "sdk_source": "ea14d13cb1356dcfb10a0b1a57aed88317203054",
   "engine_build_id": "5d922d685619c979173c56e50285b2eea79b506cb24d718195339b2126b47b4d",
-  "server_build_id": "0d29823bcbe03b17bd4d6aeab2765c2b7b8ea9d93abb7833e0b96fcfe4c61d82",
-  "native_source_manifest_sha256": "1915ae68e93ec55dbf4a1f6aa976d7d147bd662f0890a98ec32608609b9c8963",
-  "evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/native21-clock-query-continuation-20261115",
-  "sdk_evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/native21-clock-client-integration-20261115",
-  "sdk_source_bridge_sha256": "fc9cc1b6d47a8e6d39cfead97ace841a31bef7a0f45813e73344f5f66c4b8dfd",
-  "native_source_verification_sha256": "9ba89234811e7391f084ed830c1455772ffedcd885951b79acec87e71ccdbf21",
+  "server_build_id": "a0ab683684e07f0cf2516cf1542687bb139a8e6f77a9ae2c2450abe3417e162f",
+  "native_source_manifest_sha256": "b2f7375b29df367c90fb4786a59893a84c91ade0098a77595e0cf5e5b5b25660",
+  "evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/native21-broker-clock-fairness-20261116",
+  "sdk_evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/native21-broker-client-integration-20261116",
+  "sdk_source_bridge_sha256": "7032714ab2294c84d57e408c91296f6c8e8db530cb1e951c45c1207445e1536a",
+  "native_source_verification_sha256": "2e809578c7a7f8cfce041a94529baf846205a96d2bcdb2e8abcc7a3bc8b6840d",
   "sdk_build_manifest_sha256": "b3b98e7a6393e04512fb0402f07e1d8dc7e17b80027b1f4b737ee1786fc09caf",
-  "sdk_verification_sha256": "c0ea983fa64820d4b47f0c009ec8351fb832cc6ea9e8b8ce15535af1450872ac"
+  "sdk_verification_sha256": "3263e62affec1b4aea9fac5756ea546f16b3bd6876522211e45a47724262312a"
 }
