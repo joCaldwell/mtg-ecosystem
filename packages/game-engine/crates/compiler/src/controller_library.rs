@@ -34,30 +34,32 @@ pub(super) fn instruction(
     amount: &serde_json::Value,
     source_block: u32,
 ) -> Result<Instruction, Failure> {
-    let count: Count = serde_json::from_value(amount.clone())
-        .map_err(|_| unsupported("scry", "requires complete fixed nonnegative amount"))?;
-    if count.amount != "fixed" {
-        return Err(unsupported("scry", "requires fixed nonnegative amount"));
-    }
     Ok(Instruction::Scry {
-        amount: Quantity::from(i64::from(count.value)),
+        amount: fixed_count(amount)?,
         source_block,
     })
 }
-
+pub(super) fn fixed_count(amount: &serde_json::Value) -> Result<Quantity, Failure> {
+    let count: Count = serde_json::from_value(amount.clone()).map_err(|_| {
+        unsupported(
+            "library count",
+            "requires complete fixed nonnegative amount",
+        )
+    })?;
+    if count.amount != "fixed" {
+        return Err(unsupported(
+            "library count",
+            "requires fixed nonnegative amount",
+        ));
+    }
+    Ok(Quantity::from(i64::from(count.value)))
+}
 pub(super) fn surveil_instruction(
     amount: &serde_json::Value,
     source_block: u32,
 ) -> Result<Instruction, Failure> {
-    let Instruction::Scry {
-        amount,
-        source_block,
-    } = instruction(amount, source_block)?
-    else {
-        unreachable!()
-    };
     Ok(Instruction::Surveil {
-        amount,
+        amount: fixed_count(amount)?,
         source_block,
     })
 }
@@ -137,6 +139,43 @@ pub(super) fn validate_bindings(
                 .iter()
                 .enumerate()
             {
+                if value["effect"] == "mill" {
+                    let who = &value["who"];
+                    let target = if *who == serde_json::json!({"player":"you"}) {
+                        you.clone()
+                    } else {
+                        let selection =
+                            crate::fixed_mill::target_selection(who).ok_or_else(fail)?;
+                        let encoded = selection
+                            .bytes()
+                            .map(|b| {
+                                if b.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&b) {
+                                    (b as char).to_string()
+                                } else {
+                                    format!("%{b:02X}")
+                                }
+                            })
+                            .collect::<String>();
+                        let target = format!("{scope}/targets/{encoded}");
+                        if !nodes.iter().any(|n| {
+                            n["id"] == target
+                                && n["node"] == "selection"
+                                && n["scope"] == scope
+                                && n["expression"] == *who
+                                && n["timing"] == "stack-announcement"
+                                && n["cardinality"] == "one"
+                                && n["selection"] == "target"
+                        }) {
+                            return Err(fail());
+                        }
+                        target
+                    };
+                    expected.push((
+                        format!("/faces/0/abilities/{block}/effects/{sentence}/steps/{step}/who"),
+                        who.clone(),
+                        target,
+                    ));
+                }
                 if value["effect"] == "draw" {
                     if value["who"] != serde_json::json!({"player":"you"}) {
                         return Err(fail());

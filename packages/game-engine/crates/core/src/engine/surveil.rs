@@ -159,28 +159,11 @@ impl Game {
             .get(&player)
             .map(|l| l[looked.len()..].to_vec())
             .unwrap_or_default();
-        let mut movements = Vec::with_capacity(graveyard.len());
-        for object in graveyard {
-            let actual = self.apply_occurrence_with_prior(
-                &ProposedEvent::Move {
-                    object: *object,
-                    destination: Zone::Graveyard { owner: player },
-                },
-                before,
-            )?;
-            let EventOutcome::Moved { movement } = actual else {
-                return Err("surveil movement invariant".into());
-            };
-            movements.push(movement);
-        }
+        let movements = self.move_library_cards_to_graveyard(player, graveyard, before)?;
         if let Some(library) = self.state.rules.libraries.get_mut(&player) {
             *library = top.iter().map(|o| o.card).chain(tail).collect();
         }
         self.remember_surveil(player, top)?;
-        for movement in &movements {
-            // Newly public successors receive handles in the chosen public movement order.
-            self.capture_trigger_source_handles(movement.successor)?;
-        }
         Ok(EventOutcome::Surveilled {
             player,
             looked: looked.to_vec(),

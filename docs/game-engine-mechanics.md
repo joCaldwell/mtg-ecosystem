@@ -94,15 +94,17 @@ Library-top events preserve order and cannot compose with a conflicting order wr
 Drain concessions and revalidate owner choices before exposing queries.
 Commander-return decisions are resumable continuations, never priority windows.
 
-Controller-only Scry/Surveil use fixed nonnegative counts; zero emits no event.
-Scry partitions the available prefix between ordered top/bottom positions;
-Surveil moves selected cards to graveyards as one typed operation and orders the
-remaining top cards (CR 701.22/701.25). Zone moves create successors; retained
-cards keep incarnations. Only the chooser sees temporary handles, and private
-ordered memory is charged and replay-proven. Ordinary draw compositions and artifact-or-creature grants followed by Scry
-are supported. Invalid choices reject
-atomically; departed choosers skip. Activated/triggered sources, Flashback and
-search reconstruction remain unsupported. Commander SBAs follow spell resolution.
+Controller-only Scry/Surveil partition a fixed nonnegative available prefix
+(CR 701.22/701.25): Scry orders top/bottom; Surveil orders retained top and moves
+the rest to graveyards. Only the chooser sees temporary handles. Fixed mill
+(CR 701.17) moves the controller's or one target player's prefix to graveyard;
+short libraries mill all available cards, without a failed draw. Zero emits no
+event. Graveyard moves create public successors; retained cards keep incarnations.
+Ordinary one-draw compositions and artifact-or-creature grants followed by Scry
+are supported. Library memory is charged and replay-proven; invalid choices
+reject atomically and departed actors skip. Commander SBAs follow full resolution.
+Activated/triggered forms, Flashback, mill costs/replacements and search
+reconstruction remain unsupported.
 
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
