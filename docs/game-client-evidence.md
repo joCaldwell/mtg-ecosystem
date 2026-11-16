@@ -179,8 +179,13 @@ starving queued requests. The anchor-before-await mutation failed its regression
 42 distinct focused Rust tests (47 successful executions) and SDK69 passed.
 All 901 compiled rows match Git and both IDs independently rederive. Engine and
 schemas remain unchanged; server becomes `a0ab6836`. Inherited lint exceptions
-and the selector-count driver failure remain recorded. Earlier-run causality is
-unproven. Fresh browser/full-game acceptance remains pending; approvals stay empty.
+and the selector-count driver failure remain recorded. Earlier-run causality remains
+unproven. Consumer `6a8c942c` passed four short browser cases; 139 natural commands
+resolved before `paused/native_unavailable`, with empty journal/no outcome. All 205
+queries returned HTTP200; cause remains unknown. Its CLI incorrectly passed;
+`ec298508` corrects completion acceptance. Raw proof:
+`product-native21-broker-browser-6a8c942c-20261116/receipt-index.json`.
+Full-game qualification remains absent; approvals stay empty.
 
 ## Earlier prerequisites and unique provenance
 

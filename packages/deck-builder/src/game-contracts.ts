@@ -57,6 +57,19 @@ export interface NativeGameProxyRequest {
   authorization: string;
 }
 export interface NativeGameProxyResponse { status: number; body: string }
+/** Host-private observations only: never append errors, protocol data or credentials.
+ * Sinks must be bounded and nonblocking; returned promises are never awaited. */
+export type GameDiagnosticEvent =
+  | { source: "coordinator"; game_id: string; stage: "ensure" | "status" | "stop";
+      phase: "operation" | "cleanup" | "shutdown" | "owner_deleted";
+      cause: "started" | "succeeded" | "deadline" | "adapter_failure" | "identity_failure" | "status_invalid" }
+  | { source: "adapter"; game_id: string; stage: "ensure" | "status" | "stop" | "ensure_cleanup" | "child";
+      cause: "aborted" | "identity_failure" | "state_unavailable" | "child_already_exited" | "private_file" | "status_decode"
+        | "http_failure" | "schema_failure" | "transport_failure" | "adapter_failure" | "startup_protocol" | "startup_failure"
+        | "presentation_failure" | "bots_failure" | "token_mismatch" | "token_mismatch_exhausted"
+        | "cleanup_started" | "cleanup_succeeded" | "cleanup_failed" | "child_exit" | "child_exit_during_stop" | "child_error";
+      attempt?: 1 | 2 | 3 | 4 };
+export type GameDiagnosticSink = (event: GameDiagnosticEvent) => void | Promise<void>;
 export interface NativeGameAdapter {
   /** Exact identities are mandatory on admission AND recovery. */
   identity: GameIdentity;
@@ -87,6 +100,8 @@ export interface NativeGameAdapter {
 }
 export interface GameCoordinatorOptions {
   native?: NativeGameAdapter;
+  /** Optional private diagnostics; failures must never affect game operations. */
+  diagnostic?: GameDiagnosticSink;
   /** Requires qualified public session composition, every reachable decision,
    * exact journaling/Web Locks, and authenticated same-origin native proxy. */
   browser_session_qualified?: boolean;

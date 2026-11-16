@@ -1,13 +1,13 @@
 // Dev-only seeding may use backend internals. The product still uses ./host.
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { readFileSync, lstatSync, readdirSync, mkdirSync } from "node:fs";
+import { readFileSync, lstatSync, readdirSync, mkdirSync, openSync, closeSync, writeFileSync, fsyncSync, renameSync, constants } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { isDeepStrictEqual } from "node:util";
-import type { GameIdentity, GameRecord } from "../../src/contracts.ts";
+import type { GameIdentity, GameRecord, GameDiagnosticEvent, GameDiagnosticSink } from "../../src/contracts.ts";
 
 export const OBSERVATION_VERSION = 21;
 const frozen16 = "565a1204d6e4b14443b9f49dda2ecbc6b46ee85a";
@@ -156,9 +156,69 @@ export function privateTree(path: string) {
     if (info.isDirectory()) privateTree(file);
   }
 }
+/** Bounded private artifact: first AND latest occurrence of each closed event
+ * shape, independent of game count. This retains a first initiating failure and
+ * later cleanup failures even after arbitrarily many token mismatches. */
+export function createPrivateDiagnostics(directory: string): { path: string; diagnostic: GameDiagnosticSink } {
+  const parent = lstatSync(directory);
+  check(parent.isDirectory() && !parent.isSymbolicLink() && (parent.mode & 0o777) === 0o700 && parent.uid === process.getuid?.(), "diagnostic_parent");
+  const root = join(directory, "diagnostics");
+  mkdirSync(root, { mode: 0o700 });
+  const info = lstatSync(root);
+  check(info.isDirectory() && !info.isSymbolicLink() && (info.mode & 0o777) === 0o700 && info.uid === process.getuid?.(), "diagnostic_directory");
+  const path = join(root, "lifecycle.json");
+  const fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  const rows = new Map<string, { first: object; latest: object }>();
+  let sequence = 0;
+  const persist = () => {
+    const events = [...rows.values()].flatMap(row => row.first === row.latest ? [row.first] : [row.first, row.latest]);
+    events.sort((a, b) => (a as { sequence: number }).sequence - (b as { sequence: number }).sequence);
+    const bytes = JSON.stringify({ version: 1, events }) + "\n";
+    check(events.length <= 512 && Buffer.byteLength(bytes) <= 262_144, "diagnostic_bound");
+    // One fixed file; no append growth, credentials, payloads or error strings.
+    const file = lstatSync(path);
+    check(file.isFile() && !file.isSymbolicLink() && file.nlink === 1 && (file.mode & 0o777) === 0o600 && file.uid === process.getuid?.(), "diagnostic_file");
+    const pending = `${path}.pending`;
+    const output = openSync(pending, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    try { writeFileSync(output, bytes); fsyncSync(output); } finally { closeSync(output); }
+    // A partial failed write can leave one bounded private pending artifact, but
+    // never destroys the last complete initiating-fault/cleanup record.
+    renameSync(pending, path);
+    const parentFd = openSync(root, constants.O_RDONLY);
+    try { fsyncSync(parentFd); } finally { closeSync(parentFd); }
+  };
+  closeSync(fd); persist();
+  const directoryFd = openSync(directory, constants.O_RDONLY);
+  try { fsyncSync(directoryFd); } finally { closeSync(directoryFd); }
+  const diagnostic: GameDiagnosticSink = (event: GameDiagnosticEvent) => {
+    try {
+      // Reconstruct a runtime allowlist, including for malformed JS callbacks.
+      if (!event || typeof event.game_id !== "string" || !/^[a-f0-9]{32}$/.test(event.game_id)) return;
+      let safe: GameDiagnosticEvent;
+      if (event.source === "coordinator") {
+        if (!["ensure", "status", "stop"].includes(event.stage) || !["operation", "cleanup", "shutdown", "owner_deleted"].includes(event.phase)
+          || !["started", "succeeded", "deadline", "adapter_failure", "identity_failure", "status_invalid"].includes(event.cause)) return;
+        safe = { source: "coordinator", game_id: event.game_id, stage: event.stage, phase: event.phase, cause: event.cause };
+      } else if (event.source === "adapter") {
+        if (!["ensure", "status", "stop", "ensure_cleanup", "child"].includes(event.stage)
+          || !["aborted", "identity_failure", "state_unavailable", "child_already_exited", "private_file", "status_decode", "http_failure", "schema_failure", "transport_failure", "adapter_failure", "startup_protocol", "startup_failure", "presentation_failure", "bots_failure", "token_mismatch", "token_mismatch_exhausted", "cleanup_started", "cleanup_succeeded", "cleanup_failed", "child_exit", "child_exit_during_stop", "child_error"].includes(event.cause)) return;
+        if (event.attempt !== undefined && (event.cause !== "token_mismatch" || ![1, 2, 3, 4].includes(event.attempt))) return;
+        safe = { source: "adapter", game_id: event.game_id, stage: event.stage, cause: event.cause, ...(event.attempt === undefined ? {} : { attempt: event.attempt }) };
+      } else return;
+      const key = JSON.stringify([safe.source, safe.stage, "phase" in safe ? safe.phase : null, safe.cause, "attempt" in safe ? safe.attempt : null]);
+      if (!rows.has(key) && rows.size >= 256) return;
+      const row = { sequence: sequence = Math.min(sequence + 1, Number.MAX_SAFE_INTEGER), at_ms: Date.now(), ...safe };
+      const previous = rows.get(key);
+      rows.set(key, { first: previous?.first ?? row, latest: row });
+      persist();
+    } catch { /* private evidence failures cannot affect the fixture host */ }
+  };
+  return { path, diagnostic };
+}
 export async function startHostedFixture(options: { directory: string; dist?: string; inputs?: Inputs; humanThinkTimeMs?: number; stressRaisedLimits?: boolean }) {
   process.umask(0o077);
   mkdirSync(options.directory, { mode: 0o700 });
+  const diagnostics = createPrivateDiagnostics(options.directory);
   check(options.humanThinkTimeMs === undefined || options.humanThinkTimeMs === 10_000, "fixture_think_time");
   const port = await freePort(), origin = `http://127.0.0.1:${port}`;
   const secret = randomBytes(32).toString("hex");
@@ -222,14 +282,14 @@ export async function startHostedFixture(options: { directory: string; dist?: st
       deckId = createDeck(db, actor, "Native foundations default");
       applyChanges(db, actor, deckId, selected.cards.map(card => ({ action: "add", oracle_id: card.oracle_id, quantity: card.count, role: card.oracle_id === selected.commander ? "commander" : "card" })), { kind: "import" });
       const { createNativeLifecycle } = await import("../../../multiverse/src/native-lifecycle.ts");
-      native = createNativeLifecycle({ executable: join(options.inputs.nativeRoot, "mtg-server"), directory: options.directory, identity, humanOrigin: origin });
+      native = createNativeLifecycle({ executable: join(options.inputs.nativeRoot, "mtg-server"), directory: options.directory, identity, humanOrigin: origin, diagnostic: diagnostics.diagnostic });
     }
     host = await createHost({ mode: "hosted", port, databasePath: process.env.DECKBUILDER_DB, dataDirectory: options.directory, backgroundJobs: false,
       webDist: options.dist, isApplicationPath: (await import("../../../multiverse/src/page-paths.ts")).isApplicationPath,
       // The sole explicit test-only browser qualification. Default server stays false.
-      games: native ? { native, browser_session_qualified: true, ...(options.humanThinkTimeMs ? { human_think_time_ms: options.humanThinkTimeMs } : {}) } : undefined });
+      games: native ? { native, diagnostic: diagnostics.diagnostic, browser_session_qualified: true, ...(options.humanThinkTimeMs ? { human_think_time_ms: options.humanThinkTimeMs } : {}) } : undefined });
     await host.start();
-    return { origin, owner, foreign, deckId, identity, cards, uiRateBudget: LIMITS.ui.count, uiRateWindowMs: LIMITS.ui.window,
+    return { origin, owner, foreign, deckId, identity, cards, diagnosticPath: diagnostics.path, uiRateBudget: LIMITS.ui.count, uiRateWindowMs: LIMITS.ui.window,
       capture: () => {
         const rows = db.prepare("SELECT record_json FROM game_launches WHERE user_id=?").all(owner.user_id) as { record_json: string }[];
         return rows.map(row => JSON.parse(row.record_json) as GameRecord);
