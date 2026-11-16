@@ -341,6 +341,11 @@ fn changes_control_inputs(event: &ProposedEvent) -> bool {
 
 fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
     match event {
+        ProposedEvent::Scry { player, looked, .. } => {
+            let mut read = BTreeSet::from([FactKey::Libraries, FactKey::Life(*player)]);
+            read.extend(looked.iter().map(|o| FactKey::Object(o.card)));
+            (read, BTreeSet::from([FactKey::Libraries]))
+        }
         ProposedEvent::CreateCreatureTokens { .. } => {
             let keys = BTreeSet::from([FactKey::TokenAllocation]);
             (keys.clone(), keys)
@@ -746,6 +751,11 @@ impl Game {
         let mut stack = BTreeSet::new();
         for event in events {
             match event {
+                ProposedEvent::Scry { player, looked, .. } => {
+                    libraries.insert(*player);
+                    players.insert(*player);
+                    objects.extend(looked.iter().copied());
+                }
                 ProposedEvent::CreateCreatureTokens { controller, .. } => {
                     // CR608.2m: the invocation owns its fixed token definition.
                     // It reads no current source incarnation after departure.
@@ -1524,6 +1534,13 @@ impl Game {
         before: Option<&PreEventFacts>,
     ) -> Result<EventOutcome, String> {
         let actual = match proposed {
+            ProposedEvent::Scry {
+                player,
+                amount,
+                looked,
+                top,
+                bottom,
+            } => self.apply_scry(*player, amount, looked, top, bottom)?,
             ProposedEvent::FinishLibraryShuffle { player } => {
                 if !matches!(self.state.rules.frame,Frame::ResolutionChoice {choice:ResolutionChoice::Shuffle {player:p,index:0,..},..} if p==*player)
                 {

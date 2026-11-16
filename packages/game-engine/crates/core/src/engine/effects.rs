@@ -463,6 +463,15 @@ impl Game {
         })
     }
 
+    fn permanent_keyword_type_allowed(program: &SpellProgram, c: &Characteristics) -> bool {
+        temporary_permanent_keyword_program(program).is_some()
+            && !matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
+            && program.targets[0]
+                .filter
+                .as_ref()
+                .is_some_and(|f| f.types.is_empty() || f.types.iter().any(|kind| c.has_type(*kind)))
+    }
+
     pub(super) fn scalar_keyword_effect_applies(
         &self,
         effect: &ResolvedEffect,
@@ -472,7 +481,8 @@ impl Game {
             && (self.is_battlefield_creature(object)
                 || self.origin_programs(&effect.origin).is_ok_and(|programs| {
                     programs.into_iter().any(|program| {
-                        temporary_permanent_keyword_program(program).is_some()
+                        self.definition(object.card).is_ok_and(|d|
+                            Self::permanent_keyword_type_allowed(program, &d.characteristics))
                             && effect.origin.cursor == 0
                             && effect.origin.source_block == 0
                             && matches!((&effect.kind, program.instructions.first()),
@@ -1522,11 +1532,10 @@ impl Game {
                             && self.state.rules.cards.contains_key(&target.card)
                             && (self.definition(target.card)?.characteristics.kind
                                 == CardKind::Creature
-                                || temporary_permanent_keyword_program(program).is_some()
-                                    && !matches!(
-                                        self.definition(target.card)?.characteristics.kind,
-                                        CardKind::Instant | CardKind::Sorcery
-                                    ))
+                                || Self::permanent_keyword_type_allowed(
+                                    program,
+                                    &self.definition(target.card)?.characteristics,
+                                ))
                     }
                     (
                         Instruction::ModifyPowerToughness {
@@ -2275,6 +2284,7 @@ impl Game {
                                             .and_then(temporary_permanent_set_keyword_program)
                                             .is_some_and(|program| program.keywords.contains(k))
                                         || definition.spell.as_ref()
+                                            .filter(|program| Self::permanent_keyword_type_allowed(program, &d.source.characteristics))
                                             .and_then(temporary_permanent_keyword_program)
                                             .is_some_and(|program| program.keywords.contains(k))
                                 })))
