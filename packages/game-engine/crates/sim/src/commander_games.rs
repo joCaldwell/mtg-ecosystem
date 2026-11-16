@@ -89,6 +89,7 @@ impl Strategy {
             .as_ref()
             .ok_or("missing commander request")?;
         Ok(match request {
+            PlayerRequest::Scry { .. } => return Err("scry outside this policy admission".into()),
             PlayerRequest::LegendRule { candidates, .. } => PlayerResponse::LegendRule {
                 keep: candidates.last().ok_or("empty legend choices")?.clone(),
             },
