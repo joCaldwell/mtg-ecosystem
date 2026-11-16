@@ -634,27 +634,79 @@ fn typed_land_search_paid_departures_before_and_after_acceptance_and_during_shuf
         for stage in 0..3 {
             let mut g = Game::with_trace(p.clone(), TraceMode::Detailed);
             let r = paid_search(&mut g, "Farseek", 2);
-            let Request::SearchLands { candidates, .. } = &r else { unreachable!() };
+            let Request::SearchLands { candidates, .. } = &r else {
+                unreachable!()
+            };
             let selected = candidates[0];
             if stage > 0 {
-                g.respond(r.player(), r.decision_id(), Response::SearchLands { objects: vec![selected] }).unwrap();
+                g.respond(
+                    r.player(),
+                    r.decision_id(),
+                    Response::SearchLands {
+                        objects: vec![selected],
+                    },
+                )
+                .unwrap();
             }
             if stage == 2 {
                 let _ = g.advance(Budget::new(1));
-                assert!(matches!(g.state.rules.frame, Frame::ResolutionChoice { choice: ResolutionChoice::Shuffle { .. }, .. }));
+                assert!(matches!(
+                    g.state.rules.frame,
+                    Frame::ResolutionChoice {
+                        choice: ResolutionChoice::Shuffle { .. },
+                        ..
+                    }
+                ));
             }
-            let random = g.state.rules.match_state.as_ref().unwrap().random.word_position;
+            let random = g
+                .state
+                .rules
+                .match_state
+                .as_ref()
+                .unwrap()
+                .random
+                .word_position;
             g.concede(departed).unwrap();
             let next = request(&mut g);
             if departed == PlayerId(0) {
-                assert!(!matches!(next, Request::SearchLands { player: PlayerId(0), .. }));
-                assert_eq!(g.state.rules.match_state.as_ref().unwrap().random.word_position, random);
-                assert!(!g.state.rules.objects.values().any(|o| o.zone == (Zone::Library { owner: PlayerId(0) })));
+                assert!(!matches!(
+                    next,
+                    Request::SearchLands {
+                        player: PlayerId(0),
+                        ..
+                    }
+                ));
+                assert_eq!(
+                    g.state
+                        .rules
+                        .match_state
+                        .as_ref()
+                        .unwrap()
+                        .random
+                        .word_position,
+                    random
+                );
+                assert!(
+                    !g.state
+                        .rules
+                        .objects
+                        .values()
+                        .any(|o| o.zone == (Zone::Library { owner: PlayerId(0) }))
+                );
             } else {
                 if stage == 0 {
-                    let Request::SearchLands { candidates, .. } = &next else { panic!("live controller retains search") };
+                    let Request::SearchLands { candidates, .. } = &next else {
+                        panic!("live controller retains search")
+                    };
                     assert!(candidates.contains(&selected));
-                    g.respond(next.player(), next.decision_id(), Response::SearchLands { objects: vec![selected] }).unwrap();
+                    g.respond(
+                        next.player(),
+                        next.decision_id(),
+                        Response::SearchLands {
+                            objects: vec![selected],
+                        },
+                    )
+                    .unwrap();
                 }
                 resolve(&mut g, vec![]);
                 let found = g.current(g.object_id(selected.card).unwrap()).unwrap();
