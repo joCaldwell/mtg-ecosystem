@@ -1696,7 +1696,13 @@ impl Game {
                         token,
                         player: viewer,
                         colors,
-                        mana_ability_source: Some(self.handle_for(viewer, activation.source)?),
+                        // CR 113.7a: the paid production choice survives its
+                        // source, but a departed incarnation has no live handle.
+                        mana_ability_source: self
+                            .current(activation.source)
+                            .ok()
+                            .map(|_| self.handle_for(viewer, activation.source))
+                            .transpose()?,
                     },
                     _ => return Err("nested mana request invariant".into()),
                 }))

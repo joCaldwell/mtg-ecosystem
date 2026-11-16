@@ -149,12 +149,18 @@ fn choose(g: &mut Game, color: Color) {
     }
     let PlayerRequest::ManaColor {
         colors,
-        mana_ability_source: Some(_),
+        mana_ability_source,
         ..
     } = observation(g, 0).decision.unwrap()
     else {
         panic!("public intrinsic choice")
     };
+    let live_source = match &g.state.rules.frame {
+        Frame::IntrinsicManaChoice { .. } => true,
+        Frame::ManaAbility { activation } => g.current(activation.source).is_ok(),
+        _ => panic!("mana chooser frame"),
+    };
+    assert_eq!(mana_ability_source.is_some(), live_source);
     assert!(colors.contains(&color));
     let before = g.state.clone();
     let bad = if colors.contains(&Color::U) {

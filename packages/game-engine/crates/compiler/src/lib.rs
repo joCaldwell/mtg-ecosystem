@@ -8866,7 +8866,6 @@ mod tests {
         type Mutation = fn(&mut serde_json::Value);
         let mutations: Vec<Mutation> = vec![
             |record| record["source"]["type_line"] = "Land — Plains Desert".into(),
-            |record| record["source"]["type_line"] = "Legendary Land — Plains".into(),
             |record| record["source"]["oracle_text"] = "{T}: Add {W}.".into(),
             |record| record["source"]["oracle_text"] = "When this land enters, draw a card.".into(),
             |record| record["source"]["card_faces"] = serde_json::json!([{}]),
@@ -8876,6 +8875,26 @@ mod tests {
             assert!(
                 !matches!(result, CompileResult::Lowered { .. }),
                 "unsupported land semantics disappeared: {result:?}"
+            );
+        }
+        for line in ["Land — Plains Island", "Legendary Land — Plains"] {
+            let raw = changed_record(6, |r| r["source"]["type_line"] = line.into());
+            let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, &raw) else {
+                panic!("supported pure intrinsic land: {line}");
+            };
+            assert!(
+                definition
+                    .capabilities
+                    .contains(&Capability::TypedNonbasicIntrinsicManaV1)
+            );
+            assert!(definition.mana_abilities.is_empty());
+            assert!(definition.static_abilities.is_empty());
+            assert!(
+                definition
+                    .characteristics
+                    .subtypes
+                    .iter()
+                    .all(|s| basic_land_color(s).is_some())
             );
         }
         let renamed = changed_record(6, |record| {

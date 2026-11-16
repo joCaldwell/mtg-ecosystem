@@ -185,11 +185,10 @@ pub(super) fn validate(g: &Game, response: PlayerResponse) -> ValidatedResponse 
 pub(super) fn observation_work(g: &Game, viewer: PlayerId) {
     let before = g.state.clone();
     let trace = g.trace.clone();
-    let QueryResult::Incomplete { work, .. } = g.observe(viewer, Budget::new(1)) else {
-        panic!(
-            "bounded observation: {:?}",
-            g.observe(viewer, Budget::new(1))
-        )
+    let work = match g.observe(viewer, Budget::new(1)) {
+        QueryResult::Incomplete { work, .. } => work,
+        QueryResult::Rejected(reason) => panic!("bounded observation rejected: {reason:?}"),
+        QueryResult::Complete(_) => panic!("bounded observation completed prematurely"),
     };
     let saved = g.save_work(&work).unwrap();
     let bad: serde_json::Value = serde_json::from_str(&saved).unwrap();
