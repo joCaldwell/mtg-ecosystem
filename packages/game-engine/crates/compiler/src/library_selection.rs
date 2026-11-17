@@ -159,7 +159,13 @@ pub(super) fn validate_bindings(binding: &Value, identity: &str, raw: &str) -> R
         let m = nodes.iter().filter(|n| n["id"] == id).collect::<Vec<_>>();
         if m.len() == 1 { Ok(m[0]) } else { Err(fail()) }
     };
-    if nodes.len() != 12 {
+    // CR400.7j: only the public graveyard move exports successor objects.
+    let expected_nodes = if steps[1]["to"]["zone"] == "graveyard" {
+        12
+    } else {
+        11
+    };
+    if nodes.len() != expected_nodes {
         return Err(fail());
     }
     let n = find(you.clone())?;
