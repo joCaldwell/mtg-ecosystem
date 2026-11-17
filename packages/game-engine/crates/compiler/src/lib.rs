@@ -18,6 +18,9 @@ mod diagnostics;
 mod fixed_mill;
 #[cfg(test)]
 mod fixed_mill_tests;
+mod hand_return;
+#[cfg(test)]
+mod hand_return_tests;
 mod library_order;
 #[cfg(test)]
 mod library_order_tests;
@@ -1711,6 +1714,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     if definition
         .spell
         .as_ref()
+        .is_some_and(controller_hand_return_program)
+    {
+        hand_return::validate_source(&binding, &definition.oracle_id, &canonical_abilities)?;
+    }
+    if definition
+        .spell
+        .as_ref()
         .is_some_and(controller_library_order_program)
     {
         library_order::validate_source(&binding, &definition.oracle_id, &canonical_abilities)?;
@@ -1895,6 +1905,30 @@ fn append_spell_effects(
     slots: &mut BTreeMap<String, u32>,
     player_binding: PlayerBinding,
 ) -> Result<(), Failure> {
+    if let Some((draw, count)) = hand_return::coalesce(effects)? {
+        if block != 0
+            || !program.instructions.is_empty()
+            || !program.targets.is_empty()
+            || !program.modes.is_empty()
+            || !matches!(player_binding, PlayerBinding::Unbound)
+        {
+            return Err(unsupported(
+                "hand return",
+                "requires complete ordinary source",
+            ));
+        }
+        program.instructions.extend([
+            Instruction::DrawControllerCards {
+                count: draw,
+                source_block: 0,
+            },
+            Instruction::PutHandOnLibrary {
+                count,
+                source_block: 0,
+            },
+        ]);
+        return Ok(());
+    }
     if let Some(amount) = library_order::coalesce(effects)? {
         if block != 0
             || !program.instructions.is_empty()

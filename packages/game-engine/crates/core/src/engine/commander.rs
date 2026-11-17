@@ -3,6 +3,13 @@ use super::*;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "continuation", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum CommanderContinuation {
+    HandReturn {
+        frame: Resolving,
+        objects: Vec<ObjectId>,
+        remaining: Vec<ObjectId>,
+        choices: Vec<(ObjectId, bool)>,
+        source_block: u32,
+    },
     LibrarySelect {
         frame: Resolving,
         looked: Vec<ObjectId>,
@@ -240,6 +247,22 @@ impl Game {
             destination
         };
         match continuation {
+            CommanderContinuation::HandReturn {
+                frame,
+                objects,
+                mut remaining,
+                mut choices,
+                source_block,
+            } => {
+                if remaining.first() != Some(&object) {
+                    return Err("hand return commander order".into());
+                }
+                remaining.remove(0);
+                if present {
+                    choices.push((object, to_command));
+                }
+                self.continue_hand_return(frame, objects, remaining, choices, source_block)?;
+            }
             CommanderContinuation::LibrarySelect {
                 frame,
                 looked,
@@ -461,6 +484,27 @@ impl Game {
             }
             let current = self.current(*object)?;
             match continuation.as_ref() {
+                CommanderContinuation::HandReturn {
+                    frame,
+                    objects,
+                    remaining,
+                    choices,
+                    source_block,
+                } => {
+                    self.validate_hand_return_continuation(
+                        frame,
+                        objects,
+                        remaining,
+                        choices,
+                        *source_block,
+                    )?;
+                    if remaining.first() != Some(object)
+                        || *destination != (Zone::Library { owner })
+                        || current.zone != (Zone::Hand { owner })
+                    {
+                        return Err("hand return commander destination".into());
+                    }
+                }
                 CommanderContinuation::LibrarySelect {
                     frame,
                     looked,
@@ -556,6 +600,9 @@ impl Game {
                             .instructions
                             .get(frame.cursor as usize)
                         {
+                            Some(Instruction::DrawControllerCards {
+                                source_block: b, ..
+                            }) => b == source_block && frame.draw_progress.is_some(),
                             Some(Instruction::DrawCards {
                                 count,
                                 source_block: b,
@@ -565,7 +612,7 @@ impl Game {
                                 b == source_block
                             }
                             Some(Instruction::DrawDamageAmount { source_block: b }) => {
-                                b == source_block && frame.damage_draw.is_some()
+                                b == source_block && frame.draw_progress.is_some()
                             }
                             _ => false,
                         }

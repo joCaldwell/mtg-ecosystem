@@ -200,7 +200,8 @@ impl Strategy {
         let v = &o.view;
         let r = o.decision.as_ref().ok_or("missing action decision")?;
         Ok(match r {
-            PlayerRequest::LibraryOrder { .. }
+            PlayerRequest::HandReturn { .. }
+            | PlayerRequest::LibraryOrder { .. }
             | PlayerRequest::LibrarySelect { .. }
             | PlayerRequest::Scry { .. }
             | PlayerRequest::Surveil { .. } => {
