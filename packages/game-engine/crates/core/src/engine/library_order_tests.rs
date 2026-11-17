@@ -683,3 +683,70 @@ fn library_order_late_group_failure_preserves_library_memory_and_trace() {
         finish(g, q);
     });
 }
+
+#[test]
+fn library_order_kernel_zero_singleton_shuffle_counts_without_random_words() {
+    // Explicit kernel precondition: shrink the library with typed internal moves
+    // after a genuine paid prefix. No accepted-history/replay claim follows it.
+    for keep in [0, 1] {
+        let mut g = Game::with_trace(prepared(), TraceMode::Off);
+        let r = paid(&mut g, 4096);
+        let Request::LibraryOrder { candidates, .. } = &r else {
+            panic!("order")
+        };
+        choose_order(&mut g, &r, candidates.clone());
+        optional(&mut g, 4096);
+        let Frame::ResolutionChoice { frame, .. } = &g.state.rules.frame else {
+            panic!("optional")
+        };
+        let cause = BatchCause::Instruction {
+            stack_id: frame.stack_id,
+            source: frame.spell.source,
+            player: PlayerId(0),
+            cursor: frame.cursor,
+            source_block: 0,
+        };
+        let children = library(&g, 0)
+            .into_iter()
+            .skip(keep)
+            .map(|object| EventGroup::Occurrence {
+                proposed: ProposedEvent::Move {
+                    object,
+                    destination: Zone::Graveyard { owner: PlayerId(0) },
+                },
+            })
+            .collect();
+        g.commit_batch(cause, EventGroup::Ordered { children })
+            .unwrap();
+        let random = g.state.rules.match_state.as_ref().unwrap().random.clone();
+        let r = request(&mut g, 4096);
+        g.respond(
+            r.player(),
+            r.decision_id(),
+            Response::OptionalEffect { perform: true },
+        )
+        .unwrap();
+        assert!(matches!(
+            g.advance(Budget::new(1)),
+            Advance::Suspended { .. }
+        ));
+        assert!(matches!(
+            &g.state.rules.frame,
+            Frame::ResolutionChoice {
+                choice: ResolutionChoice::Shuffle { index: 0, .. },
+                ..
+            }
+        ));
+        assert!(matches!(
+            g.advance(Budget::new(1)),
+            Advance::Suspended { .. }
+        ));
+        assert_eq!(
+            g.state.rules.match_state.as_ref().unwrap().library_shuffles[0],
+            1
+        );
+        assert_eq!(g.state.rules.match_state.as_ref().unwrap().random, random);
+        assert_eq!(library(&g, 0).len(), keep);
+        assert!(g.is_live(PlayerId(0)), "mandatory draw has not run yet");
+    }
+}
