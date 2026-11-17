@@ -16,7 +16,15 @@ pub(super) fn coalesce(effects: &[Sentence]) -> Result<Option<(Quantity, Quantit
             "requires complete fixed controller draw/discard",
         )
     };
-    let [Sentence { bindings, steps, condition: None, condition_kind: None }] = effects else {
+    let [
+        Sentence {
+            bindings,
+            steps,
+            condition: None,
+            condition_kind: None,
+        },
+    ] = effects
+    else {
         return Err(fail());
     };
     let [

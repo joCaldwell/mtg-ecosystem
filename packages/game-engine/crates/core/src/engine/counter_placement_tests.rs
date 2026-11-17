@@ -835,6 +835,17 @@ fn m4d_retained_cast_history_counter_choice_and_wrapper_accounting() {
                     source_block: 0,
                 }),
             },
+            Frame::CommanderReturn {
+                object: ramos,
+                destination: Zone::Library { owner: PlayerId(0) },
+                continuation: Box::new(CommanderContinuation::HandReturn {
+                    frame: resolving.clone(),
+                    objects: vec![ramos],
+                    remaining: vec![ramos],
+                    choices: vec![],
+                    source_block: 0,
+                }),
+            },
             Frame::Stabilize {
                 resume: Box::new(g.state.rules.frame.clone()),
                 cleanup: false,

@@ -7713,6 +7713,6 @@ mod spell_cascade_grant_tests;
 #[cfg(test)]
 mod temporary_permanent_keyword_tests;
 
+mod temporary_reach_tests;
 #[cfg(test)]
 mod typed_land_search_tests;
-mod temporary_reach_tests;

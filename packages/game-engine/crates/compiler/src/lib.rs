@@ -10010,3 +10010,34 @@ mod temporary_permanent_keyword_tests;
 
 #[cfg(test)]
 mod temporary_reach_tests;
+
+#[cfg(test)]
+mod combined_hand_cost_fences {
+    use super::*;
+    #[test]
+    fn combined_hand_families_reject_kicker_conditions_without_partial_lowering() {
+        for raw in [
+            include_str!("../../../tests/fixtures/36cd2364-d113-47d1-b2c4-b088d9eb88dd.json"),
+            include_str!("../../../tests/fixtures/32e9aa23-fc0a-4b82-82f9-1659c304428c.json"),
+        ] {
+            for condition in [
+                serde_json::json!(null),
+                serde_json::json!({"condition":"kicked","what":{"ref":"this","noun":"spell"},"comparison":{"op":"ge","value":{"amount":"fixed","value":1}}}),
+            ] {
+                let changed = tests::changed_source(raw, |r| {
+                    let result = &mut r["faces"][0]["result"];
+                    result["abilities"][0]["effects"][0]["condition"] = condition;
+                    result["abilities"][0]["effects"][0]["conditionKind"] = serde_json::json!("if");
+                    result["lines"][0]["ability"] = result["abilities"][0].clone();
+                });
+                assert!(!matches!(
+                    compile(
+                        include_str!("../../../tests/fixtures/archive-manifest-current.json"),
+                        &changed
+                    ),
+                    CompileResult::Lowered { .. }
+                ));
+            }
+        }
+    }
+}

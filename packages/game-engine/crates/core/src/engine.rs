@@ -327,8 +327,8 @@ mod casting;
 use cascade::{CascadeProgress, CastCompletion, CastPermission};
 #[cfg(test)]
 mod casting_foundation_tests;
-mod intrinsic_mana;
 mod hand_return;
+mod intrinsic_mana;
 mod library_order;
 mod library_selection;
 mod mana_permanents;

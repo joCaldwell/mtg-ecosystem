@@ -1197,7 +1197,10 @@ impl Game {
             Some(Instruction::DrawControllerCards { count, .. }) if !count.is_negative() => {
                 Ok(count.clone())
             }
-            Some(Instruction::DrawDamageAmount { .. } | Instruction::DrawCardsIfAdditionalCost { .. }) => self.damage_draw_amount(frame),
+            Some(
+                Instruction::DrawDamageAmount { .. }
+                | Instruction::DrawCardsIfAdditionalCost { .. },
+            ) => self.damage_draw_amount(frame),
             _ => Err("counted draw source invariant".into()),
         }
     }

@@ -122,7 +122,7 @@ impl Strategy<'_> {
                 return Err("counter placement replacement choices outside this policy".into());
             }
 
-                PlayerRequest::HandReturn { .. }
+            PlayerRequest::HandReturn { .. }
             | PlayerRequest::LibraryOrder { .. }
             | PlayerRequest::LibrarySelect { .. }
             | PlayerRequest::Scry { .. }
