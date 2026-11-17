@@ -3,52 +3,16 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "engines": {
-    "node": "26.11.1"
-  },
-  "scripts": {
-    "dev": "vite --host 127.0.0.1",
-    "build": "node scripts/prepare-fixtures.mjs && vite build",
-    "prepare:fixtures": "node scripts/prepare-fixtures.mjs",
-    "typecheck": "tsc --noEmit",
-    "check:boundaries": "node scripts/check-boundaries.ts && node scripts/check-preview-boundaries.ts && node ../game-ui/scripts/check-boundaries.mjs",
-    "test": "node --test tests/*.test.ts",
-    "test:browser": "playwright test",
-    "test:journal:browser": "node --test tests/command-journal.browser.ts",
-    "test:browser:live": "playwright test --config playwright.live.config.ts",
-    "check": "npm run prepare:fixtures && npm run typecheck && npm run check:boundaries && npm test && npm run build"
+  "exports": {
+    "./session": "./session.ts",
+    "./session-qualification": "./session-qualification.ts",
+    "./preview": "./preview.ts",
+    "./verify-preview": {
+      "types": "./verify-preview.d.mts",
+      "default": "./verify-preview.mjs"
+    }
   },
   "dependencies": {
-    "@multiverse/game-server-sdk": "file:../game-server/sdk",
-    "react": "19.3.1",
-    "react-dom": "19.3.1",
-    "react-router": "8.5.1",
-    "@multiverse/game-ui": "file:../game-ui"
-  },
-  "devDependencies": {
-    "@playwright/test": "1.65.0",
-    "@types/node": "26.6.6",
-    "@types/react": "19.3.0",
-    "@types/react-dom": "19.3.0",
-    "typescript": "6.0.3",
-    "vite": "8.3.8"
-  },
-  "exports": {
-    "./session-qualification": {
-      "types": "./src/session/qualification-public.d.ts",
-      "default": "./src/session/qualification.ts"
-    },
-    "./session": {
-      "types": "./src/app/session-public.d.ts",
-      "default": "./src/app/session.ts"
-    },
-    "./preview": {
-      "types": "./src/preview/public.d.ts",
-      "default": "./src/preview/index.ts"
-    },
-    "./verify-preview": {
-      "types": "./scripts/verify-preview.d.mts",
-      "default": "./scripts/verify-preview.mjs"
-    }
+    "@multiverse/game": "file:../game"
   }
 }

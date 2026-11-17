@@ -7,6 +7,12 @@ producer/source/schema, not moving HEAD. Metadata-delivery SDK bridge:
 SDK69 extends 66; observation21 builds/schema unchanged; SDK delta differs from
 some historical 898-row source entries.
 
+Ownership extraction from `de785a97` retains its relocation/input bridge and local
+checks under `~/.local/share/mtg-ecosystem/engine-evidence/game-application-boundary-20261116/`.
+The single 5.32-second retained-Native21 API witness covers bootstrap/proxy/retry
+and joined leases only. Rust/SDK source and frozen fixture provenance are unchanged;
+approved identities remain empty and full-game qualification remains blocked.
+
 ## Producer context and admission qualification
 
 Source `565a1204d6e4b14443b9f49dda2ecbc6b46ee85a`, observation **16**:

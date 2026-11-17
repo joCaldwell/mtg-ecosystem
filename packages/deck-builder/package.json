@@ -52,6 +52,7 @@
     "./contracts": {
       "types": "./src/contracts.ts",
       "default": "./src/contracts.ts"
-    }
+    },
+    "./application": "./src/application.ts"
   }
 }

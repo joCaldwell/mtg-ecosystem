@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { verifyPreviewFixtures } from "@multiverse/game-client/verify-preview";
+import { verifyPreviewFixtures } from "@multiverse/game/verify-preview";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -17,6 +17,11 @@ export default defineConfig({
   resolve: { dedupe: ["react", "react-dom"] },
   plugins: [react(), {
     name: "qualified-game-preview",
+    generateBundle() {
+      for (const id of this.getModuleIds()) {
+        if (/[/\\]game[/\\]server[/\\]/.test(id) || id.startsWith("node:") || id.includes("browser-external")) throw new Error("Server runtime entered product browser bundle");
+      }
+    },
     async buildStart() { await verifyPreviewFixtures(); },
   }],
   build: { outDir: "dist", manifest: true, rollupOptions: {

@@ -7,7 +7,9 @@ for package ownership and development constraints.
 ## Current product
 
 [Multiverse](packages/multiverse/README.md) owns account/session UX, navigation,
-Home, the deck editor, Play setup and the browser build/process. The existing
+Home, the deck editor and the browser build/process. [Game](packages/game/README.md)
+owns the existing session UI, launch/recovery, native supervision and shared DTOs
+in `web/`, `server/` and `shared/`, composed in that same process. The existing
 [deck-builder backend](packages/deck-builder/AGENTS.md) owns authentication,
 Actor/SQLite capabilities, deck data, CLI and MCP. There is one account/data
 system; no authentication or database migration occurred.
@@ -26,7 +28,7 @@ Product sign-in grants no Rust seat. See [application contracts](packages/multiv
 | Product setup and browser conventions | [Product README](packages/multiverse/README.md), [frontend architecture](packages/multiverse/web/ARCHITECTURE.md), [design](packages/multiverse/web/DESIGN.md) |
 | Deck behavior, permissions and public compatibility | [Deck specification](docs/deck-builder-spec.md), [MCP workflows](docs/deck-builder-mcp-workflows.md) |
 | Backend operations and checks | [Operations](packages/deck-builder/OPERATIONS.md), [test gate](packages/deck-builder/AGENTS.md#focused-test-gate) |
-| Client/session contracts, delivery and acceptance | [Game client](docs/game-client.md), [client setup](packages/game-client/README.md) |
+| Client/session contracts, delivery and acceptance | [Game client](docs/game-client.md), [client setup](packages/game/README.md) |
 | Engine support and source-qualified acceptance | [Current engine map](docs/game-engine-current.md), [mechanics](docs/game-engine-mechanics.md), [evidence](docs/game-engine-evidence.md) |
 | Engine environment, verification and storage | [Development and verification](docs/game-engine-development.md), [storage](docs/game-engine-storage.md) |
 | Parser, archives and ingestion | [Parser](docs/oracle_parser.md), [data contracts](docs/oracle_parser.md#data-contracts), [Scryfall](docs/oracle_parser.md#ingestion) |

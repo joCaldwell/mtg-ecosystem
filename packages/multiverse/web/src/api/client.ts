@@ -1,5 +1,5 @@
+import type { GameAdmission, GameLaunchResult, GameRecord } from "@multiverse/game/contracts";
 import type {
-  GameAdmission, GameLaunchResult, GameRecord,
   CommandMeta,
   Focus as ServerFocus, FocusReport,
   AgentConnection,

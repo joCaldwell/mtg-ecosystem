@@ -15,7 +15,7 @@ export default defineRailway(ctx => {
       builder: "DOCKERFILE", dockerfilePath: "packages/deck-builder/Dockerfile",
       watchPatterns: [
         "/packages/multiverse/**", "/packages/deck-builder/**",
-        "/packages/game-ui/**", "/packages/game-client/**",
+        "/packages/game-ui/**", "/packages/game/**",
         "/packages/game-server/sdk/package.json", "/package.json",
         "/package-lock.json", "/tsconfig.base.json", "/.dockerignore",
       ],
