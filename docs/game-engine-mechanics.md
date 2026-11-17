@@ -104,22 +104,19 @@ Commander SBAs follow resolution. One-draw and artifact-or-creature grant/Scry
 compositions are supported. Activated/triggered
 forms, Flashback, mill costs/replacements and search reconstruction reject.
 
-Standalone library selection looks at the available prefix, puts exactly one
-available card into hand and sends the remainder to the graveyard or ordered
-library bottom. Hand movement is not drawing (CR 121.5). The chooser alone sees
-candidates; all movements commit atomically. A selected tucked Commander uses
-its owner's hand-replacement choice before movement; graveyard return waits
-for SBAs. Extra clauses and draw compositions reject.
+Library selection privately takes exactly one available prefix card into hand,
+then atomically sends the remainder to the graveyard or ordered library bottom.
+This is not drawing (CR 121.5). Tucked Commanders receive the owner's pre-movement
+hand replacement; graveyard return waits for SBAs. Extra clauses/draw compositions reject.
 
-Top-order/optional-shuffle/draw privately orders the available prefix without
-changing incarnations, offers a controller choice and draws once. Accepted
-shuffles use trusted RNG and increment the public counter, even with zero/one
-card; declines consume no random words.
-Counted draws perform sequential attempts before selecting from the whole hand.
-Ordered top returns create successors in one batch after Commander replacements;
-discards share one simultaneous batch before Commander SBAs. Short hands clamp
-selection; failed draws never interrupt resolution. Neither family creates
-source, target, mana or priority authority.
+Top-order/optional-shuffle/draw privately orders the available prefix, preserving
+incarnations, offers a controller boolean, then draws once. Accepted shuffles use
+trusted RNG/public counters even for empty/singleton libraries; declines consume
+no random words. Counted draws precede whole-hand selection: ordered top returns
+create successors in one batch after Commander replacements; discards share a
+simultaneous batch before Commander SBAs. Short hands clamp selection; failed
+draws cannot interrupt resolution. Neither family creates source, target, mana
+or priority authority.
 
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
