@@ -9415,3 +9415,6 @@ mod temporary_permanent_keyword_tests;
 
 #[cfg(test)]
 mod temporary_reach_tests;
+
+#[cfg(test)]
+mod temporary_vigilance_tests;

@@ -68,7 +68,7 @@ fn temporary_reach_strict_selectors_keywords_and_durations() {
                 let a = &mut r["faces"][0]["result"]["abilities"][0];
                 let step = &mut a["effects"][0]["steps"][1];
                 match case {
-                    0 => step["abilities"][0]["keyword"]["keyword"] = json!("vigilance"),
+                    0 => step["abilities"][0]["keyword"]["keyword"] = json!("defender"),
                     1 => step["abilities"][0]["keyword"]["cost"] = json!([]),
                     2 => step["duration"]["duration"] = json!("forever"),
                     3 => step["what"]["filter"]["types"] = json!(["land"]),
