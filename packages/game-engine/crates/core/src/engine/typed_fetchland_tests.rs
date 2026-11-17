@@ -80,6 +80,15 @@ fn public(g: &mut Game, response: PlayerResponse) {
     let receipt = validate(g, response);
     g.submit(receipt).unwrap();
 }
+fn public_for(g: &mut Game, player: PlayerId, response: PlayerResponse) {
+    let token = observation(g, player.0).decision.unwrap().token().clone();
+    let QueryResult::Complete(QueryValue::Validated(receipt)) =
+        g.check_player_response(player, token, response, Budget::unlimited())
+    else {
+        panic!("validated actor response")
+    };
+    g.submit(receipt).unwrap();
+}
 fn main(g: &mut Game) {
     opening(g);
     for _ in 0..40 {
@@ -104,12 +113,15 @@ fn play(g: &mut Game, raw: &str) -> ObjectId {
     source
 }
 fn activate(g: &mut Game, source: ObjectId) -> StackInstance {
-    let handle = g.handle_for(PlayerId(0), source).unwrap();
+    activate_for(g, PlayerId(0), source)
+}
+fn activate_for(g: &mut Game, player: PlayerId, source: ObjectId) -> StackInstance {
+    let handle = g.handle_for(player, source).unwrap();
     let before = g.state.clone();
     let trace = g.trace.clone();
-    let token = observation(g, 0).decision.unwrap().token().clone();
+    let token = observation(g, player.0).decision.unwrap().token().clone();
     let (outcome, continuation) = g
-        .player_session(PlayerId(0))
+        .player_session(player)
         .action_beginnings(
             token,
             ActionScope::Object {
@@ -129,8 +141,9 @@ fn activate(g: &mut Game, source: ObjectId) -> StackInstance {
     )));
     assert_eq!(g.state, before);
     assert_eq!(g.trace, trace);
-    public(
+    public_for(
         g,
+        player,
         PlayerResponse::ActivateAbility {
             object: handle,
             ability: 0,
@@ -139,10 +152,10 @@ fn activate(g: &mut Game, source: ObjectId) -> StackInstance {
     // The accepted command still owns the old pre-cost state. A single staged
     // rule step must commit all costs before exposing any priority window.
     assert_eq!(g.zone(source), Some(Zone::Battlefield));
-    let mut life = g.state.rules.players[0].life.clone();
+    let mut life = g.state.rules.players[player.0 as usize].life.clone();
     life.subtract(&1.into());
     let _ = g.advance(Budget::new(1));
-    assert_eq!(g.state.rules.players[0].life, life);
+    assert_eq!(g.state.rules.players[player.0 as usize].life, life);
     assert!(g.current(source).is_err());
     assert_eq!(
         g.zone(g.object_id(source.card).unwrap()),
@@ -262,14 +275,11 @@ fn typed_fetchland_paid_public_zero_find_and_typed_nonbasic_entry_recover() {
             public(g, PlayerResponse::SearchLands { objects: handles });
             let _ = g.advance(Budget::new(1));
             if target.is_some() {
-                let Frame::LandEntry {
-                    origin: EntryOrigin::Search { frame },
-                    ..
-                } = &g.state.rules.frame
-                else {
-                    panic!("retained activation entry root");
-                };
-                assert_eq!(frame.spell, invocation);
+                assert_eq!(
+                    spell_cascade_grants::retained_resolving_entry(&g.state.rules.frame),
+                    Some(&invocation),
+                    "plain entry retains the activation through its shuffle continuation"
+                );
                 check(g);
             }
             resolve(g, vec![]);
@@ -490,55 +500,155 @@ fn typed_fetchland_synthetic_exact_life_affordability_and_atomic_cost_failure() 
     assert_eq!(g.state.rules.stack, before.rules.stack);
     assert_eq!(g.trace, trace);
 }
-#[test]
-fn typed_fetchland_paid_root_survives_owner_departure_and_controller_departure_skips() {
+// Develop and pay for a real Annex before testing borrowed activation. Every
+// original library still has 99 cards during setup; no raw battlefield injection
+// or invented shuffle authority is used.
+fn borrowed_fetch() -> Game {
     let mut p = prepared(DELTA);
-    let id = lower(DELTA).oracle_id;
-    let source = p
-        .config
-        .cards
-        .iter()
-        .find(|r| r.oracle_id == id)
+    let mut probe = Game::new(p.clone());
+    opening(&mut probe);
+    let chosen = probe
+        .state
+        .rules
+        .objects
+        .values()
+        .find(|o| o.zone == (Zone::Hand { owner: PlayerId(1) }))
         .unwrap()
-        .id;
-    let swap = p
-        .config
-        .cards
+        .id
+        .card;
+    let annex = match mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/5f1f49dd-b7ce-494a-9b4b-ac702d3664c5.json"),
+    ) {
+        mtg_compiler::CompileResult::Lowered { definition } => *definition,
+        other => panic!("{other:?}"),
+    };
+    let island = p
+        .catalog
+        .definitions
         .iter()
-        .find(|r| r.owner == PlayerId(1) && r.oracle_id == FOREST)
+        .find(|d| d.name == "Island")
         .unwrap()
-        .id;
-    // Declared before construction: borrowed battlefield source owned by seat1;
-    // swap an ordinary basic to retain legal100 physical ownership for all seats.
+        .oracle_id
+        .clone();
+    let ramos = p
+        .catalog
+        .definitions
+        .iter()
+        .find(|d| d.name == "Ramos, Dragon Engine")
+        .unwrap()
+        .oracle_id
+        .clone();
     for row in &mut p.config.cards {
-        if row.id == source {
-            row.owner = PlayerId(1);
-            row.controller = PlayerId(0);
-            row.zone = Zone::Battlefield;
-        }
-        if row.id == swap {
-            row.owner = PlayerId(0);
-            row.controller = PlayerId(0);
-            row.zone = Zone::Library { owner: PlayerId(0) };
+        if row.owner == PlayerId(1) {
+            row.oracle_id = if matches!(row.zone, Zone::Command { .. }) {
+                ramos.clone()
+            } else if row.id == chosen {
+                annex.oracle_id.clone()
+            } else {
+                island.clone()
+            };
         }
     }
+    p.match_config.as_mut().unwrap().decks[1].commander = ramos;
+    Arc::make_mut(&mut p.catalog).definitions.push(annex);
     reseal(&mut p);
-    // A borrowed owner's departure before an accepted activation is performed
-    // invalidates it without paying life or creating a stack invocation.
-    let mut before_cost = Game::with_trace(p.clone(), TraceMode::Detailed);
-    main(&mut before_cost);
-    let object = before_cost.object_id(source).unwrap();
-    let handle = before_cost.handle_for(PlayerId(0), object).unwrap();
-    public(
+    let mut g = Game::with_trace(p, TraceMode::Detailed);
+    let source = play(&mut g, DELTA);
+    for _ in 0..2000 {
+        let r = request(&mut g);
+        if g.active_player() == Some(PlayerId(1))
+            && g.turn().step == TurnStep::PrecombatMain
+            && matches!(
+                r,
+                Request::Priority {
+                    player: PlayerId(1),
+                    ..
+                }
+            )
+        {
+            let islands = g
+                .state
+                .rules
+                .objects
+                .values()
+                .filter(|o| {
+                    o.controller == PlayerId(1)
+                        && o.zone == Zone::Battlefield
+                        && g.definition(o.id.card).unwrap().name == "Island"
+                })
+                .count();
+            if islands == 4 {
+                let aura = named(&g, "Annex");
+                announce(
+                    &mut g,
+                    aura.card.0,
+                    vec![TargetEntity::Object { object: source }],
+                );
+                resolve(&mut g, vec![]);
+                assert_eq!(g.current(source).unwrap().controller, PlayerId(1));
+                assert_eq!(g.current(source).unwrap().owner, PlayerId(0));
+                check(&g);
+                return g;
+            }
+            if g.turn().lands_played == 0 {
+                let card = g
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .find(|o| {
+                        o.zone == (Zone::Hand { owner: PlayerId(1) })
+                            && g.definition(o.id.card).unwrap().name == "Island"
+                    })
+                    .unwrap()
+                    .id
+                    .card;
+                g.respond(r.player(), r.decision_id(), Response::PlayLand { card })
+                    .unwrap();
+                continue;
+            }
+        }
+        let response = match &r {
+            Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
+            Request::Discard {
+                candidates, count, ..
+            } => Response::Discard {
+                objects: candidates
+                    .iter()
+                    .filter(|o| g.definition(o.card).unwrap().name != "Annex")
+                    .take(*count)
+                    .copied()
+                    .collect(),
+            },
+            Request::Priority { .. } => Response::Pass,
+            other => panic!("borrowed fetch development {other:?}"),
+        };
+        g.respond(r.player(), r.decision_id(), response).unwrap();
+    }
+    panic!("bounded paid Annex development")
+}
+#[test]
+fn typed_fetchland_paid_root_survives_owner_departure_and_controller_departure_skips() {
+    let borrowed = borrowed_fetch();
+    let snapshot = borrowed.snapshot().unwrap();
+    let prepared = borrowed.prepared.as_ref().clone();
+    let source = named(&borrowed, "Polluted Delta");
+    // An owner's departure after accepted input but before payment invalidates
+    // the borrowed source without any partial life payment or activation.
+    let mut before_cost = Game::restore(prepared.clone(), &snapshot).unwrap();
+    let handle = before_cost.handle_for(PlayerId(1), source).unwrap();
+    public_for(
         &mut before_cost,
+        PlayerId(1),
         PlayerResponse::ActivateAbility {
             object: handle,
             ability: 0,
         },
     );
-    before_cost.concede(PlayerId(1)).unwrap();
+    before_cost.concede(PlayerId(0)).unwrap();
     let _ = request(&mut before_cost);
-    assert_eq!(before_cost.state.rules.players[0].life, 40.into());
+    assert_eq!(before_cost.state.rules.players[1].life, 40.into());
     assert!(before_cost.state.rules.stack.is_empty());
     assert!(
         !before_cost
@@ -547,36 +657,43 @@ fn typed_fetchland_paid_root_survives_owner_departure_and_controller_departure_s
             .any(|e| matches!(e, Event::AbilityActivated { .. }))
     );
     check(&before_cost);
-    for departing in [PlayerId(1), PlayerId(0)] {
-        let mut g = Game::with_trace(p.clone(), TraceMode::Detailed);
-        main(&mut g);
-        let object = g.object_id(source).unwrap();
-        let invocation = activate(&mut g, object);
-        assert_eq!(invocation.controller, PlayerId(0));
-        assert_eq!(invocation.source_facts.as_ref().unwrap().owner, PlayerId(1));
+    for departing in [PlayerId(0), PlayerId(1)] {
+        let mut g = Game::restore(prepared.clone(), &snapshot).unwrap();
+        let invocation = activate_for(&mut g, PlayerId(1), source);
+        assert_eq!(invocation.controller, PlayerId(1));
+        assert_eq!(invocation.source_facts.as_ref().unwrap().owner, PlayerId(0));
         let _ = search(&mut g);
         g.concede(departing).unwrap();
         let next = request(&mut g);
-        if departing == PlayerId(1) {
+        if departing == PlayerId(0) {
             assert!(matches!(
                 next,
                 Request::SearchLands {
-                    player: PlayerId(0),
+                    player: PlayerId(1),
                     ..
                 }
             ));
-            assert!(!g.state.rules.objects.contains_key(&source));
+            assert!(!g.state.rules.objects.contains_key(&source.card));
             assert_eq!(
                 spell_cascade_grants::retained_resolving_entry(&g.state.rules.frame),
                 Some(&invocation)
             );
-            public(&mut g, PlayerResponse::SearchLands { objects: vec![] });
+            let shuffles = observation(&g, 1).view.players[1].library_shuffles;
+            public_for(
+                &mut g,
+                PlayerId(1),
+                PlayerResponse::SearchLands { objects: vec![] },
+            );
             resolve(&mut g, vec![]);
+            assert_eq!(
+                observation(&g, 1).view.players[1].library_shuffles,
+                shuffles + 1
+            );
         } else {
             assert!(!matches!(
                 next,
                 Request::SearchLands {
-                    player: PlayerId(0),
+                    player: PlayerId(1),
                     ..
                 }
             ));
@@ -585,7 +702,7 @@ fn typed_fetchland_paid_root_survives_owner_departure_and_controller_departure_s
                     .rules
                     .objects
                     .values()
-                    .any(|o| g.state.rules.cards[&o.id.card].owner == PlayerId(0))
+                    .any(|o| g.state.rules.cards[&o.id.card].owner == PlayerId(1))
             );
         }
         check(&g);
