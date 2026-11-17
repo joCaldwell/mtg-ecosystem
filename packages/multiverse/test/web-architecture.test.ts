@@ -197,7 +197,7 @@ describe("layering", () => {
 
   test("api imports only from api and the public backend contract", () => {
     check("api", (imp, to, toLayer) => {
-      if (to.bare) return imp.spec === "react" || (imp.spec === "@mtg-ecosystem/deck-builder/contracts" && imp.typeOnly) ? null : "api reaches backend types only through the type-only public contracts export";
+      if (to.bare) return imp.spec === "react" || (["@mtg-ecosystem/deck-builder/contracts", "@multiverse/game/contracts"].includes(imp.spec) && imp.typeOnly) ? null : "api reaches backend types only through the type-only public contracts export";
       if (to.server) return "product server source is not a browser API contract";
       if (toLayer === "api") return null;
       return `api may only import api and the public type-only backend contract — not ${toLayer ?? "outside web/src"}`;
@@ -240,7 +240,11 @@ describe("product package boundaries", () => {
       if (imp.spec.startsWith("@mtg-ecosystem/deck-builder") && !(imp.spec === "@mtg-ecosystem/deck-builder/contracts" && imp.typeOnly && layerOf(imp.file) === "api")) {
         problems.push(`${describeImport(imp)} bypasses the backend public contract`);
       }
-      if (imp.spec.startsWith("@multiverse/game-client") && !((imp.spec === "@multiverse/game-client/preview" && imp.file === "features/game/GamePreview.tsx") || (imp.spec === "@multiverse/game-client/session" && imp.file === "features/live-game/LiveGamePage.tsx"))) {
+      if (imp.spec.startsWith("@multiverse/game/") && !(
+        (imp.typeOnly && imp.spec === "@multiverse/game/contracts" && layerOf(imp.file) === "api") ||
+        (imp.typeOnly && imp.spec === "@multiverse/game/browser-host" && imp.file === "app/game-host.ts") ||
+        ({ "@multiverse/game/preview": "features/game/GamePreview.tsx", "@multiverse/game/live-page": "features/live-game/LiveGamePage.tsx", "@multiverse/game/launch": "features/play/GameLaunch.tsx", "@multiverse/game/saved-games": "features/play/SavedGames.tsx" } as Record<string, string>)[imp.spec] === imp.file
+      )) {
         problems.push(`${describeImport(imp)} bypasses the hosted game surface`);
       }
     }
@@ -257,7 +261,7 @@ describe("product package boundaries", () => {
   test("game loading stays behind a lazy product route", () => {
     const signedIn = readFileSync(join(SRC, "app/SignedIn.tsx"), "utf8");
     assert.match(signedIn, /lazy\(\(\) => import\("\.\.\/features\/game\/index\.ts"\)/);
-    const previewImports = imports.filter(imp => imp.spec === "@multiverse/game-client/preview");
+    const previewImports = imports.filter(imp => imp.spec === "@multiverse/game/preview");
     assert.deepEqual(previewImports.map(imp => imp.file), ["features/game/GamePreview.tsx"]);
   });
 });

@@ -5,7 +5,7 @@ import { createCardCache } from "../web/src/mtg/cardCache.ts";
 import type { CardInfo } from "../web/src/mtg/CardInfo.ts";
 
 // Use exact retained producer facts; the test never invents a card or text.
-const fixture = JSON.parse(readFileSync(new URL("../../game-client/fixtures/foundations-opening/presentation.json", import.meta.url), "utf8"));
+const fixture = JSON.parse(readFileSync(new URL("../../game/fixtures/foundations-opening/presentation.json", import.meta.url), "utf8"));
 const source = fixture.cards[0];
 const card: CardInfo = { ...source.faces[0], oracle_id: source.oracle_id, power: null, toughness: null, loyalty: null };
 

@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "include": [
+    "server/**/*.ts",
+    "shared/**/*.ts",
+    "test/**/*.ts",
+    "browser-checks/**/*.ts"
+  ],
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "types": [
+      "node"
+    ],
+    "erasableSyntaxOnly": true,
+    "declaration": false,
+    "sourceMap": false
+  }
+}
