@@ -5737,6 +5737,40 @@ mod permanent_owner_hand_tests;
 mod tests {
     use super::*;
     #[test]
+    fn pain_mana_unimplemented_ir_and_multi_ability_stay_rejected() {
+        // Source recognition must not widen executable contracts ahead of
+        // reversible canonical damage. Synthetic controls; no source admission.
+        let original: Catalog = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/expected-mana-ir.json"
+        ))
+        .unwrap();
+        original.validate().unwrap();
+        let source = original
+            .definitions
+            .iter()
+            .find(|d| !d.mana_abilities.is_empty())
+            .unwrap();
+        let mut multiple = source.clone();
+        multiple.mana_abilities.push(source.mana_abilities[0].clone());
+        multiple.capabilities = multiple.requirements();
+        assert_eq!(
+            multiple.validate().unwrap_err(),
+            "finite profile supports one mana ability per source",
+        );
+        let mana = &source.mana_abilities[0];
+        let mut unknown_damage = serde_json::to_value(mana).unwrap();
+        unknown_damage["self_damage"] = serde_json::json!("1");
+        assert!(serde_json::from_value::<ManaAbility>(unknown_damage).is_err());
+        let mut unknown_choice = serde_json::to_value(mana).unwrap();
+        unknown_choice["production"] = serde_json::json!({
+            "mana":"choice","colors":["W","G"]
+        });
+        assert!(serde_json::from_value::<ManaAbility>(unknown_choice).is_err());
+        // Colorless already has a wire value. No new public color enum or
+        // request/response shape is needed to propose the disjoint selector.
+        assert_eq!(serde_json::to_string(&Color::C).unwrap(), "\"C\"");
+    }
+    #[test]
     fn build_identity_covers_all_engine_source_but_not_fixture_or_host_data() {
         for path in [
             "Cargo.lock",

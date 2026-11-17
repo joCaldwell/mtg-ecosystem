@@ -32,6 +32,7 @@ mod library_selection;
 mod library_selection_tests;
 mod normalization;
 mod optional_costs;
+mod pain_mana;
 mod self_reference;
 mod spell_cascade_grants;
 use optional_costs::KickedCondition;
@@ -1284,6 +1285,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         CardKind::Instant | CardKind::Sorcery => "spell",
     };
     let binding = decode(r.binding.get(), "binding")?;
+    pain_mana::reject_until_runtime_ready(&result, &binding, &r.oracle_identity, &source)?;
     let canonical_abilities = self_reference::canonicalize(
         result.abilities.get(),
         &binding,
