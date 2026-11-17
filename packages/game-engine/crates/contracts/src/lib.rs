@@ -1907,7 +1907,9 @@ impl Definition {
                     Capability::ControllerCreaturePlusOneCounterReplacementV1
                 }
                 StaticEffect::EntersTapped => Capability::EntersTappedV1,
-                StaticEffect::EntersTappedUnlessPayLife { .. } => Capability::OptionalLifeLandEntryV1,
+                StaticEffect::EntersTappedUnlessPayLife { .. } => {
+                    Capability::OptionalLifeLandEntryV1
+                }
                 StaticEffect::EntersTappedUnlessControllerBasicLands { .. } => {
                     Capability::ConditionalBasicLandEntryV1
                 }

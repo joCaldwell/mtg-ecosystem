@@ -8,9 +8,10 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
             StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
         )
     });
-    let optional = d.static_abilities.iter().any(|a| {
-        matches!(a.effect, StaticEffect::EntersTappedUnlessPayLife { .. })
-    });
+    let optional = d
+        .static_abilities
+        .iter()
+        .any(|a| matches!(a.effect, StaticEffect::EntersTappedUnlessPayLife { .. }));
     let typed = d.characteristics.kind == CardKind::Land
         && !d.characteristics.basic
         && !d.characteristics.subtypes.is_empty();
@@ -117,9 +118,17 @@ pub(super) mod tests {
     }
     #[test]
     fn optional_life_lands_contract_parameters_and_composition_fences() {
-        for n in ["0", "1", "2", "3", "999999999999999999999999999999999999999999999999"] {
+        for n in [
+            "0",
+            "1",
+            "2",
+            "3",
+            "999999999999999999999999999999999999999999999999",
+        ] {
             let mut d = optional_land();
-            d.static_abilities[0].effect = StaticEffect::EntersTappedUnlessPayLife { amount: n.parse().unwrap() };
+            d.static_abilities[0].effect = StaticEffect::EntersTappedUnlessPayLife {
+                amount: n.parse().unwrap(),
+            };
             d.validate().unwrap();
             let roundtrip: Definition = strict_read(&serde_json::to_string(&d).unwrap()).unwrap();
             assert_eq!(d, roundtrip);
@@ -127,13 +136,25 @@ pub(super) mod tests {
         for case in 0..8 {
             let mut d = optional_land();
             match case {
-                0 => d.static_abilities[0].effect = StaticEffect::EntersTappedUnlessPayLife { amount: (-1).into() },
+                0 => {
+                    d.static_abilities[0].effect = StaticEffect::EntersTappedUnlessPayLife {
+                        amount: (-1).into(),
+                    }
+                }
                 1 => d.static_abilities.push(d.static_abilities[0].clone()),
-                2 => d.static_abilities.push(StaticAbility { functioning_zone: FunctioningZone::Battlefield, effect: StaticEffect::EntersTapped }),
+                2 => d.static_abilities.push(StaticAbility {
+                    functioning_zone: FunctioningZone::Battlefield,
+                    effect: StaticEffect::EntersTapped,
+                }),
                 3 => d.static_abilities.push(land().static_abilities.remove(0)),
                 4 => d.characteristics.kind = CardKind::Artifact,
-                5 => { d.capabilities.remove(&Capability::OptionalLifeLandEntryV1); },
-                6 => { d.capabilities.insert(Capability::ConditionalBasicLandEntryV1); },
+                5 => {
+                    d.capabilities.remove(&Capability::OptionalLifeLandEntryV1);
+                }
+                6 => {
+                    d.capabilities
+                        .insert(Capability::ConditionalBasicLandEntryV1);
+                }
                 _ => d.characteristics.subtypes.clear(),
             }
             assert!(d.validate().is_err(), "{case}");
@@ -142,12 +163,24 @@ pub(super) mod tests {
     #[test]
     fn optional_life_lands_wrong_null_and_missing_ir_operands_reject() {
         use serde_json::json;
-        for amount in [json!(null), json!(2), json!("02"), json!("2.0"), json!("-0"), json!({})] {
+        for amount in [
+            json!(null),
+            json!(2),
+            json!("02"),
+            json!("2.0"),
+            json!("-0"),
+            json!({}),
+        ] {
             let mut value = serde_json::to_value(optional_land()).unwrap();
-            value["static_abilities"][0]["effect"]["enters_tapped_unless_pay_life"]["amount"] = amount;
+            value["static_abilities"][0]["effect"]["enters_tapped_unless_pay_life"]["amount"] =
+                amount;
             assert!(strict_read::<Definition>(&value.to_string()).is_err());
         }
-        for effect in [json!({"enters_tapped_unless_pay_life":{}}), json!({"enters_tapped_unless_pay_life":null}), json!({"enters_tapped_unless_pay_life":{"amount":"2","payer":"owner"}})] {
+        for effect in [
+            json!({"enters_tapped_unless_pay_life":{}}),
+            json!({"enters_tapped_unless_pay_life":null}),
+            json!({"enters_tapped_unless_pay_life":{"amount":"2","payer":"owner"}}),
+        ] {
             let mut value = serde_json::to_value(optional_land()).unwrap();
             value["static_abilities"][0]["effect"] = effect;
             assert!(strict_read::<Definition>(&value.to_string()).is_err());
@@ -155,17 +188,33 @@ pub(super) mod tests {
     }
     #[test]
     fn optional_life_lands_do_not_broaden_ramos_cost_or_undeclared_draw_fences() {
-        let effects = Catalog::read(include_str!("../../../tests/fixtures/expected-effects-ir.json")).unwrap();
-        let program = effects.definitions.iter().find(|d| d.name == "Giant Growth").unwrap().spell.clone().unwrap();
+        let effects = Catalog::read(include_str!(
+            "../../../tests/fixtures/expected-effects-ir.json"
+        ))
+        .unwrap();
+        let program = effects
+            .definitions
+            .iter()
+            .find(|d| d.name == "Giant Growth")
+            .unwrap()
+            .spell
+            .clone()
+            .unwrap();
         for costs in [false, true] {
             let mut p = program.clone();
             p.instructions = vec![Instruction::DrawCardsIfAdditionalCost {
-                cost_identity: "undeclared".into(), count: 1.into(), source_block: 0,
+                cost_identity: "undeclared".into(),
+                count: 1.into(),
+                source_block: 0,
             }];
             if costs {
                 p.optional_additional_costs = vec![OptionalAdditionalManaCost {
-                    identity: "undeclared".into(), source_block: 0,
-                    mana: ManaCost { generic: 0.into(), colored: vec![] },
+                    identity: "undeclared".into(),
+                    source_block: 0,
+                    mana: ManaCost {
+                        generic: 0.into(),
+                        colored: vec![],
+                    },
                 }];
             }
             assert!(optional_costs::validate_program(&p).is_err());
@@ -174,15 +223,28 @@ pub(super) mod tests {
             land.spell = Some(p.clone());
             land.capabilities = land.requirements();
             assert!(land.validate().is_err());
-            for source in effects.definitions.iter().filter(|d| !d.activated.is_empty() || !d.triggered.is_empty()) {
+            for source in effects
+                .definitions
+                .iter()
+                .filter(|d| !d.activated.is_empty() || !d.triggered.is_empty())
+            {
                 let mut d = source.clone();
                 d.source_labels = None;
-                if let Some(a) = d.activated.first_mut() { a.program = p.clone(); }
-                if let Some(a) = d.triggered.first_mut() { a.program = p.clone(); }
+                if let Some(a) = d.activated.first_mut() {
+                    a.program = p.clone();
+                }
+                if let Some(a) = d.triggered.first_mut() {
+                    a.program = p.clone();
+                }
                 d.capabilities = d.requirements();
                 assert!(d.validate().is_err(), "{}", d.name);
             }
-            let mut d = effects.definitions.iter().find(|d| d.name == "Giant Growth").unwrap().clone();
+            let mut d = effects
+                .definitions
+                .iter()
+                .find(|d| d.name == "Giant Growth")
+                .unwrap()
+                .clone();
             d.source_labels = None;
             let spell = d.spell.as_mut().unwrap();
             spell.instructions.clear();

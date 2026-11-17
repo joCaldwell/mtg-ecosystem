@@ -93,7 +93,7 @@ impl Strategy {
                 return Err("counter placement replacement choices outside this policy".into());
             }
 
-                PlayerRequest::LibraryOrder { .. }
+            PlayerRequest::LibraryOrder { .. }
             | PlayerRequest::LibrarySelect { .. }
             | PlayerRequest::Scry { .. }
             | PlayerRequest::Surveil { .. } => {

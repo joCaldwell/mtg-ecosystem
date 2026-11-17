@@ -745,7 +745,14 @@ impl Game {
         self.state.rules.next_batch_id =
             batch_id.checked_add(1).ok_or("batch ID resource limit")?;
         let mut occurrences = vec![];
-        self.apply_leaf(&proposed, batch_id, &[], before.clone(), &mut occurrences, None)?;
+        self.apply_leaf(
+            &proposed,
+            batch_id,
+            &[],
+            before.clone(),
+            &mut occurrences,
+            None,
+        )?;
         // Only this exact BF -> exile movement cannot match any currently
         // supported dies/ETB trigger. General movement still uses apply_group.
         let cause = BatchCause::ControlReconciliation;
@@ -1481,7 +1488,8 @@ impl Game {
                 for event in occurrences {
                     let before = common.facts_with_entry_counts(&[event], &entry_counts)?;
                     let mut validation = common.fork();
-                    if let Err(error) = validation.apply_prepared_occurrence(event, Some(&before), entry)
+                    if let Err(error) =
+                        validation.apply_prepared_occurrence(event, Some(&before), entry)
                     {
                         // The validation branch is discarded, but its typed
                         // resource failure must reach the enclosing atomic
@@ -1700,7 +1708,8 @@ impl Game {
         let mut intended_controller = intended_controller;
         if destination == Zone::Battlefield {
             if let Some(entry) = entry {
-                let (controller, declined) = entry.movement(object, intended_controller, force_tapped)?;
+                let (controller, declined) =
+                    entry.movement(object, intended_controller, force_tapped)?;
                 intended_controller = Some(controller);
                 optional_declined = declined;
             } else if self.optional_entry_cost(object)?.is_some() {
@@ -1794,7 +1803,9 @@ impl Game {
         // rather than tapping the permanent in a subsequent event.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
         let enters_tapped = *destination == Zone::Battlefield
-            && (force_tapped || optional_declined || self.entry_tapped(*object, controller, before)?);
+            && (force_tapped
+                || optional_declined
+                || self.entry_tapped(*object, controller, before)?);
         self.state.rules.objects.insert(
             object.card,
             Object {

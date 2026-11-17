@@ -1416,7 +1416,9 @@ impl Game {
             );
         }
         if let Some(Request::OptionalEffect { player, .. }) = self.land_entry_request()? {
-            return Ok((player == viewer).then_some(PlayerRequest::OptionalEffect { token, player }));
+            return Ok(
+                (player == viewer).then_some(PlayerRequest::OptionalEffect { token, player })
+            );
         }
         if let Some(Request::OptionalEffect { player, .. }) = self.cascade_request()? {
             return Ok(
@@ -2018,7 +2020,9 @@ impl Game {
                         Some((self.state.rules.revision, 7))
                     }
                     Frame::LandEntry { .. }
-                        if self.land_entry_offer()?.is_some_and(|(player, _, _)| player == viewer) =>
+                        if self
+                            .land_entry_offer()?
+                            .is_some_and(|(player, _, _)| player == viewer) =>
                     {
                         Some((self.state.rules.revision, 20))
                     }

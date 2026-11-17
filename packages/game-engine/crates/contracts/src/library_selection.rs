@@ -144,22 +144,42 @@ fn library_families_reject_optional_cost_and_conditional_draw_union() {
     for mut d in [witness(), crate::library_order::witness()] {
         d.validate().unwrap();
         let identity = "source-bound-test-cost".to_string();
-        d.spell.as_mut().unwrap().optional_additional_costs.push(OptionalAdditionalManaCost {
-            identity: identity.clone(), source_block: 0,
-            mana: ManaCost { generic: 1.into(), colored: vec![] },
-        });
+        d.spell
+            .as_mut()
+            .unwrap()
+            .optional_additional_costs
+            .push(OptionalAdditionalManaCost {
+                identity: identity.clone(),
+                source_block: 0,
+                mana: ManaCost {
+                    generic: 1.into(),
+                    colored: vec![],
+                },
+            });
         d.capabilities = d.requirements();
-        assert!(!controller_library_selection_program(d.spell.as_ref().unwrap()));
+        assert!(!controller_library_selection_program(
+            d.spell.as_ref().unwrap()
+        ));
         assert!(!controller_library_order_program(d.spell.as_ref().unwrap()));
         assert!(d.validate().is_err());
         let p = d.spell.as_mut().unwrap();
         p.optional_additional_costs.clear();
-        p.instructions.push(Instruction::DrawCardsIfAdditionalCost { cost_identity: identity, count: 1.into(), source_block: 0 });
+        p.instructions.push(Instruction::DrawCardsIfAdditionalCost {
+            cost_identity: identity,
+            count: 1.into(),
+            source_block: 0,
+        });
         d.capabilities = d.requirements();
         assert!(d.validate().is_err());
     }
     let schema = catalog_schema();
-    for family in ["ControllerLibrarySelectionProgram", "ControllerLibraryOrderProgram"] {
-        assert_eq!(schema["$defs"][family]["properties"]["optional_additional_costs"]["maxItems"], 0);
+    for family in [
+        "ControllerLibrarySelectionProgram",
+        "ControllerLibraryOrderProgram",
+    ] {
+        assert_eq!(
+            schema["$defs"][family]["properties"]["optional_additional_costs"]["maxItems"],
+            0
+        );
     }
 }

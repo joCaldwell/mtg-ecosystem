@@ -399,8 +399,10 @@ impl Game {
         }
         if let Frame::Resolve { frame }
         | Frame::ResolutionChoice { frame, .. }
-        | Frame::LandEntry { origin: EntryOrigin::Search { frame }, .. } =
-            &self.state.rules.frame
+        | Frame::LandEntry {
+            origin: EntryOrigin::Search { frame },
+            ..
+        } = &self.state.rules.frame
         {
             self.validate_mode_binding(&frame.spell)?;
             self.validate_condition_cache(frame)?;

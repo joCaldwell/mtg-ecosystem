@@ -43,7 +43,10 @@ fn total_cost(
     base
 }
 pub(super) fn entry_cost_lock_charge(entry: &StackInstance) -> usize {
-    entry.cost_lock.as_ref().map_or(0, stored_history::payload_charge)
+    entry
+        .cost_lock
+        .as_ref()
+        .map_or(0, stored_history::payload_charge)
 }
 impl Game {
     pub(super) fn cost_lock_charge(&self) -> usize {
@@ -57,7 +60,8 @@ impl Game {
                 n.saturating_add(stored_history::payload_charge(lock))
             });
         // Cascade owners are already charged in full by cascade_charge.
-        if let Some(entry) = spell_cascade_grants::retained_resolving_entry(&self.state.rules.frame) {
+        if let Some(entry) = spell_cascade_grants::retained_resolving_entry(&self.state.rules.frame)
+        {
             charge = charge.saturating_add(entry_cost_lock_charge(entry));
         }
         charge

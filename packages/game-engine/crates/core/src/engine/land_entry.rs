@@ -35,32 +35,43 @@ impl PreparedEntryAuthority {
         forced: bool,
     ) -> Result<(PlayerId, bool), String> {
         let paid = self.entries.get(&object).ok_or("foreign prepared entry")?;
-        if forced != self.force_tapped
-            || intended != self.search.then_some(self.player)
-        {
+        if forced != self.force_tapped || intended != self.search.then_some(self.player) {
             return Err("prepared entry producer/controller mismatch".into());
         }
         Ok((self.player, *paid == Some(false)))
     }
 }
 impl Game {
-    pub(super) fn optional_entry_cost(&self, object: ObjectId) -> Result<Option<(u32, &Quantity)>, String> {
+    pub(super) fn optional_entry_cost(
+        &self,
+        object: ObjectId,
+    ) -> Result<Option<(u32, &Quantity)>, String> {
         let d = self.definition(object.card)?;
         let mut found = None;
         for (index, a) in d.static_abilities.iter().enumerate() {
             if let StaticEffect::EntersTappedUnlessPayLife { amount } = &a.effect {
-                if found.is_some() || d.static_abilities.len() != 1 || amount.is_negative()
+                if found.is_some()
+                    || d.static_abilities.len() != 1
+                    || amount.is_negative()
                     || a.functioning_zone != FunctioningZone::Battlefield
                 {
                     return Err("unsupported optional entry composition".into());
                 }
-                found = Some((u32::try_from(index).map_err(|_| "entry static index limit")?, amount));
+                found = Some((
+                    u32::try_from(index).map_err(|_| "entry static index limit")?,
+                    amount,
+                ));
             }
         }
         Ok(found)
     }
     fn entry_frame(&self) -> Result<(&EntryOrigin, &[ObjectId], &[bool]), String> {
-        let Frame::LandEntry { origin, objects, choices } = &self.state.rules.frame else {
+        let Frame::LandEntry {
+            origin,
+            objects,
+            choices,
+        } = &self.state.rules.frame
+        else {
             return Err("no land entry transaction".into());
         };
         Ok((origin, objects, choices))
@@ -77,13 +88,16 @@ impl Game {
     fn validate_entry_plan(&self) -> Result<(), String> {
         let (origin, objects, choices) = self.entry_frame()?;
         let player = origin.player();
-        if !self.is_live(player) || objects.is_empty()
+        if !self.is_live(player)
+            || objects.is_empty()
             || objects.len() > self.state.rules.cards.len()
             || !objects.windows(2).all(|w| w[0] < w[1])
         {
             return Err("invalid entry player/source set".into());
         }
-        for object in objects { self.current(*object)?; }
+        for object in objects {
+            self.current(*object)?;
+        }
         match origin {
             EntryOrigin::LandPlay { decision_id, .. } => {
                 if objects.len() != 1 || *decision_id >= self.state.rules.revision {
@@ -114,7 +128,9 @@ impl Game {
     ) -> Result<(), String> {
         let mut total = Quantity::zero();
         for ((_, _, amount), paid) in offers.iter().zip(choices) {
-            if *paid { total.add(amount); }
+            if *paid {
+                total.add(amount);
+            }
         }
         // CR118.4: zero is payable even with synthetic negative life. Positive
         // costs permit equality; all selected costs reserve ONE common balance.
@@ -123,28 +139,52 @@ impl Game {
         }
         Ok(())
     }
-    pub(super) fn begin_land_entry(&mut self, origin: EntryOrigin, mut objects: Vec<ObjectId>) -> Result<bool, String> {
+    pub(super) fn begin_land_entry(
+        &mut self,
+        origin: EntryOrigin,
+        mut objects: Vec<ObjectId>,
+    ) -> Result<bool, String> {
         objects.sort();
-        if self.entry_offers(&objects)?.is_empty() { return Ok(false); }
-        self.state.rules.frame = Frame::LandEntry { origin, objects, choices: vec![] };
+        if self.entry_offers(&objects)?.is_empty() {
+            return Ok(false);
+        }
+        self.state.rules.frame = Frame::LandEntry {
+            origin,
+            objects,
+            choices: vec![],
+        };
         self.validate_entry_plan()?;
         Ok(true)
     }
     pub(super) fn land_entry_offer(&self) -> Result<Option<(PlayerId, ObjectId, u32)>, String> {
-        if !matches!(self.state.rules.frame, Frame::LandEntry { .. }) { return Ok(None); }
+        if !matches!(self.state.rules.frame, Frame::LandEntry { .. }) {
+            return Ok(None);
+        }
         self.validate_entry_plan()?;
         let (origin, objects, choices) = self.entry_frame()?;
-        Ok(self.entry_offers(objects)?.get(choices.len()).map(|(object, ability, _)| (origin.player(), *object, *ability)))
+        Ok(self
+            .entry_offers(objects)?
+            .get(choices.len())
+            .map(|(object, ability, _)| (origin.player(), *object, *ability)))
     }
     pub(super) fn land_entry_request(&self) -> Result<Option<Request>, String> {
-        Ok(self.land_entry_offer()?.map(|(player, _, _)| Request::OptionalEffect {
-            decision_id: self.state.rules.revision, player,
-        }))
+        Ok(self
+            .land_entry_offer()?
+            .map(|(player, _, _)| Request::OptionalEffect {
+                decision_id: self.state.rules.revision,
+                player,
+            }))
     }
-    pub(super) fn validate_land_entry_response(&self, player: PlayerId, response: &Response) -> Result<(), String> {
+    pub(super) fn validate_land_entry_response(
+        &self,
+        player: PlayerId,
+        response: &Response,
+    ) -> Result<(), String> {
         self.validate_entry_plan()?;
         let (origin, objects, choices) = self.entry_frame()?;
-        let Response::OptionalEffect { perform } = response else { return Err("invalid entry response".into()); };
+        let Response::OptionalEffect { perform } = response else {
+            return Err("invalid entry response".into());
+        };
         let offers = self.entry_offers(objects)?;
         if origin.player() != player || choices.len() >= offers.len() {
             return Err("wrong entry chooser/phase".into());
@@ -156,46 +196,93 @@ impl Game {
     fn entry_cause(&self) -> Result<BatchCause, String> {
         let (origin, objects, _) = self.entry_frame()?;
         match origin {
-            EntryOrigin::LandPlay { player, decision_id } => Ok(BatchCause::LandPlay { player: *player, decision_id: *decision_id, source: *objects.first().ok_or("empty entry")? }),
-            EntryOrigin::Search { frame } => Ok(Self::staple_cause(frame, self.entry_search_block(frame)?)),
+            EntryOrigin::LandPlay {
+                player,
+                decision_id,
+            } => Ok(BatchCause::LandPlay {
+                player: *player,
+                decision_id: *decision_id,
+                source: *objects.first().ok_or("empty entry")?,
+            }),
+            EntryOrigin::Search { frame } => {
+                Ok(Self::staple_cause(frame, self.entry_search_block(frame)?))
+            }
         }
     }
     fn entry_group(&self) -> Result<EventGroup, String> {
         let (origin, objects, choices) = self.entry_frame()?;
         let offers = self.entry_offers(objects)?;
-        if choices.len() != offers.len() { return Err("incomplete entry decisions".into()); }
+        if choices.len() != offers.len() {
+            return Err("incomplete entry decisions".into());
+        }
         let player = origin.player();
         let mut children = vec![];
         for ((_, _, amount), paid) in offers.iter().zip(choices) {
             if *paid && *amount > Quantity::zero() {
-                children.push(EventGroup::Occurrence { proposed: ProposedEvent::LoseLife { player, amount: amount.clone() } });
+                children.push(EventGroup::Occurrence {
+                    proposed: ProposedEvent::LoseLife {
+                        player,
+                        amount: amount.clone(),
+                    },
+                });
             }
         }
-        children.push(EventGroup::Simultaneous { occurrences: objects.iter().map(|object| match origin {
-            EntryOrigin::LandPlay { .. } => ProposedEvent::Move { object: *object, destination: Zone::Battlefield },
-            EntryOrigin::Search { .. } => ProposedEvent::SearchLandEntry { object: *object, player },
-        }).collect() });
+        children.push(EventGroup::Simultaneous {
+            occurrences: objects
+                .iter()
+                .map(|object| match origin {
+                    EntryOrigin::LandPlay { .. } => ProposedEvent::Move {
+                        object: *object,
+                        destination: Zone::Battlefield,
+                    },
+                    EntryOrigin::Search { .. } => ProposedEvent::SearchLandEntry {
+                        object: *object,
+                        player,
+                    },
+                })
+                .collect(),
+        });
         if matches!(origin, EntryOrigin::LandPlay { .. }) {
-            children.push(EventGroup::Occurrence { proposed: ProposedEvent::LandPlayed { player } });
+            children.push(EventGroup::Occurrence {
+                proposed: ProposedEvent::LandPlayed { player },
+            });
         }
         Ok(EventGroup::Ordered { children })
     }
-    pub(super) fn prepare_entry_batch(&self, cause: &BatchCause, group: &EventGroup) -> Result<Option<PreparedEntryAuthority>, String> {
-        let Frame::LandEntry { origin, objects, choices } = &self.state.rules.frame else { return Ok(None); };
+    pub(super) fn prepare_entry_batch(
+        &self,
+        cause: &BatchCause,
+        group: &EventGroup,
+    ) -> Result<Option<PreparedEntryAuthority>, String> {
+        let Frame::LandEntry {
+            origin,
+            objects,
+            choices,
+        } = &self.state.rules.frame
+        else {
+            return Ok(None);
+        };
         // Other causes (notably concession/control reconciliation) are ordinary
         // events, even while a chooser is suspended. A cause purporting to be
         // this entry must prove the COMPLETE transaction, including payments.
         let originating = match (origin, cause) {
             (EntryOrigin::LandPlay { .. }, BatchCause::LandPlay { .. }) => true,
-            (EntryOrigin::Search { frame }, BatchCause::Instruction { stack_id, .. }) => *stack_id == frame.spell.id,
+            (EntryOrigin::Search { frame }, BatchCause::Instruction { stack_id, .. }) => {
+                *stack_id == frame.spell.id
+            }
             _ => false,
         };
-        if !originating { return Ok(None); }
+        if !originating {
+            return Ok(None);
+        }
         self.validate_entry_plan()?;
         if *cause != self.entry_cause()? || *group != self.entry_group()? {
             return Err("entry cause/group authority mismatch".into());
         }
-        let mut entries = objects.iter().map(|o| (*o, None)).collect::<BTreeMap<_,_>>();
+        let mut entries = objects
+            .iter()
+            .map(|o| (*o, None))
+            .collect::<BTreeMap<_, _>>();
         for ((object, _, _), paid) in self.entry_offers(objects)?.iter().zip(choices) {
             entries.insert(*object, Some(*paid));
         }
@@ -205,15 +292,29 @@ impl Game {
         };
         // No Basic+Land scan here. The single simultaneous capture follows ONLY
         // life losses; no battlefield, control or entry can change its prior facts.
-        Ok(Some(PreparedEntryAuthority { player: origin.player(), search, force_tapped, entries }))
+        Ok(Some(PreparedEntryAuthority {
+            player: origin.player(),
+            search,
+            force_tapped,
+            entries,
+        }))
     }
     pub(super) fn land_entry_step(&mut self) -> Result<(), String> {
         self.validate_entry_plan()?;
         if self.land_entry_offer()?.is_some() {
-            let input = self.state.rules.pending.take().ok_or("missing entry decision")?;
+            let input = self
+                .state
+                .rules
+                .pending
+                .take()
+                .ok_or("missing entry decision")?;
             self.validate_land_entry_response(input.player, &input.response)?;
-            let Response::OptionalEffect { perform } = input.response else { return Err("entry input invariant".into()); };
-            let Frame::LandEntry { choices, .. } = &mut self.state.rules.frame else { unreachable!() };
+            let Response::OptionalEffect { perform } = input.response else {
+                return Err("entry input invariant".into());
+            };
+            let Frame::LandEntry { choices, .. } = &mut self.state.rules.frame else {
+                unreachable!()
+            };
             choices.push(perform);
             return Ok(());
         }
@@ -245,29 +346,45 @@ impl Game {
         Ok(())
     }
     pub(super) fn revalidate_land_entry_departure(&mut self) -> Result<(), String> {
-        let Frame::LandEntry { origin, .. } = self.state.rules.frame.clone() else { return Ok(()); };
+        let Frame::LandEntry { origin, .. } = self.state.rules.frame.clone() else {
+            return Ok(());
+        };
         if !self.is_live(origin.player()) {
             self.state.rules.pending = None;
             return match origin {
-                EntryOrigin::LandPlay { .. } => { self.state.rules.frame = Frame::Priority; Ok(()) }
-                EntryOrigin::Search { frame } => self.finish_instruction(frame, InstructionOutcome::Effect { actual: None }),
+                EntryOrigin::LandPlay { .. } => {
+                    self.state.rules.frame = Frame::Priority;
+                    Ok(())
+                }
+                EntryOrigin::Search { frame } => {
+                    self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
+                }
             };
         }
         // A departed SPELL SOURCE OWNER does not cancel a live controller's
         // frozen paid invocation. Existing resolving validation/LKI owns that case.
         self.validate_entry_plan()?;
-        if self.state.rules.pending.as_ref().is_some_and(|p| self.validate_land_entry_response(p.player, &p.response).is_err()) {
+        if self.state.rules.pending.as_ref().is_some_and(|p| {
+            self.validate_land_entry_response(p.player, &p.response)
+                .is_err()
+        }) {
             self.state.rules.pending = None;
         }
         Ok(())
     }
     #[cfg(test)]
-    pub(super) fn entry_cause_for_test(&self) -> BatchCause { self.entry_cause().unwrap() }
+    pub(super) fn entry_cause_for_test(&self) -> BatchCause {
+        self.entry_cause().unwrap()
+    }
     #[cfg(test)]
-    pub(super) fn entry_group_for_test(&self) -> EventGroup { self.entry_group().unwrap() }
+    pub(super) fn entry_group_for_test(&self) -> EventGroup {
+        self.entry_group().unwrap()
+    }
     pub(super) fn land_entry_charge(&self) -> usize {
         let frame = spell_cascade_grants::retained_effect_frame(&self.state.rules.frame);
-        let Frame::LandEntry { origin, .. } = frame else { return 0; };
+        let Frame::LandEntry { origin, .. } = frame else {
+            return 0;
+        };
         let separately_charged = match origin {
             EntryOrigin::LandPlay { .. } => 0,
             EntryOrigin::Search { frame } => costs::entry_cost_lock_charge(&frame.spell)

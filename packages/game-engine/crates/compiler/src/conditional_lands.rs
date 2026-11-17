@@ -18,7 +18,12 @@ pub(super) fn lower(effect: &SourceStaticEffect) -> Result<Option<StaticAbility>
         declined,
     } = effect
     {
-        let bad = || unsupported("static.entry", "unsupported complete optional-life land entry");
+        let bad = || {
+            unsupported(
+                "static.entry",
+                "unsupported complete optional-life land entry",
+            )
+        };
         let [EntryLifeCost::PayLife { amount }] = costs.as_slice() else {
             return Err(bad());
         };
@@ -130,7 +135,15 @@ pub(super) fn bind(
     let optional = matches!(effect, SourceStaticEffect::EntryChoice { .. });
     let mut obligations = vec![
         ("/effect/what", json!({"ref":"this","noun":"land"}), source),
-        (if optional { "/effect/who" } else { "/effect/condition/who" }, json!({"player":"you"}), entering.clone()),
+        (
+            if optional {
+                "/effect/who"
+            } else {
+                "/effect/condition/who"
+            },
+            json!({"player":"you"}),
+            entering.clone(),
+        ),
     ];
     if optional {
         obligations.push(("/effect/costs/0/payer", json!({"player":"you"}), entering));

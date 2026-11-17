@@ -208,7 +208,10 @@ pub(super) fn retained_effect_frame(mut frame: &Frame) -> &Frame {
 }
 pub(super) fn retained_resolving_entry(frame: &Frame) -> Option<&StackInstance> {
     match retained_effect_frame(frame) {
-        Frame::LandEntry { origin: EntryOrigin::Search { frame }, .. }
+        Frame::LandEntry {
+            origin: EntryOrigin::Search { frame },
+            ..
+        }
         | Frame::Resolve { frame }
         | Frame::ResolutionChoice { frame, .. }
         | Frame::ForcedSacrifice { frame, .. }

@@ -63,10 +63,10 @@ mod blocking_target_tests;
 mod counter_placement;
 #[cfg(test)]
 mod four_colors_tests;
-mod staples;
 mod land_entry;
-use land_entry::{EntryOrigin, PreparedEntryAuthority};
+mod staples;
 pub use counter_placement::*;
+use land_entry::{EntryOrigin, PreparedEntryAuthority};
 mod tokens;
 pub use staples::VisibleSearchLand;
 pub use tokens::{RuleFault, TOKEN_CAPACITY, VisibleToken};
@@ -2575,7 +2575,11 @@ impl Game {
             | Frame::OptionalDamage { .. } => {
                 return Ok(self.sacrifice_request()?.filter(|r| r.player() == viewer));
             }
-            Frame::LandEntry { .. } => return self.land_entry_request().map(|r| r.filter(|r| r.player() == viewer)),
+            Frame::LandEntry { .. } => {
+                return self
+                    .land_entry_request()
+                    .map(|r| r.filter(|r| r.player() == viewer));
+            }
             Frame::IntrinsicManaChoice { player, source, .. } => Request::ManaColor {
                 decision_id: self.state.rules.revision,
                 player: *player,

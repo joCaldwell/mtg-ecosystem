@@ -117,7 +117,13 @@ impl Game {
     ) -> Result<(), String> {
         self.validate_land_play(player, card)?;
         let object = self.object_id(card).ok_or("missing land source")?;
-        if self.begin_land_entry(EntryOrigin::LandPlay { player, decision_id }, vec![object])? {
+        if self.begin_land_entry(
+            EntryOrigin::LandPlay {
+                player,
+                decision_id,
+            },
+            vec![object],
+        )? {
             return Ok(());
         }
         self.commit_batch(
