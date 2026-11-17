@@ -44,6 +44,7 @@ qualification fence independently of React and SDK runtime.
 From repository root, use pinned Node and package-local locked installs:
 
 ```sh
+sh scripts/engine-env.sh npm --prefix packages/deck-builder ci --workspaces=false --ignore-scripts
 sh scripts/engine-env.sh npm --prefix packages/game-ui ci --workspaces=false --ignore-scripts
 sh scripts/engine-env.sh npm --prefix packages/game-server/sdk ci --workspaces=false --ignore-scripts
 sh scripts/engine-env.sh npm --prefix packages/game ci --workspaces=false --ignore-scripts
