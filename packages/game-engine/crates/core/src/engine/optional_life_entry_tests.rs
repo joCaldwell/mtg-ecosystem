@@ -973,7 +973,7 @@ fn optional_entry_synthetic_nonempty_grant_history_and_commander_wrapper_charge_
         }),
         witness: TriggerEventWitness::SpellCast {
             cast: Box::new(CastOccurrence {
-                history: CastHistoryFacts {
+                history: triggers::CastHistoryFacts {
                     turn_number: g.turn().number,
                     first_overall: true,
                     first_from_exile: false,
@@ -1002,7 +1002,7 @@ fn optional_entry_synthetic_nonempty_grant_history_and_commander_wrapper_charge_
         object: objects[0],
         destination: Zone::Graveyard { owner: PlayerId(0) },
         continuation: Box::new(CommanderContinuation::StateBased {
-            resume: Box::new(entry),
+            resume: entry,
         }),
     };
     assert_eq!(probe.land_entry_charge() + grant, payload);
