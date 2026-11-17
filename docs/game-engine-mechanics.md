@@ -407,18 +407,16 @@ values beyond machine integers, denies unknown fields and requires source block 
 The old `ModifyPowerToughness`/grant sequence rejects in either order; standalone
 `ModifyPowerToughness` remains supported in its existing scope.
 
-The combined grant creates one continuous effect with one captured target
-incarnation. CR 611.2c and 613.5–6 apply all its keyword and P/T parts to that
-same object across layers. Departure LKI must observe the complete effect,
-including during a CR 104.3a concession; separately created stat/keyword effects
-cannot satisfy this contract.
+One captured incarnation receives both stat and keyword layers
+(CR 611.2c, 613.5–6), including complete departure LKI during concessions
+(CR 104.3a). Separate stat/keyword effects fail this contract.
 
 Keyword vectors are nonempty, duplicate-free and limited to Flying, Deathtouch,
-Indestructible, Lifelink, Hexproof, Haste, Trample and First Strike; serialized order
-is retained. Pure Lifelink/Hexproof/Haste/Trample/First Strike, mixed vectors and
-modifier-plus-Flying/Deathtouch/Lifelink/Hexproof/Haste/Trample/First Strike require
-the general capability. Haste, Trample and First Strike reuse existing readiness
-and combat-damage rules (CR 702.10, 702.19, 702.7); this vocabulary extension adds
+Indestructible, Lifelink, Hexproof, Haste, Trample, Reach and First Strike; serialized order
+is retained. Pure Lifelink/Hexproof/Haste/Trample/Reach/First Strike, mixed vectors and
+modifier-plus-Flying/Deathtouch/Lifelink/Hexproof/Haste/Trample/Reach/First Strike require
+the general capability. Haste, Trample, Reach and First Strike reuse readiness, blocking and
+damage rules (CR 702.10, 702.19, 702.17, 702.7); this vocabulary extension adds
 no opcode, capability or runtime mechanism.
 Existing unfiltered singleton Flying/Deathtouch/Indestructible and modifier-plus-singleton
 Indestructible retain their old temporary/compound subset capabilities; the general
@@ -440,7 +438,7 @@ changes do not end the grant (CR 611.2c).
 
 Contracts' borrowed `TemporaryTargetedKeywordProgram` and
 `temporary_targeted_keyword_program` union expose modifier, keywords and optional
-controller life. `supported_temporary_keywords` retains the same eight-keyword
+controller life. `supported_temporary_keywords` retains the same nine-keyword
 vocabulary. The creature wrapper remains single-grant; the compound helper keeps
 its singleton policy. The permanent wrapper requires one
 `ControlledBattlefieldPermanent` slot-zero controller/announcement target with an
@@ -496,7 +494,7 @@ reviewed vector. `temporary_creature_set_keyword_program` and
 and quantities never select mechanics.
 
 The family reuses `supported_temporary_keywords`: Flying, Deathtouch,
-Indestructible, Lifelink, Hexproof, Haste, Trample and First Strike, nonempty and
+Indestructible, Lifelink, Hexproof, Haste, Trample, Reach and First Strike, nonempty and
 without duplicates. Every keyword requires its existing primitive capability;
 Hexproof uses `attachments_v1`, and First Strike serializes as `first strike`
 with `first_strike_v1`. Every set grant additionally requires `board_wipes_v1`
