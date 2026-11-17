@@ -33,9 +33,10 @@ Exact-deck admission remains open. [Historical plan](https://github.com/joCaldwe
 
 ### M2 Complete land and ramp infrastructure
 
-Typed search, Cinder entry, intrinsic mana and five shocks are locally qualified
-at `09e0660a`:33 definitions lowered/validated,52 Unsupported. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
-owns proof. Complete fetch costs, opponent production and triome cycling.
+Typed search, Cinder entry, intrinsic mana, five shocks and fetch costs are locally
+qualified at `17660e54`:36 definitions lowered/validated,49 Unsupported.
+[Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration) owns proof.
+Triome cycling is source-only pending native qualification; opponent production remains open.
 
 ### M4 Complete the cascade package and casting history
 
@@ -58,7 +59,7 @@ search and Urban Evolution land permissions.
 
 ### M7 Complete protection and board interaction
 
-Complete Anguished Unmaking, Void Rend, Ruinous Ultimatum, Child, Avacyn, Escort,
+Complete Anguished Unmaking, Void Rend, Ruinous Ultimatum, Child, Avacyn,
 Exterminatus, Farewell and Akroma's Will.
 
 ### M8 Add spell and permanent copies

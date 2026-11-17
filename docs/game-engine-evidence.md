@@ -214,3 +214,9 @@ Optional-life entry source `09e0660a` combines main `129405b0`:41 distinct Rust,
 79 schema probes,1,032 source rows;37/27,IR1. Target audit33/52/0. Exact producers,
 source bridges, one review, runtime repairs and omissions:
 `generated/ramos/land-life-combined/integration.json`. No consumer/deck admission.
+
+Fetch/Escort source `17660e54` combines main `a844ccb8`:30 distinct Rust,
+89 schema probes,1,063 rows;38/28,IR1. Audit36/49/0. Paid Annex proves borrowed
+fetch authority/departures; Escort proves captured protection/LKI/recovery. One
+review's casting-program/binding fixes and test-only producer bridges remain in
+`generated/ramos/next-fetch-set/integration.json`. Native released; no deck/consumer admission.

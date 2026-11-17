@@ -36,7 +36,7 @@ test("typed_fetchland exported schema closes cost and complete activation shape"
     (d: any) => { d.characteristics.kind = "creature"; },
     (d: any) => { d.characteristics.subtypes = ["Forest"]; },
     (d: any) => { d.characteristics.basic = true; },
-    (d: any) => { d.static_abilities.push({ functioning_zone: "battlefield", effect: "enters_tapped" }); },
+    (d: any) => { d.static_abilities = [{ functioning_zone: "battlefield", effect: "enters_tapped" }]; },
     (d: any) => { d.capabilities = d.capabilities.filter((c: string) => c !== "pay_life_cost_v1"); },
     (d: any) => { d.capabilities.push("life_loss_v1"); },
     (d: any) => { d.activated = []; },

@@ -129,8 +129,11 @@ Optional-life entry chooses before debit/entry, reserves combined costs, and
 atomically commits payments, entries and landplay usage. Forced/intrinsic/declined
 tapping combine. Landplay and paid Lore/Claim/Farseek retain owned continuations,
 privacy and recovery. Source integers are exact u64; IR quantities remain arbitrary
-precision. Parent `09e0660a` has focused proof at private37/public27,IR1;
-admission, triome cycling and opponent production remain open.
+precision. Fetch activations atomically tap, pay life and sacrifice the source
+before typed search; the current controller pays and paid roots retain LKI through
+source-owner departure. Sacrifice-source creature activations capture controller
+creatures at resolution for pure temporary keyword grants.
+Focused proof uses38/28,IR1; admission, triome cycling and opponent production remain open.
 
 ## Casting, costs, targets and stack
 
