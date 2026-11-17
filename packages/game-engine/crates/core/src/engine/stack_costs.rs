@@ -14,6 +14,13 @@ impl AnnouncementOrigin {
 }
 
 impl Game {
+    // CR602.2/702.29a: a hand card's owner activates it. A stale battlefield
+    // controller never supplies (or removes) permission outside battlefield.
+    pub(super) fn hand_activation_source_payable(&self, player: PlayerId, source: ObjectId) -> bool {
+        self.is_live(player)
+            && self.current(source).is_ok_and(|o| o.zone == (Zone::Hand { owner: player }))
+            && self.state.rules.cards.get(&source.card).is_some_and(|c| c.owner == player)
+    }
     // CR 118.3/119.4/602.2: payer is the current controller, and paying
     // exactly all remaining life is legal. Zero is payable at any life total.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -75,6 +82,13 @@ impl Game {
         object: ObjectId,
         ability: u32,
     ) -> Result<(), String> {
+        // CR602.2a/701.20a: reveal only after the ordinary priority authority
+        // and exact source/ability permission have succeeded. This precedes
+        // every opponent handle allocation; action queries allocate nothing.
+        if !matches!(self.state.rules.frame, Frame::Priority) || self.state.rules.priority != player {
+            return Err("ability proposal requires its ordinary priority owner".into());
+        }
+        self.validate_activation(player, object, ability)?;
         let cost = self
             .definition(object.card)?
             .activated
@@ -82,9 +96,8 @@ impl Game {
             .ok_or("missing activated cost")?
             .cost
             .clone();
-        let source_handles = (0..4)
-            .map(|viewer| self.handle_for(PlayerId(viewer), object))
-            .collect::<Result<Vec<_>, _>>()?;
+        let cast_from = self.current(object)?.zone;
+        let source_handles = self.capture_trigger_source_handles(object)?;
         let id = StackId(self.state.rules.next_stack_id);
         self.state.rules.next_stack_id = self
             .state
@@ -97,6 +110,7 @@ impl Game {
                 mana.clone().unwrap_or_else(zero_mana_cost)
             }
             ActivationCost::Mana { cost } => cost.clone(),
+            ActivationCost::DiscardSource { mana } => mana.clone(),
             ActivationCost::Composite { costs } => {
                 costs.mana.clone().unwrap_or_else(zero_mana_cost)
             }
@@ -108,7 +122,7 @@ impl Game {
         let chosen = matches!(cost, ActivationCost::SacrificePermanent { .. });
         let mana = matches!(
             cost,
-            ActivationCost::Mana { .. } | ActivationCost::SacrificePermanent { mana: Some(_), .. }
+            ActivationCost::Mana { .. } | ActivationCost::DiscardSource { .. } | ActivationCost::SacrificePermanent { mana: Some(_), .. }
         ) || matches!(&cost, ActivationCost::Composite { costs } if costs.mana.is_some());
         let targeted = !self.definition(object.card)?.activated[ability as usize]
             .program
@@ -140,7 +154,7 @@ impl Game {
             announced_targets: vec![vec![]; 4],
             paid: (!mana && !targeted && !chosen).then_some(total_cost.clone()),
             total_cost,
-            cast_from: Zone::Battlefield,
+            cast_from,
         });
         if targeted {
             if cost != ActivationCost::TapSource
@@ -240,6 +254,7 @@ impl Game {
                     ActivationCost::TapPayLifeSacrificeSource { .. }
                     | ActivationCost::Composite { .. }
                     | ActivationCost::Mana { .. }
+                    | ActivationCost::DiscardSource { .. }
                     | ActivationCost::SacrificePermanent { .. } => {
                         return Err("activated cost branch invariant".into());
                     }
@@ -283,6 +298,7 @@ impl Game {
                 mana.clone().unwrap_or_else(zero_mana_cost)
             }
             ActivationCost::Mana { cost } => cost.clone(),
+            ActivationCost::DiscardSource { mana } => mana.clone(),
             ActivationCost::Composite { costs } => {
                 costs.mana.clone().unwrap_or_else(zero_mana_cost)
             }
@@ -324,7 +340,11 @@ impl Game {
                     )
                 }))
             || entry.total_cost != expected
-            || entry.cast_from != Zone::Battlefield
+            || entry.cast_from != match activated.functioning_zone {
+                FunctioningZone::Hand => Zone::Hand { owner: entry.controller },
+                FunctioningZone::Battlefield => Zone::Battlefield,
+                FunctioningZone::Stack => return Err("invalid activation functioning zone".into()),
+            }
             || match &entry.paid {
                 Some(paid) => *paid != expected,
                 None => {
@@ -332,6 +352,7 @@ impl Game {
                         || !(matches!(
                             activated.cost,
                             ActivationCost::Mana { .. }
+                                | ActivationCost::DiscardSource { .. }
                                 | ActivationCost::Composite { .. }
                                 | ActivationCost::SacrificePermanent { .. }
                                 | ActivationCost::SacrificeSource
@@ -340,6 +361,18 @@ impl Game {
             }
         {
             return Err("snapshot activated invocation invariant".into());
+        }
+        if activated.functioning_zone == FunctioningZone::Hand {
+            let fact = entry.source_facts.as_ref().ok_or("missing hand activation source facts")?;
+            if !hand_discard_draw_activation(activated)
+                || fact.object != entry.source
+                || fact.owner != entry.controller
+                || fact.zone != entry.cast_from
+                || (entry.paid.is_none() && !self.hand_activation_source_payable(entry.controller, entry.source))
+                || (entry.paid.is_some() && self.current(entry.source).is_ok())
+            {
+                return Err("snapshot hand activation cost/source invariant".into());
+            }
         }
         Ok(())
     }

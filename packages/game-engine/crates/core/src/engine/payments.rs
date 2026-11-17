@@ -199,6 +199,12 @@ impl Game {
             return Ok(AnnouncementPayment::Unpayable);
         }
         let cost = stack.total_cost.clone();
+        if let StackKind::Activated { ability, .. } = &stack.kind
+            && matches!(self.definition(stack.source.card)?.activated[*ability as usize].cost, ActivationCost::DiscardSource { .. })
+            && !self.hand_activation_source_payable(stack.controller, stack.source)
+        {
+            return Ok(AnnouncementPayment::Unpayable);
+        }
         if !self.can_pay(stack.controller, &cost)? {
             return Ok(AnnouncementPayment::Unpayable);
         }
@@ -222,6 +228,21 @@ impl Game {
                 player: stack.controller,
             },
         )?;
+        // CR601.2h/602.2b/702.29a: debit the complete explicit mana selection
+        // before discarding precisely the preflighted source as a cost. The
+        // containing rule step stages both occurrences atomically. No choice
+        // of another hand card, no effect-time discard, no early cost on failure.
+        if let StackKind::Activated { ability, .. } = &stack.kind
+            && matches!(self.definition(stack.source.card)?.activated[*ability as usize].cost, ActivationCost::DiscardSource { .. })
+        {
+            self.commit(
+                ProposedEvent::DiscardCard { object: stack.source, player: stack.controller },
+                BatchCause::AbilityActivation {
+                    stack_id: stack.id, player: stack.controller, source: stack.source,
+                    decision_id: self.state.rules.revision, ability: *ability,
+                },
+            )?;
+        }
         if let StackKind::Activated { ability, .. } = stack.kind
             && let ActivationCost::Composite { costs } =
                 self.definition(stack.source.card)?.activated[ability as usize]

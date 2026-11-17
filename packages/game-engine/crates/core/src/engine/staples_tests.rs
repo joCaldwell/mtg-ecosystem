@@ -1431,3 +1431,6 @@ mod conditional_lands_tests;
 
 #[path = "typed_fetchland_tests.rs"]
 mod typed_fetchland_tests;
+
+#[path = "cycling_tests.rs"]
+mod cycling_tests;
