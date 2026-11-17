@@ -130,3 +130,139 @@ fn controller_counted_draw_strict_qualifiers_bindings_and_truncated_source_rejec
         ));
     }
 }
+
+const CRAVING: &str =
+    include_str!("../../../tests/fixtures/78725353-9274-420a-b722-add0f43c444e.json");
+const AMBITION: &str =
+    include_str!("../../../tests/fixtures/84de4fec-2f38-4293-93d3-b3882c5aac14.json");
+#[test]
+fn controller_counted_draw_life_complete_sources_costs_and_extra_clause_rejection() {
+    for raw in [CRAVING, AMBITION] {
+        let CompileResult::Lowered { definition: d } = compile(HEADER, raw) else {
+            panic!("{:?}", compile(HEADER, raw))
+        };
+        let pin: Value = serde_json::from_str(raw).unwrap();
+        d.validate().unwrap();
+        assert_eq!(d.characteristics.mana_cost.generic, 3.into());
+        assert_eq!(d.characteristics.mana_cost.colored, vec![Color::B]);
+        assert_eq!(d.provenance.source_sha256, pin["sourceSha256"]);
+        assert_eq!(d.provenance.ast_sha256, pin["astSha256"]);
+        assert_eq!(d.provenance.binding_sha256, pin["bindingSha256"]);
+        assert!(
+            d.capabilities
+                .contains(&Capability::ControllerCountedDrawV1)
+        );
+        assert!(d.capabilities.contains(&Capability::LifeLossV1));
+        assert_eq!(
+            d.spell.as_ref().unwrap().instructions,
+            vec![
+                Instruction::DrawControllerCards {
+                    count: 3.into(),
+                    source_block: 0
+                },
+                Instruction::LoseLife {
+                    recipient: LifeRecipient::Controller,
+                    amount: 3.into(),
+                    source_block: 0
+                }
+            ]
+        );
+    }
+    assert!(matches!(
+        compile(
+            HEADER,
+            include_str!("../../../tests/fixtures/fde459b2-f45f-40d2-b328-58f65440f494.json")
+        ),
+        CompileResult::Unsupported { .. }
+    ));
+}
+#[test]
+fn controller_counted_draw_life_preserves_legacy_two_card_combinations() {
+    for (raw, targeted) in [
+        (
+            include_str!("../../../tests/fixtures/7ffae8f8-3006-4969-a339-6d30678f87ea.json"),
+            false,
+        ),
+        (
+            include_str!("../../../tests/fixtures/c8e21bc4-ea57-46d6-9e7e-ad95e17ea0fd.json"),
+            false,
+        ),
+        (
+            include_str!("../../../tests/fixtures/c6207f6a-a624-4754-88f5-dbe700c841ff.json"),
+            true,
+        ),
+    ] {
+        let CompileResult::Lowered { definition: d } = compile(HEADER, raw) else {
+            panic!("{:?}", compile(HEADER, raw))
+        };
+        assert!(
+            !d.capabilities
+                .contains(&Capability::ControllerCountedDrawV1)
+        );
+        let p = d.spell.as_ref().unwrap();
+        assert_eq!(p.instructions.len(), 3);
+        let recipient = if targeted {
+            LifeRecipient::Target { target_slot: 0 }
+        } else {
+            LifeRecipient::Controller
+        };
+        for i in &p.instructions[..2] {
+            assert_eq!(
+                *i,
+                Instruction::DrawCards {
+                    recipient: targeted.then_some(recipient.clone()),
+                    count: 1.into(),
+                    source_block: 0
+                }
+            );
+        }
+        assert_eq!(
+            p.instructions[2],
+            Instruction::LoseLife {
+                recipient,
+                amount: 2.into(),
+                source_block: 0
+            }
+        );
+    }
+}
+#[test]
+fn controller_counted_draw_life_rejects_null_qualifiers_and_partial_bindings() {
+    for case in 0..12 {
+        let changed = tests::changed_source(CRAVING, |r| {
+            let effects = &mut r["faces"][0]["result"]["abilities"][0]["effects"];
+            match case {
+                0 => effects[0]["steps"][1]["who"]["selectionId"] = Value::Null,
+                1 => effects[0]["steps"][1]["who"]["of"] = Value::Null,
+                2 => effects[0]["steps"][1]["who"]["player"] = json!("each-opponent"),
+                3 => effects[0]["steps"][1]["optional"] = json!(true),
+                4 => effects[0]["steps"][1]["amount"]["value"] = json!(0),
+                5 => effects[0]["steps"][1]["amount"]["value"] = json!(-1),
+                6 => effects[0]["steps"].as_array_mut().unwrap().reverse(),
+                7 => {
+                    let loss = effects[0]["steps"].as_array_mut().unwrap().pop().unwrap();
+                    effects
+                        .as_array_mut()
+                        .unwrap()
+                        .push(json!({"steps":[loss]}));
+                }
+                8 => effects[0]["condition"] = Value::Null,
+                9 => r["binding"]["references"][1]["target"] = json!("foreign"),
+                10 => {
+                    for n in r["binding"]["nodes"].as_array_mut().unwrap() {
+                        if n["operation"] == "lose-life" {
+                            n["operation"] = json!("gain-life");
+                        }
+                    }
+                }
+                _ => effects[0]["steps"].as_array_mut().unwrap().truncate(1),
+            }
+            let copy = r["faces"][0]["result"]["abilities"][0].clone();
+            r["faces"][0]["result"]["lines"][0]["ability"] = copy;
+        });
+        assert!(
+            !matches!(compile(HEADER, &changed), CompileResult::Lowered { .. }),
+            "{case}"
+        );
+    }
+}

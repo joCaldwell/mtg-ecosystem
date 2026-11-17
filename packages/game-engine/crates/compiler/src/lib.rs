@@ -1642,7 +1642,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         "nonspell ability on instant/sorcery",
                     ));
                 };
-                if let Some(count) = controller_counted_draw::coalesce(effects)? {
+                if let Some((count, life_loss)) = controller_counted_draw::coalesce(effects)? {
                     if abilities.len() != 1
                         || block != 0
                         || !program.instructions.is_empty()
@@ -1658,6 +1658,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         count,
                         source_block: 0,
                     });
+                    if let Some(amount) = life_loss {
+                        program.instructions.push(Instruction::LoseLife {
+                            recipient: LifeRecipient::Controller,
+                            amount,
+                            source_block: 0,
+                        });
+                    }
                     continue;
                 }
                 if let Some((draw, count)) = draw_discard::coalesce(effects)? {
