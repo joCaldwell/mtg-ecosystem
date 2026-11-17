@@ -64,9 +64,10 @@ locations, not a transcript of every check. Preserve their referenced raw eviden
 `npm run check:docs` (or `python3 scripts/check-docs.py`, no Node required) checks
 all maintained `.md`, `.markdown` and `.mdx` files, including package manuals and
 skills: at most **40 files, 60,000 total words and 9,000 words per file**. Fenced
-examples count. The same guard runs on every PR and in engine checks. Consolidate
-before adding a document; routine feature work must not raise these ceilings.
-Any deliberate budget change must explain the durable ownership need in its PR.
+examples count. Run this guard locally before every PR; it also runs in engine
+checks. Consolidate before adding a document; routine feature work must not raise
+these ceilings. Any deliberate budget change must explain the durable ownership
+need in its PR.
 
 Use existing pinned tools through `sh scripts/engine-env.sh`; bootstrap only when
 dependencies are missing/broken. Application packages use their local locks and
