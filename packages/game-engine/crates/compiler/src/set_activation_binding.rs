@@ -43,7 +43,7 @@ pub(super) fn bind(
         json!({"id":format!("{root}{cost}#event"),"path":cost,"node":"event","scope":ability,"operation":"cost:sacrifice","inputs":[],"availability":"when-performed"}),
         json!({"id":format!("{root}{cost}#quantity"),"path":cost,"node":"event-result","event":format!("{root}{cost}#event"),"result":"quantity","cardinality":"one","availability":"if-produced","identity":"measured-quantity"}),
         json!({"id":query,"path":format!("{effect}/what"),"node":"selection","scope":ability,"expression":what,"cardinality":"many","timing":"resolution","selection":"evaluate-reference"}),
-        json!({"id":format!("{root}{effect}#event"),"path":effect,"node":"event","scope":ability,"operation":"gain-abilities","inputs":[],"availability":"when-performed"}),
+        json!({"id":format!("{root}{effect}#event"),"path":effect,"node":"event","scope":ability,"operation":"gain-abilities","inputs":[query],"availability":"when-performed"}),
     ];
     for index in 0..gained.len() {
         let p = format!("{effect}/abilities/{index}");
@@ -53,6 +53,7 @@ pub(super) fn bind(
             json!({"id":format!("{id}#ability"),"path":p,"node":"ability","source":format!("{id}#recipient"),"face":face,"abilityKind":"keywords","you":format!("{id}#you")}),
             json!({"id":format!("{id}#you"),"path":p,"node":"runtime-player","scope":format!("{id}#ability"),"role":"static-source-controller"}),
             json!({"id":format!("{id}/keyword#you"),"path":format!("{p}/keyword"),"node":"runtime-player","scope":format!("{id}#ability"),"role":"static-source-controller"}),
+            json!({"id":format!("{id}/keyword#keyword"),"path":format!("{p}/keyword"),"node":"keyword-ability","scope":format!("{id}#ability"),"keyword":gained[index]["keyword"]["keyword"],"abilities":["static"],"you":format!("{id}/keyword#you")}),
         ]);
     }
     let refs = [

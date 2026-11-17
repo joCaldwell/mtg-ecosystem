@@ -133,6 +133,11 @@ fn escort_set_exact_source_ast_binding_provenance_cost_and_program() {
 #[test]
 fn escort_set_synthetic_parameterized_keywords_and_characteristics_use_same_composition() {
     let raw = changed(|r| {
+        for n in r["binding"]["nodes"].as_array_mut().unwrap() {
+            if n["node"] == "keyword-ability" {
+                n["keyword"] = json!("flying");
+            }
+        }
         r["source"]["power"] = "7".into();
         r["source"]["toughness"] = "9".into();
         r["source"]["mana_cost"] = "{5}{G}{W}".into();
@@ -152,7 +157,11 @@ fn escort_set_synthetic_parameterized_keywords_and_characteristics_use_same_comp
                 "/effects/0/steps/0/abilities/0",
                 "/effects/0/steps/0/abilities/1",
             );
-            nodes.push(serde_json::from_str(&text).unwrap());
+            let mut node: Value = serde_json::from_str(&text).unwrap();
+            if node["node"] == "keyword-ability" {
+                node["keyword"] = json!("lifelink");
+            }
+            nodes.push(node);
         }
         r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["abilities"] = json!([
             {"gained":"keyword","keyword":{"keyword":"flying"}},
@@ -255,7 +264,7 @@ fn escort_set_binding_only_foreign_missing_duplicate_and_unresolved_reject() {
             }));
         }
     }
-    for index in 0..12 {
+    for index in 0..13 {
         reject(&changed(|r| {
             r["binding"]["nodes"].as_array_mut().unwrap().remove(index);
         }));
