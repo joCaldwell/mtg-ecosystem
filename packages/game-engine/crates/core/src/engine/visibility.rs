@@ -2155,14 +2155,12 @@ impl Game {
                     .collect::<Result<_, String>>()?,
             }),
             PlayerResponse::Mulligan { take } => Ok(Response::Mulligan { take: *take }),
-            PlayerResponse::HandReturn { objects } | PlayerResponse::BottomOpening { objects } => {
-                Ok(Response::BottomOpening {
-                    objects: objects
-                        .iter()
-                        .map(|h| self.resolve_handle(viewer, h))
-                        .collect::<Result<_, _>>()?,
-                })
-            }
+            PlayerResponse::BottomOpening { objects } => Ok(Response::BottomOpening {
+                objects: objects
+                    .iter()
+                    .map(|h| self.resolve_handle(viewer, h))
+                    .collect::<Result<_, _>>()?,
+            }),
             PlayerResponse::Discard { objects } => Ok(Response::Discard {
                 objects: objects
                     .iter()

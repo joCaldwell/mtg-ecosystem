@@ -40,6 +40,7 @@ impl StackKind {
 pub(super) enum ResolutionChoice {
     HandReturn {
         player: PlayerId,
+        hand: Vec<ObjectId>,
         source_block: u32,
     },
     LibraryOrder {
@@ -424,6 +425,7 @@ impl Game {
                         ResolutionChoice::HandReturn {
                             player: chooser,
                             source_block,
+                            ..
                         },
                 },
                 Response::HandReturn { objects },
@@ -618,6 +620,7 @@ impl Game {
                 if let ResolutionChoice::HandReturn {
                     player,
                     source_block,
+                    ..
                 } = choice
                 {
                     return self.hand_return_step(frame, player, source_block);
@@ -682,7 +685,8 @@ impl Game {
                 }
                 let Some(request) = self.actions_request()? else {
                     let outcome = match choice {
-                        ResolutionChoice::LibraryOrder { .. }
+                        ResolutionChoice::HandReturn { .. }
+                        | ResolutionChoice::LibraryOrder { .. }
                         | ResolutionChoice::OptionalShuffle { .. }
                         | ResolutionChoice::LibrarySelect { .. }
                         | ResolutionChoice::Surveil { .. }
@@ -715,7 +719,8 @@ impl Game {
                     .ok_or("missing resolution choice")?;
                 self.validate_choice_input(&choice, input.player, &input.response)?;
                 let source_block = match choice {
-                    ResolutionChoice::LibraryOrder { .. }
+                    ResolutionChoice::HandReturn { .. }
+                    | ResolutionChoice::LibraryOrder { .. }
                     | ResolutionChoice::OptionalShuffle { .. }
                     | ResolutionChoice::LibrarySelect { .. }
                     | ResolutionChoice::Surveil { .. }
@@ -1181,7 +1186,7 @@ impl Game {
                 cursor: frame.cursor,
                 source_block,
                 completed: Quantity::zero(),
-                remaining: self.draw_progress_amount(&frame)?,
+                remaining: self.draw_instruction_amount(&frame)?,
                 failed: Quantity::zero(),
             });
         }
@@ -1279,7 +1284,7 @@ impl Game {
                 || progress.remaining <= Quantity::zero()
                 || progress.failed.is_negative()
                 || progress.failed > progress.completed
-                || total != self.draw_progress_amount(frame)?
+                || total != self.draw_instruction_amount(frame)?
             {
                 return Err("damage-quantity draw progress invariant".into());
             }
@@ -1294,7 +1299,10 @@ impl Game {
                         failed,
                     },
                 ) => {
-                    let amount = self.draw_progress_amount(frame)?;
+                    let amount = match instruction {
+                        Instruction::DrawControllerCards { count, .. } => count.clone(),
+                        _ => self.damage_draw_amount(frame)?,
+                    };
                     if *player != frame.spell.controller
                         || attempted.is_negative()
                         || *attempted > amount
@@ -1439,12 +1447,15 @@ impl Game {
                 (
                     ResolutionChoice::HandReturn {
                         player,
+                        hand,
                         source_block,
                     },
                     Instruction::PutHandOnLibrary { .. },
-                ) => self
-                    .validate_hand_return_source(frame, *player, *source_block)
-                    .is_ok(),
+                ) => {
+                    self.validate_hand_return_source(frame, *player, *source_block)
+                        .is_ok()
+                        && (!self.is_live(*player) || *hand == self.action_hand(*player))
+                }
                 (
                     ResolutionChoice::LibraryOrder {
                         player,

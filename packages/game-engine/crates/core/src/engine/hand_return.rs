@@ -5,15 +5,19 @@ impl Game {
     pub(super) fn private_library_choice_candidates(
         &self,
         viewer: PlayerId,
-    ) -> Option<Vec<ObjectId>> {
-        if matches!(&self.state.rules.frame,Frame::ResolutionChoice{choice:ResolutionChoice::HandReturn{player,..},..} if *player==viewer&&self.is_live(viewer))
+    ) -> Option<&[ObjectId]> {
+        if let Frame::ResolutionChoice {
+            choice: ResolutionChoice::HandReturn { player, hand, .. },
+            ..
+        } = &self.state.rules.frame
+            && *player == viewer
+            && self.is_live(viewer)
         {
-            Some(self.action_hand(viewer))
+            Some(hand)
         } else {
-            self.library_looked(viewer).map(|v| v.to_vec())
+            self.library_looked(viewer)
         }
     }
-
     fn hand_return_instruction(&self, frame: &Resolving) -> Result<(Quantity, u32), String> {
         match self
             .program_for(&frame.spell)?
@@ -99,6 +103,7 @@ impl Game {
             frame,
             choice: ResolutionChoice::HandReturn {
                 player,
+                hand: self.action_hand(player),
                 source_block: block,
             },
         };

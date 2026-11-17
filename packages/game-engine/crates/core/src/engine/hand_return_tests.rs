@@ -243,6 +243,12 @@ fn hand_return_paid_brainstorm_draws_three_and_returns_old_or_new_cards_in_both_
     for old in [false, true] {
         for reverse in [false, true] {
             both(prepared(), |g, q| {
+                develop(g, q);
+                let old_hand = g
+                    .action_hand(PlayerId(0))
+                    .into_iter()
+                    .filter(|o| o.card != CardId(1))
+                    .collect::<Vec<_>>();
                 let r = paid(g, q);
                 let Request::HandReturn {
                     candidates, count, ..
@@ -251,7 +257,7 @@ fn hand_return_paid_brainstorm_draws_three_and_returns_old_or_new_cards_in_both_
                     panic!("hand")
                 };
                 assert_eq!(*count, 2);
-                assert_eq!(candidates.len(), 8);
+                assert_eq!(candidates.len(), old_hand.len() + 3);
                 let frame = match &g.state.rules.frame {
                     Frame::ResolutionChoice { frame, .. } => frame,
                     _ => panic!("frame"),
@@ -260,9 +266,14 @@ fn hand_return_paid_brainstorm_draws_three_and_returns_old_or_new_cards_in_both_
                     matches!(&frame.outcomes[0],InstructionOutcome::DrawAttempts{attempted,failed,..} if *attempted==3.into()&&*failed==0.into())
                 );
                 let mut selected = if old {
-                    candidates[..2].to_vec()
+                    old_hand[..2].to_vec()
                 } else {
-                    candidates[candidates.len() - 2..].to_vec()
+                    candidates
+                        .iter()
+                        .filter(|o| !old_hand.contains(o))
+                        .take(2)
+                        .copied()
+                        .collect()
                 };
                 if reverse {
                     selected.reverse()
@@ -279,7 +290,7 @@ fn hand_return_paid_brainstorm_draws_three_and_returns_old_or_new_cards_in_both_
                 for (before, after) in selected.iter().zip(&top) {
                     assert_eq!(after.incarnation, before.incarnation + 1)
                 }
-                assert_eq!(g.action_hand(PlayerId(0)).len(), 6);
+                assert_eq!(g.action_hand(PlayerId(0)).len(), old_hand.len() + 1);
             });
         }
     }
