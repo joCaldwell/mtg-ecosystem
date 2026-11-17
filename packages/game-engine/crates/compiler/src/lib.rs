@@ -2521,8 +2521,8 @@ fn append_spell_effects(
                 selection_id: None,
                 of: None,
             };
-            let steps: Vec<Step> =
-                serde_json::from_value(serde_json::Value::Array(steps.clone())).map_err(|_| {
+            let steps: Vec<Step> = serde_json::from_value(serde_json::Value::Array(steps.clone()))
+                .map_err(|_| {
                     unsupported(
                         "effects.simultaneous",
                         "requires complete supported movements",

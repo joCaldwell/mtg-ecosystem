@@ -272,6 +272,25 @@ fn optional_entry_real_paid_claim_subsets_orders_combined_reservation_and_common
                 .count(),
             mask.count_ones() as usize
         );
+        let EventGroup::Ordered { children } = &batch.group else {
+            panic!("payments and entry must have an ordered outer transaction");
+        };
+        let payments = mask.count_ones() as usize;
+        assert_eq!(children.len(), payments + 1);
+        for child in &children[..payments] {
+            assert!(matches!(child, EventGroup::Occurrence {
+                proposed: ProposedEvent::LoseLife { player: PlayerId(0), amount }
+            } if *amount == Quantity::from(2)));
+        }
+        let EventGroup::Simultaneous { occurrences } = &children[payments] else {
+            panic!("all selected entries must share one simultaneous group");
+        };
+        assert_eq!(occurrences.len(), 2);
+        for (index, old) in objects.iter().enumerate() {
+            assert!(
+                matches!(occurrences[index], ProposedEvent::SearchLandEntry { object, player: PlayerId(0), .. } if object == *old)
+            );
+        }
         let entries: Vec<_> = batch
             .occurrences
             .iter()
@@ -1001,9 +1020,7 @@ fn optional_entry_synthetic_nonempty_grant_history_and_commander_wrapper_charge_
     probe.state.rules.frame = Frame::CommanderReturn {
         object: objects[0],
         destination: Zone::Graveyard { owner: PlayerId(0) },
-        continuation: Box::new(CommanderContinuation::StateBased {
-            resume: entry,
-        }),
+        continuation: Box::new(CommanderContinuation::StateBased { resume: entry }),
     };
     assert_eq!(probe.land_entry_charge() + grant, payload);
     assert_eq!(probe.grant_payload_charge(), existing);
