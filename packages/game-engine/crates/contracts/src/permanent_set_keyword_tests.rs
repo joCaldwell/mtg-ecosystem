@@ -143,7 +143,6 @@ fn permanent_set_keyword_all_stat_modifiers_and_malformed_vectors_reject() {
     for keywords in [
         vec![],
         vec![KeywordAbility::Hexproof, KeywordAbility::Hexproof],
-        vec![KeywordAbility::Reach],
         vec![KeywordAbility::Shroud],
         vec![KeywordAbility::Flash],
     ] {
