@@ -55,11 +55,17 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
     if (context?.stage === "stop") diagnostic({ source: "coordinator", ...context, cause: "started" });
     try {
       const result = await Promise.race([work(controller.signal), new Promise<never>((_, reject) => {
+        // Measure at the existing arm point, AFTER work invocation. Clock
+        // failures cannot change timer ordering, the delay or abort behavior.
+        const stamp = () => { try { return performance.now(); } catch { return NaN; } };
+        const scheduled = context ? stamp() + deadline : NaN;
         handle = setTimeout(() => {
+          const lateness = context ? stamp() - scheduled : NaN;
           expired = true;
           // Retain the initiating deadline BEFORE abort-triggered cleanup, even
           // for adapters that ignore abort and never settle their operation.
-          if (context) diagnostic({ source: "coordinator", ...context, cause: "deadline" });
+          if (context) diagnostic({ source: "coordinator", ...context, cause: "deadline",
+            ...(Number.isFinite(lateness) ? { deadline_lateness_ms: Math.min(86_400_000, Math.max(0, lateness)) } : {}) });
           controller.abort(); reject(new Error("Native game operation unavailable"));
         }, deadline);
       })]);
