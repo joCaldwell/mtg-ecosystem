@@ -85,3 +85,28 @@ test("cleanup stop deadline stays distinct from initiating failure and retains t
     assert.equal((await f.coordinator.get(OWNER, result.game!.id)).consumers_stopped, true);
   } finally { await f.coordinator.close(); f.db.close(); }
 });
+
+test("deadline lateness uses actual arm after synchronous work with injected monotonic clock and timer", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let clock = 0, entered!: () => void;
+  const started = new Promise<void>(yes => { entered = yes; });
+  t.mock.method(performance, "now", () => clock);
+  const order: string[] = [], events: GameDiagnosticEvent[] = [];
+  const f = fixture(event => { events.push(event); if (event.cause === "deadline") order.push("deadline"); });
+  f.native.status = async (_game, signal) => {
+    order.push("work"); clock = 500;
+    signal.addEventListener("abort", () => order.push("abort"));
+    entered(); return new Promise(() => {});
+  };
+  try {
+    const launching = f.launch(); await started;
+    clock = 537; t.mock.timers.tick(20);
+    const result = await launching;
+    const deadline = events.find(event => event.cause === "deadline")!;
+    assert.equal(deadline.source === "coordinator" && deadline.deadline_lateness_ms, 17);
+    assert.deepEqual(order, ["work", "deadline", "abort"]);
+    assert.equal(events.filter(event => "deadline_lateness_ms" in event).length, 1);
+    assert.equal(result.game!.pause, "native_unavailable"); assert.equal(result.game!.consumers_stopped, true);
+    assert.equal(JSON.stringify(result).includes("lateness"), false);
+  } finally { await f.coordinator.close(); f.db.close(); }
+});

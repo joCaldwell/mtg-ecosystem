@@ -41,6 +41,7 @@ const details = (event: GameDiagnosticEvent): NativeFileDetail => {
 };
 
 test("actual status/private read classifies first failed metadata predicate and link bucket without reading", async t => {
+  t.mock.method(performance, "now", () => 100);
   let requests = 0;
   t.mock.method(globalThis, "fetch", async () => { requests++; return response(); });
   const cases = [
@@ -74,7 +75,8 @@ test("actual status/private read classifies first failed metadata predicate and 
         assert.equal(stats, 1); assert.equal(reads, 0);
         assert.equal(requests - before, scope === "status" ? 1 : 0);
         assert.deepEqual(f.events, [{ source: "adapter", game_id: game.id, stage: "status", cause: "private_file",
-          file_scope: scope, file_step: "metadata", file_check: scenario.check, file_links: scenario.links }]);
+          file_scope: scope, file_step: "metadata", file_check: scenario.check, file_links: scenario.links,
+          ...(scope === "status" ? { timing_attempt: 1, timing_phase: "status_file", timing_request_ms: 0, timing_headers_ms: 0, timing_resume_ms: 0, timing_file_ms: 0, timing_elapsed_ms: 0 } : {}) }]);
       } finally { statMock.mock.restore(); readMock.mock.restore(); syncBuiltinESMExports(); }
     }
   }

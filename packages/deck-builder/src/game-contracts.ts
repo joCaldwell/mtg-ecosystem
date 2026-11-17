@@ -57,23 +57,38 @@ export interface NativeGameProxyRequest {
   authorization: string;
 }
 export interface NativeGameProxyResponse { status: number; body: string }
+/** Monotonic offsets from one attempt's start, saturated at 24 hours. Missing
+ * marks mean the boundary was not reached (or its clock was unavailable). */
+export interface GameStatusTiming {
+  timing_attempt?: 1 | 2 | 3 | 4;
+  timing_phase?: "fetch" | "resume" | "identity" | "status_file" | "status_decode" | "compare" | "retry_wait";
+  timing_request_ms?: number;
+  timing_headers_ms?: number;
+  timing_resume_ms?: number;
+  timing_file_ms?: number;
+  timing_decode_ms?: number;
+  timing_compare_ms?: number;
+  timing_elapsed_ms?: number;
+}
 /** Host-private observations only: never append errors, protocol data or credentials.
  * Sinks must be bounded and nonblocking; returned promises are never awaited. */
 export type GameDiagnosticEvent =
   | { source: "coordinator"; game_id: string; stage: "ensure" | "status" | "stop";
       phase: "operation" | "cleanup" | "shutdown" | "owner_deleted";
-      cause: "started" | "succeeded" | "deadline" | "adapter_failure" | "identity_failure" | "status_invalid" }
-  | { source: "adapter"; game_id: string; stage: "ensure" | "status" | "stop" | "ensure_cleanup" | "child";
+      cause: "started" | "succeeded" | "deadline" | "adapter_failure" | "identity_failure" | "status_invalid";
+      /** Actual timer fire minus its monotonic arm + delay; bounded to 24h. */
+      deadline_lateness_ms?: number }
+  | (GameStatusTiming & { source: "adapter"; game_id: string; stage: "ensure" | "status" | "stop" | "ensure_cleanup" | "child";
       cause: "aborted" | "identity_failure" | "state_unavailable" | "child_already_exited" | "private_file" | "status_decode"
         | "http_failure" | "schema_failure" | "transport_failure" | "adapter_failure" | "startup_protocol" | "startup_failure"
         | "presentation_failure" | "bots_failure" | "token_mismatch" | "token_mismatch_exhausted"
-        | "cleanup_started" | "cleanup_succeeded" | "cleanup_failed" | "child_exit" | "child_exit_during_stop" | "child_error";
+        | "cleanup_started" | "cleanup_succeeded" | "cleanup_failed" | "child_exit" | "child_exit_during_stop" | "child_error" | "status_timing";
       attempt?: 1 | 2 | 3 | 4;
       /** Optional closed private-file observations; absence retains older sinks. */
       file_scope?: "bootstrap_guard" | "bootstrap_seat" | "status";
       file_step?: "guard" | "lstat" | "metadata" | "read";
       file_check?: "identity" | "lifecycle" | "owner" | "links" | "type" | "mode" | "size";
-      file_links?: "zero" | "one" | "multiple" | "invalid" };
+      file_links?: "zero" | "one" | "multiple" | "invalid" });
 export type GameDiagnosticSink = (event: GameDiagnosticEvent) => void | Promise<void>;
 export interface NativeGameAdapter {
   /** Exact identities are mandatory on admission AND recovery. */

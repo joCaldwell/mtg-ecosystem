@@ -180,3 +180,39 @@ test("private artifact reconstructs the validated snapshot of each new field onc
   const { sequence, at_ms, ...saved } = read(sink.path).events[0]!;
   assert.deepEqual(saved, { source: "adapter", game_id: "a".repeat(32), stage: "status", cause: "private_file", file_scope: "status" });
 });
+
+test("private timing/lateness allowlist retains closed phase shapes but excludes numeric values from shape identity", () => {
+  const sink = createPrivateDiagnostics(parent()), game_id = "a".repeat(32);
+  for (let n = 0; n < 600; n++) {
+    sink.diagnostic({ source: "adapter", game_id, stage: "status", cause: "status_timing", timing_attempt: 1,
+      timing_phase: "fetch", timing_request_ms: n, timing_elapsed_ms: n + 1, url: "unsafe", token: "unsafe" } as GameDiagnosticEvent);
+    sink.diagnostic({ source: "coordinator", game_id, stage: "status", phase: "operation", cause: "deadline", deadline_lateness_ms: n });
+  }
+  const saved = read(sink.path).events;
+  assert.equal(saved.length, 4);
+  assert.deepEqual(saved.filter(event => event.source === "adapter").map(event => event.timing_request_ms), [0, 599]);
+  assert.deepEqual(saved.filter(event => event.source === "coordinator").map(event => event.deadline_lateness_ms), [0, 599]);
+  for (const timing_phase of ["resume", "identity", "status_file", "status_decode", "compare", "retry_wait"] as const) {
+    sink.diagnostic({ source: "adapter", game_id, stage: "status", cause: "status_timing", timing_attempt: 1, timing_phase, timing_elapsed_ms: 86_400_000 });
+  }
+  assert.equal(read(sink.path).events.length, 10);
+  assert.equal(readFileSync(sink.path, "utf8").includes("unsafe"), false);
+  const before = readFileSync(sink.path, "utf8");
+  for (const value of [-1, Infinity, NaN, 86_400_001, "unsafe", null, {}]) {
+    sink.diagnostic({ source: "adapter", game_id, stage: "status", cause: "status_timing", timing_elapsed_ms: value } as never);
+    sink.diagnostic({ source: "coordinator", game_id, stage: "status", phase: "operation", cause: "deadline", deadline_lateness_ms: value } as never);
+  }
+  sink.diagnostic({ source: "adapter", game_id, stage: "status", cause: "status_timing", timing_phase: "unsafe" } as never);
+  sink.diagnostic({ source: "adapter", game_id, stage: "status", cause: "status_timing", timing_attempt: 5 } as never);
+  sink.diagnostic({ source: "adapter", game_id, stage: "stop", cause: "adapter_failure", timing_elapsed_ms: 0 });
+  sink.diagnostic({ source: "coordinator", game_id, stage: "status", phase: "operation", cause: "started", deadline_lateness_ms: 0 });
+  assert.equal(readFileSync(sink.path, "utf8"), before);
+  let reads = 0;
+  sink.diagnostic(Object.defineProperties({ source: "adapter", game_id, stage: "status", cause: "status_timing", timing_phase: "fetch" }, {
+    timing_elapsed_ms: { get: () => ++reads === 1 ? 8 : Infinity },
+    body: { get: () => { assert.fail("private content must remain unread"); } },
+  }) as GameDiagnosticEvent);
+  assert.equal(reads, 1);
+  const last = read(sink.path).events.at(-1)!;
+  assert.equal(last.source === "adapter" && last.timing_elapsed_ms, 8);
+});

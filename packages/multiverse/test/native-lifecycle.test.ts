@@ -179,7 +179,14 @@ test("real public host delivers only human bootstrap and proxies exact bytes und
     const records = await (await fetch(`${base}/api/games`)).text();
     assert.equal(records.includes(seat.capability), false);
     assert.equal(records.includes("operator"), false);
-  } finally { await host.close(); }
+  } finally {
+    await host.close();
+    // This disposable witness owns only this host and its three consumer leases.
+    execFileSync(executable!, ["lifecycle-join", f.root], { timeout: 5000 });
+    for (const lease of ["owner.lock", ...[1, 2, 3].map(seat => `bot-${seat}/lease`)]) {
+      execFileSync("flock", ["-n", join(f.root, lease), "true"], { timeout: 5000 });
+    }
+  }
 });
 
 test("SIGKILL of product parent releases native worker and all three bot lifetime leases", { skip: !executable, timeout: 240_000 }, async () => {
