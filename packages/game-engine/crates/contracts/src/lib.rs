@@ -4625,7 +4625,7 @@ pub fn catalog_schema() -> serde_json::Value {
         .unwrap()
         .push(serde_json::json!({
             "if":any_grant,"then":{"properties":{"capabilities":{"items":{"not":{"enum":[
-                Capability::DefenderV1, Capability::ReachV1, Capability::VigilanceV1,
+                Capability::DefenderV1, Capability::VigilanceV1,
                 Capability::DoubleStrikeV1, Capability::MenaceV1
             ]}}}}}
         }));

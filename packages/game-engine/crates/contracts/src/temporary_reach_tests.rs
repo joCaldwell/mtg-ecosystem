@@ -40,6 +40,14 @@ fn temporary_reach_valid_vectors_have_exact_primitive_authority() {
         {
             *k = keywords.clone()
         }
+        let mut filtered = d.clone();
+        filtered.spell.as_mut().unwrap().targets[0].domain = TargetDomain::BattlefieldPermanent;
+        filtered.spell.as_mut().unwrap().targets[0]
+            .filter
+            .as_mut()
+            .unwrap()
+            .types = vec![CardKind::Creature, CardKind::Artifact];
+        definitions.push(filtered);
         definitions.push(d);
         for mut d in definitions {
             d.capabilities = d.requirements();
