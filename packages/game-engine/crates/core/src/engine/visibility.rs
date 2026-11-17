@@ -891,6 +891,20 @@ impl Game {
     // CR 400.2, 401.2, 402.3: own hand is visible; all libraries and other
     // hands remain hidden. https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     fn visible_to(&self, viewer: PlayerId, object: &Object) -> bool {
+        // CR602.2a/701.20a: the validated hand-source announcement reveals
+        // this incarnation until its ability leaves the stack, including the
+        // unpaid mana window. A successor or another hand card never inherits
+        // this authority. Cancellation ends current visibility; the existing
+        // public observation journal preserves legitimately announced identity.
+        if self.state.rules.stack.iter().any(|entry| {
+            entry.source == object.id
+                && entry.cast_from == object.zone
+                && matches!(entry.cast_from, Zone::Hand { owner } if owner == entry.controller)
+                && matches!(&entry.kind, StackKind::Activated { ability, .. }
+                    if self.definition(object.id.card).is_ok_and(|d| d.activated.get(*ability as usize).is_some_and(hand_discard_draw_activation)))
+        }) {
+            return true;
+        }
         // CR 701.20a-b: only this selected set is temporarily public; it
         // remains in the library, without publishing positions or other candidates.
         if matches!(&self.state.rules.frame,

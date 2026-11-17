@@ -1,5 +1,7 @@
 //! Executable Card IR contracts. No rules execution or parser dependency.
 mod conditional_lands;
+mod cycling;
+pub use cycling::hand_discard_draw_activation;
 mod counted_costs;
 mod typed_land_search;
 pub use typed_land_search::{BasicLandType, TypedLandSearch};
@@ -277,6 +279,8 @@ pub enum Capability {
     TapSourceCostV1,
     PayLifeCostV1,
     ManaActivationCostV1,
+    HandActivationV1,
+    DiscardSourceCostV1,
     AnyDamageTargetV1,
     AnyPlayerTargetV1,
     NoncombatDamageV1,
@@ -326,6 +330,7 @@ pub enum Capability {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum FunctioningZone {
+    Hand,
     Battlefield,
     Stack,
 }
@@ -1114,6 +1119,10 @@ pub struct SpellMode {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum ActivationCost {
+    /// Fixed mana and this exact hand source, committed as one complete cost.
+    DiscardSource {
+        mana: ManaCost,
+    },
     SacrificePermanent {
         filter: SacrificeFilter,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1805,6 +1814,12 @@ impl Definition {
         }
         for ability in &self.activated {
             set.insert(Capability::ActivatedAbilityV1);
+            if ability.functioning_zone == FunctioningZone::Hand {
+                set.insert(Capability::HandActivationV1);
+            }
+            if matches!(ability.cost, ActivationCost::DiscardSource { .. }) {
+                set.insert(Capability::ManaActivationCostV1);
+            }
             if has_untap(&ability.program) {
                 set.insert(Capability::TapSourceUntapCreatureV1);
             }
@@ -1822,6 +1837,7 @@ impl Definition {
                 set.insert(Capability::TapSourceDestroyV1);
             }
             set.insert(match ability.cost {
+                ActivationCost::DiscardSource { .. } => Capability::DiscardSourceCostV1,
                 ActivationCost::SacrificePermanent { .. } => Capability::SacrificeV1,
                 ActivationCost::SacrificeSource => Capability::SacrificeSourceCostV1,
                 ActivationCost::TapSource => Capability::TapSourceCostV1,
@@ -2387,10 +2403,20 @@ impl Definition {
             && !matches!(c.kind, CardKind::Creature | CardKind::Artifact)
             && !(sacrifice && c.kind == CardKind::Enchantment)
             && !typed_land_search::activation_definition(self)
+            && !cycling::definition(self)
         {
             return Err("activated programs require supported creature characteristics".into());
         }
         for ability in &self.activated {
+            if ability.functioning_zone == FunctioningZone::Hand
+                || matches!(ability.cost, ActivationCost::DiscardSource { .. })
+            {
+                if !cycling::definition(self) {
+                    return Err("unsupported complete hand discard-source activation".into());
+                }
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
             if has_keyword_grant(&ability.program) {
                 if !sacrifice_set::definition(self) {
                     return Err(
@@ -5648,6 +5674,7 @@ pub fn catalog_schema() -> serde_json::Value {
     library_order::extend_schema(&mut schema);
     draw_discard::extend_schema(&mut schema);
     hand_return::extend_schema(&mut schema);
+    cycling::schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -5831,6 +5858,8 @@ mod tests {
             TapSourceCostV1,
             PayLifeCostV1,
             ManaActivationCostV1,
+            HandActivationV1,
+            DiscardSourceCostV1,
             AnyDamageTargetV1,
             AnyPlayerTargetV1,
             NoncombatDamageV1,
@@ -6075,6 +6104,7 @@ mod tests {
         definitions.push(typed_land_search_tests::typed_search());
         definitions.push(conditional_lands::tests::land());
         definitions.push(conditional_lands::tests::optional_land());
+        definitions.push(cycling::witness());
         definitions.push(ramos_m1_tests::ramos());
         definitions.push(counter_placement_tests::provider(
             CounterPlacementModification::Add { amount: 7.into() },

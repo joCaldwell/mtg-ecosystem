@@ -36,6 +36,9 @@ mod self_reference;
 mod spell_cascade_grants;
 use optional_costs::KickedCondition;
 mod conditional_lands;
+mod cycling;
+#[cfg(test)]
+mod cycling_tests;
 mod type_line;
 mod typed_fetchland;
 mod typed_land_search;
@@ -195,14 +198,14 @@ impl<'de> Deserialize<'de> for SourceKeyword {
         };
         if !matches!(
             keyword.as_str(),
-            "equip" | "enchant" | "cascade" | "kicker" | "affinity"
+            "equip" | "enchant" | "cascade" | "kicker" | "affinity" | "cycling"
         ) && serde_json::from_value::<KeywordAbility>(serde_json::Value::String(keyword.clone()))
             .is_err()
         {
             return Err(D::Error::custom(format!("keyword:{keyword}")));
         }
         let allowed = match keyword.as_str() {
-            "equip" | "kicker" => ["keyword", "cost"].as_slice(),
+            "equip" | "kicker" | "cycling" => ["keyword", "cost"].as_slice(),
             "enchant" | "affinity" => ["keyword", "filter"].as_slice(),
             _ => ["keyword"].as_slice(),
         };
@@ -1344,6 +1347,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     conditional_lands::validate_binding_closure(&abilities, &binding, &r.oracle_identity)?;
     typed_fetchland::bind(&abilities, &binding, &r.oracle_identity, &source)?;
+    cycling::bind(&abilities, &binding, &r.oracle_identity, &source, &result)?;
     let original: Vec<Box<RawValue>> = decode(result.abilities.get(), "abilities")?;
     for (line, ability) in result.lines.iter().zip(&original) {
         let a: serde_json::Value = decode(line.ability.get(), "lines.ability")?;
@@ -1541,6 +1545,11 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                             return Err(unsupported("abilities.keywords", "empty keyword block"));
                         }
                         for (keyword_index, keyword) in keywords.iter().enumerate() {
+                            if keyword.keyword == "cycling" {
+                                labels.activated.push(source_block(block)?);
+                                definition.activated.push(cycling::lower(keyword, source_block(block)?)?);
+                                continue;
+                            }
                             if keyword.keyword == "equip"
                                 && kind == CardKind::Artifact
                                 && definition.characteristics.subtypes == ["Equipment"]

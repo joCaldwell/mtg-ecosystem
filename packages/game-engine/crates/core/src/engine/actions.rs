@@ -247,7 +247,7 @@ impl Game {
             .map(|o| o.id)
             .collect()
     }
-    fn validate_activation(
+    pub(super) fn validate_activation(
         &self,
         player: PlayerId,
         object: ObjectId,
@@ -259,10 +259,12 @@ impl Game {
             .activated
             .get(ability as usize)
             .ok_or("unknown activated ability")?;
-        if source.zone != Zone::Battlefield
-            || source.controller != player
-            || !self.is_live(player)
-            || ability.functioning_zone != FunctioningZone::Battlefield
+        if !self.is_live(player)
+            || match ability.functioning_zone {
+                FunctioningZone::Battlefield => source.zone != Zone::Battlefield || source.controller != player,
+                FunctioningZone::Hand => !self.hand_activation_source_payable(player, object),
+                FunctioningZone::Stack => true,
+            }
         {
             return Err("invalid activated ability source/permission".into());
         }

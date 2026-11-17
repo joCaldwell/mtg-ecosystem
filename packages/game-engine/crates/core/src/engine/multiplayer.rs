@@ -527,7 +527,7 @@ impl Game {
                 proposing && !self.has_target_domain(self.program()?, self.top()?.controller);
             let source_bad = cast.origin == AnnouncementOrigin::Activated
                 && (matches!(self.state.rules.frame, Frame::EntityTargets { .. })
-                    || matches!(self.top()?.kind, StackKind::Activated {ability,..} if self.top().is_ok_and(|top| self.definition(top.source.card).is_ok_and(|d| d.activated.get(ability as usize).is_some_and(|a| matches!(a.cost, ActivationCost::Composite {..}))))))
+                    || matches!(self.top()?.kind, StackKind::Activated {ability,..} if self.top().is_ok_and(|top| self.definition(top.source.card).is_ok_and(|d| d.activated.get(ability as usize).is_some_and(|a| matches!(a.cost, ActivationCost::Composite {..} | ActivationCost::DiscardSource {..}))))))
                 && self.current(self.top()?.source).is_err();
             // CR 601.2e/601.6: proposal legality is checked before the
             // mana/payment stages (601.2f-h). A prohibition that appears

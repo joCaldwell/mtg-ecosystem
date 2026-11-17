@@ -27,7 +27,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
             || c.subtypes.iter().any(|s| basic_land_color(s).is_none())
             || c.subtypes.iter().collect::<BTreeSet<_>>().len() != c.subtypes.len()
             || !d.mana_abilities.is_empty()
-            || !d.activated.is_empty()
+            || (!d.activated.is_empty() && !cycling::definition(d))
             || !d.triggered.is_empty()
             || !d.keywords.is_empty()
             || d.x_mana_cost
@@ -78,9 +78,9 @@ pub(super) fn schema(s: &mut serde_json::Value) {
     s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"anyOf":[conditional,optional.clone(),typed]},"then":{"properties":{
         "characteristics":{"properties":{"kind":{"const":"land"},"basic":{"const":false},"additional_types":{"maxItems":0},"subtypes":{"minItems":1,"uniqueItems":true,"items":{"enum":["Plains","Island","Swamp","Mountain","Forest"]}},"mana_cost":{"properties":{"generic":{"const":"0"},"colored":{"maxItems":0}}},"power":{"type":"null"},"toughness":{"type":"null"}}},
         "intrinsic_zone":{"const":"battlefield"},"spell":{"type":"null"},"x_mana_cost":{"const":false},
-        "mana_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"keywords":{"maxItems":0},
+        "mana_abilities":{"maxItems":0},"activated":{"items":{"$ref":"#/$defs/HandDiscardDrawActivation"}},"triggered":{"maxItems":0},"keywords":{"maxItems":0},
         "static_abilities":{"items":{"properties":{"functioning_zone":{"const":"battlefield"},"effect":{"anyOf":[{"const":"enters_tapped"},effect,life_effect]}}}},
-        "capabilities":{"items":{"enum":[Capability::NormalLayoutV1,Capability::LandPlayV1,Capability::TypedNonbasicIntrinsicManaV1,Capability::ConditionalBasicLandEntryV1,Capability::OptionalLifeLandEntryV1,Capability::EntersTappedV1]},"allOf":[{"contains":{"const":Capability::NormalLayoutV1}},{"contains":{"const":Capability::LandPlayV1}}]}
+        "capabilities":{"items":{"enum":[Capability::NormalLayoutV1,Capability::LandPlayV1,Capability::TypedNonbasicIntrinsicManaV1,Capability::ConditionalBasicLandEntryV1,Capability::OptionalLifeLandEntryV1,Capability::EntersTappedV1,Capability::ActivatedAbilityV1,Capability::HandActivationV1,Capability::DiscardSourceCostV1,Capability::ManaActivationCostV1,Capability::ControllerDrawV1]},"allOf":[{"contains":{"const":Capability::NormalLayoutV1}},{"contains":{"const":Capability::LandPlayV1}}]}
     }}}));
     s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"if":optional,"then":{"properties":{
         "static_abilities":{"minItems":1,"maxItems":1,"items":{"properties":{"effect":{"required":["enters_tapped_unless_pay_life"]}}}}
