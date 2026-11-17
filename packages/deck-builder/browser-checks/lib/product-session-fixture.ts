@@ -199,9 +199,14 @@ export function createPrivateDiagnostics(directory: string): { path: string; dia
         if (!["ensure", "status", "stop"].includes(event.stage) || !["operation", "cleanup", "shutdown", "owner_deleted"].includes(event.phase)
           || !["started", "succeeded", "deadline", "adapter_failure", "identity_failure", "status_invalid"].includes(event.cause)) return;
         safe = { source: "coordinator", game_id: event.game_id, stage: event.stage, phase: event.phase, cause: event.cause };
+        const { deadline_lateness_ms } = event;
+        if (deadline_lateness_ms !== undefined) {
+          if (event.cause !== "deadline" || typeof deadline_lateness_ms !== "number" || !Number.isFinite(deadline_lateness_ms) || deadline_lateness_ms < 0 || deadline_lateness_ms > 86_400_000) return;
+          safe.deadline_lateness_ms = deadline_lateness_ms;
+        }
       } else if (event.source === "adapter") {
         if (!["ensure", "status", "stop", "ensure_cleanup", "child"].includes(event.stage)
-          || !["aborted", "identity_failure", "state_unavailable", "child_already_exited", "private_file", "status_decode", "http_failure", "schema_failure", "transport_failure", "adapter_failure", "startup_protocol", "startup_failure", "presentation_failure", "bots_failure", "token_mismatch", "token_mismatch_exhausted", "cleanup_started", "cleanup_succeeded", "cleanup_failed", "child_exit", "child_exit_during_stop", "child_error"].includes(event.cause)) return;
+          || !["aborted", "identity_failure", "state_unavailable", "child_already_exited", "private_file", "status_decode", "http_failure", "schema_failure", "transport_failure", "adapter_failure", "startup_protocol", "startup_failure", "presentation_failure", "bots_failure", "token_mismatch", "token_mismatch_exhausted", "cleanup_started", "cleanup_succeeded", "cleanup_failed", "child_exit", "child_exit_during_stop", "child_error", "status_timing"].includes(event.cause)) return;
         if (event.attempt !== undefined && (event.cause !== "token_mismatch" || ![1, 2, 3, 4].includes(event.attempt))) return;
         const { file_scope, file_step, file_check, file_links } = event;
         if (file_scope !== undefined && (event.cause !== "private_file" || !["bootstrap_guard", "bootstrap_seat", "status"].includes(file_scope))) return;
@@ -213,9 +218,24 @@ export function createPrivateDiagnostics(directory: string): { path: string; dia
         if (file_step !== undefined) safe.file_step = file_step;
         if (file_check !== undefined) safe.file_check = file_check;
         if (file_links !== undefined) safe.file_links = file_links;
+        const { timing_attempt, timing_phase } = event;
+        if (timing_attempt !== undefined) {
+          if (event.stage !== "status" || ![1, 2, 3, 4].includes(timing_attempt)) return;
+          safe.timing_attempt = timing_attempt;
+        }
+        if (timing_phase !== undefined) {
+          if (event.stage !== "status" || !["fetch", "resume", "identity", "status_file", "status_decode", "compare", "retry_wait"].includes(timing_phase)) return;
+          safe.timing_phase = timing_phase;
+        }
+        for (const key of ["timing_request_ms", "timing_headers_ms", "timing_resume_ms", "timing_file_ms", "timing_decode_ms", "timing_compare_ms", "timing_elapsed_ms"] as const) {
+          const value = event[key];
+          if (value === undefined) continue;
+          if (event.stage !== "status" || typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 86_400_000) return;
+          safe[key] = value;
+        }
       } else return;
       const key = JSON.stringify([safe.source, safe.stage, "phase" in safe ? safe.phase : null, safe.cause, "attempt" in safe ? safe.attempt : null,
-        ...(safe.source === "adapter" ? [safe.file_scope, safe.file_step, safe.file_check, safe.file_links] : [])]);
+        ...(safe.source === "adapter" ? [safe.file_scope, safe.file_step, safe.file_check, safe.file_links, safe.timing_attempt, safe.timing_phase] : [])]);
       if (!rows.has(key) && rows.size >= 256) return;
       const row = { sequence: sequence = Math.min(sequence + 1, Number.MAX_SAFE_INTEGER), at_ms: Date.now(), ...safe };
       const previous = rows.get(key);
