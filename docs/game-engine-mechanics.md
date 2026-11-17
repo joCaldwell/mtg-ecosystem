@@ -267,11 +267,11 @@ generic departures never imply dies triggers.
 `TypedLandSearchV1` consumes complete own-library → battlefield → shuffle spells:
 Nature's Lore, Farseek, Skyshroud Claim. Land subtype OR ignores Basic supertype;
 positive exact maxima use only common physical capacity for offered counts.
-Zero is legal (CR 701.23b); found cards enter simultaneously without reveal;
+Finding zero is legal (CR 701.23b); found cards enter simultaneously without reveal;
 forced tapping preserves intrinsic entry. Extra filters/clauses/costs/composition
-reject. Basic/split IR stays separate. Typed nonbasics remain invalid: synthetic
-Characteristic probes supply no paid witness; Command Tower is negative.
-Shock/conditional entry, cycling and consumer admission remain open.
+reject. Basic/split IR stays separate. Validated typed nonbasics are eligible;
+Command Tower remains negative. Cinder Glade/Prairie Stream entry uses common-prior
+facts. Shock entry, cycling and consumer admission remain open.
 
 ## Keywords, attachments and temporary effects
 
