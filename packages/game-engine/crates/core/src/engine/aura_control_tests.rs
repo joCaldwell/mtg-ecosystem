@@ -1122,3 +1122,7 @@ mod hand_return_tests;
 #[cfg(test)]
 #[path = "draw_discard_tests.rs"]
 mod draw_discard_tests;
+
+#[cfg(test)]
+#[path = "temporary_reach_tests.rs"]
+mod temporary_reach_tests;

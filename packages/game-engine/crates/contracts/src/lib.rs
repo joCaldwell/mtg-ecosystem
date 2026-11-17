@@ -2773,6 +2773,7 @@ pub fn supported_temporary_keywords(keywords: &[KeywordAbility]) -> bool {
             matches!(
                 keyword,
                 KeywordAbility::Flying
+                    | KeywordAbility::Reach
                     | KeywordAbility::Deathtouch
                     | KeywordAbility::Indestructible
                     | KeywordAbility::Lifelink
@@ -3703,6 +3704,7 @@ fn has_controller_discard(program: &SpellProgram) -> bool {
 fn temporary_keyword_primitive_capability(keyword: KeywordAbility) -> Option<Capability> {
     Some(match keyword {
         KeywordAbility::Flying => Capability::FlyingV1,
+        KeywordAbility::Reach => Capability::ReachV1,
         KeywordAbility::Deathtouch => Capability::DeathtouchV1,
         KeywordAbility::Indestructible => Capability::IndestructibleV1,
         KeywordAbility::Lifelink => Capability::LifelinkV1,
@@ -4481,7 +4483,7 @@ pub fn catalog_schema() -> serde_json::Value {
     });
     schema["$defs"]["TemporaryCreatureKeywords"] = serde_json::json!({
         "type":"array","minItems":1,"uniqueItems":true,
-        "items":{"enum":[KeywordAbility::Flying,KeywordAbility::Deathtouch,KeywordAbility::Indestructible,KeywordAbility::Lifelink,KeywordAbility::Hexproof,KeywordAbility::Haste,KeywordAbility::Trample,KeywordAbility::FirstStrike]}
+        "items":{"enum":[KeywordAbility::Flying,KeywordAbility::Reach,KeywordAbility::Deathtouch,KeywordAbility::Indestructible,KeywordAbility::Lifelink,KeywordAbility::Hexproof,KeywordAbility::Haste,KeywordAbility::Trample,KeywordAbility::FirstStrike]}
     });
     schema["$defs"]["TemporaryCreatureKeywordInstructions"] = serde_json::json!({
         "minItems":1,"maxItems":1,"items":{"properties":{
@@ -4589,6 +4591,7 @@ pub fn catalog_schema() -> serde_json::Value {
     }}});
     for (keyword, capability) in [
         ("flying", Capability::FlyingV1),
+        ("reach", Capability::ReachV1),
         ("deathtouch", Capability::DeathtouchV1),
         ("indestructible", Capability::IndestructibleV1),
         ("lifelink", Capability::LifelinkV1),
@@ -4682,6 +4685,7 @@ pub fn catalog_schema() -> serde_json::Value {
     ];
     for keyword in [
         KeywordAbility::Flying,
+        KeywordAbility::Reach,
         KeywordAbility::Deathtouch,
         KeywordAbility::Indestructible,
         KeywordAbility::Lifelink,
@@ -4777,6 +4781,7 @@ pub fn catalog_schema() -> serde_json::Value {
     let mut exact_caps = Vec::new();
     for keyword in [
         KeywordAbility::Flying,
+        KeywordAbility::Reach,
         KeywordAbility::Deathtouch,
         KeywordAbility::Indestructible,
         KeywordAbility::Lifelink,
@@ -6924,3 +6929,6 @@ mod permanent_set_keyword_tests;
 
 #[cfg(test)]
 mod temporary_permanent_keyword_tests;
+
+#[cfg(test)]
+mod temporary_reach_tests;

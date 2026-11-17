@@ -189,7 +189,7 @@ fn permanent_set_keyword_complete_malformed_selectors_and_keywords_reject() {
             match variant {
                 0 => step["abilities"] = json!([]),
                 1 => step["abilities"][1] = step["abilities"][0].clone(),
-                2 => step["abilities"][0]["keyword"]["keyword"] = "reach".into(),
+                2 => step["abilities"][0]["keyword"]["keyword"] = "vigilance".into(),
                 3 => step["abilities"][0]["keyword"]["keyword"] = "first_strike".into(),
                 4 => step["abilities"][0]["keyword"]["cost"] = json!([]),
                 5 => step["abilities"][0]["keyword"]["filter"] = Value::Null,

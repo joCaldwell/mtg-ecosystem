@@ -221,7 +221,6 @@ fn temporary_creature_keyword_parser_preserves_order_and_rejects_every_bad_item(
         json!({"gained":"keyword","keyword":{"keyword":"lifelink","extra":null}}),
         json!({"gained":"keyword","keyword":{"keyword":"lifelink","cost":[]}}),
         json!({"gained":"keyword","keyword":{"keyword":"lifelink","filter":{}}}),
-        json!({"gained":"keyword","keyword":{"keyword":"reach"}}),
         json!({"gained":"keyword","keyword":{"keyword":"vigilance"}}),
         json!({"gained":"keyword","keyword":{"keyword":"shroud"}}),
     ];
@@ -311,7 +310,7 @@ fn temporary_creature_keyword_complete_sources_reject_unconsumed_shapes() {
                     1 => steps[last]["abilities"] = Value::Null,
                     2 => steps[last]["abilities"][0] = Value::Null,
                     3 => steps[last]["abilities"][0]["keyword"] = Value::Null,
-                    4 => steps[last]["abilities"][0]["keyword"]["keyword"] = "reach".into(),
+                    4 => steps[last]["abilities"][0]["keyword"]["keyword"] = "vigilance".into(),
                     5 => steps[last]["abilities"][0]["extra"] = Value::Null,
                     6 => steps[last]["abilities"][0]["keyword"]["extra"] = Value::Null,
                     7 => steps[last]["abilities"][0]["gained"] = "activated".into(),

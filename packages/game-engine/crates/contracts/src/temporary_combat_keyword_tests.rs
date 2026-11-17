@@ -140,7 +140,6 @@ fn temporary_combat_keyword_vectors_reject_duplicates_and_unreviewed_members() {
     }
     for keyword in [
         KeywordAbility::DoubleStrike,
-        KeywordAbility::Reach,
         KeywordAbility::Vigilance,
         KeywordAbility::Defender,
         KeywordAbility::Menace,
@@ -453,6 +452,7 @@ fn temporary_combat_keyword_schema_preserves_legacy_subset_vocabulary() {
         schema["$defs"]["TemporaryCreatureKeywords"]["items"]["enum"],
         serde_json::json!([
             "flying",
+            "reach",
             "deathtouch",
             "indestructible",
             "lifelink",
