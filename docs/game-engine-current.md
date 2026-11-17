@@ -2,7 +2,7 @@
 
 The Rust engine executes finite Commander matches, reviewed search and local
 hosting. Fixture/catalog admission defines support; the deck library is independent.
-Paths in the authority table are relative to `packages/game-engine` unless named.
+`packages/game-engine` is the default path root below.
 
 ## Authorities and navigation
 
@@ -56,7 +56,6 @@ scopes, bridges, omissions and preserved proof locations. [Mechanics](game-engin
 owns supported shapes; [catalog/profile contracts](game-engine-catalogs.md)
 own admission. This map does not duplicate their release inventories.
 
-Read active snapshot, public projection/context and query-work format constants
-from source. Historical formats are not current compatibility promises: exact
-build/catalog identity fences recovery and private artifacts. The architecture
-refactor's implementation history remains in Git and indexed evidence.
+Read active snapshot/public/query formats from source. Exact build/catalog
+identity fences recovery and private artifacts; historical formats are not
+compatibility promises. Refactor history remains in Git and indexed evidence.

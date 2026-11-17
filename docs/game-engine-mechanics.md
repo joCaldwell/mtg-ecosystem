@@ -111,15 +111,15 @@ candidates; all movements commit atomically. A selected tucked Commander uses
 its owner's hand-replacement choice before movement; graveyard return waits
 for SBAs. Extra clauses and draw compositions reject.
 
-The ordinary top-order/optional-shuffle/draw family privately orders the whole
-available prefix without changing incarnations, offers the controller a scoped
-boolean shuffle choice, then draws once. Accepted shuffles use the existing
-trusted seeded stream and public shuffle counter, including empty/single-card
-libraries. Decline consumes no random words. No source, target, mana or priority
-authority is created between these instructions. Counted controller draw/hand-return
-programs perform exact sequential draw attempts, then choose and order as many
-requested cards as remain in the whole hand. Zone moves create successors;
-Commander replacements precede the single ordered-return batch.
+Top-order/optional-shuffle/draw privately orders the available prefix without
+changing incarnations, offers a controller choice and draws once. Accepted
+shuffles use trusted RNG and increment the public counter, even with zero/one
+card; declines consume no random words.
+Counted draws perform sequential attempts before selecting from the whole hand.
+Ordered top returns create successors in one batch after Commander replacements;
+discards share one simultaneous batch before Commander SBAs. Short hands clamp
+selection; failed draws never interrupt resolution. Neither family creates
+source, target, mana or priority authority.
 
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
