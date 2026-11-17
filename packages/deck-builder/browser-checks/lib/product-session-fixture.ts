@@ -203,9 +203,19 @@ export function createPrivateDiagnostics(directory: string): { path: string; dia
         if (!["ensure", "status", "stop", "ensure_cleanup", "child"].includes(event.stage)
           || !["aborted", "identity_failure", "state_unavailable", "child_already_exited", "private_file", "status_decode", "http_failure", "schema_failure", "transport_failure", "adapter_failure", "startup_protocol", "startup_failure", "presentation_failure", "bots_failure", "token_mismatch", "token_mismatch_exhausted", "cleanup_started", "cleanup_succeeded", "cleanup_failed", "child_exit", "child_exit_during_stop", "child_error"].includes(event.cause)) return;
         if (event.attempt !== undefined && (event.cause !== "token_mismatch" || ![1, 2, 3, 4].includes(event.attempt))) return;
+        const { file_scope, file_step, file_check, file_links } = event;
+        if (file_scope !== undefined && (event.cause !== "private_file" || !["bootstrap_guard", "bootstrap_seat", "status"].includes(file_scope))) return;
+        if (file_step !== undefined && (event.cause !== "private_file" || !["guard", "lstat", "metadata", "read"].includes(file_step))) return;
+        if (file_check !== undefined && (event.cause !== "private_file" || !["identity", "lifecycle", "owner", "links", "type", "mode", "size"].includes(file_check))) return;
+        if (file_links !== undefined && (event.cause !== "private_file" || !["zero", "one", "multiple", "invalid"].includes(file_links))) return;
         safe = { source: "adapter", game_id: event.game_id, stage: event.stage, cause: event.cause, ...(event.attempt === undefined ? {} : { attempt: event.attempt }) };
+        if (file_scope !== undefined) safe.file_scope = file_scope;
+        if (file_step !== undefined) safe.file_step = file_step;
+        if (file_check !== undefined) safe.file_check = file_check;
+        if (file_links !== undefined) safe.file_links = file_links;
       } else return;
-      const key = JSON.stringify([safe.source, safe.stage, "phase" in safe ? safe.phase : null, safe.cause, "attempt" in safe ? safe.attempt : null]);
+      const key = JSON.stringify([safe.source, safe.stage, "phase" in safe ? safe.phase : null, safe.cause, "attempt" in safe ? safe.attempt : null,
+        ...(safe.source === "adapter" ? [safe.file_scope, safe.file_step, safe.file_check, safe.file_links] : [])]);
       if (!rows.has(key) && rows.size >= 256) return;
       const row = { sequence: sequence = Math.min(sequence + 1, Number.MAX_SAFE_INTEGER), at_ms: Date.now(), ...safe };
       const previous = rows.get(key);
