@@ -1,5 +1,13 @@
 import { constants, openSync, closeSync, fsyncSync, writeFileSync, readFileSync, lstatSync, mkdirSync, chmodSync, renameSync } from "node:fs";
 import { dirname, isAbsolute, parse, resolve, sep } from "node:path";
+import type { NativeFileDetail } from "./native-diagnostics.ts";
+
+export type NativeFileObserver = (detail: NativeFileDetail) => void | Promise<void>;
+/** Failure observation never substitutes an exception or waits on a callback. */
+export function observePrivateFailure(observe: NativeFileObserver | undefined, detail: NativeFileDetail): void {
+  if (!observe) return;
+  try { void Promise.resolve(observe(detail)).catch(() => {}); } catch { /* observational only */ }
+}
 /** Private host storage; excludes a hostile concurrent same-UID process, as does
  * the native registry. Never repairs or deletes an existing non-private path. */
 export function privateDirectory(path: string): void {
@@ -21,10 +29,22 @@ export function privateDirectory(path: string): void {
     try { fsyncSync(fd); } finally { closeSync(fd); }
   }
 }
-export function readPrivate(path: string, maximum = 65_536): string {
-  const info = lstatSync(path);
-  if (info.uid !== process.getuid?.() || info.nlink !== 1 || !info.isFile() || (info.mode & 0o777) !== 0o600 || info.size > maximum) throw new Error("Invalid private file");
-  return readFileSync(path, "utf8");
+export function readPrivate(path: string, maximum = 65_536, observe?: NativeFileObserver): string {
+  let info: ReturnType<typeof lstatSync>;
+  try { info = lstatSync(path); }
+  catch (error) { observePrivateFailure(observe, { file_step: "lstat" }); throw error; }
+  // Preserve the original predicate order and short circuit. Report only the
+  // first failed check, never raw metadata or an inference about its cause.
+  const check = info.uid !== process.getuid?.() ? "owner" : info.nlink !== 1 ? "links" : !info.isFile() ? "type"
+    : (info.mode & 0o777) !== 0o600 ? "mode" : info.size > maximum ? "size" : undefined;
+  if (check) {
+    const error = new Error("Invalid private file");
+    const links = !Number.isSafeInteger(info.nlink) || info.nlink < 0 ? "invalid" : info.nlink === 0 ? "zero" : info.nlink === 1 ? "one" : "multiple";
+    observePrivateFailure(observe, { file_step: "metadata", file_check: check, file_links: links });
+    throw error;
+  }
+  try { return readFileSync(path, "utf8"); }
+  catch (error) { observePrivateFailure(observe, { file_step: "read", file_links: "one" }); throw error; }
 }
 export function writePrivate(path: string, value: string, exclusive = false): void {
   const target = exclusive ? path : `${path}.pending`;
