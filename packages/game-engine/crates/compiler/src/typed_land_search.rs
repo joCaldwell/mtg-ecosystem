@@ -79,10 +79,16 @@ pub(super) fn validate_raw_actors(ability: &Ability, raw: &str) -> Result<(), Fa
 pub(super) fn lower(steps: &[Step], source_block: u32) -> Result<Option<Instruction>, Failure> {
     let [
         Step::Search { who, zones, find },
-        Step::MoveZone { what, to, tapped },
+        Step::MoveZone {
+            what,
+            to,
+            tapped,
+            order: None,
+        },
         Step::Shuffle {
             who: shuffler,
             library,
+            optional: None,
         },
     ] = steps
     else {

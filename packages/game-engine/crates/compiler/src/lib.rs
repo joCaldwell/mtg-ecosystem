@@ -641,9 +641,6 @@ enum Step {
         who: PlayerSelector,
         what: serde_json::Value,
     },
-    Simultaneous {
-        steps: Vec<Step>,
-    },
     Search {
         who: PlayerSelector,
         zones: serde_json::Value,
@@ -2515,6 +2512,7 @@ fn append_spell_effects(
             Step::Shuffle {
                 who: shuffler,
                 library,
+                optional: None,
             },
         ] = sentence.steps.as_slice()
         {
@@ -2523,9 +2521,16 @@ fn append_spell_effects(
                 selection_id: None,
                 of: None,
             };
+            let steps: Vec<Step> =
+                serde_json::from_value(Value::Array(steps.clone())).map_err(|_| {
+                    unsupported(
+                        "effects.simultaneous",
+                        "requires complete supported movements",
+                    )
+                })?;
             let split = matches!(steps.as_slice(), [
-                Step::MoveZone { what: first, to: battlefield, tapped: Some(true) },
-                Step::MoveZone { what: rest, to: hand, tapped: None }
+                Step::MoveZone { what: first, to: battlefield, tapped: Some(true), order: None },
+                Step::MoveZone { what: rest, to: hand, tapped: None, order: None }
             ] if *first == serde_json::json!({"ref":"from-pool","pool":{"ref":"them"},"count":{"amount":"fixed","value":1}})
                 && *battlefield == serde_json::json!({"zone":"battlefield"})
                 && *rest == serde_json::json!({"ref":"rest"})
