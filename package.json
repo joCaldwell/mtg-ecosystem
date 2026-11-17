@@ -11,6 +11,7 @@
     "engine:doctor": "sh scripts/engine-env.sh node scripts/engine-doctor.ts",
     "check:engine": "sh scripts/engine-env.sh node scripts/check-engine.ts",
     "check:engine:source": "sh scripts/engine-env.sh node scripts/check-engine.ts --source",
+    "check:engine:tooling": "sh scripts/engine-env.sh node scripts/check-engine.ts --tooling",
     "check:engine:contracts": "sh scripts/engine-env.sh node scripts/check-engine.ts --contracts",
     "check:engine:full": "sh scripts/engine-env.sh node scripts/check-engine.ts --full",
     "demo:engine": "cargo run --locked -p mtg-sim -- demo",
