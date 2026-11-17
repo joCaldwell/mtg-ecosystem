@@ -2,14 +2,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { cachePreflight, digest, engineCheckPlans, nativeEnvironment, parseCheckArguments, pinnedRust, runCheckPhases, sourceIdentity, withAdvisoryLock } from "./check-engine-driver.ts";
+import { digest, engineCheckPlans, nativeEnvironment, parseCheckArguments, pinnedRust, runCheckPhases, sourceIdentity, withAdvisoryLock } from "./check-engine-driver.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const { mode, planOnly, help } = parseCheckArguments(process.argv.slice(2));
 const plan = engineCheckPlans[mode];
-const phases = mode === "source" ? plan.phases : [cachePreflight, ...plan.phases];
+const { phases, needsCargo } = plan;
 if (help) {
-  console.log("Usage: npm run check:engine -- [--fast|--source|--contracts|--full] [--plan]");
+  console.log("Usage: npm run check:engine -- [--fast|--source|--tooling|--contracts|--full] [--plan]");
   console.log("Default: --fast. --plan prints commands and omissions without executing them.");
   for (const [name, value] of Object.entries(engineCheckPlans)) console.log(`${name}: ${value.coverage}\n  Omits: ${value.omitted}`);
   process.exit(0);
@@ -19,7 +19,6 @@ if (planOnly) {
   process.exit(0);
 }
 console.error(`Engine check mode: ${mode}\n${plan.coverage}\nOmitted: ${plan.omitted}`);
-const needsCargo = mode !== "source";
 const version = needsCargo ? pinnedRust(root) : null;
 const report = process.env.MTG_ENGINE_TIMING_FILE
   ? path.resolve(process.env.MTG_ENGINE_TIMING_FILE)
@@ -49,7 +48,7 @@ try {
     }
   };
   // Own the Cargo lock across nested Node Cargo calls; never wrap check:engine
-  // in another acquisition of this lock. Source-only mode needs no Cargo lock.
+  // in another acquisition of this lock. Source/tooling modes need no Cargo lock.
   if (needsCargo) await withAdvisoryLock(path.join(locks, "cargo.lock"), options, run);
   else await run();
 } finally { fs.closeSync(reportFd); }

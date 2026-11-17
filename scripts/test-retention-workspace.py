@@ -73,8 +73,14 @@ class RetentionTests(unittest.TestCase):
 
     def test_runtime_store_limit_preserves_failed_output(self):
         output = self.store / 'new-evidence'
+        # Publish a complete fixture atomically: the monitor may correctly stop
+        # a direct writer before write_bytes finishes, leaving partial evidence.
+        worker = ("import os,pathlib,time;"
+                  "staged=pathlib.Path(os.environ['MTG_RETENTION_SCRATCH'],'staged');"
+                  "staged.write_bytes(b'x'*1048576);"
+                  f"staged.replace({str(output)!r});time.sleep(30)")
         with self.assertRaisesRegex(RuntimeError, 'Evidence store exceeds'):
-            self.run_worker(f"import pathlib,time;pathlib.Path({str(output)!r}).write_bytes(b'x'*1048576);time.sleep(30)", store_limit=65536)
+            self.run_worker(worker, store_limit=65536)
         self.assertEqual(output.stat().st_size, 1048576)
         self.assertFalse(self.scratch.exists())
 
