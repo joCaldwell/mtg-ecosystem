@@ -152,7 +152,7 @@ impl Broker {
         let gate = self.reader.lock().map_err(|_| BrokerError::Unavailable)?;
         if !gate
             .as_ref()
-            .is_some_and(|current| Arc::ptr_eq(current, &epoch) && epoch.is_active())
+            .is_some_and(|current| Arc::ptr_eq(current, &epoch) && epoch.check().is_ok())
         {
             return Err(BrokerError::Unavailable);
         }
@@ -712,5 +712,84 @@ mod tests {
         drop(all);
         *broker.reader.lock().unwrap() = Some(f.reader());
         assert!(broker.call(WorkerCommand::Resume { seat: 0 }).await.is_ok());
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn completed_resume_cannot_escape_after_pinned_worker_death() {
+        use std::{future::Future, process::Stdio};
+        struct Reap(std::process::Child);
+        impl Drop for Reap {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        // A blocking stdin keeps the pinned process live without timing sleeps.
+        // The fixture supplies actual committed views; this process supplies
+        // the independently sampled kernel-liveness boundary.
+        let mut process = Reap(
+            std::process::Command::new("/usr/bin/cat")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let mut f = crate::resume_reader::tests::Fixture::new();
+        f.settle();
+        let reader = Arc::new(
+            crate::resume_reader::ResumeReader::open(
+                &f.directory,
+                &f.root,
+                f.worker.identity().clone(),
+                f.worker.read_descriptor().unwrap(),
+                crate::resume_reader::Liveness::open(process.0.id()).unwrap(),
+            )
+            .unwrap(),
+        );
+        let broker = idle();
+        *broker.reader.lock().unwrap() = Some(reader.clone());
+        let (locked_tx, locked_rx) = oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let held_reader = reader.clone();
+        let held = tokio::task::spawn_blocking(move || {
+            let _lock = held_reader.hold_for_test();
+            locked_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        locked_rx.await.unwrap();
+        let mut response = Box::pin(broker.call(WorkerCommand::Resume { seat: 0 }));
+        std::future::poll_fn(|cx| {
+            assert!(response.as_mut().poll(cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        assert_eq!(
+            broker.reader_admission.available_permits(),
+            READER_LIMIT - 1
+        );
+        release_tx.send(()).unwrap();
+        held.await.unwrap();
+        // Production admission is released only after read() has returned.
+        // Acquire every permit to join that work WITHOUT polling the broker
+        // future, so its successful result is suspended before exposure.
+        let all = tokio::time::timeout(
+            Duration::from_secs(2),
+            broker
+                .reader_admission
+                .clone()
+                .acquire_many_owned(READER_LIMIT as u32),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        process.0.kill().unwrap();
+        process.0.wait().unwrap();
+        assert!(reader.is_active(), "death alone does not revoke the epoch");
+        assert!(!broker.queue.lock().unwrap().dead);
+        assert!(
+            matches!(response.await, Err(BrokerError::Unavailable)),
+            "completed resume must not outlive its pinned worker"
+        );
+        drop(all);
     }
 }

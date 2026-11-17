@@ -254,7 +254,7 @@ impl ResumeReader {
     pub(crate) fn is_active(&self) -> bool {
         self.active.load(Ordering::SeqCst)
     }
-    fn check(&self) -> Result<(), String> {
+    pub(crate) fn check(&self) -> Result<(), String> {
         if !self.is_active() {
             return Err("reader revoked".into());
         }
