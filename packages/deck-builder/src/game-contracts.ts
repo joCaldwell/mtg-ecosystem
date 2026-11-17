@@ -68,7 +68,12 @@ export type GameDiagnosticEvent =
         | "http_failure" | "schema_failure" | "transport_failure" | "adapter_failure" | "startup_protocol" | "startup_failure"
         | "presentation_failure" | "bots_failure" | "token_mismatch" | "token_mismatch_exhausted"
         | "cleanup_started" | "cleanup_succeeded" | "cleanup_failed" | "child_exit" | "child_exit_during_stop" | "child_error";
-      attempt?: 1 | 2 | 3 | 4 };
+      attempt?: 1 | 2 | 3 | 4;
+      /** Optional closed private-file observations; absence retains older sinks. */
+      file_scope?: "bootstrap_guard" | "bootstrap_seat" | "status";
+      file_step?: "guard" | "lstat" | "metadata" | "read";
+      file_check?: "identity" | "lifecycle" | "owner" | "links" | "type" | "mode" | "size";
+      file_links?: "zero" | "one" | "multiple" | "invalid" };
 export type GameDiagnosticSink = (event: GameDiagnosticEvent) => void | Promise<void>;
 export interface NativeGameAdapter {
   /** Exact identities are mandatory on admission AND recovery. */

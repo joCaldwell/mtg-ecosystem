@@ -328,6 +328,8 @@ use cascade::{CascadeProgress, CastCompletion, CastPermission};
 #[cfg(test)]
 mod casting_foundation_tests;
 mod intrinsic_mana;
+mod library_order;
+mod library_selection;
 mod mana_permanents;
 #[cfg(test)]
 mod mana_tests;
@@ -1091,6 +1093,13 @@ pub enum Response {
     AdditionalCosts {
         selected: Vec<String>,
     },
+    LibraryOrder {
+        objects: Vec<ObjectId>,
+    },
+    LibrarySelect {
+        hand: Vec<ObjectId>,
+        remainder: Vec<ObjectId>,
+    },
     Surveil {
         top: Vec<ObjectId>,
         graveyard: Vec<ObjectId>,
@@ -1221,6 +1230,18 @@ pub enum Request {
         decision_id: u64,
         player: PlayerId,
         candidates: Vec<mtg_contracts::OptionalAdditionalManaCost>,
+    },
+    LibraryOrder {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
+        count: usize,
+    },
+    LibrarySelect {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
+        remainder: LibraryRemainder,
     },
     Surveil {
         decision_id: u64,
@@ -1412,9 +1433,11 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::Surveil { decision_id, .. }
+            Self::LibraryOrder { decision_id, .. }
+            | Self::LibrarySelect { decision_id, .. }
             | Self::Scry { decision_id, .. }
-            | Self::AdditionalCosts { decision_id, .. }
+            | Self::Surveil { decision_id, .. } => *decision_id,
+            Self::AdditionalCosts { decision_id, .. }
             | Self::AnnounceX { decision_id, .. }
             | Self::ManaColor { decision_id, .. }
             | Self::SearchLands { decision_id, .. }
@@ -1449,9 +1472,11 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::Surveil { player, .. }
+            Self::LibraryOrder { player, .. }
+            | Self::LibrarySelect { player, .. }
             | Self::Scry { player, .. }
-            | Self::AdditionalCosts { player, .. }
+            | Self::Surveil { player, .. } => *player,
+            Self::AdditionalCosts { player, .. }
             | Self::AnnounceX { player, .. }
             | Self::ManaColor { player, .. }
             | Self::SearchLands { player, .. }
@@ -1491,6 +1516,21 @@ pub enum ProposedEvent {
     RevealSearchLands {
         player: PlayerId,
         objects: Vec<ObjectId>,
+    },
+    OrderLibraryTop {
+        player: PlayerId,
+        amount: Quantity,
+        looked: Vec<ObjectId>,
+        order: Vec<ObjectId>,
+    },
+    LibrarySelect {
+        player: PlayerId,
+        amount: Quantity,
+        destination: LibraryRemainder,
+        looked: Vec<ObjectId>,
+        hand: Vec<ObjectId>,
+        remainder: Vec<ObjectId>,
+        hand_to_command: bool,
     },
     Mill {
         player: PlayerId,
@@ -1692,6 +1732,17 @@ pub enum EventOutcome {
     SearchLandsRevealed {
         player: PlayerId,
         objects: Vec<ObjectId>,
+    },
+    LibraryOrdered {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        order: Vec<ObjectId>,
+    },
+    LibrarySelected {
+        player: PlayerId,
+        hand: Option<MoveOutcome>,
+        remainder: Vec<ObjectId>,
+        graveyard: Vec<MoveOutcome>,
     },
     Milled {
         player: PlayerId,
@@ -3195,7 +3246,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 36,
+            snapshot_version: 37,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3237,7 +3288,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 36
+        if s.snapshot_version != 37
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

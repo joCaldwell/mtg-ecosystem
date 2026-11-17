@@ -9,8 +9,7 @@ source-qualified increments. This plan does not admit the exact deck or consumer
 Owner jcaldwell; deck 11; paper lifecycle; revision 17, edit version 0. The unchanged
 export has **100 cards, 37 lands, 85 definitions**, SHA-256
 `f9eb5bc8ea479e036fc24c3fba27383ee2f030191d1a689de80bdb30e2278ee1`.
-Preserve quantities and commander designation. The maybe/acquisition lists do not
-change membership; later app edits require an explicit new target.
+Preserve quantities and commander designation. Later app edits require an explicit new target.
 
 The [export](../packages/game-engine/tests/fixtures/ramos/revision-17.txt),
 [identity manifest](../packages/game-engine/tests/fixtures/ramos/revision-17.manifest.json),
@@ -23,42 +22,24 @@ pinned rules SHA-256 is
 The app/frozen Oracle-text comparison remains unverified because OAuth needs
 reauthentication; no new revision was fetched.
 
-Follow the [development workflow](game-engine-development.md),
-[mechanics](game-engine-mechanics.md), [catalogs](game-engine-catalogs.md) and
-[capacity policy](game-engine-capacity-policy.md). Whole-source compilation or
-explicit rejection is mandatory. Card names/IDs identify evidence, never runtime
-rules or policies. Keep the standalone deck-builder independent.
+Use the [development workflow](game-engine-development.md) and complete-source semantics; names identify witnesses, never runtime rules.
 
 ## Qualified checkpoints and limits
 
-- **M0:** main `bbdba9f5`, planning base `46ef08fa`;85 records verified.
-  Historical audit11 lowered/validated,74 Unsupported,zero Invalid and diagnostics
-  remain preserved.
-- **M1:** Ramos/Scales/Corpsejack support cast-color counters, removal/mana/undo
-  and atomic Add/Multiply ordering with recovery. Entry/simultaneous/distributed
-  placement producers remain unavailable.
-- **M2 partial:** Cultivate/Reach retain basic split search. Farseek/Lore/Claim
-  support typed nonbasic search, destination entry and shuffle. Cinder Glade and
-  the separate Prairie Stream witness share conditional entry and intrinsic mana
-  selection with paid, privacy, undo and recovery tests. Other sources remain open.
-- **M3:** source-qualified basic/instant cascade, owned casting, optional kicker
-  and paid prohibition have private paid/recovery witnesses.
-- **M4 partial:** Apex/Wanderer, Imoti, Nexus/Sorcerer and Ethersworn are
-  source-qualified. [Evidence](game-engine-evidence.md) owns producers, bridges,
-  counts and exclusions; acceptance never transfers.
-
-Receipts: `generated/ramos/*-integrated/integration.json`.
-The [prior plan](https://github.com/joCaldwell/mtg-ecosystem/blob/ad428b23ee5b3f5750f8c79b4a7823c8d93d5b7f/docs/game-engine-ramos-plan.md) retains boundaries, failures and the unrepeated833-second Apex witness.
-Research: Git `30ec86ee`. Exact-deck/consumer admission remains open.
+[Evidence](game-engine-evidence.md) owns exact producers, counts, bridges and
+exclusions. M0 preserved all85 records and historical11/74/0 compiler diagnostics.
+M1 covers Ramos/Scales/Corpsejack; entry/simultaneous/distributed placements remain
+unavailable. M2 covers basic split/typed search, Cinder conditional entry and intrinsic
+mana. M3 covers basic/instant cascade, kicker and paid prohibition. M4 covers
+Apex/Wanderer/Imoti/Nexus/Sorcerer/Ethersworn. None admits the exact deck or consumers.
+Receipts: `generated/ramos/*-integrated/integration.json`; research: Git `30ec86ee`.
+The [prior plan](https://github.com/joCaldwell/mtg-ecosystem/blob/ad428b23ee5b3f5750f8c79b4a7823c8d93d5b7f/docs/game-engine-ramos-plan.md) retains historical boundaries and failures.
 
 ## Ordered remaining milestones
 
 ### M2 Complete land and ramp infrastructure
 
-Complete typed multicolor lands, shock/conditional/tapped entry, fetch life/tap/
-sacrifice costs, typed nonbasic searches, mana choices/opponent production and hand
-cycling. Cover Farseek, Nature's Lore, Skyshroud Claim and all triome modes; Forest
-need not mean basic. Preserve reveal, optional quantities and destination entry rules.
+Complete shock entry, fetch life/tap/sacrifice costs, opponent production and triome cycling.
 Combined source `1fe0dfa1` closes typed-search and conditional-entry review findings;
 [evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration) records qualification. Five frozen shocks have SOURCE_ONLY_UNQUALIFIED
 entry transactions and test sources; native proof remains pending. Fetch costs,
@@ -67,59 +48,48 @@ triome cycling and opponent production remain open.
 ### M3 Build casting during resolution and basic cascade
 
 Qualified above: owned free casts, optional additional costs, legal targets/current
-prohibitions, nested completion and private-bottom recovery. Further casting
-sources/costs require complete-source qualification under the shared
-[mechanics](game-engine-mechanics.md).
+prohibitions, nested completion and private-bottom recovery. Further sources require complete-source qualification.
 
 ### M4 Complete the cascade package and casting history
 
 Apex/Wanderer/Imoti/Nexus/Sorcerer/Ethersworn are qualified above. Next:
 Enigma's exact battlefield-to-own-graveyard successor and third-from-top library
 movement/knowledge; Yidris needs complete AST/binding before grants. Remaining turn/zone scopes follow. Add Averna's action, Call Forth's other-spell mana
-values and Vega's non-hand-cast draw. Preflight effective trigger batches and checked
-IDs from common physical bounds; no card/profile ceilings, truncation or partial
-publication. Copies require a revised capacity proof.
+values and Vega's non-hand-cast draw.
 
 ### M5 Add color and mana engines
 
 Complete Leyline opening action/layers/hybrid costs, Prismatic Omen, Lantern grants,
 Faeburrow dynamic quantities, Selvala allocation/draw and Omnath Phyrexian payment,
-unspent-mana replacement and private choices. Keep permanent color, spell colors,
-mana spent and commander identity distinct.
+unspent-mana replacement and private choices.
 
 ### M6 Complete card advantage and flexible choices
 
 Complete Aragorn, Whirlwind, Temur Ascendancy, Rhystic payments, distributed Abzan
 counters, Esper discard, Quandrix choose-two/graveyard targets, Conflux colored
-search and Urban Evolution land permissions. Qualify partial target legality,
-mandatory/optional order, private views and permission expiry.
+search and Urban Evolution land permissions.
 
 ### M7 Complete protection and board interaction
 
 Complete Anguished Unmaking, Void Rend, Ruinous Ultimatum, Child, Avacyn, Escort,
-Exterminatus, Farewell and Akroma's Will. Preserve actual recipient sets,
-commander-dependent announcement permissions, ordered modes, keyword removal,
-lookback triggers and protection's targeting/damage/blocking/attachment behavior.
+Exterminatus, Farewell and Akroma's Will.
 
 ### M8 Add spell and permanent copies
 
 Complete Double Major, Creative Technique/demonstrate and Protege through generic
 copyable characteristics, independent targets/choices, ownership/control and legendary
-exceptions. Copies are not casts. Revise token/trigger capacity before copied tokens
-can carry abilities; include token cessation and private recovery.
+exceptions. Revise copy/token/trigger capacity.
 
 ### M9 Add linked permissions, bestow and Sagas
 
 Complete Mosswort's private linked hideaway permission, Chromanticore bestow/type/
-attachment transitions and Thunder's lore/chapters/final sacrifice. Invalidate stale
-source incarnations and preserve allowed viewers.
+attachment transitions and Thunder's lore/chapters/final sacrifice.
 
 ### M10 Complete phasing and remaining effects
 
 Complete Teferi's Protection, Coalition's repeated modes, Progenitus replacement,
 Archangel hand casting, Zacama cast-sensitive trigger/activations, Breya's tokens/
-atomic sacrifice and Door's player loss. Phasing retains identity; it is not exile.
-Never silently erase an unsupported target alternative.
+atomic sacrifice and Door's player loss.
 
 ### M11 Qualify the exact deck and host it
 
@@ -135,6 +105,4 @@ privacy, retries, reconnect, recovery and four-client completion. Search is sepa
 Primary dependency path is M0→M1→M3→M4; M2 can advance independently. M5–M10 reuse
 those foundations. Call Forth, Selvala, Averna, Omnath, Yidris, Creative Technique
 and Double Major still need complete parser/archive work under that package manual.
-Follow the [development workflow](game-engine-development.md) for freezing,
-serialized native work, preserved failures/artifacts and stable main integration.
-Exact-target admission requires complete semantics; coverage percentages cannot substitute.
+Exact-target admission requires complete semantics.

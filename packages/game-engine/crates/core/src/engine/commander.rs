@@ -6,6 +6,13 @@ pub(super) enum CommanderContinuation {
     CascadeBottom {
         progress: Box<CascadeProgress>,
     },
+    LibrarySelect {
+        frame: Resolving,
+        looked: Vec<ObjectId>,
+        hand: Vec<ObjectId>,
+        remainder: Vec<ObjectId>,
+        source_block: u32,
+    },
     BoardReturn {
         frame: Resolving,
         objects: Vec<ObjectId>,
@@ -239,6 +246,22 @@ impl Game {
             CommanderContinuation::CascadeBottom { progress } => {
                 self.resume_cascade_commander(progress, object, to_command)?
             }
+            CommanderContinuation::LibrarySelect {
+                frame,
+                looked,
+                hand,
+                remainder,
+                source_block,
+            } => {
+                self.complete_library_selection(
+                    frame,
+                    looked,
+                    hand,
+                    remainder,
+                    source_block,
+                    to_command,
+                )?;
+            }
             CommanderContinuation::BoardReturn {
                 frame,
                 objects,
@@ -451,6 +474,23 @@ impl Game {
                         || progress.stage != cascade::CascadeStage::Bottom
                     {
                         return Err("snapshot cascade commander replacement invariant".into());
+                    }
+                }
+                CommanderContinuation::LibrarySelect {
+                    frame,
+                    looked,
+                    hand,
+                    remainder,
+                    source_block,
+                } => {
+                    self.validate_resolving(frame)?;
+                    self.validate_selection_choice(frame, owner, looked, *source_block)?;
+                    self.validate_selection_partition(owner, looked, hand, remainder)?;
+                    if hand.as_slice() != [*object]
+                        || *destination != (Zone::Hand { owner })
+                        || current.zone != (Zone::Library { owner })
+                    {
+                        return Err("snapshot selected commander invariant".into());
                     }
                 }
                 CommanderContinuation::BoardReturn {

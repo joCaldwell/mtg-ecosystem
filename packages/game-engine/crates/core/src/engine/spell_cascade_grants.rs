@@ -221,7 +221,8 @@ pub(super) fn retained_resolving_entry(frame: &Frame) -> Option<&StackInstance> 
             }
         }
         Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
-            CommanderContinuation::BoardReturn { frame, .. }
+            CommanderContinuation::LibrarySelect { frame, .. }
+            | CommanderContinuation::BoardReturn { frame, .. }
             | CommanderContinuation::SpellMove { frame, .. }
             | CommanderContinuation::ResolutionDraw { frame, .. } => Some(&frame.spell),
             // CascadeBottom is charged in full by cascade_charge.

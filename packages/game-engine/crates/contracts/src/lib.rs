@@ -20,8 +20,12 @@ use num_traits::Zero;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 mod controller_library;
 mod fixed_mill;
+mod library_order;
+mod library_selection;
 pub use controller_library::{controller_scry_program, controller_surveil_program};
 pub use fixed_mill::fixed_mill_program;
+pub use library_order::controller_library_order_program;
+pub use library_selection::controller_library_selection_program;
 use serde::{Deserialize, Serialize, de};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, fmt, str::FromStr};
@@ -256,6 +260,8 @@ pub enum Capability {
     ControllerScryV1,
     ControllerSurveilV1,
     FixedMillProgramV1,
+    ControllerLibrarySelectionV1,
+    ControllerLibraryOrderV1,
     ControllerDiscardV1,
     OpponentTargetV1,
     TargetPlayerSacrificeCreatureV1,
@@ -433,6 +439,23 @@ pub enum LifeRecipient {
         target_slot: u32,
     },
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryRemainder {
+    Bottom,
+    Graveyard,
+}
+impl<'de> Deserialize<'de> for LibraryRemainder {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match String::deserialize(deserializer)?.as_str() {
+            "bottom" => Ok(Self::Bottom),
+            "graveyard" => Ok(Self::Graveyard),
+            _ => Err(serde::de::Error::custom(
+                "unsupported library remainder destination",
+            )),
+        }
+    }
+}
 /// Resolution actions use a separate binding domain from draw/life. The event
 /// player is the frozen damaged player of a source-damage trigger (CR 603.2c).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
@@ -506,6 +529,20 @@ pub enum Instruction {
     /// CR 702.85a: threshold comes from the originating spell, never paid cost.
     Cascade {
         threshold: CascadeThreshold,
+        source_block: u32,
+    },
+    OrderLibraryTop {
+        #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
+        amount: Quantity,
+        source_block: u32,
+    },
+    OptionalShuffleLibrary {
+        source_block: u32,
+    },
+    SelectLibraryCard {
+        #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
+        amount: Quantity,
+        remainder: LibraryRemainder,
         source_block: u32,
     },
     /// CR 701.22: only the invocation controller looks and orders the prefix.
@@ -770,7 +807,10 @@ impl Instruction {
             | Self::SearchTypedLands { source_block, .. }
             | Self::PutSourcePlusOneCountersForCastColors { source_block, .. }
             | Self::DrawCardsIfAdditionalCost { source_block, .. } => *source_block,
-            Self::Scry { source_block, .. }
+            Self::OrderLibraryTop { source_block, .. }
+            | Self::OptionalShuffleLibrary { source_block }
+            | Self::SelectLibraryCard { source_block, .. }
+            | Self::Scry { source_block, .. }
             | Self::Surveil { source_block, .. }
             | Self::MillCards { source_block, .. } => *source_block,
             Self::MoveSet { source_block, .. } => *source_block,
@@ -1907,6 +1947,8 @@ impl Definition {
         u32::try_from(self.static_abilities.len()).map_err(|_| "static ability index limit")?;
         controller_library::validate_definition(self)?;
         fixed_mill::validate_definition(self)?;
+        library_selection::validate_definition(self)?;
+        library_order::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -3354,6 +3396,12 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     {
         return Err("cascade requires one complete targetless program".into());
     }
+    if library_order::has_order(p) && !controller_library_order_program(p) {
+        return Err("unsupported complete controller library ordering program".into());
+    }
+    if library_selection::has_selection(p) && !controller_library_selection_program(p) {
+        return Err("unsupported complete library selection program".into());
+    }
     if fixed_mill::has_mill(p) && !fixed_mill_program(p) {
         return Err("unsupported complete fixed mill program".into());
     }
@@ -3902,6 +3950,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 None
             }
+            Instruction::OrderLibraryTop { .. }
+            | Instruction::OptionalShuffleLibrary { .. }
+            | Instruction::SelectLibraryCard { .. } => None,
             Instruction::MillCards {
                 count, recipient, ..
             } => {
@@ -4265,6 +4316,10 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::Scry { .. } => Capability::ControllerScryV1,
             Instruction::Surveil { .. } => Capability::ControllerSurveilV1,
             Instruction::MillCards { .. } => Capability::FixedMillProgramV1,
+            Instruction::SelectLibraryCard { .. } => Capability::ControllerLibrarySelectionV1,
+            Instruction::OrderLibraryTop { .. } | Instruction::OptionalShuffleLibrary { .. } => {
+                Capability::ControllerLibraryOrderV1
+            }
             Instruction::GainLife { .. } => Capability::LifeGainV1,
             Instruction::LoseLife { .. } => Capability::LifeLossV1,
         });
@@ -5497,6 +5552,8 @@ pub fn catalog_schema() -> serde_json::Value {
     controller_library::extend_schema(&mut schema);
     conditional_lands::schema(&mut schema);
     fixed_mill::extend_schema(&mut schema);
+    library_selection::extend_schema(&mut schema);
+    library_order::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -5667,6 +5724,8 @@ mod tests {
             ControllerScryV1,
             ControllerSurveilV1,
             FixedMillProgramV1,
+            ControllerLibrarySelectionV1,
+            ControllerLibraryOrderV1,
             ControllerDiscardV1,
             OpponentTargetV1,
             TargetPlayerSacrificeCreatureV1,
@@ -5900,6 +5959,8 @@ mod tests {
         definitions.push(controller_library::witness());
         definitions.push(controller_library::surveil_witness());
         definitions.push(fixed_mill::witness());
+        definitions.push(library_selection::witness());
+        definitions.push(library_order::witness());
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());

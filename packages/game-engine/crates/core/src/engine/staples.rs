@@ -791,7 +791,8 @@ impl Game {
                 | Instruction::SearchBasicLandsSplit { source_block: b }
                 | Instruction::SearchTypedLands {
                     source_block: b, ..
-                },
+                }
+                | Instruction::OptionalShuffleLibrary { source_block: b },
             ) => {
                 *player == frame.spell.controller
                     && source_block == b

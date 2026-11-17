@@ -443,6 +443,15 @@ impl Game {
                         active: self.state.rules.active,
                     }]
                 }
+                EventOutcome::LibrarySelected {
+                    hand, graveyard, ..
+                } => hand
+                    .iter()
+                    .chain(graveyard)
+                    .map(|movement| TriggerEventWitness::Moved {
+                        movement: movement.clone(),
+                    })
+                    .collect(),
                 EventOutcome::Surveilled { movements, .. }
                 | EventOutcome::Milled { movements, .. } => movements
                     .iter()

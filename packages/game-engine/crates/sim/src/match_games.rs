@@ -122,7 +122,10 @@ impl Strategy<'_> {
                 return Err("counter placement replacement choices outside this policy".into());
             }
 
-            PlayerRequest::Scry { .. } | PlayerRequest::Surveil { .. } => {
+                PlayerRequest::LibraryOrder { .. }
+            | PlayerRequest::LibrarySelect { .. }
+            | PlayerRequest::Scry { .. }
+            | PlayerRequest::Surveil { .. } => {
                 return Err("scry outside this policy admission".into());
             }
             PlayerRequest::LegendRule { candidates, .. } => self.legend_choice(candidates)?,

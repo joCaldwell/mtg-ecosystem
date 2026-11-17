@@ -119,7 +119,31 @@ Controlled-permanent scalar keywords retain rules `7315ffe2` and schema-only `44
 
 Controller Surveil source `ad6630c8`: 16 focused Rust and 631 probes; IR1/33/25. Exact producers, comments-only bridge and omissions: `generated/controller-surveil/integration.json`.
 
-Fixed Mill source `17e93b8a`:14 Rust/587 probes;34/25,IR1. Exact producers and later-main row bridge: `generated/fixed-mill/integration.json`.
+| Family / measured source | Focused checks | Exact producers | Raw proof root |
+| --- | --- | --- | --- |
+| Controlled-permanent keywords `21d10aaa67ea67f009366cbce0d754b59d9b7daa` | 465 distinct Rust/471 executions: 90 fresh core, 375 byte-bridged libraries; 2,805 probes; 831 rows | `dbf3eea9f9fb7d468031c6364fc683710f864cfde77e800f7100fce1ce4de14d` / `beb0d485d8c289785046de3c83420cea28f748a258d24ed40fbe5472d49580a8` / `e37053a3e7e1f12f6963b04a303794f67b36226d0e64c003f9ca3dd51700682c` | `permanent-set-keywords/{integration.json,review.json,combined03/}` |
+| Typed Aura control `97afa6cdcdda88d76a86459b18ae53cda63c1546` | 507 distinct Rust: 398 prechecks at `99097789` through three-private-test-file bridge, 109 fresh core; 3,021 probes; 837 rows | `df8d293944268b10c2900f0628ef01e8872d0472febb845237a634145b5fb3ec` / `14bb7aa2b7cbe2c07672c439172cb13ca4743564ae9c80c479add9387ee80567` / `bf73e4bb9c58aa3661ee75e25d10590214d6aa466464908c4ce53745f34b99a0` | `typed-aura-control/{integration.json,review.json,preflight01/,combined05/}` |
+| Fresh-main integration `f3326dcd6fab0e6dc8ebbbbef33c622ceb3e3db3` | 605 distinct Rust/606 executions (lifecycle child repeat); 3,021 probes; 841 rows | `f59345c978e736e5d4d7800b5039c948c6c507a1c9ee159bf37ba7c75be9aa96` / `c21715382ad199ba57b1ff18f7dfa01b90458d4bf5eb738f9b3f76cb1fbb4361` / `80a6d58052322bb440f67a4cd65f3fe454260bda11d7b328e37970a837f61073` | `typed-aura-control/main-integration/integration.json`, `main-integrated01/`–`03/` |
+| General Aura dependencies `aa28e9b7a39d601a8a9a8bb4fbde9484fe20fc1f` | 550 distinct Rust: 416 prechecks at `1163d0fd` through one-private-test bridge, 134 fresh core; 3,190 probes; 843 rows | `2f2c427810ee56b74aaf97312f278ceaec32520242a11530c59dac53af0088db` / `bd47a51c072088661d98acf10184b985fa6b68660513eba3024ae3c6a1d13cff` / `5caa2ff0392cf173057faa20342ba7f816c367e01ef1d59d69c0b3333ac6eb95` | `control-dependencies/{integration.json,review.json,review-continuity.json,combined01/,combined02/}` |
+| Private order/shuffle/draw `51222adb` → `6da92a1d` | 25 focused Rust, 1,175 probes; one appended kernel-test bridge; IR1/37/27 | `7bcb38bc86b764a81d265bc040f695e57df9bb7c8d933a301cc75f5a8848372f` / `cd8d8e9ceb9784edc996e848135cb9fc353d71458181a5393847a3913745fa14` / `e95b45d912863f417883e9aadae5e17917be696aefdb2f7be5460527de84c750` | `library-order/integration.json` |
+| Library selection `b41e0d8d` | 29 focused Rust, 1,097 probes; IR1/35/26 | `226e60143fa4ec8de8effb12d8a793de4d86bd132a7a83acdd9d6fa6f0cbf61b` / `791d67851fdc14327464dd6eaa13c346eb21101f2867ad94a7875622dcf43e1d` / `6392885ccc069b72cb2d4b662eb47a5e4c2452aebc6c8d19812ca39df09e7568` | `library-selection/integration.json` |
+| Fixed mill `17e93b8a` | 14 focused Rust, 587 probes; IR1/34/25 | `1fcf331ea94fd2381906a519fea4b243ae2c1f2b57a7caa11f619cba9f55f0ac` / `d30d0cc74e5afca50c7134709d13061921dbfc3a4089617c248fa608808a5094` / `f01bdabdb121d6cae979d7b65168a21f7dbe4a20c22bbf6422c0aad6acadf74a` | `fixed-mill/integration.json` |
+| Controller Surveil `ad6630c8` | 16 focused Rust, 631 probes; IR1/33/25; comments-only bridge | `7b21d9f743fbd6578b167b7e66284f408d2fb20e1b0a2806d3a35669cc7ec0f7` / `3a9b1c444375afc87bbb71d2e656cadfdb964945b64b1ed75c121bc3214a1e3e` / `510f146cd8ef6e3fa385e3837334f224d97147f44a90a3dbdb27ef1d4e45d89f` | `controller-surveil/integration.json` |
+| Controller Scry `1885e9037bf5f78ee602e5298e7802a47b892f30` | 511 Rust, 4,714 probes, 857 rows; IR1/31/24 | `b26a874958657ddc7608413cce8809cbe7d0cecaf51dd3d985fdfc9ed17968ee` / `b42fb9eb808db12b0cddcbee56d18902fa157a03d092405fb7d17e3b16aca1b7` / 34afe7c44b216595d59220140f6bd8fb92f021de9ec4441485d8b0bd1f161e49 | `controller-scry/integration.json` |
+| Controlled-permanent scalar keywords `449306226a532a6a14efdb9d4aa5959bf493f46f` | 626 distinct Rust/633 executions; 4,316 probes; 848 rows; IR1/29/23 | `83be4c3bca58b1ee16573c3a812d33c95a2f92bb6271217e619cd2e789dd758c` / `c29b9b7010e601f97034d70bd9e09c9e9657ff8365cba6891e87f7c2e8518045` / `4761f067a6bbe294f181b23c85f0092cdde9edc7fb4583639aa1e40a9bc0cd1e` | `targeted-permanent-keywords/integration.json` |
+
+The first four sources retain IR1/26/21. General-control precheck core remains
+`2ce7d22d0cd876d41653ddf9b4060b3bce4a116189986d693820527c49822eae`;
+fresh-main server remains `2f23d56fb85785bcb55d3246e9a742e2b3dd0fb8980a1e6b4925949cb5b86a98`.
+Indexed roots preserve binaries, identities, bridges, earlier reviews and failures.
+General control admits acyclic graphs; structural cycles reject. Same-controller
+outcomes remain CR-derived inference without an official worked example.
+Source-backed multitype/control/LKI/recovery and broader synthetic tests remain separate.
+
+Scalar libraries retain source `5567b910`, runtime `7315ffe2`; final source changes
+one schema annotation. Single-review null-recipient strictness has actual RED/GREEN;
+setup, empty-selector and zero-tail schema failures and both source bridges remain
+indexed. Consumer pins and admission remain unchanged.
 
 Formatting, all-target, catalog freshness and strict compiler/core/sim production
 lint retain their explicit bridges; contracts/server use proven inherited
@@ -165,37 +189,21 @@ see the search/server contracts for current consumer boundaries.
 
 The [immutable report index](https://github.com/joCaldwell/mtg-ecosystem/blob/c9f57aa09329d7dcc6bdd256b3f22639f67952da/docs/game-engine-evidence.md#historical-provenance-lookup) links removed trigger, keyword, replacement, blocking, wipe, performance, search and server reports. Resolve another report with `git show 1c3eca4c37b90de02decca316fefab5c8035140e:docs/NAME.md`. Raw evidence belongs to preserved worktrees; absence in a fresh checkout grants no permission to recreate, relocate or delete it.
 
-### Ramos optional-cost and paid-prohibition combined qualification
+### Ramos prior combined qualifications
 
-Source `2b83a4824a8d6561402aaf560cbd4dbba5561389`/main `33dcbe9d`:528 distinct Rust/538 executions,2,160 probes,
-925 rows;24/19. Paid kicker/prohibition proof:
-`generated/ramos/m3c-integrated/integration.json`.
+IR1 historical producers remain separate from current qualification:
 
-### Ramos multiple cascade and live modifier combined qualification
+| Increment / source | Rust / probes / rows | Private/public | Receipt under `generated/ramos/` |
+| --- | --- | --- | --- |
+| Kicker/prohibition `2b83a482` | 528 distinct/538 executions;2,160;925 |24/19| `m3c-integrated/integration.json` |
+| Multiple cascade `3813db05` |542;2,748;944|26/21| `m4a-integrated/integration.json` |
+| Imoti `f6c9d7c7` |582;3,325;964|27/22| `m4c-integrated/integration.json` |
+| First-cast rules `836a63a9`/schema `dbc644a5` |586;3,531;969|28/22| `m4d-integrated/integration.json` |
+| Counted cost `802aab64` |665 distinct/684 executions;4,696;978|30/23| `m4e-integrated/integration.json` |
 
-Source `3813db057d66bd8d9ce3de7825a6758a2f82dd30`/main `2ac47a82`:542 Rust,
-2,748 probes,944 rows;26/21. Runtime/contracts `57aeb5f1` remains separate from
-compiler/CLI `3813`; `generated/ramos/m4a-integrated/integration.json` retains bridges
-and the unrepeated833-second Apex witness.
-
-### Ramos Imoti and fresh-main combined qualification
-
-Source `f6c9d7c76ca0837ec2c93fad5a78fb5c1a272b7f`:582 Rust,3,325 probes,964 rows;
-27/22. Exact producers/unchanged-native-input a83 bridge:
-`generated/ramos/m4c-integrated/integration.json`.
-
-### Ramos first-cast history combined qualification
-
-Rules `836a63a9`/schema `dbc644a5`,main `d842ef59`:586 Rust,3,531 probes,969 rows;
-28/22. Opt2 `d89d3290`,CLI `8d39663f`; repairs/bridges:
-`generated/ramos/m4d-integrated/integration.json`.
-
-### Ramos counted-cost combined qualification
-
-Source `802aab64`/main `a39dc880`:665 distinct Rust/684 executions,4,696 probes,
-978 rows;30/23,IR1. Opt2 `35b47dac`,CLI `98bca014`; library/test-only bridges,
-scoped lint exceptions and24/61/0 audit: `generated/ramos/m4e-integrated/integration.json`.
-[Immutable detail](https://github.com/joCaldwell/mtg-ecosystem/blob/ad428b23ee5b3f5750f8c79b4a7823c8d93d5b7f/docs/game-engine-evidence.md#ramos-counted-cost-combined-qualification).
+Receipts retain full IDs, source/settings bridges, failures and exclusions;
+multiple-cascade runtime/contracts producer `57aeb5f1` and its unrepeated833-second
+witness remain distinct. [Immutable details](https://github.com/joCaldwell/mtg-ecosystem/blob/ad428b23ee5b3f5750f8c79b4a7823c8d93d5b7f/docs/game-engine-evidence.md#ramos-counted-cost-combined-qualification).
 
 ### Ramos land and library-choice integration
 
@@ -203,12 +211,11 @@ Source `7e99dc40`/main `f1b04e83`:575 distinct Rust/576 executions,6,744 probes,
 1,004 rows;33/25. Opt2 `2c94c19a`,CLI `2c9b003a`; earlier199.79-second typed-search
 matrix retains `8185cb2a`. Exact checkpoint: `generated/ramos/land-integration/checkpoint33.json`.
 
-Fresh main `05699cdb` combination `1fe0dfa1`:538 distinct Rust/539 executions,
-7,110 probes,1,012 rows;34/25,IR1. Opt2 `3ddea1aa`,CLI `3e9d1635` are independently
-reproduced. Mill cost/draw fences, conditional entry/intrinsic mana, source-departure
-queries, Surveil, cascade-to-Opt, codecs/Work and cost/history retention pass;
-all-target/fmt and smoke/replay pass. Reviews, fixes, separate earlier matrices,
-failures and exact source/settings/binaries: `generated/ramos/land-integration/integration.json`.
-Frozen85-source audit remains28 lowered/validated,57 Unsupported,zero Invalid;
-100 cards/37 lands unchanged. Consumer files equal tested main; later library
-selection, broader runtime/lint/Node/CI and consumer/exact-deck admission remain separate.
+Fresh-main source `1fe0dfa1`/main `05699cdb`:538 distinct Rust/539 executions,
+7,110 probes,1,012 rows;34/25,IR1. Independently reproduced Opt2 `3ddea1aa`/CLI
+`3e9d1635`; affected land/library/privacy/recovery/cost/history tests, alltargets,
+formatting and smoke/replay passed. `generated/ramos/land-integration/integration.json`
+retains exact binaries/settings, reviews, bridges, failures and omitted broader
+matrices. Frozen85-source audit:28 lowered/validated,57 Unsupported,zero Invalid;
+100cards/37lands unchanged. Later sources and all consumer/exact-deck admission
+remain separate.

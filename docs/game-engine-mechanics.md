@@ -104,6 +104,20 @@ Commander SBAs follow resolution. One-draw and artifact-or-creature grant/Scry
 compositions are supported. Activated/triggered
 forms, Flashback, mill costs/replacements and search reconstruction reject.
 
+Standalone library selection looks at the available prefix, puts exactly one
+available card into hand and sends the remainder to the graveyard or ordered
+library bottom. Hand movement is not drawing (CR 121.5). The chooser alone sees
+candidates; all movements commit atomically. A selected tucked Commander uses
+its owner's hand-replacement choice before movement; graveyard return waits
+for SBAs. Extra clauses and draw compositions reject.
+
+The ordinary top-order/optional-shuffle/draw family privately orders the whole
+available prefix without changing incarnations, offers the controller a scoped
+boolean shuffle choice, then draws once. Accepted shuffles use the existing
+trusted seeded stream and public shuffle counter, including empty/single-card
+libraries. Decline consumes no random words. No source, target, mana or priority
+authority is created between these instructions.
+
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
 Surviving activators retain paid abilities when a borrowed source's owner leaves.

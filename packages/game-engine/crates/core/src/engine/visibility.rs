@@ -213,6 +213,18 @@ pub enum PlayerRequest {
         player: PlayerId,
         candidates: Vec<AdditionalCostChoice>,
     },
+    LibraryOrder {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+        count: usize,
+    },
+    LibrarySelect {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+        remainder: LibraryRemainder,
+    },
     Surveil {
         token: DecisionToken,
         player: PlayerId,
@@ -418,7 +430,10 @@ pub enum PlayerRequest {
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
-            Self::Scry { token, .. } | Self::Surveil { token, .. } => token,
+            Self::LibraryOrder { token, .. }
+            | Self::LibrarySelect { token, .. }
+            | Self::Scry { token, .. }
+            | Self::Surveil { token, .. } => token,
             Self::LegendRule { token, .. }
             | Self::ManaColor { token, .. }
             | Self::SearchLands { token, .. }
@@ -467,6 +482,13 @@ pub struct Observation {
 pub enum PlayerResponse {
     AdditionalCosts {
         selected: Vec<String>,
+    },
+    LibraryOrder {
+        objects: Vec<ObjectHandle>,
+    },
+    LibrarySelect {
+        hand: Vec<ObjectHandle>,
+        remainder: Vec<ObjectHandle>,
     },
     Surveil {
         top: Vec<ObjectHandle>,
@@ -1437,6 +1459,34 @@ impl Game {
                 candidates: vec![],
             }));
         }
+        if let Frame::ResolutionChoice {
+            choice: ResolutionChoice::LibraryOrder { player, looked, .. },
+            ..
+        } = &self.state.rules.frame
+            && *player == viewer
+            && self.is_live(viewer)
+        {
+            return Ok(Some(PlayerRequest::LibraryOrder {
+                token,
+                player: viewer,
+                candidates: vec![],
+                count: looked.len(),
+            }));
+        }
+        if let Frame::ResolutionChoice {
+            frame,
+            choice: ResolutionChoice::LibrarySelect { player, .. },
+        } = &self.state.rules.frame
+            && *player == viewer
+            && self.is_live(viewer)
+        {
+            return Ok(Some(PlayerRequest::LibrarySelect {
+                token,
+                player: viewer,
+                candidates: vec![],
+                remainder: self.selection_destination(frame)?,
+            }));
+        }
         if matches!(&self.state.rules.frame,Frame::ResolutionChoice {choice:ResolutionChoice::Surveil {player,..},..} if *player==viewer && self.is_live(viewer))
         {
             return Ok(Some(PlayerRequest::Surveil {
@@ -1469,6 +1519,18 @@ impl Game {
                         candidates: handles(candidates)?,
                     }
                 }
+                Request::LibraryOrder { count, .. } => PlayerRequest::LibraryOrder {
+                    token,
+                    player: viewer,
+                    candidates: vec![],
+                    count,
+                },
+                Request::LibrarySelect { remainder, .. } => PlayerRequest::LibrarySelect {
+                    token,
+                    player: viewer,
+                    candidates: vec![],
+                    remainder,
+                },
                 Request::Surveil { .. } => PlayerRequest::Surveil {
                     token,
                     player: viewer,
@@ -2066,7 +2128,11 @@ impl Game {
     ) -> Result<Response, String> {
         let size = match response {
             PlayerResponse::AdditionalCosts { selected } => selected.len(),
-            PlayerResponse::Scry { top, bottom }
+            PlayerResponse::LibrarySelect {
+                hand: top,
+                remainder: bottom,
+            }
+            | PlayerResponse::Scry { top, bottom }
             | PlayerResponse::Surveil {
                 top,
                 graveyard: bottom,
@@ -2089,6 +2155,22 @@ impl Game {
             return Err("oversized player declaration".into());
         }
         match response {
+            PlayerResponse::LibraryOrder { objects } => Ok(Response::LibraryOrder {
+                objects: objects
+                    .iter()
+                    .map(|h| self.resolve_handle(viewer, h))
+                    .collect::<Result<_, _>>()?,
+            }),
+            PlayerResponse::LibrarySelect { hand, remainder } => Ok(Response::LibrarySelect {
+                hand: hand
+                    .iter()
+                    .map(|h| self.resolve_handle(viewer, h))
+                    .collect::<Result<_, _>>()?,
+                remainder: remainder
+                    .iter()
+                    .map(|h| self.resolve_handle(viewer, h))
+                    .collect::<Result<_, _>>()?,
+            }),
             PlayerResponse::Surveil { top, graveyard } => Ok(Response::Surveil {
                 top: top
                     .iter()
