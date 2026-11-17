@@ -60,6 +60,14 @@ fn temporary_vigilance_paid_capture_attack_without_tap_damage_and_cleanup() {
                     attacks: vec![(object(g, 1), PlayerId(1))],
                 },
             );
+            let _ = request(g, q);
+            assert!(
+                g.state
+                    .rules
+                    .combat
+                    .iter()
+                    .any(|a| a.attacker == object(g, 1))
+            );
             assert_eq!(g.current(object(g, 1)).unwrap().tapped, !grant);
             recover(g);
             let turn = g.turn().number;
