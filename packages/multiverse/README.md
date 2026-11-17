@@ -13,7 +13,7 @@ From repository root, use pinned Node and each package's isolated lock:
 ```sh
 sh scripts/engine-env.sh npm --prefix packages/deck-builder ci --workspaces=false --ignore-scripts
 sh scripts/engine-env.sh npm --prefix packages/game-ui ci --workspaces=false --ignore-scripts
-sh scripts/engine-env.sh npm --prefix packages/game-client ci --workspaces=false --ignore-scripts
+sh scripts/engine-env.sh npm --prefix packages/game ci --workspaces=false --ignore-scripts
 sh scripts/engine-env.sh npm --prefix packages/multiverse ci --workspaces=false --ignore-scripts
 sh scripts/engine-env.sh npm --prefix packages/multiverse run dev --workspaces=false
 ```

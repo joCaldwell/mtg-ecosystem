@@ -1,0 +1,291 @@
+import { createHash, randomBytes } from "node:crypto";
+import { ServiceError, type Actor, type ApplicationPorts } from "@mtg-ecosystem/deck-builder/application";
+import type { GameAdmission, GameCoordinatorOptions, GameDiagnosticEvent, GameDeck, GameIdentity, GameLaunchResult, GamePause, GameRecord, GameStopTarget, NativeGameStatus, NativeGameProxyRequest, NativeGameProxyResponse } from "../shared/contracts.ts";
+
+const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+const sameIdentity = (a: GameIdentity, b: GameIdentity) => a.catalog_sha256 === b.catalog_sha256 && a.profile === b.profile && a.engine_build_id === b.engine_build_id && a.server_build_id === b.server_build_id;
+const publicIdentity = (i: GameIdentity): GameIdentity => ({ catalog_sha256: i.catalog_sha256, profile: i.profile, engine_build_id: i.engine_build_id, server_build_id: i.server_build_id });
+const validIdentity = (i: GameIdentity) => i && /^[a-f0-9]{64}$/.test(i.catalog_sha256) && [i.profile, i.engine_build_id, i.server_build_id].every(v => typeof v === "string" && v.length > 0 && v.length <= 256);
+const unavailable = (reason: Extract<GameAdmission, { state: "unavailable" }>["reason"]): GameAdmission => ({ state: "unavailable", reason });
+
+/** One coordinator per account DB/process lease. SQL reservations never span
+ * native I/O. Account/deck authority is rechecked inside each SQL reservation. */
+export function createGameCoordinator(ports: ApplicationPorts, options: GameCoordinatorOptions = {}) {
+  const { database: db, transaction, authorizeHuman: authorize } = ports;
+  const native = options.native, now = options.now ?? Date.now;
+  const timeout = options.operation_timeout_ms ?? 10_000;
+  const thinkTime = options.human_think_time_ms ?? 30 * 60_000;
+  const lifetime = options.game_lifetime_ms ?? 8 * 60 * 60_000;
+  const interval = options.supervision_interval_ms ?? 5_000;
+  for (const n of [timeout, thinkTime, lifetime, interval]) if (!Number.isSafeInteger(n) || n < 1) throw new Error("Invalid game coordinator limits");
+  let admissionCalls = 0;
+  let closed = false, timer: ReturnType<typeof setInterval> | undefined, ticking: Promise<void> | undefined;
+  const inflight = new Map<string, Promise<GameRecord>>();
+  const owned = new Map<string, GameRecord>();
+  const sql = <T>(work: () => T) => ports.sql(work);
+  function capture(actor: Actor, deckId: number, revision: number): GameDeck | Extract<GameAdmission, { state: "stale_revision" }> {
+    const body = ports.captureOwnedDeck(actor, deckId, revision);
+    return "state" in body ? body : { ...body, sha256: hash(body) };
+  }
+  const read = (actor: Actor, id: string): GameRecord => {
+    authorize(actor);
+    const row = db.prepare("SELECT record_json FROM game_launches WHERE id=? AND user_id=?").get(id, actor.user_id) as { record_json: string } | undefined;
+    if (!row) throw new ServiceError("Game not found", 404);
+    return JSON.parse(row.record_json);
+  };
+  const diagnostic = (event: GameDiagnosticEvent) => {
+    if (!/^[a-f0-9]{32}$/.test(event.game_id)) return;
+    try { void Promise.resolve(options.diagnostic?.(event)).catch(() => {}); } catch { /* observations cannot affect operations */ }
+  };
+  type Context = Omit<Extract<GameDiagnosticEvent, { source: "coordinator" }>, "source" | "cause">;
+  async function call<T>(work: (signal: AbortSignal) => Promise<T>, deadline = timeout, context?: Context): Promise<T> {
+    const controller = new AbortController();
+    let handle: ReturnType<typeof setTimeout> | undefined, expired = false;
+    if (context?.stage === "stop") diagnostic({ source: "coordinator", ...context, cause: "started" });
+    try {
+      const result = await Promise.race([work(controller.signal), new Promise<never>((_, reject) => {
+        // Measure at the existing arm point, AFTER work invocation. Clock
+        // failures cannot change timer ordering, the delay or abort behavior.
+        const stamp = () => { try { return performance.now(); } catch { return NaN; } };
+        const scheduled = context ? stamp() + deadline : NaN;
+        handle = setTimeout(() => {
+          const lateness = context ? stamp() - scheduled : NaN;
+          expired = true;
+          // Retain the initiating deadline BEFORE abort-triggered cleanup, even
+          // for adapters that ignore abort and never settle their operation.
+          if (context) diagnostic({ source: "coordinator", ...context, cause: "deadline",
+            ...(Number.isFinite(lateness) ? { deadline_lateness_ms: Math.min(86_400_000, Math.max(0, lateness)) } : {}) });
+          controller.abort(); reject(new Error("Native game operation unavailable"));
+        }, deadline);
+      })]);
+      if (context?.stage === "stop") diagnostic({ source: "coordinator", ...context, cause: "succeeded" });
+      return result;
+    } catch (error) {
+      if (context && !expired) diagnostic({ source: "coordinator", ...context, cause: "adapter_failure" });
+      throw error;
+    } finally { clearTimeout(handle); }
+  }
+  async function check(deck: GameDeck): Promise<GameAdmission> {
+    if (!native) return unavailable("native_unconfigured");
+    if (!validIdentity(native.identity)) return unavailable("identity_mismatch");
+    if (admissionCalls >= 4) return unavailable("native_unavailable");
+    admissionCalls++;
+    try {
+      const answer = await call(signal => native.admit(structuredClone(deck), signal));
+      if (answer.state === "supported") {
+        if (!validIdentity(answer.identity) || !sameIdentity(answer.identity, native.identity) || answer.deck_sha256 !== deck.sha256) return unavailable("identity_mismatch");
+        // Construct an allowlist: adapter fields and credentials never enter JSON.
+        return { state: "supported", identity: publicIdentity(native.identity), deck_sha256: deck.sha256, launch_ready: native.lifecycle_qualified === true && options.browser_session_qualified === true };
+      }
+      if (answer.state === "unsupported" && ["deck", "multiple_commanders", "companion", "catalog"].includes(answer.code)) return { state: "unsupported", code: answer.code };
+      if (answer.state === "unavailable" && answer.reason === "identity_mismatch") return unavailable("identity_mismatch");
+      return unavailable("native_unavailable");
+    } catch { return unavailable("native_unavailable"); }
+    finally { admissionCalls--; }
+  }
+  async function admission(actor: Actor, deckId: number, revision: number): Promise<GameAdmission> {
+    const deck = await sql(() => transaction( () => capture(actor, deckId, revision)));
+    if ("state" in deck) return deck;
+    const result = await check(deck);
+    return sql(() => {
+      const latest = capture(actor, deckId, revision);
+      return "state" in latest ? latest : result;
+    });
+  }
+  function writeRecord(record: GameRecord): boolean {
+    record.updated_at = now();
+    return db.prepare("UPDATE game_launches SET record_json=? WHERE id=?").run(JSON.stringify(record), record.id).changes > 0;
+  }
+  const save = (record: GameRecord): Promise<boolean> => sql(() => writeRecord(record));
+  async function pause(record: GameRecord, reason: GamePause | "completed") {
+    // Persist intent before stop. Recovery keeps trying stop if its acknowledgment
+    // was lost. A supervision fault has no invented rules outcome.
+    if (reason !== "completed") { record.state = reason === "human_timeout" || reason === "lifetime_exceeded" ? "interrupted" : "paused"; record.pause = reason; }
+    await save(record);
+    await call(signal => native!.stop(structuredClone(record), reason, signal), timeout, { game_id: record.id, stage: "stop", phase: "operation" });
+    record.consumers_stopped = true;
+    await save(record);
+    owned.delete(record.id);
+  }
+  function statusValid(status: NativeGameStatus): boolean {
+    return !!status && validIdentity(status.identity) && Array.isArray(status.consumers) && status.consumers.length === 3 && status.consumers.every(v => ["running", "failed", "stopped"].includes(v)) &&
+      (status.human_waiting_since === null || Number.isSafeInteger(status.human_waiting_since) && status.human_waiting_since >= 0 && status.human_waiting_since <= now()) &&
+      (status.outcome === null || status.outcome.kind === "draw" || status.outcome.kind === "win" && [0, 1, 2, 3].includes(status.outcome.winner));
+  }
+  async function reconcile(record: GameRecord): Promise<GameRecord> {
+    if (!native?.lifecycle_qualified || closed) return record;
+    // Recovery must retain unacknowledged stop ownership before every state
+    // branch, including already paused/completed/interrupted records.
+    if (!record.consumers_stopped) owned.set(record.id, record);
+    try {
+      if (!sameIdentity(record.identity, native.identity)) { diagnostic({ source: "coordinator", game_id: record.id, stage: "ensure", phase: "operation", cause: "identity_failure" }); owned.set(record.id, record); await pause(record, "identity_mismatch"); return record; }
+      if (record.state === "paused" || record.state === "completed" || record.state === "interrupted") {
+        if (record.consumers_stopped) return record;
+        await pause(record, record.state === "completed" ? "completed" : record.pause!); return record;
+      }
+      record.consumers_stopped = false;
+      owned.set(record.id, record);
+      if (now() - record.created_at >= lifetime) { await pause(record, "lifetime_exceeded"); return record; }
+      // Reserve durable cleanup ownership before any operation that may start
+      // consumers. A concurrent account deletion must observe this false flag
+      // and atomically retain its minimal native stop identity.
+      if (!await save(record)) { owned.delete(record.id); return record; }
+      await call(signal => native.ensure(structuredClone(record), signal), timeout, { game_id: record.id, stage: "ensure", phase: "operation" });
+      const status = await call(signal => native.status(structuredClone(record), signal), timeout, { game_id: record.id, stage: "status", phase: "operation" });
+      const validStatus = statusValid(status);
+      if (!validStatus || !sameIdentity(record.identity, status.identity)) {
+        diagnostic({ source: "coordinator", game_id: record.id, stage: "status", phase: "operation", cause: validStatus ? "identity_failure" : "status_invalid" });
+        await pause(record, "identity_mismatch"); return record;
+      }
+      if (status.outcome) {
+        record.outcome = status.outcome.kind === "draw" ? { kind: "draw" } : { kind: "win", winner: status.outcome.winner };
+        record.state = "completed"; record.pause = null;
+        await pause(record, "completed"); return record;
+      }
+      if (status.consumers.some(v => v !== "running")) { await pause(record, "consumer_failed"); return record; }
+      record.human_waiting_since = status.human_waiting_since;
+      if (record.human_waiting_since !== null && now() - record.human_waiting_since >= thinkTime) { await pause(record, "human_timeout"); return record; }
+      record.state = "active"; record.pause = null;
+      if (!await save(record)) { await call(signal => native.stop(record, "owner_deleted", signal), timeout, { game_id: record.id, stage: "stop", phase: "owner_deleted" }); owned.delete(record.id); }
+    } catch {
+      if (record.state !== "completed" && record.state !== "interrupted") { record.state = "paused"; record.pause = "native_unavailable"; await save(record); }
+      // Do not release the consumer lease on failed stop; next sweep retries.
+      try { await call(signal => native.stop(record, record.state === "completed" ? "completed" : "native_unavailable", signal), timeout, { game_id: record.id, stage: "stop", phase: "cleanup" }); record.consumers_stopped = true; await save(record); owned.delete(record.id); } catch { /* retained for supervision retry */ }
+    }
+    return record;
+  }
+  function run(record: GameRecord, restartActor?: Actor): Promise<GameRecord> {
+    const existing = inflight.get(record.id); if (existing && !restartActor) return existing;
+    // Tick/admission may have awaited other work since their initial read.
+    // Serialize by game and re-read current durable state before applying any
+    // lifecycle transition; a stale snapshot must never erase a rules outcome.
+    const task = (async () => {
+      // An explicit resume queues AFTER a pending stop acknowledgment. Ordinary
+      // sweeps coalesce; they must not consume and lose a human restart intent.
+      if (existing) await existing;
+      const current = await sql(() => transaction( () => {
+        const row = restartActor ? read(restartActor, record.id) : (() => {
+          const saved = db.prepare("SELECT record_json FROM game_launches WHERE id=?").get(record.id) as { record_json: string } | undefined;
+          return saved ? JSON.parse(saved.record_json) as GameRecord : null;
+        })();
+        if (row && restartActor && !closed && row.state === "paused" && row.pause !== "human_timeout" && row.pause !== "lifetime_exceeded") {
+          row.state = "provisioning"; row.pause = null; row.consumers_stopped = false;
+          if (!writeRecord(row)) throw new ServiceError("Game not found", 404);
+        }
+        return row;
+      }));
+      return current ? reconcile(current) : record;
+    })().finally(() => { if (inflight.get(record.id) === task) inflight.delete(record.id); });
+    inflight.set(record.id, task); return task;
+  }
+  async function launch(actor: Actor, deckId: number, revision: number, requestId: string): Promise<GameLaunchResult> {
+    if (closed) return { admission: unavailable("native_unavailable") };
+    if (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{16,128}$/.test(requestId)) throw new ServiceError("Use a stable launch request ID (16–128 letters, numbers, _ or -)");
+    const inputHash = hash([deckId, revision]);
+    const previous = await sql(() => {
+      authorize(actor);
+      const row = db.prepare("SELECT record_json,input_hash FROM game_launches WHERE user_id=? AND request_id=?").get(actor.user_id, requestId) as { record_json: string; input_hash: string } | undefined;
+      if (row && row.input_hash !== inputHash) throw new ServiceError("Launch request ID already used with different input", 409);
+      return row ? JSON.parse(row.record_json) as GameRecord : null;
+    });
+    if (previous) return resume(actor, previous.id);
+    const deck = await sql(() => transaction( () => capture(actor, deckId, revision)));
+    if ("state" in deck) return { admission: deck };
+    const admitted = await check(deck);
+    // Recheck owner/revision even if native reported unavailable/unsupported.
+    const captured = await sql(() => transaction( () => {
+      const latest = capture(actor, deckId, revision);
+      if ("state" in latest) return latest;
+      if (admitted.state !== "supported" || !admitted.launch_ready) return null;
+      const existing = db.prepare("SELECT record_json,input_hash FROM game_launches WHERE user_id=? AND request_id=?").get(actor.user_id, requestId) as { record_json: string; input_hash: string } | undefined;
+      if (existing) {
+        if (existing.input_hash !== inputHash) throw new ServiceError("Launch request ID already used with different input", 409);
+        return JSON.parse(existing.record_json) as GameRecord;
+      }
+      // No more than one live or uncertain match per owner. A failed create
+      // must be reconciled with its exact key, never replaced by a new match.
+      const busy = (db.prepare("SELECT record_json FROM game_launches WHERE user_id=?").all(actor.user_id) as { record_json: string }[]).some(r => { const game = JSON.parse(r.record_json) as GameRecord; return !["completed", "interrupted"].includes(game.state) || !game.consumers_stopped; });
+      if (busy) throw new ServiceError("Resume your existing game before starting another", 409);
+      const record: GameRecord = { id: randomBytes(16).toString("hex"), deck: latest, identity: admitted.identity, state: "provisioning", pause: null, outcome: null, created_at: now(), updated_at: now(), human_waiting_since: null, consumers_stopped: false };
+      db.prepare("INSERT INTO game_launches(id,user_id,request_id,input_hash,record_json) VALUES(?,?,?,?,?)").run(record.id, actor.user_id, requestId, inputHash, JSON.stringify(record));
+      return record;
+    }));
+    if (captured && "current_revision" in captured) return { admission: captured };
+    if (!captured) return { admission: admitted };
+    const game = await run(captured);
+    await sql(() => read(actor, game.id));
+    return { admission: admitted, game };
+  }
+  async function resume(actor: Actor, id: string): Promise<GameLaunchResult> {
+    const initial = await sql(() => read(actor, id));
+    if (closed || !native?.lifecycle_qualified || !options.browser_session_qualified) return { admission: unavailable("session_incomplete"), game: initial };
+    // Reconcile the immutable game deck, never the mutable library deck.
+    const admitted = await check(initial.deck);
+    const game = await sql(() => read(actor, id));
+    if (admitted.state !== "supported" || !sameIdentity(game.identity, admitted.identity)) return { admission: unavailable("identity_mismatch"), game };
+    const result = await run(game, actor);
+    await sql(() => read(actor, id));
+    return { admission: admitted, game: result };
+  }
+  async function drainStopJobs(): Promise<void> {
+    if (!native?.lifecycle_qualified) return;
+    const jobs = await sql(() => db.prepare("SELECT id,target_json FROM game_stop_jobs").all() as { id: string; target_json: string }[]);
+    for (const job of jobs) {
+      try {
+        const target = JSON.parse(job.target_json) as GameStopTarget;
+        await call(signal => native.stop(target, "owner_deleted", signal), timeout, { game_id: target.id, stage: "stop", phase: "owner_deleted" });
+        await sql(() => db.prepare("DELETE FROM game_stop_jobs WHERE id=? AND target_json=?").run(job.id, job.target_json));
+        owned.delete(job.id);
+      } catch { /* durable minimal handoff survives account/process deletion */ }
+    }
+  }
+  async function tick(): Promise<void> {
+    if (closed || !native?.lifecycle_qualified) return;
+    const rows = await sql(() => db.prepare("SELECT record_json FROM game_launches").all() as { record_json: string }[]);
+    const records = rows.map(row => JSON.parse(row.record_json) as GameRecord);
+    for (const record of records) if ((!["completed", "paused", "interrupted"].includes(record.state)) || !record.consumers_stopped || owned.has(record.id)) await run(record);
+    await drainStopJobs();
+  }
+  return {
+    admission, launch, resume,
+    async nativeProxy(actor: Actor, id: string, request: NativeGameProxyRequest): Promise<NativeGameProxyResponse> {
+      const game = await sql(() => read(actor, id));
+      if (closed || !native?.lifecycle_qualified || !native.proxy || game.state !== "active" || !sameIdentity(game.identity, native.identity)) throw new ServiceError("Game session is unavailable", 503);
+      if (!["GET", "POST"].includes(request.method) || typeof request.path !== "string" || request.path.length > 2048 || typeof request.body !== "string" || Buffer.byteLength(request.body) > 65_536 || typeof request.authorization !== "string" || request.authorization.length > 4096) throw new ServiceError("Invalid game request", 400);
+      let response: NativeGameProxyResponse;
+      try {
+        // The bridge independently validates exact routes and human authority.
+        // Keep the original body bytes and never hold SQLite during native I/O.
+        const captured = { method: request.method, path: request.path, body: request.body, authorization: request.authorization };
+        response = await call(signal => native.proxy!(structuredClone(game), captured, signal), 25_000);
+        if (!Number.isInteger(response.status) || response.status < 200 || response.status > 599 || typeof response.body !== "string" || Buffer.byteLength(response.body) > 8 * 1024 * 1024) throw Error("Invalid native reply");
+      } catch { throw new ServiceError("Game session is unavailable", 503); }
+      const current = await sql(() => read(actor, id));
+      if (closed || current.state !== "active" || !sameIdentity(current.identity, game.identity) || !sameIdentity(current.identity, native.identity)) throw new ServiceError("Game session is unavailable", 503);
+      return { status: response.status, body: response.body };
+    },
+    async humanSeat(actor: Actor, id: string): Promise<{ bootstrap_file: string }> {
+      const game = await sql(() => read(actor, id));
+      if (closed || !native?.lifecycle_qualified || !options.browser_session_qualified || game.state !== "active" || !sameIdentity(game.identity, native.identity)) throw new ServiceError("Game session is unavailable", 503);
+      let bytes: string;
+      try {
+        bytes = await call(signal => native.humanBootstrap(structuredClone(game), signal));
+        if (typeof bytes !== "string" || Buffer.byteLength(bytes) > 4096 || bytes.length === 0 || native.validateHumanBootstrap(bytes, structuredClone(game)) !== true) throw new Error("Invalid seat delivery");
+      } catch { throw new ServiceError("Game session is unavailable", 503); }
+      // Native adapter must validate generated SeatBootstrap and exact human
+      // binding. Recheck ownership after I/O before releasing any capability.
+      const current = await sql(() => read(actor, id));
+      if (current.state !== "active") throw new ServiceError("Game session is unavailable", 503);
+      return { bootstrap_file: bytes };
+    },
+    get: (actor: Actor, id: string) => sql(() => read(actor, id)),
+    list: (actor: Actor) => sql(() => { authorize(actor); return (db.prepare("SELECT record_json FROM game_launches WHERE user_id=? ORDER BY rowid DESC LIMIT 100").all(actor.user_id) as { record_json: string }[]).map(row => JSON.parse(row.record_json) as GameRecord); }),
+    tick: () => ticking ??= tick().finally(() => { ticking = undefined; }),
+    start() { if (!timer && !closed) { timer = setInterval(() => { void this.tick().catch(() => {}); }, interval); timer.unref(); void this.tick().catch(() => {}); } },
+    async close() {
+      closed = true; clearInterval(timer); await ticking; await Promise.allSettled(inflight.values());
+      if (native) await Promise.allSettled([...owned.values()].map(record => call(signal => native.stop(record, "shutdown", signal), timeout, { game_id: record.id, stage: "stop", phase: "shutdown" })));
+      await drainStopJobs();
+    },
+  };
+}

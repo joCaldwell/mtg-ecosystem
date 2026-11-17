@@ -5,7 +5,8 @@ Read the root manual, [architecture](web/ARCHITECTURE.md) and
 frontend build and process composition; architecture's
 [application boundaries](web/ARCHITECTURE.md#application-boundaries) define the
 public backend/game dependencies and [game launch](web/ARCHITECTURE.md#game-launch)
-retains the unimplemented coordinator gates.
+retains qualification gates. Game implementation belongs to `../game` (`web/`,
+`server/`, `shared/`); this package composes its public exports in one deployment.
 
 - Reuse the existing Actor/account system, storage paths, DECKBUILDER settings,
   credentials, MCP and public URLs. Browser requests go only through `web/src/api`.

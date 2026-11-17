@@ -10,7 +10,7 @@ ask only if it cannot be inferred. Read its manual before editing code.
 | multiverse | Product account/session UX, navigation, browser features, build and process composition | [manual](packages/multiverse/AGENTS.md) |
 | deck-builder | Existing authentication/account backend, Actor/SQLite deck services, API, CLI and MCP | [manual](packages/deck-builder/AGENTS.md) |
 | game-ui | Shared permitted table/card/inspection display with scoped styles and host React | [manual](packages/game-ui/AGENTS.md) |
-| game-client | Game decision/session adapters, recovery, qualified preview and standalone harness | [manual](packages/game-client/AGENTS.md) |
+| game | Game browser, launch/recovery coordination, native supervision and shared contracts | [manual](packages/game/AGENTS.md) |
 | oracle-parser | Supported TypeScript AST/archive subset; broader parsing paused | [manual](packages/oracle-parser/AGENTS.md) |
 | card-data | Generated compiled Card IR; no hand edits | [data contracts](docs/oracle_parser.md#data-contracts) |
 | game-engine | Rust compiler, deterministic rules, finite Commander simulation/search | [manual](packages/game-engine/AGENTS.md) |

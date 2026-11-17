@@ -1,17 +1,17 @@
 # Game client contracts, delivery and acceptance
 
-`game-client` owns generated-protocol decision/session adapters, a qualified
+`packages/game/web` owns the existing generated-protocol decision/session adapters, a qualified
 captured preview and a standalone React/Vite harness. `game-ui` owns shared
 permitted display with scoped styles and host React. `multiverse` owns product
 account UX, navigation, Home, deck editor and Play setup; `deck-builder` retains
 the existing auth/Actor/SQLite backend. Rust host/core own admission, legality,
 visibility and durable execution. Product sign-in does not grant a Rust seat.
-Read [application launch gates](../packages/multiverse/web/ARCHITECTURE.md#game-launch) and [client setup](../packages/game-client/README.md).
+Read [application launch gates](../packages/multiverse/web/ARCHITECTURE.md#game-launch) and [client setup](../packages/game/README.md).
 
 ## Delivered scope and remaining gates
 
 The production App joins through an operator-issued single-seat file. Public
-`@multiverse/game-client/session` composes the same router-free table from an
+`@multiverse/game/session` composes the same router-free table from an
 Actor-authorized human File. Every non-query request has a local draft adapter;
 source-dependent choices require complete producer context. Explicit confirmation
 retains the original command context, journals exact bytes and reconciles unknown
@@ -40,7 +40,7 @@ Do not use legacy solo playtester briefs/components as guidance.
 
 ## Package, privacy and presentation boundaries
 
-[The package manual](../packages/game-client/AGENTS.md#boundaries) owns layering:
+[The package manual](../packages/game/AGENTS.md#boundaries) owns layering:
 session effects are separate from pure local drafts and permitted presentation;
 shared display comes from game-ui. The router-free preview imports no session/auth/
 SDK runtime, and its Node-only verifier preserves historical fixture qualification.
@@ -335,7 +335,7 @@ This does not deploy an online lobby, grant accounts seats or qualify a full gam
 
 ## Reproducibility and current acceptance
 
-Use pinned environment and local package locks; [client README](../packages/game-client/README.md)
+Use pinned environment and local package locks; [client README](../packages/game/README.md)
 contains exact commands. `check` verifies types, boundaries, qualified fixtures,
 pure tests and production build. Browser fixture, IndexedDB, CSP and real native
 App/proxy tests have distinct scopes. Authenticated tests disable traces, HAR,
@@ -344,7 +344,7 @@ Keep Chromium/Firefox versions, exact source/schema/build hashes, failed attempt
 and explicit omissions. No full native matrix follows a docs/client-only edit.
 
 Current native/SDK qualification is owned by
-[`sdk-qualification.json`](../packages/game-client/sdk-qualification.json), separate
+[`sdk-qualification.json`](../packages/game/sdk-qualification.json), separate
 from historical capture provenance, current engine HEAD and later product changes.
 Use one qualified SDK throughout checks; never replace it with historical schemas
 to make fixtures pass.
