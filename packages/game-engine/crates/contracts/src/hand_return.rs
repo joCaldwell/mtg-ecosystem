@@ -1,15 +1,15 @@
-//! Complete ordinary draw/hand-return, CR401.4/608.2c/701.24.
+//! Complete ordinary counted-draw hand programs, CR121.2/401.4/608.2c.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-pub(crate) fn has_hand_return(p: &SpellProgram) -> bool {
+pub(crate) fn has_hand_program(p: &SpellProgram) -> bool {
     p.instructions.iter().any(|i| {
         matches!(
             i,
             Instruction::DrawControllerCards { .. } | Instruction::PutHandOnLibrary { .. }
         )
-    }) || p.modes.iter().any(|m| has_hand_return(&m.program))
+    }) || p.modes.iter().any(|m| has_hand_program(&m.program))
 }
-/// One fixed controller top ordering, optional shuffle, then one mandatory draw.
+/// Exact counted controller draws followed by an ordered whole-hand return.
 pub fn controller_hand_return_program(p: &SpellProgram) -> bool {
     p.additional_sacrifice.is_none()
         && p.modes.is_empty()
@@ -19,12 +19,12 @@ pub fn controller_hand_return_program(p: &SpellProgram) -> bool {
         && matches!(p.instructions.as_slice(),[Instruction::DrawControllerCards{count:draw,source_block:0},Instruction::PutHandOnLibrary{count,source_block:0}]if !draw.is_negative()&&!count.is_negative())
 }
 pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
-    if d.activated.iter().any(|a| has_hand_return(&a.program))
-        || d.triggered.iter().any(|a| has_hand_return(&a.program))
+    if d.activated.iter().any(|a| has_hand_program(&a.program))
+        || d.triggered.iter().any(|a| has_hand_program(&a.program))
     {
         return Err("hand return requires an ordinary spell".into());
     }
-    if !d.spell.as_ref().is_some_and(has_hand_return) {
+    if !d.spell.as_ref().is_some_and(has_hand_program) {
         return Ok(());
     }
     let c = &d.characteristics;
@@ -50,11 +50,24 @@ pub(crate) fn extend_schema(s: &mut serde_json::Value) {
     use serde_json::json;
     s["$defs"]["ControllerHandReturnProgram"] = json!({"properties":{"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"minItems":2,"maxItems":2,"prefixItems":[{"required":["op","count","source_block"],"properties":{"op":{"const":"draw_controller_cards"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}},{"required":["op","count","source_block"],"properties":{"op":{"const":"put_hand_on_library"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}}],"items":false}}});
     s["$defs"]["HandReturnFreeProgram"] = json!({"properties":{"instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"enum":["draw_controller_cards","put_hand_on_library"]}}}}},"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/HandReturnFreeProgram"}}}}}});
-    s["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"not":{"$ref":"#/$defs/HandReturnFreeProgram"}},"then":{"$ref":"#/$defs/ControllerHandReturnProgram"}}));
+    s["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"not":{"$ref":"#/$defs/HandReturnFreeProgram"}},"then":{"anyOf":[{"$ref":"#/$defs/ControllerHandReturnProgram"},{"$ref":"#/$defs/ControllerDrawDiscardProgram"}]}}));
     let has = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":{"$ref":"#/$defs/HandReturnFreeProgram"}}}});
+    let family = json!({"anyOf":[{"$ref":"#/$defs/ControllerHandReturnProgram"},{"$ref":"#/$defs/ControllerDrawDiscardProgram"}]});
     let defs = s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap();
     defs.push(json!({"properties":{"activated":{"items":{"properties":{"program":{"$ref":"#/$defs/HandReturnFreeProgram"}}}},"triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/HandReturnFreeProgram"}}}}}}));
-    defs.push(json!({"if":has,"then":{"properties":{"spell":{"$ref":"#/$defs/ControllerHandReturnProgram"},"keywords":{"maxItems":0},"static_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},"additional_types":{"maxItems":0},"basic":{"const":false},"legendary":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"}}},"capabilities":{"items":{"enum":[Capability::NormalLayoutV1,Capability::CastInstantV1,Capability::CastSorceryV1,Capability::ControllerHandReturnV1]},"allOf":[{"contains":{"const":Capability::NormalLayoutV1}},{"contains":{"const":Capability::ControllerHandReturnV1}}]}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerHandReturnV1}}}}}}));
+    defs.push(json!({"if":has,"then":{"properties":{"spell":family,"keywords":{"maxItems":0},"static_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},"additional_types":{"maxItems":0},"basic":{"const":false},"legendary":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"}}},"capabilities":{"items":{"enum":[Capability::NormalLayoutV1,Capability::CastInstantV1,Capability::CastSorceryV1,Capability::ControllerHandReturnV1,Capability::ControllerDrawDiscardV1]},"allOf":[{"contains":{"const":Capability::NormalLayoutV1}}]}}},"else":{"properties":{"capabilities":{"not":{"contains":{"enum":[Capability::ControllerHandReturnV1,Capability::ControllerDrawDiscardV1]}}}}}}));
+    for (program, cap) in [
+        (
+            "ControllerHandReturnProgram",
+            Capability::ControllerHandReturnV1,
+        ),
+        (
+            "ControllerDrawDiscardProgram",
+            Capability::ControllerDrawDiscardV1,
+        ),
+    ] {
+        defs.push(json!({"if":{"required":["spell"],"properties":{"spell":{"type":"object","$ref":format!("#/$defs/{program}")}}},"then":{"properties":{"capabilities":{"contains":{"const":cap}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":cap}}}}}}));
+    }
     defs.push(json!({"if":has,"then":{"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},"then":{"properties":{"spell":{"properties":{"timing":{"const":"instant"}}},"capabilities":{"contains":{"const":Capability::CastInstantV1},"not":{"contains":{"const":Capability::CastSorceryV1}}}}},"else":{"properties":{"spell":{"properties":{"timing":{"const":"main_phase"}}},"capabilities":{"contains":{"const":Capability::CastSorceryV1},"not":{"contains":{"const":Capability::CastInstantV1}}}}}}}));
 }
 #[cfg(test)]

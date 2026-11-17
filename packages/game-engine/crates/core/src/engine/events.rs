@@ -496,8 +496,11 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
             (keys.clone(), keys)
         }
-        ProposedEvent::Sacrifice { object, player }
-        | ProposedEvent::DiscardCard { object, player } => {
+        ProposedEvent::DiscardCard { object, player } => {
+            let reads = BTreeSet::from([FactKey::Object(object.card), FactKey::Life(*player)]);
+            (reads, BTreeSet::from([FactKey::Object(object.card)]))
+        }
+        ProposedEvent::Sacrifice { object, player } => {
             let keys = BTreeSet::from([FactKey::Object(object.card), FactKey::Life(*player)]);
             (keys.clone(), keys)
         }

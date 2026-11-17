@@ -758,20 +758,28 @@ impl Game {
                         }
                     }
                     Response::ResolveDiscard { objects } => {
-                        let mut movements = vec![];
-                        for object in objects {
-                            let EventOutcome::CardDiscarded { movement, .. } = self.commit(
-                                ProposedEvent::DiscardCard {
-                                    object,
-                                    player: request.player(),
-                                },
-                                cause.clone(),
-                            )?
-                            else {
-                                return Err("missing discard outcome".into());
-                            };
-                            movements.push(movement);
-                        }
+                        let result = self.commit_batch(
+                            cause,
+                            EventGroup::Simultaneous {
+                                occurrences: objects
+                                    .into_iter()
+                                    .map(|object| ProposedEvent::DiscardCard {
+                                        object,
+                                        player: request.player(),
+                                    })
+                                    .collect(),
+                            },
+                        )?;
+                        let movements = result
+                            .occurrences
+                            .iter()
+                            .map(|r| match &r.actual {
+                                EventOutcome::CardDiscarded { movement, .. } => {
+                                    Ok(movement.clone())
+                                }
+                                _ => Err("missing simultaneous discard outcome".to_string()),
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
                         InstructionOutcome::Discarded {
                             player: request.player(),
                             movements,
@@ -1027,8 +1035,8 @@ impl Game {
                 source_block,
             } => {
                 let player = self.resolution_player(&frame, recipient.as_ref())?;
-                if count != Quantity::from(1) {
-                    return Err("unsupported discard count".into());
+                if count.is_negative() {
+                    return Err("negative discard count".into());
                 }
                 if !self.is_live(player) {
                     return self.finish_instruction(
@@ -1036,7 +1044,8 @@ impl Game {
                         InstructionOutcome::PlayerActionSkipped { player },
                     );
                 }
-                if self.action_hand(player).is_empty() {
+                let actual_count = self.bounded_hand_count(player, &count);
+                if actual_count == 0 {
                     self.finish_instruction(
                         frame,
                         InstructionOutcome::Discarded {
@@ -1049,7 +1058,7 @@ impl Game {
                         frame,
                         choice: ResolutionChoice::Discard {
                             player,
-                            count: 1,
+                            count: actual_count,
                             source_block,
                         },
                     };
@@ -1547,8 +1556,10 @@ impl Game {
                 ) => {
                     self.resolution_player(frame, recipient.as_ref())
                         .is_ok_and(|actor| actor == *player)
-                        && *count == 1
-                        && *expected == Quantity::from(1)
+                        && *count > 0
+                        && (!self.is_live(*player)
+                            || *count == self.bounded_hand_count(*player, expected))
+                        && Quantity::from(*count as i64) <= *expected
                         && *source_block == *expected_block
                 }
                 _ => self.valid_staples_choice(frame, choice, instruction),

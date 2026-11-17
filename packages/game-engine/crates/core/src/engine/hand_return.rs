@@ -31,7 +31,7 @@ impl Game {
             _ => Err("hand return instruction invariant".into()),
         }
     }
-    fn hand_return_count(&self, player: PlayerId, count: &Quantity) -> usize {
+    pub(super) fn bounded_hand_count(&self, player: PlayerId, count: &Quantity) -> usize {
         let len = self.action_hand(player).len();
         (0..len)
             .take_while(|n| Quantity::from(*n as i64) < *count)
@@ -46,7 +46,7 @@ impl Game {
             return Err("hand return frame invariant".into());
         };
         let (count, _) = self.hand_return_instruction(frame)?;
-        Ok(self.hand_return_count(*player, &count))
+        Ok(self.bounded_hand_count(*player, &count))
     }
     pub(super) fn validate_hand_return_source(
         &self,
@@ -70,7 +70,7 @@ impl Game {
         self.validate_hand_return_source(frame, player, block)?;
         let (count, _) = self.hand_return_instruction(frame)?;
         if !self.is_live(player)
-            || objects.len() != self.hand_return_count(player, &count)
+            || objects.len() != self.bounded_hand_count(player, &count)
             || objects.iter().collect::<BTreeSet<_>>().len() != objects.len()
             || objects.iter().any(|o| {
                 !self
@@ -96,7 +96,7 @@ impl Game {
         if count.is_negative() {
             return Err("negative hand return count".into());
         }
-        if self.hand_return_count(player, &count) == 0 {
+        if self.bounded_hand_count(player, &count) == 0 {
             return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
         }
         self.state.rules.frame = Frame::ResolutionChoice {
@@ -245,7 +245,7 @@ impl Game {
         let player = *player;
         if !self.is_live(player)
             || count.is_negative()
-            || objects.len() != self.hand_return_count(player, count)
+            || objects.len() != self.bounded_hand_count(player, count)
             || objects.iter().collect::<BTreeSet<_>>().len() != objects.len()
             || objects.iter().any(|o| {
                 !self
