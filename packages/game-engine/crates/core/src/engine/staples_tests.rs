@@ -1150,6 +1150,8 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | Instruction::GrantKeywords { .. }
                     | Instruction::GrantKeywordsSet { .. }
                     | Instruction::OptionalDrawCards { .. }
+                    | Instruction::DrawControllerCards { .. }
+                    | Instruction::PutHandOnLibrary { .. }
                     | Instruction::DrawDamageAmount { .. }
                     | Instruction::SacrificeCreature { .. }
                     | Instruction::MoveSet { .. }

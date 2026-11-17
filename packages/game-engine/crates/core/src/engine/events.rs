@@ -349,6 +349,13 @@ fn changes_control_inputs(event: &ProposedEvent) -> bool {
 
 fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
     let (mut reads, mut writes) = match event {
+        ProposedEvent::HandReturn {
+            player, objects, ..
+        } => {
+            let mut keys = BTreeSet::from([FactKey::Libraries, FactKey::Life(*player)]);
+            keys.extend(objects.iter().map(|o| FactKey::Object(o.card)));
+            (keys.clone(), keys)
+        }
         ProposedEvent::OrderLibraryTop { player, looked, .. }
         | ProposedEvent::LibrarySelect { player, looked, .. }
         | ProposedEvent::Mill {
@@ -506,8 +513,11 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
             (keys.clone(), keys)
         }
-        ProposedEvent::Sacrifice { object, player }
-        | ProposedEvent::DiscardCard { object, player } => {
+        ProposedEvent::DiscardCard { object, player } => {
+            let reads = BTreeSet::from([FactKey::Object(object.card), FactKey::Life(*player)]);
+            (reads, BTreeSet::from([FactKey::Object(object.card)]))
+        }
+        ProposedEvent::Sacrifice { object, player } => {
             let keys = BTreeSet::from([FactKey::Object(object.card), FactKey::Life(*player)]);
             (keys.clone(), keys)
         }
@@ -833,7 +843,12 @@ impl Game {
                     objects.extend(selected.iter().copied());
                     libraries.insert(*player);
                 }
-                ProposedEvent::OrderLibraryTop { player, looked, .. }
+                ProposedEvent::HandReturn {
+                    player,
+                    objects: looked,
+                    ..
+                }
+                | ProposedEvent::OrderLibraryTop { player, looked, .. }
                 | ProposedEvent::LibrarySelect { player, looked, .. }
                 | ProposedEvent::Mill {
                     player,
@@ -1906,6 +1921,7 @@ impl Game {
                 looked,
                 order,
             } => self.apply_library_order(*player, amount, looked, order)?,
+            ProposedEvent::HandReturn { .. } => self.apply_hand_return(proposed, before)?,
             ProposedEvent::LibrarySelect { .. } => {
                 self.apply_library_selection(proposed, before)?
             }

@@ -19,8 +19,12 @@ use num_bigint::BigInt;
 use num_traits::Zero;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 mod controller_library;
+mod draw_discard;
 mod fixed_mill;
+mod hand_return;
+pub use draw_discard::controller_draw_discard_program;
 mod library_order;
+pub use hand_return::controller_hand_return_program;
 mod library_selection;
 pub use controller_library::{controller_scry_program, controller_surveil_program};
 pub use fixed_mill::fixed_mill_program;
@@ -262,6 +266,8 @@ pub enum Capability {
     FixedMillProgramV1,
     ControllerLibrarySelectionV1,
     ControllerLibraryOrderV1,
+    ControllerHandReturnV1,
+    ControllerDrawDiscardV1,
     ControllerDiscardV1,
     OpponentTargetV1,
     TargetPlayerSacrificeCreatureV1,
@@ -529,6 +535,14 @@ pub enum Instruction {
     /// CR 702.85a: threshold comes from the originating spell, never paid cost.
     Cascade {
         threshold: CascadeThreshold,
+        source_block: u32,
+    },
+    DrawControllerCards {
+        count: Quantity,
+        source_block: u32,
+    },
+    PutHandOnLibrary {
+        count: Quantity,
         source_block: u32,
     },
     OrderLibraryTop {
@@ -807,6 +821,8 @@ impl Instruction {
             | Self::SearchTypedLands { source_block, .. }
             | Self::PutSourcePlusOneCountersForCastColors { source_block, .. }
             | Self::DrawCardsIfAdditionalCost { source_block, .. } => *source_block,
+            Self::DrawControllerCards { source_block, .. }
+            | Self::PutHandOnLibrary { source_block, .. } => *source_block,
             Self::OrderLibraryTop { source_block, .. }
             | Self::OptionalShuffleLibrary { source_block }
             | Self::SelectLibraryCard { source_block, .. }
@@ -1951,6 +1967,7 @@ impl Definition {
         fixed_mill::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
+        hand_return::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -3141,6 +3158,7 @@ pub fn supported_temporary_keywords(keywords: &[KeywordAbility]) -> bool {
             matches!(
                 keyword,
                 KeywordAbility::Flying
+                    | KeywordAbility::Reach
                     | KeywordAbility::Deathtouch
                     | KeywordAbility::Indestructible
                     | KeywordAbility::Lifelink
@@ -3397,6 +3415,12 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             || !matches!(p.instructions.as_slice(), [Instruction::Cascade { .. }]))
     {
         return Err("cascade requires one complete targetless program".into());
+    }
+    if hand_return::has_hand_program(p)
+        && !controller_hand_return_program(p)
+        && !controller_draw_discard_program(p)
+    {
+        return Err("unsupported complete controller draw/hand return".into());
     }
     if library_order::has_order(p) && !controller_library_order_program(p) {
         return Err("unsupported complete controller library ordering program".into());
@@ -3952,7 +3976,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 None
             }
-            Instruction::OrderLibraryTop { .. }
+            Instruction::DrawControllerCards { .. }
+            | Instruction::PutHandOnLibrary { .. }
+            | Instruction::OrderLibraryTop { .. }
             | Instruction::OptionalShuffleLibrary { .. }
             | Instruction::SelectLibraryCard { .. } => None,
             Instruction::MillCards {
@@ -3986,7 +4012,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
             }
             Instruction::DiscardCards { count, .. } => {
-                if *count != Quantity::from(1) {
+                if *count != Quantity::from(1) && !controller_draw_discard_program(p) {
                     return Err("unsupported draw/discard cardinality".into());
                 }
                 None
@@ -4131,6 +4157,7 @@ fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Capability {
 fn temporary_keyword_primitive_capability(keyword: KeywordAbility) -> Option<Capability> {
     Some(match keyword {
         KeywordAbility::Flying => Capability::FlyingV1,
+        KeywordAbility::Reach => Capability::ReachV1,
         KeywordAbility::Deathtouch => Capability::DeathtouchV1,
         KeywordAbility::Indestructible => Capability::IndestructibleV1,
         KeywordAbility::Lifelink => Capability::LifelinkV1,
@@ -4304,6 +4331,13 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::DrawCards { .. } | Instruction::DrawCardsIfAdditionalCost { .. } => {
                 Capability::ControllerDrawV1
             }
+            Instruction::DrawControllerCards { .. } | Instruction::PutHandOnLibrary { .. } => {
+                if controller_draw_discard_program(program) {
+                    Capability::ControllerDrawDiscardV1
+                } else {
+                    Capability::ControllerHandReturnV1
+                }
+            }
             Instruction::OptionalDrawCards { .. } => Capability::OptionalControllerDrawV1,
             Instruction::DrawDamageAmount { .. } => Capability::DamageQuantityDrawV1,
             Instruction::UntapPermanent { .. } => Capability::UntapPermanentV1,
@@ -4312,7 +4346,13 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 recipient: Some(ActionRecipient::EventPlayer),
                 ..
             } => Capability::EventPlayerDiscardV1,
-            Instruction::DiscardCards { .. } => Capability::ControllerDiscardV1,
+            Instruction::DiscardCards { .. } => {
+                if controller_draw_discard_program(program) {
+                    Capability::ControllerDrawDiscardV1
+                } else {
+                    Capability::ControllerDiscardV1
+                }
+            }
             Instruction::CounterStackObject { .. } => Capability::CounterStackObjectV1,
             Instruction::DealDamage { .. } => Capability::NoncombatDamageV1,
             Instruction::Scry { .. } => Capability::ControllerScryV1,
@@ -5046,7 +5086,7 @@ pub fn catalog_schema() -> serde_json::Value {
     });
     schema["$defs"]["TemporaryCreatureKeywords"] = serde_json::json!({
         "type":"array","minItems":1,"uniqueItems":true,
-        "items":{"enum":[KeywordAbility::Flying,KeywordAbility::Deathtouch,KeywordAbility::Indestructible,KeywordAbility::Lifelink,KeywordAbility::Hexproof,KeywordAbility::Haste,KeywordAbility::Trample,KeywordAbility::FirstStrike]}
+        "items":{"enum":[KeywordAbility::Flying,KeywordAbility::Reach,KeywordAbility::Deathtouch,KeywordAbility::Indestructible,KeywordAbility::Lifelink,KeywordAbility::Hexproof,KeywordAbility::Haste,KeywordAbility::Trample,KeywordAbility::FirstStrike]}
     });
     schema["$defs"]["TemporaryCreatureKeywordInstructions"] = serde_json::json!({
         "minItems":1,"maxItems":1,"items":{"properties":{
@@ -5155,6 +5195,7 @@ pub fn catalog_schema() -> serde_json::Value {
     }}});
     for (keyword, capability) in [
         ("flying", Capability::FlyingV1),
+        ("reach", Capability::ReachV1),
         ("deathtouch", Capability::DeathtouchV1),
         ("indestructible", Capability::IndestructibleV1),
         ("lifelink", Capability::LifelinkV1),
@@ -5188,7 +5229,7 @@ pub fn catalog_schema() -> serde_json::Value {
         .unwrap()
         .push(serde_json::json!({
             "if":any_grant,"then":{"properties":{"capabilities":{"items":{"not":{"enum":[
-                Capability::DefenderV1, Capability::ReachV1, Capability::VigilanceV1,
+                Capability::DefenderV1, Capability::VigilanceV1,
                 Capability::DoubleStrikeV1, Capability::MenaceV1
             ]}}}}}
         }));
@@ -5291,6 +5332,7 @@ pub fn catalog_schema() -> serde_json::Value {
     ];
     for keyword in [
         KeywordAbility::Flying,
+        KeywordAbility::Reach,
         KeywordAbility::Deathtouch,
         KeywordAbility::Indestructible,
         KeywordAbility::Lifelink,
@@ -5387,6 +5429,7 @@ pub fn catalog_schema() -> serde_json::Value {
     let mut exact_caps = Vec::new();
     for keyword in [
         KeywordAbility::Flying,
+        KeywordAbility::Reach,
         KeywordAbility::Deathtouch,
         KeywordAbility::Indestructible,
         KeywordAbility::Lifelink,
@@ -5556,6 +5599,8 @@ pub fn catalog_schema() -> serde_json::Value {
     fixed_mill::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
+    draw_discard::extend_schema(&mut schema);
+    hand_return::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -5728,6 +5773,8 @@ mod tests {
             FixedMillProgramV1,
             ControllerLibrarySelectionV1,
             ControllerLibraryOrderV1,
+            ControllerHandReturnV1,
+            ControllerDrawDiscardV1,
             ControllerDiscardV1,
             OpponentTargetV1,
             TargetPlayerSacrificeCreatureV1,
@@ -5963,6 +6010,8 @@ mod tests {
         definitions.push(fixed_mill::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
+        definitions.push(hand_return::witness());
+        definitions.push(draw_discard::witness());
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());
@@ -7666,3 +7715,4 @@ mod temporary_permanent_keyword_tests;
 
 #[cfg(test)]
 mod typed_land_search_tests;
+mod temporary_reach_tests;

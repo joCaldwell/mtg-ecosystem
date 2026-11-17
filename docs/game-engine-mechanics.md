@@ -104,19 +104,17 @@ Commander SBAs follow resolution. One-draw and artifact-or-creature grant/Scry
 compositions are supported. Activated/triggered
 forms, Flashback, mill costs/replacements and search reconstruction reject.
 
-Standalone library selection looks at the available prefix, puts exactly one
-available card into hand and sends the remainder to the graveyard or ordered
-library bottom. Hand movement is not drawing (CR 121.5). The chooser alone sees
-candidates; all movements commit atomically. A selected tucked Commander uses
-its owner's hand-replacement choice before movement; graveyard return waits
-for SBAs. Extra clauses and draw compositions reject.
+Library selection privately takes exactly one available prefix card into hand,
+then atomically sends the remainder to the graveyard or ordered library bottom.
+This is not drawing (CR 121.5). Tucked Commanders receive the owner's pre-movement
+hand replacement; graveyard return waits for SBAs. Extra clauses/draw compositions reject.
 
-The ordinary top-order/optional-shuffle/draw family privately orders the whole
-available prefix without changing incarnations, offers the controller a scoped
-boolean shuffle choice, then draws once. Accepted shuffles use the existing
-trusted seeded stream and public shuffle counter, including empty/single-card
-libraries. Decline consumes no random words. No source, target, mana or priority
-authority is created between these instructions.
+Top-order/optional-shuffle/draw privately orders the available prefix, preserving
+incarnations, offers a controller boolean, then draws once. Shuffles use trusted RNG/public counters, including empty/singleton libraries;
+declines consume no randomness. Counted draws precede whole-hand selection: ordered top returns
+create successors in one batch after Commander replacements; discards share a
+simultaneous batch before Commander SBAs. Short hands clamp; failed draws never interrupt resolution. Neither family creates source, target, mana
+or priority authority.
 
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
@@ -424,18 +422,16 @@ values beyond machine integers, denies unknown fields and requires source block 
 The old `ModifyPowerToughness`/grant sequence rejects in either order; standalone
 `ModifyPowerToughness` remains supported in its existing scope.
 
-The combined grant creates one continuous effect with one captured target
-incarnation. CR 611.2c and 613.5–6 apply all its keyword and P/T parts to that
-same object across layers. Departure LKI must observe the complete effect,
-including during a CR 104.3a concession; separately created stat/keyword effects
-cannot satisfy this contract.
+One captured incarnation receives both stat and keyword layers
+(CR 611.2c, 613.5–6), including complete departure LKI during concessions
+(CR 104.3a). Separate stat/keyword effects fail this contract.
 
 Keyword vectors are nonempty, duplicate-free and limited to Flying, Deathtouch,
-Indestructible, Lifelink, Hexproof, Haste, Trample and First Strike; serialized order
-is retained. Pure Lifelink/Hexproof/Haste/Trample/First Strike, mixed vectors and
-modifier-plus-Flying/Deathtouch/Lifelink/Hexproof/Haste/Trample/First Strike require
-the general capability. Haste, Trample and First Strike reuse existing readiness
-and combat-damage rules (CR 702.10, 702.19, 702.7); this vocabulary extension adds
+Indestructible, Lifelink, Hexproof, Haste, Trample, Reach and First Strike; serialized order
+is retained. Pure Lifelink/Hexproof/Haste/Trample/Reach/First Strike, mixed vectors and
+modifier-plus-Flying/Deathtouch/Lifelink/Hexproof/Haste/Trample/Reach/First Strike require
+the general capability. Haste, Trample, Reach and First Strike reuse readiness, blocking and
+damage rules (CR 702.10, 702.19, 702.17, 702.7); this vocabulary extension adds
 no opcode, capability or runtime mechanism.
 Existing unfiltered singleton Flying/Deathtouch/Indestructible and modifier-plus-singleton
 Indestructible retain their old temporary/compound subset capabilities; the general
@@ -457,7 +453,7 @@ changes do not end the grant (CR 611.2c).
 
 Contracts' borrowed `TemporaryTargetedKeywordProgram` and
 `temporary_targeted_keyword_program` union expose modifier, keywords and optional
-controller life. `supported_temporary_keywords` retains the same eight-keyword
+controller life. `supported_temporary_keywords` retains the same nine-keyword
 vocabulary. The creature wrapper remains single-grant; the compound helper keeps
 its singleton policy. The permanent wrapper requires one
 `ControlledBattlefieldPermanent` slot-zero controller/announcement target with an
@@ -513,7 +509,7 @@ reviewed vector. `temporary_creature_set_keyword_program` and
 and quantities never select mechanics.
 
 The family reuses `supported_temporary_keywords`: Flying, Deathtouch,
-Indestructible, Lifelink, Hexproof, Haste, Trample and First Strike, nonempty and
+Indestructible, Lifelink, Hexproof, Haste, Trample, Reach and First Strike, nonempty and
 without duplicates. Every keyword requires its existing primitive capability;
 Hexproof uses `attachments_v1`, and First Strike serializes as `first strike`
 with `first_strike_v1`. Every set grant additionally requires `board_wipes_v1`

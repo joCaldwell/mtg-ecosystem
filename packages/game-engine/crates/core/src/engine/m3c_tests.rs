@@ -1132,12 +1132,12 @@ fn m3c_linked_quantity_draw_suspended_prefix_and_commander_replacement_recover()
             assert_eq!(zero.state, g.state);
             match g.advance(Budget::new(1)) {
                 Advance::Suspended { .. } => {
-                    progress |= matches!(&g.state.rules.frame,Frame::Resolve {frame} if frame.damage_draw.is_some());
+                    progress |= matches!(&g.state.rules.frame,Frame::Resolve {frame} if frame.draw_progress.is_some());
                     prove(&g);
                     if !forged_progress_checked {
                         let mut forged = g.fork();
                         if let Frame::Resolve { frame } = &mut forged.state.rules.frame
-                            && let Some(draw) = &mut frame.damage_draw
+                            && let Some(draw) = &mut frame.draw_progress
                             && draw.remaining > Quantity::zero()
                         {
                             // Keep the declared total unchanged: an invented

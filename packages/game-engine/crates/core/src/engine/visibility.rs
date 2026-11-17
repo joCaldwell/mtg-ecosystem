@@ -213,6 +213,12 @@ pub enum PlayerRequest {
         player: PlayerId,
         candidates: Vec<AdditionalCostChoice>,
     },
+    HandReturn {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+        count: usize,
+    },
     LibraryOrder {
         token: DecisionToken,
         player: PlayerId,
@@ -430,7 +436,8 @@ pub enum PlayerRequest {
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
-            Self::LibraryOrder { token, .. }
+            Self::HandReturn { token, .. }
+            | Self::LibraryOrder { token, .. }
             | Self::LibrarySelect { token, .. }
             | Self::Scry { token, .. }
             | Self::Surveil { token, .. } => token,
@@ -482,6 +489,9 @@ pub struct Observation {
 pub enum PlayerResponse {
     AdditionalCosts {
         selected: Vec<String>,
+    },
+    HandReturn {
+        objects: Vec<ObjectHandle>,
     },
     LibraryOrder {
         objects: Vec<ObjectHandle>,
@@ -1462,6 +1472,20 @@ impl Game {
             }));
         }
         if let Frame::ResolutionChoice {
+            choice: ResolutionChoice::HandReturn { player, .. },
+            ..
+        } = &self.state.rules.frame
+            && *player == viewer
+            && self.is_live(viewer)
+        {
+            return Ok(Some(PlayerRequest::HandReturn {
+                token,
+                player: viewer,
+                candidates: vec![],
+                count: self.hand_return_count_for_current()?,
+            }));
+        }
+        if let Frame::ResolutionChoice {
             choice: ResolutionChoice::LibraryOrder { player, looked, .. },
             ..
         } = &self.state.rules.frame
@@ -1521,6 +1545,12 @@ impl Game {
                         candidates: handles(candidates)?,
                     }
                 }
+                Request::HandReturn { count, .. } => PlayerRequest::HandReturn {
+                    token,
+                    player: viewer,
+                    candidates: vec![],
+                    count,
+                },
                 Request::LibraryOrder { count, .. } => PlayerRequest::LibraryOrder {
                     token,
                     player: viewer,
@@ -2145,7 +2175,8 @@ impl Game {
             PlayerResponse::Blockers { blocks } => blocks.len(),
             PlayerResponse::Damage { assignments }
             | PlayerResponse::TrampleDamage { assignments, .. } => assignments.len(),
-            PlayerResponse::BottomOpening { objects }
+            PlayerResponse::HandReturn { objects }
+            | PlayerResponse::BottomOpening { objects }
             | PlayerResponse::Discard { objects }
             | PlayerResponse::ResolveDiscard { objects } => objects.len(),
             PlayerResponse::DamageAllocation { allocations } => allocations.len(),
@@ -2159,6 +2190,12 @@ impl Game {
             return Err("oversized player declaration".into());
         }
         match response {
+            PlayerResponse::HandReturn { objects } => Ok(Response::HandReturn {
+                objects: objects
+                    .iter()
+                    .map(|h| self.resolve_handle(viewer, h))
+                    .collect::<Result<_, _>>()?,
+            }),
             PlayerResponse::LibraryOrder { objects } => Ok(Response::LibraryOrder {
                 objects: objects
                     .iter()

@@ -142,11 +142,7 @@ fn creature_set_keyword_shapes_and_old_routes_reject() {
                 .is_err()
         );
     }
-    for keywords in [
-        vec![],
-        vec![KeywordAbility::Haste, KeywordAbility::Haste],
-        vec![KeywordAbility::Reach],
-    ] {
+    for keywords in [vec![], vec![KeywordAbility::Haste, KeywordAbility::Haste]] {
         assert!(
             grant(ObjectSet::ControllerCreatures, &keywords, false)
                 .validate()

@@ -328,6 +328,7 @@ use cascade::{CascadeProgress, CastCompletion, CastPermission};
 #[cfg(test)]
 mod casting_foundation_tests;
 mod intrinsic_mana;
+mod hand_return;
 mod library_order;
 mod library_selection;
 mod mana_permanents;
@@ -937,7 +938,7 @@ struct SetDamageFacts {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct DamageDrawProgress {
+struct DrawProgress {
     cursor: u32,
     source_block: u32,
     completed: Quantity,
@@ -948,7 +949,7 @@ struct DamageDrawProgress {
 #[serde(deny_unknown_fields)]
 struct Resolving {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    damage_draw: Option<DamageDrawProgress>,
+    draw_progress: Option<DrawProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     set_damage: Option<SetDamageFacts>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1093,6 +1094,9 @@ pub enum Response {
     AdditionalCosts {
         selected: Vec<String>,
     },
+    HandReturn {
+        objects: Vec<ObjectId>,
+    },
     LibraryOrder {
         objects: Vec<ObjectId>,
     },
@@ -1230,6 +1234,12 @@ pub enum Request {
         decision_id: u64,
         player: PlayerId,
         candidates: Vec<mtg_contracts::OptionalAdditionalManaCost>,
+    },
+    HandReturn {
+        decision_id: u64,
+        player: PlayerId,
+        count: usize,
+        candidates: Vec<ObjectId>,
     },
     LibraryOrder {
         decision_id: u64,
@@ -1433,7 +1443,8 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::LibraryOrder { decision_id, .. }
+            Self::HandReturn { decision_id, .. }
+            | Self::LibraryOrder { decision_id, .. }
             | Self::LibrarySelect { decision_id, .. }
             | Self::Scry { decision_id, .. }
             | Self::Surveil { decision_id, .. } => *decision_id,
@@ -1472,7 +1483,8 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::LibraryOrder { player, .. }
+            Self::HandReturn { player, .. }
+            | Self::LibraryOrder { player, .. }
             | Self::LibrarySelect { player, .. }
             | Self::Scry { player, .. }
             | Self::Surveil { player, .. } => *player,
@@ -1516,6 +1528,12 @@ pub enum ProposedEvent {
     RevealSearchLands {
         player: PlayerId,
         objects: Vec<ObjectId>,
+    },
+    HandReturn {
+        player: PlayerId,
+        count: Quantity,
+        objects: Vec<ObjectId>,
+        command: Vec<ObjectId>,
     },
     OrderLibraryTop {
         player: PlayerId,
@@ -1732,6 +1750,10 @@ pub enum EventOutcome {
     SearchLandsRevealed {
         player: PlayerId,
         objects: Vec<ObjectId>,
+    },
+    HandReturned {
+        player: PlayerId,
+        movements: Vec<MoveOutcome>,
     },
     LibraryOrdered {
         player: PlayerId,
@@ -1994,7 +2016,7 @@ enum InstructionOutcome {
         movement: Option<MoveOutcome>,
         failed: bool,
     },
-    DamageDrawn {
+    DrawAttempts {
         player: PlayerId,
         attempted: Quantity,
         failed: Quantity,
@@ -3250,7 +3272,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 37,
+            snapshot_version: 38,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3292,7 +3314,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 37
+        if s.snapshot_version != 38
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

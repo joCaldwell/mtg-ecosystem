@@ -6,6 +6,13 @@ pub(super) enum CommanderContinuation {
     CascadeBottom {
         progress: Box<CascadeProgress>,
     },
+    HandReturn {
+        frame: Resolving,
+        objects: Vec<ObjectId>,
+        remaining: Vec<ObjectId>,
+        choices: Vec<(ObjectId, bool)>,
+        source_block: u32,
+    },
     LibrarySelect {
         frame: Resolving,
         looked: Vec<ObjectId>,
@@ -246,6 +253,22 @@ impl Game {
             CommanderContinuation::CascadeBottom { progress } => {
                 self.resume_cascade_commander(progress, object, to_command)?
             }
+            CommanderContinuation::HandReturn {
+                frame,
+                objects,
+                mut remaining,
+                mut choices,
+                source_block,
+            } => {
+                if remaining.first() != Some(&object) {
+                    return Err("hand return commander order".into());
+                }
+                remaining.remove(0);
+                if present {
+                    choices.push((object, to_command));
+                }
+                self.continue_hand_return(frame, objects, remaining, choices, source_block)?;
+            }
             CommanderContinuation::LibrarySelect {
                 frame,
                 looked,
@@ -476,6 +499,27 @@ impl Game {
                         return Err("snapshot cascade commander replacement invariant".into());
                     }
                 }
+                CommanderContinuation::HandReturn {
+                    frame,
+                    objects,
+                    remaining,
+                    choices,
+                    source_block,
+                } => {
+                    self.validate_hand_return_continuation(
+                        frame,
+                        objects,
+                        remaining,
+                        choices,
+                        *source_block,
+                    )?;
+                    if remaining.first() != Some(object)
+                        || *destination != (Zone::Library { owner })
+                        || current.zone != (Zone::Hand { owner })
+                    {
+                        return Err("hand return commander destination".into());
+                    }
+                }
                 CommanderContinuation::LibrarySelect {
                     frame,
                     looked,
@@ -571,6 +615,9 @@ impl Game {
                             .instructions
                             .get(frame.cursor as usize)
                         {
+                            Some(Instruction::DrawControllerCards {
+                                source_block: b, ..
+                            }) => b == source_block && frame.draw_progress.is_some(),
                             Some(Instruction::DrawCards {
                                 count,
                                 source_block: b,
@@ -584,7 +631,7 @@ impl Game {
                                 | Instruction::DrawCardsIfAdditionalCost {
                                     source_block: b, ..
                                 },
-                            ) => b == source_block && frame.damage_draw.is_some(),
+                            ) => b == source_block && frame.draw_progress.is_some(),
                             _ => false,
                         }
                     {

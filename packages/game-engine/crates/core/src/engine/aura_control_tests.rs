@@ -1122,3 +1122,15 @@ mod library_selection_tests;
 #[cfg(test)]
 #[path = "library_order_tests.rs"]
 mod library_order_tests;
+
+#[cfg(test)]
+#[path = "hand_return_tests.rs"]
+mod hand_return_tests;
+
+#[cfg(test)]
+#[path = "draw_discard_tests.rs"]
+mod draw_discard_tests;
+
+#[cfg(test)]
+#[path = "temporary_reach_tests.rs"]
+mod temporary_reach_tests;

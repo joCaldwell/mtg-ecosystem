@@ -172,7 +172,7 @@ struct ObservationWork {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "task", rename_all = "snake_case", deny_unknown_fields)]
 enum Task {
-    // Sidecar v27 includes library-selection choice and conversion prefixes.
+    // Sidecar v28 includes library-selection choice and conversion prefixes.
     // Projection/request headers remain explicit work, never hidden work
     // performed even when the caller grants no budget.
     Initialize,
@@ -472,14 +472,15 @@ impl Game {
             candidates.push(*id);
         }
         if let Some(
-            PlayerRequest::LibraryOrder { candidates, .. }
+            PlayerRequest::HandReturn { candidates, .. }
+            | PlayerRequest::LibraryOrder { candidates, .. }
             | PlayerRequest::LibrarySelect { candidates, .. }
             | PlayerRequest::Scry { candidates, .. }
             | PlayerRequest::Surveil { candidates, .. },
         ) = &mut b.decision
             && cursor >= base + effect_count
             && let Some(object) = self
-                .library_looked(viewer)
+                .private_library_choice_candidates(viewer)
                 .and_then(|ids| ids.get(cursor - base - effect_count))
         {
             candidates.push(
@@ -514,13 +515,15 @@ impl Game {
             } else if matches!(
                 b.decision,
                 Some(
-                    PlayerRequest::LibraryOrder { .. }
+                    PlayerRequest::HandReturn { .. }
+                        | PlayerRequest::LibraryOrder { .. }
                         | PlayerRequest::LibrarySelect { .. }
                         | PlayerRequest::Scry { .. }
                         | PlayerRequest::Surveil { .. }
                 )
             ) {
-                self.library_looked(viewer).map_or(0, |ids| ids.len())
+                self.private_library_choice_candidates(viewer)
+                    .map_or(0, |ids| ids.len())
             } else {
                 0
             };
@@ -559,7 +562,7 @@ impl Game {
                     return Err(QueryRejection::Invariant);
                 };
                 Ok(Some(QueryValue::Observation(Observation {
-                    observation_version: 27,
+                    observation_version: 28,
                     decision_context: self
                         .permitted_decision_context(builder.view.viewer, builder.decision.as_ref()),
                     view: builder.view,
@@ -568,14 +571,15 @@ impl Game {
             }
             (Query::Decision { viewer }, Task::Decision { cursor, request }) => {
                 if let Some(
-                    PlayerRequest::LibraryOrder { candidates, .. }
+                    PlayerRequest::HandReturn { candidates, .. }
+                    | PlayerRequest::LibraryOrder { candidates, .. }
                     | PlayerRequest::LibrarySelect { candidates, .. }
                     | PlayerRequest::Scry { candidates, .. }
                     | PlayerRequest::Surveil { candidates, .. },
                 ) = request
                 {
                     let ids = self
-                        .library_looked(*viewer)
+                        .private_library_choice_candidates(*viewer)
                         .ok_or(QueryRejection::Invariant)?;
                     if let Some(object) = ids.get(*cursor as usize) {
                         candidates.push(
@@ -724,10 +728,24 @@ impl Game {
                     let timing_valid = match (&self.state.rules.frame, response) {
                         (
                             Frame::ResolutionChoice {
+                                choice: ResolutionChoice::HandReturn { player, .. },
+                                ..
+                            },
+                            PlayerResponse::HandReturn { objects },
+                        ) => {
+                            player == viewer
+                                && objects.len()
+                                    == self
+                                        .hand_return_count_for_current()
+                                        .map_err(|_| QueryRejection::Invariant)?
+                        }
+                        (
+                            Frame::ResolutionChoice {
                                 choice: ResolutionChoice::LibraryOrder { player, looked, .. },
                                 ..
                             },
-                            PlayerResponse::LibraryOrder { objects },
+                            PlayerResponse::HandReturn { objects }
+                            | PlayerResponse::LibraryOrder { objects },
                         ) => player == viewer && objects.len() == looked.len(),
                         (
                             Frame::ResolutionChoice {
@@ -891,7 +909,8 @@ impl Game {
                     converted.push(self.resolve_handle(*viewer, handle).map_err(invalid)?);
                     return Ok(None);
                 }
-                if let PlayerResponse::LibraryOrder { objects } = response
+                if let PlayerResponse::HandReturn { objects }
+                | PlayerResponse::LibraryOrder { objects } = response
                     && converted.len() < objects.len()
                 {
                     converted.push(
@@ -950,7 +969,11 @@ impl Game {
                     return Ok(None);
                 }
                 if value.is_none() {
-                    *value = Some(if let PlayerResponse::LibraryOrder { .. } = response {
+                    *value = Some(if let PlayerResponse::HandReturn { .. } = response {
+                        Response::HandReturn {
+                            objects: converted.clone(),
+                        }
+                    } else if let PlayerResponse::LibraryOrder { .. } = response {
                         Response::LibraryOrder {
                             objects: converted.clone(),
                         }
@@ -1020,7 +1043,7 @@ impl Game {
                         // Search remains incomplete here. Keep its historical
                         // builder scratch intact for exact saved-work recovery.
                         *observation = Some(Box::new(Observation {
-                            observation_version: 27,
+                            observation_version: 28,
                             decision_context: self.permitted_decision_context(
                                 builder.view.viewer,
                                 builder.decision.as_ref(),
@@ -1056,7 +1079,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 27,
+                    context_version: 28,
                     observation: *observation.take().ok_or(QueryRejection::Invariant)?,
                     permitted_history: std::mem::take(history),
                     open_decklists: std::mem::take(decks),
@@ -1075,7 +1098,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 27,
+            work_version: 28,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -1084,7 +1107,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 27
+        if saved.work_version != 28
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?
@@ -1119,12 +1142,13 @@ impl Game {
     fn request_extra_units(&self, viewer: PlayerId) -> Result<u64, String> {
         Ok(match self.request_header(viewer)? {
             Some(
-                PlayerRequest::LibraryOrder { .. }
+                PlayerRequest::HandReturn { .. }
+                | PlayerRequest::LibraryOrder { .. }
                 | PlayerRequest::LibrarySelect { .. }
                 | PlayerRequest::Scry { .. }
                 | PlayerRequest::Surveil { .. },
             ) => self
-                .library_looked(viewer)
+                .private_library_choice_candidates(viewer)
                 .map_or(0, |ids| ids.len() as u64),
             Some(PlayerRequest::OrderTriggers { .. }) => self.trigger_order_ids().len() as u64,
             Some(PlayerRequest::Modes { .. }) => {
@@ -1173,6 +1197,7 @@ impl Game {
                     .ok_or("decision work resource limit")?,
                 Some(
                     PlayerRequest::OrderTriggers { .. }
+                    | PlayerRequest::HandReturn { .. }
                     | PlayerRequest::LibraryOrder { .. }
                     | PlayerRequest::LibrarySelect { .. }
                     | PlayerRequest::Scry { .. }
@@ -1195,7 +1220,8 @@ impl Game {
                         top,
                         graveyard: bottom,
                     } => top.len().saturating_add(bottom.len()),
-                    PlayerResponse::LibraryOrder { objects }
+                    PlayerResponse::HandReturn { objects }
+                    | PlayerResponse::LibraryOrder { objects }
                     | PlayerResponse::Targets { objects }
                     | PlayerResponse::BottomOpening { objects } => objects.len(),
                     PlayerResponse::EntityTargets { entities } => entities.len(),

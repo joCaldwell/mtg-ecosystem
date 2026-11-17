@@ -201,6 +201,7 @@ impl Game {
                 ..
             })
             | Some(Instruction::OptionalDrawCards { .. })
+            | Some(Instruction::DrawControllerCards { .. })
             | Some(Instruction::DrawDamageAmount { .. })
             | Some(Instruction::DrawCardsIfAdditionalCost { .. }) => Ok(frame.spell.controller),
             _ => Err("not draw instruction".into()),

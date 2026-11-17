@@ -26,14 +26,8 @@ Use the [development workflow](game-engine-development.md) and complete-source s
 
 ## Qualified checkpoints and limits
 
-[Evidence](game-engine-evidence.md) owns exact producers, counts, bridges and
-exclusions. M0 preserved all85 records and historical11/74/0 compiler diagnostics.
-M1 covers Ramos/Scales/Corpsejack; entry/simultaneous/distributed placements remain
-unavailable. M2 covers basic split/typed search, Cinder conditional entry and intrinsic
-mana. M3 covers basic/instant cascade, kicker and paid prohibition. M4 covers
-Apex/Wanderer/Imoti/Nexus/Sorcerer/Ethersworn. None admits the exact deck or consumers.
-Receipts: `generated/ramos/*-integrated/integration.json`; research: Git `30ec86ee`.
-The [prior plan](https://github.com/joCaldwell/mtg-ecosystem/blob/ad428b23ee5b3f5750f8c79b4a7823c8d93d5b7f/docs/game-engine-ramos-plan.md) retains historical boundaries and failures.
+[Evidence](game-engine-evidence.md) owns qualified M0–M4 producers, limits and receipts.
+Exact-deck admission remains open. [Historical plan](https://github.com/joCaldwell/mtg-ecosystem/blob/ad428b23ee5b3f5750f8c79b4a7823c8d93d5b7f/docs/game-engine-ramos-plan.md).
 
 ## Ordered remaining milestones
 

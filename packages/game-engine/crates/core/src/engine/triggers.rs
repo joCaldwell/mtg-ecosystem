@@ -452,7 +452,8 @@ impl Game {
                         movement: movement.clone(),
                     })
                     .collect(),
-                EventOutcome::Surveilled { movements, .. }
+                EventOutcome::HandReturned { movements, .. }
+                | EventOutcome::Surveilled { movements, .. }
                 | EventOutcome::Milled { movements, .. } => movements
                     .iter()
                     .map(|movement| TriggerEventWitness::Moved {
