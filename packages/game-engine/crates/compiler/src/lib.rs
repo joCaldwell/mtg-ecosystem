@@ -2313,9 +2313,9 @@ fn append_spell_effects(
         program.instructions.extend(tail);
         return Ok(());
     }
-    // CR 109.2/109.5, 608.2h, 611.2c: the permanent family consumes the
-    // complete sole pure-gain sentence. The general wipe path below cannot
-    // admit this selector, including inside costs, modes or later blocks.
+    // CR 109.2/109.5, 608.2h, 611.2c: shared controller-set coalescing
+    // consumes the complete sole pure-gain sentence. Definition/activation
+    // closure separately fences its selector, source kind, cost and context.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     if source_block == 0
         && player_binding == PlayerBinding::Unbound
@@ -2343,10 +2343,13 @@ fn append_spell_effects(
         ] = steps.as_slice()
         && matches!(what["ref"].as_str(), Some("all" | "each"))
         && duration.duration == "end-of-turn"
-        && lower_object_set(what)? == ObjectSet::ControllerPermanents
+        && matches!(
+            lower_object_set(what)?,
+            ObjectSet::ControllerPermanents | ObjectSet::ControllerCreatures
+        )
     {
         program.instructions.push(Instruction::GrantKeywordsSet {
-            set: ObjectSet::ControllerPermanents,
+            set: lower_object_set(what)?,
             modifier: None,
             keywords: lower_temporary_creature_keywords(abilities)?,
             duration: Duration::UntilEndOfTurn,
@@ -4991,6 +4994,36 @@ fn lower_activation(
         instructions: vec![],
         modes: vec![],
     };
+    // CR 602.2b, 608.2h, 611.2c: reuse the whole-sentence set coalescer,
+    // then require the complete pure controller-creature activation composition.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    if effects
+        .iter()
+        .flat_map(|s| &s.steps)
+        .any(|step| matches!(step, Step::GainAbilities { .. }))
+    {
+        append_spell_effects(
+            &mut program,
+            effects,
+            block,
+            &mut BTreeMap::new(),
+            PlayerBinding::Unbound,
+        )?;
+        let ability = ActivatedAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            cost,
+            program,
+        };
+        if kind != CardKind::Creature
+            || sacrifice_source_creature_set_keyword_ability(&ability).is_none()
+        {
+            return Err(unsupported(
+                "activation",
+                "unsupported complete set keyword activation",
+            ));
+        }
+        return Ok(ability);
+    }
     if matches!(cost, ActivationCost::SacrificePermanent { .. })
         || (matches!(cost, ActivationCost::SacrificeSource)
             && effects.iter().flat_map(|s| &s.steps).any(|i| {
@@ -9921,3 +9954,6 @@ mod ramos_m4e_tests;
 
 #[cfg(test)]
 mod temporary_permanent_keyword_tests;
+
+#[cfg(test)]
+mod escort_set_tests;

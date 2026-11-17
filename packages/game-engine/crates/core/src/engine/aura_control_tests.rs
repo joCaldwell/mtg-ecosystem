@@ -1122,3 +1122,7 @@ mod library_selection_tests;
 #[cfg(test)]
 #[path = "library_order_tests.rs"]
 mod library_order_tests;
+
+#[cfg(test)]
+#[path = "escort_set_tests.rs"]
+mod escort_set_tests;
