@@ -132,9 +132,11 @@ mod tests {
             d.capabilities = d.requirements();
             assert!(d.validate().is_err(), "{case}");
         }
-        let mut spare = conditional_lands::tests::land();
-        spare.capabilities.insert(Capability::HandActivationV1);
-        assert!(spare.validate().is_err());
+        for cap in [Capability::HandActivationV1, Capability::ActivatedAbilityV1, Capability::ManaActivationCostV1, Capability::ControllerDrawV1] {
+            let mut spare = conditional_lands::tests::land();
+            spare.capabilities.insert(cap);
+            assert!(spare.validate().is_err(), "noncycling spare {cap:?}");
+        }
     }
     #[test]
     fn cycling_contract_strict_null_unknown_and_quantity_spellings() {

@@ -57,6 +57,12 @@ for (const [name, change] of [
 ]) probe(name, false, change);
 for (const cap of land.capabilities) probe(`missing ${cap}`, false, d => d.capabilities = d.capabilities.filter(c=>c!==cap));
 for (const cap of ['pay_life_cost_v1','optional_life_land_entry_v1','composite_activation_cost_v1','controller_discard_v1']) probe(`spare ${cap}`, false, d => d.capabilities.push(cap));
+for (const cap of ['activated_ability_v1','mana_activation_cost_v1','controller_draw_v1']) {
+  probe(`noncycling spare ${cap}`, false, d => {
+    d.activated = [];
+    d.capabilities = ['normal_layout_v1','land_play_v1','typed_nonbasic_intrinsic_mana_v1','enters_tapped_v1',cap].sort();
+  });
+}
 const report = { kind: 'synthetic-cycling-schema-probes', probes: probes.length, positive: probes.filter(p=>p.expected).length, negative: probes.filter(p=>!p.expected).length, payload_sha256: createHash('sha256').update(JSON.stringify(probes)).digest('hex'), schema_execution: 'UNRUN' };
 assert(report.positive > 0 && report.negative > 0);
 if (!process.argv.includes('--prepare-only')) {

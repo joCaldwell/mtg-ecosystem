@@ -75,13 +75,19 @@ pub(super) fn schema(s: &mut serde_json::Value) {
                 "else":{"properties":{"capabilities":{"not":{"contains":{"const":cap}}}}}
             }));
     }
-    s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"anyOf":[conditional,optional.clone(),typed]},"then":{"properties":{
+    s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"anyOf":[conditional.clone(),optional.clone(),typed.clone()]},"then":{"properties":{
         "characteristics":{"properties":{"kind":{"const":"land"},"basic":{"const":false},"additional_types":{"maxItems":0},"subtypes":{"minItems":1,"uniqueItems":true,"items":{"enum":["Plains","Island","Swamp","Mountain","Forest"]}},"mana_cost":{"properties":{"generic":{"const":"0"},"colored":{"maxItems":0}}},"power":{"type":"null"},"toughness":{"type":"null"}}},
         "intrinsic_zone":{"const":"battlefield"},"spell":{"type":"null"},"x_mana_cost":{"const":false},
         "mana_abilities":{"maxItems":0},"activated":{"items":{"$ref":"#/$defs/HandDiscardDrawActivation"}},"triggered":{"maxItems":0},"keywords":{"maxItems":0},
         "static_abilities":{"items":{"properties":{"functioning_zone":{"const":"battlefield"},"effect":{"anyOf":[{"const":"enters_tapped"},effect,life_effect]}}}},
         "capabilities":{"items":{"enum":[Capability::NormalLayoutV1,Capability::LandPlayV1,Capability::TypedNonbasicIntrinsicManaV1,Capability::ConditionalBasicLandEntryV1,Capability::OptionalLifeLandEntryV1,Capability::EntersTappedV1,Capability::ActivatedAbilityV1,Capability::HandActivationV1,Capability::DiscardSourceCostV1,Capability::ManaActivationCostV1,Capability::ControllerDrawV1]},"allOf":[{"contains":{"const":Capability::NormalLayoutV1}},{"contains":{"const":Capability::LandPlayV1}}]}
     }}}));
+    // Cycling's additional requirements are valid only with its actual hand
+    // activation. Noncycling typed/conditional/optional lands retain their
+    // original capability closure, matching Definition::requirements().
+    s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"anyOf":[conditional,optional.clone(),typed.clone()]},"then":{"allOf":[
+        {"if":{"properties":{"activated":{"maxItems":0}}},"then":{"properties":{"capabilities":{"items":{"enum":[Capability::NormalLayoutV1,Capability::LandPlayV1,Capability::TypedNonbasicIntrinsicManaV1,Capability::ConditionalBasicLandEntryV1,Capability::OptionalLifeLandEntryV1,Capability::EntersTappedV1]}}}}}
+    ]}}));
     s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"if":optional,"then":{"properties":{
         "static_abilities":{"minItems":1,"maxItems":1,"items":{"properties":{"effect":{"required":["enters_tapped_unless_pay_life"]}}}}
     }}}));
