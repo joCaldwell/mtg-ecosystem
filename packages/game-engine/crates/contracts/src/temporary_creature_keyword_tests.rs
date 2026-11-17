@@ -260,7 +260,7 @@ fn temporary_creature_keyword_family_rejects_empty_duplicate_and_unreviewed_voca
             KeywordAbility::Deathtouch,
             KeywordAbility::Lifelink,
         ],
-        vec![KeywordAbility::Vigilance],
+        vec![KeywordAbility::Defender],
         vec![KeywordAbility::Defender],
         vec![KeywordAbility::DoubleStrike],
         vec![KeywordAbility::Menace],
@@ -532,6 +532,7 @@ fn temporary_creature_keyword_family_schema_uses_unique_reviewed_vectors() {
         schema["$defs"]["TemporaryCreatureKeywords"]["items"]["enum"],
         serde_json::json!([
             "flying",
+            "vigilance",
             "reach",
             "deathtouch",
             "indestructible",

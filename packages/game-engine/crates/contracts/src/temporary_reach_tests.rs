@@ -72,7 +72,7 @@ fn temporary_reach_keeps_unsupported_vectors_and_legacy_subset_fences() {
     for keywords in [
         vec![],
         vec![KeywordAbility::Reach, KeywordAbility::Reach],
-        vec![KeywordAbility::Reach, KeywordAbility::Vigilance],
+        vec![KeywordAbility::Reach, KeywordAbility::Defender],
         vec![KeywordAbility::Reach, KeywordAbility::Shroud],
     ] {
         assert!(!supported_temporary_keywords(&keywords));

@@ -514,7 +514,7 @@ fn controlled_temporary_keyword_rejects_incomplete_or_nonordinary_programs() {
                 match variant {
                     0 => steps[last]["abilities"] = json!([]),
                     1 => steps[last]["abilities"][0]["keyword"]["keyword"] = "shroud".into(),
-                    2 => steps[last]["abilities"][0]["keyword"]["keyword"] = "vigilance".into(),
+                    2 => steps[last]["abilities"][0]["keyword"]["keyword"] = "defender".into(),
                     3 => steps[last]["abilities"][0]["keyword"]["filter"] = Value::Null,
                     4 => steps[last]["abilities"][0]["keyword"]["cost"] = json!([]),
                     5 => { let duplicate = steps[last]["abilities"][0].clone(); steps[last]["abilities"].as_array_mut().unwrap().push(duplicate); },

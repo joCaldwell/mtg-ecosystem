@@ -281,7 +281,7 @@ fn creature_set_keyword_program_boundaries_and_separated_sentences_reject() {
                 let last = a["effects"][0]["steps"].as_array().unwrap().len() - 1;
                 match variant {
                     0=>a["effects"][0]["steps"][last]["abilities"]=json!([]),
-                    1=>a["effects"][0]["steps"][last]["abilities"][0]["keyword"]["keyword"]="vigilance".into(),
+                    1=>a["effects"][0]["steps"][last]["abilities"][0]["keyword"]["keyword"]="defender".into(),
                     2=>a["effects"][0]["steps"][last]["abilities"][0]["keyword"]["cost"]=json!([]),
                     3=>a["effects"][0]["steps"][last]["duration"]["duration"]="forever".into(),
                     4=>a["effects"][0]["steps"][last]["duration"]["condition"]=json!({"condition":"you-control-creature"}),

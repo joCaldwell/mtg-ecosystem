@@ -427,15 +427,13 @@ One captured incarnation receives both stat and keyword layers
 (CR 104.3a). Separate stat/keyword effects fail this contract.
 
 Keyword vectors are nonempty, duplicate-free and limited to Flying, Deathtouch,
-Indestructible, Lifelink, Hexproof, Haste, Trample, Reach and First Strike; serialized order
-is retained. Pure Lifelink/Hexproof/Haste/Trample/Reach/First Strike, mixed vectors and
-modifier-plus-Flying/Deathtouch/Lifelink/Hexproof/Haste/Trample/Reach/First Strike require
-the general capability. Haste, Trample, Reach and First Strike reuse readiness, blocking and
-damage rules (CR 702.10, 702.19, 702.17, 702.7); this vocabulary extension adds
-no opcode, capability or runtime mechanism.
+Indestructible, Lifelink, Hexproof, Haste, Trample, Reach, Vigilance and First Strike; serialized order
+is retained. Haste, Trample, Reach, Vigilance and First Strike reuse readiness, blocking,
+attack-tapping and damage rules (CR 702.10/19/17/20/7), adding no opcode or capability.
 Existing unfiltered singleton Flying/Deathtouch/Indestructible and modifier-plus-singleton
 Indestructible retain their old temporary/compound subset capabilities; the general
-capability is spare and rejects on those shapes. Every granted keyword still
+capability is spare and rejects on those shapes. Other combinations require it.
+Every granted keyword still
 requires its primitive capability; modifiers require `temporary_power_toughness_v1`
 and unfiltered targets require `creature_target_v1`. Controlled targets require
 `attachments_v1` and the general family capability, even for an otherwise old
@@ -453,7 +451,7 @@ changes do not end the grant (CR 611.2c).
 
 Contracts' borrowed `TemporaryTargetedKeywordProgram` and
 `temporary_targeted_keyword_program` union expose modifier, keywords and optional
-controller life. `supported_temporary_keywords` retains the same nine-keyword
+controller life. `supported_temporary_keywords` retains the same ten-keyword
 vocabulary. The creature wrapper remains single-grant; the compound helper keeps
 its singleton policy. The permanent wrapper requires one
 `ControlledBattlefieldPermanent` slot-zero controller/announcement target with an
@@ -509,8 +507,8 @@ reviewed vector. `temporary_creature_set_keyword_program` and
 and quantities never select mechanics.
 
 The family reuses `supported_temporary_keywords`: Flying, Deathtouch,
-Indestructible, Lifelink, Hexproof, Haste, Trample, Reach and First Strike, nonempty and
-without duplicates. Every keyword requires its existing primitive capability;
+Indestructible, Lifelink, Hexproof, Haste, Trample, Reach, Vigilance and First Strike, nonempty and
+without duplicates. Each requires its primitive capability;
 Hexproof uses `attachments_v1`, and First Strike serializes as `first strike`
 with `first_strike_v1`. Every set grant additionally requires `board_wipes_v1`
 for the shared set machinery, exactly the selector's family capability, normal

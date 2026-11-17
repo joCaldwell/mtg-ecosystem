@@ -10095,3 +10095,6 @@ mod combined_hand_cost_fences {
 
 #[cfg(test)]
 mod escort_set_tests;
+
+#[cfg(test)]
+mod temporary_vigilance_tests;

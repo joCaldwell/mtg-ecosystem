@@ -136,11 +136,11 @@ fn temporary_combat_keyword_vectors_reject_duplicates_and_unreviewed_members() {
     let mut invalid = vec![vec![]];
     for keyword in REVIEWED {
         invalid.push(vec![keyword, keyword]);
-        invalid.push(vec![keyword, KeywordAbility::Vigilance]);
+        invalid.push(vec![keyword, KeywordAbility::Defender]);
     }
     for keyword in [
         KeywordAbility::DoubleStrike,
-        KeywordAbility::Vigilance,
+        KeywordAbility::Defender,
         KeywordAbility::Defender,
         KeywordAbility::Menace,
         KeywordAbility::Flash,
@@ -251,7 +251,7 @@ fn temporary_combat_keyword_json_near_misses_stay_rejected() {
                 ),
                 (
                     format!("{grant_path}/keywords"),
-                    serde_json::json!(["haste", "vigilance"]),
+                    serde_json::json!(["haste", "defender"]),
                 ),
                 (
                     format!("{grant_path}/keywords"),
@@ -452,6 +452,7 @@ fn temporary_combat_keyword_schema_preserves_legacy_subset_vocabulary() {
         schema["$defs"]["TemporaryCreatureKeywords"]["items"]["enum"],
         serde_json::json!([
             "flying",
+            "vigilance",
             "reach",
             "deathtouch",
             "indestructible",

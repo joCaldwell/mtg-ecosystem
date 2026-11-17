@@ -1138,3 +1138,7 @@ mod temporary_reach_tests;
 #[cfg(test)]
 #[path = "escort_set_tests.rs"]
 mod escort_set_tests;
+
+#[cfg(test)]
+#[path = "temporary_vigilance_tests.rs"]
+mod temporary_vigilance_tests;
