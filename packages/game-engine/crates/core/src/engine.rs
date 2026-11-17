@@ -313,6 +313,7 @@ mod recovery;
 pub use recovery::SnapshotVerifier;
 mod actions;
 mod casting;
+mod hand_return;
 mod library_order;
 mod library_selection;
 mod mana_permanents;
@@ -915,7 +916,7 @@ struct SetDamageFacts {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct DamageDrawProgress {
+struct DrawProgress {
     cursor: u32,
     source_block: u32,
     completed: Quantity,
@@ -926,7 +927,7 @@ struct DamageDrawProgress {
 #[serde(deny_unknown_fields)]
 struct Resolving {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    damage_draw: Option<DamageDrawProgress>,
+    draw_progress: Option<DrawProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     set_damage: Option<SetDamageFacts>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1048,6 +1049,9 @@ enum Frame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    HandReturn {
+        objects: Vec<ObjectId>,
+    },
     LibraryOrder {
         objects: Vec<ObjectId>,
     },
@@ -1175,6 +1179,12 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    HandReturn {
+        decision_id: u64,
+        player: PlayerId,
+        count: usize,
+        candidates: Vec<ObjectId>,
+    },
     LibraryOrder {
         decision_id: u64,
         player: PlayerId,
@@ -1366,7 +1376,8 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::LibraryOrder { decision_id, .. }
+            Self::HandReturn { decision_id, .. }
+            | Self::LibraryOrder { decision_id, .. }
             | Self::LibrarySelect { decision_id, .. }
             | Self::Scry { decision_id, .. }
             | Self::Surveil { decision_id, .. } => *decision_id,
@@ -1402,7 +1413,8 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::LibraryOrder { player, .. }
+            Self::HandReturn { player, .. }
+            | Self::LibraryOrder { player, .. }
             | Self::LibrarySelect { player, .. }
             | Self::Scry { player, .. }
             | Self::Surveil { player, .. } => *player,
@@ -1440,6 +1452,12 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    HandReturn {
+        player: PlayerId,
+        count: Quantity,
+        objects: Vec<ObjectId>,
+        command: Vec<ObjectId>,
+    },
     OrderLibraryTop {
         player: PlayerId,
         amount: Quantity,
@@ -1646,6 +1664,10 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    HandReturned {
+        player: PlayerId,
+        movements: Vec<MoveOutcome>,
+    },
     LibraryOrdered {
         player: PlayerId,
         looked: Vec<ObjectId>,
@@ -1907,7 +1929,7 @@ enum InstructionOutcome {
         movement: Option<MoveOutcome>,
         failed: bool,
     },
-    DamageDrawn {
+    DrawAttempts {
         player: PlayerId,
         attempted: Quantity,
         failed: Quantity,
@@ -3222,7 +3244,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 37,
+            snapshot_version: 38,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3264,7 +3286,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 37
+        if s.snapshot_version != 38
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

@@ -38,6 +38,11 @@ impl StackKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "choice", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum ResolutionChoice {
+    HandReturn {
+        player: PlayerId,
+        hand: Vec<ObjectId>,
+        source_block: u32,
+    },
     LibraryOrder {
         player: PlayerId,
         looked: Vec<ObjectId>,
@@ -225,7 +230,7 @@ impl Game {
             },
         }
     }
-    fn action_hand(&self, player: PlayerId) -> Vec<ObjectId> {
+    pub(super) fn action_hand(&self, player: PlayerId) -> Vec<ObjectId> {
         self.state
             .rules
             .objects
@@ -296,6 +301,14 @@ impl Game {
         };
         let decision_id = self.state.rules.revision;
         Ok(match choice {
+            ResolutionChoice::HandReturn { player, .. } if self.is_live(*player) => {
+                Some(Request::HandReturn {
+                    decision_id,
+                    player: *player,
+                    count: self.hand_return_count_for_current()?,
+                    candidates: self.action_hand(*player),
+                })
+            }
             ResolutionChoice::LibraryOrder { player, looked, .. } if self.is_live(*player) => {
                 Some(Request::LibraryOrder {
                     decision_id,
@@ -405,6 +418,27 @@ impl Game {
             return Some(result);
         }
         match (&self.state.rules.frame, response) {
+            (
+                Frame::ResolutionChoice {
+                    frame,
+                    choice:
+                        ResolutionChoice::HandReturn {
+                            player: chooser,
+                            source_block,
+                            ..
+                        },
+                },
+                Response::HandReturn { objects },
+            ) => Some(
+                self.validate_hand_return(frame, *chooser, *source_block, objects)
+                    .and_then(|_| {
+                        if player == *chooser {
+                            Ok(())
+                        } else {
+                            Err("wrong hand return chooser".into())
+                        }
+                    }),
+            ),
             (
                 Frame::ResolutionChoice {
                     frame,
@@ -583,6 +617,14 @@ impl Game {
                 self.state.rules.frame = Frame::Mana { cast };
             }
             Frame::ResolutionChoice { frame, choice } => {
+                if let ResolutionChoice::HandReturn {
+                    player,
+                    source_block,
+                    ..
+                } = choice
+                {
+                    return self.hand_return_step(frame, player, source_block);
+                }
                 if let ResolutionChoice::LibraryOrder {
                     player,
                     looked,
@@ -643,7 +685,8 @@ impl Game {
                 }
                 let Some(request) = self.actions_request()? else {
                     let outcome = match choice {
-                        ResolutionChoice::LibraryOrder { .. }
+                        ResolutionChoice::HandReturn { .. }
+                        | ResolutionChoice::LibraryOrder { .. }
                         | ResolutionChoice::OptionalShuffle { .. }
                         | ResolutionChoice::LibrarySelect { .. }
                         | ResolutionChoice::Surveil { .. }
@@ -676,7 +719,8 @@ impl Game {
                     .ok_or("missing resolution choice")?;
                 self.validate_choice_input(&choice, input.player, &input.response)?;
                 let source_block = match choice {
-                    ResolutionChoice::LibraryOrder { .. }
+                    ResolutionChoice::HandReturn { .. }
+                    | ResolutionChoice::LibraryOrder { .. }
                     | ResolutionChoice::OptionalShuffle { .. }
                     | ResolutionChoice::LibrarySelect { .. }
                     | ResolutionChoice::Surveil { .. }
@@ -764,7 +808,7 @@ impl Game {
         mut frame: Resolving,
         outcome: InstructionOutcome,
     ) -> Result<(), String> {
-        if frame.damage_draw.is_some() {
+        if frame.draw_progress.is_some() {
             return Err("cannot advance an unfinished damage-quantity draw".into());
         }
         frame.outcomes.push(outcome);
@@ -782,6 +826,13 @@ impl Game {
     ) -> Result<(), String> {
         let player = frame.spell.controller;
         match instruction {
+            Instruction::PutHandOnLibrary {
+                count,
+                source_block,
+            } => self.begin_hand_return(frame, count, source_block),
+            Instruction::DrawControllerCards { source_block, .. } => {
+                self.draw_multiple(frame, source_block)
+            }
             Instruction::OrderLibraryTop {
                 amount,
                 source_block,
@@ -949,7 +1000,7 @@ impl Game {
                 self.draw_one(frame, player, source_block)
             }
             Instruction::DrawDamageAmount { source_block } => {
-                self.draw_damage_amount(frame, source_block)
+                self.draw_multiple(frame, source_block)
             }
             // CR 603.5/608.2d: offer the option only during resolution, even
             // when the library is empty. Accepting performs the ordinary draw.
@@ -1091,6 +1142,19 @@ impl Game {
     }
     /// CR 120.4b/603.2c: "that many" is the positive final member of this
     /// invocation's actual damage witness, never printed power or life changes.
+    fn draw_instruction_amount(&self, frame: &Resolving) -> Result<Quantity, String> {
+        match self
+            .program_for(&frame.spell)?
+            .instructions
+            .get(frame.cursor as usize)
+        {
+            Some(Instruction::DrawControllerCards { count, .. }) if !count.is_negative() => {
+                Ok(count.clone())
+            }
+            Some(Instruction::DrawDamageAmount { .. }) => self.damage_draw_amount(frame),
+            _ => Err("counted draw source invariant".into()),
+        }
+    }
     pub(super) fn damage_draw_amount(&self, frame: &Resolving) -> Result<Quantity, String> {
         match &frame.spell.kind {
             StackKind::Triggered {
@@ -1104,18 +1168,25 @@ impl Game {
     // attempts. No SBA, card-count clamp or machine-integer conversion interrupts
     // the exact instruction. Commander replacement consumes just its attempt.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    fn draw_damage_amount(
-        &mut self,
-        mut frame: Resolving,
-        source_block: u32,
-    ) -> Result<(), String> {
-        self.validate_damage_draw(&frame)?;
-        if frame.damage_draw.is_none() {
-            frame.damage_draw = Some(DamageDrawProgress {
+    fn draw_multiple(&mut self, mut frame: Resolving, source_block: u32) -> Result<(), String> {
+        self.validate_draw_progress(&frame)?;
+        if self.draw_instruction_amount(&frame)? == Quantity::zero() {
+            let player = frame.spell.controller;
+            return self.finish_instruction(
+                frame,
+                InstructionOutcome::DrawAttempts {
+                    player,
+                    attempted: Quantity::zero(),
+                    failed: Quantity::zero(),
+                },
+            );
+        }
+        if frame.draw_progress.is_none() {
+            frame.draw_progress = Some(DrawProgress {
                 cursor: frame.cursor,
                 source_block,
                 completed: Quantity::zero(),
-                remaining: self.damage_draw_amount(&frame)?,
+                remaining: self.draw_instruction_amount(&frame)?,
                 failed: Quantity::zero(),
             });
         }
@@ -1129,25 +1200,27 @@ impl Game {
         mut frame: Resolving,
         outcome: InstructionOutcome,
     ) -> Result<(), String> {
-        if frame.damage_draw.is_none() {
+        if frame.draw_progress.is_none() {
             if matches!(
                 self.program_for(&frame.spell)?
                     .instructions
                     .get(frame.cursor as usize),
-                Some(Instruction::DrawDamageAmount { .. })
+                Some(
+                    Instruction::DrawDamageAmount { .. } | Instruction::DrawControllerCards { .. }
+                )
             ) {
                 return Err("missing damage-quantity draw progress".into());
             }
             return self.finish_instruction(frame, outcome);
         }
-        self.validate_damage_draw(&frame)?;
+        self.validate_draw_progress(&frame)?;
         let player = frame.spell.controller;
         if matches!(outcome, InstructionOutcome::PlayerActionSkipped { player: actor } if actor == player && !self.is_live(player))
         {
-            let progress = frame.damage_draw.take().unwrap();
+            let progress = frame.draw_progress.take().unwrap();
             return self.finish_instruction(
                 frame,
-                InstructionOutcome::DamageDrawn {
+                InstructionOutcome::DrawAttempts {
                     player,
                     attempted: progress.completed,
                     failed: progress.failed,
@@ -1170,17 +1243,17 @@ impl Game {
             }
             _ => return Err("invalid damage-quantity draw attempt outcome".into()),
         };
-        let progress = frame.damage_draw.as_mut().unwrap();
+        let progress = frame.draw_progress.as_mut().unwrap();
         progress.completed.add(&Quantity::from(1));
         progress.remaining.subtract(&Quantity::from(1));
         if failed {
             progress.failed.add(&Quantity::from(1));
         }
         if progress.remaining == Quantity::zero() {
-            let progress = frame.damage_draw.take().unwrap();
+            let progress = frame.draw_progress.take().unwrap();
             self.finish_instruction(
                 frame,
-                InstructionOutcome::DamageDrawn {
+                InstructionOutcome::DrawAttempts {
                     player,
                     attempted: progress.completed,
                     failed: progress.failed,
@@ -1193,11 +1266,13 @@ impl Game {
     }
     /// Structural guards complement accepted-input replay: neither coherent
     /// counters nor a substituted witness can establish an unrecorded draw.
-    fn validate_damage_draw(&self, frame: &Resolving) -> Result<(), String> {
+    fn validate_draw_progress(&self, frame: &Resolving) -> Result<(), String> {
         let program = self.program_for(&frame.spell)?;
-        if let Some(progress) = &frame.damage_draw {
-            let Some(Instruction::DrawDamageAmount { source_block }) =
-                program.instructions.get(frame.cursor as usize)
+        if let Some(progress) = &frame.draw_progress {
+            let Some(
+                Instruction::DrawDamageAmount { source_block }
+                | Instruction::DrawControllerCards { source_block, .. },
+            ) = program.instructions.get(frame.cursor as usize)
             else {
                 return Err("damage-quantity draw progress on another instruction".into());
             };
@@ -1209,7 +1284,7 @@ impl Game {
                 || progress.remaining <= Quantity::zero()
                 || progress.failed.is_negative()
                 || progress.failed > progress.completed
-                || total != self.damage_draw_amount(frame)?
+                || total != self.draw_instruction_amount(frame)?
             {
                 return Err("damage-quantity draw progress invariant".into());
             }
@@ -1217,14 +1292,17 @@ impl Game {
         for (instruction, outcome) in program.instructions.iter().zip(&frame.outcomes) {
             match (instruction, outcome) {
                 (
-                    Instruction::DrawDamageAmount { .. },
-                    InstructionOutcome::DamageDrawn {
+                    Instruction::DrawDamageAmount { .. } | Instruction::DrawControllerCards { .. },
+                    InstructionOutcome::DrawAttempts {
                         player,
                         attempted,
                         failed,
                     },
                 ) => {
-                    let amount = self.damage_draw_amount(frame)?;
+                    let amount = match instruction {
+                        Instruction::DrawControllerCards { count, .. } => count.clone(),
+                        _ => self.damage_draw_amount(frame)?,
+                    };
                     if *player != frame.spell.controller
                         || attempted.is_negative()
                         || *attempted > amount
@@ -1235,8 +1313,11 @@ impl Game {
                         return Err("damage-quantity draw completed outcome invariant".into());
                     }
                 }
-                (Instruction::DrawDamageAmount { .. }, _)
-                | (_, InstructionOutcome::DamageDrawn { .. }) => {
+                (
+                    Instruction::DrawDamageAmount { .. } | Instruction::DrawControllerCards { .. },
+                    _,
+                )
+                | (_, InstructionOutcome::DrawAttempts { .. }) => {
                     return Err("damage-quantity draw outcome on another instruction".into());
                 }
                 _ => (),
@@ -1301,7 +1382,7 @@ impl Game {
         self.validate_condition_cache(frame)?;
         self.validate_target_facts(frame)?;
         self.validate_set_damage_facts(frame)?;
-        self.validate_damage_draw(frame)?;
+        self.validate_draw_progress(frame)?;
         let entry = &frame.spell;
         let program = self.program_for(entry)?;
         self.validate_damage_bindings(entry)?;
@@ -1363,6 +1444,18 @@ impl Game {
                 .get(frame.cursor as usize)
                 .ok_or("snapshot missing choice instruction")?;
             let valid = match (choice, instruction) {
+                (
+                    ResolutionChoice::HandReturn {
+                        player,
+                        hand,
+                        source_block,
+                    },
+                    Instruction::PutHandOnLibrary { .. },
+                ) => {
+                    self.validate_hand_return_source(frame, *player, *source_block)
+                        .is_ok()
+                        && (!self.is_live(*player) || *hand == self.action_hand(*player))
+                }
                 (
                     ResolutionChoice::LibraryOrder {
                         player,

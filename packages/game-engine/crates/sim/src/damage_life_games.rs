@@ -277,7 +277,8 @@ impl Strategy {
         let v = &o.view;
         let r = o.decision.as_ref().ok_or("missing damage/life request")?;
         Ok(match r {
-            PlayerRequest::LibraryOrder { .. }
+            PlayerRequest::HandReturn { .. }
+            | PlayerRequest::LibraryOrder { .. }
             | PlayerRequest::LibrarySelect { .. }
             | PlayerRequest::Scry { .. }
             | PlayerRequest::Surveil { .. } => {

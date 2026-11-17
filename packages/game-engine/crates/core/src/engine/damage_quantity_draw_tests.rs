@@ -203,7 +203,7 @@ fn recover(g: &Game) {
 }
 fn first_draw(g: &mut Game) {
     for _ in 0..100 {
-        if matches!(&g.state.rules.frame,Frame::Resolve {frame} if frame.damage_draw.as_ref().is_some_and(|p|p.completed==Quantity::from(1)&&p.remaining==Quantity::from(1)))
+        if matches!(&g.state.rules.frame,Frame::Resolve {frame} if frame.draw_progress.as_ref().is_some_and(|p|p.completed==Quantity::from(1)&&p.remaining==Quantity::from(1)))
         {
             return;
         }
@@ -258,7 +258,7 @@ fn damage_quantity_draw_actual_combat_two_budget_progress_recovery_and_admission
         let Frame::Resolve { frame } = &mut structural.state.rules.frame else {
             panic!("resolve");
         };
-        let progress = frame.damage_draw.as_mut().unwrap();
+        let progress = frame.draw_progress.as_mut().unwrap();
         if wrong_cursor {
             progress.cursor += 1;
         } else {
@@ -275,7 +275,7 @@ fn damage_quantity_draw_actual_combat_two_budget_progress_recovery_and_admission
     let Frame::Resolve { frame } = &mut forged.state.rules.frame else {
         panic!("resolve");
     };
-    let progress = frame.damage_draw.as_mut().unwrap();
+    let progress = frame.draw_progress.as_mut().unwrap();
     progress.completed = 0.into();
     progress.remaining = 2.into();
     let mut coherent = g.fork();
@@ -458,7 +458,7 @@ fn damage_quantity_draw_empty_library_defers_failed_draw_loss_until_program_fini
         placed(&mut g);
         begin_resolution(&mut g);
         for _ in 0..100 {
-            if matches!(&g.state.rules.frame,Frame::Resolve {frame} if frame.cursor==1&&matches!(frame.outcomes.as_slice(),[InstructionOutcome::DamageDrawn {player:PlayerId(0),attempted,failed}] if *attempted==Quantity::from(2)&&*failed==Quantity::from(2-available as i64)))
+            if matches!(&g.state.rules.frame,Frame::Resolve {frame} if frame.cursor==1&&matches!(frame.outcomes.as_slice(),[InstructionOutcome::DrawAttempts {player:PlayerId(0),attempted,failed}] if *attempted==Quantity::from(2)&&*failed==Quantity::from(2-available as i64)))
             {
                 break;
             }

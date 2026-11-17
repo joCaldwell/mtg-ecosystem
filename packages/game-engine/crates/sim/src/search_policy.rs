@@ -70,7 +70,8 @@ pub(super) fn choose(
     let beneficial =
         selected_program(catalog, observation).is_some_and(search_candidates::beneficial);
     Ok(match request {
-        PlayerRequest::LibraryOrder { .. }
+        PlayerRequest::HandReturn { .. }
+        | PlayerRequest::LibraryOrder { .. }
         | PlayerRequest::LibrarySelect { .. }
         | PlayerRequest::Scry { .. }
         | PlayerRequest::Surveil { .. } => {

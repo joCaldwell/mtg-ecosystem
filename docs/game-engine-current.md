@@ -1,8 +1,7 @@
 # Current engine map
 
-The Rust engine executes finite Commander matches, reviewed sampled-world search
-and local hosting with a generated SDK. Exact fixture/catalog admission, not
-ordinary deck legality, defines support. The deck library is independent.
+The Rust engine executes finite Commander matches, reviewed search and local
+hosting. Fixture/catalog admission defines support; the deck library is independent.
 Paths in the authority table are relative to `packages/game-engine` unless named.
 
 ## Authorities and navigation

@@ -129,7 +129,8 @@ impl Strategy {
             .as_ref()
             .ok_or("missing lifecycle decision")?;
         Ok(match request {
-            PlayerRequest::LibraryOrder { .. }
+            PlayerRequest::HandReturn { .. }
+            | PlayerRequest::LibraryOrder { .. }
             | PlayerRequest::LibrarySelect { .. }
             | PlayerRequest::Scry { .. }
             | PlayerRequest::Surveil { .. } => {
