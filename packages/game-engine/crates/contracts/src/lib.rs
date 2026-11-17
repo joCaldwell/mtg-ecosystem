@@ -269,6 +269,7 @@ pub enum Capability {
     StackAbilityTargetV1,
     CounterStackObjectV1,
     TapSourceCostV1,
+    PayLifeCostV1,
     ManaActivationCostV1,
     AnyDamageTargetV1,
     AnyPlayerTargetV1,
@@ -1104,6 +1105,10 @@ pub enum ActivationCost {
     },
     SacrificeSource,
     TapSource,
+    /// One complete nonmana cost; life payment is loss of life, never damage.
+    TapPayLifeSacrificeSource {
+        life: Quantity,
+    },
     Mana {
         cost: ManaCost,
     },
@@ -1804,9 +1809,13 @@ impl Definition {
                 ActivationCost::SacrificePermanent { .. } => Capability::SacrificeV1,
                 ActivationCost::SacrificeSource => Capability::SacrificeSourceCostV1,
                 ActivationCost::TapSource => Capability::TapSourceCostV1,
+                ActivationCost::TapPayLifeSacrificeSource { .. } => Capability::PayLifeCostV1,
                 ActivationCost::Mana { .. } => Capability::ManaActivationCostV1,
                 ActivationCost::Composite { .. } => Capability::CompositeActivationCostV1,
             });
+            if matches!(ability.cost, ActivationCost::TapPayLifeSacrificeSource { .. }) {
+                set.extend([Capability::TapSourceCostV1, Capability::SacrificeSourceCostV1]);
+            }
             if ability.cost == ActivationCost::SacrificeSource
                 && ability
                     .program
@@ -2351,10 +2360,15 @@ impl Definition {
         if !self.activated.is_empty()
             && !matches!(c.kind, CardKind::Creature | CardKind::Artifact)
             && !(sacrifice && c.kind == CardKind::Enchantment)
+            && !typed_land_search::activation_definition(self)
         {
             return Err("activated programs require supported creature characteristics".into());
         }
         for ability in &self.activated {
+            if typed_land_search::activation(ability) {
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
             if matches!(&ability.cost, ActivationCost::Composite { costs } if costs.remove_source_plus_one_counters.is_some())
             {
                 return Err("counter removal requires mana ability".into());
@@ -2903,7 +2917,7 @@ impl Definition {
                         || !self.mana_abilities.is_empty()
                 } else {
                     if c.subtypes.is_empty() {
-                        self.mana_abilities.is_empty()
+                        self.mana_abilities.is_empty() && !typed_land_search::activation_definition(self)
                     } else {
                         !self.mana_abilities.is_empty()
                             || c.subtypes.iter().any(|s| basic_land_color(s).is_none())
@@ -5735,6 +5749,7 @@ mod tests {
             StackAbilityTargetV1,
             CounterStackObjectV1,
             TapSourceCostV1,
+            PayLifeCostV1,
             ManaActivationCostV1,
             AnyDamageTargetV1,
             AnyPlayerTargetV1,
@@ -7666,3 +7681,6 @@ mod temporary_permanent_keyword_tests;
 
 #[cfg(test)]
 mod typed_land_search_tests;
+
+#[cfg(test)]
+mod typed_fetchland_tests;

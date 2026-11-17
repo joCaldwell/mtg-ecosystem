@@ -1660,6 +1660,8 @@ impl Strategy<'_> {
             return None;
         }
         let (tap, sac, cost) = match &a.cost {
+            // This finite source family is not admitted to this policy/catalog.
+            ActivationCost::TapPayLifeSacrificeSource { .. } => return None,
             ActivationCost::TapSource => (true, false, zero_cost()),
             ActivationCost::SacrificeSource => (false, true, zero_cost()),
             ActivationCost::Mana { cost } => (false, false, cost.clone()),

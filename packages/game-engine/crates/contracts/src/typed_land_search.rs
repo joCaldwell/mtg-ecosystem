@@ -81,24 +81,44 @@ pub(super) fn validate_program(p: &SpellProgram) -> Result<(), String> {
     }
     Ok(())
 }
+/// The one finite typed-search activation cost/program, independent of names.
+pub(super) fn activation(a: &ActivatedAbility) -> bool {
+    matches!(&a.cost, ActivationCost::TapPayLifeSacrificeSource { life } if !life.is_negative())
+        && a.functioning_zone == FunctioningZone::Battlefield
+        && a.program.timing == SpellTiming::Instant
+        && has_search(&a.program)
+        && validate_program(&a.program).is_ok()
+}
+pub(super) fn activation_definition(d: &Definition) -> bool {
+    matches!(d.activated.as_slice(), [a] if activation(a))
+        && d.characteristics.kind == CardKind::Land
+}
 pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
-    let present = d.spell.as_ref().is_some_and(has_search)
-        || d.activated.iter().any(|a| has_search(&a.program))
+    let activated = d.activated.iter().any(|a| {
+        has_search(&a.program)
+            || matches!(a.cost, ActivationCost::TapPayLifeSacrificeSource { .. })
+    });
+    let present = activated || d.spell.as_ref().is_some_and(has_search)
         || d.triggered.iter().any(|a| has_search(&a.program));
-    if present
-        && (d.x_mana_cost
-            || !matches!(
-                d.characteristics.kind,
-                CardKind::Instant | CardKind::Sorcery
-            )
-            || !d.spell.as_ref().is_some_and(has_search)
-            || !d.activated.is_empty()
-            || !d.triggered.is_empty()
-            || !d.mana_abilities.is_empty()
-            || !d.static_abilities.is_empty()
-            || !d.keywords.is_empty())
+    if !present {
+        return Ok(());
+    }
+    let c = &d.characteristics;
+    let source = if activated {
+        activation_definition(d)
+            && d.spell.is_none()
+            && !c.basic && !c.snow && !c.legendary
+            && c.subtypes.is_empty() && c.additional_types.is_empty()
+    } else {
+        matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
+            && d.spell.as_ref().is_some_and(has_search)
+            && d.activated.is_empty()
+    };
+    if !source || d.x_mana_cost || !d.triggered.is_empty()
+        || !d.mana_abilities.is_empty() || !d.static_abilities.is_empty()
+        || !d.keywords.is_empty()
     {
-        return Err("typed land search requires a complete ordinary spell source".into());
+        return Err("typed land search requires a complete ordinary spell or pay-life source-land activation".into());
     }
     Ok(())
 }
@@ -149,10 +169,28 @@ pub(super) fn schema(s: &mut serde_json::Value) {
                 {"contains":{"const":Capability::TypedLandSearchV1}},{"contains":{"const":Capability::NormalLayoutV1}}
             ]},
             "activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"static_abilities":{"maxItems":0},"keywords":{"maxItems":0}
-        }},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::TypedLandSearchV1}}}}}
+        }},"else":{"if":{"not":{"required":["activated"],"properties":{"activated":{"contains":{"properties":{"program":present}}}}}},"then":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::TypedLandSearchV1}}}}}}
+    }));
+    let cost = json!({"type":"object","required":["tap_pay_life_sacrifice_source"]});
+    s["$defs"]["ActivationCost"].as_object_mut().unwrap().entry("allOf").or_insert_with(||json!([])).as_array_mut().unwrap().push(json!({"properties":{
+        "tap_pay_life_sacrifice_source":{"properties":{"life":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"}}}
+    }}));
+    let activated = json!({"required":["activated"],"properties":{"activated":{"contains":{"anyOf":[
+        {"properties":{"program":present}}, {"properties":{"cost":cost}}
+    ]}}}});
+    s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"if":activated,
+        "then":{"properties":{
+            "characteristics":{"properties":{"kind":{"const":"land"},"basic":{"const":false},"snow":{"const":false},"legendary":{"const":false},"subtypes":{"maxItems":0},"additional_types":{"maxItems":0},"mana_cost":{"properties":{"generic":{"const":"0"},"colored":{"maxItems":0}}},"power":{"type":"null"},"toughness":{"type":"null"}}},
+            "intrinsic_zone":{"const":"battlefield"},"spell":{"type":"null"},"x_mana_cost":{"const":false},
+            "activated":{"minItems":1,"maxItems":1,"items":{"properties":{
+                "functioning_zone":{"const":"battlefield"},"cost":cost,
+                "program":{"allOf":[present],"properties":{"timing":{"const":"instant"}}}
+            }}},
+            "triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"static_abilities":{"maxItems":0},"keywords":{"maxItems":0},
+            "capabilities":{"minItems":7,"maxItems":7,"uniqueItems":true,"items":{"enum":[Capability::NormalLayoutV1,Capability::LandPlayV1,Capability::ActivatedAbilityV1,Capability::TapSourceCostV1,Capability::SacrificeSourceCostV1,Capability::PayLifeCostV1,Capability::TypedLandSearchV1]}}
+        }},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::PayLifeCostV1}}}}}
     }));
     s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"properties":{
-        "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/TypedLandSearchFreeProgram"}}}},
         "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/TypedLandSearchFreeProgram"}}}}
     }}));
 }
