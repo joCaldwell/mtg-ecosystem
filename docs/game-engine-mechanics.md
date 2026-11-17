@@ -109,12 +109,14 @@ then atomically sends the remainder to the graveyard or ordered library bottom.
 This is not drawing (CR 121.5). Tucked Commanders receive the owner's pre-movement
 hand replacement; graveyard return waits for SBAs. Extra clauses/draw compositions reject.
 
-Top-order/optional-shuffle/draw privately orders the available prefix, preserving
-incarnations, offers a controller boolean, then draws once. Shuffles use trusted RNG/public counters, including empty/singleton libraries;
-declines consume no randomness. Counted draws precede whole-hand selection: ordered top returns
-create successors in one batch after Commander replacements; discards share a
-simultaneous batch before Commander SBAs. Short hands clamp; failed draws never interrupt resolution. Neither family creates source, target, mana
-or priority authority.
+Top-order/optional-shuffle/draw privately orders an incarnation-preserving prefix,
+offers a boolean, then draws. Shuffles include empty/singleton
+libraries; declines consume no randomness. `ControllerCountedDrawV1` fences standalone
+controller draws: sequential attempts without clamping; legacy one/two-card
+source IR stays unchanged. Counted draws precede whole-hand returns
+or simultaneous discards. Returns create successors after Commander replacements;
+discard precedes Commander SBAs. Short hands clamp; failed draws never interrupt
+resolution. These families add no source, target, mana or priority authority.
 
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
