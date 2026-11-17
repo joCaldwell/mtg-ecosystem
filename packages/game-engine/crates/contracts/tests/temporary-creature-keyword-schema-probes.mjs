@@ -256,7 +256,7 @@ for (const domain of ['battlefield_creature', 'controlled_battlefield_creature']
         negative(`${name}:spare:${capability}`, base, d => { d.capabilities.push(capability); });
       }
     }
-    for (const invalid of [null, 'haste', [{ haste: null }], ['first strike', 'haste', 'first strike'], ['haste', 'defender'], ['haste', 'double strike']]) {
+    for (const invalid of [null, 'haste', [{ haste: null }], ['first strike', 'haste', 'first strike'], ['haste', 'defender'], ['haste', 'defender']]) {
       negative(`${name}:malformed-keywords:${JSON.stringify(invalid)}`, base, d => { d.spell.instructions.at(-1).keywords = clone(invalid); });
     }
     for (const keyword of Object.keys(combatKeywordCaps)) {

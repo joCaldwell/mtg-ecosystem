@@ -128,7 +128,7 @@ fn compound_indestructible_rejects_structural_near_misses() {
             }
             13 => {
                 if let Instruction::GrantKeywords { keywords, .. } = &mut p.instructions[0] {
-                    *keywords = vec![KeywordAbility::DoubleStrike];
+                    *keywords = vec![KeywordAbility::Defender];
                 }
             }
             14 => {

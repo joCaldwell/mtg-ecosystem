@@ -9418,3 +9418,6 @@ mod temporary_reach_tests;
 
 #[cfg(test)]
 mod temporary_vigilance_tests;
+
+#[cfg(test)]
+mod temporary_double_strike_tests;

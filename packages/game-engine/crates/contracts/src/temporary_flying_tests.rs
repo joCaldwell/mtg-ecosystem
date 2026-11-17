@@ -146,7 +146,7 @@ fn temporary_flying_rejects_spare_capabilities_and_other_single_keywords() {
     // Recompute full-family requirements below: Haste now belongs to that family.
     for keyword in [
         KeywordAbility::Defender,
-        KeywordAbility::DoubleStrike,
+        KeywordAbility::Defender,
         KeywordAbility::Defender,
     ] {
         let mut b = d.clone();
