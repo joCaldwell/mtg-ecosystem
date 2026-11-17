@@ -1134,3 +1134,7 @@ mod draw_discard_tests;
 #[cfg(test)]
 #[path = "temporary_reach_tests.rs"]
 mod temporary_reach_tests;
+
+#[cfg(test)]
+#[path = "escort_set_tests.rs"]
+mod escort_set_tests;

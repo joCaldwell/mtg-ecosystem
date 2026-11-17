@@ -1988,7 +1988,10 @@ impl Definition {
         {
             return Err("set keyword grant requires a complete ordinary spell definition".into());
         }
-        if self.activated.iter().any(|a| has_keyword_grant(&a.program))
+        if self
+            .activated
+            .iter()
+            .any(|a| has_keyword_grant(&a.program) && !sacrifice_set::definition(self))
             || self.triggered.iter().any(|a| has_keyword_grant(&a.program))
             || self.spell.as_ref().is_some_and(|p| {
                 has_keyword_grant(p)
@@ -1998,7 +2001,7 @@ impl Definition {
                     ) || !ordinary_keyword_grant(p))
             })
         {
-            return Err("temporary indestructible requires an ordinary single-target spell".into());
+            return Err("unsupported complete temporary keyword definition".into());
         }
         if self
             .triggered
@@ -2372,6 +2375,13 @@ impl Definition {
             return Err("activated programs require supported creature characteristics".into());
         }
         for ability in &self.activated {
+            if has_keyword_grant(&ability.program) {
+                if !sacrifice_set::definition(self) {
+                    return Err("unsupported complete sacrifice-source set keyword definition".into());
+                }
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
             if matches!(&ability.cost, ActivationCost::Composite { costs } if costs.remove_source_plus_one_counters.is_some())
             {
                 return Err("counter removal requires mana ability".into());
@@ -4614,7 +4624,13 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["CreatureToken"]["properties"]["keywords"]["items"] = serde_json::json!({"allOf":[{"$ref":"#/$defs/KeywordAbility"},{"not":{"enum":["flash","indestructible"]}}]});
     let grant = serde_json::json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{"effect":{"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}}}}}}}}});
     let temporary_keyword = |keyword: &str| serde_json::json!({"required":["spell"],"properties":{"spell":{"type":"object","required":["instructions"],"properties":{"instructions":{"contains":{"required":["op","keywords"],"properties":{"op":{"const":"grant_keywords"},"keywords":{"contains":{"const":keyword}}}}}}}}});
-    let temporary_set_keyword = |keyword: KeywordAbility| serde_json::json!({"required":["spell"],"properties":{"spell":{"type":"object","required":["instructions"],"properties":{"instructions":{"contains":{"required":["op","keywords"],"properties":{"op":{"const":"grant_keywords_set"},"keywords":{"contains":{"const":keyword}}}}}}}}});
+    let temporary_set_keyword = |keyword: KeywordAbility| {
+        let program = serde_json::json!({"type":"object","required":["instructions"],"properties":{"instructions":{"contains":{"required":["op","keywords"],"properties":{"op":{"const":"grant_keywords_set"},"keywords":{"contains":{"const":keyword}}}}}}});
+        serde_json::json!({"anyOf":[
+            {"required":["spell"],"properties":{"spell":program}},
+            {"required":["activated"],"properties":{"activated":{"contains":{"required":["program"],"properties":{"program":program}}}}}
+        ]})
+    };
     let intrinsic = serde_json::json!({"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}});
     schema["$defs"]["StaticAbility"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
@@ -5249,7 +5265,7 @@ pub fn catalog_schema() -> serde_json::Value {
         ]}
     }));
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({"properties":{
-        "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}},
+        "activated":{"items":{"anyOf":[{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}},{"$ref":"#/$defs/SacrificeSourceCreatureSetKeywordAbility"}]}},
         "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}},
         "spell":{"properties":{"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}}}}
     }}));
@@ -5468,8 +5484,11 @@ pub fn catalog_schema() -> serde_json::Value {
             {"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
              "then":{"properties":{"spell":{"properties":{"timing":{"const":"instant"}}},"capabilities":{"allOf":[{"contains":{"const":Capability::CastInstantV1}},{"not":{"contains":{"const":Capability::CastSorceryV1}}}]}}},
              "else":{"properties":{"spell":{"properties":{"timing":{"const":"main_phase"}}},"capabilities":{"allOf":[{"contains":{"const":Capability::CastSorceryV1}},{"not":{"contains":{"const":Capability::CastInstantV1}}}]}}}}
-        ]},"else":{"properties":{"capabilities":{"items":{"not":{"enum":[creature_cap,permanent_cap]}}}}}
+        ]},"else":{"if":{"$ref":"#/$defs/HasActivatedSetKeyword"},
+            "then":{"$ref":"#/$defs/SacrificeSourceCreatureSetKeywordDefinition"},
+            "else":{"properties":{"capabilities":{"items":{"not":{"enum":[creature_cap,permanent_cap]}}}}}}
     }));
+    sacrifice_set::schema(&mut schema);
     // Keep the Aura-control operation and capability paired with its complete
     // executable shape. This addition does not narrow other attachment families.
     // Derive the scoped keyword vocabulary through the shared static-layer
@@ -6005,6 +6024,7 @@ mod tests {
             false,
         ));
         definitions.push(temporary_permanent_keyword_tests::grant(true));
+        definitions.push(sacrifice_set_tests::grant(&[KeywordAbility::Indestructible]));
         definitions.push(controller_library::witness());
         definitions.push(controller_library::surveil_witness());
         definitions.push(fixed_mill::witness());
@@ -7717,3 +7737,9 @@ mod temporary_permanent_keyword_tests;
 mod temporary_reach_tests;
 #[cfg(test)]
 mod typed_land_search_tests;
+
+mod sacrifice_set;
+pub use sacrifice_set::sacrifice_source_creature_set_keyword_ability;
+
+#[cfg(test)]
+mod sacrifice_set_tests;

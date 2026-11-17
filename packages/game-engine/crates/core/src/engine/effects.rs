@@ -2279,7 +2279,10 @@ impl Game {
                                         || definition.spell.as_ref().is_some_and(|program|
                                             program.instructions.iter().any(|instruction| matches!(instruction,
                                                 Instruction::GrantKeywords { keywords, .. }
-                                                | Instruction::GrantKeywordsSet { keywords, .. } if keywords.contains(k))))))
+                                                | Instruction::GrantKeywordsSet { keywords, .. } if keywords.contains(k))))
+                                        || definition.activated.iter()
+                                            .filter_map(mtg_contracts::sacrifice_source_creature_set_keyword_ability)
+                                            .any(|program| program.keywords.contains(k))))
                                         || definition.spell.as_ref()
                                             .and_then(temporary_permanent_set_keyword_program)
                                             .is_some_and(|program| program.keywords.contains(k))
