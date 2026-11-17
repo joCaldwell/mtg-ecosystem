@@ -39,7 +39,7 @@ fn temporary_flying_exact_capabilities_and_program() {
             }
             1 => {
                 if let Instruction::GrantKeywords { keywords, .. } = &mut p.instructions[0] {
-                    keywords.push(KeywordAbility::Reach);
+                    keywords.push(KeywordAbility::Defender);
                 }
             }
             2 => {
@@ -145,7 +145,7 @@ fn temporary_flying_rejects_spare_capabilities_and_other_single_keywords() {
     }
     // Recompute full-family requirements below: Haste now belongs to that family.
     for keyword in [
-        KeywordAbility::Reach,
+        KeywordAbility::Defender,
         KeywordAbility::DoubleStrike,
         KeywordAbility::Defender,
     ] {

@@ -452,6 +452,7 @@ fn temporary_combat_keyword_schema_preserves_legacy_subset_vocabulary() {
         schema["$defs"]["TemporaryCreatureKeywords"]["items"]["enum"],
         serde_json::json!([
             "flying",
+            "vigilance",
             "reach",
             "deathtouch",
             "indestructible",

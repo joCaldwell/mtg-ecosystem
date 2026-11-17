@@ -532,6 +532,7 @@ fn temporary_creature_keyword_family_schema_uses_unique_reviewed_vectors() {
         schema["$defs"]["TemporaryCreatureKeywords"]["items"]["enum"],
         serde_json::json!([
             "flying",
+            "vigilance",
             "reach",
             "deathtouch",
             "indestructible",
