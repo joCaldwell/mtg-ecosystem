@@ -104,22 +104,18 @@ Commander SBAs follow resolution. One-draw and artifact-or-creature grant/Scry
 compositions are supported. Activated/triggered
 forms, Flashback, mill costs/replacements and search reconstruction reject.
 
-Standalone library selection looks at the available prefix, puts exactly one
-available card into hand and sends the remainder to the graveyard or ordered
-library bottom. Hand movement is not drawing (CR 121.5). The chooser alone sees
-candidates; all movements commit atomically. A selected tucked Commander uses
-its owner's hand-replacement choice before movement; graveyard return waits
-for SBAs. Extra clauses and draw compositions reject.
+Library selection privately takes exactly one available prefix card into hand,
+then atomically sends the remainder to the graveyard or ordered library bottom.
+This is not drawing (CR 121.5). Tucked Commanders receive the owner's pre-movement
+hand replacement; graveyard return waits for SBAs. Extra clauses/draw compositions reject.
 
-The ordinary top-order/optional-shuffle/draw family privately orders the whole
-available prefix without changing incarnations, offers the controller a scoped
-boolean shuffle choice, then draws once. Accepted shuffles use the existing
-trusted seeded stream and public shuffle counter, including empty/single-card
-libraries. Decline consumes no random words. No source, target, mana or priority
-authority is created between these instructions. Counted controller draw/hand-return
-programs perform exact sequential draw attempts, then choose and order as many
-requested cards as remain in the whole hand. Zone moves create successors;
-Commander replacements precede the single ordered-return batch.
+Top-order/optional-shuffle/draw privately orders the available prefix without new
+incarnations, offers a controller boolean, then draws once. Accepted shuffles use
+the trusted seeded stream/public counter even for empty/singleton libraries;
+decline consumes no random words. Instructions create no new source, target,
+mana or priority authority. Counted draw/hand-return performs sequential draw
+attempts, then orders the requested available cards from the whole hand.
+Moves create successors; Commander replacements precede one ordered-return batch.
 
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
