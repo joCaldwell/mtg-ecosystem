@@ -11,8 +11,7 @@ owns visual and interaction rules; [the README](../README.md) owns setup.
 | Multiverse | Account/session UX, navigation, browser features, Home, deck editor, Play setup, frontend build and process composition |
 | deck-builder | Existing authentication, Actor authorization, deck services, SQLite, API, CLI and MCP |
 | game-ui | Router-free, effect-free shared display over permitted local view models, scoped CSS and host React |
-| game-client | Generated-protocol/session adapters, local decision drafts, recovery, qualified preview and standalone harness |
-| Account coordinator | Actor/deck authorization, immutable game capture, durable owner-scoped launch/recovery records and native consumer supervision contract |
+| game | Browser/session adapters, qualified preview, shared coordination DTOs, durable launch/recovery, native supervision and human-seat proxy |
 | Rust host/core | Authoritative supported-catalog admission, rules, visibility, durable execution and outcomes |
 
 The product uses the backend's public `./host` factory and type-only `./contracts`.
@@ -21,12 +20,13 @@ Preserve DECKBUILDER settings, data defaults, credentials, MCP and shared URL fo
 The deck library retains its independent source database and release behavior.
 
 Both table consumers use public `@multiverse/game-ui`; the product loads the
-qualified `@multiverse/game-client/preview` adapter. The host supplies React.
+qualified `@multiverse/game/preview` adapter. The host supplies React.
 No iframe, copied table, compiler/IR, trusted snapshot or bot credential enters
 that integration. Display models are local views, not gameplay wire authority.
-Future backend identity extraction must separate deck authorization from shared
-principal/transaction primitives first. The legacy solo playtester is not an
-accepted game-client design reference.
+The game application consumes public deck-builder `./application` ports for the
+existing Actor, reentrant SQL reservation, human/account authorization and owned
+deck capture. Game code never imports private deck/auth modules. The legacy solo
+playtester is not a game-client design reference.
 
 ## Layers
 
@@ -207,73 +207,39 @@ The first game mode is one human against three automated opponents. Cookie sign-
 grants no native seat authority. Captured preview stays separate from admission,
 selected library decks and live records.
 
-The public backend host accepts `GameCoordinatorOptions`; type-only `./contracts`
-owns the coordination DTOs and `NativeGameAdapter` seam. The backend rechecks the
-existing UI Actor/account and deck ownership below HTTP, atomically captures the
-requested revision as Oracle IDs/roles/quantities excluding maybes, and persists
-that immutable deck before native provisioning. The deck library has no engine
-or Card IR dependency. Games survive library deck edits/deletion; account export
-and deletion include their owner-scoped rows through the existing inventory.
-Deleting an unacknowledged game atomically leaves a minimal operational stop job
-containing only match ID and native identity. It has no account/deck/credential
-data, survives coordinator restart and is deleted only after stop acknowledgment.
+`@multiverse/game/server` supplies the authenticated `/api/games` extension to the
+existing public backend host. The host retains session resolution, Host/Origin
+checks, rate limits and response error handling. It dispatches the extension
+outside the handler-wide SQL reservation; the coordinator reserves SQL only for
+queries/transactions and rechecks authority after native I/O.
 
-Authenticated `/api/games/admission` checks a selected revision. `/api/games`
-launches with `{deck_id,expected_revision,request_id}` or lists the owner's latest
-100 records; `/api/games/:id` reads one, `/resume` reconciles its captured deck and
-`/seat` returns only a bounded human SeatBootstrap file. Native I/O never reserves
-the shared SQLite gate. A stable request ID binds the original launch input;
-uncertain creation must recover the same native match, never create a replacement.
-Records retain active/paused/interrupted/completed states, native win/draw outcomes,
-wait timestamps and durable consumer-stop acknowledgments. Resource/time failures
-are interruptions, never invented rules losses. Another launch remains blocked
-until the previous terminal game's consumers have acknowledged stopping.
+Deck-builder's public application port checks the existing human Actor/account and
+deck owner and captures exact Oracle IDs/roles/quantities at the requested revision,
+excluding maybes. The game coordinator hashes and durably freezes that capture,
+build/catalog identity and retry key before native provisioning. Recovery uses the
+immutable capture. Historical schema migrations, immutable-capture constraints and
+account deletion triggers remain in the existing database. Deletion atomically
+retains only minimal native stop identities until acknowledgment; no second
+identity system or destructive migration is involved.
 
-Admission distinguishes not checked, checking, supported, unsupported, unavailable
-and stale revision. The product's opt-in `admit-client` process adapter checks
-exact engine/server build IDs, catalog digest, profile and returned Oracle deck.
-Its version-1 CLI is admission-only; multiple commanders and companions receive
-explicit unsupported outcomes because that CLI cannot represent them. Ordinary
-Commander legality cannot establish engine support. No environment flag can mark
-native lifecycle or browser sessions qualified.
+The game application owns native admission, worker/bot lifetime, private journals
+and human-only bootstrap/proxy at `/api/games/:id/native/{client-config.json,v1/...}`.
+It preserves exact UTF-8 command bytes, same-origin seat 0 authority, pre/post-I/O
+owner/identity checks and generation fences. Secrets and Node/native code stay in
+`server/`; the browser consumes only public session/preview exports and type-only
+`/contracts`. [Native lifecycle](../../../docs/game-engine-server.md#product-native-lifecycle)
+owns durable native semantics and qualification requirements.
 
-Real Start game remains gated by browser qualification. The opt-in product native
-lifecycle adapter captures a durable native binding and seed under each game ID,
-then creates or recovers exactly one private offline registry and bounded native
-server. Native and three separate bot processes retain stdin lifetime pipes;
-shutdown/process death releases those pipes, and explicit stop advances a durable
-generation before awaiting worker and consumer joins. Delayed ensure cannot cross
-that generation. A later explicit resume recovers the same match in a fresh
-generation. Bot capabilities, exact-command journals and exclusive kernel leases
-remain private, with a stable configured logical product origin across native
-port changes. Native clock/resource pauses remain separate from rules outcomes.
-The current finite foundations pass/draw policy explicitly stops on unsupported
-decisions; attachments automation and whole-profile play remain unqualified.
-
-The authenticated same-origin proxy lives at
-`/api/games/:id/native/{client-config.json,v1/...}`. Existing UI Actor/account
-ownership and active native identity are checked before and after I/O. Only exact
-reviewed routes for that match and human seat 0 are forwarded; original UTF-8
-command bodies and bearer headers remain in memory. Upstream is a fixed numeric
-loopback endpoint with internal Host/Origin. The app chooses the SDK base prefix;
-bootstrap cannot select a target. Scoped config is fetched explicitly and parsed
-with the generated SDK, since its root config fetch helper rejects path prefixes.
-Human bootstrap remains bound to the configured numeric loopback HTTP product
-origin, match, seat 0 and exact builds/catalog. Remote hosting needs separate
-protocol and browser qualification. [Native lifecycle](../../../docs/game-engine-server.md#product-native-lifecycle)
-owns durable bridge semantics.
-
-Browser session composition, Web Locks, exact command journaling, unknown outcomes
-and every reachable decision also require qualification before enabling launch.
-The product now lazily composes public `@multiverse/game-client/session` on the
-private `/play/games/:id` route, separately from preview. A successful active
-launch/resume navigates there; the route obtains a fresh Actor-authorized human
+Game-owned hosted components receive stable product HTTP/navigation/UI ports;
+Multiverse keeps thin route wrappers. Separate launch/saved/session entries retain
+lazy SDK loading. The lazy `/play/games/:id` obtains an Actor-authorized human
 seat File held only in component memory. Game/attempt keys, abort and cleanup
-fence late grants; unmount/reload discards that File. The app-selected match ID
-chooses the scoped endpoint. Phone retains an explicit larger-screen fallback.
-Default browser qualification remains false until actual product session proof;
-source/types and captured controls do not qualify full games. [Client contracts](../../../docs/game-client.md)
-own delivery and recovery scope. [Setup](../README.md) owns native configuration.
+fence late grants; unmount/reload discards that File. Preview remains separately
+lazy and router/session/SDK-runtime free. Phone retains its larger-screen fallback.
+Browser qualification remains false and approved identities empty until actual
+product proof; this ownership extraction qualifies no full game and fixes no
+supervision fault. [Client contracts](../../../docs/game-client.md) own journaling,
+Web Locks and delivery scope; [setup](../README.md) owns native configuration.
 
 ## Checking a change
 

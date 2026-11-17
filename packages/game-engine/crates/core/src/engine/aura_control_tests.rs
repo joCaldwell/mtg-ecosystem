@@ -1131,6 +1131,9 @@ mod hand_return_tests;
 #[path = "draw_discard_tests.rs"]
 mod draw_discard_tests;
 
+#[path = "controller_counted_draw_tests.rs"]
+mod controller_counted_draw_tests;
+
 #[cfg(test)]
 #[path = "temporary_reach_tests.rs"]
 mod temporary_reach_tests;
@@ -1142,3 +1145,6 @@ mod escort_set_tests;
 #[cfg(test)]
 #[path = "temporary_vigilance_tests.rs"]
 mod temporary_vigilance_tests;
+
+#[path = "temporary_double_strike_tests.rs"]
+mod temporary_double_strike_tests;

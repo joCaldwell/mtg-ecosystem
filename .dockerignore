@@ -5,7 +5,7 @@
 !packages/deck-builder/package.json
 !packages/deck-builder/scripts/container-entrypoint.sh
 !packages/deck-builder/scripts/check-runtime.mjs
-!packages/multiverse/scripts/check-sdk-runtime.mjs
+!packages/game/scripts/check-sdk-runtime.mjs
 !packages/deck-builder/src/**
 !packages/multiverse/package.json
 !packages/multiverse/tsconfig.json
@@ -14,11 +14,13 @@
 !packages/multiverse/web/**
 !packages/game-ui/package.json
 !packages/game-ui/src/**
-!packages/game-client/package.json
-!packages/game-client/src/**
-!packages/game-client/generated/sdk-identity.ts
-!packages/game-client/fixtures/foundations-opening/**
-!packages/game-client/scripts/verify-preview.mjs
+!packages/game/package.json
+!packages/game/web/src/**
+!packages/game/server/**
+!packages/game/shared/**
+!packages/game/generated/sdk-identity.ts
+!packages/game/fixtures/foundations-opening/**
+!packages/game/scripts/verify-preview.mjs
 !packages/game-server/sdk/package.json
 !packages/game-server/sdk/dist/**
 !packages/game-server/sdk/src/**

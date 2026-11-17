@@ -1,0 +1,70 @@
+{
+  "name": "@multiverse/game",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "26.11.1"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "node scripts/prepare-fixtures.mjs && vite build",
+    "prepare:fixtures": "node scripts/prepare-fixtures.mjs",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "check:boundaries": "node scripts/check-boundaries.ts && node scripts/check-preview-boundaries.ts && node ../game-ui/scripts/check-boundaries.mjs",
+    "test": "node --test tests/*.test.ts test/*.test.ts",
+    "test:browser": "playwright test",
+    "test:journal:browser": "node --test tests/command-journal.browser.ts",
+    "test:browser:live": "playwright test --config playwright.live.config.ts",
+    "check": "npm run prepare:fixtures && npm run typecheck && npm run check:boundaries && npm test && npm run build",
+    "test:tooling": "node --test browser-checks/lib/*.test.ts"
+  },
+  "dependencies": {
+    "@multiverse/game-server-sdk": "file:../game-server/sdk",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-router": "8.5.1",
+    "@multiverse/game-ui": "file:../game-ui",
+    "@mtg-ecosystem/deck-builder": "file:../deck-builder"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "typescript": "6.0.3",
+    "vite": "8.3.8",
+    "playwright-core": "1.65.0"
+  },
+  "exports": {
+    "./session-qualification": {
+      "types": "./web/src/session/qualification-public.d.ts",
+      "default": "./web/src/session/qualification.ts"
+    },
+    "./session": {
+      "types": "./web/src/app/session-public.d.ts",
+      "default": "./web/src/app/session.ts"
+    },
+    "./preview": {
+      "types": "./web/src/preview/public.d.ts",
+      "default": "./web/src/preview/index.ts"
+    },
+    "./verify-preview": {
+      "types": "./scripts/verify-preview.d.mts",
+      "default": "./scripts/verify-preview.mjs"
+    },
+    "./contracts": {
+      "types": "./shared/contracts.ts",
+      "default": "./shared/contracts.ts"
+    },
+    "./server": "./server/index.ts",
+    "./launch": "./web/src/hosted/launch.ts",
+    "./saved-games": "./web/src/hosted/SavedGames.tsx",
+    "./live-page": "./web/src/hosted/LiveGamePage.tsx",
+    "./browser-host": {
+      "types": "./web/src/hosted/host.ts",
+      "default": "./web/src/hosted/host.ts"
+    },
+    "./admission": "./web/src/hosted/admission.ts"
+  }
+}

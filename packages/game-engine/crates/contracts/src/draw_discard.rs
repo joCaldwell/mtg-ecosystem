@@ -45,6 +45,8 @@ mod tests {
                 match case {
                     0 => {
                         p.instructions.pop();
+                        // A truncated tail is now valid counted IR; two counted instructions remain outside every family.
+                        p.instructions.push(p.instructions[0].clone());
                     }
                     1 => p.instructions.swap(0, 1),
                     2 => p.instructions.push(p.instructions[1].clone()),

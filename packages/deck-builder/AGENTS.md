@@ -103,7 +103,9 @@ Keep capability/auth permissions and tenant isolation, public allowlist privacy,
 migration/content preservation, backup/restore, exact card resolution, membership/
 undo, proposals, representative interop and a real MCP client smoke. Tests use
 Node's runner. A representative gate is not exhaustive security acceptance.
-Product route/inbox/architecture tests live in Multiverse; browser edits also run
+Game runtime/DTOs live in `../game`; public `./application` supplies account/deck
+authority and the existing SQL gate. Historical game migrations and deletion
+handoffs remain here. Product route/inbox/architecture tests live in Multiverse; browser edits also run
 its separate `check` and `build:web`, and shared presentation/session edits use
 their own package gates. Prefer behavioral regressions over UI copy/CSS snapshots
 or duplicate matrices. No native/SDK regeneration follows a backend-doc edit.

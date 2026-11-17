@@ -1,15 +1,14 @@
 import { fileURLToPath } from "node:url";
 import { createHost } from "@mtg-ecosystem/deck-builder/host";
-import { nativeLifecycleFromEnvironment } from "./native-lifecycle.ts";
-import { nativeAdmissionFromEnvironment } from "./native-admission.ts";
+import { gameApplication, nativeLifecycleFromEnvironment, nativeAdmissionFromEnvironment } from "@multiverse/game/server";
 import { isApplicationPath } from "./page-paths.ts";
-import { isQualifiedProductSession } from "@multiverse/game-client/session-qualification";
+import { isQualifiedProductSession } from "@multiverse/game/session-qualification";
 
 // Storage/auth configuration remains in the existing backend service. The product
 // chooses its frontend, page surface and process lifecycle; no second account DB.
 try {
   const native = nativeLifecycleFromEnvironment() ?? nativeAdmissionFromEnvironment();
-  const host = await createHost({ webDist: fileURLToPath(new URL("../web/dist/", import.meta.url)), isApplicationPath, games: { native, browser_session_qualified: isQualifiedProductSession(native?.identity) } });
+  const host = await createHost({ webDist: fileURLToPath(new URL("../web/dist/", import.meta.url)), isApplicationPath, application: gameApplication({ native, browser_session_qualified: isQualifiedProductSession(native?.identity) }) });
   let stopping: Promise<void> | undefined;
   const stop = (failed = false) => {
     if (failed) process.exitCode = 1;

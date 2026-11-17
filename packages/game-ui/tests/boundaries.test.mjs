@@ -5,7 +5,7 @@ import { presentationViolations } from '../scripts/check-boundaries.mjs';
 test('presentation rejects protocol, private applications, routing and I/O', () => {
   for (const source of [
     'import { GameClient } from "@multiverse/game-server-sdk";',
-    'import type { Observation } from "../../game-client/private.ts";',
+    'import type { Observation } from "../../game/private.ts";',
     'export { Link } from "react-router";',
     'fetch("/api");', 'window.localStorage.getItem("x");',
     'const dependency = import("private");',

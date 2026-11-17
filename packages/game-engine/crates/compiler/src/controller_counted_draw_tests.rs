@@ -1,0 +1,132 @@
+//! Complete larger draws; legacy unrolled draws retain their IR and capabilities.
+use super::*;
+use serde_json::{Value, json};
+const HEADER: &str = include_str!("../../../tests/fixtures/archive-manifest-current.json");
+const HARMONIZE: &str =
+    include_str!("../../../tests/fixtures/7eff84f1-f772-497a-b350-bbc93d0230f7.json");
+const CONCENTRATE: &str =
+    include_str!("../../../tests/fixtures/a3d287ec-1a39-4f91-acf1-7c1d2c00ed89.json");
+const TIDINGS: &str =
+    include_str!("../../../tests/fixtures/72897780-094d-4a21-8b1c-419a9defd2fb.json");
+const INGENUITY: &str =
+    include_str!("../../../tests/fixtures/ce588fd3-642e-4df9-8061-6fcfc6e81270.json");
+const DIVINATION: &str =
+    include_str!("../../../tests/fixtures/273b339c-964b-4a18-8eb5-ceb8abcdfd9e.json");
+const MISTS: &str =
+    include_str!("../../../tests/fixtures/c81ca8ff-92f3-481e-82f7-0673b6c74ea0.json");
+const INSPIRATION: &str =
+    include_str!("../../../tests/fixtures/8f32ceb2-92c2-4dde-bf73-40bb79c3fcef.json");
+const BONES: &str =
+    include_str!("../../../tests/fixtures/5bf4d8d9-a2b2-4dba-ac05-9d4470a89db2.json");
+#[test]
+fn controller_counted_draw_complete_costs_quantities_and_extra_clause_rejection() {
+    for (raw, n, generic, color) in [
+        (HARMONIZE, 3i64, 2i64, Color::G),
+        (CONCENTRATE, 3, 2, Color::U),
+        (TIDINGS, 4, 3, Color::U),
+        (INGENUITY, 3, 3, Color::U),
+    ] {
+        let CompileResult::Lowered { definition: d } = compile(HEADER, raw) else {
+            panic!("{:?}", compile(HEADER, raw))
+        };
+        let pin: Value = serde_json::from_str(raw).unwrap();
+        d.validate().unwrap();
+        assert_eq!(d.characteristics.mana_cost.generic, Quantity::from(generic));
+        assert_eq!(d.characteristics.mana_cost.colored, vec![color, color]);
+        assert_eq!(d.provenance.source_sha256, pin["sourceSha256"]);
+        assert_eq!(d.provenance.ast_sha256, pin["astSha256"]);
+        assert_eq!(d.provenance.binding_sha256, pin["bindingSha256"]);
+        assert!(
+            d.capabilities
+                .contains(&Capability::ControllerCountedDrawV1)
+        );
+        assert!(!d.capabilities.contains(&Capability::ControllerDrawV1));
+        assert_eq!(
+            d.spell.as_ref().unwrap().instructions,
+            vec![Instruction::DrawControllerCards {
+                count: n.into(),
+                source_block: 0
+            }]
+        );
+        assert!(controller_counted_draw_program(d.spell.as_ref().unwrap()));
+    }
+    assert!(matches!(
+        compile(HEADER, BONES),
+        CompileResult::Unsupported { .. }
+    ));
+}
+#[test]
+fn controller_counted_draw_preserves_legacy_one_two_and_targeted_draws() {
+    for (raw, n, target) in [
+        (MISTS, 1usize, false),
+        (DIVINATION, 2, false),
+        (INSPIRATION, 2, true),
+    ] {
+        let CompileResult::Lowered { definition: d } = compile(HEADER, raw) else {
+            panic!("{:?}", compile(HEADER, raw))
+        };
+        d.validate().unwrap();
+        let p = d.spell.as_ref().unwrap();
+        assert_eq!(p.instructions.len(), n);
+        assert!(
+            !d.capabilities
+                .contains(&Capability::ControllerCountedDrawV1)
+        );
+        assert!(!controller_counted_draw_program(p));
+        for i in &p.instructions {
+            assert_eq!(
+                *i,
+                Instruction::DrawCards {
+                    recipient: target.then_some(LifeRecipient::Target { target_slot: 0 }),
+                    count: 1.into(),
+                    source_block: 0
+                }
+            )
+        }
+        assert_eq!(p.targets.len(), usize::from(target));
+    }
+}
+#[test]
+fn controller_counted_draw_strict_qualifiers_bindings_and_truncated_source_reject() {
+    for case in 0..10 {
+        let changed = tests::changed_source(HARMONIZE, |r| {
+            let a = &mut r["faces"][0]["result"]["abilities"][0];
+            let step = &mut a["effects"][0]["steps"][0];
+            match case {
+                0=>step["who"]["selectionId"]=Value::Null,
+                1=>step["who"]["of"]=Value::Null,
+                2=>step["who"]["player"]=json!("each-player"),
+                3=>step["optional"]=json!(true),
+                4=>step["amount"]["value"]=json!(-1),
+                5=>a["effects"][0]["condition"]=Value::Null,
+                6=>a["effects"][0]["steps"].as_array_mut().unwrap().push(json!({"effect":"draw","who":{"player":"you"},"amount":{"amount":"fixed","value":1}})),
+                7=>r["binding"]["references"][0]["target"]=json!("foreign"),
+                8=>r["binding"]["nodes"][3]["role"]=json!("event-player"),
+                _=>r["binding"]["references"]=json!([]),
+            }
+            let copy = r["faces"][0]["result"]["abilities"][0].clone();
+            r["faces"][0]["result"]["lines"][0]["ability"] = copy;
+        });
+        assert!(
+            !matches!(compile(HEADER, &changed), CompileResult::Lowered { .. }),
+            "{case}"
+        );
+    }
+    for raw in [
+        include_str!("../../../tests/fixtures/36cd2364-d113-47d1-b2c4-b088d9eb88dd.json"),
+        include_str!("../../../tests/fixtures/32e9aa23-fc0a-4b82-82f9-1659c304428c.json"),
+    ] {
+        let changed = tests::changed_source(raw, |r| {
+            r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"]
+                .as_array_mut()
+                .unwrap()
+                .truncate(1);
+            let copy = r["faces"][0]["result"]["abilities"][0].clone();
+            r["faces"][0]["result"]["lines"][0]["ability"] = copy;
+        });
+        assert!(!matches!(
+            compile(HEADER, &changed),
+            CompileResult::Lowered { .. }
+        ));
+    }
+}

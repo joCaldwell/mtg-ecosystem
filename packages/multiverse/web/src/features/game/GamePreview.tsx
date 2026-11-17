@@ -1,4 +1,4 @@
-import { OpeningTablePreview } from "@multiverse/game-client/preview";
+import { OpeningTablePreview } from "@multiverse/game/preview";
 import { href } from "../../app/routes.ts";
 import { ButtonLink } from "../../ui/index.ts";
 import styles from "./GamePreviewPage.module.css";

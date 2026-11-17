@@ -8,6 +8,9 @@ pub mod fixtures {
     include!(concat!(env!("OUT_DIR"), "/fixtures.rs"));
 }
 pub mod catalog;
+mod controller_counted_draw;
+#[cfg(test)]
+mod controller_counted_draw_tests;
 mod controller_library;
 #[cfg(test)]
 mod controller_scry_tests;
@@ -1878,6 +1881,24 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         "nonspell ability on instant/sorcery",
                     ));
                 };
+                if let Some(count) = controller_counted_draw::coalesce(effects)? {
+                    if abilities.len() != 1
+                        || block != 0
+                        || !program.instructions.is_empty()
+                        || !program.targets.is_empty()
+                        || !program.modes.is_empty()
+                    {
+                        return Err(unsupported(
+                            "counted draw",
+                            "requires complete standalone source",
+                        ));
+                    }
+                    program.instructions.push(Instruction::DrawControllerCards {
+                        count,
+                        source_block: 0,
+                    });
+                    continue;
+                }
                 if let Some((draw, count)) = draw_discard::coalesce(effects)? {
                     if abilities.len() != 1
                         || block != 0
@@ -2024,6 +2045,17 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .is_some_and(controller_library_order_program)
     {
         library_order::validate_source(&binding, &definition.oracle_id, &canonical_abilities)?;
+    }
+    if definition
+        .spell
+        .as_ref()
+        .is_some_and(controller_counted_draw_program)
+    {
+        controller_counted_draw::validate_source(
+            &binding,
+            &definition.oracle_id,
+            &canonical_abilities,
+        )?;
     }
     definition.capabilities = definition.requirements();
     definition
@@ -10094,6 +10126,7 @@ mod combined_hand_cost_fences {
         for raw in [
             include_str!("../../../tests/fixtures/36cd2364-d113-47d1-b2c4-b088d9eb88dd.json"),
             include_str!("../../../tests/fixtures/32e9aa23-fc0a-4b82-82f9-1659c304428c.json"),
+            include_str!("../../../tests/fixtures/7eff84f1-f772-497a-b350-bbc93d0230f7.json"),
         ] {
             for condition in [
                 serde_json::json!(null),
@@ -10124,3 +10157,6 @@ mod escort_set_tests;
 mod temporary_vigilance_tests;
 
 mod set_activation_binding;
+
+#[cfg(test)]
+mod temporary_double_strike_tests;

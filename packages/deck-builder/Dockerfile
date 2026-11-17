@@ -7,7 +7,7 @@ COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/deck-builder/package.json packages/deck-builder/package.json
 COPY packages/multiverse/package.json packages/multiverse/package.json
 COPY packages/game-ui/package.json packages/game-ui/package.json
-COPY packages/game-client/package.json packages/game-client/package.json
+COPY packages/game/package.json packages/game/package.json
 COPY packages/game-server/sdk/package.json packages/game-server/sdk/package.json
 RUN npm ci --workspace=packages/multiverse --include-workspace-root
 
@@ -17,21 +17,24 @@ COPY packages/multiverse/src packages/multiverse/src
 COPY packages/multiverse/web packages/multiverse/web
 COPY packages/multiverse/tsconfig.json packages/multiverse/vite.config.ts packages/multiverse/
 COPY packages/game-ui/src packages/game-ui/src
-COPY packages/game-client/src packages/game-client/src
-COPY packages/game-client/generated/sdk-identity.ts packages/game-client/generated/sdk-identity.ts
+COPY packages/game/web/src packages/game/web/src
+COPY packages/game/server packages/game/server
+COPY packages/game/shared packages/game/shared
+COPY packages/game/generated/sdk-identity.ts packages/game/generated/sdk-identity.ts
 # Explicitly prepared/qualified SDK bytes: no native build or SDK generation in
 # this image. Source policies retain their standalone validator runtime closure.
 COPY packages/game-server/sdk/dist packages/game-server/sdk/dist
 COPY packages/game-server/sdk/src packages/game-server/sdk/src
 COPY packages/game-server/sdk/generated packages/game-server/sdk/generated
-COPY packages/multiverse/scripts/check-sdk-runtime.mjs packages/multiverse/scripts/check-sdk-runtime.mjs
-RUN node packages/multiverse/scripts/check-sdk-runtime.mjs
-COPY packages/game-client/fixtures/foundations-opening packages/game-client/fixtures/foundations-opening
-COPY packages/game-client/scripts/verify-preview.mjs packages/game-client/scripts/verify-preview.mjs
+COPY packages/game/scripts/check-sdk-runtime.mjs packages/game/scripts/check-sdk-runtime.mjs
+RUN node packages/game/scripts/check-sdk-runtime.mjs
+COPY packages/game/fixtures/foundations-opening packages/game/fixtures/foundations-opening
+COPY packages/game/scripts/verify-preview.mjs packages/game/scripts/verify-preview.mjs
 COPY packages/deck-builder/scripts/check-runtime.mjs packages/deck-builder/scripts/check-runtime.mjs
 RUN npm exec --workspace=packages/multiverse -- vite build \
     && node packages/deck-builder/scripts/check-runtime.mjs --manifest \
-    && node packages/deck-builder/scripts/check-runtime.mjs --manifest --package packages/multiverse
+    && node packages/deck-builder/scripts/check-runtime.mjs --manifest --package packages/multiverse \
+    && node packages/deck-builder/scripts/check-runtime.mjs --manifest --package packages/game
 
 FROM dependencies AS production-dependencies
 RUN npm prune --omit=dev --workspace=packages/multiverse --include-workspace-root \
@@ -57,17 +60,21 @@ COPY --from=build /app/packages/game-server/sdk/package.json ./packages/game-ser
 COPY --from=build /app/packages/game-server/sdk/dist ./packages/game-server/sdk/dist
 COPY --from=build /app/packages/game-server/sdk/src ./packages/game-server/sdk/src
 COPY --from=build /app/packages/game-server/sdk/generated ./packages/game-server/sdk/generated
+COPY --from=build /app/packages/game/runtime-imports.json ./packages/game/runtime-imports.json
+COPY --from=build /app/packages/game/server ./packages/game/server
+COPY --from=build /app/packages/game/shared ./packages/game/shared
 # Pure public qualification boundary used by the product even with native off.
-COPY --from=build /app/packages/game-client/package.json ./packages/game-client/package.json
-COPY --from=build /app/packages/game-client/src/session/qualification.ts ./packages/game-client/src/session/qualification.ts
-COPY --from=build /app/packages/game-client/src/session/qualification-public.d.ts ./packages/game-client/src/session/qualification-public.d.ts
-COPY packages/multiverse/scripts/check-sdk-runtime.mjs ./packages/multiverse/scripts/check-sdk-runtime.mjs
+COPY --from=build /app/packages/game/package.json ./packages/game/package.json
+COPY --from=build /app/packages/game/web/src/session/qualification.ts ./packages/game/web/src/session/qualification.ts
+COPY --from=build /app/packages/game/web/src/session/qualification-public.d.ts ./packages/game/web/src/session/qualification-public.d.ts
+COPY packages/game/scripts/check-sdk-runtime.mjs ./packages/game/scripts/check-sdk-runtime.mjs
 COPY packages/deck-builder/scripts/container-entrypoint.sh /usr/local/bin/deck-builder-entrypoint
 COPY packages/deck-builder/scripts/check-runtime.mjs ./packages/deck-builder/scripts/check-runtime.mjs
 RUN node packages/deck-builder/scripts/check-runtime.mjs \
     && node packages/deck-builder/scripts/check-runtime.mjs --package packages/multiverse \
-    && node packages/multiverse/scripts/check-sdk-runtime.mjs \
-    && node --input-type=module -e "import assert from 'node:assert/strict'; import { isQualifiedProductSession } from '@multiverse/game-client/session-qualification'; assert.equal(isQualifiedProductSession(undefined), false)"
+    && node packages/deck-builder/scripts/check-runtime.mjs --package packages/game \
+    && node packages/game/scripts/check-sdk-runtime.mjs \
+    && node --input-type=module -e "import assert from 'node:assert/strict'; import { isQualifiedProductSession } from '@multiverse/game/session-qualification'; assert.equal(isQualifiedProductSession(undefined), false)"
 # Preserve the existing mounted data path and UID behavior. No database migration
 # or production promotion is performed by this source ownership refactor.
 RUN mkdir /data && chown node:node /data

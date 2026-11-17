@@ -146,6 +146,7 @@ fn library_families_reject_optional_cost_and_conditional_draw_union() {
         crate::library_order::witness(),
         crate::hand_return::witness(),
         crate::draw_discard::witness(),
+        crate::controller_counted_draw::witness(),
     ] {
         d.validate().unwrap();
         let identity = "source-bound-test-cost".to_string();
@@ -168,6 +169,7 @@ fn library_families_reject_optional_cost_and_conditional_draw_union() {
         assert!(!controller_library_order_program(d.spell.as_ref().unwrap()));
         assert!(!controller_hand_return_program(d.spell.as_ref().unwrap()));
         assert!(!controller_draw_discard_program(d.spell.as_ref().unwrap()));
+        assert!(!controller_counted_draw_program(d.spell.as_ref().unwrap()));
         assert!(d.validate().is_err());
         let p = d.spell.as_mut().unwrap();
         p.optional_additional_costs.clear();
@@ -185,6 +187,7 @@ fn library_families_reject_optional_cost_and_conditional_draw_union() {
         "ControllerLibraryOrderProgram",
         "ControllerHandReturnProgram",
         "ControllerDrawDiscardProgram",
+        "ControllerCountedDrawProgram",
     ] {
         assert_eq!(
             schema["$defs"][family]["properties"]["optional_additional_costs"]["maxItems"],

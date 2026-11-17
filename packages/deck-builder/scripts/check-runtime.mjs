@@ -11,7 +11,7 @@ const file = process.argv[3] && !process.argv[3].startsWith('--') && packageFlag
 if (process.argv[2] === '--manifest') {
   const { default: ts } = await import('typescript');
   const imports = [];
-  for (const path of globSync('src/**/*.ts', { cwd: root })) {
+  for (const path of globSync(pkg.name === '@multiverse/game' ? 'server/**/*.ts' : 'src/**/*.ts', { cwd: root })) {
     const ast = ts.createSourceFile(path, readFileSync(join(root, path), 'utf8'), ts.ScriptTarget.Latest, true);
     const visit = node => {
       if ((ts.isImportDeclaration(node) && !node.importClause?.isTypeOnly || ts.isExportDeclaration(node) && !node.isTypeOnly) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier))
@@ -46,7 +46,7 @@ if (process.argv[2] === '--manifest') {
     }
   }
   for (const [name, range] of Object.entries(pkg.dependencies))
-    if (/^\d+\.\d+\.\d+$/.test(range)) assert.equal(versions[name], range, `${name} resolved to a different version`);
+    if (external.has(name) && /^\d+\.\d+\.\d+$/.test(range)) assert.equal(versions[name], range, `${name} resolved to a different version`);
   if (pkg.dependencies.jose) assert.equal(versions.jose, '6.2.3');
   console.log(JSON.stringify({ runtime_imports_checked: imports.length, versions }));
 }
