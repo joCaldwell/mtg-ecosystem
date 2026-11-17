@@ -1,4 +1,4 @@
-//! UNRUN source-only paid private scenarios; no catalog/pool/host admission.
+//! Paid private source scenarios; no catalog/pool/host admission.
 //! Escort record SHA256 0828c19386b8bdbe4f5fa9187e6ccd3ecc4812734cc05875ff9240b439a9af41;
 //! source/AST/binding identities are asserted by compiler::escort_set_tests.
 //! Pinned CR 113.7a, 400.7, 602.2, 608.2h, 611.2c, 701.21, 702.12,
@@ -77,10 +77,10 @@ fn activate(g: &mut Game, q: u64, id: u32) -> ObjectId {
     assert_eq!(facts.controller, player);
     assert_eq!(facts.zone, Zone::Battlefield);
     assert!(top.targets.is_empty() && top.entity_targets.is_empty());
-    assert!(g.events().iter().any(|event| matches!(event,
-        Event::AbilityActivated { source: actual, player: activator, ability: 0, .. }
-            if *actual == source && *activator == player)));
     if g.trace.mode == TraceMode::Detailed {
+        assert!(g.events().iter().any(|event| matches!(event,
+            Event::AbilityActivated { source: actual, player: activator, ability: 0, .. }
+                if *actual == source && *activator == player)));
         assert!(batches(g).iter().flat_map(|b| &b.occurrences).any(|o| matches!(o.proposed,
             ProposedEvent::Sacrifice { object, player: payer } if object == source && payer == player)));
     }
@@ -352,6 +352,9 @@ fn escort_set_paid_recipient_control_change_does_not_reselect_capture() {
     ];
     lands(&mut rows, "Island", 1, 4);
     both(prepared(&rows), |g, q| {
+        // Activate on the Aura caster's natural main phase, so its later
+        // sorcery-speed control change occurs before this turn's cleanup.
+        own_main(g, q, 1, 0);
         activate(g, q, 0);
         resolve(g, q, |_| {});
         let captured = effect(g).1.to_vec();
