@@ -15,6 +15,9 @@ mod controller_scry_tests;
 mod controller_surveil_tests;
 pub mod coverage;
 mod diagnostics;
+mod draw_discard;
+#[cfg(test)]
+mod draw_discard_tests;
 mod fixed_mill;
 #[cfg(test)]
 mod fixed_mill_tests;
@@ -1636,6 +1639,31 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         "nonspell ability on instant/sorcery",
                     ));
                 };
+                if let Some((draw, count)) = draw_discard::coalesce(effects)? {
+                    if abilities.len() != 1
+                        || block != 0
+                        || !program.instructions.is_empty()
+                        || !program.targets.is_empty()
+                        || !program.modes.is_empty()
+                    {
+                        return Err(unsupported(
+                            "draw discard",
+                            "requires whole standalone source",
+                        ));
+                    }
+                    program.instructions.extend([
+                        Instruction::DrawControllerCards {
+                            count: draw,
+                            source_block: 0,
+                        },
+                        Instruction::DiscardCards {
+                            recipient: None,
+                            count,
+                            source_block: 0,
+                        },
+                    ]);
+                    continue;
+                }
                 validate_damage_sources(effects, DamageSourceBinding::Spell)?;
                 // Separate source blocks introduce independent occurrences (CR115.3).
                 // Reusing a selection ID across blocks must not alias targets.
@@ -1710,6 +1738,30 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             &definition.oracle_id,
             &canonical_abilities,
         )?;
+    }
+    if matches!(
+        definition.characteristics.kind,
+        CardKind::Instant | CardKind::Sorcery
+    ) && binding["nodes"].as_array().is_some_and(|nodes| {
+        nodes
+            .iter()
+            .any(|n| n["node"] == "event" && n["operation"] == "discard")
+    }) && !definition
+        .spell
+        .as_ref()
+        .is_some_and(controller_draw_discard_program)
+    {
+        return Err(unsupported(
+            "binding",
+            "ordinary discard binding requires the complete draw/discard source",
+        ));
+    }
+    if definition
+        .spell
+        .as_ref()
+        .is_some_and(controller_draw_discard_program)
+    {
+        draw_discard::validate_source(&binding, &definition.oracle_id, &canonical_abilities)?;
     }
     if definition
         .spell

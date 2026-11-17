@@ -15,8 +15,10 @@ use num_bigint::BigInt;
 use num_traits::Zero;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 mod controller_library;
+mod draw_discard;
 mod fixed_mill;
 mod hand_return;
+pub use draw_discard::controller_draw_discard_program;
 mod library_order;
 pub use hand_return::controller_hand_return_program;
 mod library_selection;
@@ -243,6 +245,7 @@ pub enum Capability {
     ControllerLibrarySelectionV1,
     ControllerLibraryOrderV1,
     ControllerHandReturnV1,
+    ControllerDrawDiscardV1,
     ControllerDiscardV1,
     OpponentTargetV1,
     TargetPlayerSacrificeCreatureV1,
@@ -3009,7 +3012,10 @@ fn temporary_creature_keyword_capability(p: &SpellProgram) -> Capability {
     }
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
-    if hand_return::has_hand_return(p) && !controller_hand_return_program(p) {
+    if hand_return::has_hand_program(p)
+        && !controller_hand_return_program(p)
+        && !controller_draw_discard_program(p)
+    {
         return Err("unsupported complete controller draw/hand return".into());
     }
     if library_order::has_order(p) && !controller_library_order_program(p) {
@@ -3571,7 +3577,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
             }
             Instruction::DiscardCards { count, .. } => {
-                if *count != Quantity::from(1) {
+                if *count != Quantity::from(1) && !controller_draw_discard_program(p) {
                     return Err("unsupported draw/discard cardinality".into());
                 }
                 None
@@ -3848,7 +3854,11 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             }
             Instruction::SacrificeCreature { .. } => Capability::EventPlayerSacrificeV1,
             Instruction::DrawControllerCards { .. } | Instruction::PutHandOnLibrary { .. } => {
-                Capability::ControllerHandReturnV1
+                if controller_draw_discard_program(program) {
+                    Capability::ControllerDrawDiscardV1
+                } else {
+                    Capability::ControllerHandReturnV1
+                }
             }
             Instruction::DrawCards { .. } => Capability::ControllerDrawV1,
             Instruction::OptionalDrawCards { .. } => Capability::OptionalControllerDrawV1,
@@ -3859,7 +3869,13 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 recipient: Some(ActionRecipient::EventPlayer),
                 ..
             } => Capability::EventPlayerDiscardV1,
-            Instruction::DiscardCards { .. } => Capability::ControllerDiscardV1,
+            Instruction::DiscardCards { .. } => {
+                if controller_draw_discard_program(program) {
+                    Capability::ControllerDrawDiscardV1
+                } else {
+                    Capability::ControllerDiscardV1
+                }
+            }
             Instruction::CounterStackObject { .. } => Capability::CounterStackObjectV1,
             Instruction::DealDamage { .. } => Capability::NoncombatDamageV1,
             Instruction::Scry { .. } => Capability::ControllerScryV1,
@@ -4924,6 +4940,7 @@ pub fn catalog_schema() -> serde_json::Value {
     fixed_mill::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
+    draw_discard::extend_schema(&mut schema);
     hand_return::extend_schema(&mut schema);
     schema
 }
@@ -5088,6 +5105,7 @@ mod tests {
             ControllerLibrarySelectionV1,
             ControllerLibraryOrderV1,
             ControllerHandReturnV1,
+            ControllerDrawDiscardV1,
             ControllerDiscardV1,
             OpponentTargetV1,
             TargetPlayerSacrificeCreatureV1,
@@ -5257,6 +5275,7 @@ mod tests {
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
         definitions.push(hand_return::witness());
+        definitions.push(draw_discard::witness());
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());
