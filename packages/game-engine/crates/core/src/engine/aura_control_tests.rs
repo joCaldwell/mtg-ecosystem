@@ -1129,3 +1129,6 @@ mod temporary_reach_tests;
 
 #[path = "temporary_vigilance_tests.rs"]
 mod temporary_vigilance_tests;
+
+#[path = "temporary_double_strike_tests.rs"]
+mod temporary_double_strike_tests;

@@ -407,9 +407,9 @@ One captured incarnation receives both stat and keyword layers
 (CR 104.3a). Separate stat/keyword effects fail this contract.
 
 Keyword vectors are nonempty, duplicate-free and limited to Flying, Deathtouch,
-Indestructible, Lifelink, Hexproof, Haste, Trample, Reach, Vigilance and First Strike; serialized order
-is retained. Haste, Trample, Reach, Vigilance and First Strike reuse readiness, blocking,
-attack-tapping and damage rules (CR 702.10/19/17/20/7), adding no opcode or capability.
+Indestructible, Lifelink, Hexproof, Haste, Trample, Reach, Vigilance, First Strike and Double Strike; serialized order
+is retained. Haste, Trample, Reach, Vigilance, First Strike and Double Strike reuse readiness, blocking,
+attack-tapping and damage rules (CR 702.10/19/17/20/7/4), adding no opcode or capability.
 Existing unfiltered singleton Flying/Deathtouch/Indestructible and modifier-plus-singleton
 Indestructible retain their old temporary/compound subset capabilities; the general
 capability is spare and rejects on those shapes. Other combinations require it.
@@ -431,7 +431,7 @@ changes do not end the grant (CR 611.2c).
 
 Contracts' borrowed `TemporaryTargetedKeywordProgram` and
 `temporary_targeted_keyword_program` union expose modifier, keywords and optional
-controller life. `supported_temporary_keywords` retains the same ten-keyword
+controller life. `supported_temporary_keywords` retains the same eleven-keyword
 vocabulary. The creature wrapper remains single-grant; the compound helper keeps
 its singleton policy. The permanent wrapper requires one
 `ControlledBattlefieldPermanent` slot-zero controller/announcement target with an
@@ -486,15 +486,13 @@ reviewed vector. `temporary_creature_set_keyword_program` and
 `temporary_permanent_set_keyword_program` are disjoint narrow wrappers. Identities
 and quantities never select mechanics.
 
-The family reuses `supported_temporary_keywords`: Flying, Deathtouch,
-Indestructible, Lifelink, Hexproof, Haste, Trample, Reach, Vigilance and First Strike, nonempty and
-without duplicates. Each requires its primitive capability;
-Hexproof uses `attachments_v1`, and First Strike serializes as `first strike`
-with `first_strike_v1`. Every set grant additionally requires `board_wipes_v1`
+The family reuses the [shared vocabulary](#shared-temporary-creature-keyword-family),
+nonempty and duplicate-free, with each keyword's primitive capability;
+Hexproof uses `attachments_v1`; First/Double Strike use spaced names with
+`first_strike_v1`/`double_strike_v1`. Every set grant additionally requires `board_wipes_v1`
 for the shared set machinery, exactly the selector's family capability, normal
-layout and its ordinary cast-kind capability. The permanent selector never infers
-the creature-set label; the real protective pair requires Attachments and
-Indestructible in addition to Board Wipes and its ordinary/family capabilities.
+layout and its ordinary cast-kind capability. Permanent grants exclude creature-set authority; the protective pair requires
+Attachments/Indestructible alongside Board Wipes and ordinary/family capabilities.
 Targeted subset/general labels never admit this shape. The optional modifier requires no targeted P/T capability. Standalone
 `PumpSet` retains its existing behavior and Board Wipes capability.
 
