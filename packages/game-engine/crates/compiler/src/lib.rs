@@ -18,6 +18,9 @@ mod diagnostics;
 mod fixed_mill;
 #[cfg(test)]
 mod fixed_mill_tests;
+mod library_order;
+#[cfg(test)]
+mod library_order_tests;
 mod library_selection;
 #[cfg(test)]
 mod library_selection_tests;
@@ -627,6 +630,8 @@ enum Step {
     Shuffle {
         who: PlayerSelector,
         library: serde_json::Value,
+        #[serde(default, deserialize_with = "present_bool_field")]
+        optional: Option<bool>,
     },
     CreateToken {
         #[serde(default, deserialize_with = "present_json_operand")]
@@ -687,6 +692,8 @@ enum Step {
     MoveZone {
         what: serde_json::Value,
         to: serde_json::Value,
+        #[serde(default, deserialize_with = "present_ast_field")]
+        order: Option<String>,
         #[serde(default, deserialize_with = "present_bool_field")]
         tapped: Option<bool>,
     },
@@ -1701,6 +1708,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             &canonical_abilities,
         )?;
     }
+    if definition
+        .spell
+        .as_ref()
+        .is_some_and(controller_library_order_program)
+    {
+        library_order::validate_source(&binding, &definition.oracle_id, &canonical_abilities)?;
+    }
     definition.capabilities = definition.requirements();
     definition
         .validate()
@@ -1881,6 +1895,27 @@ fn append_spell_effects(
     slots: &mut BTreeMap<String, u32>,
     player_binding: PlayerBinding,
 ) -> Result<(), Failure> {
+    if let Some(amount) = library_order::coalesce(effects)? {
+        if block != 0
+            || !program.instructions.is_empty()
+            || !program.targets.is_empty()
+            || !program.modes.is_empty()
+            || !matches!(player_binding, PlayerBinding::Unbound)
+        {
+            return Err(unsupported(
+                "library order",
+                "requires complete ordinary source",
+            ));
+        }
+        program.instructions.extend([
+            Instruction::OrderLibraryTop {
+                amount,
+                source_block: 0,
+            },
+            Instruction::OptionalShuffleLibrary { source_block: 0 },
+        ]);
+        return Ok(());
+    }
     if let Some((amount, remainder)) = library_selection::coalesce(effects)? {
         if block != 0
             || !program.instructions.is_empty()
@@ -2209,10 +2244,12 @@ fn append_spell_effects(
                 what,
                 to,
                 tapped: Some(true),
+                order: None,
             },
             Step::Shuffle {
                 who: shuffler,
                 library,
+                optional: None,
             },
         ] = sentence.steps.as_slice()
         {
@@ -2731,6 +2768,7 @@ fn append_spell_effects(
                     what,
                     to,
                     tapped: None,
+                    order: None,
                 } if *to
                     == serde_json::json!({"zone":"library","owner":"its-owner","position":"top"}) =>
                 {

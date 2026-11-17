@@ -8,7 +8,8 @@ impl Game {
         match &self.state.rules.frame {
             Frame::ResolutionChoice {
                 choice:
-                    ResolutionChoice::LibrarySelect { player, looked, .. }
+                    ResolutionChoice::LibraryOrder { player, looked, .. }
+                    | ResolutionChoice::LibrarySelect { player, looked, .. }
                     | ResolutionChoice::Scry { player, looked, .. }
                     | ResolutionChoice::Surveil { player, looked, .. },
                 ..
@@ -211,15 +212,7 @@ impl Game {
         if amount <= &Quantity::zero() || self.library_prefix(player, amount)? != looked {
             return Err("invalid scry event prefix".into());
         }
-        self.validate_library_partition(player, looked, top, bottom)?;
-        if let Some(library) = self.state.rules.libraries.get_mut(&player) {
-            *library = top
-                .iter()
-                .map(|o| o.card)
-                .chain(library[looked.len()..].iter().copied())
-                .chain(bottom.iter().map(|o| o.card))
-                .collect();
-        }
+        self.reorder_library_prefix(player, looked, top, bottom)?;
         self.remember_scry(player, top, bottom)?;
         Ok(EventOutcome::Scried {
             player,
@@ -229,6 +222,24 @@ impl Game {
         })
     }
 
+    pub(super) fn reorder_library_prefix(
+        &mut self,
+        player: PlayerId,
+        looked: &[ObjectId],
+        top: &[ObjectId],
+        bottom: &[ObjectId],
+    ) -> Result<(), String> {
+        self.validate_library_partition(player, looked, top, bottom)?;
+        if let Some(library) = self.state.rules.libraries.get_mut(&player) {
+            *library = top
+                .iter()
+                .map(|o| o.card)
+                .chain(library[looked.len()..].iter().copied())
+                .chain(bottom.iter().map(|o| o.card))
+                .collect();
+        }
+        Ok(())
+    }
     pub(super) fn library_look_visible_to(&self, viewer: PlayerId, object: ObjectId) -> bool {
         self.library_looked(viewer)
             .is_some_and(|looked| looked.contains(&object))

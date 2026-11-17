@@ -185,6 +185,12 @@ pub struct PermittedView {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    LibraryOrder {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+        count: usize,
+    },
     LibrarySelect {
         token: DecisionToken,
         player: PlayerId,
@@ -385,7 +391,8 @@ pub enum PlayerRequest {
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
-            Self::LibrarySelect { token, .. }
+            Self::LibraryOrder { token, .. }
+            | Self::LibrarySelect { token, .. }
             | Self::Scry { token, .. }
             | Self::Surveil { token, .. } => token,
             Self::LegendRule { token, .. }
@@ -431,6 +438,9 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    LibraryOrder {
+        objects: Vec<ObjectHandle>,
+    },
     LibrarySelect {
         hand: Vec<ObjectHandle>,
         remainder: Vec<ObjectHandle>,
@@ -1311,6 +1321,20 @@ impl Game {
             }));
         }
         if let Frame::ResolutionChoice {
+            choice: ResolutionChoice::LibraryOrder { player, looked, .. },
+            ..
+        } = &self.state.rules.frame
+            && *player == viewer
+            && self.is_live(viewer)
+        {
+            return Ok(Some(PlayerRequest::LibraryOrder {
+                token,
+                player: viewer,
+                candidates: vec![],
+                count: looked.len(),
+            }));
+        }
+        if let Frame::ResolutionChoice {
             frame,
             choice: ResolutionChoice::LibrarySelect { player, .. },
         } = &self.state.rules.frame
@@ -1349,6 +1373,12 @@ impl Game {
                     .collect::<Result<Vec<_>, _>>()
             };
             return Ok(Some(match request {
+                Request::LibraryOrder { count, .. } => PlayerRequest::LibraryOrder {
+                    token,
+                    player: viewer,
+                    candidates: vec![],
+                    count,
+                },
                 Request::LibrarySelect { remainder, .. } => PlayerRequest::LibrarySelect {
                     token,
                     player: viewer,
@@ -1943,6 +1973,12 @@ impl Game {
             return Err("oversized player declaration".into());
         }
         match response {
+            PlayerResponse::LibraryOrder { objects } => Ok(Response::LibraryOrder {
+                objects: objects
+                    .iter()
+                    .map(|h| self.resolve_handle(viewer, h))
+                    .collect::<Result<_, _>>()?,
+            }),
             PlayerResponse::LibrarySelect { hand, remainder } => Ok(Response::LibrarySelect {
                 hand: hand
                     .iter()

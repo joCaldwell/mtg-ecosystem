@@ -1110,3 +1110,7 @@ mod fixed_mill_tests;
 #[cfg(test)]
 #[path = "library_selection_tests.rs"]
 mod library_selection_tests;
+
+#[cfg(test)]
+#[path = "library_order_tests.rs"]
+mod library_order_tests;
