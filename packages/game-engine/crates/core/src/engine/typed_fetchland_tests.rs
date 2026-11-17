@@ -587,7 +587,7 @@ fn borrowed_fetch() -> Game {
                 );
                 resolve(&mut g, vec![]);
                 assert_eq!(g.current(source).unwrap().controller, PlayerId(1));
-                assert_eq!(g.current(source).unwrap().owner, PlayerId(0));
+                assert_eq!(g.state.rules.cards[&source.card].owner, PlayerId(0));
                 check(&g);
                 return g;
             }
