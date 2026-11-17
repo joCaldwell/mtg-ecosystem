@@ -140,6 +140,28 @@ fn library_selection_paid_five_sources_each_choice_bottom_order_and_graveyard_su
                     .filter(|o| *o != hand[0])
                     .collect::<Vec<_>>();
                 choose(g, &r, hand.clone(), rest.clone());
+                for _ in 0..50 {
+                    if matches!(&g.state.rules.frame,Frame::Resolve{frame} if frame.cursor==1) {
+                        break;
+                    }
+                    assert!(matches!(
+                        g.advance(Budget::new(1)),
+                        Advance::Suspended { .. }
+                    ));
+                }
+                let Frame::Resolve { frame } = &g.state.rules.frame else {
+                    panic!("completed selection")
+                };
+                assert!(
+                    matches!(
+                        frame.outcomes.as_slice(),
+                        [InstructionOutcome::Effect {
+                            actual: Some(EventOutcome::LibrarySelected { .. })
+                        }]
+                    ),
+                    "selection is not a draw attempt"
+                );
+                recover(g);
                 finish(g, q);
                 let new = object(g, hand[0].card.0);
                 assert_ne!(new, hand[0]);
@@ -191,12 +213,6 @@ fn library_selection_paid_five_sources_each_choice_bottom_order_and_graveyard_su
                         } else {
                             0
                         }
-                    );
-                    assert!(
-                        !b.iter()
-                            .flat_map(|b| &b.occurrences)
-                            .any(|o| matches!(o.actual, EventOutcome::Drawn { .. })),
-                        "selection is not draw"
                     );
                 }
             });

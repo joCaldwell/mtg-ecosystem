@@ -222,7 +222,9 @@ impl Game {
         let player = *player;
         let destination = *destination;
         let to_command = *hand_to_command;
-        if amount <= &Quantity::zero() || self.library_prefix(player, amount)? != looked {
+        if amount <= &Quantity::zero()
+            || self.library_prefix(player, amount)?.as_slice() != looked.as_slice()
+        {
             return Err("invalid selection prefix".into());
         }
         self.validate_selection_partition(player, looked, hand, remainder)?;
