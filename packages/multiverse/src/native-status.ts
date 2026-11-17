@@ -1,7 +1,8 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { GameClient, parseSeatBootstrap } from "@multiverse/game-server-sdk";
 import type { GameRecord, GameIdentity, NativeGameStatus } from "@mtg-ecosystem/deck-builder/contracts";
-import { nativeDiagnostics, nativeFailureCause, type NativeDiagnosticCause } from "./native-diagnostics.ts";
+import { nativeDiagnostics, nativeFailureCause, type NativeDiagnosticCause, type NativeFileDetail } from "./native-diagnostics.ts";
+import type { NativeFileObserver } from "./native-private.ts";
 
 /** The adapter's status boundary, separated for synthetic transport/file tests.
  * Reads remain lazy so child liveness is checked before private seat access. */
@@ -9,11 +10,12 @@ export async function nativeStatus(game: GameRecord, signal: AbortSignal, input:
   identity: GameIdentity;
   state?: { child: { exitCode: number | null; signalCode: string | null }; stopping: boolean; origin?: string;
     bots?: { status(): NativeGameStatus["consumers"] } };
-  bootstrap(): string;
-  readStatus(): string;
+  bootstrap(observe?: NativeFileObserver): string;
+  readStatus(observe?: NativeFileObserver): string;
   diagnostic: ReturnType<typeof nativeDiagnostics>;
 }): Promise<NativeGameStatus> {
   let cause: NativeDiagnosticCause = "state_unavailable";
+  let fileDetail: NativeFileDetail | undefined;
   try {
     signal.throwIfAborted();
     const state = input.state;
@@ -22,7 +24,7 @@ export async function nativeStatus(game: GameRecord, signal: AbortSignal, input:
     cause = "identity_failure";
     if (!["catalog_sha256", "profile", "engine_build_id", "server_build_id"].every(key => game.identity[key as keyof GameIdentity] === input.identity[key as keyof GameIdentity])) throw new Error("Native lifecycle unavailable");
     cause = "private_file";
-    const bytes = input.bootstrap();
+    const bytes = input.bootstrap(detail => { fileDetail = detail; });
     cause = "schema_failure";
     const seat = parseSeatBootstrap(bytes);
     const sdk = new GameClient({ baseURL: state.origin!, matchId: game.id, capability: seat.capability });
@@ -32,7 +34,8 @@ export async function nativeStatus(game: GameRecord, signal: AbortSignal, input:
       cause = "identity_failure";
       if (resume.viewer !== 0 || resume.engine_build_id !== game.identity.engine_build_id || resume.server_build_id !== game.identity.server_build_id || resume.catalog_sha256 !== game.identity.catalog_sha256) throw new Error("Native lifecycle unavailable");
       cause = "private_file";
-      const statusBytes = input.readStatus();
+      fileDetail = { file_scope: "status" };
+      const statusBytes = input.readStatus(detail => { fileDetail = { ...detail, file_scope: "status" }; });
       cause = "status_decode";
       const row = JSON.parse(statusBytes) as { version: number; human_waiting_since: number | null; human_decision_token: string | null };
       if (row.version !== 1 || (row.human_waiting_since !== null && (!Number.isSafeInteger(row.human_waiting_since) || row.human_waiting_since < 0))) throw new Error("Native lifecycle unavailable");
@@ -46,7 +49,7 @@ export async function nativeStatus(game: GameRecord, signal: AbortSignal, input:
     cause = "token_mismatch_exhausted";
     throw new Error("Native lifecycle unavailable");
   } catch (error) {
-    input.diagnostic(game.id, "status", nativeFailureCause(error, signal, cause));
+    input.diagnostic(game.id, "status", nativeFailureCause(error, signal, cause), undefined, fileDetail);
     throw error;
   }
 }

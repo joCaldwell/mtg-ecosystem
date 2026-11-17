@@ -5,10 +5,11 @@ import { timingSafeEqual } from "node:crypto";
 import { producePresentation } from "@multiverse/game-server-sdk/presentation-producer";
 import { GameClient, parseSeatBootstrap } from "@multiverse/game-server-sdk";
 import type { GameIdentity, GameRecord, GameStopTarget, NativeGameAdapter, GameDiagnosticSink } from "@mtg-ecosystem/deck-builder/contracts";
-import { nativeDiagnostics, nativeFailureCause, type NativeDiagnosticCause } from "./native-diagnostics.ts";
+import { nativeDiagnostics, nativeFailureCause, type NativeDiagnosticCause, type NativeFileDetail } from "./native-diagnostics.ts";
+import { readNativeBootstrap } from "./native-bootstrap.ts";
 import { nativeStatus } from "./native-status.ts";
 import { createNativeAdmission } from "./native-admission.ts";
-import { privateDirectory, readPrivate, writePrivate } from "./native-private.ts";
+import { privateDirectory, readPrivate, writePrivate, type NativeFileObserver } from "./native-private.ts";
 import { startBots, type BotGroup } from "./native-bot-supervisor.ts";
 
 interface Running {
@@ -46,12 +47,8 @@ export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGa
     if (!/^[a-f0-9]{32}$/.test(game.id)) throw unavailable();
     return join(options.directory, game.id);
   };
-  const bootstrap = (game: GameRecord) => {
-    if (!same(game.identity, options.identity)) throw unavailable();
-    const state = running.get(game.id);
-    if (!state?.session || state.stopping || state.child.exitCode !== null || state.child.signalCode !== null) throw unavailable();
-    return readPrivate(join(root(game), state.session, "seat-0.json"), 4096);
-  };
+  const bootstrap = (game: GameRecord, observe?: NativeFileObserver) =>
+    readNativeBootstrap(game.identity, options.identity, () => running.get(game.id), () => root(game), observe);
   const validate = (bytes: string, game: GameRecord) => {
     try {
       const seat = parseSeatBootstrap(bytes);
@@ -84,6 +81,7 @@ export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGa
     },
     async ensure(game, signal) {
       let cause: NativeDiagnosticCause = "identity_failure", reported = false;
+      let fileDetail: NativeFileDetail | undefined;
       try {
         signal.throwIfAborted();
         if (!same(game.identity, options.identity)) throw unavailable();
@@ -131,8 +129,8 @@ export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGa
             if (signal.aborted || state.stopping || generation(directory) !== epoch) throw unavailable();
             state.origin = ready.origin; state.session = ready.session;
             cause = "private_file";
-            if (!validate(bootstrap(game), game)) { cause = "identity_failure"; throw unavailable(); }
-            const human = parseSeatBootstrap(bootstrap(game));
+            if (!validate(bootstrap(game, detail => { fileDetail = detail; }), game)) { cause = "identity_failure"; throw unavailable(); }
+            const human = parseSeatBootstrap(bootstrap(game, detail => { fileDetail = detail; }));
             const sdk = new GameClient({ baseURL: state.origin, matchId: game.id, capability: human.capability });
             cause = "adapter_failure";
             const manifest = await sdk.manifest({ signal });
@@ -145,7 +143,7 @@ export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGa
             if (signal.aborted || state.stopping || generation(directory) !== epoch) throw unavailable();
           } catch (error) {
             reported = true;
-            diagnostic(game.id, "ensure", nativeFailureCause(error, signal, cause));
+            diagnostic(game.id, "ensure", nativeFailureCause(error, signal, cause), undefined, fileDetail);
             diagnostic(game.id, "ensure_cleanup", "cleanup_started");
             try { await stopRunning(state); diagnostic(game.id, "ensure_cleanup", "cleanup_succeeded"); }
             catch (cleanupError) { diagnostic(game.id, "ensure_cleanup", "cleanup_failed"); throw cleanupError; }
@@ -156,13 +154,13 @@ export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGa
         child.stdin!.write(JSON.stringify({ version: 1, generation: epoch, id: game.id, ...game.identity, deck_sha256: game.deck.sha256, human_origin: options.humanOrigin, deck: { commander: commanders[0]!.oracle_id, cards: game.deck.cards.map(c => ({ oracle_id: c.oracle_id, count: c.quantity })) } }) + "\n");
         await state.ready;
       } catch (error) {
-        if (!reported) diagnostic(game.id, "ensure", nativeFailureCause(error, signal, cause));
+        if (!reported) diagnostic(game.id, "ensure", nativeFailureCause(error, signal, cause), undefined, fileDetail);
         throw error;
       }
     },
     async status(game, signal) {
-      return nativeStatus(game, signal, { identity: options.identity, state: running.get(game.id), bootstrap: () => bootstrap(game),
-        readStatus: () => readPrivate(join(root(game), "status.json")), diagnostic });
+      return nativeStatus(game, signal, { identity: options.identity, state: running.get(game.id), bootstrap: observe => bootstrap(game, observe),
+        readStatus: observe => readPrivate(join(root(game), "status.json"), 65_536, observe), diagnostic });
     },
     async stop(game, reason, signal) {
       let cause: NativeDiagnosticCause = "private_file";

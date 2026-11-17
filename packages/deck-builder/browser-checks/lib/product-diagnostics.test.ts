@@ -101,3 +101,82 @@ test("real coordinator and adapter status boundary persist deadline, mismatch, c
     } finally { await coordinator.close(); db.close(); fetcher.mock.restore(); }
   }
 });
+
+test("private artifact keeps each closed file detail shape separate with first/latest evidence and legacy rows", () => {
+  const directory = parent(), sink = createPrivateDiagnostics(directory), game_id = "a".repeat(32);
+  type Adapter = Extract<GameDiagnosticEvent, { source: "adapter" }>;
+  type Detail = Pick<Adapter, "file_scope" | "file_step" | "file_check" | "file_links">;
+  const shapes: Detail[] = [
+    {}, { file_scope: "status" },
+    { file_scope: "bootstrap_guard", file_step: "guard", file_check: "identity" },
+    { file_scope: "bootstrap_guard", file_step: "guard", file_check: "lifecycle" },
+    ...(["bootstrap_seat", "status"] as const).flatMap(file_scope => [
+      { file_scope, file_step: "lstat" as const }, { file_scope, file_step: "read" as const, file_links: "one" as const },
+      ...(["owner", "links", "type", "mode", "size"] as const).flatMap(file_check =>
+        (["zero", "one", "multiple", "invalid"] as const).map(file_links => ({ file_scope, file_step: "metadata" as const, file_check, file_links }))),
+    ]),
+  ];
+  for (const detail of shapes) {
+    for (const id of [game_id, "b".repeat(32), "c".repeat(32)]) {
+      sink.diagnostic({ source: "adapter", game_id: id, stage: "status", cause: "private_file", ...detail,
+        error: "unsafe", path: "unsafe", errno: "unsafe", message: "unsafe", token: "unsafe", content: "unsafe" } as Adapter);
+    }
+  }
+  const saved = read(sink.path);
+  assert.equal(saved.events.length, shapes.length * 2);
+  for (let i = 0; i < shapes.length; i++) {
+    const pair = saved.events.slice(i * 2, i * 2 + 2);
+    assert.deepEqual(pair.map(event => event.game_id), [game_id, "c".repeat(32)]);
+    assert.deepEqual(pair.map(({ sequence, at_ms, ...event }) => event), [game_id, "c".repeat(32)].map(id => ({ source: "adapter", game_id: id, stage: "status", cause: "private_file", ...shapes[i] })));
+  }
+  assert.equal(readFileSync(sink.path, "utf8").includes("unsafe"), false);
+  const before = readFileSync(sink.path, "utf8");
+  for (const field of ["file_scope", "file_step", "file_check", "file_links"] as const) {
+    for (const value of ["unsafe", 0, {}, null]) {
+      sink.diagnostic({ source: "adapter", game_id, stage: "status", cause: "private_file", [field]: value } as unknown as Adapter);
+    }
+  }
+  sink.diagnostic({ source: "adapter", game_id, stage: "status", cause: "token_mismatch", attempt: 1, file_scope: "status" });
+  assert.equal(readFileSync(sink.path, "utf8"), before);
+});
+
+test("expanded closed shapes retain the 256-shape/512-event/256KiB cap and private modes", () => {
+  const directory = parent(), sink = createPrivateDiagnostics(directory), game_id = "a".repeat(32);
+  let shapes = 0;
+  for (const file_scope of ["bootstrap_guard", "bootstrap_seat", "status"] as const) {
+    for (const file_step of ["guard", "lstat", "metadata", "read"] as const) {
+      for (const file_check of ["identity", "lifecycle", "owner", "links", "type", "mode", "size"] as const) {
+        for (const file_links of ["zero", "one", "multiple", "invalid"] as const) {
+          shapes++;
+          const event = { source: "adapter", game_id, stage: "status", cause: "private_file", file_scope, file_step, file_check, file_links } as const;
+          sink.diagnostic(event); sink.diagnostic(event);
+        }
+      }
+    }
+  }
+  assert.ok(shapes > 256);
+  const saved = read(sink.path);
+  assert.equal(saved.events.length, 512);
+  assert.ok(lstatSync(sink.path).size <= 262_144);
+  assert.equal(lstatSync(directory).mode & 0o777, 0o700);
+  assert.equal(lstatSync(join(directory, "diagnostics")).mode & 0o777, 0o700);
+  assert.equal(lstatSync(sink.path).mode & 0o777, 0o600);
+  assert.equal(lstatSync(sink.path).nlink, 1);
+  assert.deepEqual(readdirSync(join(directory, "diagnostics")), ["lifecycle.json"]);
+  // Existing shapes can still update latest after the shape cap is reached.
+  sink.diagnostic({ source: "adapter", game_id: "b".repeat(32), stage: "status", cause: "private_file",
+    file_scope: "bootstrap_guard", file_step: "guard", file_check: "identity", file_links: "zero" });
+  assert.equal(read(sink.path).events.at(-1)!.game_id, "b".repeat(32));
+});
+
+test("private artifact reconstructs the validated snapshot of each new field once", () => {
+  const sink = createPrivateDiagnostics(parent()); let reads = 0;
+  const event = Object.defineProperties({ source: "adapter", game_id: "a".repeat(32), stage: "status", cause: "private_file" }, {
+    file_scope: { get: () => ++reads === 1 ? "status" : "unsafe" },
+    path: { get: () => { assert.fail("must not inspect arbitrary extra fields"); } },
+  });
+  sink.diagnostic(event as GameDiagnosticEvent);
+  assert.equal(reads, 1);
+  const { sequence, at_ms, ...saved } = read(sink.path).events[0]!;
+  assert.deepEqual(saved, { source: "adapter", game_id: "a".repeat(32), stage: "status", cause: "private_file", file_scope: "status" });
+});
