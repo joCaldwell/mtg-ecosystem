@@ -72,6 +72,22 @@ pub(crate) fn witness() -> Definition {
 mod tests {
     use super::*;
     #[test]
+    fn library_selection_remainder_wire_uses_only_schema_strings() {
+        for name in ["bottom", "graveyard"] {
+            assert!(serde_json::from_value::<LibraryRemainder>(serde_json::json!(name)).is_ok());
+            assert!(
+                serde_json::from_value::<LibraryRemainder>(serde_json::json!({name:null})).is_err()
+            );
+        }
+        for invalid in [
+            serde_json::json!("exile"),
+            serde_json::Value::Null,
+            serde_json::json!({"bottom":{}}),
+        ] {
+            assert!(serde_json::from_value::<LibraryRemainder>(invalid).is_err());
+        }
+    }
+    #[test]
     fn library_selection_closed_shape_and_exact_capability() {
         for amount in ["0", "3", "999999999999999999999999"] {
             for remainder in [LibraryRemainder::Bottom, LibraryRemainder::Graveyard] {

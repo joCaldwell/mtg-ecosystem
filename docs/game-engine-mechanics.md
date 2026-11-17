@@ -104,6 +104,13 @@ Commander SBAs follow resolution. One-draw and artifact-or-creature grant/Scry
 compositions are supported. Activated/triggered
 forms, Flashback, mill costs/replacements and search reconstruction reject.
 
+Standalone library selection looks at the available prefix, puts exactly one
+available card into hand and sends the remainder to the graveyard or ordered
+library bottom. Hand movement is not drawing (CR 121.5). The chooser alone sees
+candidates; all movements commit atomically. A selected tucked Commander uses
+its owner's hand-replacement choice before movement; graveyard return waits
+for SBAs. Extra clauses and draw compositions reject.
+
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
 Surviving activators retain paid abilities when a borrowed source's owner leaves.

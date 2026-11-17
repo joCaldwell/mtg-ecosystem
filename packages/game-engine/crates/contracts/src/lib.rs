@@ -412,11 +412,22 @@ pub enum LifeRecipient {
         target_slot: u32,
     },
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum LibraryRemainder {
     Bottom,
     Graveyard,
+}
+impl<'de> Deserialize<'de> for LibraryRemainder {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match String::deserialize(deserializer)?.as_str() {
+            "bottom" => Ok(Self::Bottom),
+            "graveyard" => Ok(Self::Graveyard),
+            _ => Err(serde::de::Error::custom(
+                "unsupported library remainder destination",
+            )),
+        }
+    }
 }
 /// Resolution actions use a separate binding domain from draw/life. The event
 /// player is the frozen damaged player of a source-damage trigger (CR 603.2c).
