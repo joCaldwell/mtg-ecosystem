@@ -51,8 +51,9 @@ fn selector(filter: &Value) -> Option<Vec<BasicLandType>> {
 // The shared actor decoder permits null as None for older families. This
 // complete-source family requires raw unqualified actors, including presence.
 pub(super) fn validate_raw_actors(ability: &Ability, raw: &str) -> Result<(), Failure> {
-    let Ability::Spell { effects, .. } = ability else {
-        return Ok(());
+    let effects = match ability {
+        Ability::Spell { effects, .. } | Ability::Activated { effects, .. } => effects,
+        _ => return Ok(()),
     };
     let mut original = None;
     for (index, sentence) in effects.iter().enumerate() {

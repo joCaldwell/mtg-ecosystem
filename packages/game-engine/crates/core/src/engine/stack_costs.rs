@@ -14,6 +14,43 @@ impl AnnouncementOrigin {
 }
 
 impl Game {
+    // CR 118.3/119.4/602.2: payer is the current controller, and paying
+    // exactly all remaining life is legal. Zero is payable at any life total.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    pub(super) fn validate_tap_life_sacrifice_source(
+        &self, player: PlayerId, source: ObjectId, life: &Quantity,
+    ) -> Result<(), String> {
+        let object = self.current(source)?;
+        if object.zone != Zone::Battlefield || object.controller != player
+            || !self.is_live(player) || object.tapped || life.is_negative()
+            || (*life > Quantity::zero() && self.state.rules.players[player.0 as usize].life < *life)
+        {
+            return Err("unpayable source tap, life and sacrifice cost".into());
+        }
+        Ok(())
+    }
+    fn pay_tap_life_sacrifice_source(
+        &mut self, player: PlayerId, source: ObjectId, life: &Quantity, cause: BatchCause,
+    ) -> Result<(), String> {
+        self.validate_tap_life_sacrifice_source(player, source, life)?;
+        let mut children = vec![EventGroup::Occurrence {
+            proposed: ProposedEvent::Tap { object: source },
+        }];
+        // Paying life is loss of life, not damage. Reuse the existing exact
+        // life-change occurrence; zero costs deliberately emit no life event.
+        if *life > Quantity::zero() {
+            children.push(EventGroup::Occurrence {
+                proposed: ProposedEvent::LoseLife { player, amount: life.clone() },
+            });
+        }
+        children.push(EventGroup::Occurrence {
+            proposed: ProposedEvent::Sacrifice { object: source, player },
+        });
+        // One ordered batch inside the staged rule step: no SBA/priority or
+        // observable partial tap/debit before the complete cost has committed.
+        self.commit_batch(cause, EventGroup::Ordered { children })?;
+        Ok(())
+    }
     pub(super) fn announce_ability(
         &mut self,
         player: PlayerId,
@@ -153,7 +190,14 @@ impl Game {
                 },
             };
         } else {
-            if let ActivationCost::Composite { costs } = &cost {
+            if let ActivationCost::TapPayLifeSacrificeSource { life } = &cost {
+                self.pay_tap_life_sacrifice_source(
+                    player, object, life,
+                    BatchCause::AbilityActivation {
+                        stack_id: id, player, source: object, decision_id, ability,
+                    },
+                )?;
+            } else if let ActivationCost::Composite { costs } = &cost {
                 self.pay_permanent_source_costs(
                     object,
                     player,
@@ -170,7 +214,8 @@ impl Game {
                 let proposed = match cost {
                     ActivationCost::SacrificeSource => ProposedEvent::Sacrifice { object, player },
                     ActivationCost::TapSource => ProposedEvent::Tap { object },
-                    ActivationCost::Composite { .. }
+                    ActivationCost::TapPayLifeSacrificeSource { .. }
+                    | ActivationCost::Composite { .. }
                     | ActivationCost::Mana { .. }
                     | ActivationCost::SacrificePermanent { .. } => {
                         return Err("activated cost branch invariant".into());

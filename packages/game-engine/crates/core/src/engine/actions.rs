@@ -269,7 +269,11 @@ impl Game {
         if ability.program.timing == SpellTiming::MainPhase && !self.main_phase_action(player) {
             return Err("equip requires sorcery timing".into());
         }
+        if let ActivationCost::TapPayLifeSacrificeSource { life } = &ability.cost {
+            self.validate_tap_life_sacrifice_source(player, object, life)?;
+        }
         let tap = ability.cost == ActivationCost::TapSource
+            || matches!(ability.cost, ActivationCost::TapPayLifeSacrificeSource { .. })
             || matches!(&ability.cost, ActivationCost::Composite { costs } if costs.tap);
         if tap
             && (source.tapped

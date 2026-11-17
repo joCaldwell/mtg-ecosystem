@@ -38,6 +38,7 @@ use optional_costs::KickedCondition;
 mod conditional_lands;
 mod type_line;
 mod typed_land_search;
+mod typed_fetchland;
 pub use catalog::*;
 use normalization::source_lines;
 
@@ -779,6 +780,9 @@ enum SourceCost {
         what: serde_json::Value,
     },
     TapSelf {},
+    PayLife {
+        amount: serde_json::Value,
+    },
     Mana {
         symbols: Vec<String>,
     },
@@ -1339,6 +1343,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         }
     }
     conditional_lands::validate_binding_closure(&abilities, &binding, &r.oracle_identity)?;
+    typed_fetchland::bind(&abilities, &binding, &r.oracle_identity, &source)?;
     let original: Vec<Box<RawValue>> = decode(result.abilities.get(), "abilities")?;
     for (line, ability) in result.lines.iter().zip(&original) {
         let a: serde_json::Value = decode(line.ability.get(), "lines.ability")?;
@@ -1349,6 +1354,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     for (ability, raw) in abilities.iter().zip(&original) {
         typed_land_search::validate_raw_actors(ability, raw.get())?;
+        typed_fetchland::validate_raw(ability, raw.get())?;
     }
     let control_target = abilities.iter().find_map(|a| match a {
         Ability::Static {
@@ -4999,6 +5005,14 @@ fn lower_activation(
         ));
     }
     let cost = match costs {
+        [SourceCost::TapSelf {}, SourceCost::PayLife { amount }, SourceCost::Sacrifice { what }]
+            if kind == CardKind::Land
+                && *what == serde_json::json!({"ref":"this","noun":"land"}) =>
+        {
+            ActivationCost::TapPayLifeSacrificeSource {
+                life: typed_fetchland::life(amount)?,
+            }
+        }
         [SourceCost::Sacrifice { what }] if what["ref"] == "filter" => {
             ActivationCost::SacrificePermanent {
                 filter: lower_sacrifice_filter(what)?,
@@ -5061,6 +5075,9 @@ fn lower_activation(
             ));
         }
     };
+    if matches!(cost, ActivationCost::TapPayLifeSacrificeSource { .. }) {
+        return typed_fetchland::lower(cost, effects, block);
+    }
     // Only sacrificing this exact source establishes the first pronoun's
     // identity. Choosing another permanent does not make it the invocation.
     validate_damage_sources(
