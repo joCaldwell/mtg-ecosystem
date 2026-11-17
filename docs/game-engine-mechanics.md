@@ -412,7 +412,8 @@ is retained. Haste, Trample, Reach, Vigilance and First Strike reuse readiness, 
 attack-tapping and damage rules (CR 702.10/19/17/20/7), adding no opcode or capability.
 Existing unfiltered singleton Flying/Deathtouch/Indestructible and modifier-plus-singleton
 Indestructible retain their old temporary/compound subset capabilities; the general
-capability is spare and rejects on those shapes. Every granted keyword still
+capability is spare and rejects on those shapes. Other combinations require it.
+Every granted keyword still
 requires its primitive capability; modifiers require `temporary_power_toughness_v1`
 and unfiltered targets require `creature_target_v1`. Controlled targets require
 `attachments_v1` and the general family capability, even for an otherwise old

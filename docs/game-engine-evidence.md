@@ -220,8 +220,7 @@ completion/performance/retention, server/SDK/host/search/consumer matrices and N
 suites requiring absent dependencies remain omitted. Consumer acceptance retains
 its earlier exact producer; neither pass expands admission or qualifies later source.
 
-The following qualifications remain distinct. Producer columns list CLI,
-optimized core and schema SHA-256, in that order; raw roots are under `generated/`.
+Producer columns are CLI/optimized-core/schema SHA-256; raw roots are under `generated/`.
 
 | Family / measured source | Focused checks | Exact producers | Raw proof root |
 | --- | --- | --- | --- |
@@ -231,6 +230,7 @@ optimized core and schema SHA-256, in that order; raw roots are under `generated
 | General Aura dependencies `aa28e9b7a39d601a8a9a8bb4fbde9484fe20fc1f` | 550 distinct Rust: 416 prechecks at `1163d0fd` through one-private-test bridge, 134 fresh core; 3,190 probes; 843 rows | `2f2c427810ee56b74aaf97312f278ceaec32520242a11530c59dac53af0088db` / `bd47a51c072088661d98acf10184b985fa6b68660513eba3024ae3c6a1d13cff` / `5caa2ff0392cf173057faa20342ba7f816c367e01ef1d59d69c0b3333ac6eb95` | `control-dependencies/{integration.json,review.json,review-continuity.json,combined01/,combined02/}` |
 | Reach grants `3a478d1f`/`affde61f` | 62 Rust/64 executions, 4,287 probes; schema-only bridge; IR1/38/28 | `83ab55ddf012ef62bdd1c82be39962637c9659263311009fbd88a5715fa7ce15` / `c5113bed2097f42b6d6dc8b44a3b5d2c0ad2df04ac9d44c275e5d01777179f5a` / `0ebe3c08fae3387f131a035a453e81e5391618d8143b291923c86e637c8c23a8` | `temporary-reach/integration.json` |
 | Draw/discard `a7ab81c9` | 27 Rust, 1,313 probes; test-only bridge; IR1/38/28 | `7dfec79e3bfe33aca53a2e109ac51b80958c14660f77d1b77b4b76cc6dbd72f3` / `843b5ca8aa44f61b47d7860b383f494cedb4fb33236d92730a519b745ba6a159` / `48e914f7b8d6ac5274d58ed6bb7d00c295de99498e5ad7ebbf970f78f0277aa2` | `draw-discard/integration.json` |
+| Temporary Vigilance `dd9f295a` | 110 Rust, 4,643 probes; IR1/38/28 | `2b973fcc874703a3570ac1be66961feab282a715c6a4a1fc26905f22c34e3d04` / `56619d818ff6baaff91ca8db1a7d36d8ca6e99e4eeb26acc35ddefe3e150b6ed` / `1dbbe5ead7d4312f819f457050b0a4503bf10555a3a7e707f5ea9193476965b4` | `temporary-vigilance/integration.json` |
 | Draw/hand return `abba596f` | 24 Rust/25 executions, 1,244 probes; test-only bridge; IR1/38/28 | `00a2f3af91bec56824a9dc5ed83a869ef3837b7e926dc84dd85c98177a70c2bc` / `ba6fdfb609fa43b5cc438b99535de4459f3e16b7f8ee4e4ea68813ce85a35d58` / `88b423d58b3072199c414cd8da3c55ac535f600c55fda97d2db1991e2c350679` | `hand-return/integration.json` |
 | Private order/shuffle/draw `51222adb` → `6da92a1d` | 25 focused Rust, 1,175 probes; one appended kernel-test bridge; IR1/37/27 | `7bcb38bc86b764a81d265bc040f695e57df9bb7c8d933a301cc75f5a8848372f` / `cd8d8e9ceb9784edc996e848135cb9fc353d71458181a5393847a3913745fa14` / `e95b45d912863f417883e9aadae5e17917be696aefdb2f7be5460527de84c750` | `library-order/integration.json` |
 | Library selection `b41e0d8d` | 29 focused Rust, 1,097 probes; IR1/35/26 | `226e60143fa4ec8de8effb12d8a793de4d86bd132a7a83acdd9d6fa6f0cbf61b` / `791d67851fdc14327464dd6eaa13c346eb21101f2867ad94a7875622dcf43e1d` / `6392885ccc069b72cb2d4b662eb47a5e4c2452aebc6c8d19812ca39df09e7568` | `library-selection/integration.json` |
