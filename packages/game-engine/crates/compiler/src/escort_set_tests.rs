@@ -88,7 +88,13 @@ fn escort_set_exact_source_ast_binding_provenance_cost_and_program() {
     assert_eq!(d.characteristics.power, Some(3.into()));
     assert_eq!(d.characteristics.toughness, Some(3.into()));
     assert!(
-        d.spell.is_none()
+        d.spell
+            .as_ref()
+            .is_some_and(|p| p.resolution == SpellResolution::Permanent
+                && p.timing == SpellTiming::MainPhase
+                && p.instructions.is_empty()
+                && p.targets.is_empty()
+                && p.optional_additional_costs.is_empty())
             && d.keywords.is_empty()
             && d.triggered.is_empty()
             && d.static_abilities.is_empty()
@@ -130,6 +136,24 @@ fn escort_set_synthetic_parameterized_keywords_and_characteristics_use_same_comp
         r["source"]["power"] = "7".into();
         r["source"]["toughness"] = "9".into();
         r["source"]["mana_cost"] = "{5}{G}{W}".into();
+        r["binding"]["nodes"][1]["manaCost"] = "{5}{G}{W}".into();
+        let nodes = r["binding"]["nodes"].as_array_mut().unwrap();
+        let template: Vec<_> = nodes
+            .iter()
+            .filter(|n| {
+                n["path"].as_str().is_some_and(|p| {
+                    p.starts_with("/faces/0/abilities/0/effects/0/steps/0/abilities/0")
+                })
+            })
+            .cloned()
+            .collect();
+        for n in template {
+            let text = serde_json::to_string(&n).unwrap().replace(
+                "/effects/0/steps/0/abilities/0",
+                "/effects/0/steps/0/abilities/1",
+            );
+            nodes.push(serde_json::from_str(&text).unwrap());
+        }
         r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["abilities"] = json!([
             {"gained":"keyword","keyword":{"keyword":"flying"}},
             {"gained":"keyword","keyword":{"keyword":"lifelink"}}
@@ -207,5 +231,33 @@ fn escort_set_typed_condition_guards_preserve_none_none_closure() {
                 ..
             })
         ));
+    }
+}
+
+#[test]
+fn escort_set_binding_only_foreign_missing_duplicate_and_unresolved_reject() {
+    lowered(RAW);
+    for index in 0..4 {
+        for variant in 0..4 {
+            reject(&changed(|r| {
+                let refs = r["binding"]["references"].as_array_mut().unwrap();
+                match variant {
+                    0 => refs[index]["target"] = json!("foreign"),
+                    1 => {
+                        refs.remove(index);
+                    }
+                    2 => {
+                        let other = refs[index].clone();
+                        refs.push(other);
+                    }
+                    _ => refs[index]["binding"] = json!("unresolved"),
+                }
+            }));
+        }
+    }
+    for index in 0..12 {
+        reject(&changed(|r| {
+            r["binding"]["nodes"].as_array_mut().unwrap().remove(index);
+        }));
     }
 }

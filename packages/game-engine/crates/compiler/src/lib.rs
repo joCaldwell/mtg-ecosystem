@@ -1919,6 +1919,18 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }) {
         return Err(unsupported("trigger", "unbound death controller"));
     }
+    if definition
+        .activated
+        .iter()
+        .any(|a| sacrifice_source_creature_set_keyword_ability(a).is_some())
+    {
+        set_activation_binding::bind(
+            &binding,
+            &definition.oracle_id,
+            &source,
+            &canonical_abilities,
+        )?;
+    }
     if definition.spell.as_ref().is_some_and(|p| {
         p.instructions.iter().any(|i| {
             matches!(
@@ -10098,3 +10110,5 @@ mod escort_set_tests;
 
 #[cfg(test)]
 mod temporary_vigilance_tests;
+
+mod set_activation_binding;

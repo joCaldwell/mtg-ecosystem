@@ -23,7 +23,16 @@ pub(super) fn definition(d: &Definition) -> bool {
         && d.characteristics.additional_types.is_empty()
         && !d.characteristics.legendary
         && !d.characteristics.basic
-        && d.spell.is_none()
+        && d.spell.as_ref().is_some_and(|p| {
+            p.timing == SpellTiming::MainPhase
+                && p.resolution == SpellResolution::Permanent
+                && p.functioning_zone == FunctioningZone::Stack
+                && p.targets.is_empty()
+                && p.instructions.is_empty()
+                && p.modes.is_empty()
+                && p.additional_sacrifice.is_none()
+                && p.optional_additional_costs.is_empty()
+        })
         && d.intrinsic_zone.is_none()
         && !d.x_mana_cost
         && d.keywords.is_empty()
@@ -90,7 +99,7 @@ pub(super) fn schema(s: &mut serde_json::Value) {
         {"properties":{
             "characteristics":{"properties":{"kind":{"const":"creature"},"additional_types":{"maxItems":0},
                 "legendary":{"const":false},"basic":{"const":false}}},
-            "spell":{"type":"null"},"intrinsic_zone":{"type":"null"},"x_mana_cost":{"const":false},
+            "spell":{"type":"object","properties":{"timing":{"const":"main_phase"},"resolution":{"const":"permanent"},"functioning_zone":{"const":"stack"},"targets":{"maxItems":0},"instructions":{"maxItems":0},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}},"intrinsic_zone":{"type":"null"},"x_mana_cost":{"const":false},
             "keywords":{"maxItems":0},"static_abilities":{"maxItems":0},"mana_abilities":{"maxItems":0},"triggered":{"maxItems":0},
             "activated":{"minItems":1,"maxItems":1,"items":{"$ref":"#/$defs/SacrificeSourceCreatureSetKeywordAbility"}},
             "capabilities":{"items":{"enum":caps},"allOf":exact}
