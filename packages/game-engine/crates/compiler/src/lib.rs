@@ -1927,7 +1927,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         set_activation_binding::bind(
             &binding,
             &definition.oracle_id,
-            &source,
+            &definition.name,
+            &source.layout,
+            &source.type_line,
+            &source.mana_cost,
             &canonical_abilities,
         )?;
     }

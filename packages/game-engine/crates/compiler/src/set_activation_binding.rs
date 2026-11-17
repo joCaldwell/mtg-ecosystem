@@ -7,7 +7,10 @@ use serde_json::{Value, json};
 pub(super) fn bind(
     binding: &Value,
     identity: &str,
-    card: &Source,
+    name: &str,
+    layout: &str,
+    type_line: &str,
+    mana_cost: &str,
     raw: &str,
 ) -> Result<(), Failure> {
     let bad = || {
@@ -34,7 +37,7 @@ pub(super) fn bind(
     let query = format!("{root}{effect}/what#query");
     let mut nodes = vec![
         json!({"id":source,"path":"/source","node":"source","identity":identity}),
-        json!({"id":face,"path":"/faces/0","node":"face","source":source,"sourceFaceIndex":0,"name":card.name,"layout":card.layout,"typeLine":card.type_line,"manaCost":card.mana_cost}),
+        json!({"id":face,"path":"/faces/0","node":"face","source":source,"sourceFaceIndex":0,"name":name,"layout":layout,"typeLine":type_line,"manaCost":mana_cost}),
         json!({"id":ability,"path":path,"node":"ability","source":source,"face":face,"abilityKind":"activated","you":you}),
         json!({"id":you,"path":path,"node":"runtime-player","scope":ability,"role":"activator"}),
         json!({"id":format!("{root}{cost}#event"),"path":cost,"node":"event","scope":ability,"operation":"cost:sacrifice","inputs":[],"availability":"when-performed"}),
