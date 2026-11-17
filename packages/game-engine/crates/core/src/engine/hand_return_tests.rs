@@ -327,7 +327,64 @@ fn hand_return_private_query_atomic_invalid_and_stale_receipts() {
             );
             assert_eq!(g.state_digest().unwrap(), before)
         }
-        choose(g, &r, candidates[..2].to_vec());
+        let QueryValue::Decision(Some(PlayerRequest::HandReturn {
+            token,
+            candidates: handles,
+            count,
+            ..
+        })) = finish_query(g, g.player_decision_for(PlayerId(0), Budget::new(0)))
+        else {
+            panic!("public hand")
+        };
+        assert_eq!(count, 2);
+        assert_eq!(
+            handles,
+            candidates
+                .iter()
+                .map(|o| g.handle_for(PlayerId(0), *o).unwrap())
+                .collect::<Vec<_>>()
+        );
+        let QueryResult::Incomplete { work, .. } =
+            g.player_decision_for(PlayerId(0), Budget::new(2))
+        else {
+            panic!("work")
+        };
+        let saved = g.save_work(&work).unwrap();
+        let work = g.restore_work(&saved).unwrap();
+        assert!(matches!(
+            finish_query(g, g.resume_work(work, Budget::unlimited())),
+            QueryValue::Decision(Some(PlayerRequest::HandReturn { count: 2, .. }))
+        ));
+        let response = PlayerResponse::HandReturn {
+            objects: handles[..2].to_vec(),
+        };
+        let QueryValue::Validated(receipt) = finish_query(
+            g,
+            g.check_player_response(PlayerId(0), token.clone(), response.clone(), Budget::new(0)),
+        ) else {
+            panic!("receipt")
+        };
+        let QueryValue::Validated(duplicate) = finish_query(
+            g,
+            g.check_player_response(PlayerId(0), token, response, Budget::new(0)),
+        ) else {
+            panic!("duplicate")
+        };
+        assert_eq!(g.state_digest().unwrap(), before);
+        g.submit(receipt).unwrap();
+        recover(g);
+        assert!(g.submit(duplicate).is_err());
+        assert!(g.restore_work(&saved).is_err());
+        let mut bad: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
+        let Response::HandReturn { objects } =
+            &mut bad.state.rules.pending.as_mut().unwrap().response
+        else {
+            panic!("accepted")
+        };
+        objects.reverse();
+        bad.state_sha256 = digest(&bad.state).unwrap();
+        assert!(Game::restore(g.prepared.as_ref().clone(), &canonical(&bad).unwrap()).is_err());
+
         finish(g, q);
     });
 }
@@ -537,4 +594,95 @@ fn hand_return_typed_zero_draw_and_unbounded_return_clamps_available_hand() {
             });
         }
     }
+}
+
+#[test]
+fn hand_return_atomic_rollback_and_short_library_failed_attempts() {
+    both(prepared(), |g, q| {
+        let r = paid(g, q);
+        let Request::HandReturn { candidates, .. } = &r else {
+            panic!("hand")
+        };
+        let Frame::ResolutionChoice { frame, .. } = &g.state.rules.frame else {
+            panic!("frame")
+        };
+        let cause = BatchCause::Instruction {
+            stack_id: frame.spell.id,
+            player: PlayerId(0),
+            source: frame.spell.source,
+            cursor: frame.cursor,
+            source_block: 0,
+        };
+        let state = g.state.clone();
+        let trace = g.trace.clone();
+        assert!(
+            g.commit_batch(
+                cause,
+                EventGroup::Ordered {
+                    children: vec![
+                        EventGroup::Occurrence {
+                            proposed: ProposedEvent::HandReturn {
+                                player: PlayerId(0),
+                                count: 2.into(),
+                                objects: candidates[..2].to_vec(),
+                                command: vec![]
+                            }
+                        },
+                        EventGroup::Occurrence {
+                            proposed: ProposedEvent::Mill {
+                                player: PlayerId(0),
+                                count: (-1).into(),
+                                cards: vec![]
+                            }
+                        }
+                    ]
+                }
+            )
+            .is_err()
+        );
+        assert_eq!(g.state, state);
+        assert_eq!(g.trace, trace);
+        choose(g, &r, candidates[..2].to_vec());
+        finish(g, q);
+    });
+    // Historical short-library setup, not a reviewed Commander pod.
+    let mut p = prepared_with_sources(
+        &[("Brainstorm", 0, 0, true), ("Island", 0, 0, false)],
+        &[BRAINSTORM],
+    );
+    let keep = p.config.initial_libraries()[&PlayerId(0)][0];
+    p.config
+        .cards
+        .retain(|c| c.zone != (Zone::Library { owner: PlayerId(0) }) || c.id == keep);
+    p.config.initial.libraries = None;
+    p.profile_digest = digest(&p.config).unwrap();
+    both(p, |g, q| {
+        fund(g, q, "Island", 1);
+        request(g, q);
+        announce(g, q, 0, vec![]);
+        let r = loop {
+            let r = request(g, q);
+            if matches!(r, Request::HandReturn { .. }) {
+                break r;
+            }
+            answer(g, q, pass(&r));
+        };
+        let Request::HandReturn {
+            candidates, count, ..
+        } = &r
+        else {
+            panic!("short hand")
+        };
+        assert_eq!(*count, 1);
+        let Frame::ResolutionChoice { frame, .. } = &g.state.rules.frame else {
+            panic!("frame")
+        };
+        assert!(
+            matches!(&frame.outcomes[0],InstructionOutcome::DrawAttempts{attempted,failed,..} if *attempted==3.into()&&*failed==2.into())
+        );
+        assert!(g.is_live(PlayerId(0)));
+        choose(g, &r, candidates.clone());
+        finish(g, q);
+        assert!(!g.is_live(PlayerId(0)));
+    });
 }
