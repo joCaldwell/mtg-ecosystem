@@ -25,6 +25,9 @@ pub struct RememberedCard {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum OwnKnowledgeAction {
+    LibrarySelected {
+        bottom: Vec<RememberedCard>,
+    },
     Milled {
         count: usize,
     },
@@ -175,6 +178,16 @@ impl Game {
         };
         self.remember_library_action(player, action)
     }
+    pub(super) fn remember_library_selection(
+        &mut self,
+        player: PlayerId,
+        bottom: &[ObjectId],
+    ) -> Result<(), String> {
+        let action = OwnKnowledgeAction::LibrarySelected {
+            bottom: self.remembered_library_cards(player, bottom, 0)?,
+        };
+        self.remember_library_action(player, action)
+    }
     pub(super) fn remember_mill(&mut self, player: PlayerId, count: usize) -> Result<(), String> {
         self.remember_library_action(player, OwnKnowledgeAction::Milled { count })
     }
@@ -229,7 +242,8 @@ fn known_suffix(
     let mut draws: Vec<&str> = vec![];
     for action in actions {
         match action {
-            OwnKnowledgeAction::Scry { .. }
+            OwnKnowledgeAction::LibrarySelected { .. }
+            | OwnKnowledgeAction::Scry { .. }
             | OwnKnowledgeAction::Surveil { .. }
             | OwnKnowledgeAction::Milled { .. } => {
                 return Err(SearchRejection::UnsupportedHistory(

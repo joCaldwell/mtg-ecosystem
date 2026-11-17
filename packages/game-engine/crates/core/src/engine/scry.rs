@@ -8,7 +8,8 @@ impl Game {
         match &self.state.rules.frame {
             Frame::ResolutionChoice {
                 choice:
-                    ResolutionChoice::Scry { player, looked, .. }
+                    ResolutionChoice::LibrarySelect { player, looked, .. }
+                    | ResolutionChoice::Scry { player, looked, .. }
                     | ResolutionChoice::Surveil { player, looked, .. },
                 ..
             } if *player == viewer && self.is_live(viewer) => Some(looked),

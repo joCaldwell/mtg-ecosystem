@@ -18,6 +18,9 @@ mod diagnostics;
 mod fixed_mill;
 #[cfg(test)]
 mod fixed_mill_tests;
+mod library_selection;
+#[cfg(test)]
+mod library_selection_tests;
 mod normalization;
 mod self_reference;
 mod type_line;
@@ -570,6 +573,13 @@ struct Sentence {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "effect", rename_all = "kebab-case")]
 enum Step {
+    LookAt {
+        who: serde_json::Value,
+        what: serde_json::Value,
+    },
+    Simultaneous {
+        steps: Vec<serde_json::Value>,
+    },
     Scry {
         amount: serde_json::Value,
     },
@@ -1680,6 +1690,17 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             &canonical_abilities,
         )?;
     }
+    if definition
+        .spell
+        .as_ref()
+        .is_some_and(mtg_contracts::controller_library_selection_program)
+    {
+        library_selection::validate_bindings(
+            &binding,
+            &definition.oracle_id,
+            &canonical_abilities,
+        )?;
+    }
     definition.capabilities = definition.requirements();
     definition
         .validate()
@@ -1860,6 +1881,25 @@ fn append_spell_effects(
     slots: &mut BTreeMap<String, u32>,
     player_binding: PlayerBinding,
 ) -> Result<(), Failure> {
+    if let Some((amount, remainder)) = library_selection::coalesce(effects)? {
+        if block != 0
+            || !program.instructions.is_empty()
+            || !program.targets.is_empty()
+            || !program.modes.is_empty()
+            || !matches!(player_binding, PlayerBinding::Unbound)
+        {
+            return Err(unsupported(
+                "library selection",
+                "requires standalone whole source",
+            ));
+        }
+        program.instructions.push(Instruction::SelectLibraryCard {
+            amount,
+            remainder,
+            source_block: 0,
+        });
+        return Ok(());
+    }
     if let [Sentence { bindings, steps }] = effects
         && let [Step::Modal { count, options }] = steps.as_slice()
     {

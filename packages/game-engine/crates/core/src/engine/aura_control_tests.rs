@@ -1106,3 +1106,7 @@ mod controller_surveil_tests;
 #[cfg(test)]
 #[path = "fixed_mill_tests.rs"]
 mod fixed_mill_tests;
+
+#[cfg(test)]
+#[path = "library_selection_tests.rs"]
+mod library_selection_tests;
