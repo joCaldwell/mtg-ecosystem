@@ -65,7 +65,9 @@ impl Policy {
                 .find(|o| o.zone == (Zone::Hand { owner: v.viewer }) && o.oracle_id == id)
         };
         Ok(match request {
-            PlayerRequest::Scry { .. } | PlayerRequest::Surveil { .. } => {
+            PlayerRequest::LibrarySelect { .. }
+            | PlayerRequest::Scry { .. }
+            | PlayerRequest::Surveil { .. } => {
                 return Err("scry outside this policy admission".into());
             }
             PlayerRequest::LegendRule { candidates, .. } => PlayerResponse::LegendRule {

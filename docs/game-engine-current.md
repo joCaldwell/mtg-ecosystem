@@ -54,15 +54,9 @@ The platform baseline was `c62777b`; acceptance never transfers to later source:
 | D2c-d `394301d` | Accepted declared-attack triggers at historical IR24, including reviewed demo/Bundle lifetimes |
 | Later D2c-e/IR25 and finite trigger/keyword/interaction additions | Candidate/focused source qualification; no renewed combined acceptance or P7 performance claim |
 | Schema-1 reset | Regenerated 29 active pools, 1,357 definitions unchanged; focused checks only |
-| Controller Scry/Surveil | Focused headless qualification; [proof and exclusions](game-engine-evidence.md); consumers remain separate |
+| Library look, selection and fixed mill | Focused headless qualification; [proof and exclusions](game-engine-evidence.md); consumers remain separate |
 | Controlled-permanent scalar keywords | Rules `7315ffe2`, schema `44930622`; 626 distinct Rust/633 executions, 4,316 probes, 848 rows; explicit bridges; IR1/29/23; consumers unqualified |
 | General Aura-control dependencies | Source `aa28e9b7a39d601a8a9a8bb4fbde9484fe20fc1f`; 843 rows; 550 distinct Rust tests, 3,190 probes; explicit private-test source bridge, IR1/26/21; consumers unqualified |
-| Fresh-main typed Aura/permanent integration | Source `f3326dcd6fab0e6dc8ebbbbef33c622ceb3e3db3`; 841 rows; 605 distinct Rust tests/606 executions, 3,021 probes; IR1/26/21. Client producer pins remain separate |
-| Prior typed Aura feature | Source `97afa6cdcdda88d76a86459b18ae53cda63c1546`; 837 rows; 507 distinct Rust tests, 3,021 probes; explicit private-test source bridge |
-| Controlled-permanent keyword feature | Source `21d10aaa67ea67f009366cbce0d754b59d9b7daa`; 831 rows; 90 fresh core tests plus 375 source-bridged library passes, 2,805 probes; 26/21 |
-| Latest atomic targeted-keyword repair | Source `8462ce4c362702da5062762e45be00f4693080d9`; 827 compiled rows; focused rules/policy/pod/recovery/schema qualification, snapshot 26 and public/context/work 21; consumers unqualified |
-| Prior captured creature-set keyword family | Source `0eabb031831f041eed3ce1506be8bc516718038a`; 825 compiled rows; focused rules/recovery/schema qualification, snapshot 25 and public/context/work 20; consumers unqualified |
-| Prior temporary combat-keyword family | Source `b7d5f51f02b4cd523ab656bc979b04b4939a9643`; 814 compiled rows; focused compiler/contracts/rules/recovery/schema qualification only |
 | Latest compiler input rejection | Source `0eb054cfb50cc7b0d061392d53825017154c8d0e`; compiler-only malformed-filter qualification, separate from runtime producers |
 | Client/hosting consumers | Retain their own exact producer/schema/catalog/build qualification, separate from current engine HEAD |
 

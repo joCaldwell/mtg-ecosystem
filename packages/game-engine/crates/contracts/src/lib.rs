@@ -15,7 +15,11 @@ use num_bigint::BigInt;
 use num_traits::Zero;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 mod controller_library;
+mod fixed_mill;
+mod library_selection;
 pub use controller_library::{controller_scry_program, controller_surveil_program};
+pub use fixed_mill::fixed_mill_program;
+pub use library_selection::controller_library_selection_program;
 use serde::{Deserialize, Serialize, de};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, fmt, str::FromStr};
@@ -231,6 +235,8 @@ pub enum Capability {
     ControllerDrawV1,
     ControllerScryV1,
     ControllerSurveilV1,
+    FixedMillProgramV1,
+    ControllerLibrarySelectionV1,
     ControllerDiscardV1,
     OpponentTargetV1,
     TargetPlayerSacrificeCreatureV1,
@@ -406,6 +412,23 @@ pub enum LifeRecipient {
         target_slot: u32,
     },
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryRemainder {
+    Bottom,
+    Graveyard,
+}
+impl<'de> Deserialize<'de> for LibraryRemainder {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match String::deserialize(deserializer)?.as_str() {
+            "bottom" => Ok(Self::Bottom),
+            "graveyard" => Ok(Self::Graveyard),
+            _ => Err(serde::de::Error::custom(
+                "unsupported library remainder destination",
+            )),
+        }
+    }
+}
 /// Resolution actions use a separate binding domain from draw/life. The event
 /// player is the frozen damaged player of a source-damage trigger (CR 603.2c).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
@@ -476,6 +499,19 @@ pub struct CreatureStatModifier {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    SelectLibraryCard {
+        #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
+        amount: Quantity,
+        remainder: LibraryRemainder,
+        source_block: u32,
+    },
+    MillCards {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        recipient: Option<LifeRecipient>,
+        #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
+        count: Quantity,
+        source_block: u32,
+    },
     /// CR 701.22/701.25: the invocation controller looks and partitions the prefix.
     Surveil {
         #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
@@ -707,7 +743,10 @@ impl Instruction {
     /// Compiler-owned complete source block for this instruction.
     pub fn source_block(&self) -> u32 {
         match self {
-            Self::Scry { source_block, .. } | Self::Surveil { source_block, .. } => *source_block,
+            Self::SelectLibraryCard { source_block, .. }
+            | Self::Scry { source_block, .. }
+            | Self::Surveil { source_block, .. }
+            | Self::MillCards { source_block, .. } => *source_block,
             Self::MoveSet { source_block, .. } => *source_block,
             Self::PumpSet { source_block, .. } => *source_block,
             Self::DamageSet { source_block, .. } => *source_block,
@@ -1671,6 +1710,8 @@ impl Definition {
     }
     pub fn validate(&self) -> Result<(), String> {
         controller_library::validate_definition(self)?;
+        fixed_mill::validate_definition(self)?;
+        library_selection::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -2940,6 +2981,12 @@ fn temporary_creature_keyword_capability(p: &SpellProgram) -> Capability {
     }
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
+    if library_selection::has_selection(p) && !controller_library_selection_program(p) {
+        return Err("unsupported complete library selection program".into());
+    }
+    if fixed_mill::has_mill(p) && !fixed_mill_program(p) {
+        return Err("unsupported complete fixed mill program".into());
+    }
     // Controller selectors are reserved for complete ordinary keyword families.
     // Shared set decoding must not widen movement, damage, pump or nested routes.
     fn controller_set(p: &SpellProgram) -> bool {
@@ -3454,6 +3501,21 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     }
                 }
             }
+            Instruction::SelectLibraryCard { .. } => None,
+            Instruction::MillCards {
+                count, recipient, ..
+            } => {
+                if count.is_negative() {
+                    return Err("negative mill count".into());
+                }
+                match recipient {
+                    None => None,
+                    Some(LifeRecipient::Target { target_slot }) => {
+                        Some((*target_slot, TargetDomain::AnyPlayer))
+                    }
+                    _ => return Err("unsupported mill recipient".into()),
+                }
+            }
             Instruction::DrawCards {
                 count, recipient, ..
             } => {
@@ -3761,6 +3823,8 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::DealDamage { .. } => Capability::NoncombatDamageV1,
             Instruction::Scry { .. } => Capability::ControllerScryV1,
             Instruction::Surveil { .. } => Capability::ControllerSurveilV1,
+            Instruction::MillCards { .. } => Capability::FixedMillProgramV1,
+            Instruction::SelectLibraryCard { .. } => Capability::ControllerLibrarySelectionV1,
             Instruction::GainLife { .. } => Capability::LifeGainV1,
             Instruction::LoseLife { .. } => Capability::LifeLossV1,
         });
@@ -4813,6 +4877,8 @@ pub fn catalog_schema() -> serde_json::Value {
         }},"then":{"$ref":"#/$defs/AuraControlDefinition"}}),
         ]);
     controller_library::extend_schema(&mut schema);
+    fixed_mill::extend_schema(&mut schema);
+    library_selection::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -4972,6 +5038,8 @@ mod tests {
             ControllerDrawV1,
             ControllerScryV1,
             ControllerSurveilV1,
+            FixedMillProgramV1,
+            ControllerLibrarySelectionV1,
             ControllerDiscardV1,
             OpponentTargetV1,
             TargetPlayerSacrificeCreatureV1,
@@ -5137,6 +5205,8 @@ mod tests {
         definitions.push(temporary_permanent_keyword_tests::grant(true));
         definitions.push(controller_library::witness());
         definitions.push(controller_library::surveil_witness());
+        definitions.push(fixed_mill::witness());
+        definitions.push(library_selection::witness());
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());

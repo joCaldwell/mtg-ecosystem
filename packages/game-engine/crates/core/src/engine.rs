@@ -313,9 +313,11 @@ mod recovery;
 pub use recovery::SnapshotVerifier;
 mod actions;
 mod casting;
+mod library_selection;
 mod mana_permanents;
 #[cfg(test)]
 mod mana_tests;
+mod mill;
 mod scry;
 mod surveil;
 pub use mana_permanents::PermanentManaUndo;
@@ -1045,6 +1047,10 @@ enum Frame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    LibrarySelect {
+        hand: Vec<ObjectId>,
+        remainder: Vec<ObjectId>,
+    },
     Surveil {
         top: Vec<ObjectId>,
         graveyard: Vec<ObjectId>,
@@ -1165,6 +1171,12 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    LibrarySelect {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
+        remainder: LibraryRemainder,
+    },
     Surveil {
         decision_id: u64,
         player: PlayerId,
@@ -1344,7 +1356,9 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::Scry { decision_id, .. } | Self::Surveil { decision_id, .. } => *decision_id,
+            Self::LibrarySelect { decision_id, .. }
+            | Self::Scry { decision_id, .. }
+            | Self::Surveil { decision_id, .. } => *decision_id,
             Self::AnnounceX { decision_id, .. }
             | Self::ManaColor { decision_id, .. }
             | Self::SearchLands { decision_id, .. }
@@ -1377,7 +1391,9 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::Scry { player, .. } | Self::Surveil { player, .. } => *player,
+            Self::LibrarySelect { player, .. }
+            | Self::Scry { player, .. }
+            | Self::Surveil { player, .. } => *player,
             Self::AnnounceX { player, .. }
             | Self::ManaColor { player, .. }
             | Self::SearchLands { player, .. }
@@ -1412,6 +1428,20 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    LibrarySelect {
+        player: PlayerId,
+        amount: Quantity,
+        destination: LibraryRemainder,
+        looked: Vec<ObjectId>,
+        hand: Vec<ObjectId>,
+        remainder: Vec<ObjectId>,
+        hand_to_command: bool,
+    },
+    Mill {
+        player: PlayerId,
+        count: Quantity,
+        cards: Vec<ObjectId>,
+    },
     Surveil {
         player: PlayerId,
         amount: Quantity,
@@ -1598,6 +1628,16 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    LibrarySelected {
+        player: PlayerId,
+        hand: Option<MoveOutcome>,
+        remainder: Vec<ObjectId>,
+        graveyard: Vec<MoveOutcome>,
+    },
+    Milled {
+        player: PlayerId,
+        movements: Vec<MoveOutcome>,
+    },
     Surveilled {
         player: PlayerId,
         looked: Vec<ObjectId>,
@@ -3159,7 +3199,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 33,
+            snapshot_version: 35,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3201,7 +3241,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 33
+        if s.snapshot_version != 35
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

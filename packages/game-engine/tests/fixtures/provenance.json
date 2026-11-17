@@ -2132,6 +2132,78 @@
       "ast_sha256": "7a3d03b3f42f86727a019a444272c99dd9fee192608d2f25a870c9ebf3560c1d",
       "archive": "archive-manifest-current.json",
       "archive_line": 28674
+    },
+    {
+      "file": "446a9d7e-9c1a-4e83-8342-2ed5acae2eed.json",
+      "oracle_id": "446a9d7e-9c1a-4e83-8342-2ed5acae2eed",
+      "record_sha256": "8dd11d462d6e0939b982c9aac76b2fa03b8aada88fc5a7de27d603ae80f5ee8c",
+      "source_sha256": "0128e69e22b72084be4146809a6d87238eddee4983966c1f9b4e5e9ba2c7ff4c",
+      "ast_sha256": "95794fd243f8520ad916158a6bb9e65b2bf68856a5446d68357bd176f3e1585b",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 10286
+    },
+    {
+      "file": "83101ba8-a569-4827-8c53-9ca0dfcd59a7.json",
+      "oracle_id": "83101ba8-a569-4827-8c53-9ca0dfcd59a7",
+      "record_sha256": "066ca75c12b7b3188e88a4800f5b9e6864bd4703beac3a19f8bc7b39733fb000",
+      "source_sha256": "ee1007a1b8e6bf52f45d4b5e92edbb1e1ba514d83cb721fffbbfa0ffa34f445e",
+      "ast_sha256": "29e63452632e3a17afac2d2bd11e87375ec153cadda88cd34092227c2febeb5e",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 19713
+    },
+    {
+      "file": "e8d5f31c-7abf-4fbb-977e-8353a97daf7a.json",
+      "oracle_id": "e8d5f31c-7abf-4fbb-977e-8353a97daf7a",
+      "record_sha256": "7b0f3cb2fce415b3ca7eaa4b8d14acc5b967944ca239be228bd736038ab04167",
+      "source_sha256": "30cfc58ea15e8ab42f6b85fd57f39d1c9fd8868d4d980fa9e12a4b2fedac5851",
+      "ast_sha256": "b3345fb990a72ef62465f87de3a4c6ab5e77f9b3688c258d95d0f0ae12dd2afb",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 35152
+    },
+    {
+      "file": "02b5acf3-47cb-4d39-9307-e02656f1879b.json",
+      "oracle_id": "02b5acf3-47cb-4d39-9307-e02656f1879b",
+      "record_sha256": "7e3a0021708347e0b5bfce2020ce0354067a120e3445e6b4f420f0a606c3698c",
+      "source_sha256": "81768482585418f572283d677212c5a709b2c25346c229ed497e47ce8adb92a8",
+      "ast_sha256": "683d2d5746150e8ec07bd8bdd2595a2328a53467c1b80ba80cbbe89ba00e9d69",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 443
+    },
+    {
+      "file": "05a039ad-1689-4d13-b393-6c1219583b5d.json",
+      "oracle_id": "05a039ad-1689-4d13-b393-6c1219583b5d",
+      "record_sha256": "f63591f706fdee6d5a93c97dcae9691bcc1e66de23ffce1dcb42abdf207b0bd8",
+      "source_sha256": "0be04576f82ec3a36b2ac0bf8f3bb4d954c117f60590c372caf651d980680fcf",
+      "ast_sha256": "dd0abc5fb759b987287e61d3ca14631acfd795f97eae9bb3fd41a0abb23b01e7",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 888
+    },
+    {
+      "file": "9b97a7fe-c5d9-4698-a49c-183b3f1ce4db.json",
+      "oracle_id": "9b97a7fe-c5d9-4698-a49c-183b3f1ce4db",
+      "record_sha256": "aa5db57b22c7af29b7b311241e6108f274fd0f080b338c8f86fd5ec63ea4f162",
+      "source_sha256": "d16302d38b534010cda0ddc959a275de57461a0a2979fcc2eb801c2c6527ca7d",
+      "ast_sha256": "683d2d5746150e8ec07bd8bdd2595a2328a53467c1b80ba80cbbe89ba00e9d69",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 23456
+    },
+    {
+      "file": "a97da5a9-17fc-4367-81e1-17ff81601a63.json",
+      "oracle_id": "a97da5a9-17fc-4367-81e1-17ff81601a63",
+      "record_sha256": "52d5cb1becb2e659da79ee980e150a55fee1f471ba16bc1e903b442b7ea388a8",
+      "source_sha256": "9a176d21d715a0cce7c273352c595cea4bdaf341f30e9cf2dcb3c57ededc951f",
+      "ast_sha256": "cdc5da7f3316a51ea0928c88d18a45c0a8fdb389189cd077b7228ddc461cfe0e",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 25530
+    },
+    {
+      "file": "f6bd2902-7f8b-419e-bbc7-bcab0c1b7e01.json",
+      "oracle_id": "f6bd2902-7f8b-419e-bbc7-bcab0c1b7e01",
+      "record_sha256": "afe06f05f9da033c77e913fb553983a535e57a5fca60808e6f3560526816ece8",
+      "source_sha256": "35c1c34e0c699bba049895da529976c6e953c62690e9f89afeeea17d8afaa304",
+      "ast_sha256": "41fd59770243a9851d93bc8ca84b144db502fdf2cfa5449c03d39e49bd467df0",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 37309
     }
   ]
 }

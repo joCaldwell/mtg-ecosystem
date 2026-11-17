@@ -15,6 +15,12 @@ mod controller_scry_tests;
 mod controller_surveil_tests;
 pub mod coverage;
 mod diagnostics;
+mod fixed_mill;
+#[cfg(test)]
+mod fixed_mill_tests;
+mod library_selection;
+#[cfg(test)]
+mod library_selection_tests;
 mod normalization;
 mod self_reference;
 mod type_line;
@@ -567,10 +573,21 @@ struct Sentence {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "effect", rename_all = "kebab-case")]
 enum Step {
+    LookAt {
+        who: serde_json::Value,
+        what: serde_json::Value,
+    },
+    Simultaneous {
+        steps: Vec<serde_json::Value>,
+    },
     Scry {
         amount: serde_json::Value,
     },
     Surveil {
+        amount: serde_json::Value,
+    },
+    Mill {
+        who: serde_json::Value,
         amount: serde_json::Value,
     },
     CreateReplacement {
@@ -1641,9 +1658,14 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         return Err(unsupported("trigger", "unbound death controller"));
     }
     if definition.spell.as_ref().is_some_and(|p| {
-        p.instructions
-            .iter()
-            .any(|i| matches!(i, Instruction::Scry { .. } | Instruction::Surveil { .. }))
+        p.instructions.iter().any(|i| {
+            matches!(
+                i,
+                Instruction::Scry { .. }
+                    | Instruction::Surveil { .. }
+                    | Instruction::MillCards { .. }
+            )
+        })
     }) {
         controller_library::validate_source_shape(&canonical_abilities)?;
     }
@@ -1658,9 +1680,22 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         )?;
     }
     if definition.spell.as_ref().is_some_and(|p| {
-        mtg_contracts::controller_scry_program(p) || mtg_contracts::controller_surveil_program(p)
+        mtg_contracts::controller_scry_program(p)
+            || mtg_contracts::controller_surveil_program(p)
+            || mtg_contracts::fixed_mill_program(p)
     }) {
         controller_library::validate_bindings(
+            &binding,
+            &definition.oracle_id,
+            &canonical_abilities,
+        )?;
+    }
+    if definition
+        .spell
+        .as_ref()
+        .is_some_and(mtg_contracts::controller_library_selection_program)
+    {
+        library_selection::validate_bindings(
             &binding,
             &definition.oracle_id,
             &canonical_abilities,
@@ -1846,6 +1881,25 @@ fn append_spell_effects(
     slots: &mut BTreeMap<String, u32>,
     player_binding: PlayerBinding,
 ) -> Result<(), Failure> {
+    if let Some((amount, remainder)) = library_selection::coalesce(effects)? {
+        if block != 0
+            || !program.instructions.is_empty()
+            || !program.targets.is_empty()
+            || !program.modes.is_empty()
+            || !matches!(player_binding, PlayerBinding::Unbound)
+        {
+            return Err(unsupported(
+                "library selection",
+                "requires standalone whole source",
+            ));
+        }
+        program.instructions.push(Instruction::SelectLibraryCard {
+            amount,
+            remainder,
+            source_block: 0,
+        });
+        return Ok(());
+    }
     if let [Sentence { bindings, steps }] = effects
         && let [Step::Modal { count, options }] = steps.as_slice()
     {
@@ -2497,6 +2551,9 @@ fn append_spell_effects(
                 Step::Scry { amount } => controller_library::instruction(amount, source_block)?,
                 Step::Surveil { amount } => {
                     controller_library::surveil_instruction(amount, source_block)?
+                }
+                Step::Mill { who, amount } => {
+                    fixed_mill::instruction(program, slots, who, amount, source_block)?
                 }
                 Step::GainLife { who, amount, .. } => Instruction::GainLife {
                     recipient: life_recipient(
