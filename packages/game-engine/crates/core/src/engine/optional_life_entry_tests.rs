@@ -783,6 +783,8 @@ fn optional_entry_synthetic_zero_prior_cinder_and_large_unaffordable_cost() {
         )
         .unwrap();
     }
+    // This raw synthetic movement bypasses the ordinary rule-step publication.
+    g.refresh_visibility().unwrap();
     select(&mut g, &[CINDER, POOL], false);
     paid_choices(&mut g, 1, 1);
     commit_entry(&mut g);
