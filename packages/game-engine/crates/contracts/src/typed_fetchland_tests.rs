@@ -1,6 +1,6 @@
 //! Synthetic contract probes. Frozen complete sources belong to compiler/core.
 use super::*;
-fn definition() -> Definition {
+pub(super) fn definition() -> Definition {
     let mut d = conditional_lands::tests::land();
     d.static_abilities.clear();
     d.characteristics.subtypes.clear();
