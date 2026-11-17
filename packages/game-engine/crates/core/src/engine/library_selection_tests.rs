@@ -444,6 +444,7 @@ fn library_selection_typed_zero_short_empty_and_large_counts() {
         p.config
             .cards
             .retain(|c| c.zone != (Zone::Library { owner: PlayerId(0) }) || keep.contains(&c.id));
+        p.config.initial.libraries = None;
         p.config.initial.libraries = Some(p.config.initial_libraries());
         p.profile_digest = digest(&p.config).unwrap();
         both(p, |g, q| {
