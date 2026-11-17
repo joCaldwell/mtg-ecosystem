@@ -1126,3 +1126,6 @@ mod draw_discard_tests;
 #[cfg(test)]
 #[path = "temporary_reach_tests.rs"]
 mod temporary_reach_tests;
+
+#[path = "temporary_vigilance_tests.rs"]
+mod temporary_vigilance_tests;

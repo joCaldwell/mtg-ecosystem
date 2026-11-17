@@ -346,7 +346,7 @@ fn temporary_combat_keyword_strict_gained_decoder() {
         json!({"gained":"keyword","keyword":null}),
         json!({"gained":"keyword","keyword":{"keyword":null}}),
         json!({"gained":"keyword","keyword":{"keyword":"first-strike"}}),
-        json!({"gained":"keyword","keyword":{"keyword":"vigilance"}}),
+        json!({"gained":"keyword","keyword":{"keyword":"defender"}}),
         json!({"gained":"activated","keyword":{"keyword":"haste"}}),
         json!({"gained":"triggered","keyword":{"keyword":"haste"}}),
         json!({"gained":"keyword","keyword":{"keyword":"haste"},"extra":null}),
@@ -376,7 +376,7 @@ fn temporary_combat_keyword_complete_sources_reject_unconsumed_shapes() {
                 match variant {
                     0 => steps[last]["abilities"] = json!([]),
                     1 => steps[last]["abilities"] = Value::Null,
-                    2 => steps[last]["abilities"][0]["keyword"]["keyword"] = "vigilance".into(),
+                    2 => steps[last]["abilities"][0]["keyword"]["keyword"] = "defender".into(),
                     3 => steps[last]["abilities"][0]["extra"] = Value::Null,
                     4 => steps[last]["abilities"][0]["keyword"]["extra"] = Value::Null,
                     5 => steps[last]["abilities"][0]["gained"] = "activated".into(),

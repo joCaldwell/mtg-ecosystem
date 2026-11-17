@@ -147,7 +147,7 @@ fn temporary_flying_rejects_spare_capabilities_and_other_single_keywords() {
     for keyword in [
         KeywordAbility::Reach,
         KeywordAbility::DoubleStrike,
-        KeywordAbility::Vigilance,
+        KeywordAbility::Defender,
     ] {
         let mut b = d.clone();
         if let Instruction::GrantKeywords { keywords, .. } =

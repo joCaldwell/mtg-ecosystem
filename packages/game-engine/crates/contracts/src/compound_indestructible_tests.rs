@@ -134,7 +134,7 @@ fn compound_indestructible_rejects_structural_near_misses() {
             14 => {
                 // Mixed Haste is reviewed; retain an unsupported mixed grant.
                 if let Instruction::GrantKeywords { keywords, .. } = &mut p.instructions[0] {
-                    keywords.push(KeywordAbility::Vigilance);
+                    keywords.push(KeywordAbility::Defender);
                 }
             }
             15 => {
