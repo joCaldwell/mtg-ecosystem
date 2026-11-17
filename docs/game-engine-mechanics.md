@@ -112,7 +112,7 @@ hand replacement; graveyard return waits for SBAs. Extra clauses/draw compositio
 Top-order/optional-shuffle/draw privately orders an incarnation-preserving prefix,
 offers a boolean, then draws. Shuffles include empty/singleton
 libraries; declines consume no randomness. `ControllerCountedDrawV1` fences standalone
-controller draws: sequential attempts without clamping; legacy one/two-card
+nonnegative controller draws: sequential attempts without clamping; legacy one/two-card
 source IR stays unchanged. Counted draws precede whole-hand returns
 or simultaneous discards. Returns create successors after Commander replacements;
 discard precedes Commander SBAs. Short hands clamp; failed draws never interrupt
