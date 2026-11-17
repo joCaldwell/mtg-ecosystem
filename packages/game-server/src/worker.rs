@@ -712,26 +712,10 @@ impl Worker {
     }
     /// Host authenticates `seat`; no caller-supplied viewer may cross seats.
     pub fn resume(&self, seat: u8) -> Result<crate::protocol::SeatResume, String> {
-        let crate::store::CommittedPublications {
-            next,
-            state,
-            lifecycle,
-            outcome,
-        } = self.store.resume_publications(seat)?;
-        let resume = crate::protocol::SeatResume {
-            protocol_version: crate::protocol::PROTOCOL_VERSION,
-            match_id: self.identity.match_id.clone(),
-            viewer: PlayerId(seat),
-            engine_build_id: self.identity.engine_build_id.clone(),
-            server_build_id: self.identity.server_build_id.clone(),
-            catalog_sha256: self.identity.catalog_sha256.clone(),
-            next,
-            state,
-            lifecycle,
-            outcome,
-        };
-        crate::protocol::checked_resume(&resume)?;
-        Ok(resume)
+        assemble_resume(&self.identity, seat, self.store.resume_publications(seat)?)
+    }
+    pub(crate) fn read_descriptor(&self) -> Result<crate::store::ReadDescriptor, String> {
+        self.store.read_descriptor()
     }
     pub fn command_execution(
         &self,
@@ -1608,6 +1592,34 @@ impl ReplayCursor {
         self.expected_head = durable.head;
         Ok((job, command_key))
     }
+}
+
+/// Shared pure assembler: Worker::resume remains the committed-store oracle.
+pub(crate) fn assemble_resume(
+    identity: &WorkerIdentity,
+    seat: u8,
+    publications: crate::store::CommittedPublications,
+) -> Result<crate::protocol::SeatResume, String> {
+    let crate::store::CommittedPublications {
+        next,
+        state,
+        lifecycle,
+        outcome,
+    } = publications;
+    let resume = crate::protocol::SeatResume {
+        protocol_version: crate::protocol::PROTOCOL_VERSION,
+        match_id: identity.match_id.clone(),
+        viewer: PlayerId(seat),
+        engine_build_id: identity.engine_build_id.clone(),
+        server_build_id: identity.server_build_id.clone(),
+        catalog_sha256: identity.catalog_sha256.clone(),
+        next,
+        state,
+        lifecycle,
+        outcome,
+    };
+    crate::protocol::checked_resume(&resume)?;
+    Ok(resume)
 }
 
 #[cfg(test)]

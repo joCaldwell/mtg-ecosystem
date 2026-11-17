@@ -70,6 +70,78 @@ pub struct CommittedPublications {
     pub outcome: Option<RulesResult>,
 }
 
+/// Ready-only private pins. A read never creates a writer generation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ReadDescriptor {
+    pub generation: u64,
+    pub bootstrap_sha256: String,
+}
+
+/// Assemble from one caller-owned snapshot; never open a second transaction.
+pub(crate) fn resume_publications(
+    connection: &Connection,
+    seat: u8,
+) -> Result<CommittedPublications, String> {
+    if seat >= 4 {
+        return Err("invalid resume seat".into());
+    }
+    let latest: i64 = connection
+        .query_row(
+            "SELECT cursor FROM viewer_heads WHERE seat=?1",
+            [seat],
+            |r| r.get(0),
+        )
+        .map_err(error)?;
+    let next = Counter::new(u64::try_from(latest).map_err(error)?);
+    let mut state = ResumeState::Pending;
+    let mut lifecycle = None;
+    let mut outcome = None;
+    for kind in ["view_replaced", "lifecycle", "outcome"] {
+        // SQL bounds before materializing a corrupt record. The expression
+        // matches outbox_publication_kind exactly (SQLite expression index).
+        let row: Option<(i64, Option<String>)> = connection.query_row(
+            "SELECT cursor,CASE WHEN typeof(body)='text' AND length(CAST(body AS BLOB))<=?4 THEN body ELSE NULL END FROM outbox WHERE seat=?1 AND json_extract(body,'$.entries[0].publication.kind')=?2 AND cursor<=?3 ORDER BY cursor DESC LIMIT 1",
+            params![seat, kind, latest, MAX_VIEW_BYTES as i64], |r| Ok((r.get(0)?,r.get(1)?))
+        ).optional().map_err(error)?;
+        if let Some((cursor, body)) = row {
+            let page: StreamPage = strict_read(&body.ok_or("resume publication exceeds bound")?)?;
+            if page.protocol_version != 1
+                || page.entries.len() != 1
+                || page.has_more
+                || page.next.get() != u64::try_from(cursor).map_err(error)?
+                || page.entries[0].cursor != page.next
+            {
+                return Err("invalid resume publication".into());
+            }
+            match page
+                .entries
+                .into_iter()
+                .next()
+                .expect("checked one entry")
+                .publication
+            {
+                Publication::ViewReplaced { observation }
+                    if kind == "view_replaced" && observation.view.viewer.0 == seat =>
+                {
+                    state = ResumeState::Available { observation }
+                }
+                Publication::Lifecycle { status } if kind == "lifecycle" => {
+                    lifecycle = Some(status)
+                }
+                Publication::Outcome { result } if kind == "outcome" => outcome = Some(result),
+                _ => return Err("invalid resume publication kind or viewer".into()),
+            }
+        }
+    }
+    Ok(CommittedPublications {
+        next,
+        state,
+        lifecycle,
+        outcome,
+    })
+}
+
 pub struct MatchStore {
     connection: Connection,
     _owner_lock: File,
@@ -632,65 +704,15 @@ CREATE INDEX IF NOT EXISTS outbox_publication_kind ON outbox(seat,json_extract(b
     /// Indexed seeks in a single SQLite read snapshot; cost does not grow with
     /// the number of pages a reconnecting browser missed. Returns public data only.
     pub fn resume_publications(&self, seat: u8) -> Result<CommittedPublications, String> {
-        if seat >= 4 {
-            return Err("invalid resume seat".into());
-        }
         let tx = self.connection.unchecked_transaction().map_err(error)?;
-        let latest: i64 = tx
-            .query_row(
-                "SELECT cursor FROM viewer_heads WHERE seat=?1",
-                [seat],
-                |r| r.get(0),
-            )
-            .map_err(error)?;
-        let next = Counter::new(u64::try_from(latest).map_err(error)?);
-        let mut state = ResumeState::Pending;
-        let mut lifecycle = None;
-        let mut outcome = None;
-        for kind in ["view_replaced", "lifecycle", "outcome"] {
-            // SQL bounds before materializing a corrupt record. The expression
-            // matches outbox_publication_kind exactly (SQLite expression index).
-            let row: Option<(i64, Option<String>)> = tx.query_row(
-                "SELECT cursor,CASE WHEN typeof(body)='text' AND length(CAST(body AS BLOB))<=?4 THEN body ELSE NULL END FROM outbox WHERE seat=?1 AND json_extract(body,'$.entries[0].publication.kind')=?2 AND cursor<=?3 ORDER BY cursor DESC LIMIT 1",
-                params![seat, kind, latest, MAX_VIEW_BYTES as i64], |r| Ok((r.get(0)?,r.get(1)?))
-            ).optional().map_err(error)?;
-            if let Some((cursor, body)) = row {
-                let page: StreamPage =
-                    strict_read(&body.ok_or("resume publication exceeds bound")?)?;
-                if page.protocol_version != 1
-                    || page.entries.len() != 1
-                    || page.has_more
-                    || page.next.get() != u64::try_from(cursor).map_err(error)?
-                    || page.entries[0].cursor != page.next
-                {
-                    return Err("invalid resume publication".into());
-                }
-                match page
-                    .entries
-                    .into_iter()
-                    .next()
-                    .expect("checked one entry")
-                    .publication
-                {
-                    Publication::ViewReplaced { observation }
-                        if kind == "view_replaced" && observation.view.viewer.0 == seat =>
-                    {
-                        state = ResumeState::Available { observation }
-                    }
-                    Publication::Lifecycle { status } if kind == "lifecycle" => {
-                        lifecycle = Some(status)
-                    }
-                    Publication::Outcome { result } if kind == "outcome" => outcome = Some(result),
-                    _ => return Err("invalid resume publication kind or viewer".into()),
-                }
-            }
-        }
+        let result = resume_publications(&tx, seat)?;
         tx.commit().map_err(error)?;
-        Ok(CommittedPublications {
-            next,
-            state,
-            lifecycle,
-            outcome,
+        Ok(result)
+    }
+    pub(crate) fn read_descriptor(&self) -> Result<ReadDescriptor, String> {
+        Ok(ReadDescriptor {
+            generation: self.generation,
+            bootstrap_sha256: self.bootstrap_sha256()?,
         })
     }
     pub fn records_after(&self, after: u64, limit: u32) -> Result<Vec<DurableRecord>, String> {

@@ -11,7 +11,17 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::sync::{Notify, oneshot};
+use tokio::sync::{Notify, Semaphore, oneshot};
+
+pub(crate) const READER_LIMIT: usize = 4;
+type Reader = Arc<crate::resume_reader::ResumeReader>;
+
+// The production await seam also permits a deterministic held-reply regression.
+async fn await_worker_reply(
+    request: impl std::future::Future<Output = Result<WorkerReply, crate::process::BridgeError>>,
+) -> Result<WorkerReply, crate::process::BridgeError> {
+    request.await
+}
 
 pub const QUEUE_LIMIT: usize = 16;
 const CALL_TIMEOUT: Duration = Duration::from_secs(120);
@@ -64,6 +74,8 @@ async fn complete_scheduled<T>(
 pub struct Broker {
     queue: Arc<Mutex<Queue>>,
     notify: Arc<Notify>,
+    reader: Arc<Mutex<Option<Reader>>>,
+    reader_admission: Arc<Semaphore>,
 }
 impl Broker {
     pub fn start(process: WorkerProcess) -> (Self, tokio::task::JoinHandle<()>) {
@@ -82,6 +94,8 @@ impl Broker {
         let broker = Self {
             queue: Arc::new(Mutex::new(Queue::default())),
             notify: Arc::new(Notify::new()),
+            reader: Arc::new(Mutex::new(Some(process.resume_reader()))),
+            reader_admission: Arc::new(Semaphore::new(READER_LIMIT)),
         };
         let actor = broker.clone();
         let task = tokio::spawn(async move { actor.run(process, config).await });
@@ -106,9 +120,62 @@ impl Broker {
         Ok(receiver)
     }
     pub async fn call(&self, command: WorkerCommand) -> Reply {
+        // Both HTTP and the lifecycle projector use this call boundary. Pure
+        // committed Resume never enters the one-rules-executor queue.
+        if let WorkerCommand::Resume { seat } = command {
+            return self.resume(seat).await;
+        }
         self.enqueue(command)?
             .await
             .unwrap_or(Err(BrokerError::Unavailable))
+    }
+    async fn resume(&self, seat: u8) -> Reply {
+        let permit = self
+            .reader_admission
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| BrokerError::Busy)?;
+        let reader = self
+            .reader
+            .lock()
+            .map_err(|_| BrokerError::Unavailable)?
+            .clone()
+            .ok_or(BrokerError::Unavailable)?;
+        let epoch = reader.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            // Admission follows the blocking job even if its caller is dropped.
+            let _permit = permit;
+            reader.read(seat)
+        })
+        .await
+        .map_err(|_| BrokerError::Unavailable)?;
+        let gate = self.reader.lock().map_err(|_| BrokerError::Unavailable)?;
+        if !gate
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, &epoch))
+        {
+            return Err(BrokerError::Unavailable);
+        }
+        result
+            .map(|resume| WorkerReply::Resume {
+                resume: Box::new(resume),
+            })
+            .map_err(|_| BrokerError::Unavailable)
+    }
+    fn revoke_reader(&self) {
+        if let Ok(mut gate) = self.reader.lock() {
+            if let Some(reader) = gate.take() {
+                reader.revoke();
+            }
+        }
+    }
+    fn install_reader(&self, process: &WorkerProcess) -> Option<()> {
+        let queue = self.queue.lock().ok()?;
+        if queue.stopping || queue.dead {
+            return None;
+        }
+        *self.reader.lock().ok()? = Some(process.resume_reader());
+        Some(())
     }
     /// None means the submission has already left this queue (or never existed).
     /// The caller may inspect its durable execution status, but cannot undo it.
@@ -147,6 +214,7 @@ impl Broker {
         if let Ok(mut queue) = self.queue.lock() {
             queue.stopping = true;
         }
+        self.revoke_reader();
         self.notify.notify_one();
     }
     fn finish(&self) {
@@ -158,6 +226,7 @@ impl Broker {
                 }
             }
         }
+        self.revoke_reader();
     }
     async fn recover(
         &self,
@@ -165,6 +234,7 @@ impl Broker {
         config: &Option<SpawnConfig>,
         attempts: &mut usize,
     ) -> Option<WorkerProcess> {
+        self.revoke_reader();
         // Never replace a writer whose resource group was not verified empty.
         if old.shutdown(Duration::from_secs(5)).await.is_err() {
             return None;
@@ -208,8 +278,7 @@ impl Broker {
                 {
                     continue;
                 }
-                let result = process
-                    .call(item.command, CALL_TIMEOUT)
+                let result = await_worker_reply(process.call(item.command, CALL_TIMEOUT))
                     .await
                     .map_err(|_| BrokerError::Unavailable);
                 if let Ok(reply) = &result
@@ -225,6 +294,9 @@ impl Broker {
                             code: crate::ipc::WorkerErrorCode::Unavailable
                         })
                     );
+                if failed {
+                    self.revoke_reader();
+                }
                 for sender in item.replies {
                     let _ = sender.send(result.clone());
                 }
@@ -232,6 +304,9 @@ impl Broker {
                     match self.recover(process, &config, &mut recoveries).await {
                         Some(recovered) => {
                             process = recovered;
+                            if self.install_reader(&process).is_none() {
+                                break;
+                            }
                             status = process.status().clone();
                             served = 0;
                             last_clock = tokio::time::Instant::now();
@@ -264,7 +339,12 @@ impl Broker {
                 }
             };
             served = 0;
-            match complete_scheduled(process.call(command, CALL_TIMEOUT), &mut last_clock).await {
+            match complete_scheduled(
+                await_worker_reply(process.call(command, CALL_TIMEOUT)),
+                &mut last_clock,
+            )
+            .await
+            {
                 Ok(reply) if !matches!(reply, WorkerReply::Error { .. }) => {
                     if let Some(next) = reply.status() {
                         status = next.clone();
@@ -273,6 +353,9 @@ impl Broker {
                 _ => match self.recover(process, &config, &mut recoveries).await {
                     Some(recovered) => {
                         process = recovered;
+                        if self.install_reader(&process).is_none() {
+                            break;
+                        }
                         status = process.status().clone();
                         last_clock = tokio::time::Instant::now();
                     }
@@ -307,6 +390,8 @@ mod tests {
         Broker {
             queue: Arc::new(Mutex::new(Queue::default())),
             notify: Arc::new(Notify::new()),
+            reader: Arc::new(Mutex::new(None)),
+            reader_admission: Arc::new(Semaphore::new(READER_LIMIT)),
         }
     }
     #[tokio::test]
