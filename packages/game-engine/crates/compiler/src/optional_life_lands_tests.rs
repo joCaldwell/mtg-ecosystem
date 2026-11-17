@@ -211,7 +211,14 @@ fn optional_life_lands_rehashed_operand_and_binding_negatives() {
         ("/binding/fullyBound", json!(false)),
         ("/binding/referencesBound", json!(false)),
     ] {
-        let mutated = changed(raw, |r| *r.pointer_mut(path).unwrap() = value);
+        let mutated = changed(raw, |r| {
+            let (parent, key) = path.rsplit_once('/').unwrap();
+            r.pointer_mut(parent)
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .insert(key.into(), value);
+        });
         assert!(
             !matches!(compile(MANIFEST, &mutated), CompileResult::Lowered { .. }),
             "{path}"
