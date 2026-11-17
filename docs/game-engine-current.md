@@ -46,23 +46,18 @@ sign-in grants no Rust seat; [client contracts](game-client.md) own integration.
 
 ## Evidence boundaries at the platform baseline
 
-The platform baseline was `c62777b`; acceptance never transfers to later source:
+The platform baseline was `c62777b`. Historical acceptance covers D2c-c
+`a7f5571` (ordinary cast triggers) and D2c-d `394301d` (declared-attack
+triggers and reviewed demo/Bundle lifetimes). Later source-backed families retain
+separate focused qualifications; acceptance never transfers to later source or
+consumers.
 
-| Boundary | Status |
-| --- | --- |
-| D2c-c `a7f5571` | Accepted ordinary cast triggers at historical IR23 |
-| D2c-d `394301d` | Accepted declared-attack triggers at historical IR24, including reviewed demo/Bundle lifetimes |
-| Later D2c-e/IR25 and finite trigger/keyword/interaction additions | Candidate/focused source qualification; no renewed combined acceptance or P7 performance claim |
-| Schema-1 reset | Regenerated 29 active pools, 1,357 definitions unchanged; focused checks only |
-| Library look, selection and fixed mill | Focused headless qualification; [proof and exclusions](game-engine-evidence.md); consumers remain separate |
-| Controlled-permanent scalar keywords | Rules `7315ffe2`, schema `44930622`; 626 distinct Rust/633 executions, 4,316 probes, 848 rows; explicit bridges; IR1/29/23; consumers unqualified |
-| General Aura-control dependencies | Source `aa28e9b7a39d601a8a9a8bb4fbde9484fe20fc1f`; 843 rows; 550 distinct Rust tests, 3,190 probes; explicit private-test source bridge, IR1/26/21; consumers unqualified |
-| Latest compiler input rejection | Source `0eb054cfb50cc7b0d061392d53825017154c8d0e`; compiler-only malformed-filter qualification, separate from runtime producers |
-| Client/hosting consumers | Retain their own exact producer/schema/catalog/build qualification, separate from current engine HEAD |
+[Evidence](game-engine-evidence.md) owns exact producer/source identities, checked
+scopes, bridges, omissions and preserved proof locations. [Mechanics](game-engine-mechanics.md)
+owns supported shapes; [catalog/profile contracts](game-engine-catalogs.md)
+own admission. This map does not duplicate their release inventories.
 
-[The evidence guide](game-engine-evidence.md) retains exact source/digest and proof
-locations, historical failures and omissions. At the platform baseline trusted
-snapshot/bundle formats were 19/20, public projection/context/sidecar 16/16/15.
-The architecture refactor preserved snapshots/public formats and advanced query
-work sidecars to 16 with one charged initialization unit; old sidecars reject.
-Read the source constants before changing any current format.
+Read active snapshot, public projection/context and query-work format constants
+from source. Historical formats are not current compatibility promises: exact
+build/catalog identity fences recovery and private artifacts. The architecture
+refactor's implementation history remains in Git and indexed evidence.
