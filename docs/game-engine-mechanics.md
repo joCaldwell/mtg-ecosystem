@@ -486,15 +486,13 @@ reviewed vector. `temporary_creature_set_keyword_program` and
 `temporary_permanent_set_keyword_program` are disjoint narrow wrappers. Identities
 and quantities never select mechanics.
 
-The family reuses `supported_temporary_keywords`: Flying, Deathtouch,
-Indestructible, Lifelink, Hexproof, Haste, Trample, Reach, Vigilance, First Strike and Double Strike, nonempty and
-without duplicates. Each requires its primitive capability;
-Hexproof uses `attachments_v1`, and First Strike serializes as `first strike`
-with `first_strike_v1`. Every set grant additionally requires `board_wipes_v1`
+The family reuses the [shared vocabulary](#shared-temporary-creature-keyword-family),
+nonempty and duplicate-free, with each keyword's primitive capability;
+Hexproof uses `attachments_v1`; First/Double Strike use spaced names with
+`first_strike_v1`/`double_strike_v1`. Every set grant additionally requires `board_wipes_v1`
 for the shared set machinery, exactly the selector's family capability, normal
-layout and its ordinary cast-kind capability. The permanent selector never infers
-the creature-set label; the real protective pair requires Attachments and
-Indestructible in addition to Board Wipes and its ordinary/family capabilities.
+layout and its ordinary cast-kind capability. Permanent grants exclude creature-set authority; the protective pair requires
+Attachments/Indestructible alongside Board Wipes and ordinary/family capabilities.
 Targeted subset/general labels never admit this shape. The optional modifier requires no targeted P/T capability. Standalone
 `PumpSet` retains its existing behavior and Board Wipes capability.
 
