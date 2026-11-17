@@ -39,16 +39,9 @@ The [prior plan](https://github.com/joCaldwell/mtg-ecosystem/blob/ad428b23ee5b3f
 
 ### M2 Complete land and ramp infrastructure
 
-Complete shock entry, fetch life/tap/sacrifice costs, opponent production and triome cycling.
-Combined source `1fe0dfa1` closes typed-search and conditional-entry review findings;
-[evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration) records qualification. Five frozen shocks have SOURCE_ONLY_UNQUALIFIED
-entry transactions and test sources; native proof remains pending. Fetch costs,
-triome cycling and opponent production remain open.
-
-### M3 Build casting during resolution and basic cascade
-
-Qualified above: owned free casts, optional additional costs, legal targets/current
-prohibitions, nested completion and private-bottom recovery. Further sources require complete-source qualification.
+Typed search, Cinder entry, intrinsic mana and five shocks are locally qualified
+at `09e0660a`:33 definitions lowered/validated,52 Unsupported. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
+owns proof. Complete fetch costs, opponent production and triome cycling.
 
 ### M4 Complete the cascade package and casting history
 
@@ -93,16 +86,13 @@ atomic sacrifice and Door's player loss.
 
 ### M11 Qualify the exact deck and host it
 
-Every target definition must compile completely and pass capability/provenance and
-Commander/pod admission. Add useful public-observation policies without hidden-state
-access or name dispatch. Run fixed-seed four-player completion/replay with Ramos in
-every seat, multiple Ramos seats and varied reviewed opponents; distinguish natural
-outcomes, faults and truncations. Then adapt Rust hosting/SDK decisions and verify
-privacy, retries, reconnect, recovery and four-client completion. Search is separate.
+Qualify every complete target definition, capability/provenance and Commander/pod
+admission. Use public-observation policies and fixed-seed four-player completion/replay
+with Ramos in each seat, repeated Ramos and varied opponents. Distinguish outcomes,
+faults and truncation. Then qualify hosting/SDK privacy, retries, reconnect, recovery
+and four-client completion. Search remains separate.
 
 ## Execution and reporting
 
-Primary dependency path is M0→M1→M3→M4; M2 can advance independently. M5–M10 reuse
-those foundations. Call Forth, Selvala, Averna, Omnath, Yidris, Creative Technique
-and Double Major still need complete parser/archive work under that package manual.
-Exact-target admission requires complete semantics.
+M0→M1→M3→M4 is the primary dependency path; M2 advances independently.
+Parser/archive gaps follow that package's manual; partial semantics never qualify.

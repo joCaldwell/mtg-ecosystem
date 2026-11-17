@@ -219,3 +219,8 @@ retains exact binaries/settings, reviews, bridges, failures and omitted broader
 matrices. Frozen85-source audit:28 lowered/validated,57 Unsupported,zero Invalid;
 100cards/37lands unchanged. Later sources and all consumer/exact-deck admission
 remain separate.
+
+Optional-life entry source `09e0660a` combines main `129405b0`:41 distinct Rust,
+79 schema probes,1,032 source rows;37/27,IR1. Target audit33/52/0. Exact producers,
+source bridges, one review, runtime repairs and omissions:
+`generated/ramos/land-life-combined/integration.json`. No consumer/deck admission.

@@ -131,8 +131,8 @@ Optional-life entry chooses before debit/entry, reserves combined costs, and
 atomically commits payments, entries and landplay usage. Forced/intrinsic/declined
 tapping combine. Landplay and paid Lore/Claim/Farseek retain owned continuations,
 privacy and recovery. Source integers are exact u64; IR quantities remain arbitrary
-precision. Private36/public25,IR1 is SOURCE_ONLY_UNQUALIFIED; native proof, admission,
-triomes/cycling and opponent production remain open.
+precision. Parent `09e0660a` has focused proof at private37/public27,IR1;
+admission, triome cycling and opponent production remain open.
 
 ## Casting, costs, targets and stack
 
