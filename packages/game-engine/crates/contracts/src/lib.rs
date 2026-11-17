@@ -412,14 +412,14 @@ pub enum LifeRecipient {
         target_slot: u32,
     },
 }
-/// Resolution actions use a separate binding domain from draw/life. The event
-/// player is the frozen damaged player of a source-damage trigger (CR 603.2c).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum LibraryRemainder {
     Bottom,
     Graveyard,
 }
+/// Resolution actions use a separate binding domain from draw/life. The event
+/// player is the frozen damaged player of a source-damage trigger (CR 603.2c).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionRecipient {
