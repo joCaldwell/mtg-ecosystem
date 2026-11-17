@@ -371,6 +371,8 @@ fn escort_set_paid_recipient_control_change_does_not_reselect_capture() {
         // The Aura controller leaves: its control authority ends, while the
         // captured grant still belongs to the surviving activation controller.
         g.concede(PlayerId(1)).unwrap();
+        assert!(!matches!(g.advance(Budget::new(1)), Advance::Fault(_)));
+        assert!(!g.is_live(PlayerId(1)));
         control(g, 1, 0, 2, 0);
         protected(g, 1, true);
         queries(g);
