@@ -148,15 +148,6 @@ fn conditional_lands_whole_ast_predicate_binding_null_and_extra_rejections() {
             "{path}"
         );
     }
-    for raw in [
-        include_str!("../../../tests/fixtures/ramos/16052b52-ade1-406f-a06b-ce7ea607fb63.json"),
-        include_str!("../../../tests/fixtures/ramos/975ec9a3-6f20-4177-8211-82526e092538.json"),
-    ] {
-        assert!(matches!(
-            compile(MANIFEST, raw),
-            CompileResult::Unsupported { .. }
-        ));
-    }
 }
 
 #[test]

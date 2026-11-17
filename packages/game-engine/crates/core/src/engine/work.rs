@@ -754,6 +754,7 @@ impl Game {
                         (Frame::IntrinsicManaChoice { .. }, PlayerResponse::ManaColor { .. }) => {
                             true
                         }
+                        (Frame::LandEntry { .. }, PlayerResponse::OptionalEffect { .. }) => true,
                         (Frame::Cascade { .. }, PlayerResponse::OptionalEffect { .. }) => true,
                         (Frame::AdditionalCosts { .. }, PlayerResponse::AdditionalCosts { .. }) => {
                             true

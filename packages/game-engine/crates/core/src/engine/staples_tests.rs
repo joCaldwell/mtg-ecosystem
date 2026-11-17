@@ -1250,6 +1250,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | StaticEffect::GrantSpellCascade { .. }
                     | StaticEffect::EntersTapped
                     | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
+                    | StaticEffect::EntersTappedUnlessPayLife { .. }
                     | StaticEffect::OpponentsCantCastDuringControllerTurn
                     | StaticEffect::ControllerCreaturePlusOneCounterReplacement { .. }
                     | StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer

@@ -167,6 +167,9 @@ impl Game {
         request: Option<&PlayerRequest>,
     ) -> Option<DecisionContext> {
         let request = request?;
+        if let Some((player, source, ability)) = self.land_entry_offer().ok()? {
+            return (player == viewer).then(|| self.effect_decision_context(viewer, &EffectKey::Static { source, ability })).flatten();
+        }
         if let Frame::DamageAllocation { effect, .. } = &self.state.rules.frame {
             return self.effect_decision_context(viewer, effect);
         }

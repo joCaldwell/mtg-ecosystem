@@ -21,6 +21,19 @@ pub struct CascadeGrantProvenance {
     pub source_facts: ObjectBefore,
     pub source_handles: Vec<ObjectHandle>,
 }
+fn witness_history_charge(witness: &TriggerEventWitness) -> usize {
+    match witness {
+        TriggerEventWitness::SpellCast { cast } => stored_history::payload_charge(&cast.history),
+        _ => 0,
+    }
+}
+pub(super) fn entry_grant_charge(entry: &StackInstance) -> usize {
+    match &entry.kind {
+        StackKind::Triggered { witness, grant, .. } => witness_history_charge(witness)
+            .saturating_add(grant.as_ref().map_or(0, stored_history::payload_charge)),
+        _ => 0,
+    }
+}
 impl Game {
     pub(super) fn grant_payload_charge(&self) -> usize {
         let pending = self
@@ -37,27 +50,16 @@ impl Game {
             n.saturating_add(stored_history::payload_charge(g))
         });
         // Cascade/owned-child frames already charge their complete payload.
-        let facts = |w: &TriggerEventWitness| match w {
-            TriggerEventWitness::SpellCast { cast } => {
-                stored_history::payload_charge(&cast.history)
-            }
-            _ => 0,
-        };
         for t in &self.state.rules.pending_triggers {
-            charge = charge.saturating_add(facts(&t.witness));
+            charge = charge.saturating_add(witness_history_charge(&t.witness));
         }
         for s in &self.state.rules.stack {
             if let StackKind::Triggered { witness, .. } = &s.kind {
-                charge = charge.saturating_add(facts(witness));
+                charge = charge.saturating_add(witness_history_charge(witness));
             }
         }
-        if let Some(entry) = retained_resolving_entry(&self.state.rules.frame)
-            && let StackKind::Triggered { witness, grant, .. } = &entry.kind
-        {
-            charge = charge.saturating_add(facts(witness));
-            if let Some(grant) = grant {
-                charge = charge.saturating_add(stored_history::payload_charge(grant));
-            }
+        if let Some(entry) = retained_resolving_entry(&self.state.rules.frame) {
+            charge = charge.saturating_add(entry_grant_charge(entry));
         }
         charge
     }
@@ -206,7 +208,8 @@ pub(super) fn retained_effect_frame(mut frame: &Frame) -> &Frame {
 }
 pub(super) fn retained_resolving_entry(frame: &Frame) -> Option<&StackInstance> {
     match retained_effect_frame(frame) {
-        Frame::Resolve { frame }
+        Frame::LandEntry { origin: EntryOrigin::Search { frame }, .. }
+        | Frame::Resolve { frame }
         | Frame::ResolutionChoice { frame, .. }
         | Frame::ForcedSacrifice { frame, .. }
         | Frame::OptionalDamage { frame } => Some(&frame.spell),

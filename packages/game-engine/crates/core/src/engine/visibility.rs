@@ -867,6 +867,9 @@ impl Game {
         {
             return true;
         }
+        if self.land_entry_visible_to(viewer, object.id) {
+            return true;
+        }
         match object.zone {
             Zone::Hand { owner } => owner == viewer,
             Zone::Library { owner } => {
@@ -1389,6 +1392,9 @@ impl Game {
                     player: self.top()?.controller,
                 }),
             );
+        }
+        if let Some(Request::OptionalEffect { player, .. }) = self.land_entry_request()? {
+            return Ok((player == viewer).then_some(PlayerRequest::OptionalEffect { token, player }));
         }
         if let Some(Request::OptionalEffect { player, .. }) = self.cascade_request()? {
             return Ok(
@@ -1948,6 +1954,11 @@ impl Game {
                         if self.top()?.controller == viewer =>
                     {
                         Some((self.state.rules.revision, 7))
+                    }
+                    Frame::LandEntry { .. }
+                        if self.land_entry_offer()?.is_some_and(|(player, _, _)| player == viewer) =>
+                    {
+                        Some((self.state.rules.revision, 20))
                     }
                     Frame::IntrinsicManaChoice { player, .. } if player == viewer => {
                         Some((self.state.rules.revision, 20))

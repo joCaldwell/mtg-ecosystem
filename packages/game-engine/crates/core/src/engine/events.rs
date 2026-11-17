@@ -743,7 +743,7 @@ impl Game {
         self.state.rules.next_batch_id =
             batch_id.checked_add(1).ok_or("batch ID resource limit")?;
         let mut occurrences = vec![];
-        self.apply_leaf(&proposed, batch_id, &[], before.clone(), &mut occurrences)?;
+        self.apply_leaf(&proposed, batch_id, &[], before.clone(), &mut occurrences, None)?;
         // Only this exact BF -> exile movement cannot match any currently
         // supported dies/ETB trigger. General movement still uses apply_group.
         let cause = BatchCause::ControlReconciliation;
@@ -1332,6 +1332,7 @@ impl Game {
         cause: BatchCause,
         group: EventGroup,
     ) -> Result<CommittedBatch, String> {
+        let entry = self.prepare_entry_batch(&cause, &group)?;
         let mut events = vec![];
         {
             fn members(g: &EventGroup, depth: u32) -> Result<usize, u32> {
@@ -1379,10 +1380,10 @@ impl Game {
         if self.in_rule_step {
             // The enclosing rule-step staging owns rollback. No intermediate
             // state is observable, and every failed batch aborts that step.
-            return self.apply_batch(cause, group, before, batch_id, next_batch);
+            return self.apply_batch(cause, group, before, batch_id, next_batch, entry.as_ref());
         }
         let mut staged = self.fork();
-        match staged.apply_batch(cause, group, before, batch_id, next_batch) {
+        match staged.apply_batch(cause, group, before, batch_id, next_batch, entry.as_ref()) {
             Ok(result) => {
                 self.state = staged.state;
                 self.trace = staged.trace;
@@ -1402,6 +1403,7 @@ impl Game {
         before: PreEventFacts,
         batch_id: u64,
         next_batch: u64,
+        entry: Option<&PreparedEntryAuthority>,
     ) -> Result<CommittedBatch, String> {
         self.state.rules.next_batch_id = next_batch;
         let mut occurrences = vec![];
@@ -1411,6 +1413,7 @@ impl Game {
             &mut vec![],
             &mut occurrences,
             Some(&before),
+            entry,
         )?;
         let result = CommittedBatch {
             batch_id,
@@ -1433,6 +1436,7 @@ impl Game {
         path: &mut Vec<u32>,
         out: &mut Vec<OccurrenceResult>,
         prepared: Option<&PreEventFacts>,
+        entry: Option<&PreparedEntryAuthority>,
     ) -> Result<(), String> {
         match group {
             EventGroup::Occurrence { proposed } => {
@@ -1442,7 +1446,7 @@ impl Game {
                     Some(before) => before.clone(),
                     None => self.facts(&[proposed])?,
                 };
-                self.apply_leaf(proposed, batch, path, before, out)?;
+                self.apply_leaf(proposed, batch, path, before, out, entry)?;
                 if changes_control_inputs(proposed) {
                     self.reconcile_controllers()?;
                 }
@@ -1453,7 +1457,7 @@ impl Game {
             EventGroup::Ordered { children } => {
                 for (i, child) in children.iter().enumerate() {
                     path.push(u32::try_from(i).map_err(|_| "event path resource limit")?);
-                    self.apply_group(child, batch, path, out, None)?;
+                    self.apply_group(child, batch, path, out, None, entry)?;
                     path.pop();
                 }
             }
@@ -1473,7 +1477,7 @@ impl Game {
                 for event in occurrences {
                     let before = common.facts_with_entry_counts(&[event], &entry_counts)?;
                     let mut validation = common.fork();
-                    if let Err(error) = validation.apply_occurrence_with_prior(event, Some(&before))
+                    if let Err(error) = validation.apply_prepared_occurrence(event, Some(&before), entry)
                     {
                         // The validation branch is discarded, but its typed
                         // resource failure must reach the enclosing atomic
@@ -1485,7 +1489,7 @@ impl Game {
                 }
                 for (i, (event, before)) in occurrences.iter().zip(facts).enumerate() {
                     path.push(u32::try_from(i).map_err(|_| "event path resource limit")?);
-                    self.apply_leaf(event, batch, path, before, out)?;
+                    self.apply_leaf(event, batch, path, before, out, entry)?;
                     path.pop();
                 }
                 // CR 603.10a, 702.15c/702.2e: simultaneous departures use
@@ -1519,8 +1523,9 @@ impl Game {
         path: &[u32],
         before: PreEventFacts,
         out: &mut Vec<OccurrenceResult>,
+        entry: Option<&PreparedEntryAuthority>,
     ) -> Result<(), String> {
-        let actual = self.apply_occurrence_with_prior(proposed, Some(&before))?;
+        let actual = self.apply_prepared_occurrence(proposed, Some(&before), entry)?;
         // Keep the pre-existing native flat trace as a compatibility view.
         let event = match &actual {
             EventOutcome::LeftGame { object, owner } => Event::ObjectLeftGame {
@@ -1682,7 +1687,22 @@ impl Game {
         intended_controller: Option<PlayerId>,
         force_tapped: bool,
         before: Option<&PreEventFacts>,
+        entry: Option<&PreparedEntryAuthority>,
     ) -> Result<EventOutcome, String> {
+        // Consume immutable pre-debit authority BEFORE every movement write;
+        // forced tapping must not short-circuit this check. Non-BF movement
+        // never participates in entry-choice preparation.
+        let mut optional_declined = false;
+        let mut intended_controller = intended_controller;
+        if destination == Zone::Battlefield {
+            if let Some(entry) = entry {
+                let (controller, declined) = entry.movement(object, intended_controller, force_tapped)?;
+                intended_controller = Some(controller);
+                optional_declined = declined;
+            } else if self.optional_entry_cost(object)?.is_some() {
+                return Err("optional-life entry requires prepared transaction authority".into());
+            }
+        }
         let object = &object;
         let destination = &destination;
 
@@ -1770,7 +1790,7 @@ impl Game {
         // rather than tapping the permanent in a subsequent event.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
         let enters_tapped = *destination == Zone::Battlefield
-            && (force_tapped || self.entry_tapped(*object, controller, before)?);
+            && (force_tapped || optional_declined || self.entry_tapped(*object, controller, before)?);
         self.state.rules.objects.insert(
             object.card,
             Object {
@@ -1839,6 +1859,14 @@ impl Game {
         &mut self,
         proposed: &ProposedEvent,
         before: Option<&PreEventFacts>,
+    ) -> Result<EventOutcome, String> {
+        self.apply_prepared_occurrence(proposed, before, None)
+    }
+    fn apply_prepared_occurrence(
+        &mut self,
+        proposed: &ProposedEvent,
+        before: Option<&PreEventFacts>,
+        entry: Option<&PreparedEntryAuthority>,
     ) -> Result<EventOutcome, String> {
         let actual = match proposed {
             ProposedEvent::RevealSearchLands { player, objects } => {
@@ -2039,6 +2067,7 @@ impl Game {
                     Some(*player),
                     force_tapped,
                     before,
+                    entry,
                 )?
             }
             ProposedEvent::ShuffleLibraryWord { player, index } => {
@@ -2618,7 +2647,7 @@ impl Game {
             ProposedEvent::Move {
                 object,
                 destination,
-            } => self.apply_move(*object, *destination, None, false, before)?,
+            } => self.apply_move(*object, *destination, None, false, before, entry)?,
         };
         Ok(actual)
     }

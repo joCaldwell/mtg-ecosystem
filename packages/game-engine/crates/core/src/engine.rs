@@ -64,6 +64,8 @@ mod counter_placement;
 #[cfg(test)]
 mod four_colors_tests;
 mod staples;
+mod land_entry;
+use land_entry::{EntryOrigin, PreparedEntryAuthority};
 pub use counter_placement::*;
 mod tokens;
 pub use staples::VisibleSearchLand;
@@ -960,6 +962,11 @@ struct Resolving {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum Frame {
+    LandEntry {
+        origin: EntryOrigin,
+        objects: Vec<ObjectId>,
+        choices: Vec<bool>,
+    },
     /// CR305.6/605.3: select an intrinsic ability before activation or costs.
     IntrinsicManaChoice {
         player: PlayerId,
@@ -2274,6 +2281,7 @@ impl Game {
                 .saturating_add(self.cost_lock_charge())
                 .saturating_add(self.cascade_charge())
                 .saturating_add(self.intrinsic_choice_charge())
+                .saturating_add(self.land_entry_charge())
                 .saturating_add(self.grant_payload_charge()),
             |n, k| n.saturating_add(k.history.retention_charge()),
         )
@@ -2516,6 +2524,7 @@ impl Game {
             | Frame::OptionalDamage { .. } => {
                 return Ok(self.sacrifice_request()?.filter(|r| r.player() == viewer));
             }
+            Frame::LandEntry { .. } => return self.land_entry_request().map(|r| r.filter(|r| r.player() == viewer)),
             Frame::IntrinsicManaChoice { player, source, .. } => Request::ManaColor {
                 decision_id: self.state.rules.revision,
                 player: *player,
@@ -2570,6 +2579,9 @@ impl Game {
         Ok((req.player() == viewer).then_some(req))
     }
     fn validate_response(&self, player: PlayerId, response: &Response) -> Result<(), String> {
+        if matches!(self.state.rules.frame, Frame::LandEntry { .. }) {
+            return self.validate_land_entry_response(player, response);
+        }
         if let Frame::Cascade { progress } = &self.state.rules.frame {
             return self.validate_cascade_response(progress, player, response);
         }
@@ -2848,6 +2860,7 @@ impl Game {
             return self.apply_departure(player);
         }
         match self.state.rules.frame.clone() {
+            Frame::LandEntry { .. } => self.land_entry_step()?,
             Frame::Cascade { progress } => self.cascade_step(*progress)?,
             Frame::LegendRule { .. } => self.legend_step()?,
             Frame::SacrificeCost { .. }
@@ -3182,7 +3195,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 34,
+            snapshot_version: 36,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3224,7 +3237,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 34
+        if s.snapshot_version != 36
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3416,6 +3429,7 @@ impl Game {
         {
             return Err("snapshot stack/zone invariant".into());
         }
+        self.validate_land_entry_state()?;
         self.validate_sacrifice_state()?;
         self.validate_nested_mana_frame(&s.rules.frame)?;
         match self.underlying_mana_frame(&s.rules.frame) {

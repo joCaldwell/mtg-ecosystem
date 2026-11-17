@@ -111,13 +111,14 @@ Personal effects for a departed invocation controller skip rather than redirect.
 
 <a id="announcement-priority-and-payment"></a>
 
-Pure nonbasic lands with unique basic land subtypes derive separate intrinsic
-mana abilities. Existing public `ManaColor` selects the ability before costs;
-paid explicit production choices retain their separate continuation. Conditional
-self-entry counts exact prior Basic+Land objects of the intended controller;
-simultaneous entries share prior counts. Forced and intrinsic tapped flags combine
-inside movement before observers. Cinder Glade/Prairie Stream source qualification
-is separate from admission; shocks/triomes/cycling remain unsupported.
+Typed nonbasic lands derive intrinsic mana; `ManaColor` selects before costs.
+Conditional entry counts prior Basic+Land objects once per simultaneous group.
+Optional-life entry chooses before debit/entry, reserves combined costs, and
+atomically commits payments, entries and landplay usage. Forced/intrinsic/declined
+tapping combine. Landplay and paid Lore/Claim/Farseek retain owned continuations,
+privacy and recovery. Source integers are exact u64; IR quantities remain arbitrary
+precision. Private36/public25,IR1 is SOURCE_ONLY_UNQUALIFIED; native proof, admission,
+triomes/cycling and opponent production remain open.
 
 ## Casting, costs, targets and stack
 
