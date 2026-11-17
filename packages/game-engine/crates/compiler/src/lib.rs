@@ -1739,6 +1739,23 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             &canonical_abilities,
         )?;
     }
+    if matches!(
+        definition.characteristics.kind,
+        CardKind::Instant | CardKind::Sorcery
+    ) && binding["nodes"].as_array().is_some_and(|nodes| {
+        nodes
+            .iter()
+            .any(|n| n["node"] == "event" && n["operation"] == "discard")
+    }) && !definition
+        .spell
+        .as_ref()
+        .is_some_and(controller_draw_discard_program)
+    {
+        return Err(unsupported(
+            "binding",
+            "ordinary discard binding requires the complete draw/discard source",
+        ));
+    }
     if definition
         .spell
         .as_ref()
